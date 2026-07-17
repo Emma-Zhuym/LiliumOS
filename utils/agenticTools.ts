@@ -14,8 +14,18 @@
  * tool-request, 把 `detailText` / `resultsText` 等 JSON.stringify 后 POST /continue。
  */
 
-import { CharacterProfile, UserProfile, Message, RealtimeConfig } from '../types';
-import { RealtimeContextManager, NotionManager, FeishuManager, XhsNote } from './realtimeContext';
+// 值 import 只允许环境无关叶子（realtimeFetchCore / xhsMcpClient），供 amsg worker
+// 的服务端工具循环直接复用；类型不会进入 Worker bundle。
+import type { CharacterProfile, UserProfile, RealtimeConfig } from '../types';
+import type { XhsNote } from './realtimeContext';
+import {
+    performSearch,
+    notionGetDiaryByDate,
+    notionReadDiaryContent,
+    notionReadNoteContent,
+    notionSearchUserNotes,
+    feishuGetDiaryByDate,
+} from './realtimeFetchCore';
 import {
     XhsMcpClient,
     extractNotesFromMcpData,
@@ -116,7 +126,7 @@ export async function runSearch(
     if (!realtimeConfig?.newsEnabled || !realtimeConfig?.newsApiKey) {
         return { ok: false, reason: 'no_api_key', query: args.query };
     }
-    const searchResult = await RealtimeContextManager.performSearch(args.query, realtimeConfig.newsApiKey);
+    const searchResult = await performSearch(args.query, realtimeConfig.newsApiKey);
     if (!searchResult.success || searchResult.results.length === 0) {
         return { ok: false, reason: 'no_results', query: args.query, message: searchResult.message };
     }
@@ -148,7 +158,7 @@ export async function runReadDiary(
         return { ok: false, reason: 'parse_error', dateInput: args.date };
     }
 
-    const findResult = await NotionManager.getDiaryByDate(
+    const findResult = await notionGetDiaryByDate(
         realtimeConfig.notionApiKey,
         realtimeConfig.notionDatabaseId,
         char.name,
@@ -163,7 +173,7 @@ export async function runReadDiary(
 
     const diaryContents: string[] = [];
     for (const entry of findResult.entries) {
-        const readResult = await NotionManager.readDiaryContent(
+        const readResult = await notionReadDiaryContent(
             realtimeConfig.notionApiKey,
             entry.id,
         );
@@ -202,7 +212,7 @@ export async function runFsReadDiary(
         return { ok: false, reason: 'parse_error', dateInput: args.date };
     }
 
-    const findResult = await FeishuManager.getDiaryByDate(
+    const findResult = await feishuGetDiaryByDate(
         realtimeConfig.feishuAppId,
         realtimeConfig.feishuAppSecret,
         realtimeConfig.feishuBaseId,
@@ -247,7 +257,7 @@ export async function runReadNote(
         return { ok: false, reason: 'not_configured', keyword: args.keyword };
     }
 
-    const findResult = await NotionManager.searchUserNotes(
+    const findResult = await notionSearchUserNotes(
         realtimeConfig.notionApiKey,
         realtimeConfig.notionNotesDatabaseId,
         args.keyword,
@@ -262,7 +272,7 @@ export async function runReadNote(
 
     const noteContents: string[] = [];
     for (const entry of findResult.entries) {
-        const readResult = await NotionManager.readNoteContent(
+        const readResult = await notionReadNoteContent(
             realtimeConfig.notionApiKey,
             entry.id,
         );
