@@ -1383,8 +1383,9 @@ export async function applyAssistantPostProcessing(
     const xhsShareMatches: Iterable<RegExpMatchArray> = disabledXhsSideEffects ? [] : aiContent.matchAll(/\[\[XHS_SHARE:\s*(\d+)\]\]/g);
     for (const shareMatch of xhsShareMatches) {
         const idx = parseInt(shareMatch[1]) - 1;
-        if (idx >= 0 && idx < lastXhsNotesRef.current.length) {
-            const note = lastXhsNotesRef.current[idx];
+        // 后台推送可能只重建被 directive 引用的序号，空洞不能当成有效笔记。
+        const note = idx >= 0 && idx < lastXhsNotesRef.current.length ? lastXhsNotesRef.current[idx] : undefined;
+        if (note) {
             sharedXhsCardKeys.add(normalizeXhsCardKey(note.title));
             console.log('📕 [XHS] AI分享笔记卡片:', note.title);
             await DB.saveMessage({
