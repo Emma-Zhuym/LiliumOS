@@ -19,7 +19,7 @@ import { emSendPhotoAddon, emQuoteSection, emNotionDiarySection, emFeishuDiarySe
 import { buildLifeRecordInjection } from './lifeRecords';
 import { getCharNameById } from './charNameRegistry';
 import { getLocalDateKey } from './localDate';
-import { getLocalDailySchedule } from './dailySchedule';
+import { getDailyScheduleForChar } from './dailySchedule';
 import { buildEmScribeInjection } from './emScribe'; // [EM: em-scribe]
 
 // 语音格式指导按当前 TTS 服务商二选一：用 MiniMax 才注入 MiniMax 那套（含 <#秒#> 停顿标记），
@@ -241,9 +241,10 @@ export const ChatPrompts = {
         // ── 并发发起所有独立的异步取数（网络 + IndexedDB），下面按原顺序拼接 ──
         // 原来是 7 段串行 await，总耗时 = 各段之和；现在取 max。
         const config = realtimeConfig || defaultRealtimeConfig;
-        const today = getLocalDateKey();
-        // 自定义时区：开启后「当前时间」按角色所在时区折算，并附时差提示（异国恋等场景）
+        // 自定义时区：日历日、当前日程与实时上下文全部按角色所在地折算。
         const charTz = resolveCharTimeZone(char);
+        const charNow = nowInTimeZone(charTz);
+        const today = getLocalDateKey(charNow);
 
         // 1. 实时世界信息（天气/新闻/时间）
         const realtimePromise: Promise<string> = (async () => {
@@ -254,7 +255,7 @@ export const ChatPrompts = {
                 }
                 // 基础当前时间 + 时差提示已由 ContextBuilder.buildCoreContext 统一注入（受 timeAwarenessEnabled
                 // 控制，按角色自定义时区折算）；这里只在关闭天气/新闻时补一条"今日特殊节日"，不再重复注入时间/时差，避免双份。
-                const specialDates = RealtimeContextManager.checkSpecialDates();
+                const specialDates = RealtimeContextManager.checkSpecialDates(charTz);
                 if (specialDates.length > 0 && char.timeAwarenessEnabled !== false) {
                     return `\n### 【今日特殊】\n${specialDates.join('、')}\n`;
                 }
@@ -269,7 +270,7 @@ export const ChatPrompts = {
         //    总开关关闭时跳过查询与注入，确保不额外调用任何 LLM 依赖链
         const scheduleFeatureOn = isScheduleFeatureOn(char);
         const schedulePromise: Promise<DailySchedule | null> = scheduleFeatureOn
-            ? getLocalDailySchedule(char.id).catch(e => {
+            ? getDailyScheduleForChar(char).catch(e => {
                 console.error('Failed to load daily schedule:', e);
                 return null;
             })
@@ -393,7 +394,7 @@ ${groupLogStr}\n`;
         // 2a. 日程注入（当前时段 + 意识流独白，每轮都可能变）
         if (schedule) {
             try {
-                const scheduleContext = ContextBuilder.buildScheduleInjection(schedule, evolvedNarrative);
+                const scheduleContext = ContextBuilder.buildScheduleInjection(schedule, evolvedNarrative, charNow);
                 if (scheduleContext) volatileState += `\n${scheduleContext}\n`;
             } catch (e) {
                 console.error('Failed to inject schedule context:', e);
@@ -416,7 +417,7 @@ ${groupLogStr}\n`;
                     const cfgForLyric = musicCfg?.workerUrl ? musicCfg : loadMusicCfgStandalone();
                     if (cfgForLyric?.workerUrl) {
                         try {
-                            const slot = getCurrentSlot(schedule);
+                            const slot = getCurrentSlot(schedule, charNow);
                             const seed = `${char.id}-${today}-${slot?.startTime || '00:00'}-${cur.songId}`;
                             const snippet = await getCharLyricSnippet(cfgForLyric, cur.songId, seed, 6);
                             if (snippet.length > 0) charListening.lyricSnippet = snippet;
@@ -522,7 +523,7 @@ ${emQuoteSection()}
    - 如果用户发送了图片，请对图片内容进行评论。
 6. **可用动作**:
    - 回戳用户: \`[[ACTION:POKE]]\`
-   - 转账: \`[[ACTION:TRANSFER:100]]\`
+   - 转账: 必须使用且只使用 \`[[ACTION:TRANSFER:100]]\`（把 100 换成金额）；不要写成 \`[系统: 你向某人转账 100]\` 等系统日志文本。
    - **处理用户转账**: 当看到 \`[系统: 用户向你转账 X]\` 时，你可以决定收下或退回。收下: \`[[ACTION:TRANSFER_ACCEPT]]\`；退回: \`[[ACTION:TRANSFER_RETURN]]\`。请结合人设和情境自然选择（比如害羞地退回、开心地收下），并配上一句话。
    - 调取记忆: \`[[RECALL: YYYY-MM]]\`，请注意，当用户提及具体某个月份时，或者当你想仔细想某个月份的事情时，欢迎你随时使该动作
    - **添加日程/纪念日（时光契约）**: 当用户要求把某件事加到日程、日历、时光契约(Schedule App)里，或者你自己觉得今天值得纪念，**必须**用这个 action tag 而不是画 HTML 卡片。单独起一行输出: \`[[ACTION:ADD_EVENT | 标题(Title) | YYYY-MM-DD]]\`。
@@ -686,7 +687,12 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
         processedExcludeIds?: Set<number>,
     ) => {
         // Filter Logic
-        let effectiveHistory = messages.filter(m => !char.hideBeforeMessageId || m.id >= char.hideBeforeMessageId);
+        // 新版上下文范围由 chatContextRange 先按「自适应/拉杆最大范围」取窗；
+        // 这里只应用用户额外断点。旧角色尚未完成迁移时才回退 hideBeforeMessageId。
+        const userStartMessageId = (char.contextRangePolicyVersion || 0) >= 1
+            ? char.contextUserStartMessageId
+            : char.hideBeforeMessageId;
+        let effectiveHistory = messages.filter(m => !userStartMessageId || m.id >= userStartMessageId);
         // Memory Palace: 过滤已被记忆宫殿处理过的消息（由向量记忆替代，节省 token）
         if (processedExcludeIds && processedExcludeIds.size > 0) {
             effectiveHistory = effectiveHistory.filter(m => !processedExcludeIds.has(m.id));
@@ -846,7 +852,13 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
                     const commentsLine = noteComments.length
                         ? `\n热评: ${noteComments.slice(0, 15).map((c: any) => `${c.author || '匿名'}: ${c.content}`).join(' | ')}`
                         : '';
-                    content = `${timeStr} [${sender}分享了小红书笔记]\n标题: ${note.title || '无标题'}\n作者: ${note.author || '未知'}\n赞: ${note.likes || 0}\n简介: ${note.desc || '无'}${commentsLine}\n${m.role === 'user' ? '(请根据你的性格对这个帖子发表看法)' : ''}`;
+                    const interactions = [
+                        `${note.likes ?? 0}赞`,
+                        note.collects != null ? `${note.collects}收藏` : '',
+                        note.commentCount != null ? `${note.commentCount}评论` : '',
+                        note.shareCount != null ? `${note.shareCount}分享` : '',
+                    ].filter(Boolean).join(' ');
+                    content = `${timeStr} [${sender}分享了小红书笔记]\n标题: ${note.title || '无标题'}\n作者: ${note.author || '未知'}\n互动: ${interactions}\n简介: ${note.desc || '无'}${commentsLine}\n${m.role === 'user' ? '(请根据你的性格对这个帖子发表看法)' : ''}`;
                 }
                 else if ((m.type as string) === 'vr_card') {
                     // vr_card：你自己进入 VR 社交游戏《彼方》时留下的动态。
