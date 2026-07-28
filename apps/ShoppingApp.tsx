@@ -492,6 +492,7 @@ const ShoppingApp: React.FC = () => {
   );
 
   // ── SCREEN: Food List (shop grouped, collapsible) ──
+  // [EM-START: shopping-scroll]
   const toggleShop = (shop: string) => {
     setExpandedShops(prev => {
       const next = new Set(prev);
@@ -505,7 +506,7 @@ const ShoppingApp: React.FC = () => {
       {foodShops.map(s => {
         const open = expandedShops.has(s.shop);
         return (
-          <div key={s.shop} style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, overflow: 'hidden', boxShadow: S.raisedSoft }}>
+          <div key={s.shop} className="shrink-0" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, overflow: 'hidden', boxShadow: S.raisedSoft }}>
             <button onClick={() => toggleShop(s.shop)} className="flex items-center gap-3 w-full active:scale-[.99] transition-transform" style={{ padding: '14px 16px', cursor: 'pointer', background: 'transparent', textAlign: 'left' }}>
               <div className="flex items-center justify-center shrink-0" style={{ width: 44, height: 44, borderRadius: R.medium, background: AMBER.tint, fontSize: 18, fontWeight: 700, color: AMBER.ink }}>
                 {mono(s.shop)}
@@ -518,22 +519,32 @@ const ShoppingApp: React.FC = () => {
               <CaretDown size={16} weight="bold" color={F.textTertiary} style={{ transform: open ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 0.2s ease' }} />
             </button>
             {open && (<>
-              {s.items.map(p => (
-                <React.Fragment key={p.id}>
-                  <div style={{ height: 1, background: F.divider, margin: '0 16px' }} />
-                  <div className="flex items-center gap-3" style={{ padding: '12px 16px' }}>
-                    <button onClick={() => startEdit(p)} className="flex items-center justify-center shrink-0 active:scale-90 transition-transform"
-                      style={{ width: 28, height: 28, borderRadius: R.tiny, background: F.surfaceSunken }}>
-                      <PencilSimple size={14} weight="bold" color={F.textTertiary} />
-                    </button>
-                    <div className="flex-1 min-w-0">
-                      <div style={{ fontSize: 15, fontWeight: 600, color: F.textPrimary }}>{p.name}</div>
+              <div
+                className="overflow-y-auto"
+                style={{
+                  maxHeight: 'min(42vh, 320px)',
+                  WebkitOverflowScrolling: 'touch',
+                  overscrollBehaviorY: 'contain',
+                  touchAction: 'pan-y',
+                }}
+              >
+                {s.items.map(p => (
+                  <React.Fragment key={p.id}>
+                    <div style={{ height: 1, background: F.divider, margin: '0 16px' }} />
+                    <div className="flex items-center gap-3" style={{ padding: '12px 16px' }}>
+                      <button onClick={() => startEdit(p)} className="flex items-center justify-center shrink-0 active:scale-90 transition-transform"
+                        style={{ width: 28, height: 28, borderRadius: R.tiny, background: F.surfaceSunken }}>
+                        <PencilSimple size={14} weight="bold" color={F.textTertiary} />
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <div style={{ fontSize: 15, fontWeight: 600, color: F.textPrimary }}>{p.name}</div>
+                      </div>
+                      <span style={{ fontSize: 15, fontWeight: 700, color: AMBER.ink }}>{yuan(p.price)}</span>
+                      <AddBtn onClick={() => addToCart(p.id)} color={AMBER.main} />
                     </div>
-                    <span style={{ fontSize: 15, fontWeight: 700, color: AMBER.ink }}>{yuan(p.price)}</span>
-                    <AddBtn onClick={() => addToCart(p.id)} color={AMBER.main} />
-                  </div>
-                </React.Fragment>
-              ))}
+                  </React.Fragment>
+                ))}
+              </div>
               <div style={{ height: 1, background: F.divider, margin: '0 16px' }} />
               <button onClick={() => { clearForm(); setFType('food'); setFCat('drink'); setFBrand(s.shop); go('add'); }}
                 className="flex items-center justify-center gap-1.5 w-full active:scale-[.98] transition-transform"
@@ -545,12 +556,13 @@ const ShoppingApp: React.FC = () => {
         );
       })}
       <button onClick={() => { clearForm(); setFType('food'); setFCat('drink'); go('add'); }}
-        className="flex items-center justify-center gap-2 active:scale-[.99] transition-transform"
+        className="shrink-0 flex items-center justify-center gap-2 active:scale-[.99] transition-transform"
         style={{ height: 52, borderRadius: R.smallCard, border: `1.5px dashed ${AMBER.soft}`, background: 'transparent', color: AMBER.ink, fontSize: 15, fontWeight: 600 }}>
         <Plus size={18} weight="bold" />新增外卖商品
       </button>
     </>
   );
+  // [EM-END: shopping-scroll]
 
   // ── SCREEN: Cart ──
   const renderCart = () => {
@@ -984,7 +996,16 @@ const ShoppingApp: React.FC = () => {
         </div>
       )}
       {/* scrollable content */}
-      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3.5" style={{ padding: '8px 20px 16px' }}>
+      {/* [EM: shopping-page-scroll] */}
+      <div
+        className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3.5"
+        style={{
+          padding: '8px 20px 16px',
+          WebkitOverflowScrolling: 'touch',
+          overscrollBehaviorY: 'contain',
+          touchAction: 'pan-y',
+        }}
+      >
         {screen === 'home' && renderHome()}
         {screen === 'net' && renderNetList()}
         {screen === 'food' && renderFoodList()}

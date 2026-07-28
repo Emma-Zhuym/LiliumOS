@@ -52,6 +52,8 @@ check "首页三行/普通页五行分页" utils/launcherPagination.ts "STANDARD
 check "健康图标" constants.tsx "Health: ({ className }) => <Heartbeat"
 check "购物图标" constants.tsx "Shopping: ({ className }) => <Storefront"
 check "地图图标" constants.tsx "Map: ({ className }) => <MapPin"
+check "外卖店铺与店内双层滚动" apps/ShoppingApp.tsx "[EM-START: shopping-scroll]"
+check "投喂站整页触摸滚动" apps/ShoppingApp.tsx "[EM: shopping-page-scroll]"
 
 echo "── PhoneShell / ChatHeaderShell ──"
 check "Chat 页 subView 切换（丢了会白屏）" components/PhoneShell.tsx "messageSubView === 'contacts'"
