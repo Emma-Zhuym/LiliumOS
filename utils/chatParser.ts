@@ -5,6 +5,7 @@ import { CharacterProfile, CharPlaylistSong } from '../types';
 import { sanitizeForBubble } from './sanitize';
 import { executeLifeDirectives } from './lifeRecords';
 import { executeEmScribeDirectives } from './emScribe'; // [EM: em-scribe]
+import { wallClockToTimestamp } from './timezone';
 
 export interface MusicActionSnapshot {
     songId: number;
@@ -46,19 +47,18 @@ export interface MusicActionHooks {
 }
 
 // [EM-START: parse-schedule-due-at]
-/** 解析 schedule_message 时间串（支持空格分隔日期时间、无 T 的 ISO） */
-function parseScheduleDueAt(timeStr: string): number | null {
+/** 解析角色墙上时间，兼容斜杠日期并按角色时区还原真实时刻。 */
+function parseScheduleDueAt(timeStr: string, charTz?: string): number | null {
     const raw = timeStr.trim().replace(/\//g, '-');
-    let ms = Date.parse(raw);
-    if (!Number.isNaN(ms)) return ms;
+    let normalized = raw;
     const m = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}:\d{2}(?::\d{2})?)/);
     if (m) {
         const dp = `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
         const tm = m[4].split(':').length === 2 ? `${m[4]}:00` : m[4];
-        ms = Date.parse(`${dp}T${tm}`);
-        if (!Number.isNaN(ms)) return ms;
+        normalized = `${dp} ${tm}`;
     }
-    return null;
+    const ms = wallClockToTimestamp(normalized, charTz);
+    return Number.isNaN(ms) ? null : ms;
 }
 // [EM-END: parse-schedule-due-at]
 
@@ -70,7 +70,8 @@ export async function stripAndSaveScheduledMessages(
     content: string,
     charId: string,
     charName: string,
-    addToast: (msg: string, type: 'info' | 'success' | 'error') => void
+    addToast: (msg: string, type: 'info' | 'success' | 'error') => void,
+    charTz?: string,
 ): Promise<string> {
     let c = content;
     const re = /\[{1,2}\s*schedule_message\s*\|\s*([^|]+?)\s*\|\s*fixed\s*\|\s*([\s\S]*?)\]{1,2}/gi;
@@ -83,7 +84,7 @@ export async function stripAndSaveScheduledMessages(
         const stripRow = () => {
             c = c.split(row.full).join('\n');
         };
-        const dueMs = parseScheduleDueAt(row.timeStr);
+        const dueMs = parseScheduleDueAt(row.timeStr, charTz);
         const graceMs = 15_000;
         if (dueMs == null || Number.isNaN(dueMs)) {
             console.warn('[schedule_message] 无法解析时间:', row.timeStr);
@@ -127,6 +128,34 @@ export async function stripAndSaveScheduledMessages(
     }
     return c.replace(/\n{3,}/g, '\n\n').trim();
 }
+const TRANSFER_AMOUNT = String.raw`([0-9][0-9,]*(?:\.[0-9]{1,2})?)`;
+const CANONICAL_TRANSFER_RE = new RegExp(
+    String.raw`\[\[\s*ACTION\s*[:：]\s*TRANSFER\s*[:：]\s*[¥￥]?\s*${TRANSFER_AMOUNT}\s*(?:元|credits?)?\s*\]\]`,
+    'gi',
+);
+// 部分模型会把动作错误地复述成聊天记录，例如「[系统: 你向小明转账 1999]」。
+// 这里只兜底完整的系统日志形态，并要求主语是模型视角的「你/我」，避免把提示词中
+// 「用户向你转账」的收款记录误判成角色主动转账。
+const SYSTEM_TRANSFER_RE = new RegExp(
+    String.raw`[\[【]\s*系统\s*[:：]\s*(?:你|我)\s*向\s*[^\]\】\r\n]{0,40}?\s*转账\s*[:：]?\s*[¥￥]?\s*${TRANSFER_AMOUNT}\s*(?:元|credits?)?\s*[\]】]`,
+    'gi',
+);
+
+/** 将规范动作及常见的模型掉格式输出统一提取为转账卡片。 */
+export const extractAssistantTransfers = (input: string): { content: string; amounts: string[] } => {
+    const amounts: string[] = [];
+    const collect = (_whole: string, amount: string) => {
+        const normalized = amount.replace(/,/g, '');
+        if (Number(normalized) > 0) amounts.push(normalized);
+        return '';
+    };
+
+    const content = input
+        .replace(CANONICAL_TRANSFER_RE, collect)
+        .replace(SYSTEM_TRANSFER_RE, collect)
+        .trim();
+    return { content, amounts };
+};
 
 export const ChatParser = {
     // Return cleaned content and perform side effects
@@ -136,6 +165,8 @@ export const ChatParser = {
         charName: string,
         addToast: (msg: string, type: 'info'|'success'|'error') => void,
         musicHooks?: MusicActionHooks,
+        /** 角色自定义时区；定时消息里的时间是角色照着自己的钟写的，要按这个还原成真实时刻。 */
+        charTz?: string,
     ) => {
         let content = aiContent;
 
@@ -145,11 +176,11 @@ export const ChatParser = {
             content = content.replace('[[ACTION:POKE]]', '').trim();
         }
 
-        // TRANSFER
-        const transferMatch = content.match(/\[\[ACTION:TRANSFER:(\d+)\]\]/);
-        if (transferMatch) {
-            await DB.saveMessage({ charId, role: 'assistant', type: 'transfer', content: '[转账]', metadata: { amount: transferMatch[1], status: 'pending' } });
-            content = content.replace(transferMatch[0], '').trim();
+        // TRANSFER：兼容全角标点、可选货币符号，以及模型误写出的「[系统: 你向…转账…]」。
+        const transfers = extractAssistantTransfers(content);
+        content = transfers.content;
+        for (const amount of transfers.amounts) {
+            await DB.saveMessage({ charId, role: 'assistant', type: 'transfer', content: '[转账]', metadata: { amount, status: 'pending' } });
         }
 
         // TRANSFER_ACCEPT / TRANSFER_RETURN — char 收下 / 退回 user 最近一笔待处理的转账。
@@ -332,7 +363,7 @@ export const ChatParser = {
         }
 
         // SCHEDULE（与首轮 stripAndSaveScheduledMessages 同规则，避免漏网）
-        content = await stripAndSaveScheduledMessages(content, charId, charName, addToast);
+        content = await stripAndSaveScheduledMessages(content, charId, charName, addToast, charTz);
 
         // LIFE — 生活记录代记（生理期/药盒/记账/锻炼）。开关校验、去重、写库、落 life_card
         // 都在 lifeRecords.ts 里；这里只负责取角色档案。取不到就只剥 tag（静默丢弃）。

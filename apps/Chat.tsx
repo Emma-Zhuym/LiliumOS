@@ -9,14 +9,15 @@ import { buildChatFineTuneCss, mergeChatFineTune } from '../utils/chatFineTuneCs
 import ChatFineTunePanel from '../components/chat/ChatFineTunePanel';
 import { FadersHorizontal } from '@phosphor-icons/react';
 import { generateDailyScheduleForChar, isScheduleFeatureOn } from '../utils/scheduleGenerator';
-import { getLocalDailySchedule } from '../utils/dailySchedule';
+import { getDailyScheduleForChar } from '../utils/dailySchedule';
 import { useLocalDateKey } from '../hooks/useLocalDateKey';
+import { resolveCharTimeZone } from '../utils/timezone';
 import { generateSlotTheater } from '../utils/theaterGenerator';
 import TheaterPlayer from '../components/schedule/TheaterPlayer';
 import { formatMessageWithTime, normalizeMessageContent } from '../utils/messageFormat';
 import { getRoomLabel } from '../utils/memoryPalace/types';
-import { XhsMcpClient, extractNotesFromMcpData, normalizeNote } from '../utils/xhsMcpClient';
-import { extractWebpageContent, detectFirstUrl, isXhsUrl, expandShortUrl, type ExtractedWebpage } from '../utils/webpageExtractor';
+import { XhsMcpClient, extractNotesFromMcpData, normalizeXhsLiteDetail } from '../utils/xhsMcpClient';
+import { extractWebpageContent, detectFirstUrl, detectXhsShortUrl, extractXhsShareTitle, isXhsUrl, extractXhsNoteId, expandShortUrl, type ExtractedWebpage } from '../utils/webpageExtractor';
 import { isVideoShareUrl, parseVideoShareUrl } from '../utils/videoParser';
 import { isDevDebugAvailable } from '../utils/devDebug';
 import { resolveLifeRecordCard } from '../utils/lifeRecords';
@@ -37,6 +38,7 @@ import CharacterEntryTransition from '../components/chat/CharacterEntryTransitio
 import ChromeCssEditor from '../components/chat/ChromeCssEditor';
 import ChatInputArea from '../components/chat/ChatInputArea';
 import IntifaceFloatingBall from '../components/chat/IntifaceFloatingBall';
+import MemoryRepairPortal from '../components/chat/MemoryRepairPortal';
 import ChatModals from '../components/chat/ChatModals';
 import Modal from '../components/os/Modal';
 import ProactiveSettingsModal from '../components/chat/ProactiveSettingsModal';
@@ -54,6 +56,14 @@ import { resolveActiveSound, playWhiteboxSound, unlockWhiteboxAudio, parseWhiteb
 import WhiteboxSoundEditor from '../components/chat/WhiteboxSoundEditor';
 import { normalizeTranslationLangLabel } from '../utils/translationLang';
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
+import {
+    CONTEXT_RANGE_POLICY_VERSION,
+    computeContextRangeSnapshot,
+    countMessagesFrom,
+    getMemoryPalaceHighWaterMarkForContext,
+    loadCharacterContextRange,
+    type ContextRangeMode,
+} from '../utils/chatContextRange';
 
 const VOICE_LANG_LABELS: Record<string, string> = { en: 'English', ja: '日本語', ko: '한국어', fr: 'Français', es: 'Español' };
 type InstantToolUiStatus = {
@@ -65,7 +75,7 @@ type InstantToolUiStatus = {
 };
 
 const Chat: React.FC = () => {
-    const { characters, activeCharacterId, setActiveCharacterId, updateCharacter, apiConfig, apiPresets, addApiPreset, closeApp, customThemes, removeCustomTheme, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar, setMessageSubView } = useOS(); // [EM: message-sub-view-destructure]
+    const { characters, activeCharacterId, setActiveCharacterId, updateCharacter, apiConfig, apiPresets, addApiPreset, closeApp, customThemes, removeCustomTheme, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar, setMessageSubView } = useOS(); // [EM: message-sub-view-destructure]
     const isProactiveComposing = !!(activeCharacterId && proactiveComposingChars[activeCharacterId]);
     const localDateKey = useLocalDateKey();
 
@@ -92,6 +102,7 @@ const Chat: React.FC = () => {
     const WINDOW_RADIUS = 25;
     const [input, setInput] = useState('');
     const [showPanel, setShowPanel] = useState<'none' | 'actions' | 'emojis' | 'chars'>('none');
+    const [memoryRepairOpen, setMemoryRepairOpen] = useState(false);
     
     // Emoji State
     const [emojis, setEmojis] = useState<Emoji[]>([]);
@@ -143,6 +154,7 @@ const Chat: React.FC = () => {
     const [transferNote, setTransferNote] = useState('');
     const [emojiImportText, setEmojiImportText] = useState('');
     const [settingsContextLimit, setSettingsContextLimit] = useState(500);
+    const [settingsContextRangeMode, setSettingsContextRangeMode] = useState<ContextRangeMode>('manual');
     const [settingsHideSysLogs, setSettingsHideSysLogs] = useState(false);
     const [settingsHtmlModeCustomPrompt, setSettingsHtmlModeCustomPrompt] = useState('');
     const [preserveContext, setPreserveContext] = useState(true);
@@ -190,7 +202,72 @@ const Chat: React.FC = () => {
     const [showingTargetIds, setShowingTargetIds] = useState<Set<number>>(new Set());
 
     const char = characters.find(c => c.id === activeCharacterId) || characters[0];
+    const memoryRepairRound = useMemo(() => {
+        let assistantIndex = -1;
+        for (let i = messages.length - 1; i >= 0; i--) {
+            if (messages[i].role === 'assistant') {
+                assistantIndex = i;
+                break;
+            }
+        }
+        if (assistantIndex < 0) {
+            return { sinceTs: Date.now(), userMessage: '', assistantReply: '' };
+        }
+        let userIndex = -1;
+        for (let i = assistantIndex - 1; i >= 0; i--) {
+            if (messages[i].role === 'user') {
+                userIndex = i;
+                break;
+            }
+        }
+        const assistantReply = messages
+            .slice(userIndex + 1)
+            .filter(message => message.role === 'assistant')
+            .map(message => message.content)
+            .join('\n');
+        return {
+            // receipt 在用户消息落库之后、助手回复落库之前产生；留 1 秒时钟误差容差。
+            sinceTs: userIndex >= 0 ? Math.max(0, messages[userIndex].timestamp - 1000) : messages[assistantIndex].timestamp - 60_000,
+            userMessage: userIndex >= 0 ? messages[userIndex].content : '',
+            assistantReply,
+        };
+    }, [messages]);
+    const charDateKey = useLocalDateKey(resolveCharTimeZone(char));
     charRef.current = char; // Keep ref in sync for async callbacks
+    const historyContextRange = useMemo(() => {
+        if (!char) return undefined;
+        return computeContextRangeSnapshot(
+            allHistoryMessages,
+            {
+                ...char,
+                contextRangeMode: settingsContextRangeMode,
+                contextLimit: settingsContextLimit,
+            },
+            getMemoryPalaceHighWaterMarkForContext(char.id),
+        );
+    }, [
+        allHistoryMessages,
+        char,
+        settingsContextLimit,
+        settingsContextRangeMode,
+    ]);
+    useEffect(() => {
+        if (
+            modalType !== 'history-manager'
+            || allHistoryMessages.length === 0
+            || !char?.contextUserStartMessageId
+            || !historyContextRange?.userBreakpointExpired
+        ) return;
+        // 最大范围已经向前越过用户断点：立即清掉持久化断点，防止以后拉大时旧断点复活。
+        updateCharacter(char.id, { contextUserStartMessageId: undefined });
+    }, [
+        modalType,
+        allHistoryMessages.length,
+        char?.id,
+        char?.contextUserStartMessageId,
+        historyContextRange?.userBreakpointExpired,
+        updateCharacter,
+    ]);
     const currentThemeId = char?.bubbleStyle || 'default';
     // 解析逻辑抽到 utils/groupChat/theme.ts（群聊共用），行为不变
     const activeTheme = useMemo(
@@ -707,6 +784,7 @@ const Chat: React.FC = () => {
 
             // Clear messages immediately to prevent showing stale chat from previous character
             setMessages([]);
+            setAllHistoryMessages([]);
             setTotalMsgCount(0);
             // Reset voice map — stale blob: URLs from the previous char are revoked
             // by the cleanup effect and must not be reused against new messages.
@@ -720,6 +798,11 @@ const Chat: React.FC = () => {
             setInput(savedDraft || '');
             if (char) {
                 setSettingsContextLimit(char.contextLimit || 500);
+                setSettingsContextRangeMode(
+                    char.autoArchiveEnabled && char.contextRangeMode === 'adaptive'
+                        ? 'adaptive'
+                        : 'manual',
+                );
                 setSettingsHideSysLogs(char.hideSystemLogs || false);
                 setSettingsHtmlModeCustomPrompt((char as any).htmlModeCustomPrompt || '');
                 clearUnread(char.id);
@@ -811,7 +894,7 @@ const Chat: React.FC = () => {
             setScheduleData(null);
             return;
         }
-        getLocalDailySchedule(char.id).then(existing => {
+        getDailyScheduleForChar(char).then(existing => {
             if (!existing) {
                 // Generate in background, don't block chat
                 generateDailySchedule(char, false);
@@ -819,19 +902,32 @@ const Chat: React.FC = () => {
                 setScheduleData(existing);
             }
         }).catch(() => {});
-    }, [activeCharacterId, char?.scheduleFeatureEnabled, localDateKey]);
+    }, [activeCharacterId, char?.scheduleFeatureEnabled, char?.customTimezoneEnabled, char?.customTimezone, charDateKey]);
+
+    // 每次真正打开聊天设置时从角色持久化值重新初始化；避免用户在记忆宫殿页
+    // 切换全自动模式后，隐藏着的 Chat 组件仍带着旧拉杆状态。
+    useEffect(() => {
+        if (modalType !== 'chat-settings' || !char) return;
+        setSettingsContextLimit(char.contextLimit || 500);
+        setSettingsContextRangeMode(
+            char.autoArchiveEnabled && char.contextRangeMode === 'adaptive'
+                ? 'adaptive'
+                : 'manual',
+        );
+        setSettingsHideSysLogs(char.hideSystemLogs || false);
+        setSettingsHtmlModeCustomPrompt((char as any).htmlModeCustomPrompt || '');
+    }, [modalType, char?.id]);
 
     // Load all messages when history-manager modal opens
     useEffect(() => {
         if (modalType === 'history-manager' && activeCharacterId) {
             DB.getMessagesByCharId(activeCharacterId, true).then(allMsgs => {
-                const filtered = allMsgs
-                    .filter(m => m.metadata?.source !== 'date' && m.metadata?.source !== 'call')
-                    .filter(m => !(char?.hideSystemLogs && m.role === 'system' && m.type !== 'score_card'));
-                setAllHistoryMessages(filtered);
+                // 范围管理必须使用 AI 可能读取的完整私聊序列，不能先按聊天界面显示偏好
+                // 隐掉系统/约会/通话消息，否则「最近 N 条」起点会与真实 prompt 发生偏移。
+                setAllHistoryMessages(allMsgs);
             });
         }
-    }, [modalType, activeCharacterId, char?.hideSystemLogs]);
+    }, [modalType, activeCharacterId]);
 
     useEffect(() => {
         const savedPrompts = localStorage.getItem('chat_archive_prompts');
@@ -1007,20 +1103,18 @@ const Chat: React.FC = () => {
         if (type === 'text') {
             let xhsCardCreated = false;
             let webpageCardCreated = false;
-            const xhsFullMatch = text.match(/xiaohongshu\.com\/(?:discovery\/item|explore|item)\/([a-f0-9]{24})/i);
-            // 路径宽松接收 '-' / '_'，兼容小红书后续调整短链格式；尾部中文标点不吞入 URL。
-            const xhsShortMatch = text.match(/(?:https?:\/\/)?(?:www\.)?xhslink\.com\/[A-Za-z0-9/_-]+/i);
-            if (xhsFullMatch || xhsShortMatch) {
-                let noteId = xhsFullMatch?.[1] || '';
+            const xhsFullNoteId = extractXhsNoteId(text);
+            // 同时识别桌面/旧版 xhslink.com 与手机版新版 xhslink.cn。
+            const xhsShortUrl = detectXhsShortUrl(text);
+            if (xhsFullNoteId || xhsShortUrl) {
+                let noteId = xhsFullNoteId || '';
                 let xsecToken = text.match(/xsec_token=([^&\s]+)/)?.[1];
                 let shortLinkError = '';
-                // 短链（xhslink.com）不含 id/token —— 先经 sfworker 展开成真实链接再提取。
-                if (!noteId && xhsShortMatch) {
+                // 短链（xhslink.com / xhslink.cn）不含 id/token —— 先经 sfworker 展开成真实链接再提取。
+                if (!noteId && xhsShortUrl) {
                     try {
-                        // 正则可能匹配到不带协议头的裸链接，补上 https 再展开（否则 new URL 报 Invalid URL）。
-                        const shortUrl = /^https?:\/\//i.test(xhsShortMatch[0]) ? xhsShortMatch[0] : `https://${xhsShortMatch[0]}`;
-                        const finalUrl = await expandShortUrl(shortUrl);
-                        noteId = finalUrl.match(/(?:discovery\/item|explore|item)\/([a-f0-9]{24})/)?.[1] || '';
+                        const finalUrl = await expandShortUrl(xhsShortUrl);
+                        noteId = extractXhsNoteId(finalUrl) || '';
                         xsecToken = xsecToken || finalUrl.match(/xsec_token=([^&\s]+)/)?.[1];
                         if (isDevDebugAvailable()) console.log('[卡片调试] 小红书短链展开 →', finalUrl, '| noteId =', noteId);
                     } catch (e) {
@@ -1028,9 +1122,9 @@ const Chat: React.FC = () => {
                         shortLinkError = e instanceof Error ? e.message : '短链展开失败';
                     }
                 }
-                // 文案标题形如「【标题 | 小红书 …】」，剥掉 "| 小红书…" 后缀（短链文案常无此块）。
-                const titleFromText = (text.match(/【(.+?)】/)?.[1] || '')
-                    .replace(/\s*[|｜]\s*小红书.*$/, '').trim();
+                // 兼容旧版「【标题 | 小红书】」和新版「标题 ... 短链 打开【小红书】」。
+                // 不能直接取第一个【】块：新版唯一的括号内容是应用名，会把卡片标题错误写成“小红书”。
+                const titleFromText = extractXhsShareTitle(text);
 
                 // 拿不到 noteId（短链展开失败/被挡）就不建空卡，保留原文给用户，并明确
                 // 告诉用户如何排查。此前这里完全静默，表现就是“角色能分享、用户分享不了”。
@@ -1051,22 +1145,9 @@ const Chat: React.FC = () => {
                             const result = await XhsMcpClient.getNoteDetail(mcpUrl, noteUrl, xsecToken, { loadAllComments: true });
                             if (isDevDebugAvailable()) console.log('[卡片调试] 小红书抓取 result =', result);
                             if (result.success && result.data) {
-                                // bridge(Lite) 返回 { data: { note, comments } }；MCP 可能直接是 note —— 逐层解包。
-                                const dataRoot = (result.data as any)?.data || result.data;
-                                const noteObj = dataRoot?.note || (result.data as any)?.note || result.data;
-                                const fetched = normalizeNote(noteObj);
+                                const fetched = normalizeXhsLiteDetail(result.data);
                                 // 抓到的字段补全基础卡；id/标题/token 保底，标题优先文案标题（更完整可读）。
                                 note = { ...note, ...fetched, noteId: fetched.noteId || note.noteId, title: titleFromText || fetched.title || note.title, xsecToken: fetched.xsecToken || xsecToken };
-                                // normalizeNote 只保留笔记基础字段会丢掉评论 —— 单独解包评论挂回卡片，
-                                // 让角色读 context 时也能看到评论区（与 char 浏览/分享笔记对齐）。
-                                const rawComments = dataRoot?.comments?.list || dataRoot?.comments
-                                    || (noteObj as any)?.comments?.list || (noteObj as any)?.comments || [];
-                                const comments = (Array.isArray(rawComments) ? rawComments : []).map((c: any) => ({
-                                    author: c.userInfo?.nickname || c.nickname || c.userName || c.author || '匿名',
-                                    content: c.content || '',
-                                    likes: c.likeCount || c.like_count || c.likes || 0,
-                                })).filter((c: any) => c.content).slice(0, 15);
-                                if (comments.length) note.comments = comments;
                             } else if (!result.success) {
                                 // 基础卡仍然可以发送，只提示详情读取失败，避免误以为整次分享失败。
                                 addToast(`小红书正文读取失败，已发送基础卡片。请尝试开启/关闭科学上网、切换 Wi‑Fi/流量，或检查 Lite 配置。${result.error ? `（${result.error}）` : ''}`, 'info');
@@ -1103,7 +1184,7 @@ const Chat: React.FC = () => {
             // 视频平台链接（抖音/B站/快手…）Jina 基本抓不到东西（SPA+登录墙），
             // 优先走 apizero 视频解析拿标题/作者/封面/热度；失败降级回通用网页抓取。
             const sharedUrl = detectFirstUrl(text);
-            if (sharedUrl && !isXhsUrl(sharedUrl) && !(xhsFullMatch || xhsShortMatch)) {
+            if (sharedUrl && !isXhsUrl(sharedUrl) && !(xhsFullNoteId || xhsShortUrl)) {
                 let webpage: ExtractedWebpage | null = null;
                 if (isVideoShareUrl(sharedUrl)) {
                     try {
@@ -1277,6 +1358,7 @@ const Chat: React.FC = () => {
 
     const handlePanelAction = (type: string, payload?: any) => {
         switch (type) {
+            case 'memory-link': setShowPanel('none'); setMemoryRepairOpen(true); break;
             case 'transfer': setModalType('transfer'); break;
             case 'poke': handleSendText('[戳一戳]', 'interaction'); break;
             case 'archive': setModalType('archive-settings'); break;
@@ -1566,7 +1648,7 @@ const Chat: React.FC = () => {
     const loadSchedule = async () => {
         if (!char) return;
         if (!isScheduleFeatureOn(char)) { setScheduleData(null); return; }
-        const s = await getLocalDailySchedule(char.id);
+        const s = await getDailyScheduleForChar(char);
         setScheduleData(s);
     };
 
@@ -1721,7 +1803,7 @@ const Chat: React.FC = () => {
         // 打开后立刻尝试生成（若今日未生成且已选风格）
         const updatedChar = { ...char, ...patch };
         if (updatedChar.scheduleStyle) {
-            const existing = await getLocalDailySchedule(char.id).catch(() => null);
+            const existing = await getDailyScheduleForChar(updatedChar).catch(() => null);
             if (existing) {
                 setScheduleData(existing);
             } else {
@@ -1848,14 +1930,46 @@ const Chat: React.FC = () => {
         }
     };
 
-    const saveSettings = () => {
+    const saveSettings = async () => {
+        const nextMode: ContextRangeMode = char.autoArchiveEnabled
+            ? settingsContextRangeMode
+            : 'manual';
+        const candidate = {
+            ...char,
+            contextRangePolicyVersion: CONTEXT_RANGE_POLICY_VERSION,
+            contextRangeMode: nextMode,
+            contextLimit: settingsContextLimit,
+        };
+        let nextUserStart = char.contextUserStartMessageId;
+        try {
+            const range = await loadCharacterContextRange(candidate);
+            if (range.userBreakpointExpired) nextUserStart = undefined;
+        } catch {
+            // 保存其它设置不应被一次范围检查失败阻断；AI 请求时还会再次做同样的安全钳制。
+        }
         updateCharacter(char.id, {
             contextLimit: settingsContextLimit,
+            contextRangeMode: nextMode,
+            contextRangePolicyVersion: CONTEXT_RANGE_POLICY_VERSION,
+            contextUserStartMessageId: nextUserStart,
             hideSystemLogs: settingsHideSysLogs,
             htmlModeCustomPrompt: settingsHtmlModeCustomPrompt,
         } as any);
         setModalType('none');
         addToast('设置已保存', 'success');
+    };
+
+    const restoreAdaptiveContext = () => {
+        if (!char.autoArchiveEnabled) return;
+        setSettingsContextRangeMode('adaptive');
+        setSettingsContextLimit(500);
+        updateCharacter(char.id, {
+            contextRangePolicyVersion: CONTEXT_RANGE_POLICY_VERSION,
+            contextRangeMode: 'adaptive',
+            contextLimit: 500,
+            contextUserStartMessageId: undefined,
+        });
+        addToast('已恢复全自动记忆的自适应上下文', 'success');
     };
 
     const handleClearHistory = async () => {
@@ -2061,9 +2175,39 @@ const Chat: React.FC = () => {
     };
 
     const handleSetHistoryStart = (messageId: number | undefined) => {
-        updateCharacter(char.id, { hideBeforeMessageId: messageId });
+        if (!messageId) {
+            updateCharacter(char.id, {
+                contextUserStartMessageId: undefined,
+                contextRangePolicyVersion: CONTEXT_RANGE_POLICY_VERSION,
+            });
+            setModalType('none');
+            addToast('已清除用户断点，原文范围重新跟随拉杆上限', 'success');
+            return;
+        }
+
+        const range = historyContextRange;
+        const maxStart = range?.maxRangeStartMessageId;
+        const latestId = range?.messages.at(-1)?.id
+            || allHistoryMessages.at(-1)?.id;
+        if (maxStart === undefined || latestId === undefined || messageId < maxStart || messageId > latestId) {
+            const required = countMessagesFrom(allHistoryMessages, messageId);
+            const hint = settingsContextRangeMode === 'adaptive'
+                ? `该消息在全自动记忆当前原文范围之外。请先切换为自定义范围，并将拉杆调至至少 ${required} 条。`
+                : required > 5000
+                    ? '该消息超出上下文拉杆的 5000 条上限，无法设为用户断点。'
+                    : `该消息超出当前拉杆范围，请先将上下文调至至少 ${required} 条。`;
+            addToast(hint, 'error');
+            return;
+        }
+
+        updateCharacter(char.id, {
+            contextRangePolicyVersion: CONTEXT_RANGE_POLICY_VERSION,
+            contextRangeMode: char.autoArchiveEnabled ? settingsContextRangeMode : 'manual',
+            contextLimit: settingsContextLimit,
+            contextUserStartMessageId: messageId,
+        });
         setModalType('none');
-        addToast(messageId ? '已隐藏历史消息' : '已恢复全部历史记录', 'success');
+        addToast('已设置 AI 原文读取断点', 'success');
     };
 
     // 跳转到旧消息：加载全量到 messages，再用 windowedFocusMsgId 把 displayMessages
@@ -2857,6 +3001,7 @@ const Chat: React.FC = () => {
                 transferNote={transferNote} setTransferNote={setTransferNote}
                 emojiImportText={emojiImportText} setEmojiImportText={setEmojiImportText}
                 settingsContextLimit={settingsContextLimit} setSettingsContextLimit={setSettingsContextLimit}
+                settingsContextRangeMode={settingsContextRangeMode} setSettingsContextRangeMode={setSettingsContextRangeMode}
                 settingsHideSysLogs={settingsHideSysLogs} setSettingsHideSysLogs={setSettingsHideSysLogs}
                 preserveContext={preserveContext} setPreserveContext={setPreserveContext}
                 editContent={editContent} setEditContent={setEditContent}
@@ -2868,6 +3013,7 @@ const Chat: React.FC = () => {
                 editingPrompt={editingPrompt} setEditingPrompt={setEditingPrompt} isSummarizing={isSummarizing} archiveProgress={archiveProgress}
                 selectedMessage={selectedMessage} selectedEmoji={selectedEmoji} activeCharacter={char} messages={messages}
                 allHistoryMessages={allHistoryMessages}
+                contextRangeSnapshot={historyContextRange}
                 
                 newCategoryName={newCategoryName} setNewCategoryName={setNewCategoryName} onAddCategory={handleAddCategory}
                 newEmojiName={newEmojiName} setNewEmojiName={setNewEmojiName} onRenameEmoji={handleRenameEmoji}
@@ -2878,7 +3024,7 @@ const Chat: React.FC = () => {
                 onSaveSettings={saveSettings} onBgUpload={handleBgUpload} onRemoveBg={() => updateCharacter(char.id, { chatBackground: undefined })}
                 onClearHistory={handleClearHistory} onArchive={handleFullArchive}
                 onCreatePrompt={createNewPrompt} onEditPrompt={editSelectedPrompt} onSavePrompt={handleSavePrompt} onDeletePrompt={handleDeletePrompt}
-                onSetHistoryStart={handleSetHistoryStart} onJumpToMessageInChat={handleJumpToMessageInChat} onEnterSelectionMode={handleEnterSelectionMode}
+                onSetHistoryStart={handleSetHistoryStart} onRestoreAdaptiveContext={restoreAdaptiveContext} onJumpToMessageInChat={handleJumpToMessageInChat} onEnterSelectionMode={handleEnterSelectionMode}
                 onReplyMessage={handleReplyMessage} onEditMessageStart={() => { if (selectedMessage) { setEditContent(selectedMessage.content); setModalType('edit-message'); } }}
                 onConfirmEditMessage={confirmEditMessage} onDeleteMessage={handleDeleteMessage} onCopyMessage={handleCopyMessage} onDeleteEmoji={handleDeleteEmoji} onDeleteCategory={handleDeleteCategory}
                 allCharacters={characters} onSaveCategoryVisibility={handleSaveCategoryVisibility}
@@ -3635,6 +3781,23 @@ const Chat: React.FC = () => {
             {/* 情绪设置已嵌入日程 Modal（与日程强制同步开/关），不再单独渲染 */}
 
             {/* 🍔 麦当劳小程序 - MCP 数据流按钮驱动, 协同聊天走主 pipeline (完整人设/记忆/日程) */}
+            {memoryRepairOpen && char && (
+                <MemoryRepairPortal
+                    char={char}
+                    user={userProfile}
+                    apiConfig={apiConfig}
+                    embeddingConfig={memoryPalaceConfig.embedding}
+                    remoteVectorConfig={remoteVectorConfig}
+                    sinceTs={memoryRepairRound.sinceTs}
+                    userMessage={memoryRepairRound.userMessage}
+                    assistantReply={memoryRepairRound.assistantReply}
+                    onClose={() => {
+                        setMemoryRepairOpen(false);
+                        setShowPanel('none');
+                    }}
+                />
+            )}
+
             <McdMiniApp
                 open={mcdAppOpen}
                 onClose={() => setMcdAppOpen(false)}
