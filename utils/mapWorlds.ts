@@ -77,6 +77,17 @@ export const MapDB = {
       tx.onerror = () => reject(tx.error);
     });
   },
+  importAll: async (worlds: MapWorld[]) => {
+    const db = await openMapDB();
+    const tx = db.transaction(STORE, 'readwrite');
+    const store = tx.objectStore(STORE);
+    store.clear();
+    for (const world of worlds) store.put(world);
+    return new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  },
 };
 
 /** 某角色的地图世界（没建过则 null）。 */

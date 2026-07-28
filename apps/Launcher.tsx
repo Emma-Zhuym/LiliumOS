@@ -12,6 +12,7 @@ import TamagotchiHome from '../components/os/TamagotchiHome';
 import { getDailyScheduleForChar } from '../utils/dailySchedule';
 import { useLocalDateKey } from '../hooks/useLocalDateKey';
 import { resolveCharTimeZone } from '../utils/timezone';
+import { paginateLauncherApps } from '../utils/launcherPagination';
 
 // --- Isolated Components to prevent full re-renders ---
 
@@ -574,18 +575,9 @@ const Launcher: React.FC = () => {
       return launcherDockOrder.map(id => byId.get(id as AppID)).filter(Boolean) as typeof INSTALLED_APPS;
   }, [launcherDockOrder]);
 
-  // Split apps into pages of 8 (4 cols x 2 rows fit comfortably below widget)
-  // Pages: 0 = clock+chat+music+grid (original), 1 = pinwheel, 2 = widget images + grid,
-  //        3+ = plain grid. Pad to at least 3 slots so the pinwheel/widget pages always exist.
-  const APPS_PER_PAGE = 8;
-  const appPages = useMemo(() => {
-      const pages: typeof INSTALLED_APPS[] = [];
-      for (let i = 0; i < gridApps.length; i += APPS_PER_PAGE) {
-          pages.push(gridApps.slice(i, i + APPS_PER_PAGE));
-      }
-      while (pages.length < 3) pages.push([]);
-      return pages;
-  }, [gridApps]);
+  // Page 1 keeps three icon rows below its widgets, page 2 keeps the 2x2 pinwheel
+  // quads, and ordinary pages use the full five-row grid.
+  const appPages = useMemo(() => paginateLauncherApps(gridApps), [gridApps]);
 
   // Page 2 (pinwheel) uses appPages[1]: split into two 2x2 quads
   const page2Apps = appPages[1] || [];
@@ -1013,7 +1005,7 @@ const Launcher: React.FC = () => {
                 style={{ contentVisibility: 'auto', contain: 'layout paint', transform: 'translateZ(0)' }}
               >
                   {idx === 0 ? (
-                      // Page 1 (original): Clock + Chat + 4x2 App Grid
+                      // Page 1 (original): Clock + Chat + 4x3 App Grid
                       <>
                         <DesktopClock />
                         <CharacterWidget

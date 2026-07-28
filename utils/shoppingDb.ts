@@ -165,8 +165,15 @@ export const ShoppingDB = {
     settings?: { key: string; value: unknown }[];
   }) => {
     const db = await openDB();
-    const storeNames = [STORE_PRODUCTS, STORE_CART, STORE_ORDERS, STORE_SETTINGS]
-      .filter(s => db.objectStoreNames.contains(s));
+    const requestedStores = [
+      data.products !== undefined ? STORE_PRODUCTS : null,
+      data.cart !== undefined ? STORE_CART : null,
+      data.orders !== undefined ? STORE_ORDERS : null,
+      data.settings !== undefined ? STORE_SETTINGS : null,
+    ];
+    const storeNames = requestedStores
+      .filter((s): s is string => s !== null && db.objectStoreNames.contains(s));
+    if (storeNames.length === 0) return;
     const tx = db.transaction(storeNames, 'readwrite');
     for (const name of storeNames) tx.objectStore(name).clear();
     if (data.products) for (const p of data.products) tx.objectStore(STORE_PRODUCTS).put(p);

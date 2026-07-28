@@ -209,14 +209,15 @@ export const FinanceDB = {
 
   // 备份导出：一次性读出全部 store
   exportAll: async () => {
-    const [accounts, categories, transactions, taComments, settings] = await Promise.all([
+    const [accounts, categories, transactions, taComments, settings, recurringRules] = await Promise.all([
       getAll<FinanceAccount>(STORE_ACCOUNTS),
       getAll<FinanceCategory>(STORE_CATEGORIES),
       getAll<FinanceTransaction>(STORE_TX),
       getAll<{ id: string; text: string; createdAt: number }>(STORE_TA_COMMENTS),
       getAll<{ key: string; value: unknown }>(STORE_SETTINGS),
+      getAll<RecurringRule>(STORE_RECURRING),
     ]);
-    return { accounts, categories, transactions, taComments, settings };
+    return { accounts, categories, transactions, taComments, settings, recurringRules };
   },
 
   // 备份导入：清空后写入全部数据
@@ -226,10 +227,20 @@ export const FinanceDB = {
     transactions?: FinanceTransaction[];
     taComments?: { id: string; text: string; createdAt: number }[];
     settings?: { key: string; value: unknown }[];
+    recurringRules?: RecurringRule[];
   }) => {
     const db = await openFinanceDB();
-    const storeNames = [STORE_ACCOUNTS, STORE_CATEGORIES, STORE_TX, STORE_TA_COMMENTS, STORE_SETTINGS]
-      .filter(s => db.objectStoreNames.contains(s));
+    const requestedStores = [
+      data.accounts !== undefined ? STORE_ACCOUNTS : null,
+      data.categories !== undefined ? STORE_CATEGORIES : null,
+      data.transactions !== undefined ? STORE_TX : null,
+      data.taComments !== undefined ? STORE_TA_COMMENTS : null,
+      data.settings !== undefined ? STORE_SETTINGS : null,
+      data.recurringRules !== undefined ? STORE_RECURRING : null,
+    ];
+    const storeNames = requestedStores
+      .filter((s): s is string => s !== null && db.objectStoreNames.contains(s));
+    if (storeNames.length === 0) return;
     const tx = db.transaction(storeNames, 'readwrite');
     for (const name of storeNames) tx.objectStore(name).clear();
     if (data.accounts) for (const a of data.accounts) tx.objectStore(STORE_ACCOUNTS).put(a);
@@ -237,6 +248,7 @@ export const FinanceDB = {
     if (data.transactions) for (const t of data.transactions) tx.objectStore(STORE_TX).put(t);
     if (data.taComments) for (const c of data.taComments) tx.objectStore(STORE_TA_COMMENTS).put(c);
     if (data.settings) for (const s of data.settings) tx.objectStore(STORE_SETTINGS).put(s);
+    if (data.recurringRules) for (const r of data.recurringRules) tx.objectStore(STORE_RECURRING).put(r);
     return new Promise<void>((resolve, reject) => {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);

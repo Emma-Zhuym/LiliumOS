@@ -3606,12 +3606,14 @@ export interface FullBackupData {
     emFinanceTransactions?: FinanceTransaction[];
     emFinanceTAComments?: { id: string; text: string; createdAt: number }[];
     emFinanceSettings?: { key: string; value: unknown }[];
-    // EM 健康/购物系统备份（独立 IndexedDB；结构见 utils/healthDb.ts / utils/shoppingDb.ts）
+    emFinanceRecurringRules?: RecurringRule[];
+    // EM 健康/购物/地图系统备份（独立 IndexedDB；结构见对应 utils/*Db.ts）
     emHealthEvents?: any[];
     emShoppingProducts?: any[];
     emShoppingCart?: any[];
     emShoppingOrders?: any[];
     emShoppingSettings?: { key: string; value: unknown }[];
+    emMapWorlds?: any[];
     // [EM-END: finance-backup-types]
     gotchiAccentHue?: string;  // 桌面电子宠物主题主色调偏好（tama_accent_hue，账号级 localStorage）
 }

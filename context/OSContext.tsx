@@ -3422,15 +3422,18 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   try {
                       const { FinanceDB } = await import('../utils/financeDb');
                       const fd = await FinanceDB.exportAll();
-                      if (!fd.accounts.length && !fd.transactions.length) return {};
                       return {
                           emFinanceAccounts: fd.accounts,
                           emFinanceCategories: fd.categories,
                           emFinanceTransactions: fd.transactions,
-                          emFinanceTAComments: fd.taComments.length ? fd.taComments : undefined,
-                          emFinanceSettings: fd.settings.length ? fd.settings : undefined,
+                          emFinanceTAComments: fd.taComments,
+                          emFinanceSettings: fd.settings,
+                          emFinanceRecurringRules: fd.recurringRules,
                       };
-                  } catch { return {}; }
+                  } catch (error) {
+                      console.warn('EM FinanceDB backup failed:', error);
+                      return {};
+                  }
               })(),
               // [EM-END: finance-backup-export]
 
@@ -3440,9 +3443,11 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   try {
                       const { exportAllHealthEvents } = await import('../utils/healthDb');
                       const events = await exportAllHealthEvents();
-                      if (!events.length) return {};
                       return { emHealthEvents: events };
-                  } catch { return {}; }
+                  } catch (error) {
+                      console.warn('EM HealthDB backup failed:', error);
+                      return {};
+                  }
               })(),
               // [EM-END: health-backup-export]
 
@@ -3452,16 +3457,31 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   try {
                       const { ShoppingDB } = await import('../utils/shoppingDb');
                       const sd = await ShoppingDB.exportAll();
-                      if (!sd.products.length && !sd.orders.length) return {};
                       return {
                           emShoppingProducts: sd.products,
-                          emShoppingCart: sd.cart.length ? sd.cart : undefined,
-                          emShoppingOrders: sd.orders.length ? sd.orders : undefined,
-                          emShoppingSettings: sd.settings.length ? sd.settings : undefined,
+                          emShoppingCart: sd.cart,
+                          emShoppingOrders: sd.orders,
+                          emShoppingSettings: sd.settings,
                       };
-                  } catch { return {}; }
+                  } catch (error) {
+                      console.warn('EM ShoppingDB backup failed:', error);
+                      return {};
+                  }
               })(),
               // [EM-END: shopping-backup-export]
+
+              // [EM-START: map-backup-export] EM 地图系统（独立 IndexedDB: SullyEM_Map）
+              ...await (async () => {
+                  if (mode !== 'text_only' && mode !== 'full') return {};
+                  try {
+                      const { MapDB } = await import('../utils/mapWorlds');
+                      return { emMapWorlds: await MapDB.getAll() };
+                  } catch (error) {
+                      console.warn('EM MapDB backup failed:', error);
+                      return {};
+                  }
+              })(),
+              // [EM-END: map-backup-export]
               // 桌面电子宠物主题的主色调偏好（账号级 localStorage）。room_card 涓流卡片本身
               // 是普通消息、随 messages store 一起导出，这里只补带走这个纯外观偏好。
               gotchiAccentHue: (mode === 'text_only' || mode === 'full') ? (() => { try { const s = localStorage.getItem('tama_accent_hue'); return s !== null ? s : undefined; } catch { return undefined; } })() : undefined,
@@ -4138,7 +4158,14 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           }
 
           // [EM-START: finance-backup-restore] EM 记账系统（独立 IndexedDB: SullyEM_Finance）
-          if (data.emFinanceAccounts || data.emFinanceTransactions) {
+          if (
+              data.emFinanceAccounts !== undefined
+              || data.emFinanceCategories !== undefined
+              || data.emFinanceTransactions !== undefined
+              || data.emFinanceTAComments !== undefined
+              || data.emFinanceSettings !== undefined
+              || data.emFinanceRecurringRules !== undefined
+          ) {
               try {
                   const { FinanceDB } = await import('../utils/financeDb');
                   await FinanceDB.importAll({
@@ -4147,13 +4174,14 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                       transactions: data.emFinanceTransactions,
                       taComments: data.emFinanceTAComments,
                       settings: data.emFinanceSettings,
+                      recurringRules: data.emFinanceRecurringRules,
                   });
               } catch (e) { console.warn('EM FinanceDB restore failed:', e); }
           }
           // [EM-END: finance-backup-restore]
 
           // [EM-START: health-backup-restore] EM 健康系统（独立 IndexedDB: SullyEM_Health）
-          if (data.emHealthEvents?.length) {
+          if (data.emHealthEvents !== undefined) {
               try {
                   const { importAllHealthEvents } = await import('../utils/healthDb');
                   await importAllHealthEvents(data.emHealthEvents);
@@ -4162,7 +4190,12 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           // [EM-END: health-backup-restore]
 
           // [EM-START: shopping-backup-restore] EM 购物系统（独立 IndexedDB: SullyEM_Shopping）
-          if (data.emShoppingProducts?.length || data.emShoppingOrders?.length) {
+          if (
+              data.emShoppingProducts !== undefined
+              || data.emShoppingCart !== undefined
+              || data.emShoppingOrders !== undefined
+              || data.emShoppingSettings !== undefined
+          ) {
               try {
                   const { ShoppingDB } = await import('../utils/shoppingDb');
                   await ShoppingDB.importAll({
@@ -4174,6 +4207,15 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               } catch (e) { console.warn('EM ShoppingDB restore failed:', e); }
           }
           // [EM-END: shopping-backup-restore]
+
+          // [EM-START: map-backup-restore] EM 地图系统（独立 IndexedDB: SullyEM_Map）
+          if (data.emMapWorlds !== undefined) {
+              try {
+                  const { MapDB } = await import('../utils/mapWorlds');
+                  await MapDB.importAll(data.emMapWorlds);
+              } catch (e) { console.warn('EM MapDB restore failed:', e); }
+          }
+          // [EM-END: map-backup-restore]
 
           if (data.socialAppData) {
               await restoreAssetsInPlace(data.socialAppData, '动态设置');
