@@ -92,6 +92,26 @@ describe('MessageItem module layout', () => {
         expect(markup).toContain('https://example.com/char.png');
     });
 
+    it('引用气泡与短正文各自按内容宽度收缩', () => {
+        const markup = renderMessage({
+            id: 5,
+            charId: 'char-1',
+            role: 'assistant',
+            type: 'text',
+            content: '你看',
+            timestamp: 5,
+            replyTo: {
+                id: 4,
+                name: '我',
+                content: '你别说，我也才发现这个引用比正文长很多',
+            },
+        });
+
+        expect(markup).toContain('sully-message-stack flex flex-col min-w-0 items-start');
+        expect(markup).toContain('sully-quote-bubble self-end');
+        expect(markup).toMatch(/sully-message-stack[^>]*>[\s\S]*sully-quote-bubble[\s\S]*sully-bubble-ai/);
+    });
+
     it('心象卡片提供长按复制提示与独立交互入口', () => {
         const markup = renderMessage({
             id: 4,

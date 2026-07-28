@@ -71,6 +71,8 @@ check "语音相关 props" components/chat/ChatInputArea.tsx "[EM-START: voice-p
 check "语音条发送按钮" components/chat/ChatInputArea.tsx "[EM-START: voice-send-button]"
 check "写 Notion 按钮" components/chat/ChatInputArea.tsx "[EM-START: notion-diary-button]"
 check "用户语音气泡" components/chat/MessageItem.tsx "[EM-START: user-voice-bubble]"
+check "引用与正文独立宽度" components/chat/MessageItem.tsx "[EM: independent-reply-width]"
+check "引用气泡自定义 CSS 钩子" components/chat/MessageItem.tsx "sully-quote-bubble"
 check "语音消息感知注入" utils/chatPrompts.ts "[EM-START: voice-aware]"
 check "语音感知教学" utils/emPromptAddons.ts "emVoiceAwareAddon"
 

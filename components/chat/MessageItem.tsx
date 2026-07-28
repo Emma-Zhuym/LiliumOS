@@ -3522,10 +3522,11 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
         const quoteLabel = quotedByChar ? `${charName}说` : '我说';
         const quoteLabelColor = quotedByChar ? '#5b7395' : '#5f7a5b';
         const quoteText = m.replyTo!.content.length > 30 ? m.replyTo!.content.slice(0, 30) + '…' : m.replyTo!.content;
+        // [EM: independent-reply-width] Keep the quote and body as independently sized flex items.
         // align to original sender's side; override the container's self-alignment
         const alignSelf = quotedByChar ? 'self-start' : 'self-end';
         return (
-            <div className={`${alignSelf} flex items-center gap-2 px-3 py-[6px] rounded-[14px] max-w-full mb-1`}
+            <div className={`sully-quote-bubble ${alignSelf} flex items-center gap-2 px-3 py-[6px] rounded-[14px] max-w-full mb-1`}
                 style={{ background: quoteBg, opacity: 0.65, color: quoteTextColor, fontSize: 12.5, lineHeight: '17px', boxShadow: '0 1px 3px rgba(31,26,42,0.06)' }}>
                 <span className="shrink-0 font-bold whitespace-nowrap" style={{ fontSize: 10.5 }}>{quoteLabel}</span>
                 <span className="truncate max-w-[160px]">{quoteText}</span>
@@ -3604,10 +3605,10 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
         );
 
         return commonLayout(
-            <>
-            {quoteBlock}
-            {bubble}
-            </>
+            <div className={`sully-message-stack flex flex-col min-w-0 ${isUser ? 'items-end' : 'items-start'}`}>
+                {quoteBlock}
+                {bubble}
+            </div>
         );
     }
     // [EM-END: user-voice-bubble]
@@ -3618,7 +3619,7 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
     const isForeignVoiceMsg = !isUser && m.type === 'text' && !!voiceData?.url && !!voiceData?.lang && !!cleanVoiceText(voiceData?.spokenText);
 
     return commonLayout(
-        <>
+        <div className={`sully-message-stack flex flex-col min-w-0 ${isUser ? 'items-end' : 'items-start'}`}>
         {quoteBlock}
         <div className={isVoiceOnlyMsg
             ? `relative ${suppressEntranceAnimation ? '' : 'animate-fade-in'}`
@@ -3867,7 +3868,7 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
                 );
             })()}
         </div>
-        </>
+        </div>
     );
 }, (prev, next) => {
     return prev.msg.id === next.msg.id &&
