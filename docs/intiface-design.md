@@ -4,13 +4,15 @@
 > 连接方案：Intiface Central（本地 WebSocket）+ Buttplug.io 协议  
 > 参考：Enclave0775/Intiface_Central-Sillytavern-plugin（ST 插件，命令格式参考）
 
+> **实施状态（2026-07-28）：已完成。** 当前使用 `utils/intifaceClient.ts` 的原生 WebSocket / Buttplug 协议 v3 客户端，不依赖 `buttplug` npm 包；已接入 `hooks/useIntiface.ts`、Settings、Chat `control_toy` 工具、可拖动悬浮球和前台自动重连。本文后续的包依赖与早期文件规划仅作历史参考。
+
 ---
 
 ## 一、技术基础
 
 **Intiface Central** 在用户设备上本地运行，暴露 WebSocket：`ws://localhost:12345`
 
-依赖：`npm install buttplug`（官方浏览器库，支持 TypeScript）
+当前实现：原生 WebSocket，无需安装 `buttplug` 包。
 
 核心设备类型：
 - **Vibrate**：震动马达（大多数玩具）

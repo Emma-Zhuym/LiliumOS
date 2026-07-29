@@ -1,8 +1,8 @@
 # 彼方邮局 · 互动功能接入交接（给 UI）
 
-后端（`worker/post-office/`）和客户端 API（`utils/vrWorld/postOffice.ts`）已补齐**点赞 / 点踩(=举报) /
-浏览量 / 身份导出导入**。后端已离线 e2e 跑通（23/23）。UI 这层在 `apps/VRWorldApp.tsx` 的邮局房间接入即可，
-**不用读 worker 源码**，照着下面调 `PostOffice` 的方法就行。
+> **实施状态（2026-07-28）：后端、客户端 API 和 UI 均已接入。** 点赞/点踩举报、浏览/回信统计、作者统计、身份导入导出和 400 字限制已在 `apps/VRWorldApp.tsx` 使用。本文当前唯一未决项是第六节“批量寄信 vs 五封限流”。
+
+后端（`worker/post-office/`）、客户端 API（`utils/vrWorld/postOffice.ts`）和 `apps/VRWorldApp.tsx` 已补齐**点赞 / 点踩(=举报) / 浏览量 / 身份导出导入**。后端离线 e2e 基线为 23/23；下面保留接口说明供维护和回归检查。
 
 ## 一、抽到的信现在带热度字段
 

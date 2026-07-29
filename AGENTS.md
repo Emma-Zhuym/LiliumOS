@@ -1,6 +1,6 @@
 # SullyEM Agent Instructions
 
-SullyEM 是 Emma 的个人 fork。开始仓库工作前先阅读 `.claude/CLAUDE.md`；其中的 EM 功能清单、哨兵约定、架构原则和合并规则同样适用于 Codex。
+SullyEM 是 Emma 的个人 fork。开始仓库工作前先阅读 `.claude/CLAUDE.md`；其中的 EM 功能清单、哨兵约定、架构原则和合并规则同样适用于 Codex。判断当前功能进度时以 `docs/roadmap.md` 和 `progress.md` 为准，不从旧规格标题推断状态。
 
 ## Engram 跨 Agent 交接
 

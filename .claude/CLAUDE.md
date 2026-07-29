@@ -65,7 +65,7 @@ merge 时 `grep -rn "EM-START\|\[EM:" --include="*.ts" --include="*.tsx"` 就能
 ### merge 后必跑自检
 
 ```bash
-bash scripts/check-em-patches.sh   # 36 项锚点检查，红了就是功能被冲掉
+bash scripts/check-em-patches.sh   # 当前 74 项锚点检查，红了就是功能被冲掉
 pnpm vitest run                    # 单元测试
 ```
 
@@ -89,8 +89,8 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - `hooks/useChatAI.ts` 里的 `ContextComposition` interface + state
 - `utils/chatRequestPayload.ts` 里的 `contextBreakdown` 返回值（coreContextChars 等）
   - 必须 `import { ContextBuilder } from './context'` 并在 payload 里计算 `coreContextChars`
-  - 返回 `contextBreakdown: { coreContextChars, systemCharsBeforeBilingual, bilingualAddonChars }`
-- `components/chat/ChatHeaderShell.tsx` 里点击 ⚡ 数字展开的详细面板
+  - 返回值必须保留 `coreContextChars`、`systemCharsBeforeBilingual`、`bilingualAddonChars`、`recalledMemories`
+- `components/chat/ChatHeaderShell.tsx` 里点击 ⚡ 数字展开详细面板，同时展示本轮实际召回的记忆简报（0 条也显示）
 
 ### 3. 写 Notion 快捷操作
 - `components/chat/ChatInputArea.tsx` 工具栏第二页的"写 Notion"按钮（NotePencil 图标，amber 色）
@@ -134,6 +134,32 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - `utils/safeAreaApps.ts` 加了 `AppID.Map`（哨兵 `[EM: map-schedule-clay]`，check 脚本有锚点）
 - MapWorld.cityName / MapRegion.description 为可选新字段，旧 IndexedDB 数据零迁移
 - 日程生成入口在聊天工具栏「日程/情绪」，地图 sheet 不放生成按钮（去找 TA 即达）
+
+### 14. Finance 重设计 + 备份
+- `apps/BankApp.tsx` / `utils/financeDb.ts` — 多账户、多币种、层级分类、流水、周期规则、趋势和“TA 怎么看”
+- `context/OSContext.tsx` — Finance 账户/分类/交易/设置/周期规则的全量备份与恢复
+- 不得在恢复时只还原基础交易而遗漏 `emFinanceRecurringRules`
+
+### 15. Health 核心 + 备份（外部同步仍未完成）
+- `apps/HealthApp.tsx` / `utils/healthDb.ts` / `utils/cycleCalc.ts` — 训练、睡眠、饮食、经期、症状、体重与周期推算
+- `utils/healthContextBuilder.ts` → `hooks/useChatAI.ts` → `chatRequestPayload.ts` — 每轮聊天重新读取轻量健康摘要
+- `context/OSContext.tsx` — Health 事件和个人目标配置随全量备份导出/恢复
+- Apple Health 真导入、Notion 同步和 Health 内角色周评仍是 roadmap 待办，不能写成已完成
+
+### 16. Shopping 投喂站 + 备份
+- `apps/ShoppingApp.tsx` — 网购/外卖；整页、店铺目录与折叠店内商品列表都必须可滚动
+- `context/OSContext.tsx` — 商品、店铺、订单、Wish 等 Shopping 数据随全量备份
+- `constants.tsx` 中 Shopping 使用 `Storefront` 图标，不得回退为齿轮
+
+### 17. EM 角色代记
+- `utils/emScribe.ts` — 代记指令执行与去重
+- `utils/chatPrompts.ts` / `utils/chatParser.ts` / `apps/Chat.tsx` / `MessageItem.tsx` — 提示、解析、卡片分流和展示
+- 健康/花销摘要由各自 ContextBuilder 注入，代记提示词不要重复灌入
+
+### 18. Launcher、App 图标与引用气泡
+- `utils/launcherPagination.ts`：首页 12 个（三行）、第二页 pinwheel 8 个、普通页 20 个（五行）
+- Health / Shopping / Map 图标分别为 `Heartbeat` / `Storefront` / `MapPin`
+- `MessageItem.tsx` 的 `sully-message-stack` 保证引用和正文独立宽度；整组方向只看当前消息（用户右、角色左），不能按被引用者决定；`.sully-quote-bubble` 是引用专用 CSS 钩子
 
 ## 合并时常见坑（踩过的 bug）
 
@@ -219,59 +245,16 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 
 ## 未来功能计划
 
-### 1. Notion 高级管理 App（难度：中）
-做成独立 `apps/NotionApp.tsx`，Settings 里的基础 Notion 配置不动。
-- 全面的数据库权限配置、多库管理
-- 日记模板自定义、标签管理
-- 把 `notionExtraConfig.ts` 的逻辑搬过来并扩展
+当前优先级和完成记录统一维护在 `docs/roadmap.md`；这里仅保留会影响架构边界的摘要，避免两份清单再次漂移。
 
-### 2. 地图系统（难度：高）
-角色按日程 slot 的 `location` 字段在地图上移动。
-- 需要自定义地图（不是真实地图），像游戏里的城镇地图
-- 可以先做简单版：location 文字 → 预设坐标点
-- 点击角色位置可以发起聊天
+1. **Health 外部数据链收尾**：Apple Health 真导入、Notion 同步、角色周评。
+2. **Notion 高级管理 App**：独立 `apps/NotionApp.tsx`，不重写 Settings；整合多库权限、模板和标签。
+3. **位置感知聊天**：`utils/locationService.ts` + Google Places + 显式权限/隐私开关。
+4. **日记系统整理**：独立 `apps/DiaryApp.tsx`，统一交换日记与 Notion 日记。
+5. **共读增强**：批注回信支路、文字高亮、PDF。
+6. **角色时区/多人日程尾项**：先按 `docs/character-timezone.md` 的产品决策处理，不要把角色时间和设备时间混用。
 
-### 3. ~~Intiface 外接硬件集成~~ ✅ 已完成
-已通过 wss:// Tailscale 隧道连接 Intiface Central，Chat 模式 control_toy 工具已默认开启。
-
-### 4. 记账系统增强（难度：低）
-上游已有基础记账。在此基础上加：
-- 类别管理、月度统计图表
-- 和角色联动（角色评论花销习惯？）
-
-### 5. Apple Health 健康数据接入（难度：低-中）
-不走原生 HealthKit（需要 iOS app + 开发者账号），用曲线方案：
-- iOS 快捷指令定时导出昨日睡眠/步数/心率 → 写入 Notion 数据库或简单 API
-- SullyEM 读取数据，注入角色聊天上下文（"你昨晚才睡了5小时"）
-- 可以做成 `utils/healthData.ts` + 在 `chatRequestPayload.ts` 注入
-- 日程卡片也可以显示健康摘要
-
-### 6. ~~Offline 系统~~ ✅ 已完成
-已实现为 Online/Busy/Offline 状态系统（见上方功能 #9）。
-
-### 7. 位置感知聊天（难度：低-中）
-上游已有 `utils/geo.ts`（getCurrentPositionSmart），瑞幸在用。
-- 聊天时读一次经纬度 → 调地图 API 反查地名 + 周边 POI → 注入 prompt
-- 角色可以根据位置推荐吃的、找厕所、指路等
-- 地图 API 用 Google Places（阿萌在美国），不用高德
-- 做成 `utils/locationService.ts` + `chatRequestPayload.ts` 注入
-
-### 8. 照片收藏 + 查手机小组件轮播（难度：低）
-- `GalleryImage` 加 `favorited` 字段，相册里标星收藏
-- 查手机主页照片组件只显示 `favorited === true` 的照片轮播
-- 角色也可在聊天中自动收藏用户发的照片
-
-### 9. 日记系统整理（难度：中）
-现有交换日记 + Notion 日记比较散。参考 Orphee_ 的设计：
-- 独立 `apps/DiaryApp.tsx`，统一入口，分 tab
-- 心情标签系统（多选、分主次）+ 封缄功能
-- 心情统计可视化（各情绪占比、时间线）
-
-### 10. 共读/书架增强（难度：中）
-彼方图书馆已支持 epub 上传 + 用户批注 Phase 1。待做：
-- Phase 2：角色回头回应用户写在已读段落的批注（回信支路）
-- 选中文字高亮
-- PDF 支持
+已完成、不要重复立项：地图×日程、Intiface、Finance 重设计、照片收藏、Token 召回面板、Offline 状态系统。
 
 ## 文件说明
 

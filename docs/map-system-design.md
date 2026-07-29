@@ -3,6 +3,8 @@
 > 设计时间：2026-05-21  
 > 原型位置：`/Tavern/mapsystem/`（独立 HTML 原型，已完成 UI 设计）
 
+> **实施状态（2026-07-28）：已完成，本文以下内容是早期设计依据。** 当前实现已在 2026-07-10 重写为地图×日程 Clay 版，主文件为 `apps/MapApp.tsx` 和 `utils/mapWorlds.ts`。日程已包含 `location` / `regionId` / `innerThought`，匹配优先级为 regionId → 地点名 → 关键词；当前实现和本文早期的 `mapDb.ts` / `mapWorldConfig.ts` 拆分方案不同，以代码和 `.claude/CLAUDE.md` 为准。
+
 ---
 
 ## 一、整体概念
@@ -62,7 +64,7 @@
 
 ### Schedule slot location 字段
 
-地图系统建好后，日程生成 prompt 需要让 LLM 在每个 slot 里填 `location` 字段（如"星澜大厦28楼"、"家"）。现在的 slot 结构没有此字段，等地图开发时一起加。
+已完成：日程生成 prompt 会把地图地点清单注入 lifestyle 模式，并让 LLM 在 slot 里填写 `location`、合法的 `regionId` 和可选 `innerThought`。mindful 模式不注入物理地点清单。
 
 ### 日程联动：pin 位置计算
 

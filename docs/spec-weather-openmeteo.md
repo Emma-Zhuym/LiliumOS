@@ -1,5 +1,7 @@
 # 天气源迁移方案：OpenWeatherMap → Open-Meteo
 
+> **实施状态（2026-07-28）：已完成。** `utils/openMeteo.ts`、`utils/realtimeContext.ts`、Settings 和旧配置迁移均已接入，并由 EM 哨兵与检查脚本保护。下方“现状（改动前）”只用于解释迁移动机。
+
 目标：去掉 API key、去掉"手填城市名重名歧义"（Birmingham 美/英问题），天气跟着定位走。
 
 ## 现状（改动前）

@@ -1,5 +1,7 @@
 # Instant Push 分支调整说明
 
+> **实施状态（2026-07-28）：已合入 main。** 本文描述的是现有 Instant Push 契约，不再是待合并分支；开发与验证命令统一使用 `pnpm`。
+
 本分支主要围绕 ChatApp 的 Instant Push 链路做稳定性补齐。目标是让 instant 模式和本地模式在上下文构建、输出质量、副作用执行上保持一致，同时解决后台推送、情绪 buff、Notion 写入和工具调用状态提示的问题。
 
 ## 1. 情绪 buff 走 Instant Push 链路
@@ -173,4 +175,4 @@ ChatApp 的 instant prompt 构建已经和本地本体对齐：
 - 情绪 buff instant 回传已验证。
 - 小红书 / Notion 工具调用与续跑状态提示已验证。
 - 大包场景默认走 multipart；启用 D1 BlobStore 后可用 envelope 路径承接更稳的大 payload。
-- 本地构建已通过：`npm run build`。
+- 本地构建已通过：`pnpm run build`。
