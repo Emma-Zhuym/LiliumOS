@@ -133,7 +133,7 @@ describe('MessageItem module layout', () => {
         expect(markup).toMatch(/sully-message-stack[^>]*>[\s\S]*sully-quote-bubble[\s\S]*sully-bubble-user/);
     });
 
-    it('用户语音消息不走自制气泡，只复用原版 Voice Bar 展示', () => {
+    it('用户语音消息不套普通气泡外壳，只复用原版 Voice Bar 展示', () => {
         const markup = renderMessage({
             id: 8,
             charId: 'char-1',
@@ -144,7 +144,7 @@ describe('MessageItem module layout', () => {
             metadata: { voice: true, durationMs: 3200 },
         });
 
-        expect(markup).toContain('sully-bubble-user');
+        expect(markup).not.toContain('sully-bubble-user');
         expect(markup).not.toContain('sully-voice-bubble');
         expect(markup).toContain('max-w-[260px]');
         expect(markup).not.toContain('晚上回家亲亲');

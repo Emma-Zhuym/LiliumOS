@@ -3512,8 +3512,8 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
     // Don't render empty bubbles (e.g. messages that were just "---"), unless voice data exists or pending
     if (!displayContent && !hasVoiceContent) return null;
 
-    // Voice-only messages (no display text, only voice bar): skip bubble styling
-    const isVoiceOnlyMsg = !displayContent && hasVoiceContent && !isUser && m.type === 'text';
+    // Voice-only messages: skip the normal bubble shell and let the Voice Bar be the visible bubble.
+    const isVoiceOnlyMsg = (((!displayContent && hasVoiceContent) || isVoiceBubble) && m.type === 'text');
 
     // Reply quote: separate bubble above, aligned with the current reply bubble.
     const quotedByChar = m.replyTo ? m.replyTo.name === charName : false;
@@ -3549,7 +3549,7 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
             style={isVoiceOnlyMsg ? undefined : containerStyle}>
 
             {/* Layer 1: Background Image with Independent Opacity */}
-            {styleConfig.backgroundImage && (
+            {!isVoiceOnlyMsg && styleConfig.backgroundImage && (
                 <div
                     className="absolute inset-0 bg-cover bg-center pointer-events-none z-0"
                     style={{
@@ -3561,7 +3561,7 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
             )}
 
             {/* Layer 2: Decoration Sticker (Custom Position) */}
-            {styleConfig.decoration && (
+            {!isVoiceOnlyMsg && styleConfig.decoration && (
                 <img
                     src={styleConfig.decoration}
                     className="absolute z-10 w-8 h-8 object-contain drop-shadow-sm pointer-events-none"
