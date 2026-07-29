@@ -132,6 +132,22 @@ describe('MessageItem module layout', () => {
         expect(markup).toMatch(/sully-message-stack[^>]*>[\s\S]*sully-quote-bubble[\s\S]*sully-bubble-user/);
     });
 
+    it('用户语音消息复用气泡主题外壳，只把内容换成语音条', () => {
+        const markup = renderMessage({
+            id: 8,
+            charId: 'char-1',
+            role: 'user',
+            type: 'text',
+            content: '晚上回家亲亲',
+            timestamp: 8,
+            metadata: { voice: true, durationMs: 3200 },
+        });
+
+        expect(markup).toContain('sully-bubble-user sully-voice-bubble');
+        expect(markup).toContain('aria-label="显示转文字"');
+        expect(markup).toContain('4″');
+    });
+
     it('心象卡片提供长按复制提示与独立交互入口', () => {
         const markup = renderMessage({
             id: 4,

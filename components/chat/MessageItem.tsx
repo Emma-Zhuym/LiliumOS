@@ -3540,62 +3540,60 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
         const durationMs: number = m.metadata?.durationMs ?? 0;
         const durationSec = durationMs > 0 ? Math.max(1, Math.ceil(durationMs / 1000)) : null;
         const textToPlay = displayContent || m.content;
-        const bgColor = styleConfig.backgroundColor ?? '#3b82f6';
-        const textColor = styleConfig.textColor ?? '#ffffff';
-        const r = styleConfig.borderRadius ?? 18;
 
         const bubble = (
             <div
-                className="animate-bubble-pop-right select-none"
-                style={{
-                    backgroundColor: bgColor,
-                    color: textColor,
-                    borderRadius: r,
-                    minWidth: 100,
-                    maxWidth: 220,
-                    boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
-                    overflow: 'hidden',
-                }}
+                className={`relative shadow-sm px-5 py-3 animate-bubble-pop-right active:scale-[0.98] transition-transform overflow-visible sully-bubble-user sully-voice-bubble select-none`}
+                style={{ ...containerStyle, color: styleConfig.textColor }}
             >
-                {/* 波纹行 */}
-                <div className="flex items-center gap-2 px-4 py-2.5">
-                    {/* 静态波纹条 */}
-                    <div className="flex items-center gap-[2px]" style={{ height: 16 }}>
+                {styleConfig.backgroundImage && (
+                    <div
+                        className="absolute inset-0 bg-cover bg-center pointer-events-none z-0"
+                        style={{
+                            backgroundImage: `url(${styleConfig.backgroundImage})`,
+                            opacity: styleConfig.backgroundImageOpacity ?? 0.5,
+                            borderRadius: 'inherit'
+                        }}
+                    />
+                )}
+                {styleConfig.decoration && (
+                    <img
+                        src={styleConfig.decoration}
+                        className="absolute z-10 w-8 h-8 object-contain drop-shadow-sm pointer-events-none"
+                        style={{
+                            left: `${styleConfig.decorationX ?? 90}%`,
+                            top: `${styleConfig.decorationY ?? -10}%`,
+                            transform: `translate(-50%, -50%) scale(${styleConfig.decorationScale ?? 1}) rotate(${styleConfig.decorationRotate ?? 0}deg)`
+                        }}
+                        alt=""
+                    />
+                )}
+                <div className="relative z-10 flex items-center gap-2">
+                    <div className="flex items-center gap-[2px] h-4">
                         {[5, 9, 6, 13, 8, 11, 5, 10, 7, 12, 5, 9].map((h, i) => (
-                            <span key={i} style={{
-                                display: 'inline-block',
-                                width: 2.5,
-                                height: `${Math.max(2, h * 0.5)}px`,
-                                background: 'currentColor',
-                                borderRadius: 2,
-                                opacity: 0.6 + (h / 13) * 0.35,
-                            }} />
+                            <span
+                                key={i}
+                                className="inline-block w-[2.5px] rounded-full bg-current"
+                                style={{ height: `${Math.max(2, h * 0.5)}px`, opacity: 0.6 + (h / 13) * 0.35 }}
+                            />
                         ))}
                     </div>
                     {durationSec && (
                         <span className="text-xs shrink-0" style={{ opacity: 0.75 }}>{durationSec}″</span>
                     )}
-                    {/* 转文字按钮 */}
                     <button
-                        onClick={(e) => { e.stopPropagation(); setShowSttText(t => !t); }}
-                        className="shrink-0 ml-auto w-6 h-6 flex items-center justify-center rounded-lg transition-all active:scale-95"
-                        style={{
-                            background: showSttText ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.15)',
-                            color: textColor,
-                        }}
+                        onClick={(e) => { e.stopPropagation(); e.preventDefault(); setShowSttText(t => !t); }}
+                        className={`shrink-0 ml-auto w-6 h-6 flex items-center justify-center rounded-lg border border-current/15 transition-all active:scale-95 ${showSttText ? 'bg-current/15 ring-1 ring-current/20' : 'bg-current/10'}`}
+                        style={{ color: 'inherit' }}
+                        aria-label={showSttText ? '收起转文字' : '显示转文字'}
                     >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8 10h8"/><path d="M8 14h4"/></svg>
                     </button>
                 </div>
-                {/* 展开的文字，横线分割，同一气泡内 */}
                 {showSttText && (
                     <div
-                        className="px-4 pb-3 pt-2 text-[13px] leading-relaxed whitespace-pre-wrap"
-                        style={{
-                            borderTop: `1px solid rgba(255,255,255,0.2)`,
-                            color: textColor,
-                            opacity: 0.92,
-                        }}
+                        className="relative z-10 mt-2 pt-2 border-t border-current/20 text-[13px] leading-relaxed whitespace-pre-wrap select-text"
+                        style={{ color: 'inherit', opacity: 0.92 }}
                     >
                         {textToPlay}
                     </div>
