@@ -3514,7 +3514,7 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
     // Voice-only messages (no display text, only voice bar): skip bubble styling
     const isVoiceOnlyMsg = !displayContent && hasVoiceContent && !isUser && m.type === 'text';
 
-    // Reply quote: separate bubble above, aligned to the original sender's side
+    // Reply quote: separate bubble above, aligned with the current reply bubble.
     const quotedByChar = m.replyTo ? m.replyTo.name === charName : false;
     const quoteBlock = m.replyTo ? (() => {
         const quoteBg = quotedByChar ? activeTheme.ai.backgroundColor : activeTheme.user.backgroundColor;
@@ -3522,9 +3522,8 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
         const quoteLabel = quotedByChar ? `${charName}说` : '我说';
         const quoteLabelColor = quotedByChar ? '#5b7395' : '#5f7a5b';
         const quoteText = m.replyTo!.content.length > 30 ? m.replyTo!.content.slice(0, 30) + '…' : m.replyTo!.content;
-        // [EM: independent-reply-width] Keep the quote and body as independently sized flex items.
-        // align to original sender's side; override the container's self-alignment
-        const alignSelf = quotedByChar ? 'self-start' : 'self-end';
+        // [EM: independent-reply-width] Keep quote/body independently sized, but on the same message side.
+        const alignSelf = isUser ? 'self-end' : 'self-start';
         return (
             <div className={`sully-quote-bubble ${alignSelf} flex items-center gap-2 px-3 py-[6px] rounded-[14px] max-w-full mb-1`}
                 style={{ background: quoteBg, opacity: 0.65, color: quoteTextColor, fontSize: 12.5, lineHeight: '17px', boxShadow: '0 1px 3px rgba(31,26,42,0.06)' }}>

@@ -92,7 +92,7 @@ describe('MessageItem module layout', () => {
         expect(markup).toContain('https://example.com/char.png');
     });
 
-    it('引用气泡与短正文各自按内容宽度收缩', () => {
+    it('角色回复时引用与短正文独立收缩并一起靠左', () => {
         const markup = renderMessage({
             id: 5,
             charId: 'char-1',
@@ -108,8 +108,28 @@ describe('MessageItem module layout', () => {
         });
 
         expect(markup).toContain('sully-message-stack flex flex-col min-w-0 items-start');
-        expect(markup).toContain('sully-quote-bubble self-end');
+        expect(markup).toContain('sully-quote-bubble self-start');
         expect(markup).toMatch(/sully-message-stack[^>]*>[\s\S]*sully-quote-bubble[\s\S]*sully-bubble-ai/);
+    });
+
+    it('用户回复时引用与正文一起靠右，不受被引用者身份影响', () => {
+        const markup = renderMessage({
+            id: 7,
+            charId: 'char-1',
+            role: 'user',
+            type: 'text',
+            content: '你看',
+            timestamp: 7,
+            replyTo: {
+                id: 6,
+                name: '角色',
+                content: '这是角色之前说过的一段更长的话',
+            },
+        });
+
+        expect(markup).toContain('sully-message-stack flex flex-col min-w-0 items-end');
+        expect(markup).toContain('sully-quote-bubble self-end');
+        expect(markup).toMatch(/sully-message-stack[^>]*>[\s\S]*sully-quote-bubble[\s\S]*sully-bubble-user/);
     });
 
     it('心象卡片提供长按复制提示与独立交互入口', () => {
