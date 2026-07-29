@@ -73,3 +73,24 @@ describe('buildMessageHistory 引用双语消息', () => {
         expect(content).not.toContain('<译文>');
     });
 });
+
+describe('buildMessageHistory 用户文字转语音', () => {
+    it('用户语音条进入模型历史时保留语音身份', () => {
+        const history = [
+            {
+                id: 1,
+                charId: 'c1',
+                role: 'user',
+                type: 'text',
+                content: '晚上回家亲亲',
+                timestamp: t0,
+                metadata: { voice: true },
+            },
+        ] as any[];
+        const { apiMessages } = ChatPrompts.buildMessageHistory(history, 10, char, userProfile, []);
+        const userMsg = apiMessages.find((m: any) => m.role === 'user');
+        const content = userMsg!.content as string;
+        expect(content).toContain('[用户发来一条语音消息，转文字如下]');
+        expect(content).toContain('晚上回家亲亲');
+    });
+});

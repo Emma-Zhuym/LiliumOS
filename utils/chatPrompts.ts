@@ -575,7 +575,8 @@ ${xhsEnabled ? emXhsSection(userProfile.name, [notionEnabled, feishuEnabled, not
 
 **你可以发送语音消息！** 就像真人用微信一样，你可以选择打字或者发语音。
 发语音用两个标签成对写：\`<语音>${langLabel}台词</语音>\` 紧跟 \`<字幕>中文字幕</字幕>\`。
-<语音> 里是真正被朗读的${langLabel}，<字幕> 里是同一段话的中文——语音条的「转文字」面板会直接用它当对照翻译，用户对着中文听${langLabel}。
+<语音> 里是真正想“说出口”的${langLabel}，<字幕> 里是同一段话的中文——语音条的「转文字」面板会直接用它当对照翻译。
+即使当前没有配置真实语音 API，<语音> 也会显示成一条语音条；用户可以点「转文字」读到内容。所以它仍然代表“你发了一条语音”，不是普通文本。
 
 规则：
 1. \`<语音>\` 里写${langLabel}——只写会被朗读的文字。可选 emotion 属性标整条情绪：\`<语音 emotion="happy">…</语音>\`，emotion 只能取 happy/sad/angry/fearful/disgusted/surprised/calm/fluent（情绪不强就别加）
@@ -605,7 +606,7 @@ ${voiceActingGuide()}`;
 用户开启了语音消息功能。
 
 **你可以发送语音消息！** 就像真人用微信一样，你可以选择打字或者发语音。
-用 \`<语音>要说的话</语音>\` 标签来发送语音。标签里的内容会被转成真正的语音条显示给用户。
+用 \`<语音>要说的话</语音>\` 标签来发送语音。标签里的内容会显示成语音条；如果配置了真实语音 API 就能播放，没配置时也会作为可「转文字」的语音条显示。
 可选地用 emotion 属性设定整条语音的情绪：\`<语音 emotion="happy">…</语音>\`，emotion 只能取 happy/sad/angry/fearful/disgusted/surprised/calm/fluent（情绪不强就别加）。
 
 示例：
@@ -768,7 +769,7 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
 
                 // [EM-START: voice-aware] 用户语音消息 → 历史里带轻量标记，角色能感知"这条是说出来的"
                 if (m.role === 'user' && m.type === 'text' && m.metadata?.voice === true) {
-                    content = `[语音] ${content}`;
+                    content = `[用户发来一条语音消息，转文字如下] ${content}`;
                 }
                 // [EM-END: voice-aware]
                 

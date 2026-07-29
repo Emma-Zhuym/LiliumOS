@@ -15,11 +15,12 @@ const renderMessage = (
     msg: Message,
     moduleAlign: 'anchor' | 'center' = 'center',
     avatarMode: 'grouped' | 'every_message' = 'every_message',
+    theme: any = activeTheme,
 ) => renderToStaticMarkup(React.createElement(MessageItem, {
     msg,
     isFirstInGroup: true,
     isLastInGroup: true,
-    activeTheme,
+    activeTheme: theme,
     charAvatar: 'https://example.com/char.png',
     charName: '角色',
     userAvatar: 'https://example.com/user.png',
@@ -132,7 +133,7 @@ describe('MessageItem module layout', () => {
         expect(markup).toMatch(/sully-message-stack[^>]*>[\s\S]*sully-quote-bubble[\s\S]*sully-bubble-user/);
     });
 
-    it('用户语音消息复用气泡主题外壳，只把内容换成语音条', () => {
+    it('用户语音消息不走自制气泡，只复用原版 Voice Bar 展示', () => {
         const markup = renderMessage({
             id: 8,
             charId: 'char-1',
@@ -143,9 +144,10 @@ describe('MessageItem module layout', () => {
             metadata: { voice: true, durationMs: 3200 },
         });
 
-        expect(markup).toContain('sully-bubble-user sully-voice-bubble');
-        expect(markup).toContain('aria-label="显示转文字"');
-        expect(markup).toContain('4″');
+        expect(markup).toContain('sully-bubble-user');
+        expect(markup).not.toContain('sully-voice-bubble');
+        expect(markup).toContain('max-w-[260px]');
+        expect(markup).not.toContain('晚上回家亲亲');
     });
 
     it('心象卡片提供长按复制提示与独立交互入口', () => {

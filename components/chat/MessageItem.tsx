@@ -1482,7 +1482,6 @@ avatarShape = 'circle',
 
     const styleConfig = isUser ? activeTheme.user : activeTheme.ai;
     const [showVoiceText, setShowVoiceText] = useState(false);
-    const [showSttText, setShowSttText] = useState(false); // [EM: stt-text-state]
     const [replyOffset, setReplyOffset] = useState(0);
     const [isReplyGestureActive, setIsReplyGestureActive] = useState(false);
     const [isReplyReady, setIsReplyReady] = useState(false);
@@ -3507,7 +3506,9 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
         ?? m.content.match(/<[语語]音[^>]*>([\s\S]*)$/)?.[1]
         ?? ''
     ).replace(/<字幕>[\s\S]*?<\/字幕>/g, '').trim()) : '';
-    const hasVoiceContent = voiceData?.url || voiceLoading || hasVoiceTag;
+    // [EM: user-text-as-voice] 用户在输入框点语音发送时，只改变展示形态：复用下方原版 Voice Bar。
+    const isVoiceBubble = m.type === 'text' && isUser && m.metadata?.voice === true;
+    const hasVoiceContent = voiceData?.url || voiceLoading || hasVoiceTag || isVoiceBubble;
     // Don't render empty bubbles (e.g. messages that were just "---"), unless voice data exists or pending
     if (!displayContent && !hasVoiceContent) return null;
 
@@ -3533,82 +3534,6 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
         );
     })() : null;
 
-    // [EM-START: user-voice-bubble] 用户主动以语音条格式发送的消息（metadata.voice）
-    const isVoiceBubble = m.type === 'text' && isUser && m.metadata?.voice === true;
-
-    if (isVoiceBubble) {
-        const durationMs: number = m.metadata?.durationMs ?? 0;
-        const durationSec = durationMs > 0 ? Math.max(1, Math.ceil(durationMs / 1000)) : null;
-        const textToPlay = displayContent || m.content;
-
-        const bubble = (
-            <div
-                className={`relative shadow-sm px-5 py-3 animate-bubble-pop-right active:scale-[0.98] transition-transform overflow-visible sully-bubble-user sully-voice-bubble select-none`}
-                style={{ ...containerStyle, color: styleConfig.textColor }}
-            >
-                {styleConfig.backgroundImage && (
-                    <div
-                        className="absolute inset-0 bg-cover bg-center pointer-events-none z-0"
-                        style={{
-                            backgroundImage: `url(${styleConfig.backgroundImage})`,
-                            opacity: styleConfig.backgroundImageOpacity ?? 0.5,
-                            borderRadius: 'inherit'
-                        }}
-                    />
-                )}
-                {styleConfig.decoration && (
-                    <img
-                        src={styleConfig.decoration}
-                        className="absolute z-10 w-8 h-8 object-contain drop-shadow-sm pointer-events-none"
-                        style={{
-                            left: `${styleConfig.decorationX ?? 90}%`,
-                            top: `${styleConfig.decorationY ?? -10}%`,
-                            transform: `translate(-50%, -50%) scale(${styleConfig.decorationScale ?? 1}) rotate(${styleConfig.decorationRotate ?? 0}deg)`
-                        }}
-                        alt=""
-                    />
-                )}
-                <div className="relative z-10 flex items-center gap-2">
-                    <div className="flex items-center gap-[2px] h-4">
-                        {[5, 9, 6, 13, 8, 11, 5, 10, 7, 12, 5, 9].map((h, i) => (
-                            <span
-                                key={i}
-                                className="inline-block w-[2.5px] rounded-full bg-current"
-                                style={{ height: `${Math.max(2, h * 0.5)}px`, opacity: 0.6 + (h / 13) * 0.35 }}
-                            />
-                        ))}
-                    </div>
-                    {durationSec && (
-                        <span className="text-xs shrink-0" style={{ opacity: 0.75 }}>{durationSec}″</span>
-                    )}
-                    <button
-                        onClick={(e) => { e.stopPropagation(); e.preventDefault(); setShowSttText(t => !t); }}
-                        className={`shrink-0 ml-auto w-6 h-6 flex items-center justify-center rounded-lg border border-current/15 transition-all active:scale-95 ${showSttText ? 'bg-current/15 ring-1 ring-current/20' : 'bg-current/10'}`}
-                        style={{ color: 'inherit' }}
-                        aria-label={showSttText ? '收起转文字' : '显示转文字'}
-                    >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8 10h8"/><path d="M8 14h4"/></svg>
-                    </button>
-                </div>
-                {showSttText && (
-                    <div
-                        className="relative z-10 mt-2 pt-2 border-t border-current/20 text-[13px] leading-relaxed whitespace-pre-wrap select-text"
-                        style={{ color: 'inherit', opacity: 0.92 }}
-                    >
-                        {textToPlay}
-                    </div>
-                )}
-            </div>
-        );
-
-        return commonLayout(
-            <div className={`sully-message-stack flex flex-col min-w-0 ${isUser ? 'items-end' : 'items-start'}`}>
-                {quoteBlock}
-                {bubble}
-            </div>
-        );
-    }
-    // [EM-END: user-voice-bubble]
     // 外语语音消息：语音条展开区（转文字）本身就完整呈现「口播原文 + 中文翻译」两行，
     // 顶部气泡再渲染一遍 displayContent 就成了重复——翻译模式下顶部是中文、语音条翻译行
     // 也是中文，用户看到两份一样的翻译。这类消息把双语文字统一收进语音条，
@@ -3652,14 +3577,14 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
             {/* Layer 3: Reply/Quote — moved outside bubble, rendered above as quoteBlock */}
 
             {/* [EM: voice-mode-hide-text] Layer 4 — 外语语音消息不重复正文；EM 声音模式下角色消息文字收进语音条 */}
-            {displayContent && !isForeignVoiceMsg && (
+            {displayContent && !isForeignVoiceMsg && !isVoiceBubble && (
             <div className="relative z-10 text-[15px] leading-relaxed whitespace-pre-wrap break-all select-text" style={{ color: styleConfig.textColor }}>
                 {renderContent(displayContent)}
             </div>
             )}
 
             {/* Layer 5: 双语「翻译/原文」切换 —— 气泡内右下角，细分隔线压层级，小灰字克制易找 */}
-            {showTranslateButton && displayContent && !isForeignVoiceMsg && (
+            {showTranslateButton && displayContent && !isForeignVoiceMsg && !isVoiceBubble && (
                 <div
                     className="relative z-10 mt-2 pt-1.5 flex justify-end"
                     style={{ borderTop: '1px solid rgba(127, 127, 127, 0.16)' }}
@@ -3685,7 +3610,7 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
             )}
 
             {/* Layer 6: Voice Bar */}
-            {(voiceData?.url || voiceLoading || hasVoiceTag) && !isUser && m.type === 'text' && (() => {
+            {(((voiceData?.url || voiceLoading || hasVoiceTag) && !isUser) || isVoiceBubble) && m.type === 'text' && (() => {
                 const vbBg = styleConfig.voiceBarBg;
                 const vbActiveBg = styleConfig.voiceBarActiveBg;
                 const vbBtn = styleConfig.voiceBarBtnColor;
@@ -3693,7 +3618,7 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
                 const vbText = styleConfig.voiceBarTextColor;
                 // Voice-only mode: no visible text, voice bar is primary content.
                 // 外语语音消息顶部正文已隐藏（交给语音条渲染），同样按纯语音处理，去掉多余上间距。
-                const isVoiceOnly = !!voiceData?.url && (!displayContent || isForeignVoiceMsg);
+                const isVoiceOnly = (!!voiceData?.url && (!displayContent || isForeignVoiceMsg)) || isVoiceBubble;
                 return (
                 <div className={`relative z-10 ${isVoiceOnly ? '' : 'mt-2.5'}`}>
                     {voiceData?.url ? (
@@ -3811,7 +3736,7 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
                             </div>
                             <span className="text-[10px] shrink-0 animate-pulse" style={{ color: vbText || '#94a3b8' }}>合成中</span>
                         </div>
-                    ) : hasVoiceTag ? (
+                    ) : (hasVoiceTag || isVoiceBubble) ? (
                         /* Voice tag exists in content but no audio yet — either TTS is still
                            pending (app restart / auto-TTS) or the character has no MiniMax voice
                            configured. Offer a 转文字 toggle here too so the text stays readable,
