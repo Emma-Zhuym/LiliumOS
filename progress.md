@@ -1,12 +1,12 @@
 # SullyEM Current Progress
 
-> 当前主干进度快照。最后更新：2026-07-29。
+> 发布基线与验收分支并列记录。最后更新：2026-08-01。
 
 ## 快照范围
 
-- 当前分支：`main`
-- 功能基线覆盖至：`39cf687` 及本次文档/引用对齐修订
-- 最近上游基线：`qegj567-cloud/SullyOS` `9753431`（2026-07-28）
+- 发布分支：`main`，仍在 `233cc237`。
+- 已验证并推送的验收分支：`merge-upstream-2026-08-01`，当前 `2b9db3e4`；尚待单独批准推进 `main`。
+- 验收分支最近上游基线：`qegj567-cloud/SullyOS` `b24709a7`（2026-08-01）。
 
 ## 最近完成
 
@@ -17,12 +17,15 @@
 - Shopping 店铺目录、整页和折叠店内商品均可独立滚动。
 - 聊天引用气泡和正文按各自内容宽度收缩，并提供 `.sully-quote-bubble` CSS 钩子；整组方向由当前消息发送者决定（用户靠右、角色靠左）。
 - 更新 Claude/Codex 的上游审批规则：调研、执行合并、推进 main、push main 分别需要对应授权。
+- 验收分支合入上游的写歌工作台、API 预设编辑/删除、生活记录补录、新闻源/备份/API 日志/记忆恢复、日程上下文和查手机修复。
+- 语音条恢复上游气泡工坊五项主题设置；EM 只保留用户“文字作为语音条发送”的展示功能。角色未配 TTS 时仍能输出语音标签，语音条可转文字，真实播放才需要配置。
+- 聊天“日程/情绪”设置增加每角色日程密度滑块：5–12 段，默认 8 段，松手后重生成当天日程。
 
 ## 验证基线
 
-- `bash scripts/check-em-patches.sh`：74/74 通过。
-- `pnpm vitest run`：123 个测试文件，1250 passed，5 skipped。
-- `pnpm run build`：通过。
+- `main`（2026-07-29）：`check-em-patches.sh` 74/74；`pnpm vitest run` 123 个测试文件、1250 passed、5 skipped；构建通过。
+- 验收分支（2026-08-01）：`check-em-patches.sh` 74/74；全量 `pnpm vitest run` 133 个测试文件、1355 passed、5 skipped；构建通过。
+- 验收分支定向补测：语音提示词/标签/转文字相关测试 57 passed；日程生成与 MessageItem 定向测试 18 passed。
 - 移动端真实页面验证：Shopping 双层滚动和聊天引用气泡修复均已检查。
 
 ## 当前产品状态
@@ -33,8 +36,8 @@
 - Intiface 硬件集成。
 - Finance 重设计与备份。
 - Token 面板召回记忆展示。
-- Online / Busy / Offline。
-- Open-Meteo、照片收藏、查手机轮播、Shopping、EM 角色代记。
+- Online / Busy / Offline；日程支持角色独立的 5–12 段密度设置。
+- Open-Meteo、照片收藏、查手机轮播、Shopping、EM 角色代记、聊天快捷工具栏。
 
 ### 部分完成
 

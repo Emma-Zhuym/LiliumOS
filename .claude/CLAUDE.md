@@ -134,6 +134,7 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - `utils/safeAreaApps.ts` 加了 `AppID.Map`（哨兵 `[EM: map-schedule-clay]`，check 脚本有锚点）
 - MapWorld.cityName / MapRegion.description 为可选新字段，旧 IndexedDB 数据零迁移
 - 日程生成入口在聊天工具栏「日程/情绪」，地图 sheet 不放生成按钮（去找 TA 即达）
+- **日程密度**：`CharacterProfile.scheduleSlotCount?` 按角色保存，取值钳制为 5–12、缺省为 8；聊天日程/情绪弹窗的滑块在松手/键盘提交后才重生成，避免拖动时连续调 API。`utils/scheduleGenerator.ts` 的生活系和意识系 prompt 必须严格使用该数量，不能重新写死 5–7 或 8–10。
 
 ### 14. Finance 重设计 + 备份
 - `apps/BankApp.tsx` / `utils/financeDb.ts` — 多账户、多币种、层级分类、流水、周期规则、趋势和“TA 怎么看”
@@ -160,6 +161,12 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - `utils/launcherPagination.ts`：首页 12 个（三行）、第二页 pinwheel 8 个、普通页 20 个（五行）
 - Health / Shopping / Map 图标分别为 `Heartbeat` / `Storefront` / `MapPin`
 - `MessageItem.tsx` 的 `sully-message-stack` 保证引用和正文独立宽度；整组方向只看当前消息（用户右、角色左），不能按被引用者决定；`.sully-quote-bubble` 是引用专用 CSS 钩子
+
+### 19. 文字语音条与上游主题设置
+- `m.metadata.voice === true` 是 EM 的用户文字语音标记：只改变用户消息的展示形态和聊天历史语义，不调用 TTS，也不得影响角色是否能发语音。
+- 角色能否输出 `<语音>` 仅取决于 `char.chatVoiceEnabled`；即使没有 MiniMax / Fish 音色或 API，提示词仍允许角色发送 `<语音>`，`MessageItem.tsx` 必须保留可“转文字”的占位语音条。
+- 真实自动合成额外要求 `characterHasVoice(char, apiConfig)`；未配置时只跳过合成，不能阻断标签输出或改成普通文本。
+- `apps/ThemeMaker.tsx` 与 `MessageItem.tsx` 的 `voiceBarBg`、`voiceBarActiveBg`、`voiceBarBtnColor`、`voiceBarWaveColor`、`voiceBarTextColor` 是上游主题契约。EM 用户文字语音也必须复用它们；不得删除面板或用普通气泡颜色替代。
 
 ## 合并时常见坑（踩过的 bug）
 

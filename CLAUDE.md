@@ -11,6 +11,7 @@
 | 主题 | 文档 | 什么时候看 |
 |------|------|-----------|
 | **当前进度 / Roadmap** | [`progress.md`](./progress.md)、[`docs/roadmap.md`](./docs/roadmap.md) | 判断功能是已完成、部分完成还是待做时先看；旧规格中的状态文字可能已过期 |
+| **聊天语音条与日程密度** | [`.claude/CLAUDE.md`](./.claude/CLAUDE.md) 的 13、19 节 | 改 `<语音>` 标签、TTS、气泡工坊语音条颜色或日程生成数量前先看；“能显示转文字语音条”与“能合成真实音频”是两层能力，不能混为一谈 |
 | **开发调试面板 / 开关** | [`docs/dev-debug.md`](./docs/dev-debug.md) | 加 dev-only 开关、加调试日志、排查"角色怎么又不说话了"。含逐步指南 |
 | **记忆系统** | [`docs/memory-system-overview.md`](./docs/memory-system-overview.md) | 涉及长期记忆、月度总结、向量化记忆宫殿、情感空间。改记忆相关逻辑前必读 |
 | **查手机 · 人际关系系统** | [`docs/relationship-system.md`](./docs/relationship-system.md) | 改「查手机」聊天/通讯录、角色联系人/好感、真假甄别、真角色双向对话、虚构 NPC 约束前必读 |
