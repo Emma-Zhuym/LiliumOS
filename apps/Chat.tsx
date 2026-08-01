@@ -1775,6 +1775,24 @@ const Chat: React.FC = () => {
         }
     };
 
+    const handleScheduleSlotCountChange = async (slotCount: number) => {
+        if (!char || isScheduleGenerating) return;
+        const nextSlotCount = Math.min(12, Math.max(5, Math.round(slotCount)));
+        if (nextSlotCount === (char.scheduleSlotCount ?? 8)) return;
+        const updatedChar = { ...char, scheduleSlotCount: nextSlotCount };
+        updateCharacter(char.id, { scheduleSlotCount: nextSlotCount });
+        if (!isScheduleFeatureOn(updatedChar)) return;
+        setIsScheduleGenerating(true);
+        try {
+            const result = await generateDailyScheduleForChar(updatedChar, userProfile, apiConfig, true);
+            if (result) setScheduleData(result);
+        } catch (e) {
+            console.error('[Schedule] Regeneration after density change failed:', e);
+        } finally {
+            setIsScheduleGenerating(false);
+        }
+    };
+
     // 日程 / 情绪 buff 总开关
     // 关闭：清空前台 scheduleData，同时清空可能已缓存的 buff 注入（防止继续污染下一轮 prompt）
     // 打开：若还没生成今日日程，立即生成一次
@@ -3057,6 +3075,8 @@ const Chat: React.FC = () => {
                 onScheduleReroll={() => generateDailySchedule(char, true)}
                 onScheduleCoverChange={handleScheduleCoverChange}
                 onScheduleStyleChange={handleScheduleStyleChange}
+                scheduleSlotCount={char.scheduleSlotCount ?? 8}
+                onScheduleSlotCountChange={handleScheduleSlotCountChange}
                 onPlayTheater={handlePlayTheater}
                 isScheduleFeatureEnabled={isScheduleFeatureOn(char)}
                 onToggleScheduleFeature={handleToggleScheduleFeature}

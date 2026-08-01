@@ -2426,6 +2426,9 @@ export interface CharacterProfile {
    */
   scheduleStyle?: 'lifestyle' | 'mindful';
 
+  /** 每日日程生成的时间段数量。未设置时按 8 段生成，按角色独立保存。 */
+  scheduleSlotCount?: number;
+
   /**
    * 日程 / 情绪 Buff 总开关。
    * - true：启用日程生成、意识流、情绪 buff 评估与注入（消耗副 API）。

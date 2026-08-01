@@ -1,9 +1,10 @@
 
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Modal from '../os/Modal';
 import { CharacterProfile, Message, EmojiCategory, DailySchedule, ScheduleSlot, ApiPreset, APIConfig } from '../../types';
 import ScheduleCard from '../schedule/ScheduleCard';
 import EmotionSettingsPanel from './EmotionSettingsPanel';
+import { F, HUE } from '../../utils/clayTokens';
 import { isTranslationLangPreset, normalizeTranslationLangLabel, TRANSLATION_LANG_MAX_LENGTH, TRANSLATION_LANG_PRESETS } from '../../utils/translationLang';
 import type { ContextRangeMode, ContextRangeSnapshot } from '../../utils/chatContextRange';
 
@@ -118,6 +119,8 @@ interface ChatModalsProps {
     onScheduleReroll?: () => void;
     onScheduleCoverChange?: (dataUrl: string) => void;
     onScheduleStyleChange?: (style: 'lifestyle' | 'mindful') => void;
+    scheduleSlotCount?: number;
+    onScheduleSlotCountChange?: (count: number) => void;
     onPlayTheater?: (index: number) => void;
     // Schedule master toggle
     isScheduleFeatureEnabled?: boolean;
@@ -244,7 +247,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
     chatVoiceEnabled, onToggleChatVoice, chatVoiceLang, onSetChatVoiceLang,
     onGenerateVoice, voiceAvailable, onDownloadVoice, voiceDownloadable,
     scheduleData, isScheduleGenerating, onScheduleEdit, onScheduleDelete, onScheduleReroll, onScheduleCoverChange,
-    onScheduleStyleChange, onPlayTheater,
+    onScheduleStyleChange, scheduleSlotCount = 8, onScheduleSlotCountChange, onPlayTheater,
     isScheduleFeatureEnabled, onToggleScheduleFeature,
     isMemoryPalaceEnabled, isVectorizing, vectorizePendingCount, vectorizeProgress, onForceVectorize,
     apiPresets, onAddApiPreset, onSaveEmotion, onClearBuffs,
@@ -253,11 +256,22 @@ const ChatModals: React.FC<ChatModalsProps> = ({
     const [visibilitySelection, setVisibilitySelection] = useState<Set<string>>(new Set());
     const [historyPage, setHistoryPage] = useState(0);
     const [historySearch, setHistorySearch] = useState('');
+    const [scheduleSlotCountDraft, setScheduleSlotCountDraft] = useState(scheduleSlotCount);
     const longPressTimerRef = useRef<number | null>(null);
     const longPressTriggeredRef = useRef(false);
     const HISTORY_PAGE_SIZE = 50;
     const HISTORY_SEARCH_MAX = 200;
     const LONG_PRESS_MS = 450;
+
+    useEffect(() => {
+        setScheduleSlotCountDraft(scheduleSlotCount);
+    }, [activeCharacter?.id, modalType, scheduleSlotCount]);
+
+    const commitScheduleSlotCount = () => {
+        if (scheduleSlotCountDraft !== scheduleSlotCount) {
+            onScheduleSlotCountChange?.(scheduleSlotCountDraft);
+        }
+    };
 
     const startHistoryLongPress = (msgId: number) => {
         longPressTriggeredRef.current = false;
@@ -1099,6 +1113,34 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                                             <span className="block text-[10px] opacity-70 font-normal">真实内心 · 不虚构不说谎</span>
                                         </button>
                                     </div>
+                                </div>
+                            )}
+
+                            {onScheduleSlotCountChange && (
+                                <div className="mb-4 rounded-2xl p-3" style={{ background: HUE.purple.tint, border: `1px solid ${HUE.purple.soft}` }}>
+                                    <div className="flex items-center justify-between gap-3 mb-2">
+                                        <div>
+                                            <p className="text-xs font-bold" style={{ color: HUE.purple.ink }}>日程密度</p>
+                                            <p className="text-[10px] leading-relaxed" style={{ color: HUE.violet.ink }}>每天 {scheduleSlotCountDraft} 个时段，松手后重新生成。</p>
+                                        </div>
+                                        <span className="min-w-9 px-2 py-1 rounded-lg text-xs font-bold text-center" style={{ background: F.surfaceRaised, color: HUE.purple.ink }}>{scheduleSlotCountDraft}</span>
+                                    </div>
+                                    <input
+                                        type="range"
+                                        min="5"
+                                        max="12"
+                                        step="1"
+                                        value={scheduleSlotCountDraft}
+                                        onChange={(event) => setScheduleSlotCountDraft(Number(event.target.value))}
+                                        onPointerUp={commitScheduleSlotCount}
+                                        onKeyUp={(event) => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') commitScheduleSlotCount(); }}
+                                        onBlur={commitScheduleSlotCount}
+                                        disabled={isScheduleGenerating}
+                                        aria-label="日程时间段数量"
+                                        className="w-full h-1.5 cursor-pointer disabled:cursor-not-allowed"
+                                        style={{ accentColor: HUE.purple.main }}
+                                    />
+                                    <div className="flex justify-between mt-1 text-[9px]" style={{ color: HUE.violet.ink }}><span>5 段</span><span>12 段</span></div>
                                 </div>
                             )}
 

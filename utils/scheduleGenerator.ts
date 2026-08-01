@@ -20,6 +20,15 @@ interface ApiConfig {
     model: string;
 }
 
+const DEFAULT_SLOT_COUNT = 8;
+const MIN_SLOT_COUNT = 5;
+const MAX_SLOT_COUNT = 12;
+
+function getScheduleSlotCount(char: CharacterProfile): number {
+    const requested = Number(char.scheduleSlotCount ?? DEFAULT_SLOT_COUNT);
+    return Math.min(MAX_SLOT_COUNT, Math.max(MIN_SLOT_COUNT, Math.round(requested)));
+}
+
 /**
  * 构建生活系（lifestyle）角色的日程生成 prompt。
  *
@@ -96,6 +105,7 @@ function buildLifestylePrompt(
     dayOfWeek: string,
     chatHistoryBlock: string,
     mapRegionsBlock: string, // [EM: map-region-id]
+    slotCount: number,
 ): string {
     return `${baseContext}
 ${chatHistoryBlock}
@@ -109,7 +119,7 @@ ${chatHistoryBlock ? `**重要：上面给了你最近和「${user.name}」的�
 
 ### 第一部分：日程表（用于UI卡片展示）
 
-生成 8-10 个时间段，从早到晚。不要只写大块上午/下午/晚上，要把真实一天里的短碎片和过渡段也切出来（例如醒后赖床、通勤/路上、短暂摸鱼、吃饭、收拾、睡前空白等）。每个时段：
+严格生成 ${slotCount} 个时间段，从早到晚。不要只写大块上午/下午/晚上，要把真实一天里的短碎片和过渡段也切出来（例如醒后赖床、通勤/路上、短暂摸鱼、吃饭、收拾、睡前空白等）。每个时段：
 - startTime: "HH:MM"
 - activity: 活动名（2-6字）
 - description: 一句话描述（可以带动作质感、物件、感官细节）
@@ -197,6 +207,7 @@ function buildMindfulPrompt(
     today: string,
     dayOfWeek: string,
     chatHistoryBlock: string,
+    slotCount: number,
 ): string {
     return `${baseContext}
 ${chatHistoryBlock}
@@ -210,7 +221,7 @@ ${chatHistoryBlock ? `**重要：上面给了你最近和「${user.name}」的�
 
 ### 第一部分：思绪时间线（用于UI卡片展示）
 
-生成 8-10 个时间段，代表角色一天中不同时刻的内心状态。不要只写大块上午/下午/晚上，要把短暂的注意力转移、发呆、等待、重新专注、睡前漂浮感等细碎状态也切出来。每个时段：
+严格生成 ${slotCount} 个时间段，代表角色一天中不同时刻的内心状态。不要只写大块上午/下午/晚上，要把短暂的注意力转移、发呆、等待、重新专注、睡前漂浮感等细碎状态也切出来。每个时段：
 - startTime: "HH:MM"
 - activity: 状态名（2-6字，如"回想昨天的对话""发呆""整理想法""想找你聊天"）
 - description: 一句话描述此刻在想什么
@@ -320,6 +331,7 @@ export async function generateDailyScheduleForChar(
     const dayOfWeek = ['日', '一', '二', '三', '四', '五', '六'][now.getDay()];
 
     const style = char.scheduleStyle || 'lifestyle';
+    const slotCount = getScheduleSlotCount(char);
 
     // [EM-START: map-region-id] 生活系角色把地图地点清单注入 prompt，slot 直出 regionId
     let mapWorld: MapWorld | null = null;
@@ -330,8 +342,8 @@ export async function generateDailyScheduleForChar(
     // [EM-END: map-region-id]
 
     const prompt = style === 'mindful'
-        ? buildMindfulPrompt(baseContext, char, userProfile, today, dayOfWeek, chatHistoryBlock)
-        : buildLifestylePrompt(baseContext, char, userProfile, today, dayOfWeek, chatHistoryBlock, mapRegionsBlock);
+        ? buildMindfulPrompt(baseContext, char, userProfile, today, dayOfWeek, chatHistoryBlock, slotCount)
+        : buildLifestylePrompt(baseContext, char, userProfile, today, dayOfWeek, chatHistoryBlock, mapRegionsBlock, slotCount);
 
     try {
         const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
