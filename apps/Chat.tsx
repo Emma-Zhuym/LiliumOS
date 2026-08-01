@@ -75,7 +75,7 @@ type InstantToolUiStatus = {
 };
 
 const Chat: React.FC = () => {
-    const { characters, activeCharacterId, setActiveCharacterId, updateCharacter, apiConfig, apiPresets, addApiPreset, closeApp, customThemes, removeCustomTheme, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar, setMessageSubView } = useOS(); // [EM: message-sub-view-destructure]
+    const { characters, activeCharacterId, setActiveCharacterId, updateCharacter, apiConfig, updateApiConfig, apiPresets, addApiPreset, closeApp, customThemes, removeCustomTheme, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar, setMessageSubView } = useOS(); // [EM: message-sub-view-destructure]
     const isProactiveComposing = !!(activeCharacterId && proactiveComposingChars[activeCharacterId]);
     const localDateKey = useLocalDateKey();
 
@@ -3553,6 +3553,13 @@ const Chat: React.FC = () => {
                     inputStyle={osTheme.chatInputStyle}
                     sendButtonStyle={osTheme.chatSendButtonStyle}
                     chromeStyle={osTheme.chatChromeStyle}
+                    quickToolbarEnabled={osTheme.chatQuickToolbar === true}
+                    apiConfig={apiConfig}
+                    apiPresets={apiPresets}
+                    onApiPresetSelect={(preset) => {
+                        updateApiConfig(preset.config);
+                        addToast(`已切换 API：${preset.name}`, 'success');
+                    }}
                     acnh={acnh}
                     onVoiceSend={handleVoiceSend}
                    

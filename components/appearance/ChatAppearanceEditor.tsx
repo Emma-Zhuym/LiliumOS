@@ -3,7 +3,7 @@ import { AppID, OSTheme, ChatFineTuneFields } from '../../types';
 import WhiteboxSoundEditor from '../chat/WhiteboxSoundEditor';
 import { WhiteboxSound } from '../../utils/whiteboxSound';
 import ChatFineTunePanel from '../chat/ChatFineTunePanel';
-import { FadersHorizontal } from '@phosphor-icons/react';
+import { CalendarBlank, FadersHorizontal, Image, MagicWand, Microphone, Plus, Smiley } from '@phosphor-icons/react';
 
 type Props = {
     theme: OSTheme;
@@ -212,6 +212,7 @@ const defaults = {
     chatHeaderDensity: 'default',
     chatStatusStyle: 'subtle',
     chatSendButtonStyle: 'circle',
+    chatQuickToolbar: false,
 } as const;
 
 const groupClass = 'rounded-3xl border border-slate-100 bg-white p-5 shadow-sm';
@@ -406,6 +407,7 @@ export const ChatAppearanceEditor: React.FC<Props> = ({ theme, updateTheme, onRe
     const headerDensity = theme.chatHeaderDensity || defaults.chatHeaderDensity;
     const statusStyle = theme.chatStatusStyle || defaults.chatStatusStyle;
     const sendButtonStyle = theme.chatSendButtonStyle || defaults.chatSendButtonStyle;
+    const quickToolbar = theme.chatQuickToolbar === true;
     const pendingIndicator = theme.chatPendingIndicator !== false;
     const showHeaderBuffs = theme.chatHideHeaderBuffs !== true;
     const [showStyleHelp, setShowStyleHelp] = useState(false);
@@ -559,7 +561,7 @@ export const ChatAppearanceEditor: React.FC<Props> = ({ theme, updateTheme, onRe
                     </div>
                     <div className={`sully-chat-inputbar border-t px-3 py-3 ${chromeStyle === 'pixel' ? 'border-[#8f674a] bg-[#eadfce]' : headerStyle === 'discord' ? 'border-white/10 bg-slate-900/90' : 'border-slate-100 bg-white/80'}`}>
                         <div className="flex items-end gap-2">
-                            <button className={`flex h-10 w-10 shrink-0 items-center justify-center ${chromeStyle === 'pixel' ? 'rounded-[4px] border-2 border-[#8f674a] bg-[#f8f0e0] text-[#8f674a]' : headerStyle === 'discord' ? 'rounded-full bg-slate-800 text-slate-200' : 'rounded-full bg-slate-100 text-slate-500'}`}>+</button>
+                            {!quickToolbar && <button className={`flex h-10 w-10 shrink-0 items-center justify-center ${chromeStyle === 'pixel' ? 'rounded-[4px] border-2 border-[#8f674a] bg-[#f8f0e0] text-[#8f674a]' : headerStyle === 'discord' ? 'rounded-full bg-slate-800 text-slate-200' : 'rounded-full bg-slate-100 text-slate-500'}`}>+</button>}
                             <div className={`flex min-h-10 flex-1 items-center px-4 text-[11px] ${inputStyle === 'flat' ? 'rounded-none border-b border-slate-200 bg-transparent' : inputStyle === 'wechat' ? 'rounded-full border border-slate-200 bg-white' : inputStyle === 'ios' ? 'rounded-[26px] border border-white/80 bg-white/80 shadow-inner' : inputStyle === 'telegram' ? 'rounded-2xl border border-sky-100 bg-white' : inputStyle === 'discord' ? 'rounded-2xl border border-white/10 bg-slate-800 text-white' : inputStyle === 'pixel' ? 'rounded-[4px] border-2 border-[#8f674a] bg-[#f8f0e0]' : inputStyle === 'rounded' ? 'rounded-full bg-slate-100' : 'rounded-[22px] bg-slate-100'}`}>
                                 输入消息...
                             </div>
@@ -567,6 +569,28 @@ export const ChatAppearanceEditor: React.FC<Props> = ({ theme, updateTheme, onRe
                                 {sendButtonStyle === 'pill' ? '发送' : '➤'}
                             </button>
                         </div>
+                        {quickToolbar && (
+                            <div className="sully-chat-quick-toolbar mt-2 px-2">
+                                <div className="flex items-center justify-between gap-1.5">
+                                    {[Microphone, Image, CalendarBlank, MagicWand, Smiley, Plus].map((Icon, index) => (
+                                        <button
+                                            key={index}
+                                            type="button"
+                                            tabIndex={-1}
+                                            className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
+                                                chromeStyle === 'pixel'
+                                                    ? 'text-[#8f674a]'
+                                                    : headerStyle === 'discord'
+                                                      ? 'text-slate-200'
+                                                      : 'text-slate-700'
+                                            }`}
+                                        >
+                                            <Icon className="h-[18px] w-[18px]" weight="light" />
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             </section>
@@ -735,6 +759,23 @@ export const ChatAppearanceEditor: React.FC<Props> = ({ theme, updateTheme, onRe
                 {page === 5 && (<>
                     <ChoiceGroup title="表情包大小" items={choices.emojiSize} value={theme.chatEmojiSize || 'small'} onPick={(value) => updateTheme({ chatEmojiSize: value as OSTheme['chatEmojiSize'] })} />
                     <p className="mt-2 text-[10px] text-slate-400">聊天和群聊里发出的表情包图片尺寸。用自定义 CSS 调过尺寸的美化会继续覆盖这里的设置。（表情包尺寸预览里看不到，进聊天发一张试试。）</p>
+                    <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50/70 p-3">
+                        <div className="flex items-start justify-between gap-3">
+                            <div>
+                                <div className="text-[11px] font-bold text-slate-700">输入栏快捷入口</div>
+                                <p className="mt-1 text-[10px] leading-relaxed text-slate-400">
+                                    在输入框下方显示语音、相册、日程、API、表情和更多；开启后输入框内不再重复显示表情与语音按钮。
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => updateTheme({ chatQuickToolbar: !quickToolbar })}
+                                className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-bold transition-all active:scale-95 ${quickToolbar ? 'bg-primary text-white shadow-sm' : 'bg-white text-slate-500 border border-slate-200'}`}
+                            >
+                                {quickToolbar ? '已开启' : '关闭'}
+                            </button>
+                        </div>
+                    </div>
                     <div className="mt-4">
                         <ChoiceGroup title="输入栏风格" items={choices.input} value={inputStyle} onPick={(value) => updateTheme({ chatInputStyle: value as OSTheme['chatInputStyle'] })} />
                     </div>

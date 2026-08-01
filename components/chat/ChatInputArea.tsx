@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { ShareNetwork, Trash, Plus, Smiley, PaperPlaneTilt, Money, BookOpenText, GearSix, Image, Lock, ArrowsClockwise, ChatCircleDots, CalendarBlank, ForkKnife, Coffee, Code, Brain, PencilSimple, BellSimpleRinging, NotePencil, GameController, Microphone, Waveform, Sparkle, CaretDown, FadersHorizontal, LinkSimple } from '@phosphor-icons/react'; // [EM: icons NotePencil/GameController/Microphone/Waveform]
+import { ShareNetwork, Trash, Plus, Smiley, PaperPlaneTilt, Money, BookOpenText, GearSix, Image, Lock, ArrowsClockwise, ChatCircleDots, CalendarBlank, ForkKnife, Coffee, Code, Brain, PencilSimple, BellSimpleRinging, NotePencil, GameController, Microphone, Waveform, Sparkle, CaretDown, FadersHorizontal, LinkSimple, MagicWand } from '@phosphor-icons/react'; // [EM: icons NotePencil/GameController/Microphone/Waveform]
 import { intifaceClient } from '../../utils/intifaceClient'; // [EM: intiface]
-import { CharacterProfile, ChatTheme, EmojiCategory, Emoji } from '../../types';
+import { CharacterProfile, ChatTheme, EmojiCategory, Emoji, APIConfig, ApiPreset } from '../../types';
 import { PRESET_THEMES } from './ChatConstants';
 import { AcnhActionTile } from '../os/acnhIcons';
 import { isIOSStandaloneWebApp } from '../../utils/iosStandalone';
@@ -56,6 +56,13 @@ interface ChatInputAreaProps {
     inputStyle?: 'default' | 'rounded' | 'flat' | 'wechat' | 'ios' | 'telegram' | 'discord' | 'pixel';
     sendButtonStyle?: 'circle' | 'pill' | 'minimal';
     chromeStyle?: 'soft' | 'flat' | 'floating' | 'pixel';
+    /** 外观设置中开启的聊天快捷栏：默认关闭，避免改动上游输入栏形态。 */
+    // [EM-START: chat-quick-toolbar-props]
+    quickToolbarEnabled?: boolean;
+    apiConfig?: APIConfig;
+    apiPresets?: ApiPreset[];
+    onApiPresetSelect?: (preset: ApiPreset) => void;
+    // [EM-END: chat-quick-toolbar-props]
     /** 动森彩蛋模式：输入栏换成木质草绿圆角。 */
     acnh?: boolean;
     /** STT 语音发送回调：文字内容 + 录音时长 */
@@ -84,6 +91,10 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     inputStyle = 'default',
     sendButtonStyle = 'circle',
     chromeStyle = 'soft',
+    quickToolbarEnabled = false,
+    apiConfig,
+    apiPresets = [],
+    onApiPresetSelect,
     acnh = false,
     onVoiceSend,
 }) => {
@@ -97,6 +108,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     const [pendingDeleteThemeId, setPendingDeleteThemeId] = useState<string | null>(null);
     const [emojiSelectionMode, setEmojiSelectionMode] = useState(false);
     const [selectedEmojis, setSelectedEmojis] = useState<any[]>([]);
+    const [showApiPresets, setShowApiPresets] = useState(false);
     // 分组太多时横向拖不动：提供「展开全部分组」网格总览
     const [showCategoryOverview, setShowCategoryOverview] = useState(false);
     // 表情网格增量渲染：几百张 base64 图一次性挂载会卡爆，滚动到底再补
@@ -294,6 +306,10 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
         }
     }, [emojis]);
 
+    React.useEffect(() => {
+        if (!quickToolbarEnabled) setShowApiPresets(false);
+    }, [quickToolbarEnabled]);
+
     const isDiscordStyle = inputStyle === 'discord';
     const isPixelStyle = inputStyle === 'pixel' || chromeStyle === 'pixel';
     const shellClass = acnh
@@ -312,6 +328,18 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
         : isDiscordStyle
           ? 'w-11 h-11 shrink-0 rounded-full bg-slate-800 flex items-center justify-center text-slate-200 hover:bg-slate-700 transition-colors'
           : 'w-11 h-11 shrink-0 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200 transition-colors';
+    const quickToolbarButtonClass = acnh
+        ? 'h-9 w-9 shrink-0 rounded-full text-[#5f806f] flex items-center justify-center active:scale-95 transition-all'
+        : isPixelStyle
+        ? 'h-9 w-9 shrink-0 rounded-[4px] text-[#8f674a] flex items-center justify-center active:scale-95 transition-all'
+        : isDiscordStyle
+          ? 'h-9 w-9 shrink-0 rounded-full text-slate-200 flex items-center justify-center active:scale-95 transition-all hover:bg-white/5'
+          : 'h-9 w-9 shrink-0 rounded-full text-slate-700 flex items-center justify-center active:scale-95 transition-all hover:bg-slate-100/70';
+    const quickToolbarActiveClass = isPixelStyle
+        ? 'text-[#b56f4c]'
+        : isDiscordStyle
+          ? 'text-sky-300'
+          : 'text-primary';
     const inputWrapClass =
         acnh
             ? 'bg-[#fbf4de] border-2 border-[#e6dab4] rounded-full'
@@ -397,6 +425,20 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
           : 'text-slate-400';
 
     const selectedEmojiUrls = emojiSelectionMode ? new Set(selectedEmojis.map(se => se.url)) : new Set();
+    const currentApiPreset = apiConfig
+        ? apiPresets.find((preset) =>
+            preset.config.baseUrl === apiConfig.baseUrl &&
+            preset.config.model === apiConfig.model
+        )
+        : undefined;
+
+    const sendAsVoice = () => {
+        const text = input.trim();
+        if (!text || !onVoiceSend) return;
+        const durationMs = Math.max(1000, text.length * 280);
+        onVoiceSend(text, durationMs);
+        setInput('');
+    };
 
     return (
         <>
@@ -404,6 +446,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
             <div className={`fixed inset-0 z-[-1] ${isPixelStyle ? 'bg-[#eadfce]/70 backdrop-blur-[2px]' : isDiscordStyle ? 'bg-slate-950/70 backdrop-blur-[2px]' : 'bg-white/60 backdrop-blur-[2px]'}`} />
         )}
         <div className={`sully-chat-inputbar ${shellClass} pb-safe shrink-0 z-40 relative`}>
+            <input type="file" ref={chatImageInputRef} className="hidden" accept="image/*" onChange={(e) => handleImageChange(e, 'chat')} />
             
             {selectionMode ? (
                 <div className={`p-3 flex gap-2 ${isPixelStyle ? 'bg-[#f3e7d6]' : isDiscordStyle ? 'bg-slate-900/60 backdrop-blur-md' : 'bg-white/50 backdrop-blur-md'}`}>
@@ -426,12 +469,15 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                     </button>
                 </div>
             ) : (
-                <div className="p-3 px-4 flex gap-3 items-end relative">
+                <>
+                <div className={`${quickToolbarEnabled ? 'mx-auto w-full max-w-[560px] px-4 pt-3 pb-2' : 'p-3 px-4'} flex gap-3 items-end relative`}>
+                    {!quickToolbarEnabled && (
                     <button onClick={() => setShowPanel(showPanel === 'actions' ? 'none' : 'actions')} className={actionButtonClass}>
                         <span style={{ display: 'inline-flex', transition: 'transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1)', transform: showPanel === 'actions' ? 'rotate(45deg)' : 'rotate(0deg)' }}>
                             <Plus className="w-6 h-6" weight="bold" />
                         </span>
                     </button>
+                    )}
                     <div className={`flex-1 min-w-0 flex items-center px-1 transition-all relative ${useIOSStandaloneInputFix ? 'overflow-visible' : 'overflow-hidden'} ${inputWrapClass} ${isPixelStyle ? 'focus-within:bg-[#fff7ed]' : isDiscordStyle ? 'focus-within:bg-slate-800 focus-within:border-white/20' : 'border border-transparent focus-within:bg-white focus-within:border-primary/30'}`}>
                         <textarea
                             ref={textareaRef}
@@ -448,22 +494,18 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                             placeholder="Message..."
                             style={{ height: 'auto' }}
                         />
+                        {!quickToolbarEnabled && (
                         <button onClick={() => setShowPanel(showPanel === 'emojis' ? 'none' : 'emojis')} className={`p-2 shrink-0 ${isDiscordStyle ? 'text-slate-400 hover:text-sky-300' : isPixelStyle ? 'text-[#8f674a] hover:text-[#a16207]' : 'text-slate-400 hover:text-primary'}`}>
                             <Smiley className="w-6 h-6" weight="regular" />
                         </button>
+                        )}
                     </div>
                     {/* [EM-START: voice-send-button] 语音条发送按钮 — 有 onVoiceSend 时才显示，有文字时才可点 */}
-                    {onVoiceSend && (
+                    {onVoiceSend && !quickToolbarEnabled && (
                         <button
                             type="button"
                             disabled={!input.trim()}
-                            onClick={() => {
-                                const text = input.trim();
-                                if (!text) return;
-                                const durationMs = Math.max(1000, text.length * 280);
-                                onVoiceSend(text, durationMs);
-                                setInput('');
-                            }}
+                            onClick={sendAsVoice}
                             className={`shrink-0 w-10 h-10 rounded-full flex items-center justify-center transition-all select-none ${
                                 input.trim()
                                     ? isDiscordStyle ? 'text-sky-400' : isPixelStyle ? 'text-[#8f674a]' : 'text-primary'
@@ -487,14 +529,126 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                         <div className={`absolute inset-0 z-10 ${isPixelStyle ? 'bg-[#eadfce]/70 backdrop-blur-[2px]' : isDiscordStyle ? 'bg-slate-950/70 backdrop-blur-[2px]' : 'bg-white/60 backdrop-blur-[2px]'}`} />
                     )}
                 </div>
+                {quickToolbarEnabled && (
+                    <div className="sully-chat-quick-toolbar mx-auto w-full max-w-[540px] px-6 pt-0.5 pb-3">
+                        <div className="flex items-center justify-between gap-2">
+                            <button
+                                type="button"
+                                aria-label="发送语音"
+                                disabled={!onVoiceSend || !input.trim()}
+                                onClick={sendAsVoice}
+                                className={`${quickToolbarButtonClass} ${input.trim() && onVoiceSend ? '' : 'opacity-45 cursor-not-allowed'}`}
+                            >
+                                <Microphone className="h-6 w-6" weight={input.trim() && onVoiceSend ? 'regular' : 'light'} />
+                            </button>
+                            <button
+                                type="button"
+                                aria-label="选择照片、相机或文件"
+                                onClick={() => {
+                                    setShowApiPresets(false);
+                                    setShowPanel('none');
+                                    chatImageInputRef.current?.click();
+                                }}
+                                className={quickToolbarButtonClass}
+                            >
+                                <Image className="h-6 w-6" weight="light" />
+                            </button>
+                            <button
+                                type="button"
+                                aria-label="打开日程与情绪"
+                                onClick={() => {
+                                    setShowApiPresets(false);
+                                    setShowPanel('none');
+                                    onPanelAction('schedule');
+                                }}
+                                className={quickToolbarButtonClass}
+                            >
+                                <CalendarBlank className="h-6 w-6" weight="light" />
+                            </button>
+                            <button
+                                type="button"
+                                aria-label="切换 API 预设"
+                                onClick={() => {
+                                    setShowPanel('none');
+                                    setShowApiPresets(v => !v);
+                                }}
+                                className={`${quickToolbarButtonClass} ${showApiPresets ? quickToolbarActiveClass : ''}`}
+                            >
+                                <MagicWand className="h-6 w-6" weight={showApiPresets ? 'regular' : 'light'} />
+                            </button>
+                            <button
+                                type="button"
+                                aria-label="打开表情"
+                                onClick={() => {
+                                    setShowApiPresets(false);
+                                    setShowPanel(showPanel === 'emojis' ? 'none' : 'emojis');
+                                }}
+                                className={`${quickToolbarButtonClass} ${showPanel === 'emojis' ? quickToolbarActiveClass : ''}`}
+                            >
+                                <Smiley className="h-6 w-6" weight={showPanel === 'emojis' ? 'regular' : 'light'} />
+                            </button>
+                            <button
+                                type="button"
+                                aria-label="打开更多功能"
+                                onClick={() => {
+                                    setShowApiPresets(false);
+                                    setShowPanel(showPanel === 'actions' ? 'none' : 'actions');
+                                }}
+                                className={`${quickToolbarButtonClass} ${showPanel === 'actions' ? quickToolbarActiveClass : ''}`}
+                            >
+                                <Plus className="h-6 w-6" weight="light" />
+                            </button>
+                        </div>
+                    </div>
+                )}
+                </>
             )}
 
             {/* Panels — always mounted, height transitions for smooth open/close */}
             {!selectionMode && (
                 <div
-                    className={`sully-chat-panel ${panelClass} overflow-hidden relative z-0 flex flex-col will-change-[max-height]`}
-                    style={{ maxHeight: showPanel !== 'none' ? '18rem' : '0px', transition: 'max-height 340ms cubic-bezier(0.34, 1.56, 0.64, 1)' }}
+                    className={`sully-chat-panel ${panelClass} overflow-hidden relative z-0 flex flex-col will-change-[height]`}
+                    style={{ height: (showPanel !== 'none' || showApiPresets) ? '18rem' : '0px', transition: 'height 340ms cubic-bezier(0.34, 1.56, 0.64, 1)' }}
                 >
+                    {quickToolbarEnabled && showApiPresets && (
+                        <div className="sully-chat-api-presets flex min-h-0 flex-1 flex-col overflow-hidden">
+                            <div className={panelTopBarClass}>
+                                <span className={`px-2 text-[10px] font-bold uppercase tracking-wider ${
+                                    isPixelStyle ? 'text-[#8f674a]' :
+                                    isDiscordStyle ? 'text-slate-400' :
+                                    'text-slate-400'
+                                }`}>API 预设</span>
+                            </div>
+                            <div className="flex-1 overflow-y-auto p-4">
+                                {apiPresets.length === 0 ? (
+                                    <div className={`px-2 py-3 text-[11px] ${isDiscordStyle ? 'text-slate-400' : isPixelStyle ? 'text-[#8f674a]' : 'text-slate-400'}`}>暂无预设，先去设置里保存当前 API 配置。</div>
+                                ) : apiPresets.map((preset) => {
+                                    const isActive = preset.id === currentApiPreset?.id;
+                                    return (
+                                        <button
+                                            key={preset.id}
+                                            type="button"
+                                            onClick={() => {
+                                                onApiPresetSelect?.(preset);
+                                                setShowApiPresets(false);
+                                            }}
+                                            className={`mb-2 flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left text-[13px] transition-all active:scale-[0.98] ${
+                                                isActive
+                                                    ? isPixelStyle ? 'bg-[#c99872] text-[#fff7ed]' : isDiscordStyle ? 'bg-indigo-500/80 text-white' : 'bg-primary/10 text-primary'
+                                                    : isPixelStyle ? 'text-[#8f674a] hover:bg-[#fff7ed]' : isDiscordStyle ? 'text-slate-200 hover:bg-slate-800' : 'text-slate-600 hover:bg-white'
+                                            }`}
+                                        >
+                                            <span className="min-w-0">
+                                                <span className="block truncate font-bold">{preset.name}</span>
+                                                <span className="block truncate text-[11px] opacity-65">{preset.config.model}</span>
+                                            </span>
+                                            {isActive && <span className="shrink-0 text-[11px] font-bold">当前</span>}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
                     
                     {/* Emojis Panel with Categories */}
                     {showPanel === 'emojis' && (
@@ -726,7 +880,6 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                 </div>)}
                                 <span className="text-xs font-bold">相册</span>
                             </button>
-                            <input type="file" ref={chatImageInputRef} className="hidden" accept="image/*" onChange={(e) => handleImageChange(e, 'chat')} />
 
                             {/* Regenerate Button */}
                             <button onClick={onReroll} disabled={!canReroll} className={`flex flex-col items-center gap-2 tool-btn ${canReroll ? (isDiscordStyle ? 'text-slate-200' : 'text-slate-600') : 'text-slate-300 opacity-50'}`}>
