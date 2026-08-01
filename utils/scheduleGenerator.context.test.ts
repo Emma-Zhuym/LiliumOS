@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CharacterProfile, Message, UserProfile } from '../types';
-import { formatChatHistoryForSchedule } from './scheduleGenerator';
+import { formatChatHistoryForSchedule, formatDailyRhythmForSchedule, formatSleepWindowForSchedule } from './scheduleGenerator';
 
 const char = {
     id: 'char-1',
@@ -18,6 +18,33 @@ const msg = (input: Partial<Message> & Pick<Message, 'id' | 'role' | 'type' | 'c
 } as Message);
 
 describe('日程历史与私聊消息格式对齐', () => {
+    it('日常节律保留原文，并替换用户占位符', () => {
+        const block = formatDailyRhythmForSchedule({
+            ...char,
+            dailyRhythm: '22:00-次日01:00：和{{ user }}打游戏\n睡眠：偏晚',
+        }, user);
+
+        expect(block).toContain('22:00-次日01:00');
+        expect(block).toContain('和小鱼打游戏');
+        expect(block).not.toContain('{{ user }}');
+        expect(block).toContain('高优先级生成参考');
+    });
+
+    it('没有日常节律时不向生成提示词增加空区块', () => {
+        expect(formatDailyRhythmForSchedule(char, user)).toBe('');
+    });
+
+    it('睡眠区间按跨午夜时钟注入，避免生成器占用睡眠时段', () => {
+        const block = formatSleepWindowForSchedule({
+            ...char,
+            sleepWindow: { bedtimeMinutes: 23 * 60, wakeTimeMinutes: 24 * 60 + 7 * 60 + 30 },
+        });
+
+        expect(block).toContain('23:00');
+        expect(block).toContain('次日 07:30');
+        expect(block).toContain('不要在这个区间安排活动');
+    });
+
     it('双语消息只保留原文侧，避免历史体积近乎翻倍', () => {
         const block = formatChatHistoryForSchedule([
             msg({

@@ -9,7 +9,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { DailySchedule } from '../types';
+import { CharacterProfile, DailySchedule } from '../types';
 import { computeCharStatus, CharAvailability } from '../utils/charStatus';
 
 interface UseCharStatusReturn {
@@ -18,14 +18,14 @@ interface UseCharStatusReturn {
     emoji?: string;
 }
 
-export function useCharStatus(schedule: DailySchedule | null): UseCharStatusReturn {
+export function useCharStatus(schedule: DailySchedule | null, char?: CharacterProfile | null): UseCharStatusReturn {
     const [status, setStatus] = useState<CharAvailability>('online');
     const [activity, setActivity] = useState<string | undefined>();
     const [emoji, setEmoji] = useState<string | undefined>();
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const updateStatus = useCallback(() => {
-        const result = computeCharStatus(schedule);
+        const result = computeCharStatus(schedule, undefined, char);
         setStatus(result.status);
         setActivity(result.currentActivity);
         setEmoji(result.currentEmoji);
@@ -43,7 +43,7 @@ export function useCharStatus(schedule: DailySchedule | null): UseCharStatusRetu
                 updateStatus(); // 递归：到点了重新计算
             }, result.msUntilChange);
         }
-    }, [schedule]);
+    }, [schedule, char]);
 
     // schedule 变化时重新计算
     useEffect(() => {

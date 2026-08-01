@@ -144,8 +144,9 @@ const Chat: React.FC = () => {
     const [theaterSlotIdx, setTheaterSlotIdx] = useState<number | null>(null);
     const [isTheaterGenerating, setIsTheaterGenerating] = useState(false);
     const [isScheduleGenerating, setIsScheduleGenerating] = useState(false);
+    const char = characters.find(c => c.id === activeCharacterId) || characters[0];
     // EM: 角色在线状态（由日程驱动）
-    const charStatusInfo = useCharStatus(scheduleData); // [EM: char-status-hook]
+    const charStatusInfo = useCharStatus(scheduleData, char); // [EM: char-status-hook]
     const prevCharStatusRef = useRef<string>('online');
     const hasOfflinePendingRef = useRef(false);
 
@@ -201,7 +202,6 @@ const Chat: React.FC = () => {
     // Which messages are currently showing "译" version (toggle state only, no API calls)
     const [showingTargetIds, setShowingTargetIds] = useState<Set<number>>(new Set());
 
-    const char = characters.find(c => c.id === activeCharacterId) || characters[0];
     const memoryRepairRound = useMemo(() => {
         let assistantIndex = -1;
         for (let i = messages.length - 1; i >= 0; i--) {
@@ -1793,6 +1793,42 @@ const Chat: React.FC = () => {
         }
     };
 
+    const handleDailyRhythmChange = async (dailyRhythm: string) => {
+        if (!char || isScheduleGenerating) return;
+        const nextRhythm = dailyRhythm.trim();
+        if (nextRhythm === (char.dailyRhythm || '').trim()) return;
+        const updatedChar = { ...char, dailyRhythm: nextRhythm || undefined };
+        updateCharacter(char.id, { dailyRhythm: nextRhythm || undefined });
+        if (!isScheduleFeatureOn(updatedChar)) return;
+        setIsScheduleGenerating(true);
+        try {
+            const result = await generateDailyScheduleForChar(updatedChar, userProfile, apiConfig, true);
+            if (result) setScheduleData(result);
+        } catch (e) {
+            console.error('[Schedule] Regeneration after daily rhythm change failed:', e);
+        } finally {
+            setIsScheduleGenerating(false);
+        }
+    };
+
+    const handleSleepWindowChange = async (sleepWindow?: { bedtimeMinutes: number; wakeTimeMinutes: number }) => {
+        if (!char || isScheduleGenerating) return;
+        const current = char.sleepWindow;
+        if (current?.bedtimeMinutes === sleepWindow?.bedtimeMinutes && current?.wakeTimeMinutes === sleepWindow?.wakeTimeMinutes) return;
+        const updatedChar = { ...char, sleepWindow };
+        updateCharacter(char.id, { sleepWindow });
+        if (!isScheduleFeatureOn(updatedChar)) return;
+        setIsScheduleGenerating(true);
+        try {
+            const result = await generateDailyScheduleForChar(updatedChar, userProfile, apiConfig, true);
+            if (result) setScheduleData(result);
+        } catch (e) {
+            console.error('[Schedule] Regeneration after sleep window change failed:', e);
+        } finally {
+            setIsScheduleGenerating(false);
+        }
+    };
+
     // 日程 / 情绪 buff 总开关
     // 关闭：清空前台 scheduleData，同时清空可能已缓存的 buff 注入（防止继续污染下一轮 prompt）
     // 打开：若还没生成今日日程，立即生成一次
@@ -3075,6 +3111,10 @@ const Chat: React.FC = () => {
                 onScheduleReroll={() => generateDailySchedule(char, true)}
                 onScheduleCoverChange={handleScheduleCoverChange}
                 onScheduleStyleChange={handleScheduleStyleChange}
+                dailyRhythm={char.dailyRhythm || ''}
+                onDailyRhythmChange={handleDailyRhythmChange}
+                sleepWindow={char.sleepWindow}
+                onSleepWindowChange={handleSleepWindowChange}
                 scheduleSlotCount={char.scheduleSlotCount ?? 8}
                 onScheduleSlotCountChange={handleScheduleSlotCountChange}
                 onPlayTheater={handlePlayTheater}

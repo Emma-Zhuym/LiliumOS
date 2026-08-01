@@ -2,7 +2,47 @@ import type { CharacterProfile, ScheduleSlot } from '../types';
 import { getLocalDateKey } from './localDate';
 import { nowInTimeZone, resolveCharTimeZone } from './timezone';
 
-type ScheduleCharacter = Pick<CharacterProfile, 'customTimezoneEnabled' | 'customTimezone'>;
+type ScheduleCharacter = Pick<CharacterProfile, 'customTimezoneEnabled' | 'customTimezone' | 'sleepWindow'>;
+
+export const SLEEP_TIMELINE_START = 21 * 60 + 30;
+export const SLEEP_TIMELINE_END = 24 * 60 + 10 * 60;
+
+export interface SleepWindowState {
+    isSleeping: boolean;
+    bedtimeMinutes: number;
+    wakeTimeMinutes: number;
+    msUntilWake: number;
+}
+
+/** 把跨午夜滑块刻度格式化成可读时间。 */
+export const formatSleepTimelineTime = (minutes: number): string => {
+    const normalized = ((minutes % (24 * 60)) + 24 * 60) % (24 * 60);
+    const prefix = minutes >= 24 * 60 ? '次日 ' : '';
+    return `${prefix}${String(Math.floor(normalized / 60)).padStart(2, '0')}:${String(normalized % 60).padStart(2, '0')}`;
+};
+
+/** 按角色时区判断当前是否落在已设定的睡眠区间。 */
+export const getSleepWindowState = (
+    char?: ScheduleCharacter | null,
+    base: Date = new Date(),
+): SleepWindowState | null => {
+    const window = char?.sleepWindow;
+    if (!window) return null;
+
+    const bedtimeMinutes = Math.round(window.bedtimeMinutes);
+    const wakeTimeMinutes = Math.round(window.wakeTimeMinutes);
+    if (bedtimeMinutes < SLEEP_TIMELINE_START || wakeTimeMinutes > SLEEP_TIMELINE_END || wakeTimeMinutes <= bedtimeMinutes) return null;
+
+    const wallClock = getScheduleWallClock(char, base);
+    const clockMinutes = wallClock.getHours() * 60 + wallClock.getMinutes();
+    const timelineMinutes = clockMinutes < 10 * 60 ? clockMinutes + 24 * 60 : clockMinutes;
+    const isSleeping = timelineMinutes >= bedtimeMinutes && timelineMinutes < wakeTimeMinutes;
+    const msUntilWake = isSleeping
+        ? Math.max(1_000, (wakeTimeMinutes - timelineMinutes) * 60_000 - wallClock.getSeconds() * 1_000 - wallClock.getMilliseconds())
+        : 0;
+
+    return { isSleeping, bedtimeMinutes, wakeTimeMinutes, msUntilWake };
+};
 
 /** 当前绝对时刻 → 角色所在地的墙上时间；未启用自定义时区时跟随设备。 */
 export const getScheduleWallClock = (

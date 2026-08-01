@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { DailySchedule, ScheduleSlot, CharacterProfile } from '../../types';
 import { getSlotAvailability } from '../../utils/charStatus';
-import { getCurrentScheduleSlotIndex, getScheduleWallClock } from '../../utils/scheduleTime';
+import { formatSleepTimelineTime, getCurrentScheduleSlotIndex, getScheduleWallClock, getSleepWindowState } from '../../utils/scheduleTime';
 import { resolveCharTimeZone, tzShortLabel } from '../../utils/timezone';
 import { useOS } from '../../context/OSContext';
 import { resolveScheduleCardPalette } from '../../utils/scheduleAppearance';
@@ -97,7 +97,9 @@ const ScheduleCard: React.FC<ScheduleCardProps> = ({
 
     const tickingNow = useTickingNow();
     const wallClock = getScheduleWallClock(character, tickingNow);
-    const currentIdx = schedule ? getCurrentScheduleSlotIndex(schedule.slots, character, tickingNow) : -1;
+    const sleepState = getSleepWindowState(character, tickingNow);
+    const isSleeping = !!sleepState?.isSleeping;
+    const currentIdx = schedule && !isSleeping ? getCurrentScheduleSlotIndex(schedule.slots, character, tickingNow) : -1;
     // 角色设了自己的时区时，上面那个钟走的是 ta 那边的时间——标出地名，
     // 免得用户拿它当自己的手机时间读。
     const charTzName = (() => {
@@ -273,7 +275,18 @@ const ScheduleCard: React.FC<ScheduleCardProps> = ({
                             <p className="text-xs opacity-40">正在生成日程...</p>
                         </div>
                     ) : schedule && schedule.slots.length > 0 ? (
-                        schedule.slots.map((slot, idx) => {
+                        <>
+                        {isSleeping && sleepState && (
+                            <div className="sully-schedule-item sully-schedule-item-current relative flex items-start gap-3 py-2 px-3 rounded-xl border" style={{ background: accentBg, borderColor: palette.line }}>
+                                <div className="flex flex-col items-center w-12 flex-shrink-0">
+                                    <span className="sully-schedule-time text-xs font-mono font-bold">{formatSleepTimelineTime(sleepState.bedtimeMinutes)}</span>
+                                    <span className="text-[8px] font-bold px-1.5 py-0.5 rounded-full mt-0.5 animate-pulse" style={{ background: accentHsl, color: cardBg }}>NOW</span>
+                                </div>
+                                <div className="sully-schedule-timeline flex flex-col items-center pt-1.5 flex-shrink-0"><div className="w-2.5 h-2.5 rounded-full border-2" style={{ borderColor: accentHsl, background: accentHsl }} /></div>
+                                <div className="flex-1 min-w-0"><div className="flex items-center gap-1.5"><span className="text-sm flex-shrink-0">💤</span><span className="sully-schedule-activity text-sm font-bold">睡眠中</span><span className="text-[9px] px-1 py-0.5 rounded bg-slate-400/20 text-slate-400 font-bold">离线</span></div><p className="sully-schedule-description text-[11px] opacity-50 mt-0.5 leading-tight">至 {formatSleepTimelineTime(sleepState.wakeTimeMinutes)}</p></div>
+                            </div>
+                        )}
+                        {schedule.slots.map((slot, idx) => {
                             const isCurrent = idx === currentIdx;
                             const isPast = currentIdx >= 0 && idx < currentIdx;
                             const isFuture = !isPast && !isCurrent; // 还没到的时段：按钮灰着，点了给提示
@@ -444,7 +457,8 @@ const ScheduleCard: React.FC<ScheduleCardProps> = ({
                                     )}
                                 </div>
                             );
-                        })
+                        })}
+                        </>
                     ) : (
                         <div className="py-12 text-center">
                             <p className="text-xs opacity-30">暂无日程</p>

@@ -9,7 +9,8 @@
  *   offline — 角色不可用（睡觉等），不发送 API 请求
  */
 
-import { DailySchedule, ScheduleSlot } from '../types';
+import { CharacterProfile, DailySchedule, ScheduleSlot } from '../types';
+import { getScheduleWallClock, getSleepWindowState } from './scheduleTime';
 
 export type CharAvailability = 'online' | 'busy' | 'offline';
 
@@ -76,14 +77,26 @@ export function getSlotAvailability(slot: ScheduleSlot): CharAvailability {
  */
 export function computeCharStatus(
     schedule: DailySchedule | null,
-    now?: Date
+    now?: Date,
+    char?: CharacterProfile | null,
 ): CharStatusResult {
+    const sleepState = getSleepWindowState(char, now);
+    if (sleepState?.isSleeping) {
+        return {
+            status: 'offline',
+            currentActivity: '睡眠中',
+            currentEmoji: '💤',
+            msUntilChange: sleepState.msUntilWake,
+            nextStatus: 'online',
+        };
+    }
+
     // 没有日程 → 默认 online
     if (!schedule || !schedule.slots || schedule.slots.length === 0) {
         return { status: 'online', msUntilChange: Infinity };
     }
 
-    const time = now || new Date();
+    const time = char ? getScheduleWallClock(char, now) : (now || new Date());
     const currentMinutes = time.getHours() * 60 + time.getMinutes();
     const currentMs = time.getHours() * 3600000 + time.getMinutes() * 60000 + time.getSeconds() * 1000;
 

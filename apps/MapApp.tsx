@@ -446,7 +446,7 @@ const MapScreen: React.FC<{
   const { openApp } = useOS();
   const [expanded, setExpanded] = useState(false);
 
-  const statusResult = useMemo(() => computeCharStatus(schedule), [schedule]);
+  const statusResult = useMemo(() => computeCharStatus(schedule, undefined, char), [schedule, char]);
   const currentSlot = useMemo(() => getCurrentSlot(schedule), [schedule]);
 
   // 三态：匹配到清单地点→站那 / 有 location 但不在清单（烧鸟店等）→"在外面" / 没 location→站默认位
@@ -968,7 +968,7 @@ const Shelf: React.FC<{
         {worlds.map(world => {
           const char = characters.find(c => c.id === world.charId);
           if (!char) return null;
-          const sr = computeCharStatus(schedules[world.charId] || null);
+          const sr = computeCharStatus(schedules[world.charId] || null, undefined, char);
           const m = STATUS_META[sr.status];
           return (
             <div key={world.id} onClick={() => onOpenWorld(world.id)}
@@ -1013,7 +1013,7 @@ const Shelf: React.FC<{
             <div style={{ fontSize: 13, fontWeight: 600, color: F.textTertiary, letterSpacing: '.06em', margin: '22px 2px 12px' }}>其他角色</div>
             <div className="overflow-hidden" style={{ borderRadius: R.bigCard, background: F.surface, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}>
               {charsWithout.map((c, i) => {
-                const sr = computeCharStatus(schedules[c.id] || null);
+                const sr = computeCharStatus(schedules[c.id] || null, undefined, c);
                 const m = STATUS_META[sr.status];
                 return (
                   <React.Fragment key={c.id}>

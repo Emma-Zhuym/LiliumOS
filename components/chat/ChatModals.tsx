@@ -5,6 +5,7 @@ import { CharacterProfile, Message, EmojiCategory, DailySchedule, ScheduleSlot, 
 import ScheduleCard from '../schedule/ScheduleCard';
 import EmotionSettingsPanel from './EmotionSettingsPanel';
 import { F, HUE } from '../../utils/clayTokens';
+import { formatSleepTimelineTime, SLEEP_TIMELINE_END, SLEEP_TIMELINE_START } from '../../utils/scheduleTime';
 import { isTranslationLangPreset, normalizeTranslationLangLabel, TRANSLATION_LANG_MAX_LENGTH, TRANSLATION_LANG_PRESETS } from '../../utils/translationLang';
 import type { ContextRangeMode, ContextRangeSnapshot } from '../../utils/chatContextRange';
 
@@ -119,6 +120,10 @@ interface ChatModalsProps {
     onScheduleReroll?: () => void;
     onScheduleCoverChange?: (dataUrl: string) => void;
     onScheduleStyleChange?: (style: 'lifestyle' | 'mindful') => void;
+    dailyRhythm?: string;
+    onDailyRhythmChange?: (rhythm: string) => void;
+    sleepWindow?: { bedtimeMinutes: number; wakeTimeMinutes: number };
+    onSleepWindowChange?: (sleepWindow?: { bedtimeMinutes: number; wakeTimeMinutes: number }) => void;
     scheduleSlotCount?: number;
     onScheduleSlotCountChange?: (count: number) => void;
     onPlayTheater?: (index: number) => void;
@@ -247,7 +252,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
     chatVoiceEnabled, onToggleChatVoice, chatVoiceLang, onSetChatVoiceLang,
     onGenerateVoice, voiceAvailable, onDownloadVoice, voiceDownloadable,
     scheduleData, isScheduleGenerating, onScheduleEdit, onScheduleDelete, onScheduleReroll, onScheduleCoverChange,
-    onScheduleStyleChange, scheduleSlotCount = 8, onScheduleSlotCountChange, onPlayTheater,
+    onScheduleStyleChange, dailyRhythm = '', onDailyRhythmChange, sleepWindow, onSleepWindowChange, scheduleSlotCount = 8, onScheduleSlotCountChange, onPlayTheater,
     isScheduleFeatureEnabled, onToggleScheduleFeature,
     isMemoryPalaceEnabled, isVectorizing, vectorizePendingCount, vectorizeProgress, onForceVectorize,
     apiPresets, onAddApiPreset, onSaveEmotion, onClearBuffs,
@@ -257,6 +262,10 @@ const ChatModals: React.FC<ChatModalsProps> = ({
     const [historyPage, setHistoryPage] = useState(0);
     const [historySearch, setHistorySearch] = useState('');
     const [scheduleSlotCountDraft, setScheduleSlotCountDraft] = useState(scheduleSlotCount);
+    const [dailyRhythmDraft, setDailyRhythmDraft] = useState(dailyRhythm);
+    const [dailyRhythmEditorOpen, setDailyRhythmEditorOpen] = useState(false);
+    const [bedtimeDraft, setBedtimeDraft] = useState(sleepWindow?.bedtimeMinutes ?? 23 * 60);
+    const [wakeTimeDraft, setWakeTimeDraft] = useState(sleepWindow?.wakeTimeMinutes ?? 24 * 60 + 7 * 60 + 30);
     const longPressTimerRef = useRef<number | null>(null);
     const longPressTriggeredRef = useRef(false);
     const HISTORY_PAGE_SIZE = 50;
@@ -267,10 +276,30 @@ const ChatModals: React.FC<ChatModalsProps> = ({
         setScheduleSlotCountDraft(scheduleSlotCount);
     }, [activeCharacter?.id, modalType, scheduleSlotCount]);
 
+    useEffect(() => {
+        setDailyRhythmDraft(dailyRhythm);
+        setDailyRhythmEditorOpen(false);
+    }, [activeCharacter?.id, modalType, dailyRhythm]);
+
+    useEffect(() => {
+        setBedtimeDraft(sleepWindow?.bedtimeMinutes ?? 23 * 60);
+        setWakeTimeDraft(sleepWindow?.wakeTimeMinutes ?? 24 * 60 + 7 * 60 + 30);
+    }, [activeCharacter?.id, modalType, sleepWindow?.bedtimeMinutes, sleepWindow?.wakeTimeMinutes]);
+
     const commitScheduleSlotCount = () => {
         if (scheduleSlotCountDraft !== scheduleSlotCount) {
             onScheduleSlotCountChange?.(scheduleSlotCountDraft);
         }
+    };
+
+    const saveDailyRhythm = () => {
+        const next = dailyRhythmDraft.trim();
+        if (next !== dailyRhythm.trim()) onDailyRhythmChange?.(next);
+        setDailyRhythmEditorOpen(false);
+    };
+
+    const commitSleepWindow = (bedtimeMinutes = bedtimeDraft, wakeTimeMinutes = wakeTimeDraft) => {
+        onSleepWindowChange?.({ bedtimeMinutes, wakeTimeMinutes });
     };
 
     const startHistoryLongPress = (msgId: number) => {
@@ -1113,6 +1142,71 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                                             <span className="block text-[10px] opacity-70 font-normal">真实内心 · 不虚构不说谎</span>
                                         </button>
                                     </div>
+                                </div>
+                            )}
+
+                            {activeCharacter?.scheduleStyle !== 'mindful' && onDailyRhythmChange && (
+                                <div className="mb-4 rounded-2xl p-3" style={{ background: HUE.teal.tint, border: `1px solid ${HUE.teal.soft}` }}>
+                                    {!dailyRhythmEditorOpen ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => setDailyRhythmEditorOpen(true)}
+                                            disabled={isScheduleGenerating}
+                                            className="w-full text-left disabled:opacity-60"
+                                        >
+                                            <div className="flex items-center justify-between gap-3">
+                                                <div className="min-w-0">
+                                                    <p className="text-xs font-bold" style={{ color: HUE.teal.ink }}>日常节律 <span className="font-normal text-[10px]">可选</span></p>
+                                                    <p className="mt-1 truncate text-[10px] leading-relaxed" style={{ color: HUE.teal.ink }}>
+                                                        {dailyRhythm.trim() || (sleepWindow ? `睡眠 ${formatSleepTimelineTime(bedtimeDraft)} - ${formatSleepTimelineTime(wakeTimeDraft)}` : '可写固定时段，也可只写角色大致的生活规律')}
+                                                    </p>
+                                                </div>
+                                                <span className="shrink-0 rounded-lg px-2 py-1 text-[10px] font-bold" style={{ background: F.surfaceRaised, color: HUE.teal.ink }}>
+                                                    {(dailyRhythm.trim() || sleepWindow) ? '编辑' : '设定'}
+                                                </span>
+                                            </div>
+                                        </button>
+                                    ) : (
+                                        <div>
+                                            <div className="mb-2 flex items-start justify-between gap-3">
+                                                <div>
+                                                    <p className="text-xs font-bold" style={{ color: HUE.teal.ink }}>日常节律</p>
+                                                    <p className="mt-1 text-[10px] leading-relaxed" style={{ color: HUE.teal.ink }}>固定时段会作为时间锚点；概述性规律会让每天自然变化。支持 {'{{user}}'}。</p>
+                                                </div>
+                                                <button type="button" onClick={() => { setDailyRhythmDraft(dailyRhythm); setDailyRhythmEditorOpen(false); }} className="shrink-0 text-[11px] font-bold" style={{ color: HUE.teal.ink }}>收起</button>
+                                            </div>
+                                            <textarea
+                                                value={dailyRhythmDraft}
+                                                onChange={(event) => setDailyRhythmDraft(event.target.value)}
+                                                maxLength={6000}
+                                                placeholder={'例如：\n09:00-10:00：起床、洗漱、去公司\n上午主要处理邮件和签字工作\n晚上可能有商务晚宴或跨国会议'}
+                                                className="h-56 w-full resize-none rounded-xl border p-3 text-xs leading-relaxed outline-none focus:ring-1"
+                                                style={{ background: F.surfaceRaised, borderColor: HUE.teal.soft, color: HUE.teal.ink }}
+                                            />
+                                            {onSleepWindowChange && (
+                                                <div className="mt-3 rounded-xl p-3" style={{ background: HUE.indigo.tint, border: `1px solid ${HUE.indigo.soft}` }}>
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        <div>
+                                                            <p className="text-[11px] font-bold" style={{ color: HUE.indigo.ink }}>睡眠区间 <span className="font-normal text-[10px]">可选</span></p>
+                                                            <p className="mt-0.5 text-[10px] leading-relaxed" style={{ color: HUE.indigo.ink }}>
+                                                                {sleepWindow ? `${formatSleepTimelineTime(bedtimeDraft)} - ${formatSleepTimelineTime(wakeTimeDraft)}，这段会显示为睡眠中。` : '设定后，夜间会优先显示为睡眠中。'}
+                                                            </p>
+                                                        </div>
+                                                        {sleepWindow && <button type="button" onClick={() => onSleepWindowChange(undefined)} disabled={isScheduleGenerating} className="shrink-0 text-[10px] font-bold disabled:opacity-60" style={{ color: HUE.indigo.ink }}>恢复自动</button>}
+                                                    </div>
+                                                    <div className="mt-2.5 space-y-2">
+                                                        <label className="block"><div className="mb-1 flex justify-between text-[10px] font-bold" style={{ color: HUE.indigo.ink }}><span>入睡</span><span>{formatSleepTimelineTime(bedtimeDraft)}</span></div><input type="range" min={SLEEP_TIMELINE_START} max={wakeTimeDraft - 180} step="30" value={bedtimeDraft} onChange={(event) => setBedtimeDraft(Number(event.target.value))} onPointerUp={() => commitSleepWindow()} onBlur={() => commitSleepWindow()} disabled={isScheduleGenerating} aria-label="入睡时间" className="w-full h-1.5 cursor-pointer disabled:cursor-not-allowed" style={{ accentColor: HUE.indigo.main }} /></label>
+                                                        <label className="block"><div className="mb-1 flex justify-between text-[10px] font-bold" style={{ color: HUE.indigo.ink }}><span>起床</span><span>{formatSleepTimelineTime(wakeTimeDraft)}</span></div><input type="range" min={bedtimeDraft + 180} max={SLEEP_TIMELINE_END} step="30" value={wakeTimeDraft} onChange={(event) => setWakeTimeDraft(Number(event.target.value))} onPointerUp={() => commitSleepWindow()} onBlur={() => commitSleepWindow()} disabled={isScheduleGenerating} aria-label="起床时间" className="w-full h-1.5 cursor-pointer disabled:cursor-not-allowed" style={{ accentColor: HUE.indigo.main }} /></label>
+                                                    </div>
+                                                    <div className="mt-1 flex justify-between text-[9px]" style={{ color: HUE.indigo.ink }}><span>21:30</span><span>次日 10:00</span></div>
+                                                </div>
+                                            )}
+                                            <div className="mt-2 flex items-center justify-between gap-3">
+                                                <span className="text-[9px]" style={{ color: HUE.teal.ink }}>{dailyRhythmDraft.length}/6000</span>
+                                                <button type="button" onClick={saveDailyRhythm} disabled={isScheduleGenerating} className="rounded-xl px-3 py-2 text-[11px] font-bold text-white disabled:opacity-60" style={{ background: HUE.teal.main }}>保存并重新生成</button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 

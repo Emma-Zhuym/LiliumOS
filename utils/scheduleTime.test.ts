@@ -4,6 +4,7 @@ import {
     getCurrentScheduleSlotIndex,
     getScheduleDateKey,
     getScheduleWallClock,
+    getSleepWindowState,
 } from './scheduleTime';
 
 const originalTimeZone = process.env.TZ;
@@ -53,5 +54,21 @@ describe('character schedule clock', () => {
             { startTime: 'not-a-time', activity: '坏数据' },
             ...slots,
         ], losAngelesChar, instant)).toBe(1);
+    });
+
+    it('treats a configured overnight window as sleep in the character timezone', () => {
+        const char = {
+            ...losAngelesChar,
+            sleepWindow: { bedtimeMinutes: 23 * 60, wakeTimeMinutes: 24 * 60 + 7 * 60 + 30 },
+        } as CharacterProfile;
+
+        // 2026-07-21 06:30 in Los Angeles.
+        const asleep = getSleepWindowState(char, new Date('2026-07-21T13:30:00.000Z'));
+        expect(asleep?.isSleeping).toBe(true);
+        expect(asleep?.msUntilWake).toBeGreaterThan(0);
+
+        // 2026-07-21 08:00 in Los Angeles.
+        const awake = getSleepWindowState(char, new Date('2026-07-21T15:00:00.000Z'));
+        expect(awake?.isSleeping).toBe(false);
     });
 });

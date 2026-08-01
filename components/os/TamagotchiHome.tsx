@@ -19,7 +19,7 @@ import { SCHEMES, hsl, schemePreview, type TgStyle } from './gotchiScheme';
 import { getDailyScheduleForChar } from '../../utils/dailySchedule';
 import { useLocalDateKey } from '../../hooks/useLocalDateKey';
 import { resolveCharTimeZone } from '../../utils/timezone';
-import { getCurrentScheduleSlotIndex, getScheduleWallClock } from '../../utils/scheduleTime';
+import { formatSleepTimelineTime, getCurrentScheduleSlotIndex, getScheduleWallClock, getSleepWindowState } from '../../utils/scheduleTime';
 
 // ===== 电子宠物主题（tamagotchi skin）=====
 // 桌面不再是「放图标的手机」，而是一台华丽丽的二次元养成机：屏幕主体是角色
@@ -1046,14 +1046,17 @@ const TamagotchiHome: React.FC = () => {
     // 「角色睡没睡」是 ta 那边的作息，按角色时区判；下面 hh/mm 是给用户看的钟，仍走设备时间。
     // 同文件的心声（getScheduleWallClock）和墙上木牌（getCurrentScheduleSlotIndex）本就按角色时区算，
     // 这里若用设备钟，会出现小人头顶飘 Zzz、木牌上却写着「11:00 工作」。
-    const night = isNightHour(getScheduleWallClock(char).getHours());
+    const sleepState = getSleepWindowState(char);
+    const night = sleepState?.isSleeping || isNightHour(getScheduleWallClock(char).getHours());
     const hh = virtualTime.hours.toString().padStart(2, '0');
     const mm = virtualTime.minutes.toString().padStart(2, '0');
     const { level, exp, expMax } = deriveStats(stat.msgCount);
 
     // 世界化挂件的展示串（纯字符串/原始值 props → memo 组件只在内容真变时 reconcile）
-    const currentSlotIndex = schedule ? getCurrentScheduleSlotIndex(schedule.slots, char) : -1;
-    const curSlot = schedule && currentSlotIndex >= 0 ? schedule.slots[currentSlotIndex] : null;
+    const currentSlotIndex = schedule && !sleepState?.isSleeping ? getCurrentScheduleSlotIndex(schedule.slots, char) : -1;
+    const curSlot = sleepState?.isSleeping
+        ? { startTime: formatSleepTimelineTime(sleepState.bedtimeMinutes), activity: '睡眠中', emoji: '💤' }
+        : schedule && currentSlotIndex >= 0 ? schedule.slots[currentSlotIndex] : null;
     const nextSlot = schedule
         ? schedule.slots[currentSlotIndex >= 0 ? currentSlotIndex + 1 : 0] || null
         : null;

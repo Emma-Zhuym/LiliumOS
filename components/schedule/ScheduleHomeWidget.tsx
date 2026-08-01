@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CharacterProfile, DailySchedule, ScheduleSlot } from '../../types';
 import ScheduleCard from './ScheduleCard';
-import { getCurrentScheduleSlotIndex, getScheduleWallClock } from '../../utils/scheduleTime';
+import { formatSleepTimelineTime, getCurrentScheduleSlotIndex, getScheduleWallClock, getSleepWindowState } from '../../utils/scheduleTime';
 import { useOS } from '../../context/OSContext';
 import { resolveScheduleCardPalette } from '../../utils/scheduleAppearance';
 import ScheduleAppearanceButton, { ScheduleCustomCssStyle } from './ScheduleAppearanceButton';
@@ -20,8 +20,11 @@ export const ScheduleSquareWidget: React.FC<ScheduleSquareWidgetProps> = ({
     onOpen,
 }) => {
     const { theme } = useOS();
-    const currentIdx = schedule ? getCurrentScheduleSlotIndex(schedule.slots, character) : -1;
-    const currentSlot = currentIdx >= 0 ? schedule!.slots[currentIdx] : null;
+    const sleepState = getSleepWindowState(character);
+    const currentIdx = schedule && !sleepState?.isSleeping ? getCurrentScheduleSlotIndex(schedule.slots, character) : -1;
+    const currentSlot = sleepState?.isSleeping
+        ? { startTime: formatSleepTimelineTime(sleepState.bedtimeMinutes), activity: '睡眠中', emoji: '💤' }
+        : currentIdx >= 0 ? schedule!.slots[currentIdx] : null;
     const nextSlot = schedule && currentIdx < schedule.slots.length - 1
         ? schedule.slots[currentIdx + 1]
         : null;
@@ -170,8 +173,11 @@ export const ScheduleHomeWidget: React.FC<ScheduleHomeWidgetProps> = ({
     paper = false,
 }) => {
     const { theme } = useOS();
-    const currentIdx = schedule ? getCurrentScheduleSlotIndex(schedule.slots, character) : -1;
-    const currentSlot = currentIdx >= 0 ? schedule!.slots[currentIdx] : null;
+    const sleepState = getSleepWindowState(character);
+    const currentIdx = schedule && !sleepState?.isSleeping ? getCurrentScheduleSlotIndex(schedule.slots, character) : -1;
+    const currentSlot = sleepState?.isSleeping
+        ? { startTime: formatSleepTimelineTime(sleepState.bedtimeMinutes), activity: '睡眠中', emoji: '💤' }
+        : currentIdx >= 0 ? schedule!.slots[currentIdx] : null;
     const nextSlot = schedule && currentIdx < schedule.slots.length - 1
         ? schedule.slots[currentIdx + 1]
         : null;

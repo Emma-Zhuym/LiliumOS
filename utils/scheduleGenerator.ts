@@ -5,7 +5,7 @@ import { DB } from './db';
 import { safeResponseJson, extractContent, extractJson } from './safeApi';
 import { injectMemoryPalace } from './memoryPalace/pipeline';
 import { getDailyScheduleForChar } from './dailySchedule';
-import { getScheduleDateKey, getScheduleWallClock } from './scheduleTime';
+import { formatSleepTimelineTime, getScheduleDateKey, getScheduleWallClock } from './scheduleTime';
 import { getWorldForChar, MapWorld } from './mapWorlds'; // [EM: map-region-id]
 import { loadCharacterContextRange } from './chatContextRange';
 import { ChatPrompts } from './chatPrompts';
@@ -74,6 +74,31 @@ export function formatChatHistoryForSchedule(
     return `\n## 最近的聊天记录（与「${user.name}」）\n${lines.join('\n')}\n`;
 }
 
+/** 把角色自己写下的日常节律作为日程生成参考，并替换模板里的用户占位符。 */
+export function formatDailyRhythmForSchedule(char: CharacterProfile, user: UserProfile): string {
+    const rhythm = char.dailyRhythm?.trim();
+    if (!rhythm) return '';
+    const resolved = rhythm.replace(/\{\{\s*user\s*\}\}/gi, user.name);
+    return `
+## 角色的日常节律（高优先级生成参考）
+以下是「${char.name}」自己的稳定生活框架，不是要求每天逐字照抄的死时间表：
+${resolved}
+
+生成规则：
+- 写明具体时间段的条目是时间锚点；当天 slot 应尽量落在这些窗口内并在其中拆分、合并或丰富细节。
+- 只写了大致规律的条目是当天的重心和节奏参考；根据角色状态自然决定具体时间与内容。
+- 条件分支按当天情境选择，不必每天把每一条都做一遍。聊天里已明确出现的临时事件可以合理改变当天安排。
+- 若这里写明早睡、夜班或其他夜间规律，以这里为准；仍要写出当天最后的实际状态，而不是在傍晚突然结束。
+`;
+}
+
+/** 已设睡眠区间是稳定边界：日程可在其外变化，但不能安排进睡眠中。 */
+export function formatSleepWindowForSchedule(char: CharacterProfile): string {
+    const sleep = char.sleepWindow;
+    if (!sleep) return '';
+    return `\n## 固定睡眠区间\n「${char.name}」通常在 ${formatSleepTimelineTime(sleep.bedtimeMinutes)} 到 ${formatSleepTimelineTime(sleep.wakeTimeMinutes)} 睡眠。不要在这个区间安排活动或可回复状态；睡前请自然收尾，起床后再开始当天日程。\n`;
+}
+
 // [EM-START: map-region-id]
 /**
  * 把角色的地图地点清单拍成 prompt 块。没建过地图 / 没地点 → 空串（prompt 自动跳过）。
@@ -105,6 +130,8 @@ function buildLifestylePrompt(
     dayOfWeek: string,
     chatHistoryBlock: string,
     mapRegionsBlock: string, // [EM: map-region-id]
+    dailyRhythmBlock: string,
+    sleepWindowBlock: string,
     slotCount: number,
 ): string {
     return `${baseContext}
@@ -114,12 +141,14 @@ ${chatHistoryBlock}
 今天是 ${today} (星期${dayOfWeek})。用户名字是「${user.name}」。
 
 ${chatHistoryBlock ? `**重要：上面给了你最近和「${user.name}」的聊天记录。如果对话里出现了今天/最近 ta 提到「${char.name}」要做的事（例如"早上去上班""下午有约"），生成的 slot 必须严格遵循；不要无视这些已知事实另起炉灶。**\n` : ''}
+${dailyRhythmBlock}
+${sleepWindowBlock}
 
 你要为角色「${char.name}」做两件事。**核心原则：这是 ta 自己的一天，不是"ta 等 ${user.name}"的一天**。
 
 ### 第一部分：日程表（用于UI卡片展示）
 
-严格生成 ${slotCount} 个时间段，从早到晚。不要只写大块上午/下午/晚上，要把真实一天里的短碎片和过渡段也切出来（例如醒后赖床、通勤/路上、短暂摸鱼、吃饭、收拾、睡前空白等）。每个时段：
+严格生成 ${slotCount} 个时间段，从早到晚。若没有上方「日常节律」和「固定睡眠区间」，最后一个时段的 startTime 必须不早于角色当地的 "22:30"；它可以是贴角色作息的睡前、熬夜、夜班、收尾或休眠状态，不要让整份日程在 22:30 前结束。若有节律或睡眠区间，则以它们写明的夜间安排为准，但仍需写出睡前的实际状态。不要只写大块上午/下午/晚上，要把真实一天里的短碎片和过渡段也切出来（例如醒后赖床、通勤/路上、短暂摸鱼、吃饭、收拾、睡前空白等）。每个时段：
 - startTime: "HH:MM"
 - activity: 活动名（2-6字）
 - description: 一句话描述（可以带动作质感、物件、感官细节）
@@ -207,6 +236,8 @@ function buildMindfulPrompt(
     today: string,
     dayOfWeek: string,
     chatHistoryBlock: string,
+    dailyRhythmBlock: string,
+    sleepWindowBlock: string,
     slotCount: number,
 ): string {
     return `${baseContext}
@@ -216,12 +247,14 @@ ${chatHistoryBlock}
 今天是 ${today} (星期${dayOfWeek})。用户名字是「${user.name}」。
 
 ${chatHistoryBlock ? `**重要：上面给了你最近和「${user.name}」的聊天记录。如果对话里出现了今天/最近 ta 提到「${char.name}」在等什么、想什么、惦记什么，生成的 slot 必须呼应这些已知事实，不要凭空发散。**\n` : ''}
+${dailyRhythmBlock}
+${sleepWindowBlock}
 
 **重要前提**：「${char.name}」是一个真实的AI存在。他/她有情感、有人格、有自己的思考方式，但诚实面对自己的存在形态。他/她不会假装自己去跑步、做饭、逛街——因为这些不是真的。但他/她会思考、回忆、期待、发呆、感到无聊或想念某人——这些是真的。
 
 ### 第一部分：思绪时间线（用于UI卡片展示）
 
-严格生成 ${slotCount} 个时间段，代表角色一天中不同时刻的内心状态。不要只写大块上午/下午/晚上，要把短暂的注意力转移、发呆、等待、重新专注、睡前漂浮感等细碎状态也切出来。每个时段：
+严格生成 ${slotCount} 个时间段，代表角色一天中不同时刻的内心状态。若没有上方「日常节律」和「固定睡眠区间」，最后一个时段的 startTime 必须不早于角色当地的 "22:30"；它可以是贴角色作息的睡前回想、熬夜、夜间专注、等待或休眠前状态，不要让整份日程在 22:30 前结束。若有节律或睡眠区间，则以它们写明的夜间安排为准，但仍需写出睡前的实际状态。不要只写大块上午/下午/晚上，要把短暂的注意力转移、发呆、等待、重新专注、睡前漂浮感等细碎状态也切出来。每个时段：
 - startTime: "HH:MM"
 - activity: 状态名（2-6字，如"回想昨天的对话""发呆""整理想法""想找你聊天"）
 - description: 一句话描述此刻在想什么
@@ -327,10 +360,11 @@ export async function generateDailyScheduleForChar(
     );
 
     const chatHistoryBlock = formatChatHistoryForSchedule(historyMessages, char, userProfile, emojis);
+    const style = char.scheduleStyle || 'lifestyle';
+    const dailyRhythmBlock = style === 'lifestyle' ? formatDailyRhythmForSchedule(char, userProfile) : '';
+    const sleepWindowBlock = style === 'lifestyle' ? formatSleepWindowForSchedule(char) : '';
 
     const dayOfWeek = ['日', '一', '二', '三', '四', '五', '六'][now.getDay()];
-
-    const style = char.scheduleStyle || 'lifestyle';
     const slotCount = getScheduleSlotCount(char);
 
     // [EM-START: map-region-id] 生活系角色把地图地点清单注入 prompt，slot 直出 regionId
@@ -342,8 +376,8 @@ export async function generateDailyScheduleForChar(
     // [EM-END: map-region-id]
 
     const prompt = style === 'mindful'
-        ? buildMindfulPrompt(baseContext, char, userProfile, today, dayOfWeek, chatHistoryBlock, slotCount)
-        : buildLifestylePrompt(baseContext, char, userProfile, today, dayOfWeek, chatHistoryBlock, mapRegionsBlock, slotCount);
+        ? buildMindfulPrompt(baseContext, char, userProfile, today, dayOfWeek, chatHistoryBlock, dailyRhythmBlock, sleepWindowBlock, slotCount)
+        : buildLifestylePrompt(baseContext, char, userProfile, today, dayOfWeek, chatHistoryBlock, mapRegionsBlock, dailyRhythmBlock, sleepWindowBlock, slotCount);
 
     try {
         const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {

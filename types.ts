@@ -2430,6 +2430,21 @@ export interface CharacterProfile {
   scheduleSlotCount?: number;
 
   /**
+   * 角色自己的日常节律参考。可写固定时间段，也可写概括性的生活规律；
+   * 生成日程时作为高优先级参考，但允许当天事件带来合理变化。
+   */
+  dailyRhythm?: string;
+
+  /**
+   * 角色每日跨午夜的睡眠区间，使用从当日 21:30 延伸到次日 10:00 的分钟刻度。
+   * 设置后会覆盖日程的夜间状态，显示为「睡眠中」。
+   */
+  sleepWindow?: {
+    bedtimeMinutes: number;
+    wakeTimeMinutes: number;
+  };
+
+  /**
    * 日程 / 情绪 Buff 总开关。
    * - true：启用日程生成、意识流、情绪 buff 评估与注入（消耗副 API）。
    * - false：完全关闭，不调副 API，不注入情绪，不生成日程。

@@ -25,7 +25,7 @@ const ContactRow: React.FC<{
     DB.getDailySchedule(char.id, today).then(s => setSchedule(s ?? null)).catch(() => {});
   }, [char.id, today]);
 
-  const { status } = useCharStatus(schedule);
+  const { status } = useCharStatus(schedule, char);
 
   const dotColor =
     status === 'online'  ? 'bg-emerald-400' :
