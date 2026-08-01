@@ -3648,14 +3648,14 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
                 </div>
             )}
 
-            {/* [EM-START: user-voice-bubble] 用户文本语音模式复用原版 Voice Bar，不另套自定义气泡 */}
+            {/* [EM-START: user-voice-bubble] 用户文本语音模式复用原版 Voice Bar，不另套自定义气泡/专属配色 */}
             {/* Layer 6: Voice Bar */}
             {(((voiceData?.url || voiceLoading || hasVoiceTag) && !isUser) || isVoiceBubble) && m.type === 'text' && (() => {
-                const vbBg = styleConfig.voiceBarBg;
-                const vbActiveBg = styleConfig.voiceBarActiveBg;
-                const vbBtn = styleConfig.voiceBarBtnColor;
-                const vbWave = styleConfig.voiceBarWaveColor;
-                const vbText = styleConfig.voiceBarTextColor;
+                const vbBg = styleConfig.backgroundColor;
+                const vbActiveBg = styleConfig.backgroundColor;
+                const vbBtn = isUser ? '#ffffff' : '#64748b';
+                const vbWave = isUser ? '#ffffff' : '#94a3b8';
+                const vbText = styleConfig.textColor || (isUser ? '#ffffff' : '#475569');
                 // Voice-only mode: no visible text, voice bar is primary content.
                 // 外语语音消息顶部正文已隐藏（交给语音条渲染），同样按纯语音处理，去掉多余上间距。
                 const isVoiceOnly = (!!voiceData?.url && (!displayContent || isForeignVoiceMsg)) || isVoiceBubble;
