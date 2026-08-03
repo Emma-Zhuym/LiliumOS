@@ -34,8 +34,8 @@ xiaohongshu-skills/
 
 # git worktrees
 .worktrees/
-
 # iCloud 同步产生的重复文件（"xxx 2.ts" 之类），不要提交
 * 2.*
 * 3.*
 .Rhistory
+.claude/

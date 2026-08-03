@@ -45,6 +45,7 @@ import {
     findNewStreamPreviewHandoverIds,
 } from '../utils/streamPreview';
 import { ActiveMsgStore } from '../utils/activeMsgStore';
+import { markAmsgStateDirty } from '../utils/amsgStateSync';
 import { applyEmotionEvalRaw, extractAssistantText } from '../utils/emotionApply';
 import { announceChatGen, CHAT_GEN_EVENTS } from '../utils/chatGenEvents';
 import { shouldRequestAmbient, buildAmbientEvalSection } from '../utils/roomAmbient';
@@ -1718,6 +1719,10 @@ export const useChatAI = ({
             setSearchStatus('');
             setDiaryStatus('');
             setXhsStatus('');
+
+            // 主动消息 2.0：一轮聊天结束后去抖同步该角色的最新 fire pack。
+            // 未配置任务的角色会在 markAmsgStateDirty 内直接跳过。
+            markAmsgStateDirty({ char, userProfile, groups, realtimeConfig });
 
             // Memory Palace — 后台缓冲区处理（不阻塞 UI，内部有并发锁）
             // 使用全局配置（memoryPalaceConfig）。lightLLM 未配置时回退主 apiConfig；
