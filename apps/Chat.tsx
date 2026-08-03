@@ -42,6 +42,7 @@ import MemoryRepairPortal from '../components/chat/MemoryRepairPortal';
 import ChatModals from '../components/chat/ChatModals';
 import Modal from '../components/os/Modal';
 import ProactiveSettingsModal from '../components/chat/ProactiveSettingsModal';
+import ActiveMsg2SettingsModal from '../components/chat/ActiveMsg2SettingsModal';
 import ThinkingChainSettingsModal from '../components/chat/ThinkingChainSettingsModal';
 import { useCharStatus } from '../hooks/useCharStatus';
 import { useChatAI } from '../hooks/useChatAI';
@@ -170,6 +171,7 @@ const Chat: React.FC = () => {
     const [isSummarizing, setIsSummarizing] = useState(false);
     const [archiveProgress, setArchiveProgress] = useState('');
     const [showProactiveModal, setShowProactiveModal] = useState(false);
+    const [showActiveMsg2Modal, setShowActiveMsg2Modal] = useState(false);
     const [showThinkingChainModal, setShowThinkingChainModal] = useState(false);
 
     // Archive Prompts State
@@ -1376,6 +1378,7 @@ const Chat: React.FC = () => {
             case 'delete-category-req': setSelectedCategory(payload); setModalType('delete-category'); break;
             case 'meetup': if (char) { setShowPanel('none'); openDateWithChar(char.id); } break;
             case 'proactive': setShowProactiveModal(true); break;
+            case 'active-msg-2': setShowActiveMsg2Modal(true); break;
             case 'emotion': setModalType('schedule'); break; // 情绪已并入日程，打开同一 modal
             case 'schedule': setModalType('schedule'); break;
             case 'mcd-not-configured':
@@ -3650,6 +3653,21 @@ const Chat: React.FC = () => {
                         updateCharacter(char.id, { proactiveConfig: { ...char.proactiveConfig!, enabled: false } });
                         addToast('已停止主动消息', 'info');
                     }}
+                />
+            )}
+
+            {/* 主动消息 2.0（云端 worker 定时任务）Settings Modal */}
+            {char && (
+                <ActiveMsg2SettingsModal
+                    isOpen={showActiveMsg2Modal}
+                    onClose={() => setShowActiveMsg2Modal(false)}
+                    char={char}
+                    apiConfig={apiConfig}
+                    userProfile={userProfile}
+                    groups={groups}
+                    realtimeConfig={realtimeConfig}
+                    onSave={(config) => updateCharacter(char.id, { activeMsg2Config: config })}
+                    addToast={addToast}
                 />
             )}
 
