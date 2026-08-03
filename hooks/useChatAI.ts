@@ -45,7 +45,11 @@ import {
     findNewStreamPreviewHandoverIds,
 } from '../utils/streamPreview';
 import { ActiveMsgStore } from '../utils/activeMsgStore';
-import { markAmsgStateDirty } from '../utils/amsgStateSync';
+import { markAmsgStateDirty, startAmsgChatPresence, stopAmsgChatPresence } from '../utils/amsgStateSync';
+import { getLastRealUserMessageAt } from '../utils/amsg2ExpireGuard';
+import { hasActiveAiTask } from '../utils/amsg2Tasks';
+import { collectAmsg2TaskContext } from '../utils/amsg2TaskContext';
+import { AMSG2_TOOLS, AMSG2_TOOL_NAMES, executeAmsg2Tool, isAmsg2GlobalReady } from '../utils/amsg2ToolBridge';
 import { applyEmotionEvalRaw, extractAssistantText } from '../utils/emotionApply';
 import { announceChatGen, CHAT_GEN_EVENTS } from '../utils/chatGenEvents';
 import { shouldRequestAmbient, buildAmbientEvalSection } from '../utils/roomAmbient';
@@ -436,11 +440,11 @@ interface UseChatAIProps {
     setMessages: (msgs: Message[]) => void; // Callback to update UI messages
     /** 正式消息接替流式预览前同步登记 id，避免真实气泡重新播放入场动画。 */
     onStreamPreviewHandover?: (charId: string, messageIds: number[]) => void;
-    realtimeConfig?: RealtimeConfig; // 新增：实时配置
+    realtimeConfig: RealtimeConfig; // 实时配置（amsg2 工具排程要用，两个调用点都必传）
     translationConfig?: { enabled: boolean; sourceLang: string; targetLang: string };
     memoryPalaceConfig?: { embedding: { baseUrl: string; apiKey: string; model: string; dimensions: number }; lightLLM: { baseUrl: string; apiKey: string; model: string } };
     /** 从 OSContext 传入，用于 palace 自动归档写 char.memories + hideBeforeMessageId */
-    updateCharacter?: (id: string, partial: Partial<CharacterProfile>) => void;
+    updateCharacter: (id: string, partial: Partial<CharacterProfile>) => void;
     /** 麦当劳小程序当前快照 (cart/menu/nutrition); open=true 时把这段实时状态追加到 system prompt 末尾, 让 char 协同选餐 */
     mcdMiniAppRef?: MutableRefObject<import('../utils/mcdToolBridge').McdMiniAppSnapshot | undefined>;
     /** 瑞幸小程序当前快照 (cart/menu); 与麦当劳同构 */
@@ -1027,6 +1031,28 @@ export const useChatAI = ({
                     }
                 }
             }
+            // 主动消息 2.0 本地工具：已配置 worker 时注入 schedule/cancel/renew/list，
+            // 并注入「排程现状」背景块（进行中任务 + 作废待处理，角色自行判断怎么接）。
+            // amsg2 和 instant push 互斥，不需要额外判断。
+            let amsg2ToolsInjected = false;
+            let amsg2ExpiredIds: string[] = [];
+            if (await isAmsg2GlobalReady()) {
+                amsg2ToolsInjected = true;
+                baseReqBody.tools = [...(baseReqBody.tools || []), ...AMSG2_TOOLS];
+                if (!baseReqBody.tool_choice) baseReqBody.tool_choice = 'auto';
+                try {
+                    const taskContext = await collectAmsg2TaskContext(char);
+                    if (taskContext.text) {
+                        amsg2ExpiredIds = taskContext.expiredIds;
+                        baseReqBody.messages = [
+                            ...baseReqBody.messages,
+                            { role: 'system', content: taskContext.text },
+                        ];
+                    }
+                } catch (e) {
+                    console.warn('[amsg2] 排程现状块构建失败，本轮跳过', e);
+                }
+            }
 
             // EM: Intiface 硬件集成 — 设备已连接时自动注入 control_toy 工具
             const intifaceReady =
@@ -1152,6 +1178,15 @@ export const useChatAI = ({
 
             // 主请求即将发出 → 立即并行发射情绪评估（错峰延迟已按用户要求取消，见定义处注释）。
             fireLocalEmotionEval?.();
+
+            // 同角色活跃会话租约：本地 fetch 路径本轮真实消息已落库、模型请求即将发出，
+            // 启动心跳告诉 worker「正在和这个角色聊」——到点的 expire AI 任务据此 skip，
+            // 别在用户正聊时又弹主动消息。instant push 路径在上方已 return，天然不重复开 lease。
+            // 只对已排程 AI 任务的角色开租约：其余角色没有 worker 消费，开了纯浪费还刷 warn。
+            const amsg2Cfg = char.activeMsg2Config;
+            if (amsg2Cfg?.enabled && hasActiveAiTask(amsg2Cfg)) {
+                startAmsgChatPresence(char.id, getLastRealUserMessageAt(contextMsgs));
+            }
 
             let data: any;
             try {
@@ -1403,7 +1438,7 @@ export const useChatAI = ({
             //       createOrder 被拦截 —— 下单付款必须用户在结账卡上点。
             //     · 通用 MCP: 工具名命中 mcpToolResolve 映射就分发给对应服务器 (utils/mcpClient),
             //       结果只回填循环不落卡片。两类工具可同时在场, 按名字各走各的。
-            if ((payload.flags.luckinChatActive || mcpToolResolve) && data.choices?.[0]?.message?.tool_calls?.length) {
+            if ((payload.flags.luckinChatActive || mcpToolResolve || amsg2ToolsInjected) && data.choices?.[0]?.message?.tool_calls?.length) {
                 const MAX_LOOPS = 6;
                 let loopMessages = [...fullMessages];
                 const loc = luckinChatRef?.current;
@@ -1442,6 +1477,16 @@ export const useChatAI = ({
                                 ? `工具 ${fname} 成功。结果: ${formatMcpToolResult(mcpResult.data)}`
                                 : `工具 ${fname} 失败: ${mcpResult.error}`;
                             loopMessages.push(buildToolResultMessage(tc, mcpMsg) as any);
+                            continue;
+                        }
+                        // 主动消息 2.0 工具
+                        if (AMSG2_TOOL_NAMES.has(fname)) {
+                            setSearchStatus(`正在执行：${fname}...`);
+                            const result = await executeAmsg2Tool(fname, args, {
+                                char, userProfile, groups, realtimeConfig, apiConfig, updateCharacter,
+                            });
+                            loopMessages.push({ role: 'tool', tool_call_id: tc.id, content: result } as any);
+                            setSearchStatus('');
                             continue;
                         }
                         // 只开了 MCP 没开瑞幸时, 幻觉出的未知工具名直接回错误让模型自我纠正
@@ -1687,6 +1732,14 @@ export const useChatAI = ({
             // instant 路径不发：它的落库回落走 'active-msg-received'（activeMsgRuntime）。
             announceChatGen(CHAT_GEN_EVENTS.replyArrived, { charId: char.id, charName: char.name });
 
+            // 防穿帮闸：仅当这轮请求真的成功、回执确实进了模型上下文并产出已落库的
+            // 回复，才标记已告知；失败/中断路径不标，下轮重新注入（回执不丢）。
+            // 放在 try 成功尾部（回复已 applyAssistantPostProcessing 落库），与 catch/finally 互斥；
+            // amsg2 与 instant 互斥，instant 路径在上方已 return，这里只覆盖本地 fetch 路径。
+            if (amsg2ExpiredIds.length) {
+                void ActiveMsgStore.markExpiredNoticesNotified(char.id, amsg2ExpiredIds);
+            }
+
         } catch (e: any) {
             // 注意: 这个 catch 兜的是「拿到 API 响应之后」的整条后处理管线 (applyAssistantPostProcessing,
             // 13 步)。这里抛错多半不是网络问题, 而是解析/正则/落库异常。别再叫"连接中断"误导排查。
@@ -1705,6 +1758,9 @@ export const useChatAI = ({
         } finally {
             KeepAlive.stop();
             setIsTyping(false);
+            // 本轮生成结束（成功/失败/中断都经过）→ 停止本地续租；远端靠 45s TTL 自然失效。
+            // 未开过租约（instant push / 非 amsg2 角色）时是幂等 no-op。
+            stopAmsgChatPresence(char.id);
             // 全局横幅熄灭（成功/失败/instant 均经过这里；OSContext 同时借它兜底刷新，
             // 覆盖 catch 里落库的错误系统消息）。
             announceChatGen(CHAT_GEN_EVENTS.replyEnd, { charId: char.id, charName: char.name });
