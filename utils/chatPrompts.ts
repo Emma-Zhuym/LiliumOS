@@ -20,6 +20,7 @@ import { emSendPhotoAddon, emQuoteSection, emNotionDiarySection, emFeishuDiarySe
 import { buildLifeRecordInjection } from './lifeRecords';
 import { getCharNameById } from './charNameRegistry';
 import { getLocalDateKey } from './localDate';
+import { buildNotionDiaryCadenceReminder } from './notionDiaryCadence';
 import { getDailyScheduleForChar } from './dailySchedule';
 import { buildEmScribeInjection } from './emScribe'; // [EM: em-scribe]
 import { formatRelativeAge } from './groupChat/relativeTime';
@@ -171,6 +172,7 @@ export const ChatPrompts = {
         const parts = await ChatPrompts.buildSystemPromptParts(
             char, userProfile, groups, emojis, categories, currentMsgs,
             realtimeConfig, evolvedNarrative, userListeningContext, isListeningTogether, musicCfg,
+            undefined, { includeDiaryCadence: false },
         );
         return parts.stable + parts.volatileState + parts.recencyTail;
     },
@@ -210,6 +212,8 @@ export const ChatPrompts = {
         musicCfg?: MusicCfg,
         // 刚才一起听途中歌被切了（char 还没重新加入）—— 注入"察觉换歌"提示。
         recentTrackSwitch?: { songName: string; artists: string } | null,
+        // 主动消息 fire pack 会复用，不能把过期的强提醒冻结进去反复触发。
+        options?: { includeDiaryCadence?: boolean },
     ): Promise<{ stable: string; volatileState: string; recencyTail: string }> => {
         // ── 分段计时（定位瓶颈用）──
         const perfT0 = performance.now();
@@ -323,19 +327,22 @@ ${groupLogStr}\n`;
         })();
 
         // 4. Notion 日记标题
-        const notionDiaryPromise: Promise<string> = (async () => {
+        const notionDiaryPromise: Promise<{ text: string; latestDiaryDate?: string; historyLookupSucceeded: boolean }> = (async () => {
             try {
-                if (!(config.notionEnabled && config.notionApiKey && config.notionDatabaseId)) return '';
+                if (!(config.notionEnabled && config.notionApiKey && config.notionDatabaseId)) {
+                    return { text: '', historyLookupSucceeded: false };
+                }
                 const r = await NotionManager.getRecentDiaries(config.notionApiKey, config.notionDatabaseId, char.name, 8);
-                if (!r.success || r.entries.length === 0) return '';
+                if (!r.success) return { text: '', historyLookupSucceeded: false };
+                if (r.entries.length === 0) return { text: '', historyLookupSucceeded: true };
                 let s = `\n### 📔【你最近写的日记】\n`;
                 s += `（这些是你之前写的日记，你记得这些内容。如果想看某篇的详细内容，可以使用 [[READ_DIARY: 日期]] 翻阅）\n`;
                 r.entries.forEach((d, i) => { s += `${i + 1}. [${d.date}] ${d.title}\n`; });
                 s += `\n`;
-                return s;
+                return { text: s, latestDiaryDate: r.entries[0]?.date, historyLookupSucceeded: true };
             } catch (e) {
                 console.error('Failed to inject diary context:', e);
-                return '';
+                return { text: '', historyLookupSucceeded: false };
             }
         })();
 
@@ -380,7 +387,7 @@ ${groupLogStr}\n`;
                 return '';
             });
 
-        const [realtimeText, schedule, groupContextText, notionDiaryText, feishuDiaryText, notionNotesText, lifeRecordText] =
+        const [realtimeText, schedule, groupContextText, notionDiaryContext, feishuDiaryText, notionNotesText, lifeRecordText] =
             await Promise.all([
                 timed('realtime', realtimePromise),
                 timed('schedule', schedulePromise),
@@ -449,7 +456,16 @@ ${groupLogStr}\n`;
 
         // 群聊背景带时间戳、随群消息实时滚动 → 易变；日记标题/生活记录变化很慢 → 稳定。
         volatileState += groupContextText;
-        baseSystemPrompt += notionDiaryText;
+        baseSystemPrompt += notionDiaryContext.text;
+        // [EM-START: notion-diary-cadence] 24h 轻提醒、48h 强检查；成功写入后才重置。
+        if (options?.includeDiaryCadence !== false) {
+            volatileState += buildNotionDiaryCadenceReminder(
+                char.id,
+                notionDiaryContext.latestDiaryDate,
+                notionDiaryContext.historyLookupSucceeded,
+            );
+        }
+        // [EM-END: notion-diary-cadence]
         baseSystemPrompt += feishuDiaryText;
         baseSystemPrompt += notionNotesText;
         baseSystemPrompt += lifeRecordText;

@@ -1,6 +1,7 @@
 import { DB } from './db';
 import { NotionManager, FeishuManager } from './realtimeContext';
 import type { RealtimeConfig } from '../types';
+import { markNotionDiaryWritten } from './notionDiaryCadence';
 
 // 待写日记队列 (写 Notion / 飞书).
 //
@@ -91,6 +92,7 @@ export async function drainPendingDiaries(
                     (realtimeConfig as any).notionDiaryExtraProperties, // [EM: notion-diary-extra-props] 第四参数不传日记不会自动选角色标签
                 );
                 if (r.success) {
+                    markNotionDiaryWritten(entry.charId);
                     await DB.saveMessage({ charId: entry.charId, role: 'system', type: 'text', content: `📔 ${entry.charName}写了一篇日记「${entry.title}」` } as any);
                     removePendingDiary(entry.id);
                     onSaved?.(entry.charId);

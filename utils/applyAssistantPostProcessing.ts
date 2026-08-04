@@ -31,6 +31,7 @@ import { ChatParser } from './chatParser';
 import { resolveCharTimeZone } from './timezone';
 import { NotionManager, FeishuManager, XhsNote } from './realtimeContext';
 import { enqueuePendingDiary, removePendingDiary } from './pendingDiary';
+import { markNotionDiaryWritten } from './notionDiaryCadence';
 import { parseXhsCount, XhsMcpClient } from './xhsMcpClient';
 import { safeFetchJson } from './safeApi';
 import { extractHtmlBlocks } from './htmlPrompt';
@@ -916,6 +917,7 @@ export async function applyAssistantPostProcessing(
                 );
 
                 if (result.success) {
+                    markNotionDiaryWritten(char.id);
                     removePendingDiary(pendingDiaryId);
                     console.log('📔 [Diary] 写入成功:', result.url);
                     await DB.saveMessage({

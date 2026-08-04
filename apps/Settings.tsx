@@ -29,7 +29,6 @@ import { ActiveMsgClient } from '../utils/activeMsgClient';
 import VersionInfo from '../components/settings/VersionInfo';
 import { LoyalUserRecruitmentController } from '../components/LoyalUserRecruitmentEvent';
 import { isPushVapidReady } from '../utils/pushVapid';
-import ActiveMsgGlobalSettingsModal from '../components/settings/ActiveMsgGlobalSettingsModal';
 import type { NotionDiaryExtraProperty, NotionExtraDatabase } from '../types';
 import {
     dedupeNotionReadNoteRows,
@@ -474,8 +473,6 @@ const Settings: React.FC = () => {
   // Emma: read-only extra databases with TAG system
   const [rtNotionExtraDbs, setRtNotionExtraDbs] = useState<NotionExtraDatabase[]>(realtimeConfig.notionExtraDatabases || []);
   const [notionReadOnlyDbsExpanded, setNotionReadOnlyDbsExpanded] = useState(false);
-  // Emma: activeMsg 2.0 modal
-  const [showActiveMsgModal, setShowActiveMsgModal] = useState(false);
   const [rtFeishuEnabled, setRtFeishuEnabled] = useState(realtimeConfig.feishuEnabled);
   const [rtFeishuAppId, setRtFeishuAppId] = useState(realtimeConfig.feishuAppId);
   const [rtFeishuAppSecret, setRtFeishuAppSecret] = useState(realtimeConfig.feishuAppSecret);
@@ -2514,42 +2511,6 @@ const Settings: React.FC = () => {
             </p>
         </SettingsSection>
 
-        {/* Emma: 主动消息 2.0 */}
-        <section className="bg-white/60 backdrop-blur-sm rounded-3xl p-5 shadow-sm border border-white/50">
-            <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                    <div className="p-2 bg-fuchsia-100/60 rounded-xl text-fuchsia-600">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 3.75h9A2.25 2.25 0 0 1 18.75 6v12a2.25 2.25 0 0 1-2.25 2.25h-9A2.25 2.25 0 0 1 5.25 18V6A2.25 2.25 0 0 1 7.5 3.75Zm0 0V2.25m9 1.5V2.25M8.25 8.25h7.5m-7.5 3h7.5m-7.5 3h4.5" />
-                        </svg>
-                    </div>
-                    <h2 className="text-sm font-semibold text-slate-600 tracking-wider">主动消息 2.0</h2>
-                </div>
-                <div className="flex items-center gap-3">
-                    <span className="text-[10px] text-slate-500">启用</span>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" checked={!!realtimeConfig.activeMsg2Enabled}
-                            onChange={e => { updateRealtimeConfig({ activeMsg2Enabled: e.target.checked }); addToast(e.target.checked ? '已启用，刷新页面后生效' : '已关闭'); }}
-                            className="sr-only peer" />
-                        <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-fuchsia-500"></div>
-                    </label>
-                    {realtimeConfig.activeMsg2Enabled && (
-                        <button type="button" onClick={() => setShowActiveMsgModal(true)} className="text-[10px] bg-fuchsia-100 text-fuchsia-600 px-3 py-1.5 rounded-full font-bold shadow-sm active:scale-95 transition-transform">配置</button>
-                    )}
-                </div>
-            </div>
-            {!realtimeConfig.activeMsg2Enabled ? (
-                <p className="text-xs text-slate-500 leading-relaxed">云端调度 + Web Push。默认关闭，开启后需刷新页面。不替换本地「主动消息」。</p>
-            ) : (
-                <>
-                    <p className="text-xs text-slate-500 mb-3 leading-relaxed">已启用。聊天「+」里会出现「主动消息 2.0」入口。</p>
-                    <button type="button" onClick={() => setShowActiveMsgModal(true)} className="w-full py-3 rounded-2xl font-bold text-white shadow-lg bg-fuchsia-500 active:scale-95 transition-all">
-                        打开主动消息 2.0 设置
-                    </button>
-                </>
-            )}
-        </section>
-
         {/* EM: Intiface 硬件集成 */}
         <section className="bg-white/80 rounded-3xl p-5 shadow-sm border border-white/50">
             <div className="flex items-center gap-2 mb-1">
@@ -3697,11 +3658,6 @@ const Settings: React.FC = () => {
         onOpenVapid={() => { setShowAmsg2Modal(false); setShowVapidModal(true); }}
       />
 
-      <ActiveMsgGlobalSettingsModal
-          isOpen={showActiveMsgModal}
-          onClose={() => setShowActiveMsgModal(false)}
-          addToast={addToast}
-      />
       {showCommunityMigration && (
         <LoyalUserRecruitmentController onClose={() => setShowCommunityMigration(false)} />
       )}
