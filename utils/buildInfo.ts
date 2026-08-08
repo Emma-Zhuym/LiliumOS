@@ -15,9 +15,3 @@ export const BUILD_TIME_LABEL = __BUILD_TIME__;
 
 /** 设置页底部的产品版本名（手工维护），跟构建 hash 是两码事——发版前改这里。 */
 export const APP_VERSION = 'v3.1 (Instant Chat)';
-
-/**
- * 版本号那半截（`v3.0`）。统计给每条记录打的标签用它，面板里按版本切分数据时
- * 标签越短越好筛，代号留给设置页展示。跟着 APP_VERSION 走，改一处就够。
- */
-export const APP_VERSION_TAG = APP_VERSION.split(' ')[0];
