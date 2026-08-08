@@ -265,9 +265,8 @@ describe('ActiveMsgClient.getRemoteTaskStatus', () => {
   });
 });
 
-// 回归守卫：连接失败的归类。使用统计只发这个代号，不发报错原文——
-// 「密钥对不上」「地址不对」「D1 没绑」在图上混成一格的话，看不出该修哪一段引导；
-// 而把 error.message 塞进上报又会带出 Worker 地址。两头都得钉住。
+// 回归守卫：连接失败的归类只暴露固定代号，不传报错原文。
+// 「密钥对不上」「地址不对」「D1 没绑」需要不同引导，而 error.message 可能带出 Worker 地址。
 describe('连接失败的归类（AmsgFailKind）', () => {
   const respondWith = (status: number, body: unknown) => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({

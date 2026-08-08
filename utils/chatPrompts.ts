@@ -542,7 +542,9 @@ ${groupLogStr}\n`;
         baseSystemPrompt += notionNotesText;
         baseSystemPrompt += lifeRecordText;
         // [EM-START: em-scribe] EM 版角色代记：[[REC:...]] 指令教学 + 否决反馈（写 Health/Bank，独立于上游 lifeRecords）
-        try { baseSystemPrompt += buildEmScribeInjection(char, userProfile.name); } catch (e) { console.error('Failed to inject em-scribe:', e); }
+        if (!forFirePack) {
+            try { baseSystemPrompt += buildEmScribeInjection(char, userProfile.name); } catch (e) { console.error('Failed to inject em-scribe:', e); }
+        }
         // [EM-END: em-scribe]
 
         // 彼方常驻设定：仅对启用了「彼方」的角色注入。让角色在聊天里始终知道彼方是什么，

@@ -88,13 +88,13 @@ export async function stripAndSaveScheduledMessages(
         const dueMs = parseScheduleDueAt(row.timeStr, charTz);
         const graceMs = 15_000;
         if (dueMs == null || Number.isNaN(dueMs)) {
-            console.warn('[schedule_message] 无法解析时间:', row.timeStr);
+            console.warn('[schedule_message] 时间解析不了:', row.timeStr, '内容:', row.msgContent);
             addToast(`${charName} 的定时消息时间格式未识别（需 YYYY-MM-DD HH:MM:SS）`, 'info');
             stripRow();
             continue;
         }
         if (dueMs <= Date.now() - graceMs) {
-            console.warn('[schedule_message] 时间不在未来，已忽略:', row.timeStr, '→', new Date(dueMs).toISOString());
+            console.warn('[schedule_message] 时间已经过去，已忽略:', row.timeStr, '→', new Date(dueMs).toISOString(), '内容:', row.msgContent);
             addToast('定时消息时间需要是「未来」时刻，请让角色写对本地日期时间', 'info');
             stripRow();
             continue;
