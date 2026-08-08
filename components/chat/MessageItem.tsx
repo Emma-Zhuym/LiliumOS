@@ -8,6 +8,7 @@ import { tryParseLifeSimResetCard } from '../../utils/lifeSimChatCard';
 import { VALID_INTERJECTION_TAGS, cleanVoiceMarkupForDisplay } from '../../utils/minimaxTts';
 import { stripFishCuesForDisplay } from '../../utils/fishAudioTts';
 import { formatStatCount } from '../../utils/videoParser';
+import { trackEvent } from '../../utils/analytics';
 import McdCard from './McdCard';
 import HtmlCard from './HtmlCard';
 import LuckinCard from './LuckinCard';
@@ -477,6 +478,7 @@ export const ThinkingChainBlock: React.FC<{
         setCopyState(success ? 'ok' : 'error');
         if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
         feedbackTimerRef.current = setTimeout(() => setCopyState('idle'), 1600);
+        trackEvent('长按复制心象全文');
     };
 
     const resetLongPress = () => {
@@ -872,13 +874,13 @@ const LifeRecordCard: React.FC<{
                 ) : canResolve ? (
                     <div className="mt-2.5 flex gap-2">
                         <button
-                            onClick={(e) => { e.stopPropagation(); onResolveLifeRecord?.(m, 'confirmed'); }}
+                            onClick={(e) => { e.stopPropagation(); onResolveLifeRecord?.(m, 'confirmed'); trackEvent('处理角色代记的生活记录', { result: 'confirmed' }); }}
                             className="flex-1 py-1.5 rounded-xl bg-white/85 text-emerald-600 text-[11px] font-bold shadow-sm active:scale-95 transition-transform"
                         >
                             ✓ 确认
                         </button>
                         <button
-                            onClick={(e) => { e.stopPropagation(); onResolveLifeRecord?.(m, 'rejected'); }}
+                            onClick={(e) => { e.stopPropagation(); onResolveLifeRecord?.(m, 'rejected'); trackEvent('处理角色代记的生活记录', { result: 'rejected' }); }}
                             className="flex-1 py-1.5 rounded-xl bg-white/60 text-slate-500 text-[11px] font-bold shadow-sm active:scale-95 transition-transform"
                         >
                             ✗ 否决
@@ -949,6 +951,7 @@ const TransferCard: React.FC<{
     const handleResolve = (action: 'accepted' | 'returned') => {
         onResolveTransfer?.(m, action);
         setOpen(false);
+        trackEvent('处理收到的转账', { result: action });
     };
 
     return (
@@ -3664,7 +3667,7 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
                     {voiceData?.url ? (
                         <div className="max-w-[260px]">
                             <button
-                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); onPlayVoice?.(m.id); }}
+                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); onPlayVoice?.(m.id); if (!isVoicePlaying) trackEvent('播放语音条'); }}
                                 className="group flex items-center gap-2.5 w-full px-3 py-2 rounded-2xl transition-all duration-300 active:scale-[0.97] select-none"
                                 style={{
                                     background: isVoicePlaying
@@ -3716,6 +3719,7 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
                                         e.stopPropagation();
                                         e.preventDefault();
                                         setShowVoiceText(v => !v);
+                                        if (!showVoiceText) trackEvent('把语音条转成文字');
                                     }}
                                 >
                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8 10h8"/><path d="M8 14h4"/></svg>
@@ -3805,7 +3809,7 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
                                             color: vbText || 'rgba(100,116,139,0.7)',
                                             backgroundColor: showVoiceText ? 'rgba(0,0,0,0.08)' : 'rgba(0,0,0,0.04)',
                                         }}
-                                        onClick={(e) => { e.stopPropagation(); e.preventDefault(); setShowVoiceText(v => !v); }}
+                                        onClick={(e) => { e.stopPropagation(); e.preventDefault(); setShowVoiceText(v => !v); if (!showVoiceText) trackEvent('把语音条转成文字'); }}
                                     >
                                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8 10h8"/><path d="M8 14h4"/></svg>
                                     </div>
