@@ -11,7 +11,6 @@ import {
     buildEndCardPrompt,
 } from '../utils/guidebookPrompts';
 import { DB } from '../utils/db';
-import { trackEvent } from '../utils/analytics';
 import {
     ArrowLeft,
     ArrowRight,
@@ -679,7 +678,6 @@ const GuidebookApp: React.FC = () => {
     const handleStartGame = async () => {
         if (!selectedCharId) { addToast('请先选择角色', 'error'); return; }
 
-        trackEvent('开始一局攻略');
         setIsLoading(true);
         setError('');
 
@@ -771,7 +769,6 @@ const GuidebookApp: React.FC = () => {
     // --- AI Assist ---
     const handleAIAssist = async () => {
         if (!session || !selectedChar) return;
-        trackEvent('让 AI 帮写本回合选项');
         setIsLoading(true);
         setError('');
         const wc = extractWorldContext(session.openingSequence);
@@ -896,7 +893,6 @@ const GuidebookApp: React.FC = () => {
     // --- Regenerate from round ---
     const handleRegenerateFrom = async (roundIdx: number) => {
         if (!session || !selectedChar) return;
-        trackEvent('从某回合重新生成');
         setContextMenuRound(null);
 
         // Restore input fields from the round being regenerated
@@ -923,7 +919,6 @@ const GuidebookApp: React.FC = () => {
     // --- Delete round ---
     const handleDeleteFrom = async (roundIdx: number) => {
         if (!session) return;
-        trackEvent('删掉某回合之后的内容');
         setContextMenuRound(null);
 
         // Restore input fields from the deleted round
@@ -947,7 +942,6 @@ const GuidebookApp: React.FC = () => {
     // --- End Game ---
     const handleEndGame = async () => {
         if (!session || !selectedChar) return;
-        trackEvent('结束本局出结算卡');
         setIsLoading(true);
         setError('');
         setShowExceedWarning(false);
@@ -1021,7 +1015,6 @@ const GuidebookApp: React.FC = () => {
                 content: JSON.stringify(cardData),
                 metadata: { scoreCard: cardData },
             });
-            trackEvent('把结算卡发到聊天');
             addToast('已发送到聊天', 'success');
             setShowEndCard(false);
         } catch (e: any) { addToast('发送失败: ' + e.message, 'error'); }
@@ -1030,7 +1023,6 @@ const GuidebookApp: React.FC = () => {
     // --- Delete Session ---
     const handleDeleteSession = async (id: string) => {
         await DB.deleteGuidebookSession(id);
-        trackEvent('删除一份攻略存档');
         setDeleteSessionId(null);
         loadSessions();
         if (session?.id === id) {
@@ -1083,7 +1075,7 @@ const GuidebookApp: React.FC = () => {
                             <div className="text-xs tracking-[0.3em] text-white/40 font-light" style={{ fontFamily: 'Georgia, serif' }}>CHARACTER SELECT</div>
                             <div className="text-base font-bold text-white/90 tracking-wider mt-0.5">攻略本</div>
                         </div>
-                        <button onClick={() => { trackEvent('打开玩法说明'); setShowTutorial(true); }} className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-white/50 text-xs font-bold active:scale-90 transition-transform backdrop-blur-sm border border-white/10">
+                        <button onClick={() => setShowTutorial(true)} className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-white/50 text-xs font-bold active:scale-90 transition-transform backdrop-blur-sm border border-white/10">
                             ?
                         </button>
                     </div>
@@ -1107,7 +1099,7 @@ const GuidebookApp: React.FC = () => {
                             return (
                                 <button
                                     key={c.id}
-                                    onClick={() => { trackEvent('选择攻略角色进入配置页'); setSelectedCharId(c.id); setView('setup'); }}
+                                    onClick={() => { setSelectedCharId(c.id); setView('setup'); }}
                                     className="w-full block relative overflow-hidden active:scale-[0.97] transition-all duration-200 group"
                                     style={{ borderRadius: '4px' }}
                                 >
@@ -1238,7 +1230,7 @@ const GuidebookApp: React.FC = () => {
                                         key={s.id}
                                         session={s}
                                         char={characters.find(c => c.id === s.charId)}
-                                        onTap={() => { trackEvent('回放历史攻略存档'); openReplay(s); }}
+                                        onTap={() => openReplay(s)}
                                         onLongPress={() => setDeleteSessionId(s.id)}
                                     />
                                 ))}
@@ -1423,7 +1415,7 @@ const GuidebookApp: React.FC = () => {
                                 </div>
                                 <div className="grid grid-cols-4 gap-1.5">
                                     {[3, 5, 8, 10].map(n => (
-                                        <button key={n} onClick={() => { trackEvent('选择攻略回合数', { rounds: n }); setMaxRounds(n); }}
+                                        <button key={n} onClick={() => setMaxRounds(n)}
                                             className="py-2 rounded-xl text-xs transition-all active:scale-90"
                                             style={maxRounds === n ? {
                                                 background: 'linear-gradient(135deg, #c9a0a0, #b88a8a)',
@@ -1458,7 +1450,7 @@ const GuidebookApp: React.FC = () => {
                                         { label: '异世界', icon: 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/2694.png', value: '奇幻异世界冒险，勇者与同伴的旅程，角色在冒险途中制造心动瞬间' },
                                         { label: '自由想象', icon: 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f52e.png', value: '' },
                                     ].map(preset => (
-                                        <button key={preset.label} onClick={() => { trackEvent('选择幻想场景预设', { preset: preset.label }); setScenarioHint(preset.value); }}
+                                        <button key={preset.label} onClick={() => setScenarioHint(preset.value)}
                                             className="py-2 px-1 rounded-xl text-[10px] transition-all active:scale-90 text-center leading-tight"
                                             style={scenarioHint === preset.value && preset.value ? {
                                                 background: 'linear-gradient(135deg, #c9a0a0, #b88a8a)',
@@ -1797,7 +1789,6 @@ const GuidebookApp: React.FC = () => {
                                 const t = [...optionTexts]; t[editingOptIdx] = editOptText; setOptionTexts(t);
                                 const s = [...optionScores]; s[editingOptIdx] = Number(editOptScore) || 0; setOptionScores(s);
                                 setEditingOptIdx(null);
-                                trackEvent('手动编辑一个选项');
                             }}
                                 className="flex-1 py-2.5 text-white text-xs font-bold rounded-2xl active:scale-95 transition-transform shadow-md" style={{ background: 'linear-gradient(135deg, #b8909a, #a07880)' }}>
                                 确认
@@ -1835,7 +1826,7 @@ const GuidebookApp: React.FC = () => {
                                 className="flex-1 py-2.5 bg-white/80 text-xs font-bold rounded-2xl active:scale-95 transition-transform" style={{ color: '#8b7a7e', border: '1px solid rgba(200,185,190,0.3)' }}>
                                 取消
                             </button>
-                            <button onClick={() => { setRoundScenario(editScenarioText); setEditingScenario(false); trackEvent('手动编辑本回合场景'); }}
+                            <button onClick={() => { setRoundScenario(editScenarioText); setEditingScenario(false); }}
                                 className="flex-1 py-2.5 text-white text-xs font-bold rounded-2xl active:scale-95 transition-transform shadow-md" style={{ background: 'linear-gradient(135deg, #b8909a, #a07880)' }}>
                                 确认
                             </button>

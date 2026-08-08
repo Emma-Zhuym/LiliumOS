@@ -16,7 +16,6 @@ import {
     CHANGELOG_2026_07_10,
     CHANGELOG_2026_08_03,
 } from '../components/UpdateNotificationEvent';
-import { trackEvent } from '../utils/analytics';
 
 const FAQ_DATA = [
     {
@@ -252,7 +251,7 @@ const FAQApp: React.FC = () => {
                 <div className="shrink-0 bg-white/60 backdrop-blur-md border-b border-slate-200/60 px-4 py-2">
                     <div className="inline-flex bg-slate-100 rounded-full p-1 gap-1">
                         <button
-                            onClick={() => { setTab('faq'); trackEvent('切换常见问题标签页', { tab: 'faq' }); }}
+                            onClick={() => setTab('faq')}
                             className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${
                                 tab === 'faq'
                                     ? 'bg-white text-indigo-600 shadow-sm'
@@ -262,7 +261,7 @@ const FAQApp: React.FC = () => {
                             常见问题
                         </button>
                         <button
-                            onClick={() => { setTab('changelog'); trackEvent('切换常见问题标签页', { tab: 'changelog' }); }}
+                            onClick={() => setTab('changelog')}
                             className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all ${
                                 tab === 'changelog'
                                     ? 'bg-white text-indigo-600 shadow-sm'

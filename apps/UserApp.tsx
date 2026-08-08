@@ -4,7 +4,6 @@ import { useOS } from '../context/OSContext';
 import { processImage } from '../utils/file';
 import LifeRecordPanel from '../components/lifeRecord/LifeRecordPanel';
 import PerCharAvatarPicker from '../components/user/PerCharAvatarPicker';
-import { trackEvent } from '../utils/analytics';
 
 // [EM-START: hide-life-records] 生活记录（上游"生活统计"）入口开关——EM 用自己的 Health/BankApp，
 // 此页隐藏但代码保留（merge 零成本）。角色代记走 EM 自己的实现（写 Health/Bank），不启用这套。
@@ -46,7 +45,7 @@ const UserApp: React.FC = () => {
                     {([['profile', '我的档案'], ['life', '生活记录']] as const).filter(([key]) => key !== 'life' || EM_SHOW_LIFE_RECORDS).map(([key, label]) => (
                         <button
                             key={key}
-                            onClick={() => { setTab(key); trackEvent('切换个人档案标签页', { tab: key }); }}
+                            onClick={() => setTab(key)}
                             className={`px-4 py-1.5 rounded-full text-xs font-bold transition-colors ${
                                 tab === key ? 'bg-primary text-white shadow-sm' : 'bg-slate-100 text-slate-400'
                             }`}

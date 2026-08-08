@@ -8,7 +8,6 @@ import { F, HUE } from '../../utils/clayTokens';
 import { formatSleepTimelineTime, SLEEP_TIMELINE_END, SLEEP_TIMELINE_START } from '../../utils/scheduleTime';
 import { isTranslationLangPreset, normalizeTranslationLangLabel, TRANSLATION_LANG_MAX_LENGTH, TRANSLATION_LANG_PRESETS } from '../../utils/translationLang';
 import type { ContextRangeMode, ContextRangeSnapshot } from '../../utils/chatContextRange';
-import { trackEvent } from '../../utils/analytics';
 
 interface ChatModalsProps {
     modalType: string;
@@ -669,7 +668,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                      {isMemoryPalaceEnabled && onForceVectorize && (
                          <div className="pt-2 border-t border-slate-100">
                              <button
-                                 onClick={() => { onForceVectorize(); trackEvent('一键把聊天存进记忆宫殿'); }}
+                                 onClick={onForceVectorize}
                                  disabled={isVectorizing}
                                  className="w-full py-3 bg-emerald-50 text-emerald-600 font-bold rounded-2xl border border-emerald-200 active:scale-95 transition-transform flex items-center justify-center gap-2 disabled:opacity-70"
                              >
