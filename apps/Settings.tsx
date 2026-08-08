@@ -41,7 +41,7 @@ import {
 import ApiCallLogModal from '../components/settings/ApiCallLogModal';
 import { DB } from '../utils/db';
 import { getBackupReminderState, setBackupReminderIntervalDays, daysSinceLastBackup, BACKUP_REMINDER_MIN_DAYS, BACKUP_REMINDER_MAX_DAYS } from '../utils/backupReminder';
-import { bucketRetryCount, isAnalyticsConfigured, isAnalyticsEnabled, setAnalyticsEnabled, trackEvent } from '../utils/analytics';
+import { bucketRetryCount, trackEvent } from '../utils/analytics';
 
 // hot_news（news.orz.ai）可选热榜平台。key 必须与 API 的 ?platform= 完全一致。
 const HOTNEWS_PLATFORM_OPTIONS: { key: string; label: string }[] = [
@@ -502,7 +502,6 @@ const Settings: React.FC = () => {
   // 入口刻意低调：默认折叠，普通用户不需要碰，开箱即用。
   const [proxyWorkerInput, setProxyWorkerInput] = useState(getProxyWorkerUrl());
   const [showProxyConfig, setShowProxyConfig] = useState(false);
-  const [analyticsEnabled, setAnalyticsEnabledState] = useState(() => isAnalyticsEnabled());
 
   // 实时感知配置的本地状态
   const [rtWeatherEnabled, setRtWeatherEnabled] = useState(realtimeConfig.weatherEnabled);
@@ -2888,49 +2887,6 @@ const Settings: React.FC = () => {
                     （音乐播放器里还留了一个独立地址框，单独填了就以那个为准。）
                 </p>
             </section>
-        )}
-
-        {/* ───────── 匿名统计 ─────────
-            只在配了统计环境变量的构建里显示。自部署实例本来就一个统计请求都不发，
-            给个关不掉也没东西可关的开关只会更让人犯嘀咕。 */}
-        {isAnalyticsConfigured() && (
-        <SettingsSection
-            title="匿名统计"
-            icon={
-                <div className="p-2 bg-slate-100/60 rounded-xl text-slate-500">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
-                    </svg>
-                </div>
-            }
-        >
-            <div className="space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                    <span className="text-sm font-bold text-slate-600">参与匿名统计</span>
-                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
-                        <input
-                            type="checkbox"
-                            checked={analyticsEnabled}
-                            onChange={e => {
-                                setAnalyticsEnabledState(e.target.checked);
-                                setAnalyticsEnabled(e.target.checked);
-                            }}
-                            className="sr-only peer"
-                        />
-                        <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-slate-500"></div>
-                    </label>
-                </div>
-                <p className="text-xs text-slate-500 leading-relaxed">
-                    只数「哪个页面被打开了、哪个功能被用了一次」，以及记忆条数 / 角色数落在哪个区间。
-                    不碰你和角色的任何对话、记忆、设定，不碰你输入的任何文字，不碰 API 和 MCP 配置。
-                </p>
-                <p className="text-[10px] text-slate-400 leading-relaxed">
-                    浏览器开了 Do Not Track 的话，不用动这个开关也会自动跳过。
-                    关掉之后下次启动连统计脚本都不会加载。想自己核实的话，按 F12 打开 Network 面板，
-                    这个页面发出的每一个请求装了什么都在你自己的浏览器里。
-                </p>
-            </div>
-        </SettingsSection>
         )}
 
         <VersionInfo />
