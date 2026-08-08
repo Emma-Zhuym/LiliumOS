@@ -34,7 +34,6 @@ import { ActiveMsgStore } from './activeMsgStore';
 import { hasActiveAiTask } from './amsg2Tasks';
 import { AmsgChatPresence, CHAT_PRESENCE_HEARTBEAT_MS } from './amsgChatPresence';
 import { getInstantChatPending, isInstantChatSendInFlight } from './amsgInstantChat';
-import { trackEvent } from './analytics';
 
 /** 失败重试的退避起点，逐次翻倍（30s → 60s → 120s）。 */
 const RETRY_BASE_MS = 30_000;
@@ -61,8 +60,6 @@ let retryTimer: ReturnType<typeof setTimeout> | null = null;
 let flushing = false;
 let lifecycleBound = false;
 let retryCount = 0;
-/** 「退避打光了还是没传上去」每次会话只上报一次。 */
-let staleStateReported = false;
 
 // ─── 打脏后的合并窗口 ───
 // 一轮聊天不止打一次脏，而且**不在同一个 tick**：收尾在 finally 里、情绪 buff 落库在
@@ -245,12 +242,6 @@ export const flushAmsgState = async (reason: string): Promise<void> => {
       // 重排到头了（多半是离线）。快照留在队列里：下次打脏标记 / 切后台都会再试，
       // 在那之前云端仍是上一份，角色到点会带旧上下文——所以这条要吼出来。
       console.error(`${HEADER} flush(${reason}) 连续 ${MAX_RETRIES} 次失败，云端 fire_pack 仍是上一份（角色到点会用旧上下文）`, error);
-      // 用户这一侧完全无感：不报错、不提示，只是角色到点说的话对不上最近发生的事。
-      // 每次会话最多报一次（一轮退避打完才会走到这儿，但一次会话可以有好几轮）。
-      if (!staleStateReported) {
-        staleStateReported = true;
-        trackEvent('2.0云端状态同步失败');
-      }
       retryCount = 0;
     }
   } finally {
