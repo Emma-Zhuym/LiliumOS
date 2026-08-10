@@ -10,7 +10,7 @@ import { ContextBuilder } from '../utils/context';
 import { ChatParser } from '../utils/chatParser';
 // 思考链 / HTML / MCD / memoryPalace 注入已下沉到 chatRequestPayload；这里不再直接调用
 import { useMusic, loadMusicHooks } from '../context/MusicContext';
-import { processNewMessages, mergePalaceFragmentsIntoMemories, getMemoryPalaceHighWaterMark } from '../utils/memoryPalace/pipeline';
+import { processNewMessagesWithAutoArchive } from '../utils/memoryPalace/autoArchive';
 import { incrementDigestRound, runCognitiveDigestion, detectPersonalityStyle } from '../utils/memoryPalace';
 // evolveFlowNarrative 保留为低频深刷新备用，日常意识流由副 API 的情绪评估同轮产出（innerState 字段）
 // import { evolveFlowNarrative } from '../utils/scheduleGenerator';
@@ -23,7 +23,7 @@ import { MCD_PROPOSE_TOOL, autoFixProposalCodesByName } from '../utils/mcdToolBr
 // 瑞幸: 与麦当劳同构, 只读 LuckinMiniApp 快照注入 + propose_cart_items UI 钩子工具
 import { LUCKIN_PROPOSE_TOOL, autoFixProposalCodesByName as autoFixLuckinProposalCodesByName, fetchOpenAIToolsForLuckin, inferCardKind as inferLuckinCardKind } from '../utils/luckinToolBridge';
 import { callLuckinTool } from '../utils/luckinMcpClient';
-import { callMcpTool, getMcpUseNativeTools } from '../utils/mcpClient';
+import { callMcpTool, getMcpUseNativeTools, hasWorkerUnreachableMcpServer } from '../utils/mcpClient';
 import { buildMcpOpenAITools, buildMcpRejectedToolsFallbackBody, buildMcpTextFallbackBody, extractTextFakedMcpCalls, formatMcpToolResult, sanitizeMcpLeadInText, shouldRetryMcpWithoutTools, stripTextFakedMcpCalls, type FakedMcpCall } from '../utils/mcpToolBridge';
 import { buildToolResultMessage, normalizeToolCallsForCompat } from '../utils/toolCallCompat';
 import { buildChatRequestPayload } from '../utils/chatRequestPayload';
@@ -50,7 +50,7 @@ import { getLastRealUserMessageAt } from '../utils/amsg2ExpireGuard';
 import { getPendingTasks, hasActiveAiTask, isAmsg2EnabledForChar } from '../utils/amsg2Tasks';
 import { buildAmsg2NoticesText, buildAmsg2TaskContextText, collectAmsg2TaskContext } from '../utils/amsg2TaskContext';
 import { resolveCharTimeZone } from '../utils/timezone';
-import { getInstantChatPending, isInstantChatReady, sendInstantChatTurn } from '../utils/amsgInstantChat';
+import { getInstantChatPending, resolveInstantChatReadiness, sendInstantChatTurn, stageInstantChatExpiredNotices } from '../utils/amsgInstantChat';
 // worker 模块的常量叶子（零运行时依赖，前端引它不带进 worker 环境）：
 // 云端 fire 的总时长上限，安全网超时从它推导，worker 调预算时前端自动跟上。
 import { INSTANT_TOTAL_TIMEOUT_MS } from '../worker/amsg/src/instantChat';
@@ -867,31 +867,87 @@ export const useChatAI = ({
             const luckinChatOn = !!luckinChatRef?.current?.active;
             // [EM: intiface-gate] 硬件工具只能在本机执行，连接设备时不能把本轮发往云端。
             const intifaceReady = intifaceClient.connected && intifaceClient.devices.length > 0;
+            // 本机 / 内网的 MCP 服务器（docs/mcp-client.md 教用户填的 http://localhost:18061
+            // 就是这一类）：上云那一轮前端不注入 MCP 说明块，而 worker 从 CF 那头连不上这类
+            // 地址、上云清单里压根没有它——两边都不说，角色这一轮彻底不知道自己有工具。
+            // 判据就一句话：这一轮上云会让角色掉能力，那就别上云。留在本地跑，工具照常用。
+            // （地址够得着的服务器不受影响，照常上云，worker 自己跑后台 MCP。）
+            const mcpWorkerUnreachable = hasWorkerUnreachableMcpServer(char.id);
             const instantChatVeto: string | null = luckinChatOn ? 'luckin-chat'
                 : mcdMiniOpen ? 'mcd'
                     : luckinMiniOpen ? 'luckin'
-                        : intifaceReady ? 'intiface' : null;
-            const instantChatOn = await isInstantChatReady();
+                        : intifaceReady ? 'intiface'
+                            : mcpWorkerUnreachable ? 'mcp-worker-unreachable' : null;
+            // 带上 char：角色单独关了即时对话（reason char-disabled）时 ready 直接为
+            // false，和「全局没开」同一待遇——下面那条 veto trace 的条件够不到它，
+            // 静默走本地。那是用户的主动选择，每条消息刷一遍 warn 就成骚扰了。
+            const instantChatReadiness = await resolveInstantChatReadiness(char);
+            const instantChatOn = instantChatReadiness.ready;
             const instantChatRoute = instantChatOn && !instantChatVeto && !instantPushConfigured;
-            // 「即时对话开着、这一轮却没上云」的所有情形都在这一处留痕，两种原因去向不同：
+            // 「即时对话开着、这一轮却没上云」的所有情形都在这一处留痕，三种原因去向不同：
             //   · 点单流程否决：瑞幸/麦当劳是客户端交互式循环（选城市、确认单），云端接不了
             //     手，这一轮留在本地跑是对的；
+            //   · MCP 地址 worker 够不着：同上，留在本地才有工具（见上面那段）；
             //   · IP 配置也还在（脏配置）：这一轮交给下面的 Instant Push 分支，它也不接的话
             //     （比如配了 MCP，在它的排除名单里）就一路落回本地。
-            // 两个原因同时成立时报点单那个——它更具体，也更可能是用户真正想问的。
+            // 几个原因同时成立时报最前面那个——越靠前越具体，也更可能是用户真正想问的。
             // 不留痕的话，用户看到的是「开关亮着、消息照常出来」，查无可查——静默分流那个坑
             // 就是这么来的。这里只报不拦：拦不拦已经由 instantChatRoute 说了算。
             if (instantChatOn && !instantChatRoute) {
                 const skipReason = instantChatVeto ?? 'instant-push-configured';
-                console.warn(instantChatVeto
-                    ? `[AmsgInstantChat] 这一轮没上云（${instantChatVeto} 点单流程需要客户端交互），本地生成`
-                    : '[AmsgInstantChat] 这一轮没走即时对话（Instant Push 配置仍在，脏配置）：交给 Instant Push，它也不接就落回本地');
+                console.warn(
+                    skipReason === 'mcp-worker-unreachable'
+                        ? '[AmsgInstantChat] 这一轮没上云（有 MCP 服务器填的是本机/内网地址，worker 够不着），本地生成，工具照常可用'
+                        : instantChatVeto
+                            ? `[AmsgInstantChat] 这一轮没上云（${instantChatVeto} 点单流程需要客户端交互），本地生成`
+                            : '[AmsgInstantChat] 这一轮没走即时对话（Instant Push 配置仍在，脏配置）：交给 Instant Push，它也不接就落回本地',
+                );
                 appendInstantTraceEntry({
                     ts: new Date().toISOString(),
                     event: 'instant-chat-veto',
                     charId: char.id,
                     reason: skipReason,
                 });
+            } else if (instantChatReadiness.reason === 'worker-outdated') {
+                // 用户把开关开着，是我们判定那台 Worker 跑不动才让位给本地生成的
+                // （见 resolveInstantChatReadiness 的同名门）。上面那条 trace 的条件
+                // （instantChatOn）在这里天然为假，所以单独留一条：这一档比别的更需要
+                // 查得到——用户的主观意愿是「上云」，实际走的却是本地，不留痕就又是一次
+                // 静默分流。拦不拦不用这里管，readiness 已经说了 not ready，
+                // 下面照常走本地生成那条路。
+                appendInstantTraceEntry({
+                    ts: new Date().toISOString(),
+                    event: 'instant-chat-worker-outdated',
+                    charId: char.id,
+                });
+            } else if (instantChatReadiness.reason === 'config-unreadable') {
+                // 配置根本没读出来（IndexedDB 被别的标签页 versionchange 卡住 / iOS 存储压力）。
+                // 这不是「用户没开」：开关很可能开着，只是这一刻问不到。上面那条 trace 的条件
+                // （instantChatOn）在这里天然为假，所以单独留一条，别让这种情形在观察窗里查无此事。
+                // 点单流程否决 / Instant Push 配置还在（脏配置）时例外：配置就算读出来了这一轮
+                // 也轮不到即时对话（去向由 veto / IP 分支决定），照原路走本就是对的，只留痕不拦。
+                const configUnreadableFailsTurn = !instantChatVeto && !instantPushConfigured;
+                appendInstantTraceEntry({
+                    ts: new Date().toISOString(),
+                    event: 'instant-chat-config-unreadable',
+                    charId: char.id,
+                    outcome: configUnreadableFailsTurn ? 'turn-failed' : 'other-route',
+                });
+                if (configUnreadableFailsTurn) {
+                    // 悄悄退回本地直连生成的话：用户按「发完就自由」的心智随手锁屏，本地 fetch
+                    // 被系统掐掉，回来时既没有回复也没有报错，设置页还写着「已开启」。所以和下面
+                    // sendInstantChatTurn 没发出去同一口径：明确落系统消息 + 弹错，这一轮不发起
+                    // 本地生成，用户稍后重发即可。**绝不静默退回本地生成**。收尾交给 finally
+                    // （熄 isTyping / 熄「发送准备中」灯 / 停 KeepAlive），和那条失败路径同一段。
+                    const reason = '即时对话暂时出了点问题：本地配置这一刻读不出来（可能是存储正忙）。这条没有发出去，稍等几秒重新发一次就好。';
+                    console.warn('[AmsgInstantChat] 全局配置读不出来，开没开都不知道：这一轮明确报错等重发，不悄悄退回本地生成');
+                    await DB.saveMessage({ charId: char.id, role: 'system', type: 'text', content: `[${reason}]` });
+                    setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
+                    if (showError) showError('即时对话发送失败', reason);
+                    else addToast(reason, 'error');
+                    return;
+                }
+                console.warn('[AmsgInstantChat] 全局配置读不出来（开没开都不知道），但这一轮本就不走即时对话，照原路继续');
             }
 
             const payload = await stageT('payload', buildChatRequestPayload({
@@ -1373,11 +1429,14 @@ export const useChatAI = ({
                 if (instantChatResult.ok) {
                     // 这次 POST 已经把权威的那份 fire_pack 传上去了，收尾不必再打脏重传一遍。
                     instantChatAccepted = true;
-                    // 回执已随 chat 段冻进云端，worker 到点（含它自己的重试）都会带着它——
-                    // 受理即算告知。极小概率云端整轮失败时这份回执随之作罢：那条路用户会
-                    // 收到明确的失败说明并重发，比失败后下一轮把陈年回执再端出来强。
-                    if (amsg2ExpiredIds.length) {
-                        void ActiveMsgStore.markExpiredNoticesNotified(char.id, amsg2ExpiredIds);
+                    // 202 只说明云端收下了，不说明角色真的读到过这些回执：那一轮可能空输出被
+                    // 判 skip-push，也可能 fire 重试打光标 failed。所以这里只记账不销账，等回复
+                    // 真的落库那一刻（activeMsgRuntime 认末段到齐）再调
+                    // settleInstantChatExpiredNotices 写 notifiedAt；这一轮没成的话
+                    // failInstantChatPending 会把它们退回未告知，下一轮重新注入。
+                    // 本地路径同一口径：回复 applyAssistantPostProcessing 落库之后才标记。
+                    if (amsg2ExpiredIds.length && instantChatResult.uuid) {
+                        stageInstantChatExpiredNotices(char.id, instantChatResult.uuid, amsg2ExpiredIds);
                     }
                 } else {
                     // 没发出去就是没发出去：明确落一条系统消息 + 弹错，用户可以直接重发。
@@ -2093,7 +2152,7 @@ export const useChatAI = ({
 
                 // 缓冲区处理（LLM提取 + Embedding向量化）
                 const recentMsgs = await DB.getRecentMessagesByCharId(char.id, 50);
-                processNewMessages(recentMsgs, char.id, charName, mpEmb, mpLLM, userProfile?.name || '', false, (stage) => {
+                processNewMessagesWithAutoArchive(recentMsgs, char.id, charName, mpEmb, mpLLM, userProfile?.name || '', false, (stage) => {
                         setMemoryPalaceStatus(stage);
                     })
                     .then(async (pipelineResult) => {
@@ -2107,36 +2166,7 @@ export const useChatAI = ({
                             setMemoryPalaceResult(pipelineResult);
                         }
 
-                        // 自动归档：把 palace 提取出的记忆按日期合成 YAML bullets 追加到
-                        // char.memories，同时推 hideBeforeMessageId 自动隐藏已总结的聊天
-                        // 仅在 char.autoArchiveEnabled 显式开启时执行（默认 off，opt-in）
-                        if (updateCharacter && (liveAfter as any).autoArchiveEnabled) {
-                            try {
-                                const patch: any = {};
-                                if (pipelineResult?.autoArchive) {
-                                    patch.memories = mergePalaceFragmentsIntoMemories(
-                                        char.memories || [],
-                                        pipelineResult.autoArchive.fragments,
-                                    );
-                                }
-                                // 隐藏线追平到向量高水位：palace 向量化在 autoArchive 关闭期间会
-                                // 无条件推进 hwm，而 hide 被 gate 冻结，于是「已中招」的角色会出现
-                                // hide 落后于 hwm 的空档。只要全自动记忆现在是开的，每次自动总结都把
-                                // hide 追平到 hwm（hwm 之前的消息都已向量化归档），无需用户手动操作。
-                                // 即便本轮没有新批次（autoArchive 为空），这一步也会把历史空档补上。
-                                const hwm = getMemoryPalaceHighWaterMark(char.id);
-                                const curHide = ((liveAfter as any).hideBeforeMessageId as number) || 0;
-                                if (hwm > curHide) {
-                                    patch.hideBeforeMessageId = hwm;
-                                }
-                                if (Object.keys(patch).length > 0) {
-                                    updateCharacter(char.id, patch);
-                                    console.log(`📚 [AutoArchive] ${patch.memories ? `合并 ${pipelineResult!.autoArchive!.fragments.length} 条 MemoryFragment，` : ''}hideBefore 追平 → ${patch.hideBeforeMessageId ?? curHide}`);
-                                }
-                            } catch (e: any) {
-                                console.warn(`📚 [AutoArchive] 失败（不影响 palace）: ${e?.message || e}`);
-                            }
-                        }
+                        // 全自动记忆双写已由统一封装完成，React 外的入口也不会再漏接返回值。
                         // 轮数计数 + 自动认知消化（每50轮触发一次）
                         const shouldAutoDigest = incrementDigestRound(char.id);
                         if (shouldAutoDigest) {

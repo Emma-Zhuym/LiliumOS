@@ -3,18 +3,14 @@
 // 即时对话这条路上最要命的是「顺序」和「失败就别落任务」：云端状态没传上去却把任务
 // 建了，到点那条 fire 会拿上一轮的上下文答这一轮的话——不报错、不重试，用户只会觉得
 // 角色突然听不懂人话。下面每条都对着一种具体的坏法。
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 import {
+  applyInstantNotificationPolicy,
   buildInstantTimelyBlock,
-  finalizeInstantPush,
   handleInstantChat,
-  INSTANT_TICK_CRON,
   isInstantChatTask,
-  toOutboxEntries,
-  writeChatOutbox,
 } from './instantChat';
-import { AMSG_CHAT_OUTBOX_KEY, CHAT_OUTBOX_MAX, amsgStateNamespace } from '../../../utils/amsgFirePack';
 
 const USER_ID = '3637dae1-1461-4444-a747-34e406f67acc';
 const TASK_UUID = '7a1f0b4c-2c9d-4a3e-8b21-9f0f3c5d7e11';
@@ -54,17 +50,30 @@ const makeUpstream = (opts: {
       }
       return json(404, { success: false });
     }),
-    scheduled: vi.fn(async (_event: { scheduledTime: number; cron: string }, _env?: unknown) => {}),
   };
   return { upstream, calls, paths: () => calls.map((c) => `${c.method} ${c.path}`) };
 };
 
-const makeCtx = () => {
-  const pending: Array<Promise<unknown>> = [];
+/**
+ * INSTANT_TICK 绑定的替身。记下叫醒了哪个实例、传了哪个 uuid。
+ *
+ * `kick` 只负责给 DO 记下 uuid、设 alarm，真正的生成在 alarm 里跑（另一次 invocation，
+ * 走 upstream.runTask），所以这条路上根本碰不到 upstream 的执行入口——那是 DO 侧的事，
+ * 见 index.ts 的 InstantTickDO。
+ */
+const makeTick = (opts: { kick?: () => Promise<unknown> } = {}) => {
+  const kicks: Array<{ instance: string; uuid: string }> = [];
   return {
-    ctx: { waitUntil: (p: Promise<unknown>) => { pending.push(p); } },
-    settle: () => Promise.all(pending),
-    count: () => pending.length,
+    kicks,
+    INSTANT_TICK: {
+      idFromName: (name: string) => ({ name }),
+      get: (id: { name: string }) => ({
+        kick: async (uuid: string) => {
+          kicks.push({ instance: id.name, uuid });
+          return opts.kick ? opts.kick() : undefined;
+        },
+      }),
+    },
   };
 };
 
@@ -83,18 +92,22 @@ const validBody = (extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
-/** 默认参数跑一次。 */
+/** 默认参数跑一次。重试梯子清零：钉的是「重了几次」，不是「等了多久」。 */
 const run = (args: {
   request: Request;
   env?: Record<string, unknown>;
   upstream: ReturnType<typeof makeUpstream>['upstream'];
-  ctx?: { waitUntil: (p: Promise<unknown>) => void };
+  /** 不传就用一个正常工作的替身；要测「Worker 是旧的」显式传 null。 */
+  tick?: ReturnType<typeof makeTick> | null;
 }) => handleInstantChat({
   request: args.request,
-  env: (args.env ?? {}) as any,
-  ctx: args.ctx,
+  env: {
+    ...(args.tick === null ? {} : { INSTANT_TICK: (args.tick ?? makeTick()).INSTANT_TICK }),
+    ...(args.env ?? {}),
+  } as any,
   upstream: args.upstream as any,
   json,
+  stateBackoffMs: [0, 0, 0],
 });
 
 describe('POST /instant-chat — 鉴权', () => {
@@ -281,6 +294,161 @@ describe('POST /instant-chat — 严格顺序与失败传播', () => {
   });
 });
 
+// 上游 500 的 message 是一句写死的「服务器内部错误」，用户照着它什么也做不了。
+// 真实原因（缺表、D1 超时……）由 amsg-server 2.6.0-next.16 起放在 error.cause 里，
+// 这里必须原样端到客户端面前——否则他看到的还是那句什么都没说的话。
+describe('POST /instant-chat — 把上游 error.cause 里那句真话带回去', () => {
+  /** 上游抛异常时的真实响应：泛型 message + 带真因的 cause。 */
+  const throwsInside = (
+    status = 500,
+    cause: Record<string, unknown> | null = {
+      stage: 'request',
+      name: 'Error',
+      message: 'D1_ERROR: no such table: message_outbox',
+      code: 'D1_ERROR',
+    },
+  ) => ({
+    status,
+    body: {
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: '服务器内部错误', ...(cause ? { cause } : {}) },
+    },
+  });
+
+  it('client-state 那步：真实原因随 upstreamLog 回给客户端', async () => {
+    const { upstream } = makeUpstream({ clientState: throwsInside() } as any);
+    const response = await run({ request: post(validBody()), upstream });
+    expect(response.status).toBe(500);
+    const body = await response.json() as any;
+    expect(body.error.code).toBe('INSTANT_CHAT_STATE_FAILED');
+    expect(body.error.upstreamLog).toBe('D1_ERROR: no such table: message_outbox');
+  });
+
+  it('schedule-message 那步同理', async () => {
+    const { upstream } = makeUpstream({ scheduleMessage: throwsInside() } as any);
+    const response = await run({ request: post(validBody()), upstream });
+    expect(response.status).toBe(500);
+    const body = await response.json() as any;
+    expect(body.error.code).toBe('INSTANT_CHAT_TASK_FAILED');
+    expect(body.error.upstreamLog).toBe('D1_ERROR: no such table: message_outbox');
+  });
+
+  it('code 不是 message 前缀时两个都带上（光一句 message 看不出是哪类错）', async () => {
+    const { upstream } = makeUpstream({
+      clientState: throwsInside(500, {
+        stage: 'request', name: 'Error', message: '写不进去', code: 'STORAGE_FAILED',
+      }),
+    } as any);
+    const response = await run({ request: post(validBody()), upstream });
+    expect((await response.json() as any).error.upstreamLog).toBe('STORAGE_FAILED: 写不进去');
+  });
+
+  it('没有 code 时退回 name', async () => {
+    const { upstream } = makeUpstream({
+      clientState: throwsInside(500, { stage: 'request', name: 'TypeError', message: '炸了' }),
+    } as any);
+    const response = await run({ request: post(validBody()), upstream });
+    expect((await response.json() as any).error.upstreamLog).toBe('TypeError: 炸了');
+  });
+
+  // 4xx 是上游自己判出来的业务错，正文里已经写清了原因；再缀一段内部细节只会让人更迷惑。
+  it('4xx 不带 upstreamLog：那不是抛出来的异常，正文本身就是原因', async () => {
+    const { upstream } = makeUpstream({
+      clientState: { status: 400, body: { success: false, error: { code: 'TOO_MANY_STATE_ENTRIES' } } },
+    } as any);
+    const response = await run({ request: post(validBody()), upstream });
+    expect(response.status).toBe(400);
+    expect((await response.json() as any).error.upstreamLog).toBeUndefined();
+  });
+
+  it('上游没给 cause 就不带（老 worker 不会多出一截空白）', async () => {
+    const { upstream } = makeUpstream({ clientState: throwsInside(500, null) } as any);
+    const response = await run({ request: post(validBody()), upstream });
+    expect(response.status).toBe(500);
+    expect((await response.json() as any).error.upstreamLog).toBeUndefined();
+  });
+
+  /**
+   * 回归守卫：拿真因这件事不许再回去改全局 console。
+   *
+   * 这段历史值得留一句：上游早先不回 cause，只把真因写进自己的 console.error，
+   * 于是这里曾经永久 patch 全局 console.error 去偷听。那是会影响整个 isolate 的副作用，
+   * 而且和任何并发请求都在抢同一个全局对象。真因现在由上游随响应体给，
+   * 谁都不该再动 console。
+   */
+  it('不碰全局 console.error（真因来自响应体，不是偷听日志）', async () => {
+    const original = console.error;
+    const { upstream } = makeUpstream({ clientState: throwsInside() } as any);
+    await run({ request: post(validBody()), upstream });
+    expect(console.error).toBe(original);
+  });
+});
+
+// D1 偶尔会把一次写直接判超时（`… object to be reset`），而这一步是整条链上最大的一次写
+// （三十多 KB 的 fire_pack）。什么时候来没量出规律（2026-08-09 的观测记在 instantChat.ts
+// 那段注释里），而客户端只 POST 一次 /instant-chat，它自己那把重试梯子够不着里面这一跳。
+describe('POST /instant-chat — 云端状态那一步遇到 5xx 会重试', () => {
+  /** 前 n 次回 5xx，之后回正常成功体。 */
+  const flakyClientState = (failures: number) => {
+    let seen = 0;
+    const upstream = {
+      fetch: vi.fn(async (request: Request) => {
+        const path = new URL(request.url).pathname;
+        if (path.endsWith('/client-state')) {
+          seen += 1;
+          if (seen <= failures) {
+            return json(500, {
+              success: false,
+              error: {
+                code: 'INTERNAL_ERROR',
+                message: '服务器内部错误',
+                cause: { stage: 'request', name: 'Error', message: 'D1_ERROR: … object to be reset.' },
+              },
+            });
+          }
+          return json(200, { success: true, data: { upserted: 3, skipped: 0 } });
+        }
+        if (path.endsWith('/schedule-message')) return json(200, { success: true, data: { uuid: TASK_UUID } });
+        return json(404, { success: false });
+      }),
+    };
+    return { upstream, attempts: () => seen };
+  };
+
+  it('第一次超时、第二次写进去 → 照常受理，用户完全无感', async () => {
+    const { upstream, attempts } = flakyClientState(1);
+    const response = await run({ request: post(validBody()), upstream: upstream as any });
+    expect(response.status).toBe(202);
+    expect(attempts()).toBe(2);
+  });
+
+  it('梯子走完还是 5xx → 才报失败，且真实原因照样带着', async () => {
+    const { upstream, attempts } = flakyClientState(99);
+    const response = await run({ request: post(validBody()), upstream: upstream as any });
+    expect(response.status).toBe(500);
+    expect(attempts()).toBe(3);
+    const body = await response.json() as any;
+    expect(body.error.code).toBe('INSTANT_CHAT_STATE_FAILED');
+    expect(body.error.upstreamLog).toContain('object to be reset');
+  });
+
+  // 4xx 是上游判出来的业务错（体积超限、时间戳不合法……），重试多少次都是同一个答案，
+  // 白等三次还让用户多盯 1.6 秒的「正在输入」。
+  it('4xx 不重试，立刻打回', async () => {
+    const { upstream, calls } = makeUpstream({
+      clientState: { status: 400, body: { success: false, error: { code: 'TOO_MANY_STATE_ENTRIES' } } },
+    });
+    expect((await run({ request: post(validBody()), upstream })).status).toBe(400);
+    expect(calls.filter((c) => c.path.endsWith('/client-state'))).toHaveLength(1);
+  });
+
+  it('一次就成的正常轮次只转发一次（别把重试变成常态）', async () => {
+    const { upstream, calls } = makeUpstream();
+    expect((await run({ request: post(validBody()), upstream })).status).toBe(202);
+    expect(calls.filter((c) => c.path.endsWith('/client-state'))).toHaveLength(1);
+  });
+});
+
 describe('POST /instant-chat — 只有两次内部转发', () => {
   // 顶替上一条不再是包装层的事：supersedesUuid 在加密的任务体里，
   // 上游建新任务的同一事务里取消旧的。包装层多发一条 DELETE 才是回归。
@@ -292,33 +460,58 @@ describe('POST /instant-chat — 只有两次内部转发', () => {
 });
 
 describe('POST /instant-chat — 立即起跳', () => {
-  it('回完 202 之后立刻起一跳（immediate 任务落库即到期，不用拉行）', async () => {
+  /**
+   * 实例名就是任务 uuid：一条任务一个 DO 实例，几条聊天同时在跑才不会互相排队。
+   * DO 的 alarm 是一实例一个，共用实例就意味着共用那一个 alarm、只能挨个来。
+   */
+  it('回完 202 之前叫醒 DO，实例名和 uuid 都是这条任务的', async () => {
     const { upstream } = makeUpstream();
-    const { ctx, settle, count } = makeCtx();
-    const response = await run({ request: post(validBody()), upstream, ctx });
+    const tick = makeTick();
+    const response = await run({ request: post(validBody()), upstream, tick });
 
     expect(response.status).toBe(202);
-    expect(count()).toBe(1);          // 起跳挂在 waitUntil 上，不拖住这次响应
-
-    await settle();
-    expect(upstream.scheduled).toHaveBeenCalledTimes(1);
-    expect((upstream.scheduled.mock.calls[0][0] as any).cron).toBe(INSTANT_TICK_CRON);
+    expect(tick.kicks).toEqual([{ instance: TASK_UUID, uuid: TASK_UUID }]);
   });
 
-  it('起跳自己挂了不影响已经回出去的 202（cron 每分钟还会来捡）', async () => {
-    const { upstream } = makeUpstream();
-    upstream.scheduled.mockRejectedValueOnce(new Error('tick boom'));
-    const { ctx, settle } = makeCtx();
-    const response = await run({ request: post(validBody()), upstream, ctx });
-    expect(response.status).toBe(202);
-    await expect(settle()).resolves.toBeDefined();
-  });
-
-  it('运行时没给 ctx 也照常受理（任务已落库，交给 cron）', async () => {
-    const { upstream } = makeUpstream();
+  /**
+   * 回归守卫：这一跳绝不能再挂回 ctx.waitUntil。
+   *
+   * waitUntil 的墙钟上限是硬性的 30 秒（从响应发出或客户端断开起算），而一轮带工具
+   * 循环的生成动辄几十秒——挂上去就必被砍在半路，日志里只留一条
+   * 「waitUntil() tasks did not complete」，用户那边表现为「一直等不到回复」。
+   * 生成必须跑在 DO 的 alarm 里（独立 invocation，15 分钟），所以受理这一步只该叫醒
+   * DO：`InstantChatUpstream` 只声明了 fetch，压根没有能把生成拉进当前请求的入口。
+   */
+  it('受理时只发两个转发请求，不碰任何执行入口', async () => {
+    const { upstream, paths } = makeUpstream();
     const response = await run({ request: post(validBody()), upstream });
     expect(response.status).toBe(202);
-    expect(upstream.scheduled).not.toHaveBeenCalled();
+    expect(paths()).toEqual(['PUT /client-state', 'POST /schedule-message']);
+  });
+
+  it('叫醒失败不影响已经回出去的 202（任务已落库，cron 每分钟还会来捡）', async () => {
+    const { upstream } = makeUpstream();
+    const tick = makeTick({ kick: () => Promise.reject(new Error('kick boom')) });
+    const response = await run({ request: post(validBody()), upstream, tick });
+    expect(response.status).toBe(202);
+  });
+
+  /**
+   * 回归守卫：老版本 Worker（没有 INSTANT_TICK 绑定）必须明说「去更新」。
+   *
+   * 这里刻意不退回 cron 兜底然后照回 202：那条路上没有为即时对话放宽的超时，用户会
+   * 对着「正在输入」等很久甚至等不到，而界面上没有任何线索告诉他该做什么。
+   */
+  it('没有 INSTANT_TICK 绑定 → 503 且点名要更新 Worker', async () => {
+    const { upstream } = makeUpstream();
+    const response = await run({ request: post(validBody()), upstream, tick: null });
+
+    expect(response.status).toBe(503);
+    const body = await response.json() as any;
+    expect(body.error.code).toBe('INSTANT_CHAT_WORKER_OUTDATED');
+    expect(body.error.message).toContain('更新 Worker');
+    // 任务本身是建成了的，uuid 要带回去，别让客户端以为整轮没发生过。
+    expect(body.error.uuid).toBe(TASK_UUID);
   });
 });
 
@@ -385,95 +578,27 @@ describe('buildInstantTimelyBlock', () => {
   });
 });
 
-describe('finalizeInstantPush — 信封按库的同一套规则先补好', () => {
-  const ids = {
-    taskRowId: '42', taskUuid: TASK_UUID, occurrenceMs: 1_700_000_000_000,
-    nowMs: 1_700_000_001_000, randomId: 'rand',
-  };
-
-  it('messageId / sessionId 跟库自己会补的那一份逐字一致', () => {
-    // 库：messageIdBase = `msg_task_${task.id}@${occurrenceMs}`，第 i 段是 `${base}_hook_${i}`；
-    // sessionId = `sess_task_${task.id}@${occurrenceMs}`。对不上的话 outbox 里那份和真发
-    // 出去的那份 id 不同，客户端补收时会把同一条消息再入库一遍。
-    const first = finalizeInstantPush({ message: 'a' }, 0, 2, ids);
-    const second = finalizeInstantPush({ message: 'b' }, 1, 2, ids);
-    expect(first.messageId).toBe('msg_task_42@1700000000000_hook_0');
-    expect(second.messageId).toBe('msg_task_42@1700000000000_hook_1');
-    expect(first.sessionId).toBe('sess_task_42@1700000000000');
-    expect(second.sessionId).toBe(first.sessionId);
-    expect(first.messageIndex).toBe(1);
-    expect(second.totalMessages).toBe(2);
-  });
-
-  it('没有任务行 id 时退回随机串（跟库的兜底同语义）', () => {
-    const push = finalizeInstantPush({ message: 'a' }, 0, 1, { ...ids, taskRowId: null });
-    expect(push.messageId).toBe('msg_rand_hook_0');
-    expect(push.sessionId).toBe('sess_rand');
-    expect(push.taskId).toBeNull();
-  });
-
-  it('原有字段原样保留（正文 / metadata 不能被信封覆盖掉）', () => {
-    const push = finalizeInstantPush({ message: 'hi', metadata: { directives: [1] } }, 0, 1, ids);
-    expect(push.message).toBe('hi');
-    expect(push.metadata).toEqual({ directives: [1] });
-    expect(push.occurrenceMs).toBe(ids.occurrenceMs);
-    expect(push.taskUuid).toBe(TASK_UUID);
-  });
-
+describe('applyInstantNotificationPolicy', () => {
   // 用户正盯着聊天窗口等这条回复，锁屏横幅在这时候弹出来纯属打扰（页面自己会把消息上屏）；
   // 窗口不可见时又必须弹，不然「发完就自由了」这件事没人来叫他。表态写在载荷里，
   // 真正的判定由 SW 的 shouldRenderNotification 按窗口可见性做。
   it('标 when-hidden：前台可见时 SW 不弹系统通知，不可见照弹', () => {
-    const push = finalizeInstantPush(
-      { message: 'hi', notification: { title: '来自 Nyah', body: 'hi' } }, 0, 1, ids);
+    const push = applyInstantNotificationPolicy(
+      { message: 'hi', notification: { title: '来自 Nyah', body: 'hi' } });
     expect(push.notification).toEqual({ title: '来自 Nyah', body: 'hi', show: 'when-hidden' });
   });
 
   it('载荷本来没有 notification 就不凭空造一个（造出来只会弹一条空白横幅）', () => {
-    const push = finalizeInstantPush({ message: 'hi' }, 0, 1, ids);
+    const push = applyInstantNotificationPolicy({ message: 'hi' });
     expect(push).not.toHaveProperty('notification');
     // 形状不对的也当没有，别把它塞进一个对象里
-    expect(finalizeInstantPush({ message: 'hi', notification: null }, 0, 1, ids).notification).toBeNull();
-  });
-});
-
-describe('writeChatOutbox', () => {
-  const entry = (id: string) => ({ messageId: id, sessionId: 's', at: 1, payload: { message: id } });
-
-  it('写进角色 namespace 的 chat_outbox', async () => {
-    const writeState = vi.fn(async () => ({ upserted: 1, skipped: 0, deleted: 0 }));
-    const next = await writeChatOutbox(writeState, 'char-a', null, [entry('m1')]);
-    expect(writeState).toHaveBeenCalledWith(amsgStateNamespace('char-a'), [
-      { key: AMSG_CHAT_OUTBOX_KEY, value: JSON.stringify(next) },
-    ]);
-    expect(next!.entries.map((e) => e.messageId)).toEqual(['m1']);
+    expect(applyInstantNotificationPolicy({ message: 'hi', notification: null }).notification).toBeNull();
   });
 
-  it('环形只留最近 CHAT_OUTBOX_MAX 条', async () => {
-    const writeState = vi.fn(async () => ({ upserted: 1, skipped: 0, deleted: 0 }));
-    let outbox = null as any;
-    for (let i = 0; i < CHAT_OUTBOX_MAX + 3; i += 1) {
-      outbox = await writeChatOutbox(writeState, 'char-a', outbox, [entry(`m${i}`)]);
-    }
-    expect(outbox.entries).toHaveLength(CHAT_OUTBOX_MAX);
-    expect(outbox.entries[0].messageId).toBe('m3');
-  });
-
-  it('写不进去不抛错，返回原来那份（这次照常发送，只是丢了兜底能力）', async () => {
-    const writeState = vi.fn(async () => { throw new Error('write failed'); });
-    await expect(writeChatOutbox(writeState, 'char-a', null, [entry('m1')])).resolves.toBeNull();
-  });
-
-  it('没有写入口（老部署）时安静跳过', async () => {
-    await expect(writeChatOutbox(undefined, 'char-a', null, [entry('m1')])).resolves.toBeNull();
-  });
-});
-
-describe('toOutboxEntries', () => {
-  it('id 直接取定稿载荷上的那份（不再自己算一遍，算两遍就会漂）', () => {
-    const payloads = [{ messageId: 'm0', sessionId: 's0', message: 'a' }];
-    expect(toOutboxEntries(payloads, 99)).toEqual([
-      { messageId: 'm0', sessionId: 's0', at: 99, payload: payloads[0] },
-    ]);
+  // 信封的其余部分（messageId / sessionId / 段号 / 任务身份）全交给库去补。这里多写一份
+  // 就是多一处会跟库漂掉的副本，而账本里存的本来就是库发出去的那一份。
+  it('除通知策略外一个字段都不添（正文 / metadata 原样保留）', () => {
+    const push = applyInstantNotificationPolicy({ message: 'hi', metadata: { directives: [1] } });
+    expect(push).toEqual({ message: 'hi', metadata: { directives: [1] } });
   });
 });

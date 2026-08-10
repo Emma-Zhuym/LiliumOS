@@ -45,40 +45,17 @@ export const AMSG_SELF_LOG_KEY = 'self_log';
  */
 export const amsgXhsSessionKey = (clientTaskId: string) => `xhs_session:${clientTaskId}`;
 
-// ─── 即时对话的收件兜底（chat_outbox） ───
+// ─── 即时对话轻量包的模板占位 ───
 
 /**
- * 即时对话这条路上，worker 每轮生成完的推送载荷副本（每角色一份）。
- *
- * 推送是会静默丢的：手机换网、系统压制、SW 没醒，用户那边就是「一直在输入中」。
- * 服务端没有收件箱表（也不新增表），所以定稿的 push 载荷顺手在这里留一份，
- * 客户端上线 / 页面回到前台 / 等超时之前来拉一次，按 messageId 挑出没收到的补上。
- *
- * 环形保留最近 CHAT_OUTBOX_MAX 条，写的时候整份覆盖——它是兜底缓存不是流水账，
- * 攒着只会把一条 client_state 撑大。
+ * 即时对话轻量包的模板占位（角色 2.0 关着且没有任何任务时用）：定时任务那条路才渲染
+ * 模板，这类角色的包正常没人渲染，每次发送重建一整份系统提示词 + 近史转写纯属白付
+ * （主线程二次构建 + 手机上行几十 KB，都发生在拿到 202 之前）。写成一眼能认出来的
+ * 标记，两侧共用这一份：客户端（activeMsgClient）发轻量包时填进 template；worker
+ * 跑定时任务前认出它，就知道真模板还没补传上来，这一跳先延后重试而不是照渲。
  */
-export const AMSG_CHAT_OUTBOX_KEY = 'chat_outbox';
-
-/** outbox 最多留几条（超出的从头丢）。 */
-export const CHAT_OUTBOX_MAX = 10;
-
-export interface AmsgChatOutboxEntry {
-  /** 这条推送的 messageId，客户端拿它跟已入库的消息对账。 */
-  messageId: string;
-  /** 同一轮生成的几段共用一个 sessionId。 */
-  sessionId: string;
-  /** 写进 outbox 的时刻（epoch ms）。 */
-  at: number;
-  /** 推送载荷原样（客户端补收时走 inbox 同一条管线入库）。 */
-  payload: Record<string, unknown>;
-}
-
-export interface AmsgChatOutbox {
-  v: 1;
-  entries: AmsgChatOutboxEntry[];
-}
-
-export const createChatOutbox = (): AmsgChatOutbox => ({ v: 1, entries: [] });
+export const AMSG2_INSTANT_STUB_TEMPLATE =
+  'AMSG2_INSTANT_STUB_TEMPLATE（即时对话轻量包：该角色无定时任务，模板未随发送重建；看到这条正文说明有本不该渲染模板的 fire 在渲染它）';
 
 // ─── 即时对话的失败留痕（chat_fail） ───
 
@@ -118,42 +95,6 @@ export const parseChatFailRecord = (value: string | null | undefined): AmsgChatF
     }
   } catch { /* 非 JSON → null */ }
   return null;
-};
-
-/** 读回来的 outbox；形状不对返回 null（调用方按「没有」处理，这是兜底通道不硬失败）。 */
-export const parseChatOutbox = (value: string | null | undefined): AmsgChatOutbox | null => {
-  if (typeof value !== 'string' || !value) return null;
-  try {
-    const parsed = JSON.parse(value);
-    if (
-      parsed && typeof parsed === 'object' && parsed.v === 1
-      && Array.isArray(parsed.entries)
-      && parsed.entries.every((e: unknown) => {
-        const entry = e as Partial<AmsgChatOutboxEntry> | null;
-        return !!entry && typeof entry.messageId === 'string'
-          && typeof entry.sessionId === 'string' && typeof entry.at === 'number'
-          && !!entry.payload && typeof entry.payload === 'object';
-      })
-    ) {
-      return parsed as AmsgChatOutbox;
-    }
-  } catch { /* 非 JSON → null */ }
-  return null;
-};
-
-/**
- * 追加这一轮的几条，超出上限的从头丢。同 messageId 视为同一条（fire 重跑会重新生成
- * 同样的 id），覆盖而不是叠加，免得重试几次就把环形缓冲刷空。
- */
-export const appendChatOutbox = (
-  outbox: AmsgChatOutbox | null,
-  entries: AmsgChatOutboxEntry[],
-): AmsgChatOutbox => {
-  const base = outbox ?? createChatOutbox();
-  if (entries.length === 0) return base;
-  const incoming = new Set(entries.map((e) => e.messageId));
-  const kept = base.entries.filter((e) => !incoming.has(e.messageId));
-  return { v: 1, entries: [...kept, ...entries].slice(-CHAT_OUTBOX_MAX) };
 };
 
 // ─── client_state 的值压缩 ───
@@ -316,7 +257,11 @@ export const describeLastSkip = (skip: AmsgLastSkip, formatTime: (ms: number) =>
       return `${when} 那次主动消息没发——到点时已经过去太久（服务中断过），过期的话就不补发了。`;
     }
     case 'unanswered-limit':
-      return `${when} 那次主动消息暂停了——你未回复期间 ta 的连发条数已到你设置的连发上限，等你回复后恢复。`;
+      // 照 stale 那支的口径说实话：被闸拦下的那一次是**跳过**，不是排队等着补发。
+      // 上游把跳过当成功消费——一次性任务的行当场就删了，循环任务只是快进到下一次。
+      // 写成「等你回复后恢复」的话，用户会一直等一条永远不会来的消息。
+      return `${when} 那次主动消息没发——你未回复期间 ta 的连发条数已到你设置的连发上限，`
+        + `跳过的这次不会补发；等你回话之后，ta 自己排的后续才会重新开始发。`;
   }
 };
 
@@ -592,24 +537,33 @@ export interface AmsgSelfLogEntry {
   text: string;
   /**
    * 即时对话的回复（用户刚说了话、这条是在答它）。列进自述块保持连续性，
-   * 但不算「主动连发」——连发计数（countUnansweredSends）只数没这个标记的条目。
+   * 但不算「主动连发」——带这个标记的条目不会让 unansweredSends 加一。
    */
   reply?: boolean;
 }
 
 export interface AmsgSelfLog {
-  v: 3;
+  v: 4;
   /** 写这份日志时云端 fire_pack 的 builtAt，见 AmsgFirePack.builtAt。 */
   basePackAt: number;
   /**
-   * 连发记录的锚：entries 记的是「用户这次开口之后」角色发出的消息。
-   * fire 时发现 lastUserMessageAt 比它新 → 用户开口过 → entries 清空、锚前进
+   * 连发记录的锚：entries 与 unansweredSends 记的都是「用户这次开口之后」的事。
+   * fire 时发现 lastUserMessageAt 比它新 → 用户开口过 → 两样一起清、锚前进
    * （见 reconcileSelfLogWithPack）。刻意不跟 basePackAt 挂钩：客户端每认领一条
    * 推送就会重传 fire_pack，挂那上面的话计数会被角色自己发的消息洗回零，
    * 连发提醒和上限在用户在线时全部失效——2026-08 炸屏事故的成因之一。
    */
   anchorUserMsgAt: number | null;
   entries: AmsgSelfLogEntry[];
+  /**
+   * 用户未回复期间角色主动发出的条数（即时对话的回复不算）。
+   *
+   * 独立成字段，不从 entries 数着数：entries 是给 prompt 看的上下文，只留最近
+   * SELF_LOG_MAX_ENTRIES 条，拿它当计数器的话计数永远不会超过那个上限——用户把
+   * 连发上限设成 9 或 10 时，「到点兜底闸」的 `计数 >= 上限` 恒为 false，那道专门
+   * 为自排链炸屏加的硬闸整个失效。两件事分开记，各自的上限互不干扰。
+   */
+  unansweredSends: number;
   /**
    * 角色在这几次 fire 里给自己排下的任务（客户端还不知道它们存在）。
    *
@@ -624,16 +578,21 @@ export interface AmsgSelfLog {
   tasks: ActiveMsg2TaskRecord[];
 }
 
-/** 最多留几条。再往前的对角色接话没帮助，只是白占 prompt。 */
+/**
+ * entries 最多留几条。再往前的对角色接话没帮助，只是白占 prompt。
+ *
+ * 这个上限**只管 prompt 上下文**：连发条数记在 unansweredSends 上，不受它压。
+ */
 export const SELF_LOG_MAX_ENTRIES = 8;
 /** 单条正文留多长。主动消息本来就一两句，超出的部分基本是标签和长引用。 */
 export const SELF_LOG_TEXT_MAX = 200;
 
 export const createSelfLog = (basePackAt: number, anchorUserMsgAt: number | null = null): AmsgSelfLog => ({
-  v: 3,
+  v: 4,
   basePackAt,
   anchorUserMsgAt,
   entries: [],
+  unansweredSends: 0,
   tasks: [],
 });
 
@@ -648,16 +607,21 @@ export const resolveMaxUnansweredSends = (value: unknown): number => {
   return Math.min(99, Math.floor(value));
 };
 
-/** 连发计数：用户未回复期间角色主动发出的条数（即时对话的回复不算）。 */
+/**
+ * 连发计数：用户未回复期间角色主动发出的条数（即时对话的回复不算）。
+ *
+ * 读的是 unansweredSends 这个独立计数器，不数 entries——entries 只留最近 8 条，
+ * 数它的话计数封顶在 8，用户设的 9 / 10 两档就等于「不限」（见 AmsgSelfLog）。
+ */
 export const countUnansweredSends = (log: AmsgSelfLog | null): number =>
-  log ? log.entries.filter((e) => !e.reply).length : 0;
+  log ? log.unansweredSends : 0;
 
 /**
  * fire 开场把云端存的自述日志对齐到本次的 fire_pack 与用户发言状态。两段各管各的生死：
  *
- * - entries（连发记录）只认「用户开口了」：lastUserMessageAt 比锚新就清空、锚前进。
- *   fire_pack 换代**不**清它——换代多半只是客户端认领了角色自己发的推送（打脏重传），
- *   计数要是跟着清，连发提醒和上限在用户在线时就永远不会生效。
+ * - entries + unansweredSends（连发记录）只认「用户开口了」：lastUserMessageAt 比锚新
+ *   就一起清零、锚前进。fire_pack 换代**不**清它们——换代多半只是客户端认领了角色自己
+ *   发的推送（打脏重传），计数要是跟着清，连发提醒和上限在用户在线时就永远不会生效。
  * - tasks（自排任务备账）只认「fire_pack 换代」：客户端认领后这些任务已随
  *   pack.pendingTasks 回来，再留一份就会被记成两条。
  */
@@ -669,7 +633,7 @@ export const reconcileSelfLogWithPack = (
   let log = stored ?? createSelfLog(pack.builtAt, lastUserMessageAt);
   if (lastUserMessageAt != null
     && (log.anchorUserMsgAt == null || lastUserMessageAt > log.anchorUserMsgAt)) {
-    log = { ...log, anchorUserMsgAt: lastUserMessageAt, entries: [] };
+    log = { ...log, anchorUserMsgAt: lastUserMessageAt, entries: [], unansweredSends: 0 };
   }
   if (log.basePackAt !== pack.builtAt) {
     log = { ...log, basePackAt: pack.builtAt, tasks: [] };
@@ -683,21 +647,33 @@ export const appendSelfLogTask = (log: AmsgSelfLog, task: ActiveMsg2TaskRecord):
   tasks: [...log.tasks.filter((t) => t.taskUuid !== task.taskUuid), task],
 });
 
-/** 追加一条（同 id 覆盖、正文截断、只留最近 SELF_LOG_MAX_ENTRIES 条）。空正文原样返回。 */
+/**
+ * 追加一条（同 id 覆盖、正文截断、entries 只留最近 SELF_LOG_MAX_ENTRIES 条）。
+ * 空正文原样返回。
+ *
+ * 连发计数在这里 +1，但两种情况不算：即时对话的回复（reply，是在答用户刚说的话），
+ * 以及同 id 的重复追加（fire 抛错整条重跑时同一条消息会再记一次，不能算成又发了一条）。
+ */
 export const appendSelfLogEntry = (log: AmsgSelfLog, entry: AmsgSelfLogEntry): AmsgSelfLog => {
   const text = entry.text.trim().slice(0, SELF_LOG_TEXT_MAX);
   if (!text) return log;
+  const alreadyLogged = log.entries.some((e) => e.id === entry.id);
   const kept = log.entries.filter((e) => e.id !== entry.id);
-  return { ...log, entries: [...kept, { ...entry, text }].slice(-SELF_LOG_MAX_ENTRIES) };
+  return {
+    ...log,
+    entries: [...kept, { ...entry, text }].slice(-SELF_LOG_MAX_ENTRIES),
+    unansweredSends: log.unansweredSends + (entry.reply || alreadyLogged ? 0 : 1),
+  };
 };
 
 export const parseSelfLog = (value: string): AmsgSelfLog | null => {
   try {
     const parsed = JSON.parse(value);
     if (
-      parsed && typeof parsed === 'object' && parsed.v === 3
+      parsed && typeof parsed === 'object' && parsed.v === 4
       && typeof parsed.basePackAt === 'number'
       && (parsed.anchorUserMsgAt === null || typeof parsed.anchorUserMsgAt === 'number')
+      && typeof parsed.unansweredSends === 'number'
       && Array.isArray(parsed.tasks)
       && Array.isArray(parsed.entries)
       && parsed.entries.every((e: unknown) => {

@@ -15,6 +15,7 @@ import {
   UserProfile,
 } from '../types';
 import { getLastRealUserMessageAt } from './amsg2ExpireGuard';
+import { AMSG_BUNDLE_VERSION } from './amsgBundleVersion';
 import { buildTaskInstruction, resolveSendAtMs } from './amsgFireSchedule';
 import {
   getPendingTasks, isAmsg2EnabledForChar, MAX_ACTIVE_TASKS_PER_CHAR,
@@ -22,6 +23,27 @@ import {
   resolveExpirePolicy, toDatetimeLocalValue,
 } from './amsg2Tasks';
 import { AMSG_CHAT_PRESENCE_KEY, AmsgChatPresence } from './amsgChatPresence';
+import {
+  AmsgDiagnosticsProbe, AmsgFailKind, describeAmsgFetchFailure, parseAmsgDebugReport,
+} from './amsgDiagnostics';
+// 「这个角色欠着一条即时对话回复吗」的两个原始信号（待收记录 + 发送在飞）。
+// amsgInstantChat 反过来也 import 这个文件，两边都只在函数体里用对方，模块求值期
+// 谁都不碰谁，所以这个环是安全的；换成在这里另读一遍 localStorage 才是真麻烦
+// （挂起判定就有了两把尺，而「发送在飞」那半截根本抄不过来，它是内存里的集合）。
+import { getInstantChatPending, isInstantChatSendInFlight } from './amsgInstantChat';
+import {
+  buildCharChatCredRow,
+  buildCharEmotionCredRow,
+  buildCharInstantCredRow,
+  chunkCredRows,
+  forgetAllCredIds,
+  forgetCredIds,
+  normalizeChatApiUrl,
+  pickChangedCredRows,
+  rememberCredRows,
+  supportsLlmCredentials,
+  type LlmCredentialRow,
+} from './amsgLlmCredentials';
 import { flattenContentPartsToText } from './promptMessageCleanup';
 import {
   AMSG_FIRE_PACK_KEY,
@@ -31,6 +53,7 @@ import {
   AMSG_SLOT_REALTIME_WORLD,
   AMSG_SLOT_SCENE,
   AMSG_SLOT_TASK_INSTRUCTION,
+  AMSG2_INSTANT_STUB_TEMPLATE,
   AMSG_INSTANT_CHAT_SUBTYPE,
   AMSG_LAST_SKIP_KEY,
   AMSG_SLOT_SELF_LOG,
@@ -160,8 +183,6 @@ const createClient = (config: Pick<ActiveMsg2GlobalConfig, 'userId' | 'workerUrl
 export const getDefaultActiveMsgFirstSendTime = () =>
   toDatetimeLocalValue(new Date(Date.now() + 30 * 60_000).toISOString());
 
-const normalizeChatApiUrl = (baseUrl: string) => `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
-
 /** amsg-server 对 avatarUrl 的长度上限，超了整条会被拒。 */
 const REMOTE_AVATAR_URL_MAX_LENGTH = 2048;
 
@@ -184,36 +205,10 @@ export const toRemoteAvatarUrl = (avatar: string | undefined | null): string | u
   }
 };
 
-const looksLikeHtmlFallbackError = (message: string) => (
-  /HTML/i.test(message) ||
-  message.includes(`Unexpected token '<'`) ||
-  /<!doctype/i.test(message) ||
-  /<html/i.test(message)
-);
-
-// ─── 失败归类（给诊断与用户提示分档用）───
-//
-// 「连接失败」在图上只有一格的话，地址填错、密钥对不上、D1 没绑、纯断网会长成一个样，
-// 而这四种要修的引导完全不同。所以在**抛错的那一刻**按源码里写死的谓词挂一个代号，
-// 调用方只需要这个代号。
-//
-// 报错原文可能带 Worker 地址或 push endpoint，因此这里只暴露下面联合类型中的
-// 固定字面量，不把异常对象里的任意文本传给调用方。
-export type AmsgFailKind =
-  | '地址没填'
-  | '打到网页了'
-  | '鉴权失败'
-  | '端点不存在'
-  | '建表失败'
-  | '配置缺失'
-  | '网络失败'
-  | '权限被拒'
-  | '不支持推送'
-  | 'worker没配VAPID'
-  | '订阅失败'
-  | '推送通道不通'
-  | '端点僵尸'
-  | '其他';
+// 失败归类（AmsgFailKind）连同「把 fetch 异常翻成人话」都住在 ./amsgDiagnostics：
+// 那是一份纯函数叶子，设置页的体检面板也要用同一套判定。这里原样转出去，
+// 外面按 `from './activeMsgClient'` 引的地方不用改。
+export type { AmsgFailKind } from './amsgDiagnostics';
 
 const FAIL_KIND_PROP = '__amsgFailKind';
 
@@ -268,6 +263,68 @@ const inspectWorkerConfig = async (config: ActiveMsg2GlobalConfig): Promise<Amsg
   }
 };
 
+/**
+ * 拉一次体检（`GET /debug`）。
+ *
+ * 跟 inspectWorkerConfig 的差别在于失败也要有结论：那个是连接流程里的抢跑一步，拿不到
+ * 就退回原流程；这个是用户主动来看「我到底哪儿没配对」的，连不上本身就是第一条结论，
+ * 咽下去的话面板会一片空白，比不体检还难受。
+ *
+ * 端点是后加的，旧 worker 回 404（或者代理塞回来一段 HTML）。那种情况标成 unsupported——
+ * 它只是查不了，不是坏了，报红会让人跑去改根本没错的配置。
+ */
+export const fetchWorkerDiagnostics = async (): Promise<AmsgDiagnosticsProbe> => {
+  let config: ActiveMsg2GlobalConfig;
+  try {
+    config = await ensureWorkerReady();
+  } catch (error: any) {
+    return { reachable: false, reason: error?.message || '还没填 Worker 地址。' };
+  }
+
+  try {
+    // 自带超时：连不上 Cloudflare 时 TCP 可以干等几十秒，而这个面板正是用户来问
+    // 「到底怎么了」的地方——转圈转到天荒地老跟没有体检没区别。超时会被翻成
+    // 「等太久」那一句，它跟「不通」的处理办法本来就不一样。
+    const signal = typeof AbortSignal?.timeout === 'function' ? AbortSignal.timeout(8000) : undefined;
+    const { status, body } = await fetchWithAuthRaw('debug', config, { method: 'GET', signal }, '体检');
+    const report = parseAmsgDebugReport(body);
+    if (report) return { reachable: true, report };
+
+    // 401/403 是真配错了（共享密钥两边对不上），不是「版本旧」——标成 unsupported
+    // 会让人跑去点更新，而更新一遍照样进不来。
+    if (status === 401 || status === 403) {
+      return { reachable: false, reason: `Worker 拒绝了这次请求（HTTP ${status}），多半是共享密钥两边对不上。` };
+    }
+    // 200 但形状对不上，跟 404 一样都是「这台 worker 上没有这个端点」。
+    return {
+      reachable: false,
+      unsupported: true,
+      reason: 'Worker 上跑的代码还没有体检端点。回你 fork 的 sullyos-workers 点一下 Sync fork，或者用上面的「更新 Worker」，之后再来看。',
+    };
+  } catch (error: any) {
+    // fetchWithAuthRaw 抛出来的已经是人话了（见 amsgDiagnostics 的 describeAmsgFetchFailure）。
+    return { reachable: false, reason: error?.message || '连不上 Worker。' };
+  }
+};
+
+/**
+ * 后端自更新的回执（`POST /self-update`，见 worker/amsg/src/selfUpdate.ts）。
+ * supported 为 false 表示这台 worker 还是旧版、根本没有这个端点。
+ */
+export interface AmsgSelfUpdateResult {
+  ok: boolean;
+  supported: boolean;
+  /** 直接显示给用户的整句，成功和失败都有。 */
+  message: string;
+  /** 新代码的指纹，成功时才有，拿来当「现在跑的是哪一版」。 */
+  bundleHash?: string;
+  /**
+   * worker 挂在哪一步的代号（`CF_TOKEN_MISSING` / `UPLOAD_FAILED` 之类）。
+   * 面板据此决定要不要露出「补装更新能力」那一块——缺钥匙是唯一能就地解决的一种。
+   */
+  code?: string;
+}
+
 /** init-tenant 没成功时按 HTTP 状态归类：三种状态要用户去改的地方完全不同。 */
 const resolveInitFailKind = (status: number): AmsgFailKind => {
   if (status === 401 || status === 403) return '鉴权失败';   // 共享密钥两边对不上
@@ -275,18 +332,27 @@ const resolveInitFailKind = (status: number): AmsgFailKind => {
   return '建表失败';                                         // 多半是没绑 D1（变量名 DB）
 };
 
-const normalizeActiveMsgApiError = (error: unknown, phase: string) => {
-  const message = error instanceof Error ? error.message : String(error || 'Unknown error');
-  if (looksLikeHtmlFallbackError(message)) {
-    return withFailKind(new Error(`主动消息 2.0 的 ${phase} 请求没有打到 Worker，而是拿到了网页 HTML。请确认设置里填的是已部署的 amsg Worker 地址，而不是某个网页地址。`), '打到网页了');
-  }
-  // 走到这儿的基本是 fetch 自己抛的（断网 / DNS 挂 / CORS 被拒），归网络。
-  return withFailKind(error instanceof Error ? error : new Error(message), '网络失败');
+/**
+ * 最近一次用过的 Worker 地址，只拿来把域名写进给人看的报错里。
+ *
+ * 报错想说清「连不上的是哪儿」，可有几条抛错路径手上只有 client 没有 config
+ * （取 VAPID 公钥、登记订阅）。为它们逐层加参数不划算——这个值不参与任何判定，
+ * 错了也只是那句话里少个域名。凡是走 ensureWorkerReady 的路径都会先更新它。
+ */
+let lastKnownWorkerUrl = '';
+
+const normalizeActiveMsgApiError = (error: unknown, phase: string, workerUrl?: string | null) => {
+  const described = describeAmsgFetchFailure(error, phase, workerUrl || lastKnownWorkerUrl);
+  // 尽量沿用原来那个异常对象（调用方可能还看它别的字段），只把给人看的那句话换掉。
+  const normalized = error instanceof Error ? error : new Error(described.message);
+  normalized.message = described.message;
+  return withFailKind(normalized, described.kind);
 };
 
 const ensureGlobalReady = async (): Promise<ActiveMsg2GlobalConfig> => {
   const userId = await ActiveMsgStore.ensureUserId();
   const config = await ActiveMsgStore.getGlobalConfig();
+  if (config.workerUrl?.trim()) lastKnownWorkerUrl = config.workerUrl;
   return { ...config, userId };
 };
 
@@ -304,12 +370,22 @@ const ensureWorkerReady = async () => {
 // 换密钥 / 清空重连）键就换，旧缓存自然作废。失败的握手不缓存，下一次重新来过。
 let cachedClientEntry: { key: string; promise: ReturnType<typeof createAndInitClient> } | null = null;
 
+/**
+ * 作废握手缓存，下一次调用重新 get-user-key。
+ *
+ * 记忆化的键只认「地址 / 用户 id / 共享密钥」，可云端的用户密钥还能在这三样都不变的
+ * 情况下换代 —— 用户在 Cloudflare 上换掉 AMSG_MASTER_KEY 就是。所以凡是「用户密钥
+ * 可能已经不是刚才那把」的动作（重新连接、清空云端状态）都得先过这里，否则缓存里
+ * 那条 client 握着旧密钥，加密调用发出去 worker 一条都解不开。
+ */
+const invalidateClientCache = () => { cachedClientEntry = null; };
+
 const createAndInitClient = async (config: ActiveMsg2GlobalConfig) => {
   const client = createClient(config);
   try {
     await client.init();
   } catch (error) {
-    throw normalizeActiveMsgApiError(error, '获取用户密钥');
+    throw normalizeActiveMsgApiError(error, '获取用户密钥', config.workerUrl);
   }
   return client;
 };
@@ -322,6 +398,15 @@ const initializeClient = (config: ActiveMsg2GlobalConfig) => {
   promise.catch(() => {
     if (cachedClientEntry?.promise === promise) cachedClientEntry = null;
   });
+  // 顺手刷一次即时对话的能力位（结果存进全局配置，见 probeInstantChatSupport）。
+  // 挂在这里是因为这是「一次会话一次」的天然位置：握手按配置记忆化，换 worker / 换密钥
+  // 才会重来。设置页那一处探测只覆盖打开过设置页的人——而最需要被纠正的恰恰是那批
+  // 「装好之后再没进过设置页、Worker 还停在旧版」的人。
+  // 不 await：它只影响**之后**几轮的路由判断，拿它挡住握手等于给每条消息加一次 RTT。
+  void ActiveMsgClient.probeInstantChatSupport().catch(() => {});
+  // 同理顺手探一次「凭据能不能存成表里的一行」（credRefs 的唯一版本门槛，见
+  // isLlmCredentialsReady）。探不到就按老路走，不影响任何一条消息发出去。
+  void ActiveMsgClient.probeLlmCredentialsSupport().catch(() => {});
   return promise;
 };
 
@@ -355,7 +440,54 @@ const resolveTaskCredentialUpdates = (
   };
 };
 
-const formatHistoryLine = (role: string, content: any, char: CharacterProfile, userProfile: UserProfile) => {
+// ─── LLM 凭据引用（credRefs）───
+//
+// 走不走这条路只判一处：这台 worker 的 capabilities 里有没有 'llm-credentials'。
+// 达标就把凭据存成表里的一行、任务只带名字；不达标原样走「凭据冻结进任务」的老路。
+// 结论跟即时对话那个能力位一样存进全局配置（握手时探一次），发消息 / 排程的路上
+// 不做逐次网络预检——那等于给每条消息加一次 RTT。
+
+/**
+ * 这台 worker 现在走不走 credRefs。**整个前端的版本门槛只有这一处。**
+ *
+ * undefined（还没探过）按 false 处理：老路在哪台 worker 上都能跑，宁可这一轮多冻结
+ * 一份凭据，也不要拿新写法去撞一台还不认识它的 worker（那是排程直接 400）。
+ * 握手时会补探一次，之后就有准数了。
+ */
+export const isLlmCredentialsReady = async (): Promise<boolean> => {
+  try {
+    return (await ActiveMsgStore.getGlobalConfig()).llmCredentialsSupported === true;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * 把这几行凭据传上去，**只传真的变了的那些**（指纹底账见 amsgLlmCredentials）。
+ *
+ * force 用在「云端说这行不存在」的自愈路径上：那时本地底账是脏的（记着传过、实际没有），
+ * 必须绕过指纹。传成功才记账——记早了就会把一次失败的上传当成已生效。
+ */
+const putLlmCredentialRows = async (
+  rows: LlmCredentialRow[],
+  options: { force?: boolean } = {},
+): Promise<number> => {
+  const pending = options.force ? rows : pickChangedCredRows(rows);
+  if (pending.length === 0) return 0;
+  const globalConfig = await ensureWorkerReady();
+  const client = await initializeClient(globalConfig);
+  for (const batch of chunkCredRows(pending)) {
+    const response = await client.putLlmCredentials(batch);
+    if (!response?.success) {
+      throw new Error(response?.error?.message || '登记 LLM 凭据失败。');
+    }
+    // 逐批记账：后面那批失败时，前面已经落地的不必再传一遍。
+    rememberCredRows(batch);
+  }
+  return pending.length;
+};
+
+const formatHistoryLine =(role: string, content: any, char: CharacterProfile, userProfile: UserProfile) => {
   const speaker = role === 'assistant' ? char.name : role === 'user' ? userProfile.name : '系统';
   // 富内容（视觉模型的 [{type:'text'},{type:'image_url'}] 格式）按 part 类型拍平：
   // 文本部分照抄，图片部分压成 [图片] 占位，别的类型丢掉——不能整段 JSON.stringify，
@@ -421,15 +553,6 @@ const readEmojiLibrary = async (): Promise<EmojiLibrary> => {
 };
 
 // export 只为单测（activeMsgClient.test.ts 钉 tzId 取值与模板不烤时间）。
-/**
- * 即时对话轻量包的模板占位（角色 2.0 关着且没有任何任务时用）：定时任务那条路才渲染
- * 模板，这类角色的包永远没人渲染，每次发送重建一整份系统提示词 + 近史转写纯属白付
- * （主线程二次构建 + 手机上行几十 KB，都发生在拿到 202 之前）。写成一眼能认出来的
- * 标记：它要是出现在推送正文里，说明有本不该渲染模板的 fire 在渲染它。
- */
-const AMSG2_INSTANT_STUB_TEMPLATE =
-  'AMSG2_INSTANT_STUB_TEMPLATE（即时对话轻量包：该角色无定时任务，模板未随发送重建；看到这条正文说明有本不该渲染模板的 fire 在渲染它）';
-
 export const buildFirePack = async (
   char: CharacterProfile,
   userProfile: UserProfile,
@@ -702,8 +825,9 @@ const hasNonTextPart = (content: unknown): boolean =>
  * 一条一条丢到进预算为止。最新那条用户消息的图片永远不丢——用户刚发的这张图正是
  * 这一轮要聊的东西，把它丢了等于答非所问，而用户完全看不出来。
  *
- * 丢到只剩最新那条还是超预算 → 抛错，走「即时对话发送失败」那条明路，用户看得到
- * 原因、可以删掉图片重发。绝不悄悄把当前这轮截断。
+ * 丢到只剩最新那条还是超预算 → 抛错，走「即时对话发送失败」那条明路，绝不悄悄把
+ * 当前这轮截断。报错分两种：删掉最新那张图能救回来的，指向图片；纯文本本身就超限的
+ * （长角色卡 + 世界书 + 近史），如实说上下文太大——这种情况用户没有图可删。
  */
 export const toFirePackChatMessages = (
   messages: Array<{ role: string; content: unknown }>,
@@ -744,19 +868,40 @@ export const toFirePackChatMessages = (
 
   if (totalBytes > CHAT_CONTENT_BUDGET_BYTES) {
     const mb = (bytes: number) => (bytes / 1024 / 1024).toFixed(1);
+    // 走到这里，能拍的图全拍平了，还带着图的只可能是受保护的最新那条用户消息。
+    // 报错前先算一笔账：把它的图也拍掉能不能进预算。能 → 罪魁确实是这张图，让用户
+    // 删图/换小图是条真出路；不能 → 超限的是纯文本本身（长角色卡 + 世界书 + 近史），
+    // 这时候还叫人删图就是指错路——用户可能压根没发过图，照着做也永远修不好。
+    const protectedEntry = protectedIdx >= 0 ? result[protectedIdx] : undefined;
+    const protectedImageBytes = protectedEntry && hasNonTextPart(protectedEntry.content)
+      ? entryBytes(protectedEntry) - entryBytes({
+          role: protectedEntry.role,
+          content: flattenContentPartsToText(protectedEntry.content as unknown[]),
+        })
+      : 0;
+    if (totalBytes - protectedImageBytes <= CHAT_CONTENT_BUDGET_BYTES) {
+      throw new Error(
+        `即时对话发不出去：这一轮要带的图片太大（约 ${mb(totalBytes)} MB，上限 ${mb(CHAT_CONTENT_BUDGET_BYTES)} MB）。`
+        + '删掉图片、或者换一张小一点的再发。',
+      );
+    }
     throw new Error(
-      `即时对话发不出去：这一轮要带的图片太大（约 ${mb(totalBytes)} MB，上限 ${mb(CHAT_CONTENT_BUDGET_BYTES)} MB）。`
-      + '删掉图片、或者换一张小一点的再发。',
+      `即时对话发不出去：这一轮上下文太大（约 ${mb(totalBytes)} MB，即时对话单轮上限 ${mb(CHAT_CONTENT_BUDGET_BYTES)} MB）。`
+      + '精简一下上下文（比如角色设定、世界书或携带的历史条数），或先关掉即时对话走本地生成。',
     );
   }
   return result;
 };
 
 /** POST /instant-chat 的失败原因（包装层的错误码 → 一句能照着做的话）。 */
-const describeInstantChatFailure = (status: number, body: any): string => {
+export const describeInstantChatFailure = (status: number, body: any): string => {
   const code = body?.error?.code;
   const upstream = body?.error?.upstream?.error?.message || body?.error?.upstream?.message;
-  const detail = [body?.error?.message, upstream].filter(Boolean).join('：');
+  // Worker 内部真正抛出来的那句（`D1_ERROR: no such table …` 之类）。上游只回一句写死的
+  // 「服务器内部错误」，包装层从它的日志里把原文捞了出来（见 worker 的 forwardWithFatalLog）。
+  // 这才是能照着做事的那一句，所以排在泛型报文后面一起给出来，别让人再去翻 Cloudflare 面板。
+  const upstreamLog = typeof body?.error?.upstreamLog === 'string' ? body.error.upstreamLog : '';
+  const detail = [body?.error?.message, upstream, upstreamLog].filter(Boolean).join('：');
   if (status === 401 || code === 'INVALID_CLIENT_TOKEN') {
     return '即时对话没发出去：共享密钥和 Worker 上的对不上，去「主动消息 2.0」设置里核对一下。';
   }
@@ -776,6 +921,16 @@ const describeInstantChatFailure = (status: number, body: any): string => {
   }
   return `即时对话没发出去（HTTP ${status}${code ? ` / ${code}` : ''}）${detail ? `：${detail}` : '。'}`;
 };
+
+/**
+ * 这个错误体是不是「引用的凭据行在云端不存在」。
+ *
+ * 两层都看：排程直接调上游时错误码就在顶层；即时对话经包装层，上游那份原样躺在
+ * `error.upstream` 里。补传自愈的两处（排程 / 即时对话）共用这一把尺。
+ */
+export const isCredentialNotFound = (body: any): boolean =>
+  body?.error?.code === 'CREDENTIAL_NOT_FOUND'
+  || body?.error?.upstream?.error?.code === 'CREDENTIAL_NOT_FOUND';
 
 /** client_state 上传每次尝试前等多久：数组长度即总尝试次数（首次不等）。 */
 const CLIENT_STATE_BACKOFF_MS = [0, 400, 1200];
@@ -869,6 +1024,23 @@ export const clearNamespaceValuesOrThrow = async (
   );
   return keys;
 };
+
+/**
+ * 这个角色此刻欠着一条即时对话的回复吗（发送还在飞 / 已受理还没收到）。
+ *
+ * 欠着的那段时间里，云端的 fire_pack 是 POST /instant-chat 带上去的那一份，比常规的包
+ * 多一段 chat —— worker 到点全靠它拿这一轮的对话。常规重建的包没有 chat 段，覆盖上去
+ * worker 只会硬失败（「fire_pack 里没有 chat 段」），重试梯子上每一跳都是同一个错，
+ * 用户最后拿到一句「即时对话没能完成」，话还得自己重发一遍。
+ *
+ * 所以凡是会写 fire_pack 的路径，写之前都得先问一次这里：批量同步（amsgStateSync 的
+ * 挂起段）和排程（scheduleCharacterTask）共用这一把尺，别各写各的。
+ *
+ * 「发送在飞」这一半不能省：待收记录要 202 回来才有，光认它的话，慢网上传的那几秒
+ * 正好是敞着的。
+ */
+export const owesInstantChatReply = (charId: string): boolean =>
+  !!getInstantChatPending(charId) || isInstantChatSendInFlight(charId);
 
 /**
  * 角色侧云端状态的两条条目（fire_pack + tool_pack）。
@@ -1074,7 +1246,7 @@ const fetchWithAuthRaw = async (
 
     return { status: response.status, body: await safeResponseJson(response) };
   } catch (error) {
-    throw normalizeActiveMsgApiError(error, phase);
+    throw normalizeActiveMsgApiError(error, phase, config.workerUrl);
   }
 };
 
@@ -1104,6 +1276,38 @@ export type RemoteTaskStatus =
    */
   | { state: 'completed'; lastError?: RemoteTaskLastError | null }
   | { state: 'gone' };
+
+/**
+ * 服务端消息账本里的一条。
+ *
+ * 云端每条推送发出去之前先记一行，客户端收下之后销账（ack）。`push` 就是推送信封
+ * 本身，跟 Service Worker 收到的那一份逐字一致——补收时原样走收件箱那条老路即可。
+ */
+export interface AmsgOutboxEntry {
+  /** 行号，同时也是翻页游标。 */
+  id: number;
+  messageId: string;
+  taskUuid: string | null;
+  sessionId: string | null;
+  messageIndex: number | null;
+  totalMessages: number | null;
+  /** 落账时刻（epoch ms）。补收按它掐时效，太老的不再往聊天流里放。 */
+  createdAt: number;
+  deliveredAt: number | null;
+  push: Record<string, any>;
+}
+
+/** 单页条数。服务端上限 100，取满减少往返。 */
+const OUTBOX_PAGE_SIZE = 100;
+
+/**
+ * 最多翻几页。护栏而非配额：正常情况一两页就到底了，堆到 2000 条说明账本没人销过，
+ * 这时也不该无限翻下去把启动卡死——剩下的下次再拉。
+ */
+const OUTBOX_MAX_PAGES = 20;
+
+/** 单次 ack 的条数上限（服务端 200，超了自己分批）。 */
+const OUTBOX_ACK_BATCH_SIZE = 200;
 
 export const ActiveMsgClient = {
   async registerNativePushToken(token: string): Promise<void> {
@@ -1392,8 +1596,17 @@ export const ActiveMsgClient = {
         resolveInitFailKind(status),
       );
     }
+    // 「重新连接并验证」是显式的重新握手，缓存必须先作废。用户按它多半正是因为云端换了
+    // 东西（典型是在 Cloudflare 上换掉 AMSG_MASTER_KEY，用户密钥跟着换代），而记忆化的
+    // 三个键一个都没变 —— 不作废的话这里拿回来的还是握着旧密钥的老 client：init-tenant
+    // 成功、界面报「连接成功」，此后每一次加密调用（排任务 / 即时对话 / 读云端状态）
+    // worker 都解不开，只有整页刷新才能恢复。
+    invalidateClientCache();
     await initializeClient(config);
     await ActiveMsgStore.saveGlobalConfig({ ...config, initializedAt: Date.now() });
+    // 「重新连接并验证」是用户显式的一次对表，凭据引用那个能力位也当场探准，别等下次握手。
+    // 排在保存之后：上面那句写的是握手前的配置快照，探测结论放它前面会被原样盖回去。
+    await this.probeLlmCredentialsSupport();
     await this.reconcilePushSubscription();
     const nativeToken = readNativePushToken();
     if (nativeToken) await this.registerNativePushToken(nativeToken);
@@ -1469,11 +1682,6 @@ export const ActiveMsgClient = {
       }));
   },
 
-  /** 只要 uuid 的薄壳（删角色 / 关闭全部这些路径不关心 status / lastError）。 */
-  async listRemoteTaskUuidsForChar(charId: string): Promise<string[]> {
-    return (await this.listRemoteTasksForChar(charId)).map((t) => t.uuid);
-  },
-
   /**
    * 取消一个远端任务。**幂等**：远端已经没有这一条（一次性任务发完就删行、或在别处
    * 取消过），amsg-server 回 404 `TASK_NOT_FOUND`，那正是取消要达到的终态，算成功并
@@ -1539,6 +1747,83 @@ export const ActiveMsgClient = {
   },
 
   /**
+   * 服务端消息账本里还没销账的条目，翻页拉全。
+   *
+   * 「哪些消息客户端还没收下」在服务端是查得出来的事实——每条推送发出去之前先记一行，
+   * 客户端落库之后销账。所以这里不做任何本地对账，读回来是什么就是什么。
+   *
+   * 读失败照常抛：调用方要能分清「读到了、里面确实没有」和「压根没读成」，
+   * 后者不构成任何结论（见 docs/instant-push-dual-channel.md 那条铁律）。
+   */
+  async listOutboxEntries(): Promise<AmsgOutboxEntry[]> {
+    const config = await ensureWorkerReady();
+    const client = await initializeClient(config);
+    const collected: AmsgOutboxEntry[] = [];
+    let since: number | undefined;
+
+    for (let page = 0; page < OUTBOX_MAX_PAGES; page += 1) {
+      const response = await client.getOutbox({
+        limit: OUTBOX_PAGE_SIZE,
+        ...(since == null ? {} : { since }),
+      });
+      if (!response?.success) {
+        throw new Error(response?.error?.message || '读取云端消息账本失败。');
+      }
+      const data = (response.data ?? {}) as {
+        entries?: unknown;
+        cursor?: unknown;
+        hasMore?: unknown;
+      };
+      const entries = Array.isArray(data.entries) ? data.entries : [];
+      for (const raw of entries) {
+        const entry = raw as Partial<AmsgOutboxEntry> | null;
+        // messageId 是销账和去重的唯一依据，缺了这条就没法处理，跳过。
+        if (!entry || typeof entry.messageId !== 'string' || !entry.messageId) continue;
+        if (!entry.push || typeof entry.push !== 'object') continue;
+        collected.push({
+          id: typeof entry.id === 'number' ? entry.id : 0,
+          messageId: entry.messageId,
+          taskUuid: typeof entry.taskUuid === 'string' ? entry.taskUuid : null,
+          sessionId: typeof entry.sessionId === 'string' ? entry.sessionId : null,
+          messageIndex: typeof entry.messageIndex === 'number' ? entry.messageIndex : null,
+          totalMessages: typeof entry.totalMessages === 'number' ? entry.totalMessages : null,
+          createdAt: typeof entry.createdAt === 'number' ? entry.createdAt : 0,
+          deliveredAt: typeof entry.deliveredAt === 'number' ? entry.deliveredAt : null,
+          push: entry.push as Record<string, any>,
+        });
+      }
+      if (data.hasMore !== true) break;
+      const cursor = typeof data.cursor === 'number' ? data.cursor : null;
+      // 游标没往前走就停：再拉一次是同一页，会转成死循环。
+      if (cursor == null || (since != null && cursor <= since)) break;
+      since = cursor;
+    }
+
+    return collected;
+  },
+
+  /**
+   * 销账：告诉服务端这些消息已经收下了，之后不会再拉到。
+   *
+   * **只在消息真的落地之后调**——账销了而落库半途失败的话，这条消息就再也补不回来。
+   * 幂等，重复销同一批不会出错。超过单次上限自动分批；某一批失败不拦着后面几批，
+   * 没销掉的下次拉回来会被落库那层的去重挡下，不会重复上屏。
+   */
+  async ackOutboxMessages(messageIds: string[]): Promise<void> {
+    const ids = Array.from(new Set(messageIds.filter((id) => typeof id === 'string' && !!id)));
+    if (ids.length === 0) return;
+    const config = await ensureWorkerReady();
+    const client = await initializeClient(config);
+    for (let i = 0; i < ids.length; i += OUTBOX_ACK_BATCH_SIZE) {
+      const batch = ids.slice(i, i + OUTBOX_ACK_BATCH_SIZE);
+      const response = await client.ackOutbox(batch);
+      if (!response?.success) {
+        throw new Error(response?.error?.message || '云端消息账本销账失败。');
+      }
+    }
+  },
+
+  /**
    * 取消某个角色在远端的全部任务（关闭 2.0 / 删角色共用）。
    *
    * 以远端清单为准：本地 pending 派生会漏掉「已过点但 Cron 还没消费」的一次性任务，
@@ -1546,6 +1831,12 @@ export const ActiveMsgClient = {
    * charId 投影）才退回调用方给的本地清单——半份证据也比不取消强。
    *
    * 逐条取消，单条失败记进 failed 继续跑完其余的：一条网络抖动不该让剩下的任务都留着。
+   *
+   * 即时对话的行不在取消范围内（过滤口径与面板对账同一把尺 AMSG_INSTANT_CHAT_SUBTYPE，
+   * 见 amsg2Tasks 的 reconcileTasksWithRemote）：那不是定时任务，是用户此刻正等着的一轮
+   * 聊天。角色的 2.0 开关管的是定时主动消息，连它一起掐掉的话 worker 那一跳永远不会跑，
+   * 用户等到的是一句「云端已处理这条消息，但回复没能取回」，还得自己把话重发一遍。
+   * 退回本地清单的那条路天然不含即时对话（本地任务记录里从来没有它）。
    */
   async cancelAllTasksForChar(
     charId: string,
@@ -1553,7 +1844,9 @@ export const ActiveMsgClient = {
   ): Promise<{ targets: string[]; failed: Set<string> }> {
     let targets: string[];
     try {
-      targets = await this.listRemoteTaskUuidsForChar(charId);
+      targets = (await this.listRemoteTasksForChar(charId))
+        .filter((task) => task.messageSubtype !== AMSG_INSTANT_CHAT_SUBTYPE)
+        .map((task) => task.uuid);
     } catch {
       targets = localTaskUuids;
     }
@@ -1652,6 +1945,11 @@ export const ActiveMsgClient = {
       },
     };
 
+    // 凭据这一轮走哪条路：能存表就只带引用，老 worker 照旧内联三件套。
+    // 引用那条路要先把行传上去（下面的 credRow），传成功才建任务。
+    const useCredRefs = task.mode !== 'fixed' && await isLlmCredentialsReady();
+    let credRow: LlmCredentialRow | null = null;
+
     if (task.mode === 'fixed') {
       const userMessage = task.userMessage?.trim();
       if (!userMessage) throw new Error('固定消息模式需要填写消息内容。');
@@ -1665,9 +1963,18 @@ export const ActiveMsgClient = {
       // worker 的 onBeforeFire 返回值覆盖（库用 { ...payload, messages } 调 LLM），
       // 这条内容永远不参与生成——它要是真出现在哪里，就说明 worker 的 fire hooks 没生效。
       payload.messages = [{ role: 'user', content: AMSG2_PLACEHOLDER_PROMPT }];
-      payload.apiUrl = normalizeChatApiUrl(activeApi.baseUrl);
-      payload.apiKey = activeApi.apiKey;
-      payload.primaryModel = activeApi.model;
+      if (useCredRefs) {
+        // 引用与内联三件套上游只收一种，同传直接 400——所以这条路上一个内联字段都不写。
+        // 行的值按 (char, config, apiConfig) 现算，与后台补传那条路同一个入口，
+        // 两边算出来的指纹才对得上（否则每次排程都会白传一次）。
+        credRow = buildCharChatCredRow(char, config, apiConfig);
+        if (!credRow) throw new Error('主动消息 2.0 缺少可用的 API URL / Key / Model。');
+        payload.credRefs = { chat: credRow.credId };
+      } else {
+        payload.apiUrl = normalizeChatApiUrl(activeApi.baseUrl);
+        payload.apiKey = activeApi.apiKey;
+        payload.primaryModel = activeApi.model;
+      }
       if (config.maxTokens && config.maxTokens > 0) {
         payload.maxTokens = config.maxTokens;
       }
@@ -1683,24 +1990,51 @@ export const ActiveMsgClient = {
     //
     // 大值（胖角色的完整角色卡 / 世界书）由 amsg-server 2.6.0-next.4+ 在 worker 存储层
     // 透明分块，客户端整条直传即可；老 worker 会拒超限条目 → putClientStateOrThrow 抛错。
+    //
+    // 角色欠着即时对话回复时，这一批里的 fire_pack 抽掉不写（口径与批量同步那条路共用
+    // owesInstantChatReply）：云端此刻那份带着用户正等的这一轮 chat 段，盖掉的话 worker
+    // 到点只能硬失败。tool_pack / tool_config 里没有 chat，照传。抽掉的那份不会就此作废：
+    // 排完任务紧跟着的落库会打脏，等回复销账后由状态同步把最新的包补上去。
     if (firePack) {
       const now = Date.now();
+      const owesChat = owesInstantChatReply(char.id);
+      if (owesChat) {
+        console.warn(`${ACTIVE_MSG_RUNTIME_HEADER} 该角色还欠着一条即时对话回复，这次排程不覆盖云端 fire_pack（等回复销账后由状态同步补传）`);
+      }
+      const charEntries = await buildCharStateEntries(char, firePack, now);
       await putClientStateOrThrow(client, [
-        ...(await buildCharStateEntries(char, firePack, now)),
+        ...(owesChat ? charEntries.filter((entry) => entry.key !== AMSG_FIRE_PACK_KEY) : charEntries),
         buildToolConfigEntry(realtimeConfig, now),
       ], '上传云端状态');
     }
 
-    const encrypted = await encryptPayload(client, payload);
-    const response = await fetchWithAuth('schedule-message', globalConfig, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Payload-Encrypted': 'true',
-        'X-Encryption-Version': '1',
-      },
-      body: JSON.stringify(encrypted),
-    }, '创建任务');
+    // 凭据行要先在云端存在：上游建任务前会挨个查引用，缺一个就 409 CREDENTIAL_NOT_FOUND。
+    // 只在值变过时真的发请求（指纹底账），所以常态下这一步一个请求都不发。
+    if (credRow) await putLlmCredentialRows([credRow]);
+
+    const postSchedule = async () => {
+      const encrypted = await encryptPayload(client, payload);
+      return fetchWithAuth('schedule-message', globalConfig, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Payload-Encrypted': 'true',
+          'X-Encryption-Version': '1',
+        },
+        body: JSON.stringify(encrypted),
+      }, '创建任务');
+    };
+
+    let response = await postSchedule();
+    // 云端说这行凭据不存在（换过 master key、点过「清空云端数据」、或者上一次上传其实
+    // 没落地而本地底账记着传过）——本地那本账此刻是脏的，绕过指纹强传一次再重排一次。
+    // 只自愈一次：再不成就是真出了别的问题，抛给用户看得见的报错。
+    if (!response?.success && response?.error?.code === 'CREDENTIAL_NOT_FOUND' && credRow) {
+      console.warn(`${ACTIVE_MSG_RUNTIME_HEADER} 云端没有这行凭据，补传后重排一次`, credRow.credId);
+      forgetCredIds([credRow.credId]);
+      await putLlmCredentialRows([credRow], { force: true });
+      response = await postSchedule();
+    }
 
     if (!response?.success) {
       throw new Error(response?.error?.message || '主动消息 2.0 任务创建失败。');
@@ -1792,6 +2126,43 @@ export const ActiveMsgClient = {
     };
 
     const clientTaskId = crypto.randomUUID();
+
+    // ── 这一轮的凭据走引用还是内联 ──
+    //
+    // 走引用时两行一起登记：
+    //   char:<id>/instant  这一轮真正会用的聊天凭据（model 是请求体终值，claude 系开思考
+    //                      时带 -thinking 后缀）。**必须带上它**——只带 emotion 一个引用的话，
+    //                      角色在这一轮里给自己排的任务会继承一份「有引用、没聊天凭据」的
+    //                      空壳（上游 scheduleTask 见到任何 credRefs 就不再复制内联三件套）。
+    //   char:<id>/emotion  情绪评估的副 API。有了它，评估配置里就不必再塞一份凭据。
+    //
+    // 走内联时一切照旧：三件套写在任务顶层，评估配置连凭据一起放 metadata。
+    const useCredRefs = await isLlmCredentialsReady();
+    const credRows: LlmCredentialRow[] = [];
+    const credRefs: Record<string, string> = {};
+    if (useCredRefs) {
+      const instantRow = buildCharInstantCredRow(char.id, api);
+      if (instantRow) {
+        credRows.push(instantRow);
+        credRefs.chat = instantRow.credId;
+      }
+      if (params.emotionEval?.api) {
+        const emotionRow = buildCharEmotionCredRow(char.id, params.emotionEval.api, {
+          baseUrl: api.baseUrl, apiKey: api.apiKey, model: api.model,
+        });
+        // 只在聊天那一行也立得住时才挂 emotion：单挂一个 emotion 引用就是上面说的那种空壳。
+        if (emotionRow && credRefs.chat) {
+          credRows.push(emotionRow);
+          credRefs.emotion = emotionRow.credId;
+        }
+      }
+    }
+    const inlineCreds = !credRefs.chat;
+    // 评估配置：凭据走引用时只留提示词模板，副 API 的 apiKey 一个字节都不进任务 metadata。
+    const emotionEvalSpec = params.emotionEval
+      ? (credRefs.emotion ? { prompt: params.emotionEval.prompt } : params.emotionEval)
+      : undefined;
+
     const remoteAvatarUrl = toRemoteAvatarUrl(char.avatar);
     const taskPayload: Record<string, unknown> = {
       contactName: char.name,
@@ -1814,9 +2185,14 @@ export const ActiveMsgClient = {
       tzId,
       // 真正要发给模型的消息在 fire_pack.chat 里，这条只为过上游「messages 非空」的校验。
       messages: [{ role: 'user', content: AMSG2_PLACEHOLDER_PROMPT }],
-      apiUrl: normalizeChatApiUrl(api.baseUrl),
-      apiKey: api.apiKey,
-      primaryModel: api.model,
+      // 引用与内联上游只收一种，同传直接 400。
+      ...(inlineCreds
+        ? {
+          apiUrl: normalizeChatApiUrl(api.baseUrl),
+          apiKey: api.apiKey,
+          primaryModel: api.model,
+        }
+        : { credRefs }),
       // 温度跟着本地走：本地发多少云端发多少，本地不发（开思考时）云端也不发。
       // 少了它，同一句话云端会落到供应商默认温度（常为 1.0），回复风格和本地对不上。
       ...(typeof params.temperature === 'number' ? { temperature: params.temperature } : {}),
@@ -1839,9 +2215,10 @@ export const ActiveMsgClient = {
         amsgInstantChat: true,
         amsgClientTaskId: clientTaskId,
         // 情绪评估交给云端跑：worker 到点和主回复并行发起，结果随最后一条推送回来
-        // （见 worker/amsg/src/emotionEval.ts）。它里头有副 API 的 apiKey，只能待在
-        // 这个加密信封里——worker 组推送前会把它摘掉，一个字节都不许跟着 push 出门。
-        ...(params.emotionEval ? { amsgEmotionEval: params.emotionEval } : {}),
+        // （见 worker/amsg/src/emotionEval.ts）。凭据走引用时这里只剩提示词模板；
+        // 老 worker 那条路还带着副 API 的 apiKey，它只能待在这个加密信封里——worker
+        // 组推送前会把它摘掉，一个字节都不许跟着 push 出门。
+        ...(emotionEvalSpec ? { amsgEmotionEval: emotionEvalSpec } : {}),
         // 刻意不带 amsgExpirePolicy / amsgAnchorMs：防穿帮闸问的是「到点还该不该主动开口」，
         // 对「回一句用户刚说的话」不适用，带上去反而会把用户等着的回复吞掉。
       },
@@ -1858,12 +2235,26 @@ export const ActiveMsgClient = {
       encryptPayload(client, taskPayload),
     ]);
 
-    const { status, body } = await fetchWithAuthRaw('instant-chat', globalConfig, {
+    // 凭据行先落地再建任务（上游建任务前会挨个查引用）。只有值变过才真的发请求，
+    // 所以常态下这一步是零请求——不给「用户正等着回复」这条路白加一次往返。
+    if (credRows.length > 0) await putLlmCredentialRows(credRows);
+
+    const postInstantChat = () => fetchWithAuthRaw('instant-chat', globalConfig, {
       method: 'POST',
       // 外壳是明文：里头两个信封已经加密好，别再给外壳挂加密头（包装层会当它是整体密文）。
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ statePayload, taskPayload: encryptedTask }),
     }, '即时对话');
+
+    let { status, body } = await postInstantChat();
+    // 云端说引用的凭据不存在（本地底账脏了）：绕过指纹强传一次再发一次，只自愈一次。
+    // 包装层把上游那份原样塞在 error.upstream 里，所以要往里再剥一层看错误码。
+    if (status !== 202 && credRows.length > 0 && isCredentialNotFound(body)) {
+      console.warn(`${ACTIVE_MSG_RUNTIME_HEADER} 云端没有这一轮引用的凭据，补传后重发一次`);
+      forgetCredIds(credRows.map((row) => row.credId));
+      await putLlmCredentialRows(credRows, { force: true });
+      ({ status, body } = await postInstantChat());
+    }
 
     if (status !== 202 || typeof body?.uuid !== 'string' || !body.uuid) {
       throw new Error(describeInstantChatFailure(status, body));
@@ -1955,21 +2346,156 @@ export const ActiveMsgClient = {
   // 老部署没有这个端点 → null。设置页用它亮「worker 需要重新粘贴部署」的牌子，
   // 防止版本落后时新特性静默降级、用户以为功能坏了。不需要 init（无加密参与）。
   /**
-   * 这台 worker 认不认 `POST /instant-chat`（即时对话的唯一版本门槛）。
+   * 这台 worker 现在**真的跑得动**即时对话吗（即时对话的唯一版本门槛）。
    *
-   * 标志来自 `GET /config-check`，是**包装层**自己报的：即时对话的路由住在 SullyOS 这份
-   * worker 代码里，而 getCapabilities 报的是上游库的版本号——只更新 SullyOS 这份时那个号
-   * 一动不动，靠它分不出新旧。探不到（旧 bundle / 网络不通）一律 false：开关置灰比
-   * 「开着但发一条挂一条」好。
+   * 认的是 `GET /config-check` 里的 `instantTick`——运行时到底有没有 INSTANT_TICK 绑定。
+   * 不认 `instantChat`（那只说明代码里有这条路由）也不认版本号，因为这三样会分家：
+   * 自更新由用户那台 Worker 上的**旧代码**执行，旧代码不认识 Durable Object，所以更新完
+   * 第一下常常是「代码新了、版本号也对上了、绑定却没接上」，这条路只能回 503。看版本号
+   * 的话前端会一边说「已经是最新版」一边发一条挂一条。
+   *
+   * 探不到一律 false（老 bundle 根本没这个字段，网络不通也是 false）：这一档会让即时对话
+   * 整个让位给本地生成，宁可少一个后台能力，也不要「开关亮着、发一条挂一条」。
+   *
+   * 结论顺手存进全局配置（`instantChatSupported`）：真正拦下这一轮的是发消息那条路上的
+   * resolveInstantChatReadiness，而它不做逐调用网络探测，只认这份存量。所以每探一次就
+   * 刷一次，用户更新完 Worker 后下一次探测自然把它翻回来，不用手动去重开开关。
    */
   async probeInstantChatSupport(): Promise<boolean> {
+    let supported = false;
     try {
       const config = await ensureWorkerReady();
       const { status, body } = await fetchWithAuthRaw('config-check', config, { method: 'GET' }, '即时对话能力探测');
-      return status === 200 && body?.success === true && body?.data?.instantChat === true;
+      supported = status === 200 && body?.success === true && body?.data?.instantTick === true;
     } catch {
-      return false;
+      supported = false;
     }
+    try {
+      await ActiveMsgStore.saveGlobalConfig({ instantChatSupported: supported });
+    } catch (error) {
+      // 存不下只是这一轮的判断留不到下次，探测结论本身照常返回。
+      console.warn('[AmsgInstantChat] 能力探测结果没存下来（下次发消息按上一次的存量判断）', error);
+    }
+    return supported;
+  },
+
+  /**
+   * 这台 worker 支不支持「凭据存表、任务带引用」（credRefs）。
+   *
+   * 认的是 GET /capabilities 里的 features 有没有 'llm-credentials'。结论存进全局配置，
+   * 之后排程 / 即时对话 / 保存配置都只读那份存量（见 isLlmCredentialsReady）——路上不做
+   * 逐次预检，那等于给每条消息加一次 RTT。
+   *
+   * 探不到（老 worker 没这个端点、网络不通）一律 false：老路在哪台 worker 上都能跑。
+   */
+  async probeLlmCredentialsSupport(): Promise<boolean> {
+    let supported = false;
+    try {
+      const capabilities = await this.getCapabilities();
+      supported = supportsLlmCredentials(capabilities?.features);
+    } catch {
+      supported = false;
+    }
+    try {
+      await ActiveMsgStore.saveGlobalConfig({ llmCredentialsSupported: supported });
+    } catch (error) {
+      console.warn('[AmsgLlmCred] 能力探测结果没存下来（下次按上一次的存量判断）', error);
+    }
+    return supported;
+  },
+
+  /**
+   * 把几行凭据登记到云端（只传真的变了的那些）。排程 / 即时对话之前调，失败就抛，
+   * 让那一轮明确失败——建了一条引用着不存在凭据的任务，到点只会白白失败几轮。
+   */
+  async putLlmCredentials(rows: LlmCredentialRow[], options?: { force?: boolean }): Promise<number> {
+    return putLlmCredentialRows(rows, options ?? {});
+  },
+
+  /**
+   * 删掉云端登记的凭据行。`credIds` 删指定几行（删角色时清它名下的），
+   * `all` 全删（「清空云端数据」）。本地指纹底账同步划掉，不然下次「没变过」会拦住重传。
+   */
+  async deleteLlmCredentials(opts: { credIds?: string[]; all?: boolean }): Promise<number> {
+    const config = await ensureWorkerReady();
+    const client = await initializeClient(config);
+    const response = await client.deleteLlmCredentials(opts);
+    if (!response?.success) {
+      throw new Error(response?.error?.message || '删除 LLM 凭据失败。');
+    }
+    if (opts.all) forgetAllCredIds();
+    else forgetCredIds(opts.credIds ?? []);
+    return Number(response.data?.deleted ?? 0);
+  },
+
+  /**
+   * 用户那台 Worker 上跑的后端代码是不是最新的。
+   *
+   * 比的是 `GET /config-check` 报的 workerVersion 和本 App 编译进来的
+   * AMSG_WORKER_VERSION——两者同源（都出自 utils/amsgWorkerVersion.ts），所以只要不相等
+   * 就是「那台 Worker 贴的是旧 bundle」。
+   *
+   * 三种拿不到结论的情况分开表态，因为界面上该说的话不一样：
+   *   - 老 bundle 根本不报这个字段 → outdated（它确实旧，只是旧到还不会自报家门）；
+   *   - 网络不通 / 还没连上 → unknown（别在用户断网时催他更新）。
+   */
+  async probeWorkerVersion(): Promise<{
+    state: 'current' | 'outdated' | 'unknown';
+    /** 那台 Worker 自报的版本；老 bundle 不报就是 null。 */
+    deployed: string | null;
+    /** 本 App 期望的版本，用来在界面上写「更新到 X」。 */
+    expected: string;
+  }> {
+    const expected = AMSG_BUNDLE_VERSION;
+    try {
+      const config = await ensureWorkerReady();
+      const { status, body } = await fetchWithAuthRaw('config-check', config, { method: 'GET' }, '后端版本探测');
+      if (status !== 200 || body?.success !== true) return { state: 'unknown', deployed: null, expected };
+      const deployed = typeof body?.data?.workerVersion === 'string' ? body.data.workerVersion : null;
+      if (!deployed) return { state: 'outdated', deployed: null, expected };
+      return { state: deployed === expected ? 'current' : 'outdated', deployed, expected };
+    } catch {
+      return { state: 'unknown', deployed: null, expected };
+    }
+  },
+
+  /**
+   * 让后端自己更新到最新版本。
+   *
+   * 这活儿只能由 worker 自己干：api.cloudflare.com 不返回 CORS 头，浏览器直接调一律被拦。
+   * 所以这里只是按一下开关，取代码、校验、覆盖都发生在 worker 那一侧（见 worker/amsg/src/selfUpdate.ts）。
+   *
+   * 更新成功那一刻代码就换了，但本次响应仍由旧代码发出——所以这个方法拿到的是「旧代码
+   * 报告更新已完成」，不是新代码的自我介绍。想确认新版本真跑起来了，看返回的 bundleHash。
+   */
+  async selfUpdateWorker(): Promise<AmsgSelfUpdateResult> {
+    const config = await ensureWorkerReady();
+    const { status, body } = await fetchWithAuthRaw('self-update', config, { method: 'POST' }, '后端自更新');
+
+    // 旧 worker 没有这个端点。它可能回 404，也可能被上游当成未知路由回一段自己的 JSON，
+    // 两种都归到「不支持」——让面板去说「先用老办法更新一次」，而不是报一个看不懂的错。
+    if (status === 404 || body?.error?.code === 'NOT_FOUND') {
+      return {
+        ok: false,
+        supported: false,
+        message: '这台 Worker 还是旧版本，没有自更新能力。先按原来的办法更新一次，之后就能在这儿点了。',
+      };
+    }
+    if (status === 200 && body?.success === true) {
+      const data = body.data ?? {};
+      return {
+        ok: true,
+        supported: true,
+        message: typeof data.message === 'string' ? data.message : '已经更新到最新版本。',
+        bundleHash: typeof data.bundleHash === 'string' ? data.bundleHash : undefined,
+      };
+    }
+    return {
+      ok: false,
+      supported: true,
+      message: body?.error?.message || `更新没成功（HTTP ${status}）。`,
+      code: typeof body?.error?.code === 'string' ? body.error.code : undefined,
+    };
   },
 
   async getCapabilities(): Promise<{ serverVersion: string; features: string[] } | null> {
@@ -2223,7 +2749,7 @@ export const ActiveMsgClient = {
   ): Promise<{ deleted: number; toolConfigRestored: boolean }> {
     const config = await ensureWorkerReady();
     // 清云端状态可能连用户密钥一起换代：握手缓存作废，之后的第一次调用重新 init。
-    cachedClientEntry = null;
+    invalidateClientCache();
     const client = createClient(config);
     const response = await client.clearClientState();
     if (!response?.success) {

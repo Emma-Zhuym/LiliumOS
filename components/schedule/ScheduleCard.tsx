@@ -155,7 +155,7 @@ const ScheduleCard: React.FC<ScheduleCardProps> = ({
 
     const palette = resolveScheduleCardPalette(
         theme.scheduleCardAppearance,
-        character?.themeColor || theme.hue || 260,
+        theme.hue || 260,
         inheritedContentColor,
     );
     const contentColor = palette.text;

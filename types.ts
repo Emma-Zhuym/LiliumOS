@@ -123,6 +123,9 @@ export interface OSTheme {
   scheduleCardAppearance?: ScheduleCardAppearance;
   desktopDecorations?: DesktopDecoration[];
   customFont?: string;
+  /** 顶部时间栏布局：安全显示（安全区下方）/ 紧凑显示（嵌入安全区）/ 完全隐藏。 */
+  statusBarMode?: 'standard' | 'compact' | 'hidden';
+  /** @deprecated 旧版两档开关，仅用于兼容已有存档；新设置写入 statusBarMode。 */
   hideStatusBar?: boolean;
   // 聊天界面外观（外观 App 的「聊天界面」tab）
   chatAvatarShape?: 'circle' | 'rounded' | 'square';
@@ -306,6 +309,12 @@ export interface ActiveMsg2GlobalConfig {
   workerUrl: string;
   /** 与 worker 约定的共享密钥；配了就每次请求带 X-Client-Token，缺/错 worker 返回 401 */
   serverToken?: string;
+  /**
+   * 一键部署时生成的 AMSG_MASTER_KEY（worker 侧用它加密任务内容）。
+   * 存在这里只为「重装时沿用同一把」——它一换，之前加密进 D1 的任务就全解不开了，
+   * 而 worker 里的值读不回来。手动部署的用户这里是空的，属正常。
+   */
+  masterKey?: string;
   /** 上次「连接」（在 worker 端建表）成功的时间 */
   initializedAt?: number;
   /**
@@ -314,6 +323,28 @@ export interface ActiveMsg2GlobalConfig {
    * 关掉就是现在的本地直连生成。
    */
   instantChatEnabled?: boolean;
+  /**
+   * 上一次探到的「那台 Worker 真的跑得动即时对话吗」（见 ActiveMsgClient.probeInstantChatSupport）。
+   *
+   * false 时即时对话整个让位给本地生成，**用户开着也不走** —— 跑不动的 Worker 上这条路
+   * 是发一条挂一条，让位比让他对着「已开启」干等强。探测每次都会刷新它，用户更新完
+   * Worker 下一次探测自然翻回 true，不用手动去重开开关。
+   *
+   * undefined = 还没探过（刚装、没进过设置页），按放行处理：这一档说明我们不知道，
+   * 而不是知道它不行；握手时会补探一次，之后就有准数了。
+   */
+  instantChatSupported?: boolean;
+  /**
+   * 上一次探到的「这台 Worker 能不能把 LLM 凭据存成表里的一行」
+   * （GET /capabilities 的 features 含 'llm-credentials'，见 ActiveMsgClient.probeLlmCredentialsSupport）。
+   *
+   * 达标时排程 / 即时对话只在任务里带一个引用名，换 Key 只要覆盖那一行，已排的任务
+   * （含角色自己排的）下次触发自动跟上；不达标就把凭据照旧冻结进任务体。
+   *
+   * undefined / false 都按「不达标」处理：老路在哪台 Worker 上都跑得通，宁可多冻结
+   * 一份凭据，也不要拿新写法去撞一台还不认识它的 Worker。握手时会探一次。
+   */
+  llmCredentialsSupported?: boolean;
   updatedAt?: number;
 }
 
@@ -351,6 +382,12 @@ export interface ActiveMsg2TaskRecord {
 
 export interface ActiveMsg2CharacterConfig {
   enabled: boolean;
+  /**
+   * 即时对话按角色单独关。undefined = 跟随全局（全局即时对话开着就默认开）；
+   * false = 这个角色的聊天回到本地前台生成。与 enabled（排程开关）互相独立：
+   * 可以只排程不即时，也可以只即时不排程。
+   */
+  instantChatEnabled?: boolean;
   /** 多任务清单（用户在面板建的和角色用工具建的并存），见 utils/amsg2Tasks.ts。 */
   tasks?: ActiveMsg2TaskRecord[];
   /** ↓ 角色级共享设置（所有任务共用）。 */
@@ -2087,6 +2124,8 @@ export interface StoryTheaterEntry {
     presetId?: string;
     /** 会话内快速预设只覆盖本剧场，不修改预设库。 */
     presetOverride?: StoryTheaterPresetDocument;
+    /** 仅供拒绝 assistant prefill、要求最后一条消息必须为 user 的接口使用；默认关闭以保留原生预设效果。 */
+    forceUserLastMessage?: boolean;
     createdAt: number;
     updatedAt: number;
 }
@@ -2391,6 +2430,16 @@ export interface CharMusicProfile {
     updatedAt: number;
 }
 
+export type MemoryPalaceWaterlinePreset = 'online' | 'balanced' | 'offline' | 'custom';
+
+export interface MemoryPalaceWaterlineConfig {
+  preset: MemoryPalaceWaterlinePreset;
+  /** 自定义档位才读取；预设档位由统一映射决定。 */
+  hotZoneSize?: number;
+  /** 自定义档位才读取；预设档位由统一映射决定。 */
+  bufferThreshold?: number;
+}
+
 export interface CharacterProfile {
   id: string;
   name: string;
@@ -2426,6 +2475,11 @@ export interface CharacterProfile {
    * - manual：用户拉杆决定最多读取最近 contextLimit 条完整原文。
    */
   contextRangeMode?: 'adaptive' | 'manual';
+  /**
+   * 用户主动点「一键存进记忆宫殿」后，让原文范围继续跟随记忆水位线。
+   * 与全自动归档开关独立；未使用该按钮的旧角色保持 undefined，不改变既有行为。
+   */
+  contextFollowsMemoryPalaceHwm?: boolean;
   /** 上下文范围结构版本；用于把旧版「5000 条 + 自动水位隐藏」一次性迁移到自适应模式。 */
   contextRangePolicyVersion?: number;
   /**
@@ -2588,6 +2642,12 @@ export interface CharacterProfile {
    * 已处理的聊天。默认 false（opt-in）——首次启用建议让用户做一次 force 追平历史。
    */
   autoArchiveEnabled?: boolean;
+  /**
+   * 角色独立的记忆水位节奏。整个角色消息时间线共用这一份配置，不区分私聊、
+   * 见面、通话或剧情来源。缺省代表 online，即保持历史行为 200/100。
+   * 作为 CharacterProfile 一部分随 IndexedDB 与完整备份持久化。
+   */
+  memoryPalaceWaterline?: MemoryPalaceWaterlineConfig;
   embeddingConfig?: {
     baseUrl: string;
     apiKey: string;
@@ -3694,6 +3754,12 @@ export interface FullBackupData {
     apiConfig?: APIConfig;
     instantPushConfig?: InstantPushConfig;
     pushVapid?: { vapidPublicKey: string; vapidPrivateKey: string; vapidEmail?: string; updatedAt?: number; };
+    /**
+     * 主动消息 2.0 的全局配置：Worker 地址、共享密钥、一键部署生成的 AMSG_MASTER_KEY、
+     * 即时对话总开关。存在独立的 `ActiveMsg` 库里，所以单独占一格（见 activeMsgStore
+     * 的 exportAmsg2GlobalConfig）。角色身上那份 activeMsg2Config 跟着 characters 走。
+     */
+    amsg2GlobalConfig?: ActiveMsg2GlobalConfig;
     apiPresets?: ApiPreset[];
     availableModels?: string[];
     realtimeConfig?: RealtimeConfig;  // 实时感知配置（天气/新闻/Notion）
@@ -3992,6 +4058,7 @@ export interface XhsMcpConfig {
     enabled: boolean;
     serverUrl: string;  // MCP: "http://localhost:18060/mcp" | Skills: "http://localhost:18061/api" | Lite Worker: "https://xhs-lite.<acct>.workers.dev/api"
     cookie?: string;    // Lite 模式：登录后的小红书完整 cookie（含 a1 / web_session）。仅 lite Worker 用。
+    platform?: 'xhs' | 'rednote'; // Lite 自动识别出的国内小红书 / 全球 RedNote 后端
     rnoteApiKey?: string; // Lite 模式可选：用户自己的 Rnote Key，仅用于读取真实评论。
     loggedInUserId?: string;   // 登录用户的 user_id，连接测试成功后自动获取
     loggedInNickname?: string; // 登录用户的昵称

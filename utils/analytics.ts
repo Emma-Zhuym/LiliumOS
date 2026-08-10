@@ -11,6 +11,11 @@ export const noteMessageSent = (): void => {};
 export const isAnalyticsConfigured = (): boolean => false;
 export const isAnalyticsEnabled = (): boolean => false;
 export const setAnalyticsEnabled = (_enabled: boolean): void => {};
+export const isAnalyticsRequestUrl = (_url: string): boolean => false;
+export const trackDataScaleOnce = (..._args: unknown[]): void => {};
+export const trackCurrentAppearanceOnce = (..._args: unknown[]): void => {};
+export const trackCurrentCharSettingsOnce = (..._args: unknown[]): void => {};
+export const trackCurrentFeaturesOnce = (..._args: unknown[]): void => {};
 
 export const presetOrCustom = (
     value: string,

@@ -23,7 +23,8 @@ const { reiClient } = vi.hoisted(() => ({
     putPushSubscription: vi.fn(),
     getPushSubscription: vi.fn(),
     deletePushSubscription: vi.fn(),
-    // 加密响应的解包（库的私有方法，客户端通过桥接类型调）。
+    // 加密信封的封包 / 解包（库的私有方法，客户端通过桥接类型调）。
+    _encrypt: vi.fn(),
     _decrypt: vi.fn(),
   },
 }));
@@ -39,12 +40,16 @@ vi.mock('./keepAlive', () => ({
 
 import {
   ActiveMsgClient, buildFirePack, clearNamespaceValuesOrThrow, compareRemotePushSubscription,
-  dropStaleSubscription, putClientStateOrThrow, readAmsgFailKind, toRemoteAvatarUrl,
+  describeInstantChatFailure, dropStaleSubscription, putClientStateOrThrow, readAmsgFailKind,
+  toRemoteAvatarUrl,
 } from './activeMsgClient';
 import {
+  AMSG_FIRE_PACK_KEY,
   AMSG_SLOT_CURRENT_TIME, AMSG_SLOT_REALTIME_WORLD, AMSG_SLOT_SCENE,
   AMSG_SLOT_TASK_LIST, AMSG_SLOT_TIME_SINCE_USER, AMSG_SLOT_USER_CLOCK,
 } from './amsgFirePack';
+import { clearInstantChatPending, setInstantChatPending } from './amsgInstantChat';
+import { AMSG_TOOL_CONFIG_KEY, AMSG_TOOL_PACK_KEY } from './amsgToolPack';
 import * as dailySchedule from './dailySchedule';
 import { ChatPrompts } from './chatPrompts';
 import { DB } from './db';
@@ -251,7 +256,8 @@ describe('ActiveMsgClient.getRemoteTaskStatus', () => {
 
   it('网络故障要抛，不能悄悄当成 gone', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
-    await expect(ActiveMsgClient.getRemoteTaskStatus('task-1')).rejects.toThrow(/Failed to fetch/);
+    // 抛出来的是翻好的整句，不是浏览器那句 "Failed to fetch"（见 amsgDiagnostics）。
+    await expect(ActiveMsgClient.getRemoteTaskStatus('task-1')).rejects.toThrow(/连不上你的 Worker/);
   });
 
   // 地址填错时 worker 对未知路由也回 404，只是错误码不同。照 HTTP 状态判就会把
@@ -331,6 +337,57 @@ describe('连接失败的归类（AmsgFailKind）', () => {
 // 回归守卫：worker 缺 D1 绑定或 master key 时，上游是抛异常 → 被它的全局 catch 吞成
 // 一句「服务器内部错误」，而那个响应不带 CORS 头，浏览器连这句话都不让前端读，用户
 // 只看得到 "Failed to fetch"。connect 先问一次 /config-check，把缺的那一样直接说出来。
+// 回归守卫：即时对话的能力门槛认的是「运行时真的有起跳器」，不是「代码里有这条路由」。
+//
+// 自更新由用户那台 Worker 上的**旧代码**执行，而旧代码不认识 Durable Object——它传上去的
+// 新 bundle 不带 INSTANT_TICK 绑定。于是会出现「instantChat:true、workerVersion 也对上了、
+// 但 /instant-chat 只能回 503」的中间态。认前两样中的任何一样，前端都会一边说「已经是
+// 最新版」一边发一条挂一条。
+describe('即时对话能力探测（instantTick）', () => {
+  const configCheck = (data: Record<string, unknown>) => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      status: 200,
+      text: async () => JSON.stringify({
+        success: true,
+        data: { ok: true, missing: [], message: 'Worker 配置齐全。', warnings: [], ...data },
+      }),
+      headers: new Headers({ 'content-type': 'application/json' }),
+    })));
+  };
+
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  it('起跳器接上了 → 支持', async () => {
+    configCheck({ instantChat: true, instantTick: true, workerVersion: '2026-08-09' });
+    expect(await ActiveMsgClient.probeInstantChatSupport()).toBe(true);
+  });
+
+  it('代码新了但起跳器没接上（更新过一次的中间态）→ 不支持', async () => {
+    configCheck({ instantChat: true, instantTick: false, workerVersion: '2026-08-09' });
+    expect(await ActiveMsgClient.probeInstantChatSupport()).toBe(false);
+  });
+
+  it('老 bundle 根本不报这个字段 → 不支持（哪怕它自称 instantChat:true）', async () => {
+    configCheck({ instantChat: true });
+    expect(await ActiveMsgClient.probeInstantChatSupport()).toBe(false);
+  });
+
+  // 结论要存下来：真正拦下这一轮的是发消息路上的 resolveInstantChatReadiness，
+  // 而它不做逐调用网络探测，只认这份存量。不存 = 这道门形同虚设。
+  it('每探一次就把结论存进全局配置（发消息那道门只认存量）', async () => {
+    const { ActiveMsgStore } = await import('./activeMsgStore');
+    (ActiveMsgStore.saveGlobalConfig as any).mockClear();
+    configCheck({ instantChat: true, instantTick: false });
+    await ActiveMsgClient.probeInstantChatSupport();
+    expect(ActiveMsgStore.saveGlobalConfig).toHaveBeenCalledWith({ instantChatSupported: false });
+
+    (ActiveMsgStore.saveGlobalConfig as any).mockClear();
+    configCheck({ instantChat: true, instantTick: true });
+    await ActiveMsgClient.probeInstantChatSupport();
+    expect(ActiveMsgStore.saveGlobalConfig).toHaveBeenCalledWith({ instantChatSupported: true });
+  });
+});
+
 describe('连接前的 worker 配置自检', () => {
   /** 按路径分流的 fetch：没列到的路径一律当成功，模拟 init-tenant 那步是通的。 */
   const routeFetch = (routes: Record<string, { status: number; body: unknown }>) => {
@@ -409,21 +466,37 @@ describe('连接前的 worker 配置自检', () => {
 
     await expect(ActiveMsgClient.connect()).resolves.toMatchObject({ ok: true });
   });
+
+  // 回归守卫：握手（get-user-key）按「地址 / 用户 id / 共享密钥」记忆化，可用户密钥能在
+  // 这三样都不变的情况下换代——用户在 Cloudflare 上换掉 AMSG_MASTER_KEY 就是。缓存不作废
+  // 的话，「重新连接并验证」拿回来的还是握着旧密钥的老 client：init-tenant 成功、界面报
+  // 「连接成功」，此后每一次加密调用 worker 都解不开（即时对话每发一条挂一条、任务到点
+  // 全失败），只有整页刷新能恢复。
+  it('「重新连接并验证」每按一次都真的重新握手（换过 master key 后旧密钥必须被丢掉）', async () => {
+    routeFetch({});
+    reiClient.init.mockReset().mockResolvedValue(undefined);
+
+    await ActiveMsgClient.connect();
+    await ActiveMsgClient.connect();
+
+    expect(reiClient.init).toHaveBeenCalledTimes(2);
+  });
 });
 
 // 回归守卫：老 worker（< 2.6.0-next.5）的 GET /messages 不投影 charId，按角色过滤会
 // 一条都留不下。要是照直返回空数组，面板会把该角色的任务全标成「远端不存在」，
 // 「关闭 2.0」也会以为没什么要取消——两处都是拿半份证据下结论。
-describe('ActiveMsgClient.listRemoteTaskUuidsForChar', () => {
+describe('ActiveMsgClient.listRemoteTasksForChar 的版本护栏', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
-  it('worker 有投影 → 只留本角色的 uuid', async () => {
+  it('worker 有投影 → 只留本角色的行', async () => {
     vi.spyOn(ActiveMsgClient, 'listAllTasks').mockResolvedValue([
       { uuid: 'task-a', charId: 'char-1' },
       { uuid: 'task-b', charId: 'char-2' },
       { charId: 'char-1' },
     ]);
-    await expect(ActiveMsgClient.listRemoteTaskUuidsForChar('char-1')).resolves.toEqual(['task-a']);
+    await expect(ActiveMsgClient.listRemoteTasksForChar('char-1').then((rows) => rows.map((r) => r.uuid)))
+      .resolves.toEqual(['task-a']);
   });
 
   it('老 worker 没投影（远端有任务、charId 全空）→ 抛错交给调用方降级', async () => {
@@ -431,13 +504,13 @@ describe('ActiveMsgClient.listRemoteTaskUuidsForChar', () => {
       { uuid: 'task-a' },
       { uuid: 'task-b', charId: null },
     ]);
-    await expect(ActiveMsgClient.listRemoteTaskUuidsForChar('char-1'))
+    await expect(ActiveMsgClient.listRemoteTasksForChar('char-1'))
       .rejects.toThrow(/重新粘贴部署/);
   });
 
   it('远端确实一条任务都没有 → 空数组（跟版本无关，别误伤）', async () => {
     vi.spyOn(ActiveMsgClient, 'listAllTasks').mockResolvedValue([]);
-    await expect(ActiveMsgClient.listRemoteTaskUuidsForChar('char-1')).resolves.toEqual([]);
+    await expect(ActiveMsgClient.listRemoteTasksForChar('char-1')).resolves.toEqual([]);
   });
 });
 
@@ -446,8 +519,13 @@ describe('ActiveMsgClient.listRemoteTaskUuidsForChar', () => {
 describe('ActiveMsgClient.cancelAllTasksForChar', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
+  /** 远端投影的最小形状（只有 uuid 与子类型参与取消判定）。 */
+  const remoteRows = (rows: Array<{ uuid: string; messageSubtype?: string }>) =>
+    vi.spyOn(ActiveMsgClient, 'listRemoteTasksForChar')
+      .mockResolvedValue(rows.map((r) => ({ ...r, lastError: null })) as any);
+
   it('以远端清单为准（本地漏掉的「已过点未消费」任务也要取消到）', async () => {
-    vi.spyOn(ActiveMsgClient, 'listRemoteTaskUuidsForChar').mockResolvedValue(['remote-1', 'remote-2']);
+    remoteRows([{ uuid: 'remote-1' }, { uuid: 'remote-2' }]);
     const cancel = vi.spyOn(ActiveMsgClient, 'cancelTask')
       .mockResolvedValue({ uuid: '', alreadyGone: false });
 
@@ -458,7 +536,7 @@ describe('ActiveMsgClient.cancelAllTasksForChar', () => {
   });
 
   it('远端读不到（老 worker / 断网）→ 退回本地清单，半份证据也比不取消强', async () => {
-    vi.spyOn(ActiveMsgClient, 'listRemoteTaskUuidsForChar').mockRejectedValue(new Error('offline'));
+    vi.spyOn(ActiveMsgClient, 'listRemoteTasksForChar').mockRejectedValue(new Error('offline'));
     const cancel = vi.spyOn(ActiveMsgClient, 'cancelTask')
       .mockResolvedValue({ uuid: '', alreadyGone: false });
 
@@ -468,7 +546,7 @@ describe('ActiveMsgClient.cancelAllTasksForChar', () => {
   });
 
   it('单条取消失败只记账，剩下的照样取消完', async () => {
-    vi.spyOn(ActiveMsgClient, 'listRemoteTaskUuidsForChar').mockResolvedValue(['t1', 't2', 't3']);
+    remoteRows([{ uuid: 't1' }, { uuid: 't2' }, { uuid: 't3' }]);
     vi.spyOn(ActiveMsgClient, 'cancelTask').mockImplementation(async (uuid: string) => {
       if (uuid === 't2') throw new Error('D1 busy');
       return { uuid, alreadyGone: false };
@@ -476,6 +554,100 @@ describe('ActiveMsgClient.cancelAllTasksForChar', () => {
 
     const { failed } = await ActiveMsgClient.cancelAllTasksForChar('char-1', []);
     expect([...failed]).toEqual(['t2']);
+  });
+
+  // 回归守卫：即时对话的行不是定时任务，是用户此刻正等着的一轮聊天。以前这里照远端全量
+  // 清单逐条取消，关掉角色的 2.0 开关就会把它一起掐掉：worker 那一跳永远不会跑，客户端
+  // 的待收记录还留着，60s 点名查到 gone、outbox 也空，最后落一句「云端已处理这条消息，
+  // 但回复没能取回」，用户还得把话重发一遍。过滤口径与面板对账同一把尺。
+  it('即时对话的行不取消（关掉 2.0 不该掐掉正在跑的那轮聊天）', async () => {
+    remoteRows([
+      { uuid: 'scheduled-1' },
+      { uuid: 'instant-1', messageSubtype: 'instant-chat' },
+      { uuid: 'scheduled-2', messageSubtype: 'chat' },
+    ]);
+    const cancel = vi.spyOn(ActiveMsgClient, 'cancelTask')
+      .mockResolvedValue({ uuid: '', alreadyGone: false });
+
+    const { targets } = await ActiveMsgClient.cancelAllTasksForChar('char-1', []);
+    expect(targets).toEqual(['scheduled-1', 'scheduled-2']);
+    expect(cancel.mock.calls.map((c) => c[0])).not.toContain('instant-1');
+  });
+});
+
+// 回归守卫：排程建任务前会把整份 fire_pack PUT 上去，而用户刚发出去的那条即时对话还
+// 欠着回复时，云端那一份是 POST /instant-chat 带上去的、比常规的包多一段 chat——worker
+// 到点全靠它拿这一轮的对话。盖掉的话 onBeforeFire 当场硬失败（fire_pack 里没有 chat 段），
+// 重试梯子上每一跳都是同一个错，用户最后拿到一句「即时对话没能完成」，话还得自己重发。
+// 现实触发路径：等回复期间打开该角色的 2.0 面板新建 / 编辑一条定时任务（角色在本地轮里
+// 给自己排任务同理）。挂起口径与批量同步共用 owesInstantChatReply 这一把尺。
+describe('scheduleCharacterTask 与欠着的即时对话 chat 段', () => {
+  const CHAR_ID = 'char-schedule-instant';
+
+  let putBatches: Array<Array<{ namespace: string; key: string }>>;
+
+  beforeEach(() => {
+    putBatches = [];
+    reiClient.init.mockReset().mockResolvedValue(undefined);
+    reiClient.putClientState.mockReset().mockImplementation(async (entries: any[]) => {
+      putBatches.push(entries);
+      return { success: true };
+    });
+    reiClient._encrypt.mockReset().mockResolvedValue({ iv: 'iv', authTag: 'tag', encryptedData: 'enc' });
+    // 模板本体、表情全库、推送登记这些都不在被测范围，桩掉。
+    vi.spyOn(DB, 'getRecentMessagesByCharId').mockResolvedValue([] as any);
+    vi.spyOn(DB, 'getEmojis').mockResolvedValue([] as any);
+    vi.spyOn(DB, 'getEmojiCategories').mockResolvedValue([] as any);
+    vi.spyOn(ChatPrompts, 'buildSystemPrompt').mockResolvedValue('SYS_PROMPT_MARKER');
+    vi.spyOn(ChatPrompts, 'buildMessageHistory').mockReturnValue({ apiMessages: [] } as any);
+    vi.spyOn(ChatPrompts, 'filterVisibleEmojis').mockReturnValue({ emojis: [], categories: [] } as any);
+    vi.spyOn(ActiveMsgClient, 'registerPushSubscription').mockResolvedValue(undefined);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      status: 200,
+      text: async () => JSON.stringify({ success: true, data: { uuid: 'remote-uuid', status: 'pending' } }),
+      headers: new Headers({ 'content-type': 'application/json' }),
+    }));
+    clearInstantChatPending(CHAR_ID);
+  });
+  afterEach(() => {
+    clearInstantChatPending(CHAR_ID);
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  const schedule = () => ActiveMsgClient.scheduleCharacterTask({
+    char: { id: CHAR_ID, name: '小满', memories: [], activeMsg2Config: { enabled: true, tasks: [] } } as any,
+    config: { enabled: true, tasks: [] } as any,
+    task: {
+      mode: 'auto',
+      firstSendTime: new Date(Date.now() + 3600_000).toISOString(),
+      recurrenceType: 'none',
+    },
+    userProfile: { name: '小明' } as any,
+    groups: [],
+    realtimeConfig: {} as any,
+    apiConfig: { baseUrl: 'https://api.example.dev', apiKey: 'sk-test', model: 'gpt-test' } as any,
+  });
+
+  /** 这次排程往云端写了哪些 key。 */
+  const writtenKeys = () => putBatches.flat().map((entry) => entry.key);
+
+  it('没欠着回复 → fire_pack 照常整份覆盖上去', async () => {
+    await schedule();
+    expect(writtenKeys()).toContain(AMSG_FIRE_PACK_KEY);
+  });
+
+  it('欠着回复 → 这一批把 fire_pack 抽掉，tool_pack / tool_config 照写、任务照建', async () => {
+    setInstantChatPending(CHAR_ID, 'uuid-waiting');
+
+    const result = await schedule();
+
+    expect(writtenKeys(), '盖掉 chat 段 = 用户正等的那条回复到点必然硬失败')
+      .not.toContain(AMSG_FIRE_PACK_KEY);
+    expect(writtenKeys()).toContain(AMSG_TOOL_PACK_KEY);
+    expect(writtenKeys()).toContain(AMSG_TOOL_CONFIG_KEY);
+    // 任务本身照建：等回复不是拒绝排程的理由，抽掉的那份包由销账后的状态同步补上。
+    expect(result.uuid).toBe('remote-uuid');
   });
 });
 
@@ -1273,9 +1445,8 @@ describe('ActiveMsgClient.refreshCharPendingAiTaskCredentials（③ 面板保存
 
 });
 
-// listRemoteTasksForChar 的 lastError 投影（listRemoteTaskUuidsForChar 的老口径由上面的
-// describe 继续钉着——它现在是这份投影的薄壳）。
-describe('ActiveMsgClient.listRemoteTasksForChar', () => {
+// listRemoteTasksForChar 的 lastError 投影（按角色过滤本身的口径由上面那个 describe 钉着）。
+describe('ActiveMsgClient.listRemoteTasksForChar 的失败摘要投影', () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
   it('带回 status 与收敛后的 lastError（旧 worker 没这字段 → null）', async () => {
@@ -1580,5 +1751,36 @@ describe('ActiveMsgClient.getRemotePushSubscription（⑥b 问不到就说问不
   it('请求本身炸了 → null，不往外抛（面板会反复调它）', async () => {
     reiClient.getPushSubscription.mockRejectedValue(new Error('offline'));
     await expect(ActiveMsgClient.getRemotePushSubscription()).resolves.toBeNull();
+  });
+});
+
+// 上游把异常吞成一句写死的「服务器内部错误」，真话只进 worker 的日志。包装层把那行
+// 捞出来放进 upstreamLog，这里必须原样端到用户面前——否则他看到的还是那句什么都没说的话，
+// 得先知道 Cloudflare 面板里有条日志才查得下去。
+describe('describeInstantChatFailure — 后端那句真话要露出来', () => {
+  const internalError = (upstreamLog?: string) => ({
+    error: {
+      code: 'INSTANT_CHAT_STATE_FAILED',
+      message: '云端状态没传上去，这条没发出去',
+      upstream: { success: false, error: { code: 'INTERNAL_ERROR', message: '服务器内部错误' } },
+      ...(upstreamLog ? { upstreamLog } : {}),
+    },
+  });
+
+  it('带了 upstreamLog 就拼进去', () => {
+    const text = describeInstantChatFailure(500, internalError('D1_ERROR: no such table: message_outbox'));
+    expect(text).toContain('D1_ERROR: no such table: message_outbox');
+    // 泛型报文照留：它说明这一步是哪一步，跟真实原因不冲突。
+    expect(text).toContain('云端状态没传上去');
+  });
+
+  it('没有 upstreamLog 时照旧（老 worker 不会多出一截空白）', () => {
+    const text = describeInstantChatFailure(500, internalError());
+    expect(text).toBe('即时对话没发出去（HTTP 500 / INSTANT_CHAT_STATE_FAILED）：云端状态没传上去，这条没发出去：服务器内部错误');
+  });
+
+  it('有专属指引的错误码不受影响（401 仍然只说该去核对共享密钥）', () => {
+    expect(describeInstantChatFailure(401, internalError('D1_ERROR: whatever')))
+      .toBe('即时对话没发出去：共享密钥和 Worker 上的对不上，去「主动消息 2.0」设置里核对一下。');
   });
 });

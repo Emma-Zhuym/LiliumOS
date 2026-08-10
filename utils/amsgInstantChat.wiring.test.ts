@@ -60,12 +60,46 @@ const branchSrc = () => sliceSrc(chatAiSrc, '即时对话分支', INSTANT_CHAT_B
 const autoTtsSrc = () => sliceSrc(chatSrc, '语音自动合成', '// --- Auto-TTS: when chatVoiceEnabled', 'const canReroll =');
 
 describe('useChatAI 的分流接缝', () => {
-  it('MCP 不在排除名单里（worker 会跑后台 MCP；排掉它 = 配了 MCP 的人永远静默走本地）', () => {
+  it('MCP 本身不在排除名单里（worker 会跑后台 MCP；整片排掉 = 配了 MCP 的人永远静默走本地）', () => {
     // e2e 实测踩过：只要全局有一台 enabled 的 MCP 服务器，mcpChatActive 对所有角色为真，
-    // 排除它的话即时对话开关亮着却永远走本地生成，用户查无可查。
+    // 拿它当排除条件的话，即时对话开关亮着却永远走本地生成，用户查无可查。
     // 判定挪到构建 payload 之前之后，这条要连路由那一段一起看。
+    // （地址 worker 够不着的那几台是另一回事，见下面那条。）
     expect(routingSrc()).not.toContain('mcpChatActive');
     expect(branchSrc()).not.toContain('mcpChatActive');
+  });
+
+  it('本机/内网地址的 MCP 服务器否决这一轮上云（上云会让角色掉工具）', () => {
+    // 上云那一轮前端不注入 MCP 说明块（chatRequestPayload 的 timelyByWorker 分支），
+    // 而上云清单 collectMcpFireServers 恰好把 localhost / 私网地址过滤掉了——两边都不说，
+    // 角色这一轮彻底不知道自己有工具，设置页却还显示 MCP 已连接、聊天界面毫无异常。
+    // 判据是「这一轮上云会掉能力就别上云」，所以它得是个 veto、且带 char.id（服务器可绑角色）。
+    const routing = routingSrc();
+    expect(routing).toContain('hasWorkerUnreachableMcpServer(char.id)');
+    expect(routing).toContain("'mcp-worker-unreachable'");
+    // 否决也要留痕：走的是下面那条统一的 instant-chat-veto trace（reason 带着它）。
+    expect(routing).toMatch(/instantChatVeto \?\? 'instant-push-configured'/);
+  });
+
+  it('全局配置读不出来单独留一条 trace（它不是「用户没开」）', () => {
+    // 读失败时 instantChatOn 天然为假，veto 那条 trace 的条件够不到它。不单独留痕的话，
+    // 这一轮悄悄退回本地直连生成，用户按完发送锁屏就什么都收不到，观察窗里还查无此事。
+    const routing = routingSrc();
+    expect(routing).toContain('resolveInstantChatReadiness');
+    expect(routing).toContain("reason === 'config-unreadable'");
+    expect(routing).toContain("event: 'instant-chat-config-unreadable'");
+    // 跟 veto 一样只报不拦（那条 return 的守卫在下面「留痕只此一处」那条里）。
+  });
+
+  it('角色级即时对话开关吃进路由判定（char-disabled 静默走本地，不留 veto trace）', () => {
+    const routing = routingSrc();
+    // readiness 判定必须带上 char：角色单独关了的话 ready 直接为 false，veto trace 的
+    // 条件（instantChatOn && …）够不到它。不带 char 的话角色关了照上云——旧行为回潮。
+    expect(routing).toContain('resolveInstantChatReadiness(char)');
+    // 也不许给 char-disabled 单开留痕分支：那是用户的主动选择，和「全局没开」同一待遇，
+    // 每条消息刷一遍 warn 就成骚扰了。查的是带引号的字面量——真要按它分支绕不开这个比较；
+    // 注释里提一嘴不算。
+    expect(routing).not.toContain("'char-disabled'");
   });
 
   it('上云的判定在构建 prompt 之前就定下来，并作为 timelyByWorker 交给 payload', () => {
@@ -125,7 +159,34 @@ describe('useChatAI 的分流接缝', () => {
     const traceSites = chatAiSrc.match(/event: 'instant-chat-veto'/g) ?? [];
     expect(traceSites.length).toBe(1);
     // 只报不拦：报完照常往下走本地路径，不能顺手 return 掉整轮。
-    expect(routing).not.toContain('return;');
+    // （config-unreadable 的裸情形是唯一例外——那档要拦，单独一条用例钉在下面。）
+    const vetoBranch = sliceSrc(
+      chatAiSrc,
+      '否决留痕分支',
+      'if (instantChatOn && !instantChatRoute)',
+      "} else if (instantChatReadiness.reason === 'config-unreadable')",
+    );
+    expect(vetoBranch).not.toContain('return;');
+  });
+
+  it('配置读不出来（config-unreadable）：裸情形明确报错拦下这一轮，veto/脏配置在场只留痕', () => {
+    // 静默退回本地的坑：用户按「发完就自由」的心智锁屏，本地 fetch 被系统掐死，回来
+    // 既无回复也无报错，设置页还写着「已开启」。裸情形（没有点单否决、IP 配置也不在）
+    // 必须与 sendInstantChatTurn 失败同口径：落系统消息 + 弹错 + return，不发起本地
+    // 生成。回归守卫——改回「静默走本地」这条会挂。
+    const branch = sliceSrc(
+      chatAiSrc,
+      'config-unreadable 分支',
+      "} else if (instantChatReadiness.reason === 'config-unreadable')",
+      'const payload = await stageT(',
+    );
+    expect(branch).toContain("event: 'instant-chat-config-unreadable'");
+    // 裸情形的判定与两档去向：veto / IP 在场时本就轮不到即时对话，照原路只留痕不拦。
+    expect(branch).toMatch(/configUnreadableFailsTurn = !instantChatVeto && !instantPushConfigured/);
+    expect(branch).toMatch(/outcome: configUnreadableFailsTurn \? 'turn-failed' : 'other-route'/);
+    // 拦下的那一档：落系统消息、弹错、return——绝不静默退回本地生成。
+    expect(branch).toMatch(/if \(configUnreadableFailsTurn\) \{[\s\S]*?return;/);
+    expect(branch).not.toContain('safeFetchJson');
   });
 
   it('两个分支都还在，且 Instant Push 排在即时对话前面（历史配置的兜底顺序不变）', () => {
@@ -152,9 +213,14 @@ describe('useChatAI 的分流接缝', () => {
     expect(branchSrc()).toMatch(/temperature:\s*baseReqBody\.temperature/);
   });
 
-  it('作废回执随受理销账：markExpiredNoticesNotified 只在 202 之后调', () => {
-    // 回执随 chat 段冻上云、受理即告知；失败路径不销，下轮重注（回执不丢）。
-    expect(branchSrc()).toMatch(/instantChatResult\.ok[\s\S]{0,600}markExpiredNoticesNotified/);
+  it('作废回执在 202 之后只记账不销账（受理 ≠ 角色读到过）', () => {
+    // 202 只说明云端收下了。那一轮照样可能空输出被判 skip-push、或 fire 重试打光标 failed，
+    // 回执不会重新注入——用户只收到「[即时对话没能完成…]」并重发，而重发那一轮已经没有
+    // 回执可注入，角色永远不知道那条任务被作废过，聊天里许下的承诺就这么消失。
+    // 正确时机是回复真的落库之后（跟本地路径同一口径），所以这里只落台账。
+    const branch = branchSrc();
+    expect(branch).not.toContain('markExpiredNoticesNotified');
+    expect(branch).toMatch(/instantChatResult\.ok[\s\S]{0,800}stageInstantChatExpiredNotices/);
   });
 
   it('失败时不悄悄回本地生成：分支里没有本地 LLM 请求，走完就 return', () => {
@@ -231,12 +297,27 @@ describe('设置页那一道门', () => {
     expect(chatAiSrc).not.toContain('probeInstantChatSupport');
   });
 
-  it('四道门缺一不可，而且要说出卡在哪一道', () => {
-    const reason = sliceSrc(settingsSrc, '即时对话开关的置灰理由', 'const instantChatBlockedReason', '\n  return (');
-    expect(reason).toContain('!isConnected');
-    expect(reason).toContain('pushStatus?.hasSubscription');
-    expect(reason).toContain('instantChatSupported');
-    expect(reason).toContain('instantOn');
+  it('四道门缺一不可：四个输入都要喂进同一份判定', () => {
+    // 顺序和每道门的文案钉在 amsgDiagnostics.test.ts（resolveInstantChatBlocker 是纯函数，
+    // 能直接测）。这里只钉「设置页确实把四个输入都递过去了」——漏一个的话那道门就消失了，
+    // 界面上表现为开关能点，点完发一条挂一条。
+    const gate = sliceSrc(settingsSrc, '即时对话开关的置灰理由', 'const instantChatBlocker = resolveInstantChatBlocker(', '\n  const instantChatBlockedReason');
+    expect(gate).toContain('isConnected');
+    expect(gate).toContain('pushStatus?.hasSubscription');
+    expect(gate).toContain('instantChatSupported');
+    expect(gate).toContain('instantOn');
+    // 黄字直接取自代号表：文案跟上报属性共用一份判定，不许哪天各写各的。
+    expect(settingsSrc).toContain('INSTANT_CHAT_BLOCKER_HINTS[instantChatBlocker]');
+  });
+
+  it('开不了卡在哪要上报，且跟界面共用那份判定', () => {
+    // 开关灰着的时候用户什么都点不动，也就不会产生别的事件——不主动收的话，被挡在门外的人
+    // 和「不想要这功能的人」在数据里长得一模一样。
+    const report = sliceSrc(settingsSrc, '即时对话可用性上报', 'const reportInstantChatGate', '\n  const refresh');
+    expect(report).toContain('resolveInstantChatBlocker(gate)');
+    expect(report).toContain(`trackEvent('即时对话能不能开'`);
+    // 反复点「连接」的人否则一个人能刷出十几条同样的结果，把分布带歪。
+    expect(report).toContain('instantChatGateReported');
   });
 
   it('开关落盘：两个 saveGlobalConfig 调用点都要带上它', () => {

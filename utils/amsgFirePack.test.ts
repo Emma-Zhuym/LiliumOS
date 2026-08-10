@@ -8,15 +8,11 @@ import {
   AMSG_SLOT_USER_CLOCK,
   AmsgFirePack,
   AmsgSelfLog,
-  CHAT_OUTBOX_MAX,
   FIRE_PACK_VERSION,
   describeFirePackVersion,
   SELF_LOG_MAX_ENTRIES,
   SELF_LOG_TEXT_MAX,
-  appendChatOutbox,
   appendSelfLogEntry,
-  createChatOutbox,
-  parseChatOutbox,
   buildAwayHint,
   buildUserClockHint,
   countUnansweredSends,
@@ -66,7 +62,6 @@ describe('formatTimeSinceUser', () => {
     expect(formatTimeSinceUser(-5)).toBe('距离用户上次主动发消息大约 0 分钟。');
   });
 });
-
 describe('buildAwayHint', () => {
   it('无记录 → 「最近没有主动来找你说话」', () => {
     expect(buildAwayHint('小明同学', '你们最近没有新的聊天记录。'))
@@ -369,6 +364,40 @@ describe('self_log', () => {
       expect(countUnansweredSends(createSelfLog(packAt))).toBe(0);
       expect(countUnansweredSends(null)).toBe(0);
     });
+
+    // 回归守卫：计数以前是数 entries 数出来的，而 entries 只留最近 SELF_LOG_MAX_ENTRIES
+    // （8）条——计数因此永远不会超过 8，用户把连发上限设成 9 或 10 时，到点兜底闸的
+    // 「计数 >= 上限」恒为 false，那道闸整个失效（等于「不限」）。
+    it('连发条数不被 entries 上限压平：发 10 条就数到 10（上限设 9 / 10 时闸才拦得住）', () => {
+      let log = createSelfLog(packAt);
+      for (let i = 0; i < 10; i += 1) {
+        log = appendSelfLogEntry(log, entry(`t1@${i}`, `第 ${i + 1} 条`));
+      }
+      expect(log.entries).toHaveLength(SELF_LOG_MAX_ENTRIES);   // 前提：entries 确实被削过
+      expect(countUnansweredSends(log)).toBe(10);
+    });
+
+    it('同一次触发重跑（同 id 再追加一次）不多记一条连发', () => {
+      let log = createSelfLog(packAt);
+      log = appendSelfLogEntry(log, entry('t1@100', '在干嘛呢'));
+      log = appendSelfLogEntry(log, entry('t1@100', '在干嘛呢'));
+      expect(countUnansweredSends(log)).toBe(1);
+    });
+
+    it('用户开口 → 连发条数跟 entries 一起归零', () => {
+      let log = createSelfLog(packAt, 500);
+      for (let i = 0; i < 10; i += 1) log = appendSelfLogEntry(log, entry(`t1@${i}`, `第 ${i} 条`));
+      const after = reconcileSelfLogWithPack(log, pack, 900);
+      expect(after.entries).toHaveLength(0);
+      expect(countUnansweredSends(after)).toBe(0);
+    });
+
+    it('fire_pack 换代（客户端认领重传）不清连发条数', () => {
+      let log = createSelfLog(packAt, 500);
+      for (let i = 0; i < 10; i += 1) log = appendSelfLogEntry(log, entry(`t1@${i}`, `第 ${i} 条`));
+      expect(countUnansweredSends(reconcileSelfLogWithPack(log, { ...pack, builtAt: packAt + 1 }, 500)))
+        .toBe(10);
+    });
   });
 
   describe('resolveMaxUnansweredSends（用户设置的连发上限）', () => {
@@ -398,7 +427,11 @@ describe('self_log', () => {
       expect(parseSelfLog('not json')).toBeNull();
       expect(parseSelfLog(JSON.stringify({ v: 2, basePackAt: packAt, entries: [], tasks: [] }))).toBeNull();
       expect(parseSelfLog(JSON.stringify({ v: 1, basePackAt: packAt }))).toBeNull();
-      expect(parseSelfLog(JSON.stringify({ v: 3, basePackAt: packAt, anchorUserMsgAt: null, entries: [{ id: 'a' }], tasks: [] }))).toBeNull();
+      // v3（连发条数还数在 entries 里的那版）不认：读出来的计数会是错的，宁可从空的重攒
+      expect(parseSelfLog(JSON.stringify({ v: 3, basePackAt: packAt, anchorUserMsgAt: null, entries: [], tasks: [] }))).toBeNull();
+      // 缺连发计数字段的一样不认（少了它计数会静默从 0 开始，闸又白装了）
+      expect(parseSelfLog(JSON.stringify({ v: 4, basePackAt: packAt, anchorUserMsgAt: null, entries: [], tasks: [] }))).toBeNull();
+      expect(parseSelfLog(JSON.stringify({ v: 4, basePackAt: packAt, anchorUserMsgAt: null, entries: [{ id: 'a' }], unansweredSends: 0, tasks: [] }))).toBeNull();
     });
   });
 
@@ -554,6 +587,16 @@ describe('last_skip 新原因', () => {
     expect(describeLastSkip({ ...base, reason: 'active-chat-presence' }, fmt)).toContain('让路');
     expect(describeLastSkip({ ...base, reason: 'conversation-moved-on' }, fmt)).toContain('过时');
     expect(describeLastSkip({ ...base, reason: 'unanswered-limit' }, fmt)).toContain('连发上限');
+  });
+
+  // 被连发上限拦下的那一次是**真的跳过了**：上游把 { skip: true } 当成功消费，一次性
+  // 任务的行当场就删了，循环任务也只是快进到下一次，都不会把这一条补回来。文案要是说
+  // 「等你回复后恢复」，用户就会一直等一条永远不会来的消息（角色在正文里承诺过的
+  // 「等下再来找你」也跟着蒸发）。
+  it('连发上限那次说清「不会补发」，不许承诺恢复', () => {
+    const text = describeLastSkip({ ...base, reason: 'unanswered-limit' }, fmt);
+    expect(text).toContain('不会补发');
+    expect(text).not.toContain('等你回复后恢复');
   });
 });
 
@@ -762,43 +805,5 @@ describe('fire_pack v7 的 chat 段', () => {
     expect(bad([null])).toBeNull();
     expect(bad([[{ type: 'text' }]])).toBeNull();        // 嵌套数组不算分段对象
     expect(bad(42)).toBeNull();
-  });
-});
-
-// ─── 即时对话的收件兜底 outbox ───
-describe('chat_outbox', () => {
-  const entry = (id: string) => ({ messageId: id, sessionId: 's', at: 1, payload: { message: id } });
-
-  it('环形只留最近 CHAT_OUTBOX_MAX 条', () => {
-    let outbox = createChatOutbox();
-    for (let i = 0; i < CHAT_OUTBOX_MAX + 5; i += 1) {
-      outbox = appendChatOutbox(outbox, [entry(`m${i}`)]);
-    }
-    expect(outbox.entries).toHaveLength(CHAT_OUTBOX_MAX);
-    expect(outbox.entries[0].messageId).toBe('m5');
-  });
-
-  it('同 messageId 覆盖不叠加（fire 重跑会重新生成同样的 id）', () => {
-    const once = appendChatOutbox(null, [entry('m1'), entry('m2')]);
-    const again = appendChatOutbox(once, [entry('m1'), entry('m2')]);
-    expect(again.entries.map((e) => e.messageId)).toEqual(['m1', 'm2']);
-  });
-
-  it('空的一批原样返回（没东西可记就别白写一次库）', () => {
-    const outbox = appendChatOutbox(null, []);
-    expect(outbox.entries).toEqual([]);
-  });
-
-  it('形状不对 → null，按「没有」处理（兜底通道不硬失败）', () => {
-    expect(parseChatOutbox('')).toBeNull();
-    expect(parseChatOutbox(undefined)).toBeNull();
-    expect(parseChatOutbox('not json')).toBeNull();
-    expect(parseChatOutbox(JSON.stringify({ v: 2, entries: [] }))).toBeNull();
-    expect(parseChatOutbox(JSON.stringify({ v: 1, entries: [{ messageId: 'm' }] }))).toBeNull();
-  });
-
-  it('合法的读回来原样', () => {
-    const outbox = appendChatOutbox(null, [entry('m1')]);
-    expect(parseChatOutbox(JSON.stringify(outbox))).toEqual(outbox);
   });
 });

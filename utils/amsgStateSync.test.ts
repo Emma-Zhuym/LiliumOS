@@ -15,7 +15,18 @@ vi.mock('./activeMsgClient', () => ({
     clearClientState: vi.fn().mockResolvedValue({ deleted: 0, toolConfigRestored: true }),
     registerPushSubscription: vi.fn().mockResolvedValue(undefined),
     deleteRemotePushSubscription: vi.fn().mockResolvedValue(undefined),
+    putLlmCredentials: vi.fn().mockResolvedValue(0),
+    deleteLlmCredentials: vi.fn().mockResolvedValue(0),
   },
+  // 凭据引用那条路的版本门槛。默认关着，只有专门测它的用例才打开。
+  isLlmCredentialsReady: vi.fn().mockResolvedValue(false),
+  // 「欠着即时对话回复」的判定本体住在 activeMsgClient（排程那条路写 fire_pack 前问的
+  // 是同一个）。整个 client 在这儿被换成了假的，所以照它的定义把两个原始信号接回来，
+  // 用例照旧拿 setInstantChatPending 驱动。判定本身怎么写由 activeMsgClient.test.ts 钉，
+  // 这里钉的是「冲刷之前会去问它」。
+  // 工厂比 import 先跑，这两个 binding 那会儿还没初始化——所以只能在调用时才解引用。
+  owesInstantChatReply: (charId: string) =>
+    !!getInstantChatPending(charId) || isInstantChatSendInFlight(charId),
 }));
 vi.mock('./activeMsgStore', () => ({
   ActiveMsgStore: { getGlobalConfig: vi.fn() },
@@ -24,6 +35,7 @@ vi.mock('./activeMsgStore', () => ({
 import {
   FLUSH_DEBOUNCE_MS,
   AMSG2_PENDING_SYNC_LS_KEY,
+  AMSG2_PENDING_CRED_SYNC_LS_KEY,
   AMSG2_PENDING_TOOL_CONFIG_LS_KEY,
   cancelAllRemoteAmsgTasks,
   wipeAmsgCloudData,
@@ -33,14 +45,23 @@ import {
   resumePendingAmsgStateSync,
   startAmsgChatPresence,
   stopAmsgChatPresence,
+  syncAmsgLlmCredentials,
   syncAmsgToolConfig,
 } from './amsgStateSync';
-import { ActiveMsgClient } from './activeMsgClient';
+import {
+  buildCharChatCredRow,
+  forgetAllCredIds,
+  rememberCredRows,
+} from './amsgLlmCredentials';
+import { DB } from './db';
+import { ActiveMsgClient, isLlmCredentialsReady } from './activeMsgClient';
 import { ActiveMsgStore } from './activeMsgStore';
 import { CHAT_PRESENCE_HEARTBEAT_MS } from './amsgChatPresence';
 import {
   AMSG_INSTANT_CHAT_PENDING_LS_KEY,
   clearInstantChatPending,
+  getInstantChatPending,
+  isInstantChatSendInFlight,
   setInstantChatPending,
 } from './amsgInstantChat';
 import type { CharacterProfile } from '../types';
@@ -78,7 +99,9 @@ beforeEach(() => {
   vi.useFakeTimers();
   localStorage.removeItem(AMSG2_PENDING_SYNC_LS_KEY);
   localStorage.removeItem(AMSG2_PENDING_TOOL_CONFIG_LS_KEY);
+  localStorage.removeItem(AMSG2_PENDING_CRED_SYNC_LS_KEY);
   localStorage.removeItem(AMSG_INSTANT_CHAT_PENDING_LS_KEY);
+  forgetAllCredIds();
   (ActiveMsgClient.syncCharFirePacks as any).mockClear();
   (ActiveMsgClient.syncChatPresence as any).mockClear();
   (ActiveMsgClient.syncToolConfig as any).mockReset();
@@ -93,6 +116,12 @@ beforeEach(() => {
   (ActiveMsgClient.registerPushSubscription as any).mockResolvedValue(undefined);
   (ActiveMsgClient.deleteRemotePushSubscription as any).mockReset();
   (ActiveMsgClient.deleteRemotePushSubscription as any).mockResolvedValue(undefined);
+  (ActiveMsgClient.putLlmCredentials as any).mockReset();
+  (ActiveMsgClient.putLlmCredentials as any).mockResolvedValue(0);
+  (ActiveMsgClient.deleteLlmCredentials as any).mockReset();
+  (ActiveMsgClient.deleteLlmCredentials as any).mockResolvedValue(0);
+  (isLlmCredentialsReady as any).mockReset();
+  (isLlmCredentialsReady as any).mockResolvedValue(false);
   (ActiveMsgStore.getGlobalConfig as any).mockReset();
   (ActiveMsgStore.getGlobalConfig as any).mockResolvedValue({ workerUrl: 'https://amsg.example.dev' });
 });
@@ -570,23 +599,67 @@ describe('清空 Worker 地址前的收尾', () => {
     expect(result.listed).toBe(false);
     expect(ActiveMsgClient.cancelTask).not.toHaveBeenCalled();
   });
+
+  // 这一条刻意跟角色级的 ActiveMsgClient.cancelAllTasksForChar 反着来：那边放过即时对话的
+  // 行（关掉角色的 2.0 开关不该掐掉用户正等着的那轮聊天），这边两个调用方要的都是
+  // 「我不跟这台 worker 来往了」——地址一清，回复推回来这边也接不住；云端数据一清，
+  // 角色上下文没了，那一跳到点也只会硬失败，留着只是多一条要等 7 天才自动消失的失败行。
+  it('正在跑的即时对话也一并取消（这里的「全部」是字面意思）', async () => {
+    (ActiveMsgClient.listAllTasks as any).mockResolvedValue([
+      { uuid: 'u-scheduled', messageSubtype: 'chat' },
+      { uuid: 'u-instant', messageSubtype: 'instant-chat' },
+    ]);
+
+    const result = await cancelAllRemoteAmsgTasks();
+
+    expect((ActiveMsgClient.cancelTask as any).mock.calls.map((call: unknown[]) => call[0]))
+      .toEqual(['u-scheduled', 'u-instant']);
+    expect(result).toEqual({ total: 2, failed: 0, listed: true });
+  });
 });
 
 describe('清空云端数据', () => {
-  // 这一组守的是同一条：三样各清各的，谁失败都不许短路后面两样。
+  // 这一组守的是同一条：四样各清各的，谁失败都不许短路后面几样。
   // 换过 AMSG_MASTER_KEY 之后旧密文全解不开，而「列任务」要逐条解密、必然最先炸，
   // 偏偏这时候最需要被清掉的是 client_state —— 串行短路的话用户一样都清不成。
-  it('任务清单读不出来时，角色上下文和推送订阅照样收拾干净', async () => {
+  it('任务清单读不出来时，角色上下文 / 凭据行 / 推送订阅照样收拾干净', async () => {
     (ActiveMsgClient.listAllTasks as any).mockRejectedValue(new Error('decryption failed'));
     (ActiveMsgClient.clearClientState as any).mockResolvedValue({ deleted: 7, toolConfigRestored: true });
+    (ActiveMsgClient.deleteLlmCredentials as any).mockResolvedValue(5);
 
     const result = await wipeAmsgCloudData(undefined, { pushRegistered: true });
 
     expect(result.tasks.listed).toBe(false);
     expect(ActiveMsgClient.clearClientState).toHaveBeenCalledTimes(1);
     expect(result.stateDeleted).toBe(7);
+    expect(ActiveMsgClient.deleteLlmCredentials).toHaveBeenCalledWith({ all: true });
+    expect(result.llmCredentialsDeleted).toBe(5);
     expect(ActiveMsgClient.registerPushSubscription).toHaveBeenCalledTimes(1);
     expect(result.push).toBe('reregistered');
+  });
+
+  it('凭据行删不掉时，前后几样照样各清各的', async () => {
+    (ActiveMsgClient.listAllTasks as any).mockResolvedValue([{ uuid: 'u-1' }]);
+    (ActiveMsgClient.clearClientState as any).mockResolvedValue({ deleted: 2, toolConfigRestored: true });
+    // 老 worker 上根本没有这张表，这一步注定失败——它一个人失败不能把别的三样拖下水。
+    (ActiveMsgClient.deleteLlmCredentials as any).mockRejectedValue(new Error('NOT_FOUND'));
+
+    const result = await wipeAmsgCloudData(undefined, { pushRegistered: true });
+
+    expect(result.tasks).toEqual({ total: 1, failed: 0, listed: true });
+    expect(result.stateDeleted).toBe(2);
+    expect(result.llmCredentialsDeleted).toBeNull();
+    expect(result.push).toBe('reregistered');
+  });
+
+  it('角色上下文清不掉时，凭据行照样删（这一步排在它后面，不能被短路）', async () => {
+    (ActiveMsgClient.clearClientState as any).mockRejectedValue(new Error('boom'));
+    (ActiveMsgClient.deleteLlmCredentials as any).mockResolvedValue(3);
+
+    const result = await wipeAmsgCloudData(undefined, { pushRegistered: false });
+
+    expect(result.stateDeleted).toBeNull();
+    expect(result.llmCredentialsDeleted).toBe(3);
   });
 
   it('角色上下文清不掉时，任务照样取消、推送订阅照样收拾', async () => {
@@ -622,6 +695,97 @@ describe('清空云端数据', () => {
     expect(ActiveMsgClient.deleteRemotePushSubscription).toHaveBeenCalledTimes(1);
     expect(ActiveMsgClient.registerPushSubscription).not.toHaveBeenCalled();
     expect(result.push).toBe('deleted');
+  });
+});
+
+// 云端那张凭据表和 tool_config 处境一样：只在保存配置那一刻传一次，丢了没人补。
+// 而它丢了的后果更硬——已排程的任务到点还在用旧 Key，用户只看到「主动消息不来了」。
+describe('LLM 凭据行的后台重传', () => {
+  const API = { baseUrl: 'https://api.example.dev/v1', apiKey: 'sk-new', model: 'gpt-x' } as any;
+  const CHAR = {
+    id: 'char-cred-sync',
+    name: '小满',
+    activeMsg2Config: { enabled: true, tasks: [] },
+  } as any as CharacterProfile;
+
+  const primeLedgerWithOldKey = () => {
+    // 底账里记着这一行「传过了」，但记的是旧 Key 的指纹 → 现在算出来就是「变了」。
+    rememberCredRows([buildCharChatCredRow(
+      CHAR as any, CHAR.activeMsg2Config as any, { baseUrl: API.baseUrl, apiKey: 'sk-old', model: API.model } as any,
+    )!]);
+  };
+
+  beforeEach(() => {
+    vi.spyOn(DB, 'getAllCharacters').mockResolvedValue([CHAR] as any);
+  });
+
+  it('worker 不支持凭据表 → 一个请求都不发，也不留欠账', async () => {
+    (isLlmCredentialsReady as any).mockResolvedValue(false);
+    primeLedgerWithOldKey();
+
+    syncAmsgLlmCredentials(API);
+    await vi.advanceTimersByTimeAsync(IDLE_WINDOW_MS);
+
+    expect(ActiveMsgClient.putLlmCredentials).not.toHaveBeenCalled();
+    expect(localStorage.getItem(AMSG2_PENDING_CRED_SYNC_LS_KEY)).toBeNull();
+  });
+
+  it('换了 Key → 把底账里那几行按新配置重算后传上去', async () => {
+    (isLlmCredentialsReady as any).mockResolvedValue(true);
+    primeLedgerWithOldKey();
+
+    syncAmsgLlmCredentials(API);
+    await vi.advanceTimersByTimeAsync(0);
+
+    const rows = (ActiveMsgClient.putLlmCredentials as any).mock.calls[0][0];
+    expect(rows).toEqual([{
+      credId: 'char:char-cred-sync/chat',
+      value: {
+        apiUrl: 'https://api.example.dev/v1/chat/completions',
+        apiKey: 'sk-new',
+        primaryModel: 'gpt-x',
+      },
+    }]);
+    expect(localStorage.getItem(AMSG2_PENDING_CRED_SYNC_LS_KEY), '传上去了就该销账').toBeNull();
+  });
+
+  it('这次保存没动 API → 值没变，不白发一次请求', async () => {
+    (isLlmCredentialsReady as any).mockResolvedValue(true);
+    rememberCredRows([buildCharChatCredRow(CHAR as any, CHAR.activeMsg2Config as any, API)!]);
+
+    syncAmsgLlmCredentials(API);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(ActiveMsgClient.putLlmCredentials).not.toHaveBeenCalled();
+    expect(localStorage.getItem(AMSG2_PENDING_CRED_SYNC_LS_KEY)).toBeNull();
+  });
+
+  it('传失败 → 退避重传，欠账留在 localStorage 等启动补', async () => {
+    (isLlmCredentialsReady as any).mockResolvedValue(true);
+    primeLedgerWithOldKey();
+    (ActiveMsgClient.putLlmCredentials as any).mockRejectedValue(new Error('offline'));
+
+    syncAmsgLlmCredentials(API);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ActiveMsgClient.putLlmCredentials).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem(AMSG2_PENDING_CRED_SYNC_LS_KEY)).toBe('1');
+
+    await vi.advanceTimersByTimeAsync(30_000 + 10);
+    expect(ActiveMsgClient.putLlmCredentials).toHaveBeenCalledTimes(2);
+  });
+
+  it('启动补传：上次没传成的按底账重来一次（没给 apiConfig 就跳过这一项）', async () => {
+    (isLlmCredentialsReady as any).mockResolvedValue(true);
+    primeLedgerWithOldKey();
+    localStorage.setItem(AMSG2_PENDING_CRED_SYNC_LS_KEY, '1');
+
+    resumePendingAmsgStateSync({ characters: [], userProfile: {} as any, groups: [] });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ActiveMsgClient.putLlmCredentials).not.toHaveBeenCalled();
+
+    resumePendingAmsgStateSync({ characters: [], userProfile: {} as any, groups: [], apiConfig: API });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ActiveMsgClient.putLlmCredentials).toHaveBeenCalledTimes(1);
   });
 });
 
