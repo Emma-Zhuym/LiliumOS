@@ -17,12 +17,14 @@ import { VR_ROOMS, getRoom, VR_DEFAULT_INTERVAL_MIN, SIGNAL_EPIGRAPH, signalActF
 import { buildNovelAsync, buildAnnotation, groupAnnotationsBySeg, getBookmark } from '../utils/vrWorld/novel'; // [EM: buildAnnotation]
 import { decodeBytes } from '../utils/vrWorld/decodeText';
 import { parseEpub } from '../utils/vrWorld/epubParser';
+import { extractPdfText, isPdfFile } from '../utils/pdfText';
 import { stripLeakedAttrs } from '../utils/vrWorld/prompts';
 import { PostOffice, MAX_LETTER_CHARS, exportIdentity, importIdentity, getAdminToken, setAdminToken, type RemoteReply, type RemoteLetterStat, type RemoteAdminLetter } from '../utils/vrWorld/postOffice';
 import { Signal, getMyAuthorship, setSignalWhisper, hasSignalNoticeAck, ackSignalNotice, type SignalState } from '../utils/vrWorld/signal';
 import type { SignalPoem, SignalBooklet } from '../types';
 import { getVRApi, setVRApi, getVRApiLog, clearVRApiLog, type VRApiCall } from '../utils/vrWorld/vrApi';
 import { safeResponseJson } from '../utils/safeApi';
+import { trackEvent } from '../utils/analytics';
 
 const genLocalId = (p: string) => `${p}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 
@@ -2623,7 +2625,7 @@ const LibraryView: React.FC<{
     <div className="space-y-3">
         <button onClick={onAdd} className="w-full rounded-xl py-2.5 text-[13px] font-bold flex items-center justify-center gap-1.5 active:scale-[0.98] transition-transform shadow-[0_4px_14px_rgba(120,100,255,0.4)]"
             style={{ background: 'linear-gradient(120deg, rgba(150,168,255,.92), rgba(188,168,255,.85) 55%, rgba(150,212,204,.9))' }}>
-            <Plus size={16} weight="bold" /> 上传小说（.txt / .epub）
+            <Plus size={16} weight="bold" /> 上传小说（.txt / .epub / .pdf）
         </button>
         {novels.length === 0 ? (
             <p className="text-[11px] text-indigo-300/50 py-6 text-center">书库空空如也。上传的小说是所有角色共享的读物，每个角色各自留批注、各自记书签。</p>
@@ -2979,24 +2981,35 @@ const ReaderModal: React.FC<{ novel: VRWorldNovel; characters: CharacterProfile[
     );
 };
 
-// ============ 上传弹窗（支持大文件 .txt，内容不入 DOM） ============
+// ============ 上传弹窗（支持大文件 .txt / .epub / .pdf，内容不入 DOM） ============
+type UploadFileInfo = {
+    name: string;
+    chars: number;
+    preview: string;
+    encoding: string;
+    kind: 'text' | 'epub' | 'pdf';
+    pages?: number;
+};
+
 const UploadModal: React.FC<{
     onClose: () => void;
     onCommit: (novel: VRWorldNovel) => Promise<void> | void;
     onError: (msg: string) => void;
 }> = ({ onClose, onCommit, onError }) => {
+    const uploadFieldClass = 'w-full rounded-lg border border-indigo-100/70 bg-white px-3 py-2 text-slate-800 caret-indigo-500 placeholder:text-indigo-300 outline-none focus:border-indigo-300';
     const [title, setTitle] = useState('');
     const [author, setAuthor] = useState('');
     const [summary, setSummary] = useState('');
     // 手动粘贴的小段文本走 state；大文件内容只存 ref，不进 textarea（否则 12MB 会冻 UI）
     const [pasteText, setPasteText] = useState('');
-    const [fileInfo, setFileInfo] = useState<{ name: string; chars: number; preview: string; encoding: string } | null>(null);
+    const [fileInfo, setFileInfo] = useState<UploadFileInfo | null>(null);
     const fileContentRef = useRef<string>('');
     // 留着原始字节，手动换编码时无需重新读盘即可重解码
     const fileBufRef = useRef<ArrayBuffer | null>(null);
     const [chosenEncoding, setChosenEncoding] = useState<string>('auto');
     const fileRef = useRef<HTMLInputElement>(null);
     const [reading, setReading] = useState(false);
+    const [readingStatus, setReadingStatus] = useState('');
     const [busy, setBusy] = useState(false);
     const [progress, setProgress] = useState(0);
 
@@ -3009,47 +3022,75 @@ const UploadModal: React.FC<{
             chars: content.length,
             preview: content.slice(0, 300).replace(/\s+/g, ' ').trim(),
             encoding,
+            kind: 'text',
         });
     };
 
-    const [isEpub, setIsEpub] = useState(false);
-
     const onFile = async (f: File | undefined) => {
         if (!f) return;
+        const nameL = f.name.toLowerCase();
+        const pdfFile = isPdfFile(f);
+        const textFile = f.type.toLowerCase() === 'text/plain' || /\.(txt|text)$/i.test(f.name);
+        const epubFile = /\.epub(?:\.zip)?$/i.test(nameL);
+        if (!pdfFile && !textFile && !epubFile) {
+            onError('目前只支持 .txt、.epub 和 .pdf 文件');
+            if (fileRef.current) fileRef.current.value = '';
+            return;
+        }
         setReading(true);
+        setReadingStatus(pdfFile ? '正在载入 PDF…' : epubFile ? '正在解析 EPUB…' : '读取并识别编码中…');
         try {
             const buf = await f.arrayBuffer();
-            const nameL = f.name.toLowerCase();
             const isPK = new Uint8Array(buf.slice(0, 4)).join(',') === '80,75,3,4';
-            const looksEpub = nameL.endsWith('.epub') || nameL.endsWith('.epub.zip') || (isPK && nameL.includes('.epub'));
+            const looksEpub = epubFile || (isPK && nameL.includes('.epub'));
             if (looksEpub) {
                 const epub = await parseEpub(buf);
                 const content = epub.text;
                 fileContentRef.current = content;
                 fileBufRef.current = null;
-                setIsEpub(true);
                 setChosenEncoding('auto');
                 setFileInfo({
                     name: f.name,
                     chars: content.length,
                     preview: content.slice(0, 300).replace(/\s+/g, ' ').trim(),
-                    encoding: 'epub',
+                    encoding: 'EPUB',
+                    kind: 'epub',
                 });
                 if (!title.trim()) setTitle(epub.title || f.name.replace(/\.epub(\.zip)?$/i, ''));
                 if (!author.trim() && epub.author) setAuthor(epub.author);
+            } else if (pdfFile) {
+                fileBufRef.current = null;
+                const result = await extractPdfText(buf, {
+                    onProgress: ({ page, totalPages }) => setReadingStatus(`正在提取 PDF 文本… ${page}/${totalPages}`),
+                });
+                const content = result.text.trim();
+                if (!content) {
+                    onError('PDF 中没有可提取的文字，可能是扫描件或图片 PDF；请先 OCR 后再导入');
+                    return;
+                }
+                fileContentRef.current = content;
+                setFileInfo({
+                    name: f.name,
+                    chars: content.length,
+                    preview: content.slice(0, 300).replace(/\s+/g, ' ').trim(),
+                    encoding: 'PDF',
+                    kind: 'pdf',
+                    pages: result.pageCount,
+                });
+                trackEvent('导入 PDF 小说到彼方书库', { pages: result.pageCount, chars: content.length });
             } else {
                 fileBufRef.current = buf;
-                setIsEpub(false);
                 setChosenEncoding('auto');
                 applyDecode(f.name, buf, 'auto');
-                if (!title.trim()) setTitle(f.name.replace(/\.(txt|text)$/i, ''));
             }
             setPasteText('');
+            if (!title.trim() && !looksEpub) setTitle(f.name.replace(/\.(txt|text|pdf)$/i, ''));
         } catch (e) {
-            console.error('[VRWorld] decode file failed', e);
-            onError('文件读取失败');
+            console.error('[VRWorld] read novel file failed', e);
+            onError(pdfFile ? 'PDF 读取失败，文件可能已损坏、加密或网络组件加载失败' : '文件读取失败');
         } finally {
             setReading(false);
+            setReadingStatus('');
         }
     };
 
@@ -3065,8 +3106,8 @@ const UploadModal: React.FC<{
         fileContentRef.current = '';
         fileBufRef.current = null;
         setChosenEncoding('auto');
-        setIsEpub(false);
         setFileInfo(null);
+        setReadingStatus('');
         if (fileRef.current) fileRef.current.value = '';
     };
 
@@ -3102,22 +3143,24 @@ const UploadModal: React.FC<{
                     {!busy && <button onClick={onClose} className="ml-auto p-1 text-indigo-300/60"><X size={18} /></button>}
                 </div>
 
-                <input ref={fileRef} type="file" accept=".txt,.epub,.zip,text/plain,application/epub+zip,application/zip" className="hidden" onChange={e => onFile(e.target.files?.[0])} />
+                <input ref={fileRef} type="file" accept=".txt,text/plain,.pdf,application/pdf,.epub,.epub.zip,application/epub+zip" className="hidden" onChange={e => onFile(e.target.files?.[0])} />
                 {reading ? (
                     <div className="w-full rounded-xl border border-indigo-300/30 py-5 mb-3 flex items-center justify-center gap-2 text-indigo-100/90">
-                        <CircleNotch size={18} weight="bold" className="animate-spin" /> 读取并识别编码中…
+                        <CircleNotch size={18} weight="bold" className="animate-spin" /> {readingStatus}
                     </div>
                 ) : fileInfo ? (
                     <div className="rounded-xl border border-indigo-300/30 p-3 mb-3 bg-white/5">
                         <div className="flex items-center gap-2">
                             <BookOpen size={16} weight="fill" className="text-amber-200 shrink-0" />
                             <span className="text-[12.5px] text-white font-semibold truncate flex-1">{fileInfo.name}</span>
-                            <span className="text-[8.5px] text-indigo-300/60 border border-indigo-300/30 rounded px-1 uppercase">{fileInfo.encoding}</span>
+                            <span className="text-[8.5px] text-indigo-300/60 border border-indigo-300/30 rounded px-1 uppercase">
+                                {fileInfo.kind === 'pdf' ? `PDF · ${fileInfo.pages} 页` : fileInfo.encoding}
+                            </span>
                             {!busy && <button onClick={clearFile} className="text-indigo-300/60 p-1"><X size={14} /></button>}
                         </div>
                         <div className="text-[10px] text-indigo-300/60 mt-1">{fileInfo.chars.toLocaleString()} 字 · 预计 ~{Math.ceil(fileInfo.chars / 400).toLocaleString()} 段</div>
                         <p className="text-[10.5px] text-indigo-200/50 mt-1.5 leading-snug line-clamp-2">{fileInfo.preview}…</p>
-                        {!busy && !isEpub && (
+                        {!busy && fileInfo.kind === 'text' && (
                             <div className="flex items-center gap-1.5 mt-2">
                                 <span className="text-[9.5px] text-indigo-300/55 shrink-0">乱码？换编码</span>
                                 <select value={chosenEncoding} onChange={e => redecode(e.target.value)}
@@ -3135,19 +3178,19 @@ const UploadModal: React.FC<{
                 ) : (
                     <button onClick={() => fileRef.current?.click()}
                         className="w-full rounded-xl border border-dashed border-indigo-300/40 py-3 mb-3 text-[12.5px] text-indigo-100/90 flex items-center justify-center gap-2 active:bg-white/5">
-                        <UploadSimple size={16} weight="bold" /> 选择文件（.txt / .epub）
+                        <UploadSimple size={16} weight="bold" /> 选择 .txt / .epub / .pdf 文件（大文件也 OK）
                     </button>
                 )}
 
                 <div className="space-y-2.5">
-                    <input value={title} onChange={e => setTitle(e.target.value)} placeholder="书名（必填）" className="w-full rounded-lg bg-white/8 px-3 py-2 text-[13px] text-white placeholder-indigo-300/40 outline-none" />
-                    <input value={author} onChange={e => setAuthor(e.target.value)} placeholder="作者（选填）" className="w-full rounded-lg bg-white/8 px-3 py-2 text-[13px] text-white placeholder-indigo-300/40 outline-none" />
-                    <input value={summary} onChange={e => setSummary(e.target.value)} placeholder="一句话简介（选填，喂给角色当背景）" className="w-full rounded-lg bg-white/8 px-3 py-2 text-[13px] text-white placeholder-indigo-300/40 outline-none" />
+                    <input value={title} onChange={e => setTitle(e.target.value)} placeholder="书名（必填）" className={`${uploadFieldClass} text-[13px]`} />
+                    <input value={author} onChange={e => setAuthor(e.target.value)} placeholder="作者（选填）" className={`${uploadFieldClass} text-[13px]`} />
+                    <input value={summary} onChange={e => setSummary(e.target.value)} placeholder="一句话简介（选填，喂给角色当背景）" className={`${uploadFieldClass} text-[13px]`} />
                     {!fileInfo && (
                         <>
                             <div className="text-[10px] text-indigo-300/50">或直接粘贴正文（小段文本用；大文件请走上面的文件选择）↓</div>
                             <textarea value={pasteText} onChange={e => setPasteText(e.target.value)} placeholder="粘贴正文…" rows={6}
-                                className="w-full rounded-lg bg-white/8 px-3 py-2 text-[12.5px] text-white placeholder-indigo-300/40 outline-none leading-relaxed" />
+                                className={`${uploadFieldClass} text-[12.5px] leading-relaxed`} />
                         </>
                     )}
                     <div className="text-[10px] text-indigo-300/50">{totalChars.toLocaleString()} 字</div>

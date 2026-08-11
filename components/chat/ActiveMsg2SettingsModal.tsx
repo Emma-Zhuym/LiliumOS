@@ -18,6 +18,7 @@ import { type AmsgLastSkip, DEFAULT_MAX_UNANSWERED_SENDS, describeLastSkip } fro
 import { isInstantChatReady } from '../../utils/amsgInstantChat';
 import { syncAmsgLlmCredentials } from '../../utils/amsgStateSync';
 import { buildUserCancelledNotices } from '../../utils/amsg2TaskContext';
+import { trackEvent } from '../../utils/analytics';
 import {
   applyRemoteTaskDelta,
   applyScheduledTask,

@@ -34,6 +34,9 @@ import {
 } from '@rei-standard/amsg-server/cloudflare';
 import { stripReasoningTags } from '@rei-standard/amsg-shared';
 import { AMSG_BUNDLE_VERSION } from '../../../utils/amsgBundleVersion';
+// 「上一次推送被判订阅失效」的形状，跟前端体检共用一个类型定义（那份是零依赖纯叶子；
+// 往里加任何浏览器依赖都会连累这个 bundle）。这里只产出事实，红绿灯和文案归前端。
+import type { AmsgPushGoneFailure } from '../../../utils/amsgDiagnostics';
 import type { UserProfile } from '../../../types';
 import {
   AMSG_CHAT_FAIL_KEY,
@@ -120,6 +123,7 @@ import { XhsMcpClient } from '../../../utils/xhsMcpClient';
 // type-only：编译期擦除，classifier 的实现不会因为这行被拉进 bundle。
 import type { ToolCall } from '../../instant-push/src/classifier';
 import {
+  classifyNativeToolCalls,
   createFireSessionState,
   MAX_TOOL_ITERATIONS,
   processLLMRound,
@@ -318,6 +322,13 @@ interface FireStash {
   selfLogDirty: boolean;
   /** 通用 MCP：暴露名 → 服务器/工具。tool_config 里没配（或对该角色不可见）时为 null。 */
   mcpResolve: Map<string, McpResolvedToolCore> | null;
+  /**
+   * 本次 fire 声明给模型的非 MCP native 工具名（schedule / cancel / renew 按各自开关
+   * 在场与否）。onLLMOutput 认领 native tool_call 时拿它当清单（MCP 那份在 mcpResolve）。
+   * 从拼好的 fireTools 现算——以后加新工具不用再来入口登记。onBeforeFire 拼完 fireTools
+   * 后填充，在那之前是空集。
+   */
+  fireToolNames: Set<string>;
   /** 每服务器一份连接会话，单次 fire 内跨轮复用，fire 结束随 scratch 丢弃。 */
   mcpSessions: Map<string, McpSessionState>;
   /** 本次 fire 已经花在 MCP 调用上的毫秒数，见 MCP_TOTAL_BUDGET_MS。 */
@@ -1698,6 +1709,7 @@ export const amsgHooks = {
       selfLog,
       selfLogDirty: false,
       mcpResolve,
+      fireToolNames: new Set(),
       mcpSessions: new Map(),
       mcpSpentMs: 0,
       // 「还能不能再排」按客户端已知的 + 角色自己排过还没被认领的一起算，
@@ -1788,6 +1800,10 @@ export const amsgHooks = {
         ? [buildFireCancelTool(), buildFireRenewTool({ nowMs: ctx.now.getTime(), tz })]
         : []),
     ];
+    // 非 MCP 的声明名单独留一份给 onLLMOutput 认领 native 调用用（见 FireStash.fireToolNames）。
+    stash.fireToolNames = new Set(fireTools
+      .map((t) => t?.function?.name)
+      .filter((n): n is string => typeof n === 'string' && !n.startsWith(MCP_FIRE_NAME_PREFIX)));
     // 轮次上限显式给一份：worker 要靠同一个数判「这是最后一轮了」（见 onLLMOutput），
     // 而上游只有内部默认值、没导出常量，各写各的迟早对不上。
     // tools 由 amsg-server 带 agentic-fire-tools feature 的版本起透传给每轮 LLM 请求。
@@ -1930,31 +1946,23 @@ export const amsgHooks = {
       .join('\n\n');
     session.finalReasoning = roundReasoning || null;
 
-    // native tool_calls：只认 tools 数组里声明过的 MCP 名字。模型幻觉出的
-    // 未声明调用（比如给 tag 工具编一个 native 调用）丢弃并留日志——直接透传
-    // 会让 executeToolCalls 撞上没有 stash 映射的名字。日志带上当时声明了哪些，
+    // native tool_calls：只认声明过的工具（fireToolNames 的管理工具 + mcpResolve 的
+    // MCP 名），但认法放宽——模型常把声明名的「姓」搞丢或换家：声明的 mcp__foo 回报成
+    // foo / default_api:foo，cancel_active_message 也在此列。严格命中优先，对不上再
+    // 去掉命名空间取裸名、唯一命中才认领（见 classifyNativeToolCalls，认领时名字改写
+    // 回声明名）。真幻觉的（哪份清单都对不上）照旧丢弃并留日志——直接透传会让
+    // executeToolCalls 撞上没有 stash 映射的名字。日志带上当时声明了哪些，
     // 「模型编的」和「名字映射建歪了」一眼能分开。
     const rawToolCalls = (ctx.llmResponse as { choices?: Array<{ message?: { tool_calls?: unknown } }> })
       ?.choices?.[0]?.message?.tool_calls;
-    const allNativeCalls = (Array.isArray(rawToolCalls) ? rawToolCalls : []) as ToolCall[];
-    const nativeScheduleCalls = allNativeCalls.filter(
-      (tc) => tc?.function?.name === AMSG_FIRE_SCHEDULE_TOOL,
-    );
-    const nativeMcpCalls = allNativeCalls.filter((tc): tc is ToolCall => {
-      const n = (tc as ToolCall | undefined)?.function?.name;
-      if (n === AMSG_FIRE_SCHEDULE_TOOL) return false;   // 排程工具走上面那条，不算 MCP
-      const hit = typeof n === 'string'
-        && n.startsWith(MCP_FIRE_NAME_PREFIX)
-        && !!stash.mcpResolve?.has(n.slice(MCP_FIRE_NAME_PREFIX.length));
-      if (!hit) {
-        console.warn('[amsg:agentic] 丢弃未声明的 native tool_call', {
-          sessionId: ctx.sessionId,
-          name: n ?? null,
-          declared: [...(stash.mcpResolve?.keys() ?? [])],
-        });
-      }
-      return hit;
-    });
+    const nativeCalls = classifyNativeToolCalls(rawToolCalls, stash.fireToolNames, stash.mcpResolve);
+    for (const droppedName of nativeCalls.dropped) {
+      console.warn('[amsg:agentic] 丢弃未声明的 native tool_call', {
+        sessionId: ctx.sessionId,
+        name: droppedName,
+        declared: [...stash.fireToolNames, ...(stash.mcpResolve?.keys() ?? [])],
+      });
+    }
 
     let decision = processLLMRound(session, content, {
       // 名字取 tool_pack 里的那份：它跟着每轮聊天重新上云，改名当天就是新的。
@@ -1980,9 +1988,11 @@ export const amsgHooks = {
       // 没有这一份的话客户端只能拿「用户此刻在听的那首」凑（补收时多半是空的）。
       sceneSong: stash.sceneSong,
     },
-    stash.mcpResolve ? { resolve: stash.mcpResolve, nativeToolCalls: nativeMcpCalls } : null,
+    stash.mcpResolve ? { resolve: stash.mcpResolve, nativeToolCalls: nativeCalls.mcp } : null,
     // 传 null = 这次不认排程（老部署没这口子），正文里写了也不当调用。
-    typeof ctx.scheduleTask === 'function' ? { nativeToolCalls: nativeScheduleCalls } : null,
+    // manage 池里可能还有 cancel / renew——它们被认领的前提是声明过（canManageTasks），
+    // 而 canManageTasks ⊆ canSelfSchedule ⊆「scheduleTask 是函数」，这道闸不会误拦。
+    typeof ctx.scheduleTask === 'function' ? { nativeToolCalls: nativeCalls.manage } : null,
     // 最后一轮不再放行工具请求，改成用手上的内容收尾（见 agentic.ts 的 MAX_TOOL_ITERATIONS）。
     ctx.iteration);
 
@@ -2485,11 +2495,71 @@ type D1Like = {
   };
 };
 
+/** 推送服务判定订阅已失效时回的状态码：410 = 已注销/过期，404 = 端点根本不存在。 */
+const PUSH_GONE_STATUSES = [410, 404];
+
+/**
+ * 推送到底推没推出去：最近一次被推送服务判成「这条订阅已经失效」是什么时候。
+ *
+ * 这是「登记状态全绿、到点一条都不来」的最后一块拼图。浏览器手里有订阅、库里也
+ * 登记着同一条 endpoint，两边都自洽，但那条 endpoint 在推送服务（FCM / Mozilla /
+ * Apple）那侧早就作废了，推过去只换回一个 410。这件事只有推送服务知道，前端和
+ * Worker 自己都查不出来。
+ *
+ * 事实由上游 amsg-server 产生：投递失败时它把推送服务回的状态码结构化写进任务的
+ * `last_error.pushStatus`。这里只是把它读出来——**不去解析 `reason` 那句人话**，
+ * 那是给用户看的自由文本，拿它当接口用的话，上游改个措辞这里就静默失效。
+ *
+ * 只回状态码和时刻，不回 `last_error` 原文：那是一段没有约束的错误摘要，而
+ * `/debug` 这个端点是不设防的。
+ *
+ * 查不成（老库还没有 last_error 列、查询被拒）返回 null = 「这一项没查出来」，
+ * 界面照实说查不了，不会因此给一个假绿灯。
+ */
+export const inspectPushDelivery = async (
+  db: D1Like,
+  registeredAtMs: number | null,
+): Promise<{ gone: AmsgPushGoneFailure | null; registeredAtMs: number | null } | null> => {
+  try {
+    // 只看有失败记录的行，按最近更新排。订阅一旦作废，每条到点的任务都会撞上同一个
+    // 410，最近那次必然排在最前面——取 20 条足够，不必把整个任务表读一遍。
+    const rows = await db
+      .prepare(
+        `SELECT last_error FROM scheduled_messages
+          WHERE last_error IS NOT NULL
+          ORDER BY updated_at DESC
+          LIMIT 20`,
+      )
+      .all<{ last_error: string | null }>();
+
+    let gone: AmsgPushGoneFailure | null = null;
+    for (const row of rows.results || []) {
+      let record: { at?: unknown; pushStatus?: unknown } | null = null;
+      try {
+        const parsed = JSON.parse(row.last_error || 'null');
+        record = parsed && typeof parsed === 'object' ? parsed : null;
+      } catch {
+        continue; // 存进去的不是 JSON（不该发生），跳过这一条就是了
+      }
+      const status = Number(record?.pushStatus);
+      if (!PUSH_GONE_STATUSES.includes(status)) continue;
+      const atMs = Date.parse(String(record?.at ?? ''));
+      if (!Number.isFinite(atMs)) continue;
+      if (!gone || atMs > gone.atMs) gone = { status, atMs };
+    }
+
+    return { gone, registeredAtMs };
+  } catch {
+    return null;
+  }
+};
+
 /**
  * 只读地看一眼库里的状况：表齐不齐、列全不全、有没有到点却没人处理的任务。
  *
- * 全程不写库，也不读任何一条任务的内容——只数数和比对 schema。数出来的东西
- * （待发条数、最老的一条过期了多久）不指向任何角色、时间点或正文。
+ * 全程不写库，也不读任何一条任务的内容——只数数、比对 schema，以及从失败记录里
+ * 认一个状态码。数出来的东西（待发条数、最老的一条过期了多久）不指向任何角色、
+ * 时间点或正文。
  */
 const inspectStorage = async (
   env: Env,
@@ -2532,8 +2602,12 @@ const inspectStorage = async (
       .bind(nowIso, nowIso)
       .first<{ pending: number; overdue: number | null; oldest: string | null }>();
 
+    // 一行表，条数和登记时刻一次拿全。登记时刻是判断投递失败还算不算数的标尺：
+    // 重置订阅会覆盖这一行、刷新时刻，比它更早的失败都是上一条订阅的旧账。
     const pushRow = present.has('push_subscriptions')
-      ? await db.prepare('SELECT COUNT(*) AS n FROM push_subscriptions').first<{ n: number }>()
+      ? await db
+        .prepare('SELECT COUNT(*) AS n, MAX(updated_at) AS updatedAt FROM push_subscriptions')
+        .first<{ n: number; updatedAt: number | null }>()
       : null;
 
     return {
@@ -2546,6 +2620,7 @@ const inspectStorage = async (
       // 单用户 worker 只存一行。到点却发不出去最常见的原因就是这行是空的——
       // 换了一台 worker 之后云端订阅是空的，而浏览器那侧的订阅一个字都没变。
       pushSubscriptionRegistered: (pushRow?.n ?? 0) > 0,
+      pushDelivery: await inspectPushDelivery(db, pushRow?.updatedAt ?? null),
       pendingTasks: stats?.pending ?? 0,
       overdueTasks: stats?.overdue ?? 0,
       oldestOverdueMinutes: stats?.oldest

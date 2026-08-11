@@ -127,4 +127,9 @@ export const INSTALLED_APPS: AppConfig[] = [
   // { id: AppID.QQBridge, name: 'QQ 桥', icon: 'QQBridge', color: 'sky' }, // Hidden temporarily
 ];
 
+// 桌面不显示图标、但仍可从其他入口打开的 App。
+export const HIDDEN_APP_NAMES: Partial<Record<AppID, string>> = {
+  [AppID.WorldHome]: '家园',
+};
+
 export const DOCK_APPS = [AppID.Chat, AppID.GroupChat, AppID.Social, AppID.Settings];

@@ -5,6 +5,7 @@ import { CharacterProfile, ChatTheme, EmojiCategory, Emoji, APIConfig, ApiPreset
 import { PRESET_THEMES } from './ChatConstants';
 import { AcnhActionTile } from '../os/acnhIcons';
 import { isIOSStandaloneWebApp } from '../../utils/iosStandalone';
+import { trackEvent } from '../../utils/analytics';
 
 const EMOJI_PAGE_SIZE = 40;
 

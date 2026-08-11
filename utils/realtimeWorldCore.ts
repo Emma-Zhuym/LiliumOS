@@ -20,7 +20,7 @@ export interface WeatherData {
     feelsLike: number;
     humidity: number;
     description: string;
-    icon: string;
+    icon?: string;
     city: string;
 }
 

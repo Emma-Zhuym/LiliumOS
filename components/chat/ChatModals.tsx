@@ -8,6 +8,7 @@ import { F, HUE } from '../../utils/clayTokens';
 import { formatSleepTimelineTime, SLEEP_TIMELINE_END, SLEEP_TIMELINE_START } from '../../utils/scheduleTime';
 import { isTranslationLangPreset, normalizeTranslationLangLabel, TRANSLATION_LANG_MAX_LENGTH, TRANSLATION_LANG_PRESETS } from '../../utils/translationLang';
 import type { ContextRangeMode, ContextRangeSnapshot } from '../../utils/chatContextRange';
+import { trackEvent } from '../../utils/analytics';
 
 interface ChatModalsProps {
     modalType: string;
