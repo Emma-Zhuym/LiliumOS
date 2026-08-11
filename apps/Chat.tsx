@@ -42,6 +42,7 @@ import CharacterEntryTransition from '../components/chat/CharacterEntryTransitio
 import ChromeCssEditor from '../components/chat/ChromeCssEditor';
 import ChatInputArea from '../components/chat/ChatInputArea';
 import IntifaceFloatingBall from '../components/chat/IntifaceFloatingBall';
+import InstantChatRouteNotice from '../components/chat/InstantChatRouteNotice';
 import MemoryRepairPortal from '../components/chat/MemoryRepairPortal';
 import FavoritesPortal from '../components/chat/FavoritesPortal';
 import ChatModals from '../components/chat/ChatModals';
@@ -3924,9 +3925,11 @@ const Chat: React.FC = () => {
                         <button onClick={() => setReplyTarget(null)} className="p-1 text-slate-400 hover:text-slate-600">×</button>
                     </div>
                 )}
-                
                 {/* EM: Intiface 实时悬浮球（设备连接+Chat模式开启时自动出现） */}
                 <IntifaceFloatingBall />
+
+                {/* 开关写着「已开启」、这一轮却在本地生成时，把原因说给用户听 */}
+                <InstantChatRouteNotice charId={activeCharacterId} />
 
                 <ChatInputArea
                     input={input} setInput={handleInputChange}
