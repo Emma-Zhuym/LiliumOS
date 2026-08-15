@@ -830,8 +830,8 @@ async function fetchFromAnyUpstream(upstreamPath, timeoutMs = 8000) {
 
 // ================================================================
 //  XHS Lite —— 验证过的纯算签名 + web API 封装（隔离在 IIFE 内，
-//  不与上面旧的 /xhs/ 签名实现冲突）。对外暴露 /api/<command> 桥接契约，
-//  与 scripts/xhs-bridge.mjs 完全兼容，前端 bridge 模式直接复用。
+//  不与上面旧的 /xhs/ 签名实现冲突）。对外暴露 /api/<command> 契约，
+//  供前端 Lite 模式直接调用。
 //
 //  签名移植自 Cloxl/xhshow (MIT)，已与 Python 原版逐字节比对验证
 //  （见 worker/xhs-lite/test/）。cookie 经 X-Xhs-Cookie 头按请求传入。
@@ -2371,8 +2371,8 @@ export default {
       return new Response(null, { status: 204, headers: corsHeaders(origin) });
     }
 
-    // ========== 小红书 Lite 桥接 (/api/<command>) ==========
-    // 与 scripts/xhs-bridge.mjs 契约一致，前端 bridge 模式直接复用。
+    // ========== 小红书 Lite API (/api/<command>) ==========
+    // 前端 Lite 模式直接调用这一组端点。
     const apiMatch = url.pathname.match(/^\/api\/(.+)$/);
     if (apiMatch) {
       const command = apiMatch[1].replace(/\/+$/, '');

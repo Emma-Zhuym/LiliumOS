@@ -4148,7 +4148,7 @@ const Settings: React.FC = () => {
                       <div className="flex items-center gap-2">
                           <Book size={20} weight="fill" />
                           <span className="text-sm font-bold text-red-700">小红书 · 本地</span>
-                          <span className="text-[9px] bg-red-100 text-red-500 px-1.5 py-0.5 rounded-full">MCP / Skills</span>
+                          <span className="text-[9px] bg-red-100 text-red-500 px-1.5 py-0.5 rounded-full">MCP</span>
                       </div>
                       <label className="relative inline-flex items-center cursor-pointer">
                           <input type="checkbox" checked={rtXhsMcpEnabled && rtXhsMode === 'local'} onChange={e => { if (e.target.checked) { setRtXhsMcpEnabled(true); setRtXhsEnabled(true); setRtXhsMode('local'); } else { setRtXhsMcpEnabled(false); setRtXhsEnabled(false); } }} className="sr-only peer" />
@@ -4156,7 +4156,7 @@ const Settings: React.FC = () => {
                       </label>
                   </div>
                   <p className="text-[10px] text-red-500/70 leading-relaxed">
-                      本地后端：需在电脑上跑 xiaohongshu-mcp 或 xhs-bridge。想免电脑请用下面的「小红书 Lite」。
+                      本地后端：需在电脑上运行 xiaohongshu-mcp。想免电脑请使用下面的「小红书 Lite」。
                   </p>
                   {rtXhsMcpEnabled && rtXhsMode === 'local' && (
                       <div className="space-y-2">
@@ -4176,9 +4176,7 @@ const Settings: React.FC = () => {
                               </div>
                           </div>
                           <p className="text-[10px] text-red-500/70 leading-relaxed">
-                              <b>MCP 模式:</b> 下载 xiaohongshu-mcp + 运行脚本，URL 填 http://localhost:18060/mcp（代理则 18061/mcp）<br/>
-                              <b>Skills 模式:</b> URL 填 http://localhost:18061/api（需 Python + xhs-bridge.mjs，额外支持视频/长文）<br/>
-                              系统按 URL 结尾自动判断（/mcp 或 /api）。
+                              下载并运行 xiaohongshu-mcp，URL 填 http://localhost:18060/mcp（代理则 18061/mcp）。
                           </p>
                       </div>
                   )}

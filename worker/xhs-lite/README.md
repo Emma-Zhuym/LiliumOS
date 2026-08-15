@@ -6,8 +6,7 @@
 ## 它在哪、怎么用
 
 实现已**直接嵌入主 Worker** `worker/index.js`（即已部署的 `https://sullymeow.ccwu.cc`），
-作为隔离的 `XHSLite` 模块，对外暴露 `/api/<command>` 桥接接口，和
-`scripts/xhs-bridge.mjs` 完全兼容，前端 bridge 模式直接复用。
+作为隔离的 `XHSLite` 模块，对外暴露 `/api/<command>` 接口，供前端 Lite 模式直接调用。
 
 **部署（运营方做一次）：** 像平时一样重新部署 `worker/index.js` 即可，URL 不变。
 

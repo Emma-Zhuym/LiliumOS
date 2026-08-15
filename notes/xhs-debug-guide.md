@@ -1,5 +1,7 @@
 # 小红书集成 - 技术调试文档
 
+> 历史记录：本页描述的 `xhs-bridge.mjs` 与 `start-xhs.bat` 方案已于 2026-08-15 移除，不再维护。当前请使用 `xiaohongshu-mcp` 本地模式或 XHS Lite。
+
 ## 一、项目概览
 
 NOI2test 是一个虚拟手机 OS 模拟器（React + Vite），其中集成了小红书自动化功能。

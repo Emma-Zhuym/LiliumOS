@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Wallet, Receipt, ChartPie, CaretLeft, CaretRight, CaretDown, Plus, Trash, Gear, CreditCard, PiggyBank, Money, Coffee, type Icon } from '@phosphor-icons/react';
+import { Wallet, Receipt, ChartPie, CaretLeft, CaretRight, CaretDown, Plus, Trash, Gear, CreditCard, PiggyBank, Money, Coffee, ChartLine, ArrowsClockwise, type Icon } from '@phosphor-icons/react';
 import { useOS } from '../context/OSContext';
 import { FinanceDB } from '../utils/financeDb';
 import { DB } from '../utils/db';
@@ -16,6 +16,8 @@ import { MemoryNodeDB, bm25Search } from '../utils/memoryPalace';
 import type { MemoryNode } from '../utils/memoryPalace/types';
 import { FinanceAccount, FinanceCategory, FinanceTransaction, FinanceTxType, CharacterProfile, RecurringRule, RecurringFrequency } from '../types';
 import { F, S, R, HUE, STATUS, MOTION } from '../utils/clayTokens';
+import { syncSimpleFinIfStale } from '../utils/simplefinSync';
+import { SimpleFinSettingsCard } from '../components/finance/SimpleFinSettingsCard';
 
 type TabId = 'assets' | 'transactions' | 'analytics';
 
@@ -31,7 +33,7 @@ const ACCOUNT_COLORS = [
 ];
 
 const ACCOUNT_TYPE_LABELS: Record<FinanceAccount['type'], string> = {
-  checking: '储蓄账户', savings: '定期/储蓄', credit: '信用账户', cash: '现金',
+  checking: '活期账户', savings: '定期/储蓄', credit: '信用账户', cash: '现金', investment: '投资账户',
 };
 
 const ALL_CURRENCIES = ['CNY', 'USD', 'JPY', 'EUR', 'GBP', 'KRW', 'HKD', 'TWD', 'CAD', 'AUD', 'SGD', 'CHF'];
@@ -103,6 +105,9 @@ const BankApp: React.FC = () => {
       await FinanceDB.processRecurringRules();
       await refreshData();
       setLoading(false);
+      void syncSimpleFinIfStale()
+        .then(result => result ? refreshData() : undefined)
+        .catch(error => console.warn('[Finance] SimpleFIN 自动同步失败:', error));
     })();
   }, [refreshData]);
 
@@ -281,6 +286,14 @@ function formatAmount(amount: number, currency?: string, defaultCur?: string) {
   return `${sign}${sym}${Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function totalsByCurrency(transactions: FinanceTransaction[]): [string, number][] {
+  const totals: Record<string, number> = {};
+  for (const transaction of transactions) {
+    totals[transaction.currency] = (totals[transaction.currency] || 0) + transaction.amount;
+  }
+  return Object.entries(totals).sort((a, b) => b[1] - a[1]);
+}
+
 // ── 账户表单（添加/编辑） ──
 
 const AccountForm: React.FC<{
@@ -292,6 +305,7 @@ const AccountForm: React.FC<{
   defaultCurrency?: string;
 }> = ({ initial, onSave, onDelete, onClose, enabledCurrencies, defaultCurrency }) => {
   const isEdit = !!initial;
+  const isSynced = initial?.source === 'simplefin';
   const [name, setName] = useState(initial?.name || '');
   const [type, setType] = useState<FinanceAccount['type']>(initial?.type || 'checking');
   const [currency, setCurrency] = useState(initial?.currency || defaultCurrency || 'CNY');
@@ -304,8 +318,9 @@ const AccountForm: React.FC<{
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const handleSave = () => {
-    if (!name.trim()) return;
+    if (isSynced || !name.trim()) return;
     onSave({
+      ...initial,
       id: initial?.id || `acc_${Date.now()}`,
       name: name.trim(),
       type,
@@ -329,16 +344,18 @@ const AccountForm: React.FC<{
           <CaretLeft size={20} weight="bold" style={{ color: F.textSecondary }} />
         </button>
         <span className="text-sm font-semibold" style={{ color: F.textPrimary }}>
-          {isEdit ? '编辑账户' : '新建账户'}
+          {isSynced ? '账户详情' : isEdit ? '编辑账户' : '新建账户'}
         </span>
-        <button
-          onClick={handleSave}
-          disabled={!name.trim()}
-          className="text-sm font-semibold"
-          style={{ color: !name.trim() ? F.textTertiary : F.accent }}
-        >
-          保存
-        </button>
+        {isSynced ? <div className="w-12" /> : (
+          <button
+            onClick={handleSave}
+            disabled={!name.trim()}
+            className="text-sm font-semibold"
+            style={{ color: !name.trim() ? F.textTertiary : F.accent }}
+          >
+            保存
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 pb-8">
@@ -347,6 +364,7 @@ const AccountForm: React.FC<{
           <FormRow label="名称">
             <input
               value={name}
+              disabled={isSynced}
               onChange={e => setName(e.target.value)}
               placeholder="如：招商储蓄卡"
               className="w-full text-right text-sm outline-none bg-transparent placeholder:opacity-40" style={{ color: F.textPrimary }}
@@ -355,6 +373,7 @@ const AccountForm: React.FC<{
           <FormRow label="类型" border>
             <select
               value={type}
+              disabled={isSynced}
               onChange={e => setType(e.target.value as FinanceAccount['type'])}
               className="w-full text-right text-sm outline-none bg-transparent appearance-none" style={{ color: F.textPrimary }}
             >
@@ -366,6 +385,7 @@ const AccountForm: React.FC<{
           <FormRow label="币种" border>
             <select
               value={currency}
+              disabled={isSynced}
               onChange={e => setCurrency(e.target.value)}
               className="w-full text-right text-sm outline-none bg-transparent appearance-none" style={{ color: F.textPrimary }}
             >
@@ -375,18 +395,26 @@ const AccountForm: React.FC<{
             </select>
           </FormRow>
           <FormRow label="初始余额" border>
-            <input
-              value={initialBalance}
-              onChange={e => setInitialBalance(e.target.value)}
-              type="number"
-              inputMode="decimal"
-              placeholder="0.00"
-              className="w-full text-right text-sm outline-none bg-transparent placeholder:opacity-40" style={{ color: F.textPrimary }}
-            />
+            {isSynced ? (
+              <span className="inline-flex items-center justify-end gap-1.5 text-sm" style={{ color: F.textSecondary }}>
+                <ArrowsClockwise size={14} weight="bold" />
+                {formatAmount(initial?.syncedBalance || 0, currency)}
+              </span>
+            ) : (
+              <input
+                value={initialBalance}
+                onChange={e => setInitialBalance(e.target.value)}
+                type="number"
+                inputMode="decimal"
+                placeholder="0.00"
+                className="w-full text-right text-sm outline-none bg-transparent placeholder:opacity-40" style={{ color: F.textPrimary }}
+              />
+            )}
           </FormRow>
           <FormRow label="图标（emoji）" border>
             <input
               value={icon}
+              disabled={isSynced}
               onChange={e => setIcon(e.target.value)}
               placeholder="💳"
               className="w-full text-right text-sm outline-none bg-transparent placeholder:opacity-40" style={{ color: F.textPrimary }}
@@ -402,8 +430,9 @@ const AccountForm: React.FC<{
             {ACCOUNT_COLORS.map(c => (
               <button
                 key={c}
+                disabled={isSynced}
                 onClick={() => setColor(c)}
-                className="w-8 h-8 rounded-full transition-transform"
+                className="w-8 h-8 rounded-full transition-transform disabled:opacity-60"
                 style={{
                   backgroundColor: c,
                   boxShadow: color === c ? `0 0 0 3px ${HUE.purple.tint}, 0 0 0 5px ${c}` : 'none',
@@ -429,7 +458,7 @@ const AccountForm: React.FC<{
               <div className="text-[11px]" style={{ color: F.textTertiary }}>{ACCOUNT_TYPE_LABELS[type]} · {currency}</div>
             </div>
             <div className="text-sm font-semibold" style={{ color: F.textPrimary }}>
-              {formatAmount(parseFloat(initialBalance) || 0, currency)}
+              {formatAmount(isSynced ? (initial?.syncedBalance || 0) : (parseFloat(initialBalance) || 0), currency)}
             </div>
           </div>
         </div>
@@ -546,6 +575,8 @@ const SettingsPage: React.FC<{
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 pb-8">
+        <SimpleFinSettingsCard onSynced={onRefresh} />
+
         {/* ── 分类管理 ── */}
         <div className="overflow-hidden mb-4" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, boxShadow: S.raisedSoft }}>
           <div className="flex items-center justify-between px-4 pt-4 pb-2">
@@ -882,7 +913,7 @@ const RecurringRulesSection: React.FC<{
     return (
       <RecurringRuleForm
         initial={isNew ? undefined : editing}
-        accounts={accounts}
+        accounts={accounts.filter(account => account.source !== 'simplefin')}
         categories={categories}
         onSave={handleSave}
         onClose={() => setEditing(null)}
@@ -1057,7 +1088,7 @@ const RecurringRuleForm: React.FC<{
         className="w-full px-3 py-2.5 text-sm outline-none appearance-none mb-3"
         style={{ borderRadius: R.medium, background: F.surfaceSunken, boxShadow: S.sunken }}
       >
-        {accounts.filter(a => !a.isArchived).map(a => (
+        {accounts.filter(a => !a.isArchived && a.source !== 'simplefin').map(a => (
           <option key={a.id} value={a.id}>{a.icon || ''} {a.name}</option>
         ))}
       </select>
@@ -1113,9 +1144,11 @@ const TransactionForm: React.FC<{
   onClose: () => void;
 }> = ({ initial, accounts, categories, onSave, onDelete, onClose }) => {
   const isEdit = !!initial;
+  const isSynced = initial?.source === 'simplefin';
+  const selectableAccounts = isEdit ? accounts : accounts.filter(account => account.source !== 'simplefin');
   const [txType, setTxType] = useState<FinanceTxType>(initial?.type || 'expense');
   const [amount, setAmount] = useState(initial ? String(initial.amount) : '');
-  const [accountId, setAccountId] = useState(initial?.accountId || accounts[0]?.id || '');
+  const [accountId, setAccountId] = useState(initial?.accountId || selectableAccounts[0]?.id || '');
   const [toAccountId, setToAccountId] = useState(initial?.toAccountId || '');
   const [categoryId, setCategoryId] = useState(initial?.categoryId || '');
   const [note, setNote] = useState(initial?.note || '');
@@ -1149,6 +1182,7 @@ const TransactionForm: React.FC<{
     const parsed = parseFloat(amount);
     if (!parsed || !accountId) return;
     onSave({
+      ...initial,
       id: initial?.id || `tx_${Date.now()}`,
       type: txType,
       amount: parsed,
@@ -1165,11 +1199,11 @@ const TransactionForm: React.FC<{
 
   const canSave = parseFloat(amount) > 0 && !!accountId;
 
-  if (accounts.length === 0) {
+  if (selectableAccounts.length === 0) {
     return (
       <div className="absolute inset-0 z-50 flex flex-col items-center justify-center" style={{ background: F.appBg }}>
         <div className="text-4xl mb-3">💳</div>
-        <div className="text-sm mb-1" style={{ color: F.textSecondary }}>请先在资产页添加账户</div>
+        <div className="text-sm mb-1" style={{ color: F.textSecondary }}>请先在资产页添加手动账户</div>
         <button onClick={onClose} className="mt-4 px-5 py-2 text-sm font-medium" style={{ color: F.accent }}>返回</button>
       </div>
     );
@@ -1196,6 +1230,12 @@ const TransactionForm: React.FC<{
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 pb-8">
+        {isSynced && (
+          <div className="mb-4 px-3 py-2.5 flex items-center gap-2 text-[11px]" style={{ background: STATUS.info.tint, color: STATUS.info.ink, borderRadius: R.medium }}>
+            <ArrowsClockwise size={15} weight="bold" className="shrink-0" />
+            金额、账户和日期跟随 SimpleFIN；你可以修改本地分类和备注。
+          </div>
+        )}
         {/* 类型切换 */}
         <div className="mb-4 flex p-1" style={{ background: F.surfaceSunken, borderRadius: R.large, boxShadow: S.sunken }}>
           {(['expense', 'income', 'transfer'] as const).map(t => {
@@ -1204,8 +1244,9 @@ const TransactionForm: React.FC<{
             return (
               <button
                 key={t}
+                disabled={isSynced}
                 onClick={() => { setTxType(t); setCategoryId(''); setExpandedTopCat(null); }}
-                className="flex-1 py-2 text-sm font-medium transition-all"
+                className="flex-1 py-2 text-sm font-medium transition-all disabled:opacity-60"
                 style={{
                   borderRadius: R.medium,
                   background: isActive ? F.surfaceRaised : 'transparent',
@@ -1229,12 +1270,13 @@ const TransactionForm: React.FC<{
             </span>
             <input
               value={amount}
+              disabled={isSynced}
               onChange={e => setAmount(e.target.value)}
               type="number"
               inputMode="decimal"
               placeholder="0.00"
-              autoFocus
-              className="flex-1 text-4xl font-bold outline-none bg-transparent placeholder:opacity-30 min-w-0" style={{ color: F.textPrimary }}
+              autoFocus={!isSynced}
+              className="flex-1 text-4xl font-bold outline-none bg-transparent placeholder:opacity-30 min-w-0 disabled:opacity-70" style={{ color: F.textPrimary }}
             />
           </div>
         </div>
@@ -1299,10 +1341,11 @@ const TransactionForm: React.FC<{
           <FormRow label="账户">
             <select
               value={accountId}
+              disabled={isSynced}
               onChange={e => setAccountId(e.target.value)}
-              className="w-full text-right text-sm outline-none bg-transparent appearance-none" style={{ color: F.textPrimary }}
+              className="w-full text-right text-sm outline-none bg-transparent appearance-none disabled:opacity-70" style={{ color: F.textPrimary }}
             >
-              {accounts.filter(a => !a.isArchived).map(a => (
+              {selectableAccounts.filter(a => !a.isArchived).map(a => (
                 <option key={a.id} value={a.id}>{a.name}</option>
               ))}
             </select>
@@ -1315,7 +1358,7 @@ const TransactionForm: React.FC<{
                 className="w-full text-right text-sm outline-none bg-transparent appearance-none" style={{ color: F.textPrimary }}
               >
                 <option value="">请选择</option>
-                {accounts.filter(a => !a.isArchived && a.id !== accountId).map(a => (
+                {selectableAccounts.filter(a => !a.isArchived && a.id !== accountId).map(a => (
                   <option key={a.id} value={a.id}>{a.name}</option>
                 ))}
               </select>
@@ -1325,8 +1368,9 @@ const TransactionForm: React.FC<{
             <input
               type="date"
               value={dateStr}
+              disabled={isSynced}
               onChange={e => setDateStr(e.target.value)}
-              className="w-full text-right text-sm outline-none bg-transparent" style={{ color: F.textPrimary }}
+              className="w-full text-right text-sm outline-none bg-transparent disabled:opacity-70" style={{ color: F.textPrimary }}
             />
           </FormRow>
           <FormRow label="备注" border>
@@ -1507,6 +1551,7 @@ const AssetsTab: React.FC<{
     checking: activeAccounts.filter(a => a.type === 'checking'),
     savings: activeAccounts.filter(a => a.type === 'savings'),
     credit: activeAccounts.filter(a => a.type === 'credit'),
+    investment: activeAccounts.filter(a => a.type === 'investment'),
     cash: activeAccounts.filter(a => a.type === 'cash'),
   };
 
@@ -1529,7 +1574,7 @@ const AssetsTab: React.FC<{
       <AccountForm
         initial={editingAccount === 'new' ? undefined : editingAccount}
         onSave={handleSaveAccount}
-        onDelete={editingAccount !== 'new' ? () => handleDeleteAccount(editingAccount.id) : undefined}
+        onDelete={editingAccount !== 'new' && editingAccount.source !== 'simplefin' ? () => handleDeleteAccount(editingAccount.id) : undefined}
         onClose={closeForm}
         enabledCurrencies={finSettings.enabledCurrencies}
         defaultCurrency={finSettings.defaultCurrency}
@@ -1595,11 +1640,17 @@ const AssetsTab: React.FC<{
                     >
                       {acc.type === 'credit' ? <CreditCard size={20} weight="bold" /> :
                        acc.type === 'savings' ? <PiggyBank size={20} weight="bold" /> :
+                       acc.type === 'investment' ? <ChartLine size={20} weight="bold" /> :
                        acc.type === 'cash' ? <Money size={20} weight="bold" /> :
                        <Wallet size={20} weight="bold" />}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-medium truncate" style={{ color: F.textPrimary }}>{acc.name}</div>
+                      {acc.source === 'simplefin' && (
+                        <div className="mt-0.5 flex items-center gap-1 text-[10px]" style={{ color: F.textTertiary }}>
+                          <ArrowsClockwise size={10} weight="bold" /> SimpleFIN
+                        </div>
+                      )}
                     </div>
                     <div className="text-sm font-semibold"
                       style={{ color: (balances[acc.id] ?? 0) < 0 ? HUE.rose.main : F.textPrimary }}>
@@ -1795,7 +1846,7 @@ const TransactionsTab: React.FC<{
           await onRefresh();
           setEditingTx(null);
         }}
-        onDelete={editingTx !== 'new' ? async () => {
+        onDelete={editingTx !== 'new' && editingTx.source !== 'simplefin' ? async () => {
           await FinanceDB.deleteTransaction((editingTx as FinanceTransaction).id);
           await onRefresh();
           setEditingTx(null);
@@ -1816,8 +1867,8 @@ const TransactionsTab: React.FC<{
   });
 
   const sorted = [...filtered].sort((a, b) => b.timestamp - a.timestamp);
-  const totalIncome = filtered.filter(t => t.type === 'income' || t.type === 'refund').reduce((s, t) => s + t.amount, 0);
-  const totalExpense = filtered.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
+  const totalIncome = totalsByCurrency(filtered.filter(t => t.type === 'income' || t.type === 'refund'));
+  const totalExpense = totalsByCurrency(filtered.filter(t => t.type === 'expense'));
 
   const byDate = new Map<string, FinanceTransaction[]>();
   for (const t of sorted) {
@@ -1875,11 +1926,15 @@ const TransactionsTab: React.FC<{
       <div className="flex gap-3 mb-4">
         <div className="flex-1 p-3.5" style={{ background: HUE.green.tint, borderRadius: R.smallCard, boxShadow: S.raisedSoft }}>
           <div style={{ color: HUE.green.ink, fontSize: 12, fontWeight: 500, marginBottom: 4 }}>收入</div>
-          <div style={{ color: HUE.green.ink, fontSize: 18, fontWeight: 700 }}>+{formatAmount(totalIncome)}</div>
+          {(totalIncome.length ? totalIncome : [['CNY', 0] as [string, number]]).map(([currency, amount]) => (
+            <div key={currency} style={{ color: HUE.green.ink, fontSize: 18, fontWeight: 700 }}>+{formatAmount(amount, currency)}</div>
+          ))}
         </div>
         <div className="flex-1 p-3.5" style={{ background: HUE.rose.tint, borderRadius: R.smallCard, boxShadow: S.raisedSoft }}>
           <div style={{ color: HUE.rose.ink, fontSize: 12, fontWeight: 500, marginBottom: 4 }}>支出</div>
-          <div style={{ color: HUE.rose.ink, fontSize: 18, fontWeight: 700 }}>-{formatAmount(totalExpense)}</div>
+          {(totalExpense.length ? totalExpense : [['CNY', 0] as [string, number]]).map(([currency, amount]) => (
+            <div key={currency} style={{ color: HUE.rose.ink, fontSize: 18, fontWeight: 700 }}>-{formatAmount(amount, currency)}</div>
+          ))}
         </div>
       </div>
 
@@ -1929,8 +1984,8 @@ const TransactionsTab: React.FC<{
         </div>
       ) : (
         Array.from(byDate.entries()).map(([dateStr, txs]) => {
-          const dayExpense = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
-          const dayIncome = txs.filter(t => t.type === 'income' || t.type === 'refund').reduce((s, t) => s + t.amount, 0);
+          const dayExpense = totalsByCurrency(txs.filter(t => t.type === 'expense'));
+          const dayIncome = totalsByCurrency(txs.filter(t => t.type === 'income' || t.type === 'refund'));
           const [, month, day] = dateStr.split('-');
           return (
             <div key={dateStr} className="mb-4">
@@ -1939,8 +1994,8 @@ const TransactionsTab: React.FC<{
                   {parseInt(month)}月{parseInt(day)}日 · {formatWeekday(dateStr)}
                 </div>
                 <div className="flex gap-3 text-xs">
-                  {dayExpense > 0 && <span style={{ color: HUE.rose.main }}>-{formatAmount(dayExpense)}</span>}
-                  {dayIncome > 0 && <span style={{ color: HUE.green.main }}>+{formatAmount(dayIncome)}</span>}
+                  {dayExpense.map(([currency, amount]) => <span key={`expense-${currency}`} style={{ color: HUE.rose.main }}>-{formatAmount(amount, currency)}</span>)}
+                  {dayIncome.map(([currency, amount]) => <span key={`income-${currency}`} style={{ color: HUE.green.main }}>+{formatAmount(amount, currency)}</span>)}
                 </div>
               </div>
               <div className="overflow-hidden" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, boxShadow: S.raisedSoft }}>

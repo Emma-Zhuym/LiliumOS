@@ -20,6 +20,7 @@ const STORE_RECURRING = 'recurring_rules';
 // ── 默认预设分类 ──
 
 const DEFAULT_CATEGORIES: FinanceCategory[] = [
+  { id: 'cat_uncategorized', name: '未分类', icon: '📥' },
   { id: 'cat_food', name: '餐饮', icon: '🍜' },
   { id: 'cat_food_takeout', name: '外卖', icon: '🥡', parentId: 'cat_food' },
   { id: 'cat_food_dine', name: '堂食', icon: '🍽️', parentId: 'cat_food' },
@@ -137,11 +138,13 @@ async function getById<T>(storeName: string, id: string): Promise<T | null> {
 
 async function ensureDefaultCategories(): Promise<void> {
   const existing = await getAll<FinanceCategory>(STORE_CATEGORIES);
-  if (existing.length > 0) return;
+  const existingIds = new Set(existing.map(category => category.id));
+  const missing = DEFAULT_CATEGORIES.filter(category => !existingIds.has(category.id));
+  if (missing.length === 0) return;
   const db = await openFinanceDB();
   const tx = db.transaction(STORE_CATEGORIES, 'readwrite');
   const store = tx.objectStore(STORE_CATEGORIES);
-  for (const cat of DEFAULT_CATEGORIES) {
+  for (const cat of missing) {
     store.put(cat);
   }
   return new Promise((resolve, reject) => {
@@ -159,6 +162,16 @@ export const FinanceDB = {
   getAccounts: () => getAll<FinanceAccount>(STORE_ACCOUNTS),
   getAccount: (id: string) => getById<FinanceAccount>(STORE_ACCOUNTS, id),
   saveAccount: (a: FinanceAccount) => put(STORE_ACCOUNTS, a),
+  saveAccounts: async (accounts: FinanceAccount[]) => {
+    if (accounts.length === 0) return;
+    const db = await openFinanceDB();
+    const tx = db.transaction(STORE_ACCOUNTS, 'readwrite');
+    for (const account of accounts) tx.objectStore(STORE_ACCOUNTS).put(account);
+    return new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  },
   deleteAccount: (id: string) => del(STORE_ACCOUNTS, id),
 
   // 分类
@@ -170,6 +183,16 @@ export const FinanceDB = {
   getTransactions: () => getAll<FinanceTransaction>(STORE_TX),
   getTransaction: (id: string) => getById<FinanceTransaction>(STORE_TX, id),
   saveTransaction: (t: FinanceTransaction) => put(STORE_TX, t),
+  saveTransactions: async (transactions: FinanceTransaction[]) => {
+    if (transactions.length === 0) return;
+    const db = await openFinanceDB();
+    const tx = db.transaction(STORE_TX, 'readwrite');
+    for (const transaction of transactions) tx.objectStore(STORE_TX).put(transaction);
+    return new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  },
   deleteTransaction: (id: string) => del(STORE_TX, id),
 
   getTransactionsByAccount: async (accountId: string): Promise<FinanceTransaction[]> => {
@@ -257,6 +280,9 @@ export const FinanceDB = {
 
   // 余额计算
   calcAccountBalance: async (account: FinanceAccount): Promise<number> => {
+    if (account.source === 'simplefin' && Number.isFinite(account.syncedBalance)) {
+      return account.syncedBalance as number;
+    }
     const allTx = await getAll<FinanceTransaction>(STORE_TX);
     let balance = account.initialBalance;
     for (const t of allTx) {

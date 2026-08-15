@@ -57,6 +57,7 @@ import { INSTANT_TOTAL_TIMEOUT_MS } from '../worker/amsg/src/instantChat';
 import { appendInstantTraceEntry } from '../utils/instantTraceLog';
 import { AMSG2_TOOLS, AMSG2_TOOL_NAMES, createAmsg2ToolSession, executeAmsg2Tool, isAmsg2GlobalReady } from '../utils/amsg2ToolBridge';
 import { shouldSendThinkingParams } from '../utils/thinkingGate';
+import { buildFinanceChatSystemBlock, executeFinanceChatTool, FINANCE_CHAT_TOOLS, FINANCE_CHAT_TOOL_NAMES, getFinanceAwareness, shouldEnableFinanceTools } from '../utils/financeChatTools';
 import { routeMiniAppToolCall } from '../utils/miniAppToolRoute';
 import { applyEmotionEvalRaw, extractAssistantText } from '../utils/emotionApply';
 import { announceChatGen, CHAT_GEN_EVENTS } from '../utils/chatGenEvents';
@@ -866,6 +867,10 @@ export const useChatAI = ({
             // 的 prompt，最后却交给了 IP 或落回本地」——两个钟的问题原样回来。
             const instantPushConfigured = isInstantConfigReady();
             const luckinChatOn = !!luckinChatRef?.current?.active;
+            const financeAwareness = await getFinanceAwareness(char.id).catch(() => ({ hasLedger: false, pulse: null }));
+            // 新账本事件或用户明确聊钱时必须留在本机；普通本地聊天也可自主查账，
+            // 但不会仅为了常驻财务工具拦截 Instant Chat / Instant Push。
+            const financeLocalRequired = shouldEnableFinanceTools(currentMsgs) || Boolean(financeAwareness.pulse);
             // [EM: intiface-gate] 硬件工具只能在本机执行，连接设备时不能把本轮发往云端。
             const intifaceReady = intifaceClient.connected && intifaceClient.devices.length > 0;
             // 本机 / 内网的 MCP 服务器（docs/mcp-client.md 教用户填的 http://localhost:18061
@@ -878,6 +883,7 @@ export const useChatAI = ({
                 : mcdMiniOpen ? 'mcd'
                     : luckinMiniOpen ? 'luckin'
                         : intifaceReady ? 'intiface'
+                            : financeLocalRequired ? 'finance-local'
                             : mcpWorkerUnreachable ? 'mcp-worker-unreachable' : null;
             // 带上 char：角色单独关了即时对话（reason char-disabled）时 ready 直接为
             // false，和「全局没开」同一待遇——下面那条 veto trace 的条件够不到它，
@@ -885,6 +891,8 @@ export const useChatAI = ({
             const instantChatReadiness = await resolveInstantChatReadiness(char);
             const instantChatOn = instantChatReadiness.ready;
             const instantChatRoute = instantChatOn && !instantChatVeto && !instantPushConfigured;
+            const financeToolTurn = financeLocalRequired
+                || (financeAwareness.hasLedger && !instantChatOn && !instantPushConfigured);
             // 「即时对话开着、这一轮却没上云」的所有情形都在这一处留痕，三种原因去向不同：
             //   · 点单流程否决：瑞幸/麦当劳是客户端交互式循环（选城市、确认单），云端接不了
             //     手，这一轮留在本地跑是对的；
@@ -899,6 +907,8 @@ export const useChatAI = ({
                 console.warn(
                     skipReason === 'mcp-worker-unreachable'
                         ? '[AmsgInstantChat] 这一轮没上云（有 MCP 服务器填的是本机/内网地址，worker 够不着），本地生成，工具照常可用'
+                        : skipReason === 'finance-local'
+                            ? '[AmsgInstantChat] 这一轮没上云（财务工具只读取本机账本），本地生成，账目不会上传到 worker'
                         : instantChatVeto
                             ? `[AmsgInstantChat] 这一轮没上云（${instantChatVeto} 点单流程需要客户端交互），本地生成`
                             : '[AmsgInstantChat] 这一轮没走即时对话（Instant Push 配置仍在，脏配置）：交给 Instant Push，它也不接就落回本地',
@@ -1172,6 +1182,12 @@ export const useChatAI = ({
                 max_tokens: 8000,
                 stream: userStream,
             };
+            if (financeToolTurn && baseReqBody.messages[0]?.role === 'system') {
+                baseReqBody.messages[0] = {
+                    ...baseReqBody.messages[0],
+                    content: `${baseReqBody.messages[0].content}\n\n${buildFinanceChatSystemBlock(financeAwareness.pulse)}`,
+                };
+            }
             // 思考过程展示开启时显式向后端请求 extended thinking。
             // 不同代理认不同入口，全都试一遍，代理不识别的会自动忽略：
             //  - 模型名 -thinking 后缀：packycode / anyrouter 等第三方 Claude 中转的主流约定
@@ -1182,7 +1198,7 @@ export const useChatAI = ({
             // ⚠️ 工具模式(瑞幸点单/麦当劳)下绝不带 thinking/reasoning 参数: "thinking + tools" 同发
             //    Gemini 等会直接 400 INVALID_ARGUMENT —— 表现就是"开了思考链的角色一点单就报错,
             //    换个没开思考链的角色就好"。工具循环优先, 思考链这一轮让步。
-            const toolModeActive = payload.flags.luckinChatActive || payload.flags.mcdActive || payload.flags.luckinActive || payload.flags.mcpChatActive;
+            const toolModeActive = payload.flags.luckinChatActive || payload.flags.mcdActive || payload.flags.luckinActive || payload.flags.mcpChatActive || financeToolTurn;
             // 主动消息 2.0 的工具本轮会不会注入：thinking 门要先知道这件事（工具在下面才真正
             // 拼进 tools，但参数取舍必须现在就定）。角色级开关关掉的不注入——否则被用户显式
             // 关掉的功能会被角色一次工具调用重新打开。
@@ -1248,6 +1264,10 @@ export const useChatAI = ({
                         if (!baseReqBody.tool_choice) baseReqBody.tool_choice = 'auto';
                     }
                 }
+            }
+            if (financeToolTurn) {
+                baseReqBody.tools = [...(baseReqBody.tools || []), ...FINANCE_CHAT_TOOLS];
+                if (!baseReqBody.tool_choice) baseReqBody.tool_choice = 'auto';
             }
             // 主动消息 2.0 本地工具：worker 已配置 + 角色没关掉时注入 schedule/cancel/renew/list，
             // 并注入「排程现状」背景块（常驻能力简介 + 进行中任务 + 作废待处理，角色自行判断怎么接）。
@@ -1318,7 +1338,7 @@ export const useChatAI = ({
             // 表现就是"选了城市也没用 / 角色不下单"。这些模式下跳过 instant push, 用本地 fetch 跑工具循环。
             // 双向互斥后理论上到不了：走到这条 trace 说明两边开关同时亮着（脏配置），当断言告警看。
             const AMSG2_SUPPRESSED_TRACE = 'amsg2-suppressed-by-instant';
-            if (instantPushConfigured && !payload.flags.luckinChatActive && !payload.flags.mcdActive && !payload.flags.luckinActive && !payload.flags.mcpChatActive && !intifaceReady) { // [EM: intiface-gate]
+            if (instantPushConfigured && !payload.flags.luckinChatActive && !payload.flags.mcdActive && !payload.flags.luckinActive && !payload.flags.mcpChatActive && !intifaceReady && !financeToolTurn) { // [EM: intiface-gate]
                 // 走这条路 = 上面那段 amsg2 的工具、排程现状块都白拼了（instant 发的是原始
                 // fullMessages、请求体不带 tools），下面的活跃会话租约也不会开。三样都是静默
                 // 失效，留一条 trace 让观察窗看得见，别让人对着「功能不响」凭空排查。
@@ -1785,7 +1805,7 @@ export const useChatAI = ({
             //       createOrder 被拦截 —— 下单付款必须用户在结账卡上点。
             //     · 通用 MCP: 工具名命中 mcpToolResolve 映射就分发给对应服务器 (utils/mcpClient),
             //       结果只回填循环不落卡片。两类工具可同时在场, 按名字各走各的。
-            if ((payload.flags.luckinChatActive || mcpToolResolve || amsg2ToolsInjected) && data.choices?.[0]?.message?.tool_calls?.length) {
+            if ((payload.flags.luckinChatActive || mcpToolResolve || amsg2ToolsInjected || financeToolTurn) && data.choices?.[0]?.message?.tool_calls?.length) {
                 const MAX_LOOPS = 6;
                 let loopMessages = [...baseReqBody.messages];
                 const loc = luckinChatRef?.current;
@@ -1812,6 +1832,18 @@ export const useChatAI = ({
                             args = typeof raw === 'string' ? (raw ? JSON.parse(raw) : {}) : (raw || {});
                         } catch (e) {
                             console.warn('☕ [Luckin-Chat] 工具参数解析失败:', e);
+                        }
+                        // 本地财务工具只读 FinanceDB。账号凭据从不进入模型上下文或工具结果。
+                        if (FINANCE_CHAT_TOOL_NAMES.has(fname)) {
+                            setSearchStatus('正在查看本地账目...');
+                            let financeResult: any;
+                            try {
+                                financeResult = await executeFinanceChatTool(fname, args);
+                            } catch (e: any) {
+                                financeResult = { success: false, error: e?.message || String(e) };
+                            }
+                            loopMessages.push(buildToolResultMessage(tc, JSON.stringify(financeResult)) as any);
+                            continue;
                         }
                         // 通用 MCP 工具: 命中映射直接分发, 不走下面的瑞幸逻辑
                         const mcpHit = mcpToolResolve?.get(fname);
@@ -1887,9 +1919,9 @@ export const useChatAI = ({
                         method: 'POST', headers,
                         body: JSON.stringify(followBody)
                     });
-                    updateTokenUsage(data, historyMsgCount, `${payload.flags.luckinChatActive ? 'luckin-chat' : 'mcp-chat'}-${it + 1}`);
+                    updateTokenUsage(data, historyMsgCount, `${payload.flags.luckinChatActive ? 'luckin-chat' : financeToolTurn ? 'finance-chat' : 'mcp-chat'}-${it + 1}`);
                 }
-                if (mcpToolResolve) setSearchStatus('');
+                if (mcpToolResolve || financeToolTurn) setSearchStatus('');
             }
 
             // 3.6b MCP 掉格式容错（第二层, 对标见面观测协议的两层容错）:

@@ -3415,13 +3415,23 @@ export interface TrackerField {
 export interface FinanceAccount {
     id: string;
     name: string;
-    type: 'checking' | 'savings' | 'credit' | 'cash';
+    type: 'checking' | 'savings' | 'credit' | 'cash' | 'investment';
     currency: string;
     initialBalance: number;
     color: string;
     icon?: string;
     isArchived?: boolean;
     sortOrder?: number;
+    /** EM local-first finance: manual accounts remain editable; synced accounts trust their provider balance. */
+    source?: 'manual' | 'simplefin';
+    externalId?: string;
+    externalConnectionId?: string;
+    externalName?: string;
+    sourceBalance?: number;
+    syncedBalance?: number;
+    availableBalance?: number;
+    balanceUpdatedAt?: number;
+    lastSyncedAt?: number;
 }
 
 export interface FinanceCategory {
@@ -3466,6 +3476,14 @@ export interface FinanceTransaction {
     toCurrency?: string;
     refundForTxId?: string;
     charComments?: { charId: string; comment: string; timestamp: number }[];
+    source?: 'manual' | 'simplefin';
+    externalId?: string;
+    externalAccountId?: string;
+    sourceDescription?: string;
+    sourceCategory?: string;
+    pending?: boolean;
+    importedAt?: number;
+    sourceUpdatedAt?: number;
 }
 
 export interface Tracker {
