@@ -47,6 +47,8 @@ const CURRENCY_SYMBOLS: Record<string, string> = {
   HKD: 'HK$', TWD: 'NT$', CAD: 'C$', AUD: 'A$', SGD: 'S$', CHF: 'CHF',
 };
 
+const FINANCE_GOSSIP_CUE = /买|购|下单|订单|签收|逛街|消费|花钱|付款|买单|刷卡|结账|账单|请客|送礼|礼物|退货|换货|退款|收入|工资|薪水|奖金|兼职|报销|订阅|续费|存钱|省钱|优惠|折扣|比价|卖掉|二手|快递|外卖|咖啡|餐厅|打车|车票|机票|房租|缴费|维修|理发|看病|买药/;
+
 // ── BankApp 产品色（从 design system palette 取） ──
 const BANK_HUE = {
   asset:   HUE.mint,
@@ -1845,7 +1847,7 @@ const TransactionsTab: React.FC<{
     if (!apiConfig?.baseUrl || characters.length === 0) return;
     setGossipLoading(true);
     try {
-      // 读取所有角色今天的日程，随机选一个有日程的
+      // 优先挑选日程里带有消费场景的角色，让银行页情报始终围绕经济生活。
       const today = new Date().toISOString().split('T')[0];
       const schedules = await Promise.all(
         characters.map(async c => ({
@@ -1854,8 +1856,14 @@ const TransactionsTab: React.FC<{
         }))
       );
       const withSchedule = schedules.filter(s => s.schedule && s.schedule.slots.length > 0);
-      const pick = withSchedule.length > 0
-        ? withSchedule[Math.floor(Math.random() * withSchedule.length)]
+      const withFinanceActivity = withSchedule.filter(s =>
+        s.schedule?.slots.some((slot: { activity: string; location?: string }) =>
+          FINANCE_GOSSIP_CUE.test(`${slot.activity} ${slot.location || ''}`),
+        ),
+      );
+      const pickPool = withFinanceActivity.length > 0 ? withFinanceActivity : withSchedule;
+      const pick = pickPool.length > 0
+        ? pickPool[Math.floor(Math.random() * pickPool.length)]
         : { char: characters[Math.floor(Math.random() * characters.length)], schedule: null };
 
       setGossipChar(pick.char);
@@ -1865,8 +1873,12 @@ const TransactionsTab: React.FC<{
           `${s.startTime} ${s.emoji || ''} ${s.activity}${s.location ? `（在${s.location}）` : ''}`
         ).join('\n')
         : '今天没有日程安排';
+      const characterContext = [pick.char.description, pick.char.systemPrompt]
+        .filter(Boolean)
+        .join('\n')
+        .slice(0, 2400) || '没有额外设定，请保持角色已有的身份气质。';
 
-      const prompt = `你是一个写八卦情报的旁白系统。根据角色「${pick.char.name}」今天的日程，写一条简短的情报/八卦，像咖啡馆里听来的小道消息。\n\n${pick.char.name}的日程：\n${slotsSummary}\n\n要求：\n- 1句话，30字以内\n- 第三人称，像在报道别人的动态\n- 带点八卦感、生活感，不要干巴巴地复述日程\n- 可以从日程里推测角色的状态（比如连续开会→可能很忙，去咖啡店→可能在摸鱼）\n- 示例：「陈照今天买了三杯咖啡，看起来要通宵」「阿萌下午翘了课去逛街」\n- 直接输出情报文字，不加引号`;
+      const prompt = `你在银行 App 里写一条「角色经济生活小道消息」。经济事件是八卦的起点，旁人的反应、起哄、误会和磕 CP 都可以成为重点。\n\n角色：${pick.char.name}\n角色设定：\n${characterContext}\n\n今天的日程：\n${slotsSummary}\n\n必须遵守：\n- 1句话，30字以内，第三人称\n- 句子必须由购买、付款、请客送礼、退换货、收入报销、订阅续费等经济行为触发\n- 八卦可以延伸到同事、下属或朋友的反应，也可以让旁人磕 CP，但不能删掉经济事件本身\n- 消费方式和反应必须符合角色身份、财富水平、性格与审美；不要把所有角色都写成精打细算或为小钱纠结\n- 高收入、豪爽或讲究排场的角色可以爽快买单、选高品质物品、送礼；退货也可以是因为品质或风格不合，而不是嫌贵\n- 日程没有直接写消费时，可以做轻微、生活化的合理推测，但不要编造精确金额或不存在的品牌\n- 禁止只写忙碌、摸鱼、心情、关系或普通行程；没有经济行为的句子不合格\n- 合格示例：「总裁买了只兔子挂件回公司，下属已经嗑疯了」「小帕退掉尺码不合的外套，同事都在猜谁陪她挑的」「陈照替全组买了单，大家起哄说他今天格外好说话」\n- 直接输出正文，不加引号或前缀`;
 
       const baseUrl = apiConfig.baseUrl.replace(/\/+$/, '');
       const data = await safeFetchJson(`${baseUrl}/chat/completions`, {
@@ -1888,7 +1900,11 @@ const TransactionsTab: React.FC<{
       });
 
       const reply = extractContent(data).trim();
-      setGossipText(reply || '今天风平浪静');
+      setGossipText(
+        reply && FINANCE_GOSSIP_CUE.test(reply)
+          ? reply
+          : `${pick.char.name}今天签收了一件新订单，身边人已经开始猜用途了。`,
+      );
     } catch {
       setGossipText('情报网暂时断了');
     } finally {
