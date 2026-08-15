@@ -572,6 +572,11 @@ const defaultTheme: OSTheme = {
   darkMode: false,
   preserveCustomIconOutlines: false,
   nowPlayingWidgetLight: true,
+  // EM historically skipped these transitions. Keep that default while making
+  // each animation available as an explicit appearance setting.
+  bootAnimationEnabled: false,
+  chatCharacterSwitchAnimationEnabled: false,
+  appLoadingAnimationEnabled: false,
 };
 
 /** 锁屏壁纸使用独立资产槽；undefined 表示继续跟随桌面壁纸。 */

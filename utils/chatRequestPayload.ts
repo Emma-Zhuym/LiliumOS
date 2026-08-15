@@ -13,7 +13,7 @@
  */
 
 import type { CharacterProfile, UserProfile, GroupProfile, Emoji, EmojiCategory, Message, RealtimeConfig, TranslationConfig, VisionApiConfig } from '../types';
-import { ChatPrompts } from './chatPrompts';
+import { ChatPrompts, detectChatModeTransition } from './chatPrompts';
 import { ContextBuilder } from './context';
 import { injectMemoryPalace } from './memoryPalace/pipeline';
 import { clearLastRecallBriefs, getLastRecallBriefs, type RecalledMemoryBrief } from './memoryPalace/recallBrief'; // [EM: token-panel-recall]
@@ -302,6 +302,8 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     // volatileTail → 历史消息之后的 system（时间/召回/buff/日程/音乐等实时状态 + 点单类模式块）；
     // recencyTail（总纲+「回到你自己」钢印）最后拼进 volatileTail 末尾，保证它是模型
     // 开口前读到的最后内容 —— 双语/HTML/思考链等格式块都只能拼在 stable 里、排它前面。
+    // React state 会过滤通话/见面/剧情正文，判断必须以完整 DB 历史为准。
+    const returningFromMode = detectChatModeTransition(historyMsgsForPrompt);
     const parts = await ChatPrompts.buildSystemPromptParts(
         char, userProfile, groups, emojis, categories, recentMsgsHint,
         realtimeConfig, innerState || undefined,
@@ -309,7 +311,10 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         !!isListeningTogether,
         musicCfg,
         recentTrackSwitch,
-        input.timelyByWorker ? { timelyByWorker: true } : undefined,
+        (input.timelyByWorker || returningFromMode) ? {
+            timelyByWorker: input.timelyByWorker === true,
+            returningFromMode: returningFromMode || undefined,
+        } : undefined,
     );
     let systemPrompt = parts.stable;
     let volatileTail = parts.volatileState;

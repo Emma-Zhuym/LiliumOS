@@ -917,10 +917,14 @@ const Chat: React.FC = () => {
         }
     }, [activeCharacterId, reloadMessages]);
 
-    // EM: 禁用角色登场过场动画
-    // useLayoutEffect(() => {
-    //     if (activeCharacterId) setShowEntry(true);
-    // }, [activeCharacterId]);
+    // EM keeps this transition off by default, but Appearance can opt into it.
+    useLayoutEffect(() => {
+        if (!activeCharacterId || osTheme.chatCharacterSwitchAnimationEnabled !== true) {
+            setShowEntry(false);
+            return;
+        }
+        setShowEntry(true);
+    }, [activeCharacterId, osTheme.chatCharacterSwitchAnimationEnabled]);
 
     useEffect(() => {
         let clearTimer: ReturnType<typeof setTimeout> | null = null;
@@ -3046,6 +3050,11 @@ const Chat: React.FC = () => {
              )}
 
              {activeTheme.customCss && <style>{activeTheme.customCss}</style>}
+             {/* 尾巴频率使用稳定类控制；即使主题 CSS 带 !important 也按设置收起。 */}
+             <style>{`
+               .sully-bubble-tail-hidden::before,
+               .sully-bubble-tail-hidden::after { content: none !important; display: none !important; }
+             `}</style>
 
              {/* 心象卡片自定义 CSS（per-character）：作用于 .sully-psyche-* 各零件，编辑入口在心象设置弹窗 */}
              {(char as any).thinkingChainCustomCss && <style>{(char as any).thinkingChainCustomCss}</style>}
