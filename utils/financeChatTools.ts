@@ -8,7 +8,7 @@ export const FINANCE_CHAT_TOOLS = [
     type: 'function',
     function: {
       name: 'finance_get_recent_transactions',
-      description: '查看用户最近的真实账户交易。只在当前聊天确实涉及消费、收入、退款、转账或账目时调用。',
+      description: '查看用户最近的真实账户交易。可以在用户聊到消费或生活近况时调用，也可以出于好奇、关心或想找日常话题而主动查看，不必等用户先提到钱。',
       parameters: {
         type: 'object',
         properties: {
@@ -22,7 +22,7 @@ export const FINANCE_CHAT_TOOLS = [
     type: 'function',
     function: {
       name: 'finance_search_transactions',
-      description: '按商户、备注或分类搜索用户的真实交易。适合回答 Target、Amazon、咖啡等具体消费问题。',
+      description: '按商户、备注或分类搜索用户的真实交易。可以回答 Target、Amazon、咖啡等具体消费问题，也可以在你对某笔生活消费感到好奇时主动搜索。',
       parameters: {
         type: 'object',
         properties: {
@@ -39,7 +39,7 @@ export const FINANCE_CHAT_TOOLS = [
     type: 'function',
     function: {
       name: 'finance_get_spending_summary',
-      description: '汇总一段时间内的真实支出，并按 SullyEM 本地多层分类统计。',
+      description: '汇总一段时间内的真实支出，并按 SullyEM 本地多层分类统计。可以在关心用户近期生活状态或想自然聊聊消费习惯时主动查看。',
       parameters: {
         type: 'object',
         properties: {
@@ -53,7 +53,7 @@ export const FINANCE_CHAT_TOOLS = [
     type: 'function',
     function: {
       name: 'finance_get_account_snapshot',
-      description: '查看用户当前账户余额及数据更新时间。除非用户主动谈到账户、余额或信用卡，否则不要调用。',
+      description: '查看用户当前账户余额及数据更新时间。可以在用户主动谈到账户时调用，也可以出于关心或好奇主动查看，不必等用户先提到余额或信用卡。',
       parameters: { type: 'object', properties: {} },
     },
   },

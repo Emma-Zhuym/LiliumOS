@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { FinanceTransaction, Message } from '../types';
 import { FinanceDB } from './financeDb';
-import { buildFinanceChatSystemBlock, getFinanceAwareness, shouldEnableFinanceTools } from './financeChatTools';
+import { buildFinanceChatSystemBlock, FINANCE_CHAT_TOOLS, getFinanceAwareness, shouldEnableFinanceTools } from './financeChatTools';
 
 function userMessage(content: string): Message {
   return { id: 1, charId: 'char-1', role: 'user', type: 'text', content, timestamp: Date.now() };
@@ -48,5 +48,9 @@ describe('finance chat awareness', () => {
     expect(block).toContain('用户的个人账本');
     expect(block).toContain('可以出于好奇');
     expect(block).toContain('不必等用户先提到钱');
+    for (const tool of FINANCE_CHAT_TOOLS) {
+      expect(tool.function.description).toMatch(/主动|不必等用户/);
+      expect(tool.function.description).not.toMatch(/只在当前聊天|除非用户主动|否则不要调用/);
+    }
   });
 });
