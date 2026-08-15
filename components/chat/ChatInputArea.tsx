@@ -623,12 +623,14 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                 >
                     {quickToolbarEnabled && showApiPresets && (
                         <div className="sully-chat-api-presets flex min-h-0 flex-1 flex-col overflow-hidden">
-                            <div className={panelTopBarClass}>
-                                <span className={`px-2 text-[10px] font-bold uppercase tracking-wider ${
-                                    isPixelStyle ? 'text-[#8f674a]' :
-                                    isDiscordStyle ? 'text-slate-400' :
-                                    'text-slate-400'
-                                }`}>API 预设</span>
+                            <div className={`relative flex shrink-0 ${panelTopBarSurfaceClass}`}>
+                                <div className={panelTopBarClass}>
+                                    <span className={`px-2 text-[10px] font-bold uppercase tracking-wider ${
+                                        isPixelStyle ? 'text-[#8f674a]' :
+                                        isDiscordStyle ? 'text-slate-400' :
+                                        'text-slate-400'
+                                    }`}>API 预设</span>
+                                </div>
                             </div>
                             <div className="flex-1 overflow-y-auto p-4">
                                 {apiPresets.length === 0 ? (
