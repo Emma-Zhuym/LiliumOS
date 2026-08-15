@@ -172,6 +172,10 @@ function categoryPath(categoryId: string, categories: Map<string, FinanceCategor
   return names.join(' > ') || '未分类';
 }
 
+function accountDisplayName(account?: FinanceAccount): string {
+  return account?.nickname?.trim() || account?.name || '未知账户';
+}
+
 function publicTransaction(
   transaction: FinanceTransaction,
   accounts: Map<string, FinanceAccount>,
@@ -183,7 +187,7 @@ function publicTransaction(
     amount: transaction.amount,
     currency: transaction.currency,
     type: transaction.type,
-    account: accounts.get(transaction.accountId)?.name || '未知账户',
+    account: accountDisplayName(accounts.get(transaction.accountId)),
     category: categoryPath(transaction.categoryId, categories),
     pending: Boolean(transaction.pending),
     note: transaction.note && transaction.note !== transaction.sourceDescription ? transaction.note : undefined,
@@ -270,7 +274,10 @@ export async function executeFinanceChatTool(name: string, args: Record<string, 
     const accounts = await Promise.all(data.accounts
       .filter(account => !account.isArchived)
       .map(async account => ({
-        name: account.name,
+        name: accountDisplayName(account),
+        provider_name: account.externalName && account.externalName !== accountDisplayName(account)
+          ? account.externalName
+          : undefined,
         type: account.type,
         currency: account.currency,
         balance: await FinanceDB.calcAccountBalance(account),

@@ -63,9 +63,8 @@ function decodeSetupToken(token: string): URL {
     const normalized = compact.replace(/-/g, '+').replace(/_/g, '/');
     const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
     return requireHttpsUrl(atob(padded), 'Setup Token');
-  } catch (error) {
-    if (error instanceof Error && /Setup Token/.test(error.message)) throw error;
-    throw new Error('Setup Token 无法解码，请重新从 SimpleFIN 生成');
+  } catch {
+    throw new Error('这不是 SimpleFIN Setup Token，可能是邮件里的登录验证码。请先用邮件链接完成登录，再从 SimpleFIN Bridge 生成 Setup Token（通常以 aHR0cHM6 开头）');
   }
 }
 

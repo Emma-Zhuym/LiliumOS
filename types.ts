@@ -3415,6 +3415,8 @@ export interface TrackerField {
 export interface FinanceAccount {
     id: string;
     name: string;
+    /** User-owned display name. Provider sync must preserve this value. */
+    nickname?: string;
     type: 'checking' | 'savings' | 'credit' | 'cash' | 'investment';
     currency: string;
     initialBalance: number;
@@ -3484,6 +3486,8 @@ export interface FinanceTransaction {
     pending?: boolean;
     importedAt?: number;
     sourceUpdatedAt?: number;
+    /** New synced transaction awaiting the user's local category confirmation. */
+    needsCategoryReview?: boolean;
 }
 
 export interface Tracker {

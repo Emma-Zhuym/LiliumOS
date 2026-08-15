@@ -42,13 +42,16 @@ describe('normalizeSimpleFinSnapshot', () => {
       categoryId: 'cat_uncategorized',
       sourceDescription: 'TARGET 0001',
       sourceCategory: 'Shopping',
+      needsCategoryReview: true,
     });
+    expect(normalized.newTransactionCount).toBe(1);
   });
 
   it('preserves SullyEM category and note choices on later syncs', () => {
     const account: FinanceAccount = {
       id: 'simplefin:demo:credit-1',
       name: 'Discover',
+      nickname: '日常返现卡',
       type: 'credit',
       currency: 'USD',
       initialBalance: 0,
@@ -73,7 +76,20 @@ describe('normalizeSimpleFinSnapshot', () => {
       id: transaction.id,
       categoryId: 'cat_pet_supplies',
       note: '猫砂和清洁用品',
+      needsCategoryReview: false,
     });
+    expect(normalized.newTransactionCount).toBe(0);
+    expect(normalized.accounts[0]).toMatchObject({
+      nickname: '日常返现卡',
+      externalName: 'Discover it Card',
+    });
+  });
+
+  it('only asks for recent classification on the first historical import', () => {
+    const transactionAt = snapshot.accounts[0].transactions[0].posted * 1000;
+    const normalized = normalizeSimpleFinSnapshot(snapshot, [], [], SYNCED_AT, transactionAt + 1);
+    expect(normalized.transactions[0].needsCategoryReview).toBe(false);
+    expect(normalized.newTransactionCount).toBe(0);
   });
 
   it('reuses a matching pending row when the posted transaction gets a new id', () => {
@@ -149,5 +165,10 @@ describe('SimpleFIN client', () => {
     expect(requestUrl).toContain('version=2');
     expect(requestUrl).toContain('pending=1');
     expect(init.headers.Authorization).toBe(`Basic ${btoa('demo-user:demo-pass')}`);
+  });
+
+  it('explains that an email sign-in code is not a setup token', async () => {
+    await expect(claimSimpleFinSetupToken('123456'))
+      .rejects.toThrow('可能是邮件里的登录验证码');
   });
 });

@@ -18,6 +18,7 @@ import { FinanceAccount, FinanceCategory, FinanceTransaction, FinanceTxType, Cha
 import { F, S, R, HUE, STATUS, MOTION } from '../utils/clayTokens';
 import { syncSimpleFinIfStale } from '../utils/simplefinSync';
 import { SimpleFinSettingsCard } from '../components/finance/SimpleFinSettingsCard';
+import { announceFinanceReviewChanged } from '../utils/financeReview';
 
 type TabId = 'assets' | 'transactions' | 'analytics';
 
@@ -294,6 +295,10 @@ function totalsByCurrency(transactions: FinanceTransaction[]): [string, number][
   return Object.entries(totals).sort((a, b) => b[1] - a[1]);
 }
 
+function accountDisplayName(account?: FinanceAccount): string {
+  return account?.nickname?.trim() || account?.name || '';
+}
+
 // ── 账户表单（添加/编辑） ──
 
 const AccountForm: React.FC<{
@@ -307,6 +312,7 @@ const AccountForm: React.FC<{
   const isEdit = !!initial;
   const isSynced = initial?.source === 'simplefin';
   const [name, setName] = useState(initial?.name || '');
+  const [nickname, setNickname] = useState(initial?.nickname || '');
   const [type, setType] = useState<FinanceAccount['type']>(initial?.type || 'checking');
   const [currency, setCurrency] = useState(initial?.currency || defaultCurrency || 'CNY');
   const currencyOptions = enabledCurrencies && enabledCurrencies.length > 0 ? enabledCurrencies : ['CNY'];
@@ -318,7 +324,11 @@ const AccountForm: React.FC<{
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const handleSave = () => {
-    if (isSynced || !name.trim()) return;
+    if (isSynced && initial) {
+      onSave({ ...initial, nickname: nickname.trim() || undefined });
+      return;
+    }
+    if (!name.trim()) return;
     onSave({
       ...initial,
       id: initial?.id || `acc_${Date.now()}`,
@@ -333,6 +343,8 @@ const AccountForm: React.FC<{
     });
   };
 
+  const previewName = nickname.trim() || (isSynced ? initial?.externalName || name : name);
+
   return (
     <div className="absolute inset-0 z-50 flex flex-col" style={{ background: F.appBg }}>
       {/* Header */}
@@ -346,24 +358,33 @@ const AccountForm: React.FC<{
         <span className="text-sm font-semibold" style={{ color: F.textPrimary }}>
           {isSynced ? '账户详情' : isEdit ? '编辑账户' : '新建账户'}
         </span>
-        {isSynced ? <div className="w-12" /> : (
-          <button
-            onClick={handleSave}
-            disabled={!name.trim()}
-            className="text-sm font-semibold"
-            style={{ color: !name.trim() ? F.textTertiary : F.accent }}
-          >
-            保存
-          </button>
-        )}
+        <button
+          onClick={handleSave}
+          disabled={!isSynced && !name.trim()}
+          className="text-sm font-semibold"
+          style={{ color: !isSynced && !name.trim() ? F.textTertiary : F.accent }}
+        >
+          保存
+        </button>
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 pb-8">
         {/* 名称 */}
         <div className="overflow-hidden mb-4" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, boxShadow: S.raisedSoft }}>
-          <FormRow label="名称">
+          {isSynced && (
+            <FormRow label="备注名称">
+              <input
+                value={nickname}
+                onChange={e => setNickname(e.target.value)}
+                placeholder="如：日常返现卡"
+                className="w-full text-right text-sm outline-none bg-transparent placeholder:opacity-40"
+                style={{ color: F.textPrimary }}
+              />
+            </FormRow>
+          )}
+          <FormRow label={isSynced ? '银行名称' : '名称'} border={isSynced}>
             <input
-              value={name}
+              value={isSynced ? initial?.externalName || name : name}
               disabled={isSynced}
               onChange={e => setName(e.target.value)}
               placeholder="如：招商储蓄卡"
@@ -451,10 +472,10 @@ const AccountForm: React.FC<{
               className="w-10 h-10 flex items-center justify-center text-base font-bold shrink-0 mr-3"
               style={{ borderRadius: R.small, color: F.surfaceRaised, backgroundColor: color }}
             >
-              {icon || (name ? name.slice(0, 2) : '💳')}
+              {icon || (previewName ? previewName.slice(0, 2) : '💳')}
             </div>
             <div className="flex-1">
-              <div className="text-sm font-medium" style={{ color: F.textPrimary }}>{name || '账户名称'}</div>
+              <div className="text-sm font-medium" style={{ color: F.textPrimary }}>{previewName || '账户名称'}</div>
               <div className="text-[11px]" style={{ color: F.textTertiary }}>{ACCOUNT_TYPE_LABELS[type]} · {currency}</div>
             </div>
             <div className="text-sm font-semibold" style={{ color: F.textPrimary }}>
@@ -963,7 +984,7 @@ const RecurringRulesSection: React.FC<{
                     {cat?.icon || '📋'} {rule.note || cat?.name || '未命名'}
                   </div>
                   <div className="text-[10px]" style={{ color: F.textTertiary }}>
-                    {FREQ_LABELS[rule.frequency]} · {formatAmount(rule.amount, rule.currency)} · {acc?.name || ''}
+                    {FREQ_LABELS[rule.frequency]} · {formatAmount(rule.amount, rule.currency)} · {accountDisplayName(acc)}
                   </div>
                 </div>
                 <div className="text-[10px] mx-2" style={{ color: F.textTertiary }}>下次: {rule.nextDate.slice(5)}</div>
@@ -1089,7 +1110,7 @@ const RecurringRuleForm: React.FC<{
         style={{ borderRadius: R.medium, background: F.surfaceSunken, boxShadow: S.sunken }}
       >
         {accounts.filter(a => !a.isArchived && a.source !== 'simplefin').map(a => (
-          <option key={a.id} value={a.id}>{a.icon || ''} {a.name}</option>
+          <option key={a.id} value={a.id}>{a.icon || ''} {accountDisplayName(a)}</option>
         ))}
       </select>
 
@@ -1194,6 +1215,7 @@ const TransactionForm: React.FC<{
       dateStr,
       toAccountId: txType === 'transfer' ? (toAccountId || undefined) : undefined,
       charComments: initial?.charComments,
+      needsCategoryReview: isSynced ? false : initial?.needsCategoryReview,
     });
   };
 
@@ -1346,7 +1368,7 @@ const TransactionForm: React.FC<{
               className="w-full text-right text-sm outline-none bg-transparent appearance-none disabled:opacity-70" style={{ color: F.textPrimary }}
             >
               {selectableAccounts.filter(a => !a.isArchived).map(a => (
-                <option key={a.id} value={a.id}>{a.name}</option>
+                <option key={a.id} value={a.id}>{accountDisplayName(a)}</option>
               ))}
             </select>
           </FormRow>
@@ -1359,7 +1381,7 @@ const TransactionForm: React.FC<{
               >
                 <option value="">请选择</option>
                 {selectableAccounts.filter(a => !a.isArchived && a.id !== accountId).map(a => (
-                  <option key={a.id} value={a.id}>{a.name}</option>
+                  <option key={a.id} value={a.id}>{accountDisplayName(a)}</option>
                 ))}
               </select>
             </FormRow>
@@ -1645,7 +1667,7 @@ const AssetsTab: React.FC<{
                        <Wallet size={20} weight="bold" />}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium truncate" style={{ color: F.textPrimary }}>{acc.name}</div>
+                      <div className="text-sm font-medium truncate" style={{ color: F.textPrimary }}>{accountDisplayName(acc)}</div>
                       {acc.source === 'simplefin' && (
                         <div className="mt-0.5 flex items-center gap-1 text-[10px]" style={{ color: F.textTertiary }}>
                           <ArrowsClockwise size={10} weight="bold" /> SimpleFIN
@@ -1843,6 +1865,7 @@ const TransactionsTab: React.FC<{
         categories={categories}
         onSave={async (tx) => {
           await FinanceDB.saveTransaction(tx);
+          announceFinanceReviewChanged();
           await onRefresh();
           setEditingTx(null);
         }}
@@ -1915,7 +1938,7 @@ const TransactionsTab: React.FC<{
             <div className="flex gap-2 flex-wrap">
               <FilterChip label="全部" active={filterAccountIds.size === 0} onClick={() => setFilterAccountIds(new Set())} />
               {accounts.filter(a => !a.isArchived).map(a => (
-                <FilterChip key={a.id} label={a.name} active={filterAccountIds.has(a.id)} onClick={() => toggleAccount(a.id)} />
+                <FilterChip key={a.id} label={accountDisplayName(a)} active={filterAccountIds.has(a.id)} onClick={() => toggleAccount(a.id)} />
               ))}
             </div>
           </div>
@@ -2015,7 +2038,14 @@ const TransactionsTab: React.FC<{
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="text-sm truncate" style={{ color: F.textPrimary }}>{t.note || cat?.name || '未分类'}</div>
-                        <div className="text-[11px]" style={{ color: F.textTertiary }}>#{acc?.name || '未知账户'}</div>
+                        <div className="flex items-center gap-1.5 text-[11px]" style={{ color: F.textTertiary }}>
+                          <span>#{accountDisplayName(acc) || '未知账户'}</span>
+                          {t.needsCategoryReview && (
+                            <span className="px-1.5 py-0.5 text-[9px] font-medium" style={{ borderRadius: R.pill, color: STATUS.warning.ink, background: STATUS.warning.tint }}>
+                              待确认分类
+                            </span>
+                          )}
+                        </div>
                       </div>
                       <div className="text-sm font-semibold"
                         style={{ color: t.type === 'income' || t.type === 'refund' ? HUE.green.main : F.textPrimary }}>
@@ -2197,6 +2227,7 @@ function buildTAReadPrompt(
   userName: string,
   periodLabel: string,
   totalExpense: number,
+  currency: string,
   catBreakdown: { name: string; amount: number; pct: number }[],
   notableTxs: NotableTx[],
   tone: Tone,
@@ -2211,7 +2242,7 @@ function buildTAReadPrompt(
 
   const breakdown = catBreakdown
     .slice(0, 6)
-    .map(c => `  - ${c.name}: ${c.amount.toFixed(0)}元 (${c.pct}%)`)
+    .map(c => `  - ${c.name}: ${formatAmount(c.amount, currency)} (${c.pct}%)`)
     .join('\n');
 
   let prompt = `[System: 角色身份]\n你是「${char.name}」。\n\n`;
@@ -2237,7 +2268,8 @@ function buildTAReadPrompt(
   }
 
   prompt += `### 消费数据（${periodLabel}）\n`;
-  prompt += `总支出: ${totalExpense.toFixed(2)}元\n`;
+  prompt += `币种: ${currency}\n`;
+  prompt += `总支出: ${formatAmount(totalExpense, currency)}\n`;
   prompt += `分类汇总:\n${breakdown}\n\n`;
 
   if (notableTxs.length > 0) {
@@ -2288,6 +2320,7 @@ const AnalyticsTab: React.FC<{
   const [period, setPeriod] = useState<'week' | 'month' | 'year'>('month');
   const [periodOffset, setPeriodOffset] = useState(0);
   const [filterAccountId, setFilterAccountId] = useState<string | null>(null);
+  const [selectedCurrency, setSelectedCurrency] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [selectedCharId, setSelectedCharId] = useState<string | null>(null);
   const [tone, setTone] = useState<Tone>('teasing');
@@ -2306,6 +2339,21 @@ const AnalyticsTab: React.FC<{
 
   const { from: fromDate, to: toDate, label: periodLabel } = getDateRange(period, periodOffset);
 
+  const selectedAccount = filterAccountId ? accounts.find(account => account.id === filterAccountId) : undefined;
+  const periodCurrencyTotals = new Map<string, number>();
+  for (const transaction of transactions) {
+    if (transaction.dateStr < fromDate || transaction.dateStr > toDate) continue;
+    if (filterAccountId && transaction.accountId !== filterAccountId) continue;
+    periodCurrencyTotals.set(transaction.currency, (periodCurrencyTotals.get(transaction.currency) || 0) + transaction.amount);
+  }
+  const currencyOptions = Array.from(new Set([
+    ...accounts.filter(account => !account.isArchived && (!filterAccountId || account.id === filterAccountId)).map(account => account.currency),
+    ...transactions.filter(transaction => !filterAccountId || transaction.accountId === filterAccountId).map(transaction => transaction.currency),
+  ])).filter(Boolean).sort((a, b) => (periodCurrencyTotals.get(b) || 0) - (periodCurrencyTotals.get(a) || 0));
+  const activeCurrency = selectedCurrency && currencyOptions.includes(selectedCurrency)
+    ? selectedCurrency
+    : currencyOptions[0] || selectedAccount?.currency || 'CNY';
+
   // 切换周期时重置 offset
   const handleSetPeriod = (p: typeof period) => {
     setPeriod(p);
@@ -2315,14 +2363,15 @@ const AnalyticsTab: React.FC<{
   const periodTxs = transactions.filter(t => {
     if (t.dateStr < fromDate || t.dateStr > toDate) return false;
     if (filterAccountId && t.accountId !== filterAccountId) return false;
+    if (t.currency !== activeCurrency) return false;
     if (filterType === 'expense' && t.type !== 'expense') return false;
     if (filterType === 'income' && t.type !== 'income' && t.type !== 'refund') return false;
     return true;
   });
 
   // "收支" 模式：分别计算收入支出
-  const expenseTxs = transactions.filter(t => t.dateStr >= fromDate && t.dateStr <= toDate && t.type === 'expense' && (!filterAccountId || t.accountId === filterAccountId));
-  const incomeTxs = transactions.filter(t => t.dateStr >= fromDate && t.dateStr <= toDate && (t.type === 'income' || t.type === 'refund') && (!filterAccountId || t.accountId === filterAccountId));
+  const expenseTxs = transactions.filter(t => t.dateStr >= fromDate && t.dateStr <= toDate && t.currency === activeCurrency && t.type === 'expense' && (!filterAccountId || t.accountId === filterAccountId));
+  const incomeTxs = transactions.filter(t => t.dateStr >= fromDate && t.dateStr <= toDate && t.currency === activeCurrency && (t.type === 'income' || t.type === 'refund') && (!filterAccountId || t.accountId === filterAccountId));
   const totalExpense = expenseTxs.reduce((s, t) => s + t.amount, 0);
   const totalIncome = incomeTxs.reduce((s, t) => s + t.amount, 0);
   const netBalance = totalIncome - totalExpense;
@@ -2359,11 +2408,11 @@ const AnalyticsTab: React.FC<{
   useEffect(() => {
     setCommentary(null);
     setSelectedCharId(null);
-  }, [period, periodOffset, filterAccountId, filterType]);
+  }, [period, periodOffset, filterAccountId, filterType, activeCurrency]);
 
   const handleSelectChar = (charId: string) => {
     setSelectedCharId(charId);
-    const cacheKey = `${charId}_${period}${periodOffset}_${tone}_${filterAccountId || 'all'}_${filterType}`;
+    const cacheKey = `${charId}_${period}${periodOffset}_${tone}_${filterAccountId || 'all'}_${filterType}_${activeCurrency}`;
     const cached = commentCache.current.get(cacheKey);
     setCommentary(cached || null);
   };
@@ -2373,7 +2422,7 @@ const AnalyticsTab: React.FC<{
     const char = characters.find(c => c.id === selectedCharId);
     if (!char) return;
 
-    const cacheKey = `${selectedCharId}_${period}${periodOffset}_${tone}_${filterAccountId || 'all'}_${filterType}`;
+    const cacheKey = `${selectedCharId}_${period}${periodOffset}_${tone}_${filterAccountId || 'all'}_${filterType}_${activeCurrency}`;
     const cached = commentCache.current.get(cacheKey);
     if (cached) { setCommentary(cached); return; }
 
@@ -2386,7 +2435,7 @@ const AnalyticsTab: React.FC<{
         amount: c.amount,
         pct: c.pct,
       }));
-      const notableTxs = findNotableTransactions(periodTxs, transactions, catMap);
+      const notableTxs = findNotableTransactions(periodTxs, transactions.filter(transaction => transaction.currency === activeCurrency), catMap);
 
       // 从记忆宫殿检索消费相关记忆
       let memoryContext = '';
@@ -2410,7 +2459,7 @@ const AnalyticsTab: React.FC<{
 
       const prompt = buildTAReadPrompt(
         char, userProfile?.name || '用户', periodLabel,
-        totalAmount, catBreakdown, notableTxs, tone, memoryContext,
+        totalAmount, activeCurrency, catBreakdown, notableTxs, tone, memoryContext,
       );
 
       const baseUrl = apiConfig.baseUrl.replace(/\/+$/, '');
@@ -2442,7 +2491,7 @@ const AnalyticsTab: React.FC<{
         // 回传记忆宫殿 — 让角色记住自己评论过用户的消费
         const userName = userProfile?.name || '用户';
         const topCats = catBreakdown.slice(0, 3).map(c => c.name).join('、');
-        const memoryContent = `${char.name}看了${userName}${periodLabel}的消费记录（${topCats}等，总计${totalAmount.toFixed(0)}元），评价道：「${reply.slice(0, 150)}」`;
+        const memoryContent = `${char.name}看了${userName}${periodLabel}的${activeCurrency}消费记录（${topCats}等，总计${formatAmount(totalAmount, activeCurrency)}），评价道：「${reply.slice(0, 150)}」`;
         const memNode: MemoryNode = {
           id: `bank_ta_${Date.now()}_${char.id}`,
           charId: char.id,
@@ -2478,7 +2527,7 @@ const AnalyticsTab: React.FC<{
   const handleToneChange = (t: Tone) => {
     setTone(t);
     if (selectedCharId) {
-      const cacheKey = `${selectedCharId}_${period}${periodOffset}_${t}_${filterAccountId || 'all'}_${filterType}`;
+      const cacheKey = `${selectedCharId}_${period}${periodOffset}_${t}_${filterAccountId || 'all'}_${filterType}_${activeCurrency}`;
       const cached = commentCache.current.get(cacheKey);
       setCommentary(cached || null);
     }
@@ -2494,6 +2543,20 @@ const AnalyticsTab: React.FC<{
           ))}
         </SunkenSelector>
       </div>
+      {currencyOptions.length > 0 && (
+        <div className="mb-3">
+          <SunkenSelector className="flex-wrap">
+            {currencyOptions.map(currency => (
+              <FilterChip
+                key={currency}
+                label={`${CURRENCY_SYMBOLS[currency] || currency} ${currency}`}
+                active={activeCurrency === currency}
+                onClick={() => setSelectedCurrency(currency)}
+              />
+            ))}
+          </SunkenSelector>
+        </div>
+      )}
       {accounts.length > 1 && (
         <div className="flex justify-end mb-2">
           <button
@@ -2513,7 +2576,7 @@ const AnalyticsTab: React.FC<{
           <div className="flex gap-2 flex-wrap">
             <FilterChip label="全部" active={!filterAccountId} onClick={() => setFilterAccountId(null)} />
             {accounts.filter(a => !a.isArchived).map(a => (
-              <FilterChip key={a.id} label={a.name} active={filterAccountId === a.id} onClick={() => setFilterAccountId(a.id)} />
+              <FilterChip key={a.id} label={accountDisplayName(a)} active={filterAccountId === a.id} onClick={() => setFilterAccountId(a.id)} />
             ))}
           </div>
         </div>
@@ -2540,22 +2603,22 @@ const AnalyticsTab: React.FC<{
         {filterType === 'all' ? (
           <div className="text-center">
             <div className="text-4xl font-bold mb-3" style={{ color: HUE.indigo.ink }}>
-              {netBalance >= 0 ? '+' : ''}{formatAmount(netBalance)}
+              {netBalance >= 0 ? '+' : ''}{formatAmount(netBalance, activeCurrency)}
             </div>
             <div className="flex justify-center gap-3">
               <span className="flex items-center gap-1.5 px-3 py-1" style={{ background: 'rgba(255,255,255,0.6)', borderRadius: R.pill, fontSize: 12 }}>
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: HUE.green.main }} />
-                <span style={{ color: HUE.green.ink, fontWeight: 500 }}>收入 +{formatAmount(totalIncome)}</span>
+                <span style={{ color: HUE.green.ink, fontWeight: 500 }}>收入 +{formatAmount(totalIncome, activeCurrency)}</span>
               </span>
               <span className="flex items-center gap-1.5 px-3 py-1" style={{ background: 'rgba(255,255,255,0.6)', borderRadius: R.pill, fontSize: 12 }}>
                 <span style={{ width: 6, height: 6, borderRadius: '50%', background: HUE.rose.main }} />
-                <span style={{ color: HUE.rose.ink, fontWeight: 500 }}>支出 {formatAmount(totalExpense)}</span>
+                <span style={{ color: HUE.rose.ink, fontWeight: 500 }}>支出 {formatAmount(totalExpense, activeCurrency)}</span>
               </span>
             </div>
           </div>
         ) : (
           <div className="text-center">
-            <div className="text-4xl font-bold" style={{ color: HUE.indigo.ink }}>{formatAmount(totalAmount)}</div>
+            <div className="text-4xl font-bold" style={{ color: HUE.indigo.ink }}>{formatAmount(totalAmount, activeCurrency)}</div>
           </div>
         )}
       </div>
@@ -2568,7 +2631,7 @@ const AnalyticsTab: React.FC<{
             <span style={{ color: F.textTertiary, fontSize: 14 }}>暂无数据</span>
           </div>
         ) : (
-          <DonutChart data={donutData} total={totalAmount} centerLabel={formatAmount(totalAmount)} centerTitle={typeLabel} />
+          <DonutChart data={donutData} total={totalAmount} centerLabel={formatAmount(totalAmount, activeCurrency)} centerTitle={typeLabel} />
         )}
       </div>
 
@@ -2603,7 +2666,7 @@ const AnalyticsTab: React.FC<{
                     </div>
                   </div>
                   <div className="text-right ml-3">
-                    <div className="text-sm font-semibold" style={{ color: F.textPrimary }}>{formatAmount(amount)}</div>
+                    <div className="text-sm font-semibold" style={{ color: F.textPrimary }}>{formatAmount(amount, activeCurrency)}</div>
                     <div className="text-[10px]" style={{ color: F.textTertiary }}>{pct}%</div>
                   </div>
                 </div>
@@ -2611,7 +2674,7 @@ const AnalyticsTab: React.FC<{
                 {budget && budgetPct !== null && filterType === 'expense' && (period === 'month' || period === 'week') && (
                   <div className="mt-2 ml-[22px]">
                     <div className="flex items-center justify-between mb-0.5">
-                      <span className="text-[10px]" style={{ color: F.textTertiary }}>预算 {formatAmount(budget)}</span>
+                      <span className="text-[10px]" style={{ color: F.textTertiary }}>预算 {formatAmount(budget, activeCurrency)}</span>
                       <span className="text-[10px] font-medium" style={{ color: overBudget ? STATUS.danger.main : F.textTertiary }}>
                         {Math.round(budgetPct)}%{overBudget ? ' 超支' : ''}
                       </span>
@@ -2685,7 +2748,7 @@ const AnalyticsTab: React.FC<{
             </div>
             <button
               onClick={() => {
-                const cacheKey = `${selectedCharId}_${period}${periodOffset}_${tone}_${filterAccountId || 'all'}_${filterType}`;
+                const cacheKey = `${selectedCharId}_${period}${periodOffset}_${tone}_${filterAccountId || 'all'}_${filterType}_${activeCurrency}`;
                 commentCache.current.delete(cacheKey);
                 generateCommentary();
               }}

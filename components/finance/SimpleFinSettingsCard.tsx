@@ -51,7 +51,7 @@ export const SimpleFinSettingsCard: React.FC<SimpleFinSettingsCardProps> = ({ on
       : '';
     setMessage({
       kind: result.errors.length > 0 ? 'error' : 'success',
-      text: `已同步 ${result.accountCount} 个账户、${result.transactionCount} 笔近期交易${warning}`,
+      text: `已同步 ${result.accountCount} 个账户、${result.transactionCount} 笔近期交易${result.newTransactionCount > 0 ? `，其中 ${result.newTransactionCount} 笔待确认分类` : ''}${warning}`,
     });
   };
 

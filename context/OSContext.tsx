@@ -67,6 +67,7 @@ import { isEmotionEvalSkipped } from '../utils/devDebug';
 import { isBenignApplicationConsoleMessage } from '../utils/applicationConsole';
 import { toMountedWorldbook } from '../utils/worldbook';
 import { initLocalStorageMirror } from '../utils/lsMirror';
+import { FINANCE_REVIEW_CHANGED_EVENT, getFinanceReviewCount, type FinanceReviewChangedDetail } from '../utils/financeReview';
 // 备份用：把存在 localStorage 的本机配置随导出一起带走（键名须与 importFullData 对齐）
 import { exportPostOfficeLocal } from '../utils/vrWorld/postOffice';
 import { exportSignalLocal } from '../utils/vrWorld/signal';
@@ -387,6 +388,7 @@ interface OSContextType {
   lastMsgTimestamp: number; // New: Signal for Chat to refresh
   unreadMessages: Record<string, number>; // New: Track unread counts per character
   clearUnread: (charId: string) => void; // New: Method to clear unread
+  financeReviewCount: number;
 
   // Set of charIds whose proactive AI generation is currently in flight.
   // Chat UI subscribes to this to render a soft "正在送达消息…" indicator
@@ -905,6 +907,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   
   const [lastMsgTimestamp, setLastMsgTimestamp] = useState<number>(0);
   const [unreadMessages, setUnreadMessages] = useState<Record<string, number>>({});
+  const [financeReviewCount, setFinanceReviewCount] = useState(0);
   const [proactiveComposingChars, setProactiveComposingChars] = useState<Record<string, true>>({});
 
   // [EM-START: app-order-and-sub-view-state]
@@ -3369,7 +3372,29 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       if (stored) await DB.saveAsset(`icon_${appId}`, stored);
       else await DB.deleteAsset(`icon_${appId}`);
   };
-  const addToast = (message: string, type: Toast['type'] = 'info') => { const id = Date.now().toString(); setToasts(prev => [...prev, { id, message, type }]); setTimeout(() => { setToasts(prev => prev.filter(t => t.id !== id)); }, 3000); };
+  const addToast = useCallback((message: string, type: Toast['type'] = 'info') => { const id = Date.now().toString(); setToasts(prev => [...prev, { id, message, type }]); setTimeout(() => { setToasts(prev => prev.filter(t => t.id !== id)); }, 3000); }, []);
+  useEffect(() => {
+      let cancelled = false;
+      const refresh = async () => {
+          try {
+              const count = await getFinanceReviewCount();
+              if (!cancelled) setFinanceReviewCount(count);
+          } catch { /* finance database may not exist yet */ }
+      };
+      const handleReviewChanged = (event: Event) => {
+          const detail = (event as CustomEvent<FinanceReviewChangedDetail>).detail || {};
+          void refresh();
+          if ((detail.newTransactionCount || 0) > 0 && document.visibilityState === 'visible') {
+              addToast(`银行账本同步了 ${detail.newTransactionCount} 笔新交易，请确认分类`, 'info');
+          }
+      };
+      void refresh();
+      window.addEventListener(FINANCE_REVIEW_CHANGED_EVENT, handleReviewChanged);
+      return () => {
+          cancelled = true;
+          window.removeEventListener(FINANCE_REVIEW_CHANGED_EVENT, handleReviewChanged);
+      };
+  }, [addToast]);
   const showError = (title: string, details: string) => { setErrorDialog({ title, details }); };
   const dismissError = () => { setErrorDialog(null); };
 
@@ -5104,6 +5129,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     lastMsgTimestamp,
     unreadMessages,
     clearUnread,
+    financeReviewCount,
     proactiveComposingChars,
     cloudBackupConfig,
     updateCloudBackupConfig,

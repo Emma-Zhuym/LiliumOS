@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { AppConfig } from '../../types';
+import { AppConfig, AppID } from '../../types';
 import { Icons } from '../../constants';
 import { isPaperWallpaper, useOS } from '../../context/OSContext';
 import { useBlobRefUrl } from '../../utils/blobRef';
@@ -24,7 +24,7 @@ const NOOK_TILE_COLORS: Record<string, string> = {
 };
 
 const AppIcon: React.FC<AppIconProps> = React.memo(({ app, onClick, size = 'md', hideLabel = false, variant = 'default' }) => {
-  const { customIcons, theme } = useOS();
+  const { customIcons, theme, financeReviewCount } = useOS();
   const IconComponent = Icons[app.icon] || Icons.Settings;
   const customIconUrl = useBlobRefUrl(customIcons[app.id]);
   const isNook = theme.skin === 'animalcrossing';
@@ -32,6 +32,7 @@ const AppIcon: React.FC<AppIconProps> = React.memo(({ app, onClick, size = 'md',
   const preserveCustomOutline = !!customIconUrl && theme.preserveCustomIconOutlines === true;
   // 动森皮肤下标签用深棕色，普通皮肤沿用主题 contentColor。
   const contentColor = isNook ? '#725d42' : (theme.contentColor || '#ffffff');
+  const badgeCount = app.id === AppID.Bank ? financeReviewCount : 0;
 
   // Standard sizes
   const sizeClasses =
@@ -51,12 +52,17 @@ const AppIcon: React.FC<AppIconProps> = React.memo(({ app, onClick, size = 'md',
       >
         {/* NookPhone 圆角方块瓦片：纯平面，无边框/无阴影/无高光（对齐参考图） */}
         <div
-          className={`${sizeClasses} relative flex items-center justify-center overflow-hidden`}
+          className={`${sizeClasses} relative flex items-center justify-center`}
           style={{ backgroundColor: tileColor, borderRadius: '34%' }}
         >
           <div className="w-[78%] h-[78%] relative">
             {getAcnhIcon(app.id)}
           </div>
+          {badgeCount > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center border-2 border-white shadow-sm">
+              {badgeCount > 99 ? '99+' : badgeCount}
+            </span>
+          )}
         </div>
         {!hideLabel && (
           <span
@@ -112,6 +118,11 @@ const AppIcon: React.FC<AppIconProps> = React.memo(({ app, onClick, size = 'md',
             >
                  <IconComponent className="w-full h-full" />
             </div>
+        )}
+        {badgeCount > 0 && (
+          <span className="absolute -top-1.5 -right-1.5 min-w-[20px] h-5 px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center border-2 border-white/90 shadow-md pointer-events-none">
+            {badgeCount > 99 ? '99+' : badgeCount}
+          </span>
         )}
       </div>
       

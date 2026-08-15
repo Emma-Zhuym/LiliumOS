@@ -1,6 +1,7 @@
 import type { FinanceAccount, FinanceTransaction } from '../types';
 import { HUE } from './clayTokens';
 import { FinanceDB } from './financeDb';
+import { announceFinanceReviewChanged } from './financeReview';
 import {
   fetchSimpleFinAccounts,
   hasSimpleFinConnection,
@@ -21,6 +22,7 @@ export interface SimpleFinSyncState {
 export interface SimpleFinSyncResult {
   accountCount: number;
   transactionCount: number;
+  newTransactionCount: number;
   errors: string[];
   syncedAt: number;
 }
@@ -124,10 +126,12 @@ export function normalizeSimpleFinSnapshot(
   currentAccounts: FinanceAccount[],
   currentTransactions: FinanceTransaction[],
   syncedAt: number,
-): { accounts: FinanceAccount[]; transactions: FinanceTransaction[] } {
+  reviewSince = Number.NEGATIVE_INFINITY,
+): { accounts: FinanceAccount[]; transactions: FinanceTransaction[]; newTransactionCount: number } {
   const existingAccounts = new Map(currentAccounts.map(account => [account.id, account]));
   const accounts: FinanceAccount[] = [];
   const transactions: FinanceTransaction[] = [];
+  let newTransactionCount = 0;
 
   snapshot.accounts.forEach((sourceAccount, index) => {
     const id = simpleFinAccountKey(sourceAccount.conn_id, sourceAccount.id);
@@ -160,6 +164,10 @@ export function normalizeSimpleFinSnapshot(
       if (!Number.isFinite(numericAmount)) continue;
       const existingTransaction = findExistingTransaction(sourceTransaction, id, currentTransactions);
       const eventSeconds = sourceTransaction.transacted_at || sourceTransaction.posted || Math.floor(syncedAt / 1000);
+      const needsCategoryReview = existingTransaction
+        ? existingTransaction.needsCategoryReview === true
+        : eventSeconds * 1000 > reviewSince;
+      if (!existingTransaction && needsCategoryReview) newTransactionCount += 1;
       transactions.push({
         ...existingTransaction,
         id: existingTransaction?.id || `simplefin-tx:${sourceAccount.conn_id}:${sourceAccount.id}:${sourceTransaction.id}`,
@@ -179,11 +187,12 @@ export function normalizeSimpleFinSnapshot(
         pending: Boolean(sourceTransaction.pending || sourceTransaction.posted === 0),
         importedAt: existingTransaction?.importedAt || syncedAt,
         sourceUpdatedAt: syncedAt,
+        needsCategoryReview,
       });
     }
   });
 
-  return { accounts, transactions };
+  return { accounts, transactions, newTransactionCount };
 }
 
 export async function getSimpleFinSyncState(): Promise<SimpleFinSyncState> {
@@ -209,7 +218,8 @@ export async function syncSimpleFin(): Promise<SimpleFinSyncResult> {
       FinanceDB.getAccounts(),
       FinanceDB.getTransactions(),
     ]);
-    const normalized = normalizeSimpleFinSnapshot(snapshot, currentAccounts, currentTransactions, attemptedAt);
+    const reviewSince = previousState.lastSuccessAt ?? attemptedAt - 24 * 60 * 60 * 1000;
+    const normalized = normalizeSimpleFinSnapshot(snapshot, currentAccounts, currentTransactions, attemptedAt, reviewSince);
     await Promise.all([
       FinanceDB.saveAccounts(normalized.accounts),
       FinanceDB.saveTransactions(normalized.transactions),
@@ -219,6 +229,7 @@ export async function syncSimpleFin(): Promise<SimpleFinSyncResult> {
     const result: SimpleFinSyncResult = {
       accountCount: normalized.accounts.length,
       transactionCount: normalized.transactions.length,
+      newTransactionCount: normalized.newTransactionCount,
       errors,
       syncedAt: attemptedAt,
     };
@@ -229,6 +240,7 @@ export async function syncSimpleFin(): Promise<SimpleFinSyncResult> {
       transactionCount: result.transactionCount,
       errors,
     });
+    announceFinanceReviewChanged({ newTransactionCount: result.newTransactionCount });
     return result;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
