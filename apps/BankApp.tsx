@@ -1368,7 +1368,7 @@ const TransactionForm: React.FC<{
               value={accountId}
               disabled={isSynced}
               onChange={e => setAccountId(e.target.value)}
-              className="w-full text-right text-sm outline-none bg-transparent appearance-none disabled:opacity-70" style={{ color: F.textPrimary }}
+              className="block ml-auto max-w-full text-right text-sm outline-none bg-transparent appearance-none disabled:opacity-70" style={{ color: F.textPrimary }}
             >
               {selectableAccounts.filter(a => !a.isArchived).map(a => (
                 <option key={a.id} value={a.id}>{accountDisplayName(a)}</option>
@@ -1380,7 +1380,7 @@ const TransactionForm: React.FC<{
               <select
                 value={toAccountId}
                 onChange={e => setToAccountId(e.target.value)}
-                className="w-full text-right text-sm outline-none bg-transparent appearance-none" style={{ color: F.textPrimary }}
+                className="block ml-auto max-w-full text-right text-sm outline-none bg-transparent appearance-none" style={{ color: F.textPrimary }}
               >
                 <option value="">请选择</option>
                 {selectableAccounts.filter(a => !a.isArchived && a.id !== accountId).map(a => (
@@ -1395,7 +1395,7 @@ const TransactionForm: React.FC<{
               value={dateStr}
               disabled={isSynced}
               onChange={e => setDateStr(e.target.value)}
-              className="w-full text-right text-sm outline-none bg-transparent disabled:opacity-70" style={{ color: F.textPrimary }}
+              className="block ml-auto max-w-full text-right text-sm outline-none bg-transparent disabled:opacity-70" style={{ color: F.textPrimary }}
             />
           </FormRow>
           <FormRow label="备注" border>
@@ -1403,7 +1403,7 @@ const TransactionForm: React.FC<{
               value={note}
               onChange={e => setNote(e.target.value)}
               placeholder="可选"
-              className="w-full text-right text-sm outline-none bg-transparent placeholder:opacity-40" style={{ color: F.textPrimary }}
+              className="block w-full text-right text-sm outline-none bg-transparent placeholder:opacity-40" style={{ color: F.textPrimary }}
             />
           </FormRow>
         </div>
