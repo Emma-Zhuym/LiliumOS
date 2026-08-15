@@ -3430,10 +3430,13 @@ export interface FinanceAccount {
     name: string;
     /** User-owned display name. Provider sync must preserve this value. */
     nickname?: string;
+    /** Locally editable after provider import; later syncs preserve this choice. */
     type: 'checking' | 'savings' | 'credit' | 'cash' | 'investment';
     currency: string;
     initialBalance: number;
+    /** User-owned card color. Provider sync must preserve this value. */
     color: string;
+    /** User-owned display icon. Provider sync must preserve this value. */
     icon?: string;
     isArchived?: boolean;
     sortOrder?: number;

@@ -52,10 +52,11 @@ describe('normalizeSimpleFinSnapshot', () => {
       id: 'simplefin:demo:credit-1',
       name: 'Discover',
       nickname: '日常返现卡',
-      type: 'credit',
+      type: 'savings',
       currency: 'USD',
       initialBalance: 0,
       color: '#000',
+      icon: '🪙',
       source: 'simplefin',
     };
     const transaction: FinanceTransaction = {
@@ -81,7 +82,11 @@ describe('normalizeSimpleFinSnapshot', () => {
     expect(normalized.newTransactionCount).toBe(0);
     expect(normalized.accounts[0]).toMatchObject({
       nickname: '日常返现卡',
+      type: 'savings',
+      icon: '🪙',
+      color: '#000',
       externalName: 'Discover it Card',
+      syncedBalance: 345.67,
     });
   });
 

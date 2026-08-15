@@ -325,7 +325,13 @@ const AccountForm: React.FC<{
 
   const handleSave = () => {
     if (isSynced && initial) {
-      onSave({ ...initial, nickname: nickname.trim() || undefined });
+      onSave({
+        ...initial,
+        nickname: nickname.trim() || undefined,
+        type,
+        color,
+        icon: icon.trim() || undefined,
+      });
       return;
     }
     if (!name.trim()) return;
@@ -394,7 +400,6 @@ const AccountForm: React.FC<{
           <FormRow label="类型" border>
             <select
               value={type}
-              disabled={isSynced}
               onChange={e => setType(e.target.value as FinanceAccount['type'])}
               className="w-full text-right text-sm outline-none bg-transparent appearance-none" style={{ color: F.textPrimary }}
             >
@@ -435,7 +440,6 @@ const AccountForm: React.FC<{
           <FormRow label="图标（emoji）" border>
             <input
               value={icon}
-              disabled={isSynced}
               onChange={e => setIcon(e.target.value)}
               placeholder="💳"
               className="w-full text-right text-sm outline-none bg-transparent placeholder:opacity-40" style={{ color: F.textPrimary }}
@@ -451,9 +455,8 @@ const AccountForm: React.FC<{
             {ACCOUNT_COLORS.map(c => (
               <button
                 key={c}
-                disabled={isSynced}
                 onClick={() => setColor(c)}
-                className="w-8 h-8 rounded-full transition-transform disabled:opacity-60"
+                className="w-8 h-8 rounded-full transition-transform"
                 style={{
                   backgroundColor: c,
                   boxShadow: color === c ? `0 0 0 3px ${HUE.purple.tint}, 0 0 0 5px ${c}` : 'none',
