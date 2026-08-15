@@ -5,6 +5,8 @@ packages:
 allowBuilds:
   core-js: set this to true or false
   es5-ext: set this to true or false
+  # 原生画布，只有 pdfjs 的服务端渲染路径会用；本仓库跑不到，构建脚本一直是跳过的
+  canvas: false
   esbuild: true
   sharp: true
   workerd: true
