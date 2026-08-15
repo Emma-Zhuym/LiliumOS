@@ -1163,10 +1163,11 @@ const TransactionForm: React.FC<{
   initial?: FinanceTransaction;
   accounts: FinanceAccount[];
   categories: FinanceCategory[];
+  onCategoriesChanged: () => Promise<void>;
   onSave: (tx: FinanceTransaction) => void;
   onDelete?: () => void;
   onClose: () => void;
-}> = ({ initial, accounts, categories, onSave, onDelete, onClose }) => {
+}> = ({ initial, accounts, categories, onCategoriesChanged, onSave, onDelete, onClose }) => {
   const isEdit = !!initial;
   const isSynced = initial?.source === 'simplefin';
   const selectableAccounts = isEdit ? accounts : accounts.filter(account => account.source !== 'simplefin');
@@ -1178,6 +1179,7 @@ const TransactionForm: React.FC<{
   const [note, setNote] = useState(initial?.note || '');
   const [dateStr, setDateStr] = useState(initial?.dateStr || new Date().toISOString().split('T')[0]);
   const [expandedTopCat, setExpandedTopCat] = useState<string | null>(null);
+  const [newCategoryParentId, setNewCategoryParentId] = useState<string | null | undefined>(undefined);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const catMap = new Map(categories.map(c => [c.id, c]));
@@ -1223,6 +1225,22 @@ const TransactionForm: React.FC<{
   };
 
   const canSave = parseFloat(amount) > 0 && !!accountId;
+
+  if (newCategoryParentId !== undefined) {
+    return (
+      <CategoryEditForm
+        parentId={newCategoryParentId || undefined}
+        onSave={async category => {
+          await FinanceDB.saveCategory(category);
+          setCategoryId(category.id);
+          setExpandedTopCat(category.parentId || null);
+          await onCategoriesChanged();
+          setNewCategoryParentId(undefined);
+        }}
+        onClose={() => setNewCategoryParentId(undefined)}
+      />
+    );
+  }
 
   if (selectableAccounts.length === 0) {
     return (
@@ -1337,6 +1355,16 @@ const TransactionForm: React.FC<{
                   </button>
                 );
               })}
+              <button
+                onClick={() => setNewCategoryParentId(
+                  txType === 'income' || txType === 'refund' ? 'cat_income' : null,
+                )}
+                className="flex flex-col items-center justify-center gap-1 py-2.5 transition-all"
+                style={{ borderRadius: R.medium, background: F.surfaceSunken }}
+              >
+                <Plus size={20} weight="bold" style={{ color: F.textTertiary }} />
+                <span className="text-[9px] leading-tight text-center" style={{ color: F.textSecondary }}>新分类</span>
+              </button>
             </div>
             {expandedTopCat && (
               <div className="flex flex-wrap gap-2 mt-3 pt-3" style={{ borderTop: `1px solid ${F.divider}` }}>
@@ -1356,6 +1384,14 @@ const TransactionForm: React.FC<{
                     <span>{child.name}</span>
                   </button>
                 ))}
+                <button
+                  onClick={() => setNewCategoryParentId(expandedTopCat)}
+                  className="flex items-center gap-1 px-3 py-1.5 text-xs transition-colors"
+                  style={{ borderRadius: R.pill, background: F.surfaceSunken, color: F.textSecondary }}
+                >
+                  <Plus size={13} weight="bold" />
+                  <span>添加子分类</span>
+                </button>
               </div>
             )}
           </div>
@@ -1866,6 +1902,7 @@ const TransactionsTab: React.FC<{
         initial={editingTx === 'new' ? undefined : editingTx}
         accounts={accounts}
         categories={categories}
+        onCategoriesChanged={onRefresh}
         onSave={async (tx) => {
           await FinanceDB.saveTransaction(tx);
           announceFinanceReviewChanged();
