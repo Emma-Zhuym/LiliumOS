@@ -19,6 +19,12 @@ import { F, S, R, HUE, STATUS, MOTION } from '../utils/clayTokens';
 import { syncSimpleFinIfStale } from '../utils/simplefinSync';
 import { SimpleFinSettingsCard } from '../components/finance/SimpleFinSettingsCard';
 import { announceFinanceReviewChanged } from '../utils/financeReview';
+import {
+  CREDIT_CARD_PAYMENT_CATEGORY_ID,
+  findCreditCardPaymentCounterpart,
+  reportingTransactionType,
+  TRANSFER_CATEGORY_ID,
+} from '../utils/financeTransfers';
 
 type TabId = 'assets' | 'transactions' | 'analytics';
 
@@ -211,6 +217,7 @@ const BankApp: React.FC = () => {
             balances={balances}
             currencyEntries={currencyEntries}
             transactions={transactions}
+            categories={categories}
             onRefresh={refreshData}
             addingAccount={addingAccount}
             onAddingDone={() => setAddingAccount(false)}
@@ -1190,7 +1197,9 @@ const TransactionForm: React.FC<{
 
   const relevantTopCats = categories.filter(c => {
     if (c.parentId) return false;
-    if (txType === 'income' || txType === 'refund') return c.id === 'cat_income';
+    if (txType === 'income' || txType === 'refund') {
+      return c.id === 'cat_income' || c.id === TRANSFER_CATEGORY_ID;
+    }
     return c.id !== 'cat_income';
   });
 
@@ -1216,7 +1225,9 @@ const TransactionForm: React.FC<{
       amount: parsed,
       currency: selectedAcc?.currency || 'CNY',
       accountId,
-      categoryId: categoryId || (txType === 'income' || txType === 'refund' ? 'cat_income' : 'cat_food'),
+      categoryId: categoryId || (txType === 'transfer'
+        ? TRANSFER_CATEGORY_ID
+        : txType === 'income' || txType === 'refund' ? 'cat_income' : 'cat_food'),
       note: note.trim(),
       timestamp: initial?.timestamp || Date.now(),
       dateStr,
@@ -1478,9 +1489,11 @@ const TransactionForm: React.FC<{
 const TrendChart: React.FC<{
   transactions: FinanceTransaction[];
   accounts: FinanceAccount[];
+  categories: FinanceCategory[];
   balances: Record<string, number>;
-}> = ({ transactions, accounts, balances }) => {
+}> = ({ transactions, accounts, categories, balances }) => {
   const [trendRange, setTrendRange] = useState<'week' | 'month' | 'year'>('month');
+  const categoryMap = new Map(categories.map(category => [category.id, category]));
 
   const currencies = [...new Set(accounts.filter(a => !a.isArchived).map(a => a.currency))];
   const [selectedCurrency, setSelectedCurrency] = useState<string>(() => currencies[0] || 'CNY');
@@ -1503,9 +1516,10 @@ const TrendChart: React.FC<{
   // 每天该币种的净变动（收入 - 支出，转账同币种互抵不计）
   const dailyNet = new Map<string, number>();
   for (const t of transactions.filter(t => t.currency === selectedCurrency)) {
-    if (t.type === 'income' || t.type === 'refund') {
+    const reportingType = reportingTransactionType(t, categoryMap);
+    if (reportingType === 'income' || reportingType === 'refund') {
       dailyNet.set(t.dateStr, (dailyNet.get(t.dateStr) || 0) + t.amount);
-    } else if (t.type === 'expense') {
+    } else if (reportingType === 'expense') {
       dailyNet.set(t.dateStr, (dailyNet.get(t.dateStr) || 0) - t.amount);
     }
   }
@@ -1598,11 +1612,12 @@ const AssetsTab: React.FC<{
   balances: Record<string, number>;
   currencyEntries: [string, number][];
   transactions: FinanceTransaction[];
+  categories: FinanceCategory[];
   onRefresh: () => Promise<void>;
   addingAccount: boolean;
   onAddingDone: () => void;
   finSettings: FinanceSettings;
-}> = ({ accounts, balances, currencyEntries, transactions, onRefresh, addingAccount, onAddingDone, finSettings }) => {
+}> = ({ accounts, balances, currencyEntries, transactions, categories, onRefresh, addingAccount, onAddingDone, finSettings }) => {
   const [editingAccount, setEditingAccount] = useState<FinanceAccount | 'new' | null>(null);
 
   useEffect(() => {
@@ -1666,7 +1681,7 @@ const AssetsTab: React.FC<{
       </div>
 
       {/* 资产趋势图 */}
-      <TrendChart transactions={transactions} accounts={accounts} balances={balances} />
+      <TrendChart transactions={transactions} accounts={accounts} categories={categories} balances={balances} />
 
       {/* 账户列表 */}
       {activeAccounts.length === 0 ? (
@@ -1921,6 +1936,17 @@ const TransactionsTab: React.FC<{
         onCategoriesChanged={onRefresh}
         onSave={async (tx) => {
           await FinanceDB.saveTransaction(tx);
+          if (tx.categoryId === CREDIT_CARD_PAYMENT_CATEGORY_ID) {
+            const accountMap = new Map(accounts.map(account => [account.id, account]));
+            const counterpart = findCreditCardPaymentCounterpart(tx, transactions, accountMap);
+            if (counterpart) {
+              await FinanceDB.saveTransaction({
+                ...counterpart,
+                categoryId: CREDIT_CARD_PAYMENT_CATEGORY_ID,
+                needsCategoryReview: false,
+              });
+            }
+          }
           announceFinanceReviewChanged();
           await onRefresh();
           setEditingTx(null);
@@ -1936,18 +1962,23 @@ const TransactionsTab: React.FC<{
   }
 
   const { from, to } = getDateRange(timeRange);
+  const catMap = new Map(categories.map(c => [c.id, c]));
 
   const filtered = transactions.filter(t => {
     if (t.dateStr < from || t.dateStr > to) return false;
     if (filterAccountIds.size > 0 && !filterAccountIds.has(t.accountId)) return false;
-    if (filterType === 'expense' && t.type !== 'expense') return false;
-    if (filterType === 'income' && t.type !== 'income' && t.type !== 'refund') return false;
+    const reportingType = reportingTransactionType(t, catMap);
+    if (filterType === 'expense' && reportingType !== 'expense') return false;
+    if (filterType === 'income' && reportingType !== 'income' && reportingType !== 'refund') return false;
     return true;
   });
 
   const sorted = [...filtered].sort((a, b) => b.timestamp - a.timestamp);
-  const totalIncome = totalsByCurrency(filtered.filter(t => t.type === 'income' || t.type === 'refund'));
-  const totalExpense = totalsByCurrency(filtered.filter(t => t.type === 'expense'));
+  const totalIncome = totalsByCurrency(filtered.filter(t => {
+    const type = reportingTransactionType(t, catMap);
+    return type === 'income' || type === 'refund';
+  }));
+  const totalExpense = totalsByCurrency(filtered.filter(t => reportingTransactionType(t, catMap) === 'expense'));
 
   const byDate = new Map<string, FinanceTransaction[]>();
   for (const t of sorted) {
@@ -1956,7 +1987,6 @@ const TransactionsTab: React.FC<{
     byDate.set(t.dateStr, group);
   }
 
-  const catMap = new Map(categories.map(c => [c.id, c]));
   const accMap = new Map(accounts.map(a => [a.id, a]));
 
   const formatWeekday = (dateStr: string) => {
@@ -2063,8 +2093,11 @@ const TransactionsTab: React.FC<{
         </div>
       ) : (
         Array.from(byDate.entries()).map(([dateStr, txs]) => {
-          const dayExpense = totalsByCurrency(txs.filter(t => t.type === 'expense'));
-          const dayIncome = totalsByCurrency(txs.filter(t => t.type === 'income' || t.type === 'refund'));
+          const dayExpense = totalsByCurrency(txs.filter(t => reportingTransactionType(t, catMap) === 'expense'));
+          const dayIncome = totalsByCurrency(txs.filter(t => {
+            const type = reportingTransactionType(t, catMap);
+            return type === 'income' || type === 'refund';
+          }));
           const [, month, day] = dateStr.split('-');
           return (
             <div key={dateStr} className="mb-4">
@@ -2082,6 +2115,7 @@ const TransactionsTab: React.FC<{
                   const cat = catMap.get(t.categoryId);
                   const acc = accMap.get(t.accountId);
                   const sym = CURRENCY_SYMBOLS[t.currency] || '$';
+                  const reportingType = reportingTransactionType(t, catMap);
                   return (
                     <button
                       key={t.id}
@@ -2104,8 +2138,8 @@ const TransactionsTab: React.FC<{
                         </div>
                       </div>
                       <div className="text-sm font-semibold"
-                        style={{ color: t.type === 'income' || t.type === 'refund' ? HUE.green.main : F.textPrimary }}>
-                        {t.type === 'income' || t.type === 'refund' ? '+' : '-'}{sym}{t.amount.toLocaleString()}
+                        style={{ color: reportingType === 'income' || reportingType === 'refund' ? HUE.green.main : F.textPrimary }}>
+                        {reportingType === 'transfer' ? '↔' : reportingType === 'income' || reportingType === 'refund' ? '+' : '-'}{sym}{t.amount.toLocaleString()}
                       </div>
                       <div className="ml-2 text-xs" style={{ color: F.textTertiary }}>›</div>
                     </button>
@@ -2226,7 +2260,7 @@ function findNotableTransactions(
 
   const catAvg = new Map<string, { sum: number; count: number }>();
   for (const t of allTxs) {
-    if (t.type !== 'expense') continue;
+    if (reportingTransactionType(t, catMap) !== 'expense') continue;
     const topId = getTopCatId(t);
     const entry = catAvg.get(topId) || { sum: 0, count: 0 };
     entry.sum += t.amount;
@@ -2394,6 +2428,7 @@ const AnalyticsTab: React.FC<{
   }, []);
 
   const { from: fromDate, to: toDate, label: periodLabel } = getDateRange(period, periodOffset);
+  const catMap = new Map(categories.map(c => [c.id, c]));
 
   const selectedAccount = filterAccountId ? accounts.find(account => account.id === filterAccountId) : undefined;
   const periodCurrencyTotals = new Map<string, number>();
@@ -2420,21 +2455,28 @@ const AnalyticsTab: React.FC<{
     if (t.dateStr < fromDate || t.dateStr > toDate) return false;
     if (filterAccountId && t.accountId !== filterAccountId) return false;
     if (t.currency !== activeCurrency) return false;
-    if (filterType === 'expense' && t.type !== 'expense') return false;
-    if (filterType === 'income' && t.type !== 'income' && t.type !== 'refund') return false;
+    const reportingType = reportingTransactionType(t, catMap);
+    if (reportingType === 'transfer') return false;
+    if (filterType === 'expense' && reportingType !== 'expense') return false;
+    if (filterType === 'income' && reportingType !== 'income' && reportingType !== 'refund') return false;
     return true;
   });
 
   // "收支" 模式：分别计算收入支出
-  const expenseTxs = transactions.filter(t => t.dateStr >= fromDate && t.dateStr <= toDate && t.currency === activeCurrency && t.type === 'expense' && (!filterAccountId || t.accountId === filterAccountId));
-  const incomeTxs = transactions.filter(t => t.dateStr >= fromDate && t.dateStr <= toDate && t.currency === activeCurrency && (t.type === 'income' || t.type === 'refund') && (!filterAccountId || t.accountId === filterAccountId));
+  const expenseTxs = transactions.filter(t => t.dateStr >= fromDate && t.dateStr <= toDate && t.currency === activeCurrency && reportingTransactionType(t, catMap) === 'expense' && (!filterAccountId || t.accountId === filterAccountId));
+  const incomeTxs = transactions.filter(t => {
+    const reportingType = reportingTransactionType(t, catMap);
+    return t.dateStr >= fromDate
+      && t.dateStr <= toDate
+      && t.currency === activeCurrency
+      && (reportingType === 'income' || reportingType === 'refund')
+      && (!filterAccountId || t.accountId === filterAccountId);
+  });
   const totalExpense = expenseTxs.reduce((s, t) => s + t.amount, 0);
   const totalIncome = incomeTxs.reduce((s, t) => s + t.amount, 0);
   const netBalance = totalIncome - totalExpense;
 
   const totalAmount = periodTxs.reduce((s, t) => s + t.amount, 0);
-
-  const catMap = new Map(categories.map(c => [c.id, c]));
 
   const byCat = new Map<string, number>();
   for (const t of periodTxs) {

@@ -2,6 +2,7 @@ import type { FinanceAccount, FinanceCategory, FinanceTransaction, Message } fro
 import { FinanceDB } from './financeDb';
 import { getLocalDateKey } from './localDate';
 import { getSimpleFinSyncState } from './simplefinSync';
+import { reportingTransactionType } from './financeTransfers';
 
 export const FINANCE_CHAT_TOOLS = [
   {
@@ -94,7 +95,12 @@ function transactionFingerprint(transaction: FinanceTransaction): string {
 }
 
 export async function getFinanceAwareness(charId: string): Promise<FinanceAwareness> {
-  const transactions = (await FinanceDB.getTransactions())
+  const [allTransactions, categories] = await Promise.all([
+    FinanceDB.getTransactions(),
+    FinanceDB.getCategories(),
+  ]);
+  const categoryMap = new Map(categories.map(category => [category.id, category]));
+  const transactions = allTransactions
     .filter(transaction => transaction.timestamp <= Date.now() + 5 * 60 * 1000)
     .sort((a, b) => b.timestamp - a.timestamp);
   if (transactions.length === 0) return { hasLedger: false, pulse: null };
@@ -124,14 +130,17 @@ export async function getFinanceAwareness(charId: string): Promise<FinanceAwaren
 
   const totals: Record<string, number> = {};
   for (const transaction of fresh) {
-    if (transaction.type === 'expense') totals[transaction.currency] = (totals[transaction.currency] || 0) + transaction.amount;
+    if (reportingTransactionType(transaction, categoryMap) === 'expense') {
+      totals[transaction.currency] = (totals[transaction.currency] || 0) + transaction.amount;
+    }
   }
   const totalText = Object.entries(totals)
     .map(([currency, amount]) => `${currency} ${amount.toFixed(2)}`)
     .join('、');
   const recentText = fresh.slice(0, 3).map(transaction => {
     const label = transaction.sourceDescription || transaction.note || '未命名交易';
-    const sign = transaction.type === 'expense' ? '-' : '+';
+    const type = reportingTransactionType(transaction, categoryMap);
+    const sign = type === 'transfer' ? '↔' : type === 'expense' ? '-' : '+';
     return `${label} ${sign}${transaction.currency} ${transaction.amount.toFixed(2)}`;
   }).join('；');
 
@@ -181,12 +190,13 @@ function publicTransaction(
   accounts: Map<string, FinanceAccount>,
   categories: Map<string, FinanceCategory>,
 ) {
+  const type = reportingTransactionType(transaction, categories);
   return {
     date: transaction.dateStr,
     merchant: transaction.sourceDescription || transaction.note || '未命名交易',
     amount: transaction.amount,
     currency: transaction.currency,
-    type: transaction.type,
+    type,
     account: accountDisplayName(accounts.get(transaction.accountId)),
     category: categoryPath(transaction.categoryId, categories),
     pending: Boolean(transaction.pending),
@@ -255,7 +265,7 @@ export async function executeFinanceChatTool(name: string, args: Record<string, 
     const startDate = typeof args.start_date === 'string' && args.start_date ? args.start_date : defaultStart;
     const endDate = typeof args.end_date === 'string' && args.end_date ? args.end_date : today;
     const spending = data.transactions.filter(transaction =>
-      transaction.type === 'expense'
+      reportingTransactionType(transaction, data.categoryMap) === 'expense'
       && !transaction.pending
       && transaction.dateStr >= startDate
       && transaction.dateStr <= endDate,

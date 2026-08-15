@@ -47,6 +47,7 @@ const DEFAULT_CATEGORIES: FinanceCategory[] = [
   { id: 'cat_study', name: '学习', icon: '📚' },
 
   { id: 'cat_transfer', name: '转账', icon: '🔄' },
+  { id: 'cat_transfer_credit_payment', name: '信用卡还款', icon: '💳', parentId: 'cat_transfer' },
 
   { id: 'cat_income', name: '收入', icon: '💰' },
   { id: 'cat_income_salary', name: '工资', icon: '💵', parentId: 'cat_income' },
