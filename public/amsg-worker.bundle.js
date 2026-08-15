@@ -3,7 +3,7 @@
 // worker/amsg/src/index.ts
 import { DurableObject } from "cloudflare:workers";
 
-// node_modules/.pnpm/@rei-standard+amsg-server@2_f0d1565ecb2f6ba09e8ad8e395e33d91/node_modules/@rei-standard/amsg-server/dist/chunk-5FXVSC5O.mjs
+// node_modules/.pnpm/@rei-standard+amsg-server@2.6.0-next.20_@neondatabase+serverless@1.1.0_pg@8.22.0/node_modules/@rei-standard/amsg-server/dist/chunk-5FXVSC5O.mjs
 var UPDATABLE_COLUMNS = /* @__PURE__ */ new Set([
   "user_id",
   "uuid",
@@ -817,7 +817,7 @@ function stringifyDecisionForError(value) {
   }
 }
 
-// node_modules/.pnpm/@rei-standard+amsg-server@2_f0d1565ecb2f6ba09e8ad8e395e33d91/node_modules/@rei-standard/amsg-server/dist/chunk-HTGYGGUH.mjs
+// node_modules/.pnpm/@rei-standard+amsg-server@2.6.0-next.20_@neondatabase+serverless@1.1.0_pg@8.22.0/node_modules/@rei-standard/amsg-server/dist/chunk-HTGYGGUH.mjs
 var DAY_MS = 24 * 60 * 60 * 1e3;
 var MAX_LISTED_SKIPPED_OCCURRENCES = 32;
 var MAX_ADJUST_STEPS = 32;
@@ -5607,7 +5607,7 @@ function createWebCryptoWebPush(vapid = {}, { ttl = SCHEDULED_DEFAULT_TTL } = {}
 }
 
 // utils/amsgBundleVersion.ts
-var AMSG_BUNDLE_VERSION = "2026-08-10.3";
+var AMSG_BUNDLE_VERSION = "2026-08-15";
 
 // utils/localDate.ts
 function getLocalDateKey(date = /* @__PURE__ */ new Date()) {
@@ -5717,6 +5717,10 @@ var buildScheduleInjection = (schedule, evolvedNarrative, now = /* @__PURE__ */ 
   out += "\n";
   return out;
 };
+
+// utils/scheduleTime.ts
+var SLEEP_TIMELINE_START = 21 * 60 + 30;
+var SLEEP_TIMELINE_END = 24 * 60 + 10 * 60;
 
 // utils/charMusicSchedule.ts
 var LISTENING_KEYWORDS = [
@@ -6967,14 +6971,25 @@ var buildInstantTimelyBlock = (args) => {
   ].join("\n") : "\u3010\u6B64\u523B\u7684\u7CFB\u7EDF\u4FE1\u606F\xB7\u4EC5\u4F60\u53EF\u89C1\u3011";
   return [head, ...blocks].join("\n");
 };
-var NOTIFICATION_WHEN_HIDDEN = "when-hidden";
-var applyInstantNotificationPolicy = (payload) => {
+var NOTIFICATION_ALWAYS = "always";
+var instantNotificationTag = (charId) => `amsg-instant-${charId}`;
+var applyInstantNotificationPolicy = (payload, charId) => {
   const notification = payload.notification;
   const hasNotification = !!notification && typeof notification === "object" && !Array.isArray(notification);
   if (!hasNotification) return payload;
+  const meta = payload.metadata;
+  const metaCharId = meta && typeof meta === "object" && !Array.isArray(meta) ? meta.charId : void 0;
+  const target = charId || (typeof metaCharId === "string" ? metaCharId : "");
   return {
     ...payload,
-    notification: { ...notification, show: NOTIFICATION_WHEN_HIDDEN }
+    notification: {
+      ...notification,
+      show: NOTIFICATION_ALWAYS,
+      silent: true,
+      // 认不出是哪个角色时就不折叠：通知栏里多几条只是吵，两个角色共用一个 tag 会
+      // 互相顶掉，那是真的丢消息。
+      ...target ? { tag: instantNotificationTag(target) } : {}
+    }
   };
 };
 var kickInstantTick = async (env, uuid) => {
@@ -7014,6 +7029,18 @@ var STATE_FORWARD_BACKOFF_MS = [0, 400, 1200];
 var sleep = (ms) => new Promise((resolve) => {
   setTimeout(resolve, ms);
 });
+var GZIP_MAGIC = [31, 139];
+var readMaybeGzippedBody = async (request) => {
+  if ((request.headers.get("content-encoding") ?? "").toLowerCase() !== "gzip") {
+    return request.text();
+  }
+  const raw = new Uint8Array(await request.arrayBuffer());
+  if (raw.length < 2 || raw[0] !== GZIP_MAGIC[0] || raw[1] !== GZIP_MAGIC[1]) {
+    return new TextDecoder().decode(raw);
+  }
+  const stream = new Response(raw).body.pipeThrough(new DecompressionStream("gzip"));
+  return new Response(stream).text();
+};
 var isEncryptedEnvelope2 = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const env = value;
@@ -7035,7 +7062,8 @@ var handleInstantChat = async (args) => {
   if (!UUID_V4_RE.test(userId)) return fail2(400, "INVALID_USER_ID_FORMAT", "X-User-Id \u5FC5\u987B\u662F UUID v4 \u683C\u5F0F");
   let body;
   try {
-    const parsed = await request.json();
+    const text = await readMaybeGzippedBody(request);
+    const parsed = JSON.parse(text);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
     body = parsed;
   } catch {
@@ -9772,7 +9800,7 @@ var stripSourceTags = (t) => t.replace(/\s*\[(?:聊天|通话|约会)\]\s*/g, "\
 var stripTimestamps = (t) => t.replace(/\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*/g, "").replace(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s*/gm, "").replace(/（[上下]午\d{1,2}[：:]\d{2}）/g, "").replace(/\(\d{1,2}:\d{2}\s*[AP]M\)/gi, "");
 var stripChineseDate = (t) => t.replace(/\[\d{4}[-/年]\d{1,2}[-/月]\d{1,2}.*?\]/g, "");
 var stripRoleNamePrefix = (t) => t.replace(/^[\w一-龥]+:\s*/, "");
-var stripBusinessTagsForBubble = (t) => t.replace(/\[\[(?:ACTION|RECALL|SEARCH|DIARY|READ_DIARY|FS_DIARY|FS_READ_DIARY|DIARY_START|DIARY_END|FS_DIARY_START|FS_DIARY_END|MUSIC_ACTION)[:\s][\s\S]*?\]\]/g, "").replace(/\[\[\s*[记記][录錄]\s*[:：][\s\S]*?\]\]/g, "").replace(/\[schedule_message[^\]]*\]/g, "");
+var stripBusinessTagsForBubble = (t) => t.replace(/\[\[(?:ACTION|RECALL|SEARCH|DIARY|READ_DIARY|FS_DIARY|FS_READ_DIARY|DIARY_START|DIARY_END|FS_DIARY_START|FS_DIARY_END|MUSIC_ACTION)[:\s][\s\S]*?\]\]/g, "").replace(/\[\[FAV_PHOTO\]\]/g, "").replace(/\[\[\s*[记記][录錄]\s*[:：][\s\S]*?\]\]/g, "").replace(/\[schedule_message[^\]]*\]/g, "");
 var stripBusinessTagsForNotification = (t) => stripBusinessTagsForBubble(t).replace(/\[\[(?:READ_NOTE|XHS_[A-Z_]+|LIFE|NEWS_CARD)[:\s][\s\S]*?\]\]/g, "").replace(/\[\[XHS_[A-Z_]+\]\]/g, "");
 var stripAllDoubleBracketTags = (t) => t.replace(/\[\[[\s\S]*?\]\]/g, "");
 var stripQuotes2 = (t) => t.replace(/\[\[(?:QU[OA]TE|引用)[：:][\s\S]*?\]\]/g, "").replace(/\[(?:QU[OA]TE|引用)[：:][^\]]*\]/g, "").replace(/\[回复\s*[""“][^""”]*?[""”](?:\.{0,3})\]\s*[：:]?\s*/g, "").replace(/\[[^\[\]\n「」]{0,24}引用了[^\[\]\n「」]{0,24}「[^」\n]*?」[^\[\]\n]{0,24}\]\s*/g, "");
@@ -10945,13 +10973,18 @@ var recordSkip = async (ctx, charId, reason, occurrenceMs) => writeLastSkip(ctx.
   reason,
   skippedAt: ctx.now.getTime()
 });
+var readErrorCode = (error) => {
+  const code = error?.code;
+  return typeof code === "string" && code ? code : null;
+};
 var writeChatFail = async (writeState, charId, record) => {
   const full = {
     v: 1,
     uuid: record.uuid,
     reason: record.reason.slice(0, 500),
     retryCount: record.retryCount,
-    at: Date.now()
+    at: Date.now(),
+    ...record.errorCode ? { errorCode: record.errorCode } : {}
   };
   try {
     await writeState(amsgStateNamespace(charId), [
@@ -10998,12 +11031,17 @@ var sendInstantErrorPush = async (args) => {
         charId: args.charId,
         amsgInstantError: true,
         taskUuid: args.taskUuid,
-        reason: args.reason.slice(0, 500)
+        reason: args.reason.slice(0, 500),
+        ...args.errorCode ? { errorCode: args.errorCode } : {}
       },
       notification: {
         title: args.contactName ? `${args.contactName} \u7684\u56DE\u590D\u6CA1\u80FD\u751F\u6210` : "\u56DE\u590D\u6CA1\u80FD\u751F\u6210",
         body: instantErrorNotificationBody(args.reason),
-        show: "when-hidden"
+        show: "always",
+        silent: true,
+        // 跟这个角色的回复共用一个 tag：通知栏里只留最新状态，重发成功后那条回复
+        // 会把这条「没能生成」盖掉。失败本身在聊天流里有系统消息留痕，不靠横幅记账。
+        tag: instantNotificationTag(args.charId)
       }
     };
     await deps.webpush.sendNotification(subscription, JSON.stringify(payload));
@@ -11017,10 +11055,12 @@ var amsgFireSettled = async (info) => {
   if (stash.instant && info.status === "failed" && stash.taskUuid) {
     const failReason = info.error instanceof Error ? info.error.message : String(info.error ?? "\u672A\u77E5\u9519\u8BEF");
     const retryCount = typeof info.task?.retry_count === "number" ? info.task.retry_count : 0;
+    const errorCode = readErrorCode(info.error);
     await writeChatFail(info.writeState, stash.charId, {
       uuid: stash.taskUuid,
       reason: failReason,
-      retryCount
+      retryCount,
+      errorCode
     });
     const permanent = info.error instanceof Error && info.error.permanent === true;
     if (retryCount >= 3 || permanent) {
@@ -11028,6 +11068,7 @@ var amsgFireSettled = async (info) => {
         charId: stash.charId,
         taskUuid: stash.taskUuid,
         reason: failReason,
+        errorCode,
         userId: typeof info.task?.user_id === "string" ? info.task.user_id : null
       });
     } else if (stash.emotionEvalPromise && stash.clientTaskId) {
@@ -11787,7 +11828,7 @@ var amsgHooks = {
         payloads = budgeted;
       }
       if (stash.instant) {
-        payloads = payloads.map((payload) => applyInstantNotificationPolicy(payload));
+        payloads = payloads.map((payload) => applyInstantNotificationPolicy(payload, stash.charId));
       }
       return { ...decision, pushPayloads: payloads };
     }
@@ -11867,7 +11908,9 @@ var buildWorkerConfig = (env) => {
     webpush,
     // 前端和 Worker 不同源，带自定义头的请求会先发 CORS 预检，必须放行。
     // 单用户自用默认全开；想收紧就把 '*' 换成自己的 SullyOS 站点 origin。
-    cors: { origin: "*" },
+    // allowHeaders 显式给：上游默认那份不含 Content-Encoding，而 gzip 上行要用它
+    // （见 CORS_ALLOW_HEADERS 那段注释）。
+    cors: { origin: "*", allowHeaders: CORS_ALLOW_HEADERS2 },
     // 满血 fire-time hooks（onBeforeFire 现场填槽 + onLLMOutput 分类 +
     // executeToolCalls 服务端工具循环）；轮数/超时用库默认（5 轮 / 240s），
     // 即时对话那条单独把超时抬到 INSTANT_TOTAL_TIMEOUT_MS（onBeforeFire 返回值里给）。
@@ -11941,10 +11984,11 @@ var inspectWorkerEnv = (env) => {
     warnings
   };
 };
+var CORS_ALLOW_HEADERS2 = "Content-Type, Content-Encoding, X-User-Id, X-Payload-Encrypted, X-Encryption-Version, X-Response-Encrypted, X-Client-Token";
 var CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, X-User-Id, X-Payload-Encrypted, X-Encryption-Version, X-Response-Encrypted, X-Client-Token",
+  "Access-Control-Allow-Headers": CORS_ALLOW_HEADERS2,
   "Access-Control-Max-Age": "86400"
 };
 var jsonWithCors = (status, body) => new Response(JSON.stringify(body), {

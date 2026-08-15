@@ -3,7 +3,7 @@
 // worker/amsg/src/index.ts
 import { DurableObject } from "cloudflare:workers";
 
-// node_modules/.pnpm/@rei-standard+amsg-server@2.6.0-next.21_@neondatabase+serverless@1.1.0_pg@8.22.0/node_modules/@rei-standard/amsg-server/dist/chunk-GN44PST5.mjs
+// node_modules/.pnpm/@rei-standard+amsg-server@2.6.0-next.20_@neondatabase+serverless@1.1.0_pg@8.22.0/node_modules/@rei-standard/amsg-server/dist/chunk-5FXVSC5O.mjs
 var UPDATABLE_COLUMNS = /* @__PURE__ */ new Set([
   "user_id",
   "uuid",
@@ -19,10 +19,8 @@ var UPDATABLE_COLUMNS = /* @__PURE__ */ new Set([
   "created_at",
   "updated_at"
 ]);
-var TASK_DELIVERY_COLUMNS = "id, user_id, uuid, encrypted_payload, message_type, next_send_at, retry_after, status, retry_count";
-var TASK_DETAIL_COLUMNS = "id, user_id, uuid, encrypted_payload, message_type, next_send_at, status, retry_count, last_error, created_at, updated_at";
 
-// node_modules/.pnpm/@rei-standard+amsg-shared@0.4.0-next.6/node_modules/@rei-standard/amsg-shared/dist/index.mjs
+// node_modules/.pnpm/@rei-standard+amsg-shared@0.4.0-next.5/node_modules/@rei-standard/amsg-shared/dist/index.mjs
 var TEXT_ENCODER = new TextEncoder();
 var TEXT_DECODER = new TextDecoder("utf-8", { fatal: false });
 function toUint8(buf) {
@@ -162,9 +160,6 @@ function validateLlmMessagesShape(messages) {
   }
   return null;
 }
-var UPSTREAM_ERROR_DETAIL_MAX_CHARS = 300;
-var UPSTREAM_ERROR_CODE_MAX_CHARS = 64;
-var UPSTREAM_ERROR_BODY_MAX_BYTES = 16 * 1024;
 async function callLlm(payload, options = {}) {
   const requireContent = options.requireContent !== false;
   const timeoutMs = typeof options.timeoutMs === "number" && Number.isFinite(options.timeoutMs) && options.timeoutMs > 0 ? options.timeoutMs : 3e5;
@@ -181,18 +176,13 @@ async function callLlm(payload, options = {}) {
     signal: AbortSignal.timeout(timeoutMs)
   });
   if (!aiResponse.ok) {
-    const detail = await readUpstreamErrorDetail(aiResponse);
     if (aiResponse.status === 405) {
-      throw buildUpstreamError(
-        `AI API error: 405 Method Not Allowed. apiUrl must point to a full chat endpoint (for example: /chat/completions). Received: ${normalizedApiUrl}`,
-        aiResponse.status,
-        detail
+      throw new Error(
+        `AI API error: 405 Method Not Allowed. apiUrl must point to a full chat endpoint (for example: /chat/completions). Received: ${normalizedApiUrl}`
       );
     }
-    throw buildUpstreamError(
-      `AI API error: ${aiResponse.status} ${aiResponse.statusText || "Unknown Error"}. Request URL: ${normalizedApiUrl}`,
-      aiResponse.status,
-      detail
+    throw new Error(
+      `AI API error: ${aiResponse.status} ${aiResponse.statusText || "Unknown Error"}. Request URL: ${normalizedApiUrl}`
     );
   }
   const aiData = await aiResponse.json();
@@ -258,169 +248,6 @@ function normalizeAiApiUrl(apiUrl) {
   }
   parsed.pathname = path;
   return parsed.toString();
-}
-function buildUpstreamError(summary, status, detail) {
-  const error = new Error(
-    summary + (detail.message ? ` \u2014 ${detail.message}` : "") + (detail.code ? ` (provider code: ${detail.code})` : "")
-  );
-  error.code = "LLM_CALL_FAILED";
-  error.llmStatus = status;
-  if (detail.code) error.providerCode = detail.code;
-  return error;
-}
-async function readUpstreamErrorDetail(response) {
-  let raw;
-  let truncated = false;
-  try {
-    ({ text: raw, truncated } = await readBoundedBody(response));
-  } catch {
-    return { message: "", code: "" };
-  }
-  if (typeof raw !== "string" || !raw.trim()) return { message: "", code: "" };
-  let body;
-  try {
-    body = JSON.parse(raw);
-  } catch {
-    if (truncated && looksLikeJson(raw)) {
-      const salvaged = salvageJsonStringFields(raw);
-      return {
-        message: clampDetail(salvaged.message || TRUNCATED_BODY_NOTE),
-        code: clampCode(salvaged.code)
-      };
-    }
-    return { message: clampDetail(raw), code: "" };
-  }
-  const envelope = body && typeof body === "object" ? body : {};
-  const inner = envelope.error && typeof envelope.error === "object" ? envelope.error : {};
-  const message = firstNonEmptyString(
-    inner.message,
-    // OpenAI / Anthropic / Gemini
-    typeof envelope.error === "string" ? envelope.error : "",
-    // `{ error: "unauthorized" }`
-    envelope.message,
-    // 一批中转把 message 放最外层
-    envelope.detail
-    // FastAPI 风格的自建中转
-  ) || raw;
-  const code = firstNonEmptyString(
-    inner.code,
-    // OpenAI：invalid_api_key / insufficient_quota / context_length_exceeded
-    inner.status,
-    // Gemini：INVALID_ARGUMENT / RESOURCE_EXHAUSTED
-    inner.type,
-    // Anthropic：invalid_request_error / overloaded_error
-    envelope.code
-  );
-  return { message: clampDetail(message), code: clampCode(code) };
-}
-async function readBoundedBody(response) {
-  const body = response && response.body;
-  if (!body || typeof body.getReader !== "function") {
-    const text = typeof response.text === "function" ? await response.text() : "";
-    return { text, truncated: false };
-  }
-  const reader = body.getReader();
-  const chunks = [];
-  let bytes = 0;
-  try {
-    while (bytes < UPSTREAM_ERROR_BODY_MAX_BYTES) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (!value || !value.length) continue;
-      chunks.push(value);
-      bytes += value.length;
-    }
-  } finally {
-    try {
-      await reader.cancel();
-    } catch {
-    }
-  }
-  return {
-    text: utf8Decode(concatBytes(...chunks)),
-    truncated: bytes >= UPSTREAM_ERROR_BODY_MAX_BYTES
-  };
-}
-var TRUNCATED_BODY_NOTE = "upstream error body was truncated before any readable message";
-var JSON_STRING_FIELD = /"(message|detail|code|status|type)"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
-function looksLikeJson(raw) {
-  return /^\s*[{[]/.test(raw);
-}
-function salvageJsonStringFields(raw) {
-  const found = {};
-  for (const match of raw.matchAll(JSON_STRING_FIELD)) {
-    if (found[match[1]] === void 0) found[match[1]] = unescapeJsonString(match[2]);
-  }
-  return {
-    message: firstNonEmptyString(found.message, found.detail),
-    code: firstNonEmptyString(found.code, found.status, found.type)
-  };
-}
-function unescapeJsonString(value) {
-  try {
-    return JSON.parse(`"${value}"`);
-  } catch {
-    return value;
-  }
-}
-function clampDetail(text) {
-  const flattened = String(text ?? "").replace(/\s+/g, " ").trim();
-  const safe = redactCredentials(flattened);
-  return safe.length > UPSTREAM_ERROR_DETAIL_MAX_CHARS ? `${safe.slice(0, UPSTREAM_ERROR_DETAIL_MAX_CHARS - 1)}\u2026` : safe;
-}
-function clampCode(code) {
-  return String(code ?? "").replace(/\s+/g, " ").trim().slice(0, UPSTREAM_ERROR_CODE_MAX_CHARS);
-}
-var CREDENTIAL_LIKE_TOKEN = /\b[A-Za-z]{2,6}-[A-Za-z0-9_-]{16,}/g;
-var LONG_OPAQUE_RUN = /[A-Za-z0-9+/_.-]{48,}/g;
-var MODEL_ID_LIKE = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]{1,12})+$/;
-var MODEL_ID_MAX_CHARS = 64;
-var CREDENTIAL_PREFIX_SEGMENTS = /* @__PURE__ */ new Set([
-  "sk",
-  "pk",
-  "ak",
-  "api",
-  "apikey",
-  "key",
-  "token",
-  "secret",
-  "auth",
-  "bearer",
-  "session",
-  "sess",
-  "pat",
-  "xai",
-  "gsk"
-]);
-var UUID_SHAPE = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/;
-function alternationCount(segment) {
-  return (segment.match(/[a-z]+|[0-9]+/g) || []).length;
-}
-function looksLikeModelId(token) {
-  if (token.length > MODEL_ID_MAX_CHARS) return false;
-  if (!MODEL_ID_LIKE.test(token)) return false;
-  if (UUID_SHAPE.test(token)) return false;
-  const segments = token.split(/[.-]/);
-  if (CREDENTIAL_PREFIX_SEGMENTS.has(segments[0])) return false;
-  const randomLooking = segments.filter((segment) => alternationCount(segment) >= 3);
-  if (randomLooking.length === 0) return true;
-  return randomLooking.length === 1 && randomLooking[0].length <= 5;
-}
-function redactCredentials(text) {
-  let s = text;
-  s = s.replace(/Bearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, "Bearer [redacted]");
-  s = s.replace(CREDENTIAL_LIKE_TOKEN, (token) => looksLikeModelId(token) ? token : "[redacted]");
-  s = s.replace(LONG_OPAQUE_RUN, (run) => {
-    const token = run.replace(/^[._+/-]+/, "").replace(/[._+/-]+$/, "");
-    return looksLikeModelId(token) ? run : "[redacted]";
-  });
-  return s;
-}
-function firstNonEmptyString(...values) {
-  for (const value of values) {
-    if (typeof value === "string" && value.trim()) return value;
-  }
-  return "";
 }
 var KEY_INFO_PREFIX = utf8("WebPush: info\0");
 var CEK_INFO = utf8("Content-Encoding: aes128gcm\0");
@@ -602,120 +429,26 @@ async function safeReadText(res) {
     return "";
   }
 }
-var MULTIPART_MESSAGE_KIND = "_multipart";
-var MULTIPART_ENCODING = "json-utf8-base64url";
-var MULTIPART_VERSION = 1;
-var DEFAULT_MULTIPART_TTL_MS = 6e4;
-var DEFAULT_MULTIPART_MAX_CHUNKS = 128;
-var DEFAULT_MULTIPART_MAX_TOTAL_BYTES = 256e3;
 var REI_SW_EVENT = Object.freeze({
   CONTENT_RECEIVED: "rei-amsg-content-received",
   REASONING_RECEIVED: "rei-amsg-reasoning-received",
   TOOL_REQUEST_RECEIVED: "rei-amsg-tool-request-received",
   ERROR_RECEIVED: "rei-amsg-error-received",
-  /** 宿主自定义的一条结果（`messageKind: 'result'`），不是聊天内容。 */
-  RESULT_RECEIVED: "rei-amsg-result-received",
   MULTIPART_EXPIRED: "rei-amsg-multipart-expired",
   UNKNOWN_RECEIVED: "rei-amsg-unknown-received"
-});
-var MULTIPART_FAILURE_REASON = Object.freeze({
-  /** TTL 到期仍未收齐，或收到的分片本身已经过期。 */
-  TTL_EXPIRED: "ttl-expired",
-  /** 分片信封不合规：version / encoding 对不上、index 越界、chunk 不是合法 base64url。 */
-  INVALID_CHUNK: "invalid-chunk",
-  /** 同一个 id 的分片报了不一样的 total / encoding，已收的部分拼不回去。 */
-  CHUNK_CONFLICT: "chunk-conflict",
-  /** 累计字节数超过 maxTotalBytes。 */
-  SIZE_LIMIT_EXCEEDED: "size-limit-exceeded",
-  /** 收齐了但拼不回原 payload（缺片、超限、JSON 解不开）。 */
-  RESTORE_FAILED: "restore-failed",
-  /** 分片仓库（IndexedDB）读写失败。 */
-  STORAGE_FAILED: "storage-failed",
-  /** 接收端把 multipart 关了（`multipart.enabled === false`），分片没法重组。 */
-  DISABLED: "disabled"
 });
 var REI_SW_MESSAGE_TYPE = Object.freeze({
   ENQUEUE_REQUEST: "REI_ENQUEUE_REQUEST",
   DELIVER: "REI_AMSG_DELIVER",
   FLUSH_QUEUE: "REI_FLUSH_QUEUE",
-  /**
-   * 入队的点对点回执：谁发的 ENQUEUE_REQUEST 就回给谁一条，一次一条。
-   * 没转 MessagePort 过来时会落到全局的 `navigator.serviceWorker` message
-   * 监听器上。
-   */
-  QUEUE_RESULT: "REI_QUEUE_RESULT",
-  /**
-   * 队列请求被永久拒绝、即将从队列里删掉时广播给所有窗口的一条。
-   *
-   * 跟 QUEUE_RESULT 分开是因为两者的收信人不是一回事：这条是广播，可能来自后台
-   * `sync` 冲刷、说的也可能是另一条八竿子打不着的旧请求。共用一个 type 的话，
-   * 页面等自己那条入队回执时会先收到这一条、当成自己的结果处理。
-   */
-  QUEUE_DROPPED: "REI_QUEUE_DROPPED"
+  QUEUE_RESULT: "REI_QUEUE_RESULT"
 });
 var REI_AMSG_DELIVER_MESSAGE_TYPE = REI_SW_MESSAGE_TYPE.DELIVER;
-var DEFAULT_MULTIPART_CHUNK_BYTES = 1800;
-function buildMultipartPushPayloads(payload, options = {}) {
-  const maxChunkBytes = resolvePositiveInteger(
-    options.maxChunkBytes,
-    DEFAULT_MULTIPART_CHUNK_BYTES,
-    "maxChunkBytes"
-  );
-  const ttlMs = resolvePositiveInteger(options.ttlMs, DEFAULT_MULTIPART_TTL_MS, "ttlMs");
-  const id = typeof options.id === "string" && options.id.trim() ? options.id.trim() : `mp_${randomUUID()}`;
-  let serialized = typeof options.serializedPayload === "string" ? options.serializedPayload : void 0;
-  if (serialized === void 0) {
-    try {
-      serialized = JSON.stringify(payload);
-    } catch (error) {
-      throw new TypeError(`buildMultipartPushPayloads: payload is not JSON-serializable: ${error?.message ?? error}`);
-    }
-  }
-  if (typeof serialized !== "string") {
-    throw new TypeError("buildMultipartPushPayloads: payload serialized to a non-string");
-  }
-  const bytes = utf8(serialized);
-  const total = Math.max(1, Math.ceil(bytes.byteLength / maxChunkBytes));
-  const createdAt = Date.now();
-  const originalMessageKind = payload && typeof payload === "object" ? (
-    /** @type {{ messageKind?: unknown }} */
-    payload.messageKind
-  ) : void 0;
-  const parts = [];
-  for (let i = 0; i < total; i++) {
-    const start = i * maxChunkBytes;
-    const end = Math.min(start + maxChunkBytes, bytes.byteLength);
-    const chunkBytes = bytes.subarray(start, end);
-    parts.push({
-      messageKind: MULTIPART_MESSAGE_KIND,
-      multipart: {
-        version: MULTIPART_VERSION,
-        id,
-        index: i + 1,
-        total,
-        encoding: MULTIPART_ENCODING,
-        originalMessageKind: typeof originalMessageKind === "string" ? originalMessageKind : null,
-        createdAt,
-        ttlMs
-      },
-      chunk: bytesToBase64Url(chunkBytes)
-    });
-  }
-  return parts;
-}
-function resolvePositiveInteger(value, fallback, fieldName) {
-  if (value === void 0 || value === null) return fallback;
-  if (!Number.isInteger(value) || value <= 0) {
-    throw new TypeError(`buildMultipartPushPayloads: ${fieldName} must be a positive integer`);
-  }
-  return value;
-}
 var MESSAGE_KIND = Object.freeze({
   CONTENT: "content",
   REASONING: "reasoning",
   TOOL_REQUEST: "tool_request",
-  ERROR: "error",
-  RESULT: "result"
+  ERROR: "error"
 });
 var MESSAGE_TYPE = Object.freeze({
   INSTANT: "instant",
@@ -816,29 +549,6 @@ function validateNotificationArg(kind, value) {
   if (n.data !== void 0 && (n.data === null || typeof n.data !== "object" || Array.isArray(n.data))) {
     throw new Error(`[amsg-shared] ${kind}: 'notification.data' must be a plain object when present`);
   }
-}
-function buildResultPush(args) {
-  if (!args || typeof args !== "object" || Array.isArray(args)) {
-    throw new Error("[amsg-shared] ResultPush: payload must be a plain object");
-  }
-  requireField("ResultPush", "messageType", args.messageType);
-  requireField("ResultPush", "source", args.source);
-  requireField("ResultPush", "messageId", args.messageId);
-  requireField("ResultPush", "sessionId", args.sessionId);
-  if (typeof args.resultKind !== "string" || !args.resultKind.trim()) {
-    throw new Error(
-      "[amsg-shared] ResultPush: 'resultKind' must be a non-empty string\uFF08\u7ED9\u8FD9\u7C7B\u7ED3\u679C\u8D77\u4E2A\u540D\u5B57\uFF0C\u5BA2\u6237\u7AEF\u6309\u5B83\u5206\u6D41\uFF09"
-    );
-  }
-  validateNotificationArg("ResultPush", args.notification);
-  return (
-    /** @type {ResultPush} */
-    {
-      ...args,
-      messageKind: "result",
-      timestamp: args.timestamp || (/* @__PURE__ */ new Date()).toISOString()
-    }
-  );
 }
 var REASONING_CHUNK_ENCODER = new TextEncoder();
 var REASONING_CHUNK_DECODER = new TextDecoder("utf-8", { fatal: true });
@@ -1107,7 +817,7 @@ function stringifyDecisionForError(value) {
   }
 }
 
-// node_modules/.pnpm/@rei-standard+amsg-server@2.6.0-next.21_@neondatabase+serverless@1.1.0_pg@8.22.0/node_modules/@rei-standard/amsg-server/dist/chunk-KOJQVOYS.mjs
+// node_modules/.pnpm/@rei-standard+amsg-server@2.6.0-next.20_@neondatabase+serverless@1.1.0_pg@8.22.0/node_modules/@rei-standard/amsg-server/dist/chunk-HTGYGGUH.mjs
 var DAY_MS = 24 * 60 * 60 * 1e3;
 var MAX_LISTED_SKIPPED_OCCURRENCES = 32;
 var MAX_ADJUST_STEPS = 32;
@@ -1485,26 +1195,6 @@ function validateLlmMessagesArray(messages) {
       return `messages[${i}].content must be a non-empty string or a non-empty array`;
   }
 }
-var D1_MAX_ROW_BYTES = 2e6;
-var STORAGE_HEX_OVERHEAD_BYTES = 66;
-var TASK_ROW_OTHER_COLUMNS_BYTES = 4096;
-var TASK_LAST_ERROR_RESERVED_BYTES = 2048;
-var MAX_TASK_PAYLOAD_BYTES = Math.floor(
-  (D1_MAX_ROW_BYTES - TASK_ROW_OTHER_COLUMNS_BYTES - STORAGE_HEX_OVERHEAD_BYTES) / 2
-) - TASK_LAST_ERROR_RESERVED_BYTES;
-var taskPayloadEncoder = new TextEncoder();
-function validateTaskPayloadSize(serializedPayload) {
-  const bytes = taskPayloadByteLength(serializedPayload);
-  if (bytes <= MAX_TASK_PAYLOAD_BYTES) return null;
-  return {
-    code: "TASK_PAYLOAD_TOO_LARGE",
-    message: `\u4EFB\u52A1\u5185\u5BB9 ${bytes} \u5B57\u8282\uFF0C\u8D85\u8FC7 ${MAX_TASK_PAYLOAD_BYTES} \u5B57\u8282\u4E0A\u9650`,
-    details: { bytes, maxBytes: MAX_TASK_PAYLOAD_BYTES }
-  };
-}
-function taskPayloadByteLength(serializedPayload) {
-  return taskPayloadEncoder.encode(serializedPayload).length;
-}
 function validateScheduleMessagePayload(payload) {
   if (!payload.contactName || typeof payload.contactName !== "string") {
     return { valid: false, errorCode: "INVALID_PARAMETERS", errorMessage: "\u7F3A\u5C11\u5FC5\u9700\u53C2\u6570\u6216\u53C2\u6570\u683C\u5F0F\u9519\u8BEF", details: { missingFields: ["contactName"] } };
@@ -1555,9 +1245,6 @@ function validateScheduleMessagePayload(payload) {
   }
   if (payload.maxTokens !== void 0 && payload.maxTokens !== null && (!Number.isInteger(payload.maxTokens) || payload.maxTokens <= 0)) {
     return { valid: false, errorCode: "INVALID_PARAMETERS", errorMessage: "\u7F3A\u5C11\u5FC5\u9700\u53C2\u6570\u6216\u53C2\u6570\u683C\u5F0F\u9519\u8BEF", details: { invalidFields: ["maxTokens"] } };
-  }
-  if (payload.userMessage !== void 0 && payload.userMessage !== null && typeof payload.userMessage !== "string") {
-    return { valid: false, errorCode: "INVALID_PARAMETERS", errorMessage: "\u7F3A\u5C11\u5FC5\u9700\u53C2\u6570\u6216\u53C2\u6570\u683C\u5F0F\u9519\u8BEF", details: { invalidFields: ["userMessage (must be a string)"] } };
   }
   if (payload.messageType === "fixed") {
     if (!payload.userMessage) {
@@ -1655,89 +1342,6 @@ var REQUEST_ERRORS = {
   INVALID_REQUEST_BODY: { code: "INVALID_REQUEST_BODY", message: "\u8BF7\u6C42\u4F53\u683C\u5F0F\u65E0\u6548" },
   INVALID_ENCRYPTED_PAYLOAD: { code: "INVALID_ENCRYPTED_PAYLOAD", message: "\u52A0\u5BC6\u6570\u636E\u683C\u5F0F\u9519\u8BEF" }
 };
-var DEFAULT_MAX_REQUEST_BODY_BYTES = 32 * 1024 * 1024;
-var GZIP_MAGIC_0 = 31;
-var GZIP_MAGIC_1 = 139;
-function normalizeContentEncoding(raw) {
-  const value = String(raw || "").trim().toLowerCase();
-  if (!value) return "";
-  const tokens = value.split(",").map((t) => t.trim()).filter((t) => t && t !== "identity");
-  if (tokens.length === 0) return "";
-  if (tokens.length === 1) return tokens[0];
-  return value;
-}
-function looksGzipped(bytes) {
-  return bytes.length >= 2 && bytes[0] === GZIP_MAGIC_0 && bytes[1] === GZIP_MAGIC_1;
-}
-async function inflateGzipToText(bytes, maxBytes) {
-  const reader = new Response(bytes).body.pipeThrough(new DecompressionStream("gzip")).getReader();
-  const decoder = new TextDecoder("utf-8");
-  let text = "";
-  let total = 0;
-  for (; ; ) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > maxBytes) {
-      await reader.cancel();
-      const error = new Error(`\u89E3\u538B\u540E\u7684\u8BF7\u6C42\u4F53\u8D85\u8FC7 ${maxBytes} \u5B57\u8282\u4E0A\u9650`);
-      error.code = "REQUEST_BODY_TOO_LARGE";
-      throw error;
-    }
-    text += decoder.decode(value, { stream: true });
-  }
-  return text + decoder.decode();
-}
-async function readRequestBody(request, options = {}) {
-  const encoding = normalizeContentEncoding(
-    request.headers && typeof request.headers.get === "function" ? request.headers.get("content-encoding") : ""
-  );
-  if (!encoding) return { ok: true, body: await request.text() };
-  if (encoding !== "gzip" && encoding !== "x-gzip") {
-    return {
-      ok: false,
-      error: errorResponse(
-        415,
-        "UNSUPPORTED_CONTENT_ENCODING",
-        `\u8BF7\u6C42\u4F53\u7684 Content-Encoding\u300C${encoding}\u300D\u4E0D\u652F\u6301\uFF0C\u8FD9\u91CC\u53EA\u8BA4 gzip`,
-        { contentEncoding: encoding, supported: ["gzip"] }
-      )
-    };
-  }
-  const bytes = new Uint8Array(await request.arrayBuffer());
-  if (!looksGzipped(bytes)) return { ok: true, body: new TextDecoder("utf-8").decode(bytes) };
-  if (typeof DecompressionStream !== "function") {
-    return {
-      ok: false,
-      error: errorResponse(
-        415,
-        "UNSUPPORTED_CONTENT_ENCODING",
-        "\u5F53\u524D\u8FD0\u884C\u73AF\u5883\u6CA1\u6709 DecompressionStream\uFF0C\u6536\u4E0D\u4E86 gzip \u8BF7\u6C42\u4F53",
-        { contentEncoding: encoding }
-      )
-    };
-  }
-  const maxBytes = Number.isFinite(options.maxBytes) && options.maxBytes > 0 ? options.maxBytes : DEFAULT_MAX_REQUEST_BODY_BYTES;
-  try {
-    return { ok: true, body: await inflateGzipToText(bytes, maxBytes) };
-  } catch (error) {
-    if (error && error.code === "REQUEST_BODY_TOO_LARGE") {
-      return {
-        ok: false,
-        error: errorResponse(413, "REQUEST_BODY_TOO_LARGE", error.message, { maxBytes })
-      };
-    }
-    return {
-      ok: false,
-      error: errorResponse(
-        400,
-        "INVALID_CONTENT_ENCODING",
-        "\u8BF7\u6C42\u4F53\u58F0\u660E\u662F gzip\uFF0C\u4F46\u89E3\u538B\u5931\u8D25",
-        { contentEncoding: encoding }
-      )
-    };
-  }
-}
 function parseBodyAsObject(body, options = {}) {
   const invalidJson = options.invalidJson || REQUEST_ERRORS.INVALID_JSON;
   const invalidType = options.invalidType || REQUEST_ERRORS.INVALID_REQUEST_BODY;
@@ -1820,177 +1424,6 @@ function createGetUserKeyHandler(ctx) {
     };
   }
   return { GET };
-}
-var WEB_PUSH_MAX_BODY_BYTES = 4096;
-var WEB_PUSH_ENCRYPTION_OVERHEAD_BYTES = 16 + 4 + 1 + 65 + 1 + 16;
-var MAX_PUSH_PAYLOAD_BYTES = WEB_PUSH_MAX_BODY_BYTES - WEB_PUSH_ENCRYPTION_OVERHEAD_BYTES;
-var PUSH_ENVELOPE_RESERVED_BYTES = 384;
-var payloadEncoder = new TextEncoder();
-function measurePushPayload(payload, options) {
-  const reserveEnvelope = !!(options && options.reserveEnvelope);
-  const bytes = payloadEncoder.encode(typeof payload === "string" ? payload : String(payload)).length;
-  const envelopeReservedBytes = reserveEnvelope ? PUSH_ENVELOPE_RESERVED_BYTES : 0;
-  const maxBytes = MAX_PUSH_PAYLOAD_BYTES - envelopeReservedBytes;
-  return {
-    bytes,
-    maxBytes,
-    remainingBytes: maxBytes - bytes,
-    withinLimit: bytes <= maxBytes,
-    envelopeReservedBytes
-  };
-}
-async function sendWebPush2(args) {
-  const { payload } = args || {};
-  if (typeof payload === "string") {
-    const size = measurePushPayload(payload);
-    if (!size.withinLimit) {
-      const err5 = new Error(
-        `sendWebPush: payload is ${size.bytes} bytes, over the ${MAX_PUSH_PAYLOAD_BYTES}-byte limit (push services cap the encrypted body at ${WEB_PUSH_MAX_BODY_BYTES} bytes; aes128gcm adds ${WEB_PUSH_ENCRYPTION_OVERHEAD_BYTES} bytes)`
-      );
-      err5.code = "PUSH_PAYLOAD_TOO_LARGE";
-      err5.bytes = size.bytes;
-      err5.maxBytes = MAX_PUSH_PAYLOAD_BYTES;
-      throw err5;
-    }
-  }
-  return sendWebPush(args);
-}
-var SCHEDULED_DEFAULT_TTL = 2419200;
-function createWebCryptoWebPush(vapid = {}, { ttl = SCHEDULED_DEFAULT_TTL } = {}) {
-  return {
-    async sendNotification(subscription, payload) {
-      return sendWebPush2({
-        subscription,
-        payload,
-        ttl,
-        vapid: {
-          email: vapid.email,
-          publicKey: vapid.publicKey,
-          privateKey: vapid.privateKey
-        },
-        fetch: globalThis.fetch
-      });
-    }
-  };
-}
-var NonRetryableError = class extends Error {
-  /**
-   * @param {string} message
-   * @param {{ code?: string, cause?: unknown }} [options]
-   */
-  constructor(message, options = {}) {
-    super(message, options.cause !== void 0 ? { cause: options.cause } : void 0);
-    this.name = "NonRetryableError";
-    this.permanent = true;
-    if (options.code) this.code = options.code;
-  }
-};
-function isNonRetryableError(error) {
-  return !!error && typeof error === "object" && /** @type {any} */
-  error.permanent === true;
-}
-var DeploymentConfigError = class extends Error {
-  /**
-   * @param {string} message
-   * @param {{ code?: string, cause?: unknown }} [options]
-   */
-  constructor(message, options = {}) {
-    super(message, options.cause !== void 0 ? { cause: options.cause } : void 0);
-    this.name = "DeploymentConfigError";
-    if (options.code) this.code = options.code;
-  }
-};
-function markPermanent(error, code) {
-  if (!error || typeof error !== "object") return error;
-  const target = (
-    /** @type {any} */
-    error
-  );
-  try {
-    target.permanent = true;
-    if (code && typeof target.code !== "string") target.code = code;
-  } catch (_frozen) {
-  }
-  return error;
-}
-var TASK_CANCELLED_CODE = "TASK_CANCELLED";
-function isTaskCancelledError(error) {
-  return !!error && typeof error === "object" && /** @type {any} */
-  error.code === TASK_CANCELLED_CODE;
-}
-var TERMINAL_PUSH_STATUSES = /* @__PURE__ */ new Set([404, 410]);
-var PUSH_PAYLOAD_TOO_LARGE_STATUS = 413;
-var PERMANENT_ERROR_CODES = /* @__PURE__ */ new Set([
-  "PUSH_SUBSCRIPTION_MISSING",
-  "PUSH_SUBSCRIPTION_STORE_UNSUPPORTED",
-  "PUSH_PAYLOAD_TOO_LARGE"
-]);
-function isPermanentDeliveryFailure(failure) {
-  const { permanent, errorCode, pushStatus } = failure || {};
-  return permanent === true || typeof errorCode === "string" && PERMANENT_ERROR_CODES.has(errorCode) || Number.isInteger(pushStatus) && (TERMINAL_PUSH_STATUSES.has(
-    /** @type {number} */
-    pushStatus
-  ) || pushStatus === PUSH_PAYLOAD_TOO_LARGE_STATUS);
-}
-var pushStatusCodes = /* @__PURE__ */ new WeakMap();
-function tagPushStatusCode(error) {
-  if (error && typeof error === "object" && Number.isInteger(
-    /** @type {any} */
-    error.statusCode
-  )) {
-    pushStatusCodes.set(
-      /** @type {object} */
-      error,
-      /** @type {any} */
-      error.statusCode
-    );
-  }
-  return error;
-}
-async function sendTaggedPush(webpush, subscription, payloadJson) {
-  try {
-    return await webpush.sendNotification(subscription, payloadJson);
-  } catch (error) {
-    throw tagPushStatusCode(error);
-  }
-}
-function readPushStatusCode(error) {
-  if (!error || typeof error !== "object") return null;
-  const statusCode = pushStatusCodes.get(
-    /** @type {object} */
-    error
-  );
-  return Number.isInteger(statusCode) ? statusCode : null;
-}
-function buildErrorExtra(errorCode, pushStatus) {
-  const extra = {};
-  if (typeof errorCode === "string" && errorCode) extra.errorCode = errorCode.slice(0, 64);
-  if (Number.isInteger(pushStatus)) extra.pushStatus = /** @type {number} */
-  pushStatus;
-  return Object.keys(extra).length > 0 ? extra : void 0;
-}
-var ERROR_SUMMARY_MAX_CHARS = 500;
-function sanitizeErrorSummary(reason) {
-  const flattened = String(reason ?? "").replace(/\s+/g, " ").trim();
-  const safe = redactCredentials(flattened);
-  return safe.length > ERROR_SUMMARY_MAX_CHARS ? `${safe.slice(0, ERROR_SUMMARY_MAX_CHARS - 3)}\u2026` : safe;
-}
-function summarizeErrorCause(error, stage) {
-  const raw = error && typeof error === "object" ? (
-    /** @type {any} */
-    error
-  ) : {};
-  const name = typeof raw.name === "string" && raw.name ? raw.name : "Error";
-  const rawMessage = typeof raw.message === "string" && raw.message ? raw.message : String(error ?? "");
-  const cause = {
-    stage,
-    name: sanitizeErrorSummary(name).slice(0, 100),
-    message: sanitizeErrorSummary(rawMessage)
-  };
-  if (typeof raw.code === "string" && raw.code) {
-    cause.code = sanitizeErrorSummary(raw.code).slice(0, 100);
-  }
-  return cause;
 }
 function isUniqueViolation(error) {
   if (!error || typeof error !== "object") return false;
@@ -2075,27 +1508,6 @@ var MAX_NAMESPACE_CHARS = 128;
 var MAX_KEY_CHARS = 256;
 function stateValueBytes(value) {
   return utf82.encode(value).length;
-}
-var warnedInvalidTtl = /* @__PURE__ */ new Set();
-function planClientStateCleanup(ttl, now) {
-  if (!ttl || typeof ttl !== "object" || Array.isArray(ttl)) return [];
-  const targets = [];
-  for (const [namespace, days] of Object.entries(ttl)) {
-    if (!namespace) continue;
-    if (typeof days !== "number" || !Number.isFinite(days) || days <= 0) {
-      if (!warnedInvalidTtl.has(namespace)) {
-        warnedInvalidTtl.add(namespace);
-        console.warn(
-          `[amsg-server] clientStateTtl['${namespace}'] \u4E0D\u662F\u6B63\u6570\uFF08\u6536\u5230 ${JSON.stringify(days)}\uFF09\uFF0C\u8FD9\u4E2A\u547D\u540D\u7A7A\u95F4\u4E0D\u505A\u6E05\u7406`
-        );
-      }
-      continue;
-    }
-    const updatedBefore = now - days * 24 * 60 * 60 * 1e3;
-    targets.push({ namespace, updatedBefore });
-    targets.push({ namespace: chunkNamespaceFor(namespace), updatedBefore });
-  }
-  return targets;
 }
 async function writeClientStateEntries({ db, userId, userKey, entries }) {
   const physicalRows = [];
@@ -2202,10 +1614,7 @@ function createStateAccessors({ db, userId, userKey, maxStateValueBytes, now }) 
       throw new RangeError(`writeState: \u5355\u6B21\u6700\u591A ${MAX_STATE_ENTRIES_PER_BATCH} \u6761\uFF0C\u6536\u5230 ${entries.length} \u6761`);
     }
     if (!db || typeof db.upsertClientState !== "function") {
-      throw new DeploymentConfigError(
-        "AGENTIC_STATE_WRITE_UNSUPPORTED: \u5F53\u524D\u6570\u636E\u5E93\u9002\u914D\u5668\u4E0D\u652F\u6301 client_state \u5199\u5165",
-        { code: "AGENTIC_STATE_WRITE_UNSUPPORTED" }
-      );
+      throw new Error("AGENTIC_STATE_WRITE_UNSUPPORTED: \u5F53\u524D\u6570\u636E\u5E93\u9002\u914D\u5668\u4E0D\u652F\u6301 client_state \u5199\u5165");
     }
     const at = nowFn();
     const normalized = entries.map((entry, index) => {
@@ -2245,207 +1654,6 @@ function createStateAccessors({ db, userId, userKey, maxStateValueBytes, now }) 
   };
   return { readState, writeState };
 }
-function supportsOutbox(db) {
-  return !!db && typeof db.appendOutboxMessages === "function" && typeof db.markOutboxDelivered === "function";
-}
-async function appendPushesToOutbox({ db, userId, userKey, pushes }) {
-  if (!supportsOutbox(db) || !pushes || pushes.length === 0) return false;
-  try {
-    await db.appendOutboxMessages(userId, await toOutboxRows(pushes, userKey, Date.now()));
-    return true;
-  } catch (error) {
-    console.warn("[amsg-server] outbox \u843D\u884C\u5931\u8D25\uFF08\u4E0D\u5F71\u54CD\u6295\u9012\uFF09:", error && error.message);
-    return false;
-  }
-}
-async function toOutboxRows(pushes, userKey, createdAt) {
-  return Promise.all(pushes.map(async (push) => ({
-    message_id: push.messageId,
-    task_uuid: push.taskUuid ?? null,
-    session_id: push.sessionId ?? null,
-    message_index: push.messageIndex ?? null,
-    total_messages: push.totalMessages ?? null,
-    payload: await encryptForStorage(JSON.stringify(push), userKey),
-    created_at: createdAt
-  })));
-}
-async function markPushesDelivered({ db, userId, messageIds }) {
-  if (!supportsOutbox(db) || !messageIds || messageIds.length === 0) return;
-  try {
-    await db.markOutboxDelivered(userId, messageIds, Date.now());
-  } catch (error) {
-    console.warn("[amsg-server] outbox \u6807\u8BB0 delivered \u5931\u8D25\uFF08\u5DF2\u5FFD\u7565\uFF09:", error && error.message);
-  }
-}
-async function discardPushesFromOutbox({ db, userId, messageIds }) {
-  if (!db || typeof db.discardOutboxMessages !== "function") return;
-  if (!messageIds || messageIds.length === 0) return;
-  try {
-    await db.discardOutboxMessages(userId, messageIds);
-  } catch (error) {
-    console.warn("[amsg-server] outbox \u64A4\u56DE\u672A\u53D1\u51FA\u7684\u884C\u5931\u8D25\uFF08\u5DF2\u5FFD\u7565\uFF09:", error && error.message);
-  }
-}
-async function discardUndeliveredPushes({ db, userId, pushes, sentIds }) {
-  const delivered = new Set(sentIds);
-  await discardPushesFromOutbox({
-    db,
-    userId,
-    messageIds: (pushes || []).map((push) => push.messageId).filter((messageId) => !delivered.has(messageId))
-  });
-}
-var OUTBOX_SCAN_PAGE_SIZE = 100;
-var OUTBOX_SCAN_MAX_ROWS = 5e3;
-async function discardUndeliveredPushesForTask({ db, userId, taskUuid }) {
-  if (!db || typeof db.listUnackedOutbox !== "function" || typeof db.discardOutboxMessages !== "function") return;
-  if (!taskUuid) return;
-  const messageIds = [];
-  try {
-    let cursor = 0;
-    let scanned = 0;
-    while (scanned < OUTBOX_SCAN_MAX_ROWS) {
-      const rows = await db.listUnackedOutbox(userId, cursor, OUTBOX_SCAN_PAGE_SIZE);
-      if (!rows || rows.length === 0) break;
-      scanned += rows.length;
-      let nextCursor = cursor;
-      for (const row of rows) {
-        if (row.id > nextCursor) nextCursor = row.id;
-        if (row.task_uuid !== taskUuid) continue;
-        if (row.delivered_at != null) continue;
-        messageIds.push(row.message_id);
-      }
-      if (nextCursor <= cursor) break;
-      cursor = nextCursor;
-      if (rows.length < OUTBOX_SCAN_PAGE_SIZE) break;
-    }
-  } catch (error) {
-    console.warn("[amsg-server] outbox \u67E5\u672A\u6295\u9012\u7684\u884C\u5931\u8D25\uFF08\u5DF2\u5FFD\u7565\uFF09:", error && error.message);
-    return;
-  }
-  await discardPushesFromOutbox({ db, userId, messageIds });
-}
-function supportsPushSubscriptionStore(db) {
-  return !!db && typeof db.getPushSubscription === "function" && typeof db.upsertPushSubscription === "function" && typeof db.deletePushSubscription === "function";
-}
-function isPushSubscriptionShape(subscription) {
-  return !!subscription && typeof subscription === "object" && !Array.isArray(subscription) && typeof /** @type {{ endpoint?: unknown }} */
-  subscription.endpoint === "string" && /** @type {{ endpoint: string }} */
-  subscription.endpoint.trim().length > 0;
-}
-async function savePushSubscription({ db, userId, userKey, subscription, updatedAt }) {
-  const at = Number.isInteger(updatedAt) && updatedAt > 0 ? updatedAt : Date.now();
-  const encrypted = await encryptForStorage(JSON.stringify(subscription), userKey);
-  await db.upsertPushSubscription(userId, encrypted, at);
-  return { updatedAt: at };
-}
-async function decodePushSubscriptionRow(row, userKey) {
-  if (!row || typeof row.subscription !== "string" || !row.subscription) return null;
-  const subscription = JSON.parse(await decryptFromStorage(row.subscription, userKey));
-  return { subscription, updatedAt: row.updated_at ?? null };
-}
-async function loadPushSubscription({ db, userId, userKey }) {
-  return decodePushSubscriptionRow(await db.getPushSubscription(userId), userKey);
-}
-function codedError2(code, message) {
-  const error = new Error(`${code}: ${message}`);
-  error.code = code;
-  return error;
-}
-async function resolvePushSubscription({ db, userId, userKey, legacyFallback = null }) {
-  const fallback = isPushSubscriptionShape(legacyFallback) ? legacyFallback : null;
-  if (!supportsPushSubscriptionStore(db)) {
-    if (fallback) return fallback;
-    throw codedError2("PUSH_SUBSCRIPTION_STORE_UNSUPPORTED", "\u5F53\u524D\u6570\u636E\u5E93\u9002\u914D\u5668\u4E0D\u652F\u6301\u7528\u6237\u7EA7\u63A8\u9001\u8BA2\u9605\u5B58\u50A8");
-  }
-  const stored = await loadPushSubscription({ db, userId, userKey });
-  if (!stored) {
-    if (fallback) return fallback;
-    throw codedError2("PUSH_SUBSCRIPTION_MISSING", "\u8BE5\u7528\u6237\u8FD8\u6CA1\u6709\u767B\u8BB0\u63A8\u9001\u8BA2\u9605\uFF08PUT /push-subscription\uFF09");
-  }
-  return stored.subscription;
-}
-function createResultEmitter({
-  db,
-  task,
-  userKey,
-  decryptedPayload,
-  messageIdBase,
-  sessionId,
-  occurrenceMs,
-  webpush,
-  now
-}) {
-  const nowFn = typeof now === "function" ? now : Date.now;
-  let emitted = 0;
-  const emitResult = async (payload) => {
-    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-      throw new TypeError("emitResult(payload) \u9700\u8981\u4E00\u4E2A\u666E\u901A\u5BF9\u8C61");
-    }
-    if (!supportsOutbox(db)) {
-      throw new DeploymentConfigError(
-        "OUTBOX_UNSUPPORTED: \u5F53\u524D\u6570\u636E\u5E93\u9002\u914D\u5668\u4E0D\u652F\u6301 message_outbox\uFF0CemitResult \u6CA1\u6709\u843D\u811A\u5904",
-        { code: "OUTBOX_UNSUPPORTED" }
-      );
-    }
-    const seq = emitted++;
-    const push = buildResultPush({
-      messageType: decryptedPayload.messageType || "auto",
-      source: "scheduled",
-      messageId: `${messageIdBase}_result_${seq}`,
-      sessionId,
-      ...payload,
-      // 通知策略：宿主没表态就补一句「弹」。写进 payload 而不是只靠 SW 的默
-      // 认行为，是为了让还没升级 SW 的客户端也弹得出来——旧版 SW 不认识
-      // result 这个 kind，只认 notification.show。
-      notification: withDefaultShow(payload.notification),
-      // 任务身份由库覆盖写（与推送链路同一条规矩）。
-      taskId: task.id ?? null,
-      taskUuid: task.uuid ?? null,
-      recurrenceType: decryptedPayload.recurrenceType || "none",
-      occurrenceMs
-    });
-    await db.appendOutboxMessages(task.user_id, await toOutboxRows([push], userKey, nowFn()));
-    let pushed;
-    try {
-      pushed = await sendResultPush({ db, task, userKey, decryptedPayload, webpush, push });
-    } catch (error) {
-      await discardUndeliveredPushes({ db, userId: task.user_id, pushes: [push], sentIds: [] });
-      throw error;
-    }
-    if (pushed) {
-      await markPushesDelivered({ db, userId: task.user_id, messageIds: [push.messageId] });
-    }
-    return { messageId: push.messageId, pushed };
-  };
-  return { emitResult };
-}
-function withDefaultShow(notification) {
-  if (!notification || typeof notification !== "object" || Array.isArray(notification)) {
-    return { show: "always" };
-  }
-  if (notification.show === void 0) return { ...notification, show: "always" };
-  return notification;
-}
-async function sendResultPush({ db, task, userKey, decryptedPayload, webpush, push }) {
-  if (!webpush || typeof webpush.sendNotification !== "function") return false;
-  try {
-    const subscription = await resolvePushSubscription({
-      db,
-      userId: task.user_id,
-      userKey,
-      legacyFallback: (decryptedPayload && decryptedPayload.pushSubscription) ?? null
-    });
-    await sendTaggedPush(webpush, subscription, JSON.stringify(push));
-    return true;
-  } catch (error) {
-    if (isTaskCancelledError(error)) throw error;
-    console.warn(
-      `[amsg-server] \u7ED3\u679C ${push.messageId} \u7684\u63A8\u9001\u6CA1\u53D1\u51FA\u53BB\uFF08\u5DF2\u843D\u8FDB\u6536\u4EF6\u7BB1\uFF0C\u7B49\u5BA2\u6237\u7AEF\u8865\u6536\uFF09:`,
-      error && error.message
-    );
-    return false;
-  }
-}
 function projectTask(row, decryptedPayload, options = {}) {
   const payload = decryptedPayload || {};
   const metadata = payload.metadata && typeof payload.metadata === "object" ? payload.metadata : {};
@@ -2473,24 +1681,15 @@ function projectTask(row, decryptedPayload, options = {}) {
     credRefs: payload.credRefs ?? null,
     // 整份 metadata 只在单条查询里给（见上面的 includeMetadata）。
     ...options.includeMetadata ? { metadata: payload.metadata ?? null } : {},
-    // 上一次没发出去的原因。reason 'stale' 表示错过触发时刻太久被判定不再补
-    // 发；其余是投递失败的错误信息。没有记录 → null。
-    //
-    // 行上的 last_error 列是权威的那一份：每次失败刷新、成功时清空。密文
-    // payload 里那份是给没有这一列的适配器兜底的（run-tick 只在终审处置和过期
-    // 快进时写它，成功时不会去重写整份密文）。所以只要行带着这一列——哪怕值是
-    // NULL，那正说明「最近一次投递没失败」——就以它为准；反过来让 payload 优先
-    // 的话，一次 410 会永远挂在这条任务上，用户重新登记订阅、之后天天正常送达
-    // 也擦不掉。
-    //
-    // 记进去的字段整份带出来，不再挑一遍——`errorCode` 和 `pushStatus`（410 =
-    // 订阅已注销，404 = 端点不存在）这类机读标注就是给客户端看的，白名单挡在
-    // 这一层的话，客户端只能回去正则匹配 reason 那句人话。
-    lastError: hasRowLastError(row) ? parseRowLastError(row.last_error) : payload.lastError ?? null
+    // 上一次没发出去的原因（run-tick 记进 payload 的 lastError）。
+    // reason 'stale' 表示错过触发时刻太久被判定不再补发；其余是投递失败的
+    // 错误信息。payload 里没有时退回行上的 last_error 列（同形状的脱敏摘要，
+    // 等重试期间的失败也记在那里）。没有记录 → null。
+    // 记进去的字段整份带出来，不再挑一遍——`pushStatus`（410 = 订阅已注销，
+    // 404 = 端点不存在）这类机读标注就是给客户端看的，白名单挡在这一层的话，
+    // 客户端只能回去正则匹配 reason 那句人话。
+    lastError: payload.lastError ?? parseRowLastError(row.last_error)
   };
-}
-function hasRowLastError(row) {
-  return !!row && Object.prototype.hasOwnProperty.call(row, "last_error");
 }
 function parseRowLastError(raw) {
   if (typeof raw !== "string" || !raw) return null;
@@ -2498,6 +1697,75 @@ function parseRowLastError(raw) {
     return JSON.parse(raw);
   } catch (_error) {
     return { reason: raw };
+  }
+}
+function supportsPushSubscriptionStore(db) {
+  return !!db && typeof db.getPushSubscription === "function" && typeof db.upsertPushSubscription === "function" && typeof db.deletePushSubscription === "function";
+}
+function isPushSubscriptionShape(subscription) {
+  return !!subscription && typeof subscription === "object" && !Array.isArray(subscription) && typeof /** @type {{ endpoint?: unknown }} */
+  subscription.endpoint === "string" && /** @type {{ endpoint: string }} */
+  subscription.endpoint.trim().length > 0;
+}
+async function savePushSubscription({ db, userId, userKey, subscription, updatedAt }) {
+  const at = Number.isInteger(updatedAt) && updatedAt > 0 ? updatedAt : Date.now();
+  const encrypted = await encryptForStorage(JSON.stringify(subscription), userKey);
+  await db.upsertPushSubscription(userId, encrypted, at);
+  return { updatedAt: at };
+}
+async function loadPushSubscription({ db, userId, userKey }) {
+  const row = await db.getPushSubscription(userId);
+  if (!row || typeof row.subscription !== "string" || !row.subscription) return null;
+  const subscription = JSON.parse(await decryptFromStorage(row.subscription, userKey));
+  return { subscription, updatedAt: row.updated_at ?? null };
+}
+function codedError2(code, message) {
+  const error = new Error(`${code}: ${message}`);
+  error.code = code;
+  return error;
+}
+async function resolvePushSubscription({ db, userId, userKey, legacyFallback = null }) {
+  const fallback = isPushSubscriptionShape(legacyFallback) ? legacyFallback : null;
+  if (!supportsPushSubscriptionStore(db)) {
+    if (fallback) return fallback;
+    throw codedError2("PUSH_SUBSCRIPTION_STORE_UNSUPPORTED", "\u5F53\u524D\u6570\u636E\u5E93\u9002\u914D\u5668\u4E0D\u652F\u6301\u7528\u6237\u7EA7\u63A8\u9001\u8BA2\u9605\u5B58\u50A8");
+  }
+  const stored = await loadPushSubscription({ db, userId, userKey });
+  if (!stored) {
+    if (fallback) return fallback;
+    throw codedError2("PUSH_SUBSCRIPTION_MISSING", "\u8BE5\u7528\u6237\u8FD8\u6CA1\u6709\u767B\u8BB0\u63A8\u9001\u8BA2\u9605\uFF08PUT /push-subscription\uFF09");
+  }
+  return stored.subscription;
+}
+function supportsOutbox(db) {
+  return !!db && typeof db.appendOutboxMessages === "function" && typeof db.markOutboxDelivered === "function";
+}
+async function appendPushesToOutbox({ db, userId, userKey, pushes }) {
+  if (!supportsOutbox(db) || !pushes || pushes.length === 0) return false;
+  try {
+    const now = Date.now();
+    const rows = await Promise.all(pushes.map(async (push) => ({
+      message_id: push.messageId,
+      task_uuid: push.taskUuid ?? null,
+      session_id: push.sessionId ?? null,
+      message_index: push.messageIndex ?? null,
+      total_messages: push.totalMessages ?? null,
+      payload: await encryptForStorage(JSON.stringify(push), userKey),
+      created_at: now
+    })));
+    await db.appendOutboxMessages(userId, rows);
+    return true;
+  } catch (error) {
+    console.warn("[amsg-server] outbox \u843D\u884C\u5931\u8D25\uFF08\u4E0D\u5F71\u54CD\u6295\u9012\uFF09:", error && error.message);
+    return false;
+  }
+}
+async function markPushesDelivered({ db, userId, messageIds }) {
+  if (!supportsOutbox(db) || !messageIds || messageIds.length === 0) return;
+  try {
+    await db.markOutboxDelivered(userId, messageIds, Date.now());
+  } catch (error) {
+    console.warn("[amsg-server] outbox \u6807\u8BB0 delivered \u5931\u8D25\uFF08\u5DF2\u5FFD\u7565\uFF09:", error && error.message);
   }
 }
 var DEFAULT_MAX_TOOL_ITERATIONS = 5;
@@ -2554,11 +1822,8 @@ function normalizeBeforeFireResult(result) {
       toolChoice: result.toolChoice
     };
   }
-  throw markPermanent(
-    new TypeError(
-      "AGENTIC_BAD_BEFORE_FIRE: onBeforeFire must return ChatMessage[] | { messages, maxToolIterations?, totalTimeoutMs?, tools?, toolChoice? } | { skip: true } | null"
-    ),
-    "AGENTIC_BAD_BEFORE_FIRE"
+  throw new TypeError(
+    "AGENTIC_BAD_BEFORE_FIRE: onBeforeFire must return ChatMessage[] | { messages, maxToolIterations?, totalTimeoutMs?, tools?, toolChoice? } | { skip: true } | null"
   );
 }
 function firstPositiveInt(values, fallback) {
@@ -2576,10 +1841,7 @@ function firstPositiveNumber(values, fallback) {
 async function runAgenticFire({ task, decryptedPayload, userKey, ctx }) {
   const hooks = ctx.hooks;
   if (typeof hooks.onLLMOutput !== "function") {
-    throw new DeploymentConfigError(
-      "AGENTIC_CONFIG_ERROR: hooks.onBeforeFire requires hooks.onLLMOutput to classify LLM rounds",
-      { code: "AGENTIC_CONFIG_ERROR" }
-    );
+    throw new Error("AGENTIC_CONFIG_ERROR: hooks.onBeforeFire requires hooks.onLLMOutput to classify LLM rounds");
   }
   const nowFn = typeof ctx._agenticNow === "function" ? ctx._agenticNow : Date.now;
   const sleep2 = typeof ctx._agenticSleep === "function" ? ctx._agenticSleep : defaultSleep;
@@ -2588,20 +1850,6 @@ async function runAgenticFire({ task, decryptedPayload, userKey, ctx }) {
     userId: task.user_id,
     userKey,
     maxStateValueBytes: ctx.maxStateValueBytes,
-    now: nowFn
-  });
-  const sessionId = task.id != null ? `sess_task_${task.id}${occurrenceSuffix(task)}` : `sess_${randomUUID()}`;
-  const messageIdBase = task.id != null ? `msg_task_${task.id}${occurrenceSuffix(task)}` : `msg_${randomUUID()}`;
-  const occurrenceMs = occurrenceMsOf(task);
-  const { emitResult } = createResultEmitter({
-    db: ctx.db,
-    task,
-    userKey,
-    decryptedPayload,
-    messageIdBase,
-    sessionId,
-    occurrenceMs,
-    webpush: ctx.webpush,
     now: nowFn
   });
   const maxScheduledTasksPerFire = Number.isInteger(ctx.maxScheduledTasksPerFire) && ctx.maxScheduledTasksPerFire >= 0 ? ctx.maxScheduledTasksPerFire : DEFAULT_MAX_SCHEDULED_TASKS_PER_FIRE;
@@ -2678,6 +1926,15 @@ async function runAgenticFire({ task, decryptedPayload, userKey, ctx }) {
     if (typeof uuid !== "string" || !uuid.trim()) {
       throw new TypeError("scheduleTask: uuid \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32");
     }
+    if (scheduledTaskCount >= maxScheduledTasksPerFire) {
+      throw new RangeError(
+        `scheduleTask: \u5355\u6B21 fire \u6700\u591A\u5EFA ${maxScheduledTasksPerFire} \u6761\u4EFB\u52A1\uFF08factory \u914D\u7F6E maxScheduledTasksPerFire \u53EF\u8C03\uFF09\uFF0C\u8FD9\u662F\u7B2C ${scheduledTaskCount + 1} \u6761`
+      );
+    }
+    if (!ctx.db || typeof ctx.db.createTask !== "function") {
+      throw new Error("AGENTIC_SCHEDULE_UNSUPPORTED: \u5F53\u524D\u6570\u636E\u5E93\u9002\u914D\u5668\u4E0D\u652F\u6301\u5EFA\u4EFB\u52A1\uFF08\u7F3A createTask\uFF09");
+    }
+    scheduledTaskCount++;
     const fullTaskData = {
       contactName,
       avatarUrl: options.avatarUrl === void 0 ? decryptedPayload.avatarUrl || null : options.avatarUrl || null,
@@ -2718,27 +1975,7 @@ async function runAgenticFire({ task, decryptedPayload, userKey, ctx }) {
       llmExtraBody: decryptedPayload.llmExtraBody ?? null,
       metadata
     };
-    const serializedTaskData = JSON.stringify(fullTaskData);
-    const sizeError = validateTaskPayloadSize(serializedTaskData);
-    if (sizeError) {
-      throw markPermanent(
-        new RangeError(`${sizeError.code}: ${sizeError.message}`),
-        sizeError.code
-      );
-    }
-    if (scheduledTaskCount >= maxScheduledTasksPerFire) {
-      throw new RangeError(
-        `scheduleTask: \u5355\u6B21 fire \u6700\u591A\u5EFA ${maxScheduledTasksPerFire} \u6761\u4EFB\u52A1\uFF08factory \u914D\u7F6E maxScheduledTasksPerFire \u53EF\u8C03\uFF09\uFF0C\u8FD9\u662F\u7B2C ${scheduledTaskCount + 1} \u6761`
-      );
-    }
-    if (!ctx.db || typeof ctx.db.createTask !== "function") {
-      throw new DeploymentConfigError(
-        "AGENTIC_SCHEDULE_UNSUPPORTED: \u5F53\u524D\u6570\u636E\u5E93\u9002\u914D\u5668\u4E0D\u652F\u6301\u5EFA\u4EFB\u52A1\uFF08\u7F3A createTask\uFF09",
-        { code: "AGENTIC_SCHEDULE_UNSUPPORTED" }
-      );
-    }
-    scheduledTaskCount++;
-    const encryptedPayload = await encryptForStorage(serializedTaskData, userKey);
+    const encryptedPayload = await encryptForStorage(JSON.stringify(fullTaskData), userKey);
     let created;
     try {
       created = await ctx.db.createTask({
@@ -2760,10 +1997,7 @@ async function runAgenticFire({ task, decryptedPayload, userKey, ctx }) {
       throw error;
     }
     if (!created) {
-      throw new NonRetryableError(
-        "AGENTIC_SCHEDULE_FAILED: createTask \u6CA1\u6709\u8FD4\u56DE\u65B0\u5EFA\u7684\u4EFB\u52A1\u884C",
-        { code: "AGENTIC_SCHEDULE_FAILED" }
-      );
+      throw new Error("AGENTIC_SCHEDULE_FAILED: createTask \u6CA1\u6709\u8FD4\u56DE\u65B0\u5EFA\u7684\u4EFB\u52A1\u884C");
     }
     return {
       created: true,
@@ -2782,10 +2016,7 @@ async function runAgenticFire({ task, decryptedPayload, userKey, ctx }) {
       );
     }
     if (!ctx.db || typeof ctx.db.deleteTaskByUuid !== "function") {
-      throw new DeploymentConfigError(
-        "AGENTIC_CANCEL_UNSUPPORTED: \u5F53\u524D\u6570\u636E\u5E93\u9002\u914D\u5668\u4E0D\u652F\u6301\u5220\u4EFB\u52A1\uFF08\u7F3A deleteTaskByUuid\uFF09",
-        { code: "AGENTIC_CANCEL_UNSUPPORTED" }
-      );
+      throw new Error("AGENTIC_CANCEL_UNSUPPORTED: \u5F53\u524D\u6570\u636E\u5E93\u9002\u914D\u5668\u4E0D\u652F\u6301\u5220\u4EFB\u52A1\uFF08\u7F3A deleteTaskByUuid\uFF09");
     }
     const cancelled = await ctx.db.deleteTaskByUuid(uuid, task.user_id);
     return { cancelled: !!cancelled };
@@ -2811,10 +2042,7 @@ async function runAgenticFire({ task, decryptedPayload, userKey, ctx }) {
       );
     }
     if (!ctx.db || typeof ctx.db.getTaskByUuid !== "function" || typeof ctx.db.updateTaskByUuid !== "function") {
-      throw new DeploymentConfigError(
-        "AGENTIC_RENEW_UNSUPPORTED: \u5F53\u524D\u6570\u636E\u5E93\u9002\u914D\u5668\u4E0D\u652F\u6301\u6539\u4EFB\u52A1\uFF08\u7F3A getTaskByUuid / updateTaskByUuid\uFF09",
-        { code: "AGENTIC_RENEW_UNSUPPORTED" }
-      );
+      throw new Error("AGENTIC_RENEW_UNSUPPORTED: \u5F53\u524D\u6570\u636E\u5E93\u9002\u914D\u5668\u4E0D\u652F\u6301\u6539\u4EFB\u52A1\uFF08\u7F3A getTaskByUuid / updateTaskByUuid\uFF09");
     }
     const row = await ctx.db.getTaskByUuid(uuid, task.user_id);
     if (!row) return { renewed: false, reason: "not_found" };
@@ -2842,7 +2070,6 @@ async function runAgenticFire({ task, decryptedPayload, userKey, ctx }) {
     userId: task.user_id,
     readState,
     writeState,
-    emitResult,
     scheduleTask,
     cancelTask,
     renewTask,
@@ -2864,17 +2091,13 @@ async function runAgenticFire({ task, decryptedPayload, userKey, ctx }) {
       sleep: sleep2,
       readState,
       writeState,
-      emitResult,
       scratch,
       scheduleTask,
       cancelTask,
       renewTask,
       resolveLlmCredential: resolveLlmCredential2,
       fireCtx,
-      progress,
-      sessionId,
-      messageIdBase,
-      occurrenceMs
+      progress
     });
     settledStatus = !outcome.handled ? "not-handled" : outcome.result.status === "skipped" ? "skipped" : "sent";
     return outcome;
@@ -2900,8 +2123,7 @@ async function runAgenticFire({ task, decryptedPayload, userKey, ctx }) {
       usage: progress.usage,
       scratch,
       readState,
-      writeState,
-      emitResult
+      writeState
     });
   }
 }
@@ -2915,17 +2137,13 @@ async function runFireChain({
   sleep: sleep2,
   readState,
   writeState,
-  emitResult,
   scratch,
   scheduleTask,
   cancelTask,
   renewTask,
   resolveLlmCredential: resolveLlmCredential2,
   fireCtx,
-  progress,
-  sessionId,
-  messageIdBase,
-  occurrenceMs
+  progress
 }) {
   const before = await hooks.onBeforeFire(fireCtx);
   if (before == null) return { handled: false };
@@ -2943,6 +2161,8 @@ async function runFireChain({
     DEFAULT_TOTAL_TIMEOUT_MS
   );
   const deadline = nowFn() + totalTimeoutMs;
+  const sessionId = task.id != null ? `sess_task_${task.id}${occurrenceSuffix(task)}` : `sess_${randomUUID()}`;
+  const occurrenceMs = occurrenceMsOf(task);
   let messages = normalized.messages.slice();
   const chatCred = await resolveFireCredentials({
     db: ctx.db,
@@ -2985,18 +2205,13 @@ async function runFireChain({
       occurrenceMs,
       readState,
       writeState,
-      emitResult,
       scheduleTask,
       cancelTask,
       renewTask,
       resolveLlmCredential: resolveLlmCredential2
     });
     const decision = await hooks.onLLMOutput(sessionCtx);
-    try {
-      assertValidDecision(decision, { inlineToolCalls: true });
-    } catch (error) {
-      throw markPermanent(error, "AGENTIC_BAD_DECISION");
-    }
+    assertValidDecision(decision, { inlineToolCalls: true });
     if (decision.decision === "continue") {
       messages = decision.nextHistory.slice();
       continue;
@@ -3011,7 +2226,6 @@ async function runFireChain({
         decryptedPayload,
         ctx,
         sessionId,
-        messageIdBase,
         occurrenceMs,
         task,
         userKey,
@@ -3019,23 +2233,16 @@ async function runFireChain({
         scratch,
         readState,
         writeState,
-        emitResult,
         progress
       });
       return { handled: true, result: { success: true, messagesSent, status: "finished", iterations: iteration + 1 } };
     }
     const toolCalls = extractToolCallsFromDecision(decision);
     if (toolCalls.length === 0) {
-      throw taggedRetryableError(
-        "AGENTIC_EMPTY_TOOL_REQUEST: tool-request decision carried no toolCalls (neither decision.toolCalls nor pushPayloads[].toolCalls)",
-        "AGENTIC_EMPTY_TOOL_REQUEST"
-      );
+      throw new Error("AGENTIC_EMPTY_TOOL_REQUEST: tool-request decision carried no toolCalls (neither decision.toolCalls nor pushPayloads[].toolCalls)");
     }
     if (typeof hooks.executeToolCalls !== "function") {
-      throw new DeploymentConfigError(
-        "AGENTIC_CONFIG_ERROR: onLLMOutput returned tool-request but hooks.executeToolCalls is not configured",
-        { code: "AGENTIC_CONFIG_ERROR" }
-      );
+      throw new Error("AGENTIC_CONFIG_ERROR: onLLMOutput returned tool-request but hooks.executeToolCalls is not configured");
     }
     if (iteration === maxToolIterations - 1) {
       break;
@@ -3059,15 +2266,7 @@ async function runFireChain({
     const assistantWithTools = synthesized.length === 0 ? assistantMessage : { ...assistantMessage, tool_calls: [...nativeCalls, ...synthesized] };
     messages = [...messages.slice(0, -1), assistantWithTools, ...toolResults];
   }
-  throw taggedRetryableError(
-    `AGENTIC_LOOP_EXCEEDED: no finish/skip-push decision within ${maxToolIterations} LLM round(s)`,
-    "AGENTIC_LOOP_EXCEEDED"
-  );
-}
-function taggedRetryableError(message, code) {
-  const error = new Error(message);
-  error.code = code;
-  return error;
+  throw new Error(`AGENTIC_LOOP_EXCEEDED: no finish/skip-push decision within ${maxToolIterations} LLM round(s)`);
 }
 async function notifyAfterSend(ctx, info) {
   if (typeof ctx.onAfterSend !== "function") return;
@@ -3096,7 +2295,6 @@ async function sendHookPushPayloads({
   decryptedPayload,
   ctx,
   sessionId,
-  messageIdBase,
   occurrenceMs,
   task,
   userKey,
@@ -3104,15 +2302,13 @@ async function sendHookPushPayloads({
   scratch,
   readState,
   writeState,
-  emitResult,
   progress
 }) {
   const total = pushPayloads.length;
   let sentCount = 0;
   progress.total = total;
-  const afterSendBase = { task, total, scratch, readState, writeState, emitResult, usage: progress.usage };
+  const afterSendBase = { task, total, scratch, readState, writeState, usage: progress.usage };
   const sentIds = [];
-  const finalized = [];
   try {
     if (!ctx.vapid || !ctx.vapid.email || !ctx.vapid.publicKey || !ctx.vapid.privateKey) {
       throw new Error("VAPID configuration missing - push notifications cannot be sent");
@@ -3123,6 +2319,8 @@ async function sendHookPushPayloads({
       userKey,
       legacyFallback: (decryptedPayload && decryptedPayload.pushSubscription) ?? null
     });
+    const messageIdBase = task.id != null ? `msg_task_${task.id}${occurrenceSuffix(task)}` : `msg_${randomUUID()}`;
+    const finalized = [];
     for (let i = 0; i < total; i++) {
       const push = { ...pushPayloads[i] };
       if (typeof push.messageId !== "string" || !push.messageId) push.messageId = `${messageIdBase}_hook_${i}`;
@@ -3135,7 +2333,7 @@ async function sendHookPushPayloads({
     }
     await appendPushesToOutbox({ db: ctx.db, userId: task.user_id, userKey, pushes: finalized });
     for (let i = 0; i < total; i++) {
-      await sendTaggedPush(ctx.webpush, pushSubscription, JSON.stringify(finalized[i]));
+      await ctx.webpush.sendNotification(pushSubscription, JSON.stringify(finalized[i]));
       sentCount++;
       progress.sentCount = sentCount;
       sentIds.push(finalized[i].messageId);
@@ -3143,14 +2341,6 @@ async function sendHookPushPayloads({
     }
   } catch (error) {
     await markPushesDelivered({ db: ctx.db, userId: task.user_id, messageIds: sentIds });
-    if (isTaskCancelledError(error)) {
-      await discardUndeliveredPushes({
-        db: ctx.db,
-        userId: task.user_id,
-        pushes: finalized,
-        sentIds
-      });
-    }
     await notifyAfterSend(ctx, { ...afterSendBase, sentCount, error });
     throw error;
   }
@@ -3158,10 +2348,37 @@ async function sendHookPushPayloads({
   await notifyAfterSend(ctx, { ...afterSendBase, sentCount, error: null });
   return total;
 }
+function isNonRetryableError(error) {
+  return !!error && typeof error === "object" && /** @type {any} */
+  error.permanent === true;
+}
+function sanitizeErrorSummary(reason) {
+  let s = String(reason ?? "").replace(/\s+/g, " ").trim();
+  s = s.replace(/Bearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, "Bearer [redacted]");
+  s = s.replace(/\b[A-Za-z]{2,6}-[A-Za-z0-9_-]{16,}/g, "[redacted]");
+  s = s.replace(/[A-Za-z0-9+/_.-]{48,}/g, "[redacted]");
+  if (s.length > 500) s = `${s.slice(0, 497)}\u2026`;
+  return s;
+}
+function summarizeErrorCause(error, stage) {
+  const raw = error && typeof error === "object" ? (
+    /** @type {any} */
+    error
+  ) : {};
+  const name = typeof raw.name === "string" && raw.name ? raw.name : "Error";
+  const rawMessage = typeof raw.message === "string" && raw.message ? raw.message : String(error ?? "");
+  const cause = {
+    stage,
+    name: sanitizeErrorSummary(name).slice(0, 100),
+    message: sanitizeErrorSummary(rawMessage)
+  };
+  if (typeof raw.code === "string" && raw.code) {
+    cause.code = sanitizeErrorSummary(raw.code).slice(0, 100);
+  }
+  return cause;
+}
 var DEFAULT_SPLIT_REGEX = /([。！？!?]+)/;
 var SLEEP_BETWEEN_MESSAGES_MS2 = 1500;
-var MULTIPART_WINDOW_USAGE = 0.5;
-var MIN_SLEEP_BETWEEN_CHUNKS_MS = 50;
 function splitOnceByRegex(chunk, regex) {
   const out = chunk.split(regex).reduce((acc, part, i, arr) => {
     if (i % 2 === 0 && part.trim()) {
@@ -3180,74 +2397,6 @@ function splitMessageIntoSentences(messageContent, splitPattern = null) {
     chunks = chunks.flatMap((c) => splitOnceByRegex(c, regex));
   }
   return chunks.length > 0 ? chunks : [messageContent];
-}
-async function deliverReasoningPush(ctx, pushSubscription, reasoningPush) {
-  const multipart = resolveMultipartOptions(ctx);
-  try {
-    const serialized = JSON.stringify(reasoningPush);
-    const { bytes, withinLimit } = measurePushPayload(serialized);
-    if (withinLimit) {
-      await sendTaggedPush(ctx.webpush, pushSubscription, serialized);
-      return { shipped: true };
-    }
-    if (bytes > multipart.maxTotalBytes) {
-      throw new Error(`\u601D\u8003\u8FC7\u7A0B ${bytes} \u5B57\u8282\uFF0C\u8D85\u8FC7\u5206\u7247\u4F20\u8F93\u7684 ${multipart.maxTotalBytes} \u5B57\u8282\u4E0A\u9650`);
-    }
-    const parts = buildMultipartPushPayloads(reasoningPush, {
-      serializedPayload: serialized,
-      maxChunkBytes: multipart.maxChunkBytes,
-      ttlMs: multipart.ttlMs
-    });
-    if (parts.length > multipart.maxChunks) {
-      throw new Error(`\u601D\u8003\u8FC7\u7A0B\u8981\u5207 ${parts.length} \u7247\uFF0C\u8D85\u8FC7\u5206\u7247\u4F20\u8F93\u7684 ${multipart.maxChunks} \u7247\u4E0A\u9650`);
-    }
-    const intervalMs = resolveChunkIntervalMs(parts.length, multipart.ttlMs);
-    if (intervalMs === null) {
-      throw new Error(
-        `\u601D\u8003\u8FC7\u7A0B\u8981\u5207 ${parts.length} \u7247\uFF0C${multipart.ttlMs} \u6BEB\u79D2\u7684\u5206\u7247\u91CD\u7EC4\u7A97\u53E3\u5185\u53D1\u4E0D\u5B8C`
-      );
-    }
-    for (let i = 0; i < parts.length; i++) {
-      await sendTaggedPush(ctx.webpush, pushSubscription, JSON.stringify(parts[i]));
-      if (i < parts.length - 1) {
-        await sleepFor(ctx, intervalMs);
-      }
-    }
-    return { shipped: true };
-  } catch (error) {
-    if (isTaskCancelledError(error)) throw error;
-    const reason = sanitizeErrorSummary(error && error.message);
-    console.warn("[amsg-server] \u601D\u8003\u8FC7\u7A0B\u672A\u9001\u8FBE\uFF08\u6B63\u6587\u7167\u5E38\u53D1\u9001\uFF09:", reason);
-    return { shipped: false, error: reason };
-  }
-}
-function resolveChunkIntervalMs(chunkCount, windowMs) {
-  if (chunkCount <= 1) return 0;
-  const budgetMs = Math.floor(windowMs * MULTIPART_WINDOW_USAGE);
-  const evenlySpaced = Math.floor(budgetMs / (chunkCount - 1));
-  if (evenlySpaced < MIN_SLEEP_BETWEEN_CHUNKS_MS) return null;
-  return Math.min(SLEEP_BETWEEN_MESSAGES_MS2, evenlySpaced);
-}
-function sleepFor(ctx, ms) {
-  if (!(ms > 0)) return Promise.resolve();
-  if (ctx && typeof ctx._pushSleep === "function") return ctx._pushSleep(ms);
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-function resolveMultipartOptions(ctx) {
-  const configured = ctx && ctx.multipart && typeof ctx.multipart === "object" ? ctx.multipart : {};
-  return {
-    maxChunkBytes: positiveIntegerOr(configured.maxChunkBytes, DEFAULT_MULTIPART_CHUNK_BYTES),
-    maxChunks: positiveIntegerOr(configured.maxChunks, DEFAULT_MULTIPART_MAX_CHUNKS),
-    maxTotalBytes: positiveIntegerOr(configured.maxTotalBytes, DEFAULT_MULTIPART_MAX_TOTAL_BYTES),
-    ttlMs: positiveIntegerOr(configured.ttlMs, DEFAULT_MULTIPART_TTL_MS)
-  };
-}
-function positiveIntegerOr(value, fallback) {
-  return Number.isInteger(value) && /** @type {number} */
-  value > 0 ? (
-    /** @type {number} */
-    value
-  ) : fallback;
 }
 async function processSingleMessage(task, ctx, providedMasterKey, predecrypted = null) {
   try {
@@ -3307,10 +2456,9 @@ async function processSingleMessage(task, ctx, providedMasterKey, predecrypted =
     const metadata = decryptedPayload.metadata || {};
     const messageIdBase = task.id != null ? `msg_task_${task.id}${occurrenceSuffix(task)}` : `msg_${randomUUID()}_instant`;
     const occurrenceMs = occurrenceMsOf(task);
-    const contentPushes = [];
-    let reasoningPush = null;
+    const pushesToSend = [];
     if (reasoning) {
-      reasoningPush = buildReasoningPush({
+      const reasoningPush = buildReasoningPush({
         messageType: decryptedPayload.messageType,
         source,
         messageId: `${messageIdBase}_reasoning`,
@@ -3324,6 +2472,7 @@ async function processSingleMessage(task, ctx, providedMasterKey, predecrypted =
         metadata
       });
       stampTaskIdentity(reasoningPush, task, decryptedPayload, occurrenceMs);
+      pushesToSend.push(reasoningPush);
     }
     for (let i = 0; i < messages.length; i++) {
       const contentPush = buildContentPush({
@@ -3342,56 +2491,29 @@ async function processSingleMessage(task, ctx, providedMasterKey, predecrypted =
         metadata
       });
       stampTaskIdentity(contentPush, task, decryptedPayload, occurrenceMs);
-      contentPushes.push(contentPush);
+      pushesToSend.push(contentPush);
     }
-    const pushesToSend = reasoningPush ? [reasoningPush, ...contentPushes] : contentPushes;
     await appendPushesToOutbox({ db: ctx.db, userId: task.user_id, userKey, pushes: pushesToSend });
     const sentIds = [];
-    let cancelledMidBurst = false;
-    let reasoningError;
     try {
-      if (reasoningPush) {
-        const reasoning2 = await deliverReasoningPush(ctx, pushSubscription, reasoningPush);
-        if (reasoning2.shipped) {
-          sentIds.push(reasoningPush.messageId);
-          await sleepFor(ctx, SLEEP_BETWEEN_MESSAGES_MS2);
-        } else {
-          reasoningError = reasoning2.error;
+      for (let i = 0; i < pushesToSend.length; i++) {
+        await ctx.webpush.sendNotification(pushSubscription, JSON.stringify(pushesToSend[i]));
+        sentIds.push(pushesToSend[i].messageId);
+        if (i < pushesToSend.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, SLEEP_BETWEEN_MESSAGES_MS2));
         }
       }
-      for (let i = 0; i < contentPushes.length; i++) {
-        await sendTaggedPush(ctx.webpush, pushSubscription, JSON.stringify(contentPushes[i]));
-        sentIds.push(contentPushes[i].messageId);
-        if (i < contentPushes.length - 1) {
-          await sleepFor(ctx, SLEEP_BETWEEN_MESSAGES_MS2);
-        }
-      }
-    } catch (error) {
-      cancelledMidBurst = isTaskCancelledError(error);
-      throw error;
     } finally {
       await markPushesDelivered({ db: ctx.db, userId: task.user_id, messageIds: sentIds });
-      if (cancelledMidBurst) {
-        await discardUndeliveredPushes({
-          db: ctx.db,
-          userId: task.user_id,
-          pushes: pushesToSend,
-          sentIds
-        });
-      }
     }
-    return {
-      success: true,
-      messagesSent: messages.length,
-      ...reasoningError ? { reasoningError } : {}
-    };
+    return { success: true, messagesSent: messages.length };
   } catch (error) {
     return {
       success: false,
       messagesSent: 0,
       error: error.message,
       errorCode: error.code || null,
-      pushStatusCode: readPushStatusCode(error),
+      pushStatusCode: Number.isInteger(error.statusCode) ? error.statusCode : null,
       permanent: isNonRetryableError(error)
     };
   }
@@ -3425,12 +2547,7 @@ async function processMessagesByUuid(uuid, ctx, maxRetries = 2, userId, provided
     }
     const result = await processSingleMessage(task, ctx, masterKey);
     if (!result.success) {
-      const permanent = isPermanentDeliveryFailure({
-        permanent: result.permanent,
-        errorCode: result.errorCode,
-        pushStatus: result.pushStatusCode
-      });
-      if (!permanent && retryCount < maxRetries) {
+      if (!result.permanent && retryCount < maxRetries) {
         retryCount++;
         await new Promise((resolve) => setTimeout(resolve, 1e3 * retryCount));
         continue;
@@ -3439,15 +2556,10 @@ async function processMessagesByUuid(uuid, ctx, maxRetries = 2, userId, provided
         await ctx.db.updateTaskById(task.id, {
           status: "failed",
           retry_count: retryCount,
-          // 记录的形状跟定时任务那条路一致（同一个 buildErrorExtra）：reason
-          // 是给用户看的人话，errorCode / pushStatus 是给下游判定用的——410 =
-          // 订阅已注销，客户端要据此引导用户重新登记，而不是回去正则匹配
-          // reason 里那句话。
           last_error: JSON.stringify({
             at: (/* @__PURE__ */ new Date()).toISOString(),
             occurrence: task.next_send_at ?? null,
-            reason: sanitizeErrorSummary(result.error),
-            ...buildErrorExtra(result.errorCode, result.pushStatusCode) || {}
+            reason: sanitizeErrorSummary(result.error)
           })
         });
       } catch (_updateError) {
@@ -3462,7 +2574,7 @@ async function processMessagesByUuid(uuid, ctx, maxRetries = 2, userId, provided
           code: "PROCESSING_ERROR",
           message: result.error,
           retriesAttempted: retryCount,
-          ...permanent ? { permanent: true } : {}
+          ...result.permanent ? { permanent: true } : {}
         }
       };
     }
@@ -3482,12 +2594,7 @@ async function processMessagesByUuid(uuid, ctx, maxRetries = 2, userId, provided
         }
       };
     }
-    return {
-      success: true,
-      messagesSent: result.messagesSent,
-      retriesUsed: retryCount,
-      ...result.reasoningError ? { reasoningError: result.reasoningError } : {}
-    };
+    return { success: true, messagesSent: result.messagesSent, retriesUsed: retryCount };
   }
 }
 function createScheduleMessageHandler(ctx) {
@@ -3621,12 +2728,7 @@ function createScheduleMessageHandler(ctx) {
       llmExtraBody: payload.llmExtraBody ?? null,
       metadata: payload.metadata || {}
     };
-    const serializedTaskData = JSON.stringify(fullTaskData);
-    const sizeError = validateTaskPayloadSize(serializedTaskData);
-    if (sizeError) {
-      return { status: 400, body: { success: false, error: sizeError } };
-    }
-    const encryptedPayload = await encryptForStorage(serializedTaskData, userKey);
+    const encryptedPayload = await encryptForStorage(JSON.stringify(fullTaskData), userKey);
     if (payload.messageType === "instant") {
       if (!ctx.vapid.email || !ctx.vapid.publicKey || !ctx.vapid.privateKey) {
         return {
@@ -3686,9 +2788,6 @@ function createScheduleMessageHandler(ctx) {
     if (!dbResult) {
       return { status: 500, body: { success: false, error: { code: "TASK_CREATE_FAILED", message: "\u521B\u5EFA\u4EFB\u52A1\u5931\u8D25" } } };
     }
-    if (superseded) {
-      await discardUndeliveredPushesForTask({ db, userId, taskUuid: supersedesUuid });
-    }
     if (payload.messageType === "instant") {
       try {
         const sendResult = await processMessagesByUuid(taskUuid, {
@@ -3710,9 +2809,6 @@ function createScheduleMessageHandler(ctx) {
               sentAt: (/* @__PURE__ */ new Date()).toISOString(),
               status: "sent",
               retriesUsed: sendResult.retriesUsed || 0,
-              // 思考过程那条 push 没发出去的原因（有才带上）。正文照发，所以
-              // 这次调用仍是成功的；调用方拿它决定要不要提示 / 重发。
-              ...sendResult.reasoningError ? { reasoningError: sendResult.reasoningError } : {},
               ...supersedesUuid ? { superseded } : {}
             }
           }
@@ -3746,49 +2842,9 @@ var CLAIM_LEASE_MARGIN_MS = 2 * 60 * 1e3;
 var DEFAULT_LEASE_HEARTBEAT_MS = 30 * 1e3;
 var DEFAULT_HEARTBEAT_LEASE_TTL_MS = 90 * 1e3;
 var STALE_AFTER_MS = 60 * 60 * 1e3;
-var adaptersWithoutLastErrorColumn = /* @__PURE__ */ new WeakSet();
-var lastErrorColumnSuspicions = /* @__PURE__ */ new WeakMap();
-var warnedAboutMissingLastErrorColumn = false;
-var adaptersWarnedAboutRetryAfter = /* @__PURE__ */ new WeakSet();
-function warnMissingRetryAfterColumn(db) {
-  if (!db || adaptersWarnedAboutRetryAfter.has(db)) return;
-  adaptersWarnedAboutRetryAfter.add(db);
-  console.warn(
-    "[amsg-server] \u9002\u914D\u5668\u8FD4\u56DE\u7684\u4EFB\u52A1\u884C\u91CC\u6CA1\u6709 retry_after\uFF0C\u9000\u907F\u5B88\u536B\u5931\u6548\uFF1A\u8FD8\u5728\u9000\u907F\u91CC\u7684\u4EFB\u52A1\u4F1A\u88AB\u7ACB\u523B\u91CD\u8DD1\u3002\u6295\u9012\u8DEF\u5F84\u7684\u884C\u8981\u5E26\u4E0A\u8FD9\u4E00\u5217\uFF0C\u89C1 adapters/interface.js \u7684 TASK_DELIVERY_COLUMNS\u3002"
-  );
-}
-function warnMissingLastErrorColumn(error) {
-  if (warnedAboutMissingLastErrorColumn) return;
-  warnedAboutMissingLastErrorColumn = true;
-  console.warn(
-    "[amsg-server] \u5E26 last_error \u7684\u5199\u6CA1\u6210\u529F\uFF0C\u5DF2\u9000\u56DE\u53EA\u5199\u72B6\u6001\u5B57\u6BB5\uFF08\u5931\u8D25\u539F\u56E0\u4ECD\u8BB0\u5728 payload \u7684 lastError \u91CC\uFF09\u3002\u5E93\u5347\u7EA7\u540E\u6CA1\u91CD\u8DD1\u8FC7 /init-tenant \u7684\u8BDD\uFF0C\u8865\u4E00\u6B21\u8868\u7ED3\u6784\u5C31\u80FD\u6062\u590D\uFF1B\u53EA\u662F\u5076\u53D1\u7684\u8BDD\u4E0D\u7528\u7BA1:",
-    error && /** @type {{ message?: unknown }} */
-    error.message
-  );
-}
+var TERMINAL_PUSH_STATUSES = /* @__PURE__ */ new Set([404, 410]);
 function toPushStatus(value) {
   return Number.isInteger(value) ? value : null;
-}
-function rowVanished(writeResult) {
-  return writeResult === null || writeResult === false;
-}
-function guardWebpushWithLease(webpush, lease) {
-  if (!webpush || typeof webpush.sendNotification !== "function") return webpush;
-  const guarded = Object.create(webpush);
-  Object.defineProperty(guarded, "sendNotification", {
-    value: async (...args) => {
-      if (lease.lost) {
-        const error = new Error("\u4EFB\u52A1\u5728\u6295\u9012\u671F\u95F4\u88AB\u53D6\u6D88\u6216\u9876\u66FF\uFF0C\u63A8\u9001\u5DF2\u4E2D\u6B62");
-        error.code = TASK_CANCELLED_CODE;
-        throw error;
-      }
-      return webpush.sendNotification(...args);
-    },
-    writable: true,
-    enumerable: true,
-    configurable: true
-  });
-  return guarded;
 }
 function resolveStaleAfterMs(ctx) {
   return positiveNumber(ctx.staleAfterMs) || STALE_AFTER_MS;
@@ -3819,18 +2875,7 @@ async function runScheduledTick(ctx) {
       console.warn("[amsg-server] cleanupOutbox \u5931\u8D25\uFF08\u5DF2\u5FFD\u7565\uFF09:", error && error.message);
     }
   }
-  await cleanupExpiredClientState(ctx);
   return summary;
-}
-async function cleanupExpiredClientState(ctx) {
-  if (typeof ctx.db.cleanupClientState !== "function") return;
-  const targets = planClientStateCleanup(ctx.clientStateTtl, Date.now());
-  if (targets.length === 0) return;
-  try {
-    await ctx.db.cleanupClientState(targets);
-  } catch (error) {
-    console.warn("[amsg-server] cleanupClientState \u5931\u8D25\uFF08\u5DF2\u5FFD\u7565\uFF09:", error && error.message);
-  }
 }
 async function runTask(ctx, uuid) {
   if (typeof uuid !== "string" || !uuid.trim()) {
@@ -3847,9 +2892,6 @@ async function runTask(ctx, uuid) {
   const dueMs = Date.parse(task.next_send_at);
   if (Number.isFinite(dueMs) && dueMs > Date.now()) {
     return { ran: false, reason: "not_due", nextSendAt: task.next_send_at };
-  }
-  if (!Object.prototype.hasOwnProperty.call(task, "retry_after")) {
-    warnMissingRetryAfterColumn(ctx.db);
   }
   const retryAfterMs = task.retry_after ? Date.parse(task.retry_after) : NaN;
   if (Number.isFinite(retryAfterMs) && retryAfterMs > Date.now()) {
@@ -3877,8 +2919,6 @@ async function deliverTasks(ctx, tasks) {
     deletedOnceOffTasks: 0,
     updatedRecurringTasks: 0,
     staleTasks: [],
-    cancelledTasks: [],
-    reasoningSkippedTasks: [],
     failedTasks: []
   };
   const groupsTakenThisTick = /* @__PURE__ */ new Set();
@@ -3891,24 +2931,16 @@ async function deliverTasks(ctx, tasks) {
     return !!await db.claimTask(task.id, task.next_send_at, leaseUntil, serializeGroup);
   }
   function startLeaseHeartbeat(task) {
-    const lease = { lost: false, released: false, stop: () => {
-    } };
-    if (!heartbeatEnabled) return lease;
+    if (!heartbeatEnabled) return () => {
+    };
     let stopped = false;
     let timer = null;
     const beat = async () => {
       if (stopped) return;
-      let renewed;
       try {
-        renewed = await db.renewTaskLease(task.id, new Date(Date.now() + heartbeatLeaseTtlMs).toISOString());
+        await db.renewTaskLease(task.id, new Date(Date.now() + heartbeatLeaseTtlMs).toISOString());
       } catch (error) {
         console.warn("[amsg-server] \u79DF\u7EA6\u7EED\u79DF\u5931\u8D25\uFF08\u4E0B\u4E2A\u5FC3\u8DF3\u518D\u8BD5\uFF09:", error && error.message);
-      }
-      if (renewed === false) {
-        if (stopped || lease.released) return;
-        lease.lost = true;
-        console.warn(`[amsg-server] \u4EFB\u52A1 ${task.id} \u7684\u79DF\u7EA6\u5DF2\u5931\u6548\uFF08\u884C\u88AB\u53D6\u6D88\u6216\u9876\u66FF\uFF09\uFF0C\u5269\u4F59\u63A8\u9001\u5C06\u4E2D\u6B62`);
-        return;
       }
       if (!stopped) schedule();
     };
@@ -3917,42 +2949,22 @@ async function deliverTasks(ctx, tasks) {
       if (timer && typeof timer.unref === "function") timer.unref();
     };
     schedule();
-    lease.stop = () => {
+    return () => {
       stopped = true;
       if (timer) clearTimeout(timer);
     };
-    return lease;
   }
-  const activeLeases = /* @__PURE__ */ new Map();
-  function markLeaseReleased(taskId) {
-    const lease = activeLeases.get(taskId);
-    if (lease) lease.released = true;
-  }
+  const supportsLastError = supportsClaim;
   async function updateTaskWithLastError(taskId, fields) {
-    if (fields.lease_until === null) markLeaseReleased(taskId);
-    if (!Object.prototype.hasOwnProperty.call(fields, "last_error")) {
-      return db.updateTaskById(taskId, fields);
-    }
-    const { last_error: _lastError, ...stateFields } = fields;
-    if (adaptersWithoutLastErrorColumn.has(db)) return db.updateTaskById(taskId, stateFields);
-    let combinedError;
     try {
-      const result2 = await db.updateTaskById(taskId, fields);
-      lastErrorColumnSuspicions.delete(db);
-      return result2;
+      return await db.updateTaskById(taskId, fields);
     } catch (error) {
-      combinedError = error;
+      if (Object.prototype.hasOwnProperty.call(fields, "last_error") && /last_error/i.test(error.message || "")) {
+        const { last_error: _omit, ...rest } = fields;
+        return db.updateTaskById(taskId, rest);
+      }
+      throw error;
     }
-    const result = await db.updateTaskById(taskId, stateFields);
-    warnMissingLastErrorColumn(combinedError);
-    const suspicions = (lastErrorColumnSuspicions.get(db) || 0) + 1;
-    if (suspicions >= 2) {
-      adaptersWithoutLastErrorColumn.add(db);
-      lastErrorColumnSuspicions.delete(db);
-    } else {
-      lastErrorColumnSuspicions.set(db, suspicions);
-    }
-    return result;
   }
   function lastErrorJson(task, reason, extra) {
     return JSON.stringify({
@@ -3992,26 +3004,8 @@ async function deliverTasks(ctx, tasks) {
     groupsTakenThisTick.add(scopedKey);
     return { taken: false, rawKey };
   }
-  function recordCancelled(task, status) {
-    results.cancelledTasks.push({
-      taskId: task.id,
-      reason: "\u4EFB\u52A1\u5728\u6295\u9012\u671F\u95F4\u88AB\u53D6\u6D88\u6216\u9876\u66FF",
-      status
-    });
-    console.warn(`[amsg-server] \u4EFB\u52A1 ${task.id} \u5728\u6295\u9012\u671F\u95F4\u88AB\u53D6\u6D88\u6216\u9876\u66FF\uFF08${status}\uFF09`);
-  }
-  async function payloadStillFresh(task) {
-    if (typeof db.getTaskByUuid !== "function" || !task.uuid) return true;
-    try {
-      const current = await db.getTaskByUuid(task.uuid, task.user_id);
-      return Boolean(current) && current.encrypted_payload === task.encrypted_payload;
-    } catch (_readError) {
-      return false;
-    }
-  }
   async function encryptPayloadWithLastError(task, decryptedPayload, userKey, reason, extra) {
     if (!decryptedPayload || !userKey) return null;
-    if (!await payloadStillFresh(task)) return null;
     try {
       return await encryptForStorage(JSON.stringify({
         ...decryptedPayload,
@@ -4022,16 +3016,6 @@ async function deliverTasks(ctx, tasks) {
           ...extra || {}
         }
       }), userKey);
-    } catch (_encryptError) {
-      return null;
-    }
-  }
-  async function encryptPayloadWithoutLastError(task, decryptedPayload, userKey) {
-    if (!decryptedPayload || !userKey) return null;
-    if (!await payloadStillFresh(task)) return null;
-    try {
-      const { lastError: _cleared, ...rest } = decryptedPayload;
-      return await encryptForStorage(JSON.stringify(rest), userKey);
     } catch (_encryptError) {
       return null;
     }
@@ -4049,8 +3033,8 @@ async function deliverTasks(ctx, tasks) {
     const errorCode = failure.errorCode ?? null;
     const pushStatus = toPushStatus(failure.pushStatus);
     const tzId = decryptedPayload ? decryptedPayload.tzId ?? null : null;
-    const permanent = isPermanentDeliveryFailure({ permanent: failure.permanent, errorCode, pushStatus });
-    const errorExtra = buildErrorExtra(errorCode, pushStatus);
+    const permanent = failure.permanent === true || errorCode === "PUSH_SUBSCRIPTION_MISSING" || errorCode === "PUSH_SUBSCRIPTION_STORE_UNSUPPORTED" || TERMINAL_PUSH_STATUSES.has(pushStatus);
+    const errorExtra = pushStatus === null ? void 0 : { pushStatus };
     try {
       if (permanent || task.retry_count >= 3) {
         const encrypted = await encryptPayloadWithLastError(task, decryptedPayload, userKey, reason, errorExtra);
@@ -4060,14 +3044,14 @@ async function deliverTasks(ctx, tasks) {
             next_send_at: nextSendAt,
             retry_count: 0,
             ...encrypted ? { encrypted_payload: encrypted } : {},
-            last_error: lastErrorJson(task, reason, errorExtra)
+            ...supportsLastError ? { last_error: lastErrorJson(task, reason, errorExtra) } : {}
           });
           results.failedTasks.push({ taskId: task.id, reason, retryCount: task.retry_count, status: "occurrence_skipped", nextSendAt, ...permanent ? { permanent: true } : {} });
         } else {
           await updateAndRelease(task.id, {
             status: "failed",
             ...encrypted ? { encrypted_payload: encrypted } : {},
-            last_error: lastErrorJson(task, reason, errorExtra)
+            ...supportsLastError ? { last_error: lastErrorJson(task, reason, errorExtra) } : {}
           });
           results.failedTasks.push({ taskId: task.id, reason, retryCount: task.retry_count, status: "permanently_failed", ...permanent ? { permanent: true } : {} });
         }
@@ -4078,14 +3062,10 @@ async function deliverTasks(ctx, tasks) {
             retry_after: nextRetryTime.toISOString(),
             lease_until: null,
             retry_count: task.retry_count + 1,
-            last_error: lastErrorJson(task, reason, errorExtra)
+            ...supportsLastError ? { last_error: lastErrorJson(task, reason, errorExtra) } : {}
           });
         } else {
-          await updateTaskWithLastError(task.id, {
-            next_send_at: nextRetryTime.toISOString(),
-            retry_count: task.retry_count + 1,
-            last_error: lastErrorJson(task, reason, errorExtra)
-          });
+          await db.updateTaskById(task.id, { next_send_at: nextRetryTime.toISOString(), retry_count: task.retry_count + 1 });
         }
         results.failedTasks.push({ taskId: task.id, reason, retryCount: task.retry_count + 1, nextRetryAt: nextRetryTime.toISOString() });
       }
@@ -4143,16 +3123,14 @@ async function deliverTasks(ctx, tasks) {
       results.claimSkippedTasks++;
       return;
     }
-    const lease = startLeaseHeartbeat(task);
-    activeLeases.set(task.id, lease);
+    const stopHeartbeat = startLeaseHeartbeat(task);
     try {
-      await deliverClaimedTask(task, decrypted, lease);
+      await deliverClaimedTask(task, decrypted);
     } finally {
-      lease.stop();
-      activeLeases.delete(task.id);
+      stopHeartbeat();
     }
   }
-  async function deliverClaimedTask(task, decrypted, lease) {
+  async function deliverClaimedTask(task, decrypted) {
     const decryptedPayload = decrypted.ok ? decrypted.payload : null;
     const userKey = decrypted.ok ? decrypted.userKey : null;
     if (!decrypted.ok) {
@@ -4172,16 +3150,6 @@ async function deliverTasks(ctx, tasks) {
           userKey,
           maxStateValueBytes: ctx.maxStateValueBytes
         });
-        const { emitResult } = createResultEmitter({
-          db,
-          task,
-          userKey,
-          decryptedPayload,
-          messageIdBase: task.id != null ? `msg_task_${task.id}${occurrenceSuffix(task)}` : `msg_stale_${task.uuid || ""}`,
-          sessionId: task.id != null ? `sess_task_${task.id}${occurrenceSuffix(task)}` : `sess_stale_${task.uuid || ""}`,
-          occurrenceMs,
-          webpush: ctx.webpush
-        });
         const recurring = isRecurringType(recurrenceType);
         const plan = recurring ? planNextOccurrence(occurrenceMs, recurrenceType, Date.now(), tzId) : null;
         const nextSendAt = recurring ? new Date(plan.nextMs).toISOString() : null;
@@ -4197,7 +3165,7 @@ async function deliverTasks(ctx, tasks) {
         await updateAndRelease(task.id, {
           ...recurring ? { next_send_at: nextSendAt, retry_count: 0 } : { status: "failed" },
           ...encrypted ? { encrypted_payload: encrypted } : {},
-          last_error: lastErrorJson(task, "stale", recurring ? { skippedCount, nextSendAt } : void 0)
+          ...supportsLastError ? { last_error: lastErrorJson(task, "stale", recurring ? { skippedCount, nextSendAt } : void 0) } : {}
         });
         results.staleTasks.push({
           taskId: task.id,
@@ -4216,8 +3184,7 @@ async function deliverTasks(ctx, tasks) {
           skippedOccurrences: recurring ? plan.skippedOccurrences : [occurrenceMs],
           skippedTruncated: recurring ? plan.skippedTruncated : false,
           nextSendAt,
-          ...stateAccessors,
-          emitResult
+          ...stateAccessors
         });
       } catch (error) {
         results.failedCount++;
@@ -4229,30 +3196,22 @@ async function deliverTasks(ctx, tasks) {
     try {
       sendResult = await processSingleMessage(
         task,
-        { ...ctx, db, masterKey, webpush: guardWebpushWithLease(ctx.webpush, lease) },
+        { ...ctx, db, masterKey },
         masterKey,
         { userKey, payload: decryptedPayload }
       );
     } catch (error) {
-      if (lease.lost) {
-        recordCancelled(task, "cancelled_mid_delivery");
-        return;
-      }
       await handleDeliveryFailure(
         task,
         error.message || "\u6D88\u606F\u53D1\u9001\u5931\u8D25",
         recurrenceType,
         decryptedPayload,
         userKey,
-        { errorCode: error.code || null, permanent: error.permanent === true, pushStatus: null }
+        { errorCode: error.code || null, permanent: error.permanent === true, pushStatus: error.statusCode }
       );
       return;
     }
     if (!sendResult.success) {
-      if (lease.lost) {
-        recordCancelled(task, "cancelled_mid_delivery");
-        return;
-      }
       await handleDeliveryFailure(
         task,
         sendResult.error || "\u6D88\u606F\u53D1\u9001\u5931\u8D25",
@@ -4263,33 +3222,17 @@ async function deliverTasks(ctx, tasks) {
       );
       return;
     }
-    if (sendResult.reasoningError) {
-      results.reasoningSkippedTasks.push({ taskId: task.id, reason: sendResult.reasoningError });
-      console.warn(
-        `[amsg-server] \u4EFB\u52A1 ${task.id} \u7684\u6B63\u6587\u5DF2\u9001\u8FBE\uFF0C\u601D\u8003\u8FC7\u7A0B\u6CA1\u53D1\u51FA\u53BB: ${sendResult.reasoningError}`
-      );
-    }
     try {
       if (recurrenceType === "none") {
-        markLeaseReleased(task.id);
-        if (rowVanished(await db.deleteTaskById(task.id))) {
-          recordCancelled(task, "cancelled_after_delivery");
-          return;
-        }
+        await db.deleteTaskById(task.id);
         results.deletedOnceOffTasks++;
       } else {
         const nextSendAt = nextFutureOccurrence(occurrenceMs, recurrenceType, Date.now(), tzId);
-        const clearedPayload = decryptedPayload && decryptedPayload.lastError ? await encryptPayloadWithoutLastError(task, decryptedPayload, userKey) : null;
-        const updated = await updateAndRelease(task.id, {
+        await updateAndRelease(task.id, {
           next_send_at: nextSendAt,
           retry_count: 0,
-          last_error: null,
-          ...clearedPayload ? { encrypted_payload: clearedPayload } : {}
+          ...supportsLastError ? { last_error: null } : {}
         });
-        if (rowVanished(updated)) {
-          recordCancelled(task, "cancelled_after_delivery");
-          return;
-        }
         results.updatedRecurringTasks++;
       }
       results.successCount++;
@@ -4337,18 +3280,10 @@ async function deliverTasks(ctx, tasks) {
       deletedOnceOffTasks: results.deletedOnceOffTasks,
       updatedRecurringTasks: results.updatedRecurringTasks,
       staleTasks: results.staleTasks,
-      // 投递期间行被取消 / 顶替的任务。`cancelled_mid_delivery` = 推送在发出去
-      // 之前被拦下；`cancelled_after_delivery` = 推送已经发完，收尾写库才发现
-      // 行没了。两种都不计入 successCount / failedCount。
-      cancelledTasks: results.cancelledTasks,
-      // 正文送到了、只有思考过程没发出去的任务（{ taskId, reason }）。这些任务
-      // 照常计入 successCount——列在这里只是让「这次没有思考过程」看得见。
-      reasoningSkippedTasks: results.reasoningSkippedTasks,
       failedTasks: results.failedTasks
     }
   };
 }
-var REQUEST_FIELD_BY_COLUMN = { next_send_at: "nextSendAt" };
 function createUpdateMessageHandler(ctx) {
   async function PUT(url, headers, body) {
     const tenantResult = await ctx.tenantManager.resolveTenant(headers, { url });
@@ -4394,15 +3329,6 @@ function createUpdateMessageHandler(ctx) {
     }
     if (Object.prototype.hasOwnProperty.call(updates, "contactName") && (typeof updates.contactName !== "string" || !updates.contactName.trim())) {
       return { status: 400, body: { success: false, error: { code: "INVALID_UPDATE_DATA", message: "contactName \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32", details: { invalidFields: ["contactName"] } } } };
-    }
-    if (Object.prototype.hasOwnProperty.call(updates, "userMessage") && updates.userMessage !== null && typeof updates.userMessage !== "string") {
-      return { status: 400, body: { success: false, error: { code: "INVALID_UPDATE_DATA", message: "userMessage \u5FC5\u987B\u662F\u5B57\u7B26\u4E32", details: { invalidFields: ["userMessage"] } } } };
-    }
-    if (Object.prototype.hasOwnProperty.call(updates, "messageSubtype") && updates.messageSubtype !== null && typeof updates.messageSubtype !== "string") {
-      return { status: 400, body: { success: false, error: { code: "INVALID_UPDATE_DATA", message: "messageSubtype \u5FC5\u987B\u662F\u5B57\u7B26\u4E32", details: { invalidFields: ["messageSubtype"] } } } };
-    }
-    if (Object.prototype.hasOwnProperty.call(updates, "llmExtraBody") && updates.llmExtraBody !== null && !isPlainObject(updates.llmExtraBody)) {
-      return { status: 400, body: { success: false, error: { code: "INVALID_UPDATE_DATA", message: "llmExtraBody \u5FC5\u987B\u662F\u666E\u901A\u5BF9\u8C61", details: { invalidFields: ["llmExtraBody"] } } } };
     }
     if (updates.recurrenceType && !["none", "daily", "weekly"].includes(updates.recurrenceType)) {
       return { status: 400, body: { success: false, error: { code: "INVALID_UPDATE_DATA", message: "\u66F4\u65B0\u6570\u636E\u683C\u5F0F\u9519\u8BEF", details: { invalidFields: ["recurrenceType"] } } } };
@@ -4479,7 +3405,8 @@ function createUpdateMessageHandler(ctx) {
       promptUpdates.messages = updates.messages;
       promptUpdates.completePrompt = null;
     }
-    const appliedPatch = {
+    const updatedData = {
+      ...existingData,
       ...promptUpdates,
       ...Object.prototype.hasOwnProperty.call(updates, "contactName") && { contactName: updates.contactName },
       ...updates.userMessage && { userMessage: updates.userMessage },
@@ -4503,20 +3430,9 @@ function createUpdateMessageHandler(ctx) {
       // splitPattern: hasOwnProperty so that explicit `null` (= revert to
       // default) doesn't get swallowed by truthy-spread the way the optional
       // string fields above are.
-      ...Object.prototype.hasOwnProperty.call(updates, "splitPattern") && { splitPattern: updates.splitPattern ?? null },
-      // messageSubtype / llmExtraBody：显式传 null 表示改回默认（分别是投递时
-      // 的 'chat' 和「不透传额外参数」），所以跟 tzId 那几个一样走
-      // hasOwnProperty，不被 truthy spread 吞掉。
-      ...Object.prototype.hasOwnProperty.call(updates, "messageSubtype") && { messageSubtype: updates.messageSubtype ?? null },
-      ...Object.prototype.hasOwnProperty.call(updates, "llmExtraBody") && { llmExtraBody: updates.llmExtraBody ?? null }
+      ...Object.prototype.hasOwnProperty.call(updates, "splitPattern") && { splitPattern: updates.splitPattern ?? null }
     };
-    const updatedData = { ...existingData, ...appliedPatch };
-    const serializedUpdatedData = JSON.stringify(updatedData);
-    const sizeError = validateTaskPayloadSize(serializedUpdatedData);
-    if (sizeError && sizeError.details.bytes > taskPayloadByteLength(JSON.stringify(existingData))) {
-      return { status: 400, body: { success: false, error: sizeError } };
-    }
-    const encryptedPayload = await encryptForStorage(serializedUpdatedData, userKey);
+    const encryptedPayload = await encryptForStorage(JSON.stringify(updatedData), userKey);
     const extraFields = {
       retry_count: 0,
       ...typeof db.claimTask === "function" ? { retry_after: null } : {},
@@ -4526,18 +3442,13 @@ function createUpdateMessageHandler(ctx) {
     if (!result) {
       return { status: 409, body: { success: false, error: { code: "UPDATE_CONFLICT", message: "\u4EFB\u52A1\u66F4\u65B0\u5931\u8D25\uFF0C\u4EFB\u52A1\u53EF\u80FD\u5DF2\u88AB\u4FEE\u6539\u6216\u5220\u9664" } } };
     }
-    const applied = /* @__PURE__ */ new Set([
-      ...Object.keys(appliedPatch),
-      ...Object.keys(extraFields).map((column) => REQUEST_FIELD_BY_COLUMN[column])
-    ]);
-    const updatedFields = Object.keys(updates).filter((name) => applied.has(name));
     return {
       status: 200,
       body: {
         success: true,
         data: {
           uuid: taskUuid,
-          updatedFields,
+          updatedFields: Object.keys(updates),
           updatedAt: result.updated_at
         }
       }
@@ -4567,7 +3478,6 @@ function createCancelMessageHandler(ctx) {
         body: { success: false, error: { code: "TASK_NOT_FOUND", message: "\u6307\u5B9A\u7684\u4EFB\u52A1\u4E0D\u5B58\u5728\u6216\u5DF2\u88AB\u5220\u9664" } }
       };
     }
-    await discardUndeliveredPushesForTask({ db, userId, taskUuid });
     return {
       status: 200,
       body: {
@@ -4744,18 +3654,10 @@ function createPushSubscriptionHandler(ctx) {
     const { userId } = gate;
     if (!supportsPushSubscriptionStore(db)) return UNSUPPORTED;
     const userKey = await deriveUserEncryptionKey(userId, masterKey);
-    let row;
-    try {
-      row = await db.getPushSubscription(userId);
-    } catch (error) {
-      console.error("[amsg-server] push-subscription \u67E5\u8BE2\u5931\u8D25:", error && error.message);
-      return err(503, "PUSH_SUBSCRIPTION_LOOKUP_FAILED", "\u63A8\u9001\u8BA2\u9605\u8BFB\u53D6\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5");
-    }
     let stored = null;
     try {
-      stored = await decodePushSubscriptionRow(row, userKey);
-    } catch (error) {
-      console.warn("[amsg-server] push-subscription \u884C\u89E3\u5BC6\u5931\u8D25\uFF08\u6309\u672A\u767B\u8BB0\u5904\u7406\uFF09:", error && error.message);
+      stored = await loadPushSubscription({ db, userId, userKey });
+    } catch (_error) {
       stored = null;
     }
     return {
@@ -5320,7 +4222,7 @@ var D1Adapter = class {
   }
   async getTaskByUuid(uuid, userId) {
     return this._db.prepare(
-      `SELECT ${TASK_DETAIL_COLUMNS}
+      `SELECT id, user_id, uuid, encrypted_payload, message_type, next_send_at, status, retry_count, last_error, created_at, updated_at
        FROM scheduled_messages
        WHERE uuid = ? AND user_id = ? AND status = 'pending'
        LIMIT 1`
@@ -5328,7 +4230,7 @@ var D1Adapter = class {
   }
   async getTaskByUuidOnly(uuid) {
     return this._db.prepare(
-      `SELECT ${TASK_DELIVERY_COLUMNS}
+      `SELECT id, user_id, uuid, encrypted_payload, message_type, next_send_at, retry_after, status, retry_count
        FROM scheduled_messages
        WHERE uuid = ? AND status = 'pending'
        LIMIT 1`
@@ -5401,7 +4303,7 @@ var D1Adapter = class {
   async getPendingTasks(limit = 50) {
     const now = this._now();
     const res = await this._db.prepare(
-      `SELECT ${TASK_DELIVERY_COLUMNS}
+      `SELECT id, user_id, uuid, encrypted_payload, message_type, next_send_at, retry_after, status, retry_count
        FROM scheduled_messages
        WHERE status = 'pending' AND next_send_at <= ?
          AND (lease_until IS NULL OR lease_until <= ?)
@@ -5504,7 +4406,7 @@ var D1Adapter = class {
     ).bind(...params).first();
     const total = Number(countRow.count) || 0;
     const res = await this._db.prepare(
-      `SELECT ${TASK_DETAIL_COLUMNS}
+      `SELECT id, user_id, uuid, encrypted_payload, message_type, next_send_at, status, retry_count, last_error, created_at, updated_at
        FROM scheduled_messages
        WHERE ${where}
        ORDER BY next_send_at ASC
@@ -5619,34 +4521,6 @@ var D1Adapter = class {
        ORDER BY key ASC`
     ).bind(userId, namespace).all();
     return res.results || [];
-  }
-  /**
-   * 例行清理：把指定命名空间下太久没更新的条目删掉（run-tick 每跳顺手调，
-   * 宿主配了 `clientStateTtl` 才会调）。
-   *
-   * 不限用户——「这个命名空间只留最近 N 天」是命名空间级的约定，单用户部署
-   * 下也就是这一个用户的行。指令由 lib/client-state-store.js 的
-   * `planClientStateCleanup` 算好（含大值切片所在的保留命名空间），这里只负
-   * 责照着删。
-   *
-   * @param {Array<{ namespace: string, updatedBefore: number }>} targets
-   *   `updatedBefore` 是 epoch 毫秒，与 `updated_at` 列同一把尺子。
-   * @returns {Promise<number>} 删掉的行数
-   */
-  async cleanupClientState(targets = []) {
-    if (!Array.isArray(targets) || targets.length === 0) return 0;
-    const SQL = "DELETE FROM client_state WHERE namespace = ? AND updated_at < ?";
-    const statements = targets.map(
-      (target) => this._db.prepare(SQL).bind(target.namespace, target.updatedBefore)
-    );
-    let results;
-    if (typeof this._db.batch === "function") {
-      results = await this._db.batch(statements);
-    } else {
-      results = [];
-      for (const statement of statements) results.push(await statement.run());
-    }
-    return results.reduce((sum, res) => sum + (res.meta.changes || 0), 0);
   }
   /**
    * Wipe every entry of this user.
@@ -5846,26 +4720,6 @@ var D1Adapter = class {
       (placeholders) => `UPDATE message_outbox SET delivered_at = ?
          WHERE user_id = ? AND message_id IN (${placeholders})`,
       [deliveredAt, userId],
-      messageIds
-    );
-  }
-  /**
-   * 把这一批还没发出去的行删掉（任务投递到一半被取消 / 顶替时用）。
-   *
-   * 只删 delivered_at 仍为 NULL 的行：已经推给设备的那几条撤不回来，行留着让
-   * 客户端照常 ack。已 ack 的行更不动。
-   *
-   * @param {string} userId
-   * @param {string[]} messageIds
-   * @returns {Promise<number>} 删掉的行数
-   */
-  async discardOutboxMessages(userId, messageIds) {
-    if (!messageIds || messageIds.length === 0) return 0;
-    return this._runInClauseWrite(
-      (placeholders) => `DELETE FROM message_outbox
-         WHERE user_id = ? AND delivered_at IS NULL AND acked_at IS NULL
-           AND message_id IN (${placeholders})`,
-      [userId],
       messageIds
     );
   }
@@ -6174,7 +5028,7 @@ function createClientStateHandler(ctx) {
   }
   return { PUT, GET, DELETE };
 }
-var SERVER_VERSION = true ? "2.6.0-next.21" : "0.0.0-dev";
+var SERVER_VERSION = true ? "2.6.0-next.20" : "0.0.0-dev";
 var SERVER_FEATURES = Object.freeze([
   "client-state",
   "client-state-chunking",
@@ -6252,13 +5106,7 @@ var SERVER_FEATURES = Object.freeze([
   // 用户级 LLM 凭据存储：PUT/GET/DELETE /llm-credentials，任务 payload 认
   // credRefs（fire 时按引用现读、自排任务复制引用），hook ctx 带
   // resolveLlmCredential。
-  "llm-credentials",
-  // 请求体带 Content-Encoding: gzip 时自动解压，所有带 body 的端点都认。
-  "gzip-request-body",
-  // client_state 按命名空间过期清理（config 的 clientStateTtl，cron 每跳顺手做）。
-  "client-state-ttl",
-  // hook ctx 带 emitResult(payload)：往客户端补一条自定义结果（落收件箱 + 推送）。
-  "emit-result"
+  "llm-credentials"
 ]);
 function createCapabilitiesHandler(ctx) {
   async function GET(url, headers) {
@@ -6398,9 +5246,6 @@ function createSingleUserServer(config) {
       privateKey: vapid.privateKey || ""
     },
     webpush: config.webpush || null,
-    // 分片传输的限额（与 installReiSW 的 multipart 同一份）。instant 消息也走
-    // 这个 ctx 发，所以它要跟着 handlers 一起进来。
-    multipart: config.multipart || null,
     tenantManager,
     // Fire-time hooks (optional): the in-server instant path fires through
     // processMessagesByUuid with this ctx, so instant-type tasks can take
@@ -6513,21 +5358,6 @@ function corsHeadersFor(cors, requestOrigin) {
 function degradedCorsHeaders(requestOrigin) {
   return corsHeadersFor({ origin: requestOrigin, maxAge: 0 }, requestOrigin);
 }
-function isSameOriginCall(request, requestOrigin) {
-  if (!requestOrigin) return true;
-  try {
-    return new URL(request.url).origin === requestOrigin;
-  } catch (_error) {
-    return false;
-  }
-}
-function publicErrorCause(cause) {
-  const { message: _serverSideOnly, ...safe } = cause;
-  return (
-    /** @type {import('../lib/errors.js').ErrorCause} */
-    safe
-  );
-}
 function internalErrorResponse(cors, cause) {
   return jsonResponse(500, {
     success: false,
@@ -6597,14 +5427,7 @@ function createSingleUserCloudflareWorker(buildConfig, options = {}) {
       // 租约心跳间隔（默认 30s；0 = 关掉心跳，退回一次性长租约）。
       leaseHeartbeatMs: cfg.leaseHeartbeatMs,
       // 补发新鲜度阈值（默认 60 分钟；见 lib/run-tick.js 的 STALE_AFTER_MS）。
-      staleAfterMs: cfg.staleAfterMs,
-      // client_state 的按命名空间过期清理 `{ 命名空间: 天数 }`。不配 = 一个都
-      // 不清（见 lib/run-tick.js 的 cleanupExpiredClientState）。
-      clientStateTtl: cfg.clientStateTtl,
-      // 分片传输的限额 { maxChunkBytes, maxChunks, maxTotalBytes, ttlMs }：跟宿主
-      // 传给 installReiSW 的那一份保持一致。装不下一条 push 的思考过程按它切片、
-      // 按它排发送节奏（见 lib/message-processor.js）。
-      multipart: cfg.multipart
+      staleAfterMs: cfg.staleAfterMs
     };
   }
   function pushConfigured(cfg) {
@@ -6623,10 +5446,7 @@ function createSingleUserCloudflareWorker(buildConfig, options = {}) {
       await reportError({ stage: "config", error, cause, path: pathOf(request) });
       const degraded = degradedCorsHeaders(requestOrigin);
       if (method === "OPTIONS" && degraded) return new Response(null, { status: 204, headers: degraded });
-      return internalErrorResponse(
-        degraded,
-        isSameOriginCall(request, requestOrigin) ? cause : publicErrorCause(cause)
-      );
+      return internalErrorResponse(degraded, cause);
     }
     const cors = corsHeadersFor(cfg.cors, requestOrigin);
     try {
@@ -6637,25 +5457,19 @@ function createSingleUserCloudflareWorker(buildConfig, options = {}) {
       const url = request.url;
       const pathname = new URL(url).pathname.replace(/\/+$/, "") || "/";
       const headers = headersToObject(request.headers);
-      let body = "";
-      if (method === "POST" || method === "PUT" || method === "DELETE") {
-        const read = await readRequestBody(request, { maxBytes: cfg.maxRequestBodyBytes });
-        if (!read.ok) return jsonResponse(read.error.status, read.error.body, cors);
-        body = read.body;
-      }
       let result;
       if (method === "POST" && pathname.endsWith("/init-tenant")) {
-        result = await server.handlers.init.POST(headers, body);
+        result = await server.handlers.init.POST(headers, await request.text());
       } else if (method === "GET" && pathname.endsWith("/get-user-key")) {
         result = await server.handlers.getUserKey.GET(url, headers);
       } else if (method === "POST" && pathname.endsWith("/schedule-message")) {
-        result = await server.handlers.scheduleMessage.POST(headers, body);
+        result = await server.handlers.scheduleMessage.POST(headers, await request.text());
       } else if (method === "GET" && pathname.endsWith("/messages")) {
         result = await server.handlers.messages.GET(url, headers);
       } else if (method === "GET" && pathname.endsWith("/message")) {
         result = await server.handlers.getMessage.GET(url, headers);
       } else if (method === "PUT" && pathname.endsWith("/update-message")) {
-        result = await server.handlers.updateMessage.PUT(url, headers, body);
+        result = await server.handlers.updateMessage.PUT(url, headers, await request.text());
       } else if (method === "DELETE" && pathname.endsWith("/cancel-message")) {
         result = await server.handlers.cancelMessage.DELETE(url, headers);
       } else if (method === "GET" && pathname.endsWith("/vapid-public-key")) {
@@ -6663,7 +5477,7 @@ function createSingleUserCloudflareWorker(buildConfig, options = {}) {
       } else if (method === "GET" && pathname.endsWith("/capabilities")) {
         result = await server.handlers.capabilities.GET(url, headers);
       } else if (method === "PUT" && pathname.endsWith("/client-state")) {
-        result = await server.handlers.clientState.PUT(headers, body);
+        result = await server.handlers.clientState.PUT(headers, await request.text());
       } else if (method === "GET" && pathname.endsWith("/client-state")) {
         result = await server.handlers.clientState.GET(url, headers);
       } else if (method === "DELETE" && pathname.endsWith("/client-state")) {
@@ -6671,19 +5485,19 @@ function createSingleUserCloudflareWorker(buildConfig, options = {}) {
       } else if (method === "GET" && pathname.endsWith("/outbox")) {
         result = await server.handlers.outbox.GET(url, headers);
       } else if (method === "POST" && pathname.endsWith("/outbox/ack")) {
-        result = await server.handlers.outbox.POST(headers, body);
+        result = await server.handlers.outbox.POST(headers, await request.text());
       } else if (method === "PUT" && pathname.endsWith("/push-subscription")) {
-        result = await server.handlers.pushSubscription.PUT(headers, body);
+        result = await server.handlers.pushSubscription.PUT(headers, await request.text());
       } else if (method === "GET" && pathname.endsWith("/push-subscription")) {
         result = await server.handlers.pushSubscription.GET(url, headers);
       } else if (method === "DELETE" && pathname.endsWith("/push-subscription")) {
         result = await server.handlers.pushSubscription.DELETE(url, headers);
       } else if (method === "PUT" && pathname.endsWith("/llm-credentials")) {
-        result = await server.handlers.llmCredentials.PUT(headers, body);
+        result = await server.handlers.llmCredentials.PUT(headers, await request.text());
       } else if (method === "GET" && pathname.endsWith("/llm-credentials")) {
         result = await server.handlers.llmCredentials.GET(url, headers);
       } else if (method === "DELETE" && pathname.endsWith("/llm-credentials")) {
-        result = await server.handlers.llmCredentials.DELETE(url, headers, body);
+        result = await server.handlers.llmCredentials.DELETE(url, headers, await request.text());
       } else {
         result = { status: 404, body: { success: false, error: { code: "NOT_FOUND", message: "Unknown route" } } };
       }
@@ -6739,9 +5553,61 @@ function createSingleUserCloudflareWorker(buildConfig, options = {}) {
   }
   return { fetch: fetch2, scheduled, runTask: runTask2, getSchemaVersion: getSchemaVersion2, ensureSchema: ensureSchema2 };
 }
+var WEB_PUSH_MAX_BODY_BYTES = 4096;
+var WEB_PUSH_ENCRYPTION_OVERHEAD_BYTES = 16 + 4 + 1 + 65 + 1 + 16;
+var MAX_PUSH_PAYLOAD_BYTES = WEB_PUSH_MAX_BODY_BYTES - WEB_PUSH_ENCRYPTION_OVERHEAD_BYTES;
+var PUSH_ENVELOPE_RESERVED_BYTES = 384;
+var payloadEncoder = new TextEncoder();
+function measurePushPayload(payload, options) {
+  const reserveEnvelope = !!(options && options.reserveEnvelope);
+  const bytes = payloadEncoder.encode(typeof payload === "string" ? payload : String(payload)).length;
+  const envelopeReservedBytes = reserveEnvelope ? PUSH_ENVELOPE_RESERVED_BYTES : 0;
+  const maxBytes = MAX_PUSH_PAYLOAD_BYTES - envelopeReservedBytes;
+  return {
+    bytes,
+    maxBytes,
+    remainingBytes: maxBytes - bytes,
+    withinLimit: bytes <= maxBytes,
+    envelopeReservedBytes
+  };
+}
+async function sendWebPush2(args) {
+  const { payload } = args || {};
+  if (typeof payload === "string") {
+    const size = measurePushPayload(payload);
+    if (!size.withinLimit) {
+      const err5 = new Error(
+        `sendWebPush: payload is ${size.bytes} bytes, over the ${MAX_PUSH_PAYLOAD_BYTES}-byte limit (push services cap the encrypted body at ${WEB_PUSH_MAX_BODY_BYTES} bytes; aes128gcm adds ${WEB_PUSH_ENCRYPTION_OVERHEAD_BYTES} bytes)`
+      );
+      err5.code = "PUSH_PAYLOAD_TOO_LARGE";
+      err5.bytes = size.bytes;
+      err5.maxBytes = MAX_PUSH_PAYLOAD_BYTES;
+      throw err5;
+    }
+  }
+  return sendWebPush(args);
+}
+var SCHEDULED_DEFAULT_TTL = 2419200;
+function createWebCryptoWebPush(vapid = {}, { ttl = SCHEDULED_DEFAULT_TTL } = {}) {
+  return {
+    async sendNotification(subscription, payload) {
+      return sendWebPush2({
+        subscription,
+        payload,
+        ttl,
+        vapid: {
+          email: vapid.email,
+          publicKey: vapid.publicKey,
+          privateKey: vapid.privateKey
+        },
+        fetch: globalThis.fetch
+      });
+    }
+  };
+}
 
 // utils/amsgBundleVersion.ts
-var AMSG_BUNDLE_VERSION = "2026-08-10.3";
+var AMSG_BUNDLE_VERSION = "2026-08-15";
 
 // utils/localDate.ts
 function getLocalDateKey(date = /* @__PURE__ */ new Date()) {
@@ -6851,6 +5717,10 @@ var buildScheduleInjection = (schedule, evolvedNarrative, now = /* @__PURE__ */ 
   out += "\n";
   return out;
 };
+
+// utils/scheduleTime.ts
+var SLEEP_TIMELINE_START = 21 * 60 + 30;
+var SLEEP_TIMELINE_END = 24 * 60 + 10 * 60;
 
 // utils/charMusicSchedule.ts
 var LISTENING_KEYWORDS = [
@@ -8101,14 +6971,25 @@ var buildInstantTimelyBlock = (args) => {
   ].join("\n") : "\u3010\u6B64\u523B\u7684\u7CFB\u7EDF\u4FE1\u606F\xB7\u4EC5\u4F60\u53EF\u89C1\u3011";
   return [head, ...blocks].join("\n");
 };
-var NOTIFICATION_WHEN_HIDDEN = "when-hidden";
-var applyInstantNotificationPolicy = (payload) => {
+var NOTIFICATION_ALWAYS = "always";
+var instantNotificationTag = (charId) => `amsg-instant-${charId}`;
+var applyInstantNotificationPolicy = (payload, charId) => {
   const notification = payload.notification;
   const hasNotification = !!notification && typeof notification === "object" && !Array.isArray(notification);
   if (!hasNotification) return payload;
+  const meta = payload.metadata;
+  const metaCharId = meta && typeof meta === "object" && !Array.isArray(meta) ? meta.charId : void 0;
+  const target = charId || (typeof metaCharId === "string" ? metaCharId : "");
   return {
     ...payload,
-    notification: { ...notification, show: NOTIFICATION_WHEN_HIDDEN }
+    notification: {
+      ...notification,
+      show: NOTIFICATION_ALWAYS,
+      silent: true,
+      // 认不出是哪个角色时就不折叠：通知栏里多几条只是吵，两个角色共用一个 tag 会
+      // 互相顶掉，那是真的丢消息。
+      ...target ? { tag: instantNotificationTag(target) } : {}
+    }
   };
 };
 var kickInstantTick = async (env, uuid) => {
@@ -10832,7 +9713,7 @@ var buildDuplicateToolMessage = (name) => [
   "\u6216\u8005\u6362\u4E00\u4E2A\u8FD8\u6CA1\u7528\u8FC7\u7684\u5DE5\u5177\u3002\u524D\u9762\u5DF2\u7ECF\u8BF4\u51FA\u53BB\u7684\u5185\u5BB9\u548C\u6807\u7B7E\u4E0D\u8981\u91CD\u5199\uFF0C\u63A5\u7740\u5F80\u4E0B\u5199\u5C31\u884C\u3002]"
 ].join("\n");
 
-// node_modules/.pnpm/@rei-standard+amsg-instant@0.11.0-next.4/node_modules/@rei-standard/amsg-instant/dist/index.mjs
+// node_modules/.pnpm/@rei-standard+amsg-instant@0.11.0-next.3/node_modules/@rei-standard/amsg-instant/dist/index.mjs
 var PUSH_PAYLOAD_BYTE_ENCODER = new TextEncoder();
 function segmentTextWithProtectedBlocks(text, options) {
   if (!text) return [];
@@ -10919,7 +9800,7 @@ var stripSourceTags = (t) => t.replace(/\s*\[(?:聊天|通话|约会)\]\s*/g, "\
 var stripTimestamps = (t) => t.replace(/\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*/g, "").replace(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s*/gm, "").replace(/（[上下]午\d{1,2}[：:]\d{2}）/g, "").replace(/\(\d{1,2}:\d{2}\s*[AP]M\)/gi, "");
 var stripChineseDate = (t) => t.replace(/\[\d{4}[-/年]\d{1,2}[-/月]\d{1,2}.*?\]/g, "");
 var stripRoleNamePrefix = (t) => t.replace(/^[\w一-龥]+:\s*/, "");
-var stripBusinessTagsForBubble = (t) => t.replace(/\[\[(?:ACTION|RECALL|SEARCH|DIARY|READ_DIARY|FS_DIARY|FS_READ_DIARY|DIARY_START|DIARY_END|FS_DIARY_START|FS_DIARY_END|MUSIC_ACTION)[:\s][\s\S]*?\]\]/g, "").replace(/\[\[\s*[记記][录錄]\s*[:：][\s\S]*?\]\]/g, "").replace(/\[schedule_message[^\]]*\]/g, "");
+var stripBusinessTagsForBubble = (t) => t.replace(/\[\[(?:ACTION|RECALL|SEARCH|DIARY|READ_DIARY|FS_DIARY|FS_READ_DIARY|DIARY_START|DIARY_END|FS_DIARY_START|FS_DIARY_END|MUSIC_ACTION)[:\s][\s\S]*?\]\]/g, "").replace(/\[\[FAV_PHOTO\]\]/g, "").replace(/\[\[\s*[记記][录錄]\s*[:：][\s\S]*?\]\]/g, "").replace(/\[schedule_message[^\]]*\]/g, "");
 var stripBusinessTagsForNotification = (t) => stripBusinessTagsForBubble(t).replace(/\[\[(?:READ_NOTE|XHS_[A-Z_]+|LIFE|NEWS_CARD)[:\s][\s\S]*?\]\]/g, "").replace(/\[\[XHS_[A-Z_]+\]\]/g, "");
 var stripAllDoubleBracketTags = (t) => t.replace(/\[\[[\s\S]*?\]\]/g, "");
 var stripQuotes2 = (t) => t.replace(/\[\[(?:QU[OA]TE|引用)[：:][\s\S]*?\]\]/g, "").replace(/\[(?:QU[OA]TE|引用)[：:][^\]]*\]/g, "").replace(/\[回复\s*[""“][^""”]*?[""”](?:\.{0,3})\]\s*[：:]?\s*/g, "").replace(/\[[^\[\]\n「」]{0,24}引用了[^\[\]\n「」]{0,24}「[^」\n]*?」[^\[\]\n]{0,24}\]\s*/g, "");
@@ -12156,7 +11037,11 @@ var sendInstantErrorPush = async (args) => {
       notification: {
         title: args.contactName ? `${args.contactName} \u7684\u56DE\u590D\u6CA1\u80FD\u751F\u6210` : "\u56DE\u590D\u6CA1\u80FD\u751F\u6210",
         body: instantErrorNotificationBody(args.reason),
-        show: "when-hidden"
+        show: "always",
+        silent: true,
+        // 跟这个角色的回复共用一个 tag：通知栏里只留最新状态，重发成功后那条回复
+        // 会把这条「没能生成」盖掉。失败本身在聊天流里有系统消息留痕，不靠横幅记账。
+        tag: instantNotificationTag(args.charId)
       }
     };
     await deps.webpush.sendNotification(subscription, JSON.stringify(payload));
@@ -12943,7 +11828,7 @@ var amsgHooks = {
         payloads = budgeted;
       }
       if (stash.instant) {
-        payloads = payloads.map((payload) => applyInstantNotificationPolicy(payload));
+        payloads = payloads.map((payload) => applyInstantNotificationPolicy(payload, stash.charId));
       }
       return { ...decision, pushPayloads: payloads };
     }
