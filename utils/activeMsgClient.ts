@@ -228,6 +228,34 @@ export const readAmsgFailKind = (error: unknown): AmsgFailKind => {
 };
 
 /**
+ * 必须由点击事件直接调用的通知授权入口。
+ *
+ * iOS 只允许在用户手势仍然有效时弹通知授权框。不能先等 IndexedDB、Worker 握手或
+ * 网络请求再走到 requestPermission()，否则 Safari 可能静默返回 default，用户看到
+ * 的就只剩一句“未授予”，却从来没见过系统弹窗。
+ */
+export const requestNotificationPermissionFromGesture = async (): Promise<void> => {
+  const capabilityGap = describePushCapabilityGap();
+  if (capabilityGap) throw withFailKind(new Error(`${capabilityGap}。`), '不支持推送');
+
+  let permission = Notification.permission;
+  if (permission !== 'granted') permission = await Notification.requestPermission();
+  if (permission === 'granted') return;
+
+  if (permission === 'denied') {
+    throw withFailKind(
+      new Error('系统已经拒绝 SullyEM 的通知权限，网页不能再次弹出授权框。请到 iPhone「设置 → 通知 → SullyEM」里打开通知；如果列表里没有 SullyEM，请删除主屏幕 App 后重新添加。'),
+      '权限被拒',
+    );
+  }
+
+  throw withFailKind(
+    new Error('通知授权没有完成。请确认从主屏幕打开 SullyEM，再点一次并在系统弹窗中选择“允许”。'),
+    '权限被拒',
+  );
+};
+
+/**
  * worker 自检的回执（`GET /config-check`，见 worker/amsg/src/index.ts 的 inspectWorkerEnv）。
  * missing 是缺了就跑不起来的，warnings 是能跑但有一块功能是哑的。
  */

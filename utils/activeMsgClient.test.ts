@@ -41,7 +41,7 @@ vi.mock('./keepAlive', () => ({
 import {
   ActiveMsgClient, buildFirePack, clearNamespaceValuesOrThrow, compareRemotePushSubscription,
   describeInstantChatFailure, dropStaleSubscription, maybeGzipRequestBody, putClientStateOrThrow,
-  readAmsgFailKind, toRemoteAvatarUrl,
+  readAmsgFailKind, requestNotificationPermissionFromGesture, toRemoteAvatarUrl,
 } from './activeMsgClient';
 import {
   AMSG_FIRE_PACK_KEY,
@@ -56,6 +56,41 @@ import { DB } from './db';
 import { KeepAlive } from './keepAlive';
 
 const TEST_USER_ID = '3f2b1c8a-9d4e-4a1b-8c2d-000000000001';
+
+describe('requestNotificationPermissionFromGesture', () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+
+  const stubSupportedBrowser = (permission: NotificationPermission, next: NotificationPermission) => {
+    const requestPermission = vi.fn().mockResolvedValue(next);
+    vi.stubGlobal('navigator', { serviceWorker: {} });
+    vi.stubGlobal('window', { PushManager: class {} });
+    vi.stubGlobal('Notification', { permission, requestPermission });
+    return requestPermission;
+  };
+
+  it('权限还是 default 时立即请求并接受 granted', async () => {
+    const requestPermission = stubSupportedBrowser('default', 'granted');
+
+    await expect(requestNotificationPermissionFromGesture()).resolves.toBeUndefined();
+    expect(requestPermission).toHaveBeenCalledTimes(1);
+  });
+
+  it('系统已经 denied 时给出 iPhone 设置路径', async () => {
+    stubSupportedBrowser('denied', 'denied');
+
+    const failure = await requestNotificationPermissionFromGesture().catch((error) => error);
+    expect(readAmsgFailKind(failure)).toBe('权限被拒');
+    expect(failure.message).toContain('设置 → 通知 → SullyEM');
+  });
+
+  it('授权框未完成、仍为 default 时提示从主屏幕重新操作', async () => {
+    stubSupportedBrowser('default', 'default');
+
+    const failure = await requestNotificationPermissionFromGesture().catch((error) => error);
+    expect(readAmsgFailKind(failure)).toBe('权限被拒');
+    expect(failure.message).toContain('从主屏幕打开 SullyEM');
+  });
+});
 
 // cancelTask 要走 ensureWorkerReady（读 IndexedDB 里的 worker 地址），测里给一份固定配置。
 vi.mock('./activeMsgStore', () => ({

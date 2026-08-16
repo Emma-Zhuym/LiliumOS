@@ -93,3 +93,14 @@ describe('④ 多设备说明文案', () => {
     expect(src).toContain('重新保存一次');
   });
 });
+
+describe('⑤ iOS 通知授权保持在用户点击手势内', () => {
+  it('设置按钮先申请权限，再开始 Worker 订阅链路', () => {
+    const src = read('../components/settings/ActiveMsgGlobalSettingsModal.tsx');
+    const handler = sliceBetween(src, 'const handleCreateSubscription = async () => {', 'const handleOneClickDeploy');
+    expect(handler.indexOf('requestNotificationPermissionFromGesture()')).toBeGreaterThanOrEqual(0);
+    expect(handler.indexOf('ActiveMsgClient.registerPushSubscription()')).toBeGreaterThan(
+      handler.indexOf('requestNotificationPermissionFromGesture()'),
+    );
+  });
+});

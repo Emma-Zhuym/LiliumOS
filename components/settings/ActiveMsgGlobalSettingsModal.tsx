@@ -3,6 +3,7 @@ import Modal from '../os/Modal';
 import { ActiveMsg2GlobalConfig, RealtimeConfig } from '../../types';
 import {
   ActiveMsgClient, ActiveMsg2PushStatus, fetchWorkerDiagnostics, readAmsgFailKind,
+  requestNotificationPermissionFromGesture,
 } from '../../utils/activeMsgClient';
 import {
   AmsgDiagnosticLevel, AmsgDiagnosticsProbe,
@@ -381,6 +382,9 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
   const handleCreateSubscription = async () => {
     setLoading(true);
     try {
+      // iOS 只在点击手势还有效时允许弹通知授权框。这一步必须排在所有 IndexedDB、
+      // Worker 握手和网络 await 之前；否则 Safari 可能静默返回 default，根本不弹框。
+      await requestNotificationPermissionFromGesture();
       // 建完浏览器订阅还要登记到 worker 上那一份用户级订阅——worker 到点读的是它，
       // 只在浏览器建订阅的话云端仍是空的，到点会抛 PUSH_SUBSCRIPTION_MISSING，
       // 而这句 toast 已经报了「准备完成」。
