@@ -101,7 +101,7 @@ describe('runReadDiary（Notion 日记）', () => {
   it('查询没跑通（凭据过期 / 代理挂了）→ unreachable，不能说成「那天没写」', async () => {
     mocked.notionGetDiaryByDate.mockResolvedValue({ success: false, entries: [], message: '查询失败: 401' });
     const r = await runReadDiary({ date: '2026-08-01' }, notionCtx);
-    expect(r).toMatchObject({ ok: false, reason: 'unreachable' });
+    expect(r).toMatchObject({ ok: false, reason: 'unreachable', message: '查询失败: 401' });
     expect(feedbackSaysNeverHappened('notion_read_diary', r)).toBe(true);
   });
 
@@ -122,7 +122,7 @@ describe('runReadDiary（Notion 日记）', () => {
     });
     mocked.notionReadDiaryContent.mockResolvedValue({ success: false, content: '', message: '读取失败: 401' });
     const r = await runReadDiary({ date: '2026-08-01' }, notionCtx);
-    expect(r).toMatchObject({ ok: false, reason: 'empty_content' });
+    expect(r).toMatchObject({ ok: false, reason: 'empty_content', message: '标题: 读取失败: 401' });
     expect(feedbackSaysNeverHappened('notion_read_diary', r)).toBe(true);
   });
 

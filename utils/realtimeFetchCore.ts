@@ -13,6 +13,36 @@
 
 import { getProxyWorkerUrl } from './proxyWorker';
 
+const READ_RETRY_DELAYS_MS = [250, 750];
+
+const shouldRetryRead = (status: number): boolean =>
+    status === 408 || status === 429 || status >= 500;
+
+/**
+ * Notion query POSTs are read-only database queries, so retrying them cannot create duplicate data.
+ * Auth/configuration failures return immediately; only transient transport and server failures retry.
+ */
+async function fetchReadWithRetry(url: string, init: RequestInit): Promise<Response> {
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt <= READ_RETRY_DELAYS_MS.length; attempt += 1) {
+        try {
+            const response = await fetch(url, init);
+            if (!shouldRetryRead(response.status) || attempt === READ_RETRY_DELAYS_MS.length) {
+                return response;
+            }
+            lastError = new Error(`HTTP ${response.status}`);
+        } catch (error) {
+            lastError = error;
+            if (attempt === READ_RETRY_DELAYS_MS.length) throw error;
+        }
+
+        await new Promise(resolve => setTimeout(resolve, READ_RETRY_DELAYS_MS[attempt]));
+    }
+
+    throw lastError instanceof Error ? lastError : new Error('请求失败');
+}
+
 export interface SearchResult {
     title: string;
     description: string;
@@ -121,7 +151,7 @@ export const notionGetDiaryByDate = async (
     date: string  // YYYY-MM-DD
 ): Promise<{ success: boolean; entries: DiaryPreview[]; message: string }> => {
     try {
-        const response = await fetch(`${getProxyWorkerUrl()}/notion/query`, {
+        const response = await fetchReadWithRetry(`${getProxyWorkerUrl()}/notion/query`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -189,7 +219,7 @@ export const notionReadDiaryContent = async (
     pageId: string
 ): Promise<{ success: boolean; content: string; message: string }> => {
     try {
-        const response = await fetch(`${getProxyWorkerUrl()}/notion/blocks/${pageId}`, {
+        const response = await fetchReadWithRetry(`${getProxyWorkerUrl()}/notion/blocks/${pageId}`, {
             method: 'GET',
             headers: {
                 'X-Notion-API-Key': apiKey
@@ -236,7 +266,7 @@ export const notionSearchUserNotes = async (
     limit: number = 5
 ): Promise<{ success: boolean; entries: DiaryPreview[]; message: string }> => {
     try {
-        const response = await fetch(`${getProxyWorkerUrl()}/notion/query`, {
+        const response = await fetchReadWithRetry(`${getProxyWorkerUrl()}/notion/query`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

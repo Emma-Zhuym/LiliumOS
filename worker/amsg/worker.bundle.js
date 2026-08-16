@@ -9074,6 +9074,25 @@ var buildMcpFireBlock = (resolve, opts) => {
 };
 
 // utils/realtimeFetchCore.ts
+var READ_RETRY_DELAYS_MS = [250, 750];
+var shouldRetryRead = (status) => status === 408 || status === 429 || status >= 500;
+async function fetchReadWithRetry(url, init) {
+  let lastError;
+  for (let attempt = 0; attempt <= READ_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      const response = await fetch(url, init);
+      if (!shouldRetryRead(response.status) || attempt === READ_RETRY_DELAYS_MS.length) {
+        return response;
+      }
+      lastError = new Error(`HTTP ${response.status}`);
+    } catch (error) {
+      lastError = error;
+      if (attempt === READ_RETRY_DELAYS_MS.length) throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, READ_RETRY_DELAYS_MS[attempt]));
+  }
+  throw lastError instanceof Error ? lastError : new Error("\u8BF7\u6C42\u5931\u8D25");
+}
 var performSearch = async (query, apiKey) => {
   if (!query || !apiKey) {
     return { success: false, results: [], message: "\u7F3A\u5C11\u641C\u7D22\u5173\u952E\u8BCD\u6216API Key", reached: false };
@@ -9120,7 +9139,7 @@ var performSearch = async (query, apiKey) => {
 };
 var notionGetDiaryByDate = async (apiKey, databaseId, characterName, date) => {
   try {
-    const response = await fetch(`${getProxyWorkerUrl()}/notion/query`, {
+    const response = await fetchReadWithRetry(`${getProxyWorkerUrl()}/notion/query`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -9171,7 +9190,7 @@ var notionGetDiaryByDate = async (apiKey, databaseId, characterName, date) => {
 };
 var notionReadDiaryContent = async (apiKey, pageId) => {
   try {
-    const response = await fetch(`${getProxyWorkerUrl()}/notion/blocks/${pageId}`, {
+    const response = await fetchReadWithRetry(`${getProxyWorkerUrl()}/notion/blocks/${pageId}`, {
       method: "GET",
       headers: {
         "X-Notion-API-Key": apiKey
@@ -9196,7 +9215,7 @@ var notionReadDiaryContent = async (apiKey, pageId) => {
 var notionReadNoteContent = notionReadDiaryContent;
 var notionSearchUserNotes = async (apiKey, notesDatabaseId, keyword, limit = 5) => {
   try {
-    const response = await fetch(`${getProxyWorkerUrl()}/notion/query`, {
+    const response = await fetchReadWithRetry(`${getProxyWorkerUrl()}/notion/query`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -10295,13 +10314,14 @@ async function runReadDiary(args, ctx) {
     targetDate
   );
   if (!findResult.success) {
-    return { ok: false, reason: "unreachable", date: targetDate };
+    return { ok: false, reason: "unreachable", date: targetDate, message: findResult.message };
   }
   if (findResult.entries.length === 0) {
     return { ok: false, reason: "not_found", date: targetDate };
   }
   ctx.onProgress?.("diary", `\u627E\u5230 ${findResult.entries.length} \u7BC7\u65E5\u8BB0\uFF0C\u6B63\u5728\u9605\u8BFB...`);
   const diaryContents = [];
+  const readFailures = [];
   for (const entry of findResult.entries) {
     const readResult = await notionReadDiaryContent(
       realtimeConfig.notionApiKey,
@@ -10310,10 +10330,12 @@ async function runReadDiary(args, ctx) {
     if (readResult.success) {
       diaryContents.push(`\u{1F4D4}\u300C${entry.title}\u300D(${entry.date})
 ${readResult.content}`);
+    } else {
+      readFailures.push(`${entry.title}: ${readResult.message}`);
     }
   }
   if (diaryContents.length === 0) {
-    return { ok: false, reason: "empty_content", date: targetDate };
+    return { ok: false, reason: "empty_content", date: targetDate, message: readFailures.join("; ") || "\u65E5\u8BB0\u6B63\u6587\u8BFB\u53D6\u5931\u8D25" };
   }
   const diaryText = diaryContents.join("\n\n---\n\n");
   return { ok: true, date: targetDate, diaryText, entryCount: findResult.entries.length };

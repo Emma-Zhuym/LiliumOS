@@ -1075,7 +1075,7 @@ export async function applyAssistantPostProcessing(
                         // 「查过了，那天没写」和「压根没查成」是两回事。传输就没跑通时说成
                         // 「那天没写日记」，等于替用户认下一件没发生的事，之后角色还会顺着这个
                         // 假前提聊下去。跟读取异常走同一条圆场路：只说没查成，不下结论。
-                        console.log('📖 [ReadDiary] 日记服务连不上，这次没查成:', targetDate);
+                        console.log('📖 [ReadDiary] 日记服务连不上，这次没查成:', targetDate, rdr.message || 'unknown');
                         setDiaryStatus('日记服务连不上，继续对话...');
                         await diaryFallbackCall(
                             `你想翻 ${targetDate} 的日记，但日记服务连不上，这次没查成（不知道那天到底写没写）`,

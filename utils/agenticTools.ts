@@ -227,7 +227,7 @@ export async function runSearch(
 
 export type ReadDiaryResult =
     | { ok: true; date: string; diaryText: string; entryCount: number }
-    | { ok: false; reason: 'not_configured' | 'parse_error' | 'unreachable' | 'not_found' | 'empty_content'; date?: string; dateInput?: string };
+    | { ok: false; reason: 'not_configured' | 'parse_error' | 'unreachable' | 'not_found' | 'empty_content'; date?: string; dateInput?: string; message?: string };
 
 /** 不抛异常：notion* 系列连网络异常都会 catch 成 success:false（见 realtimeFetchCore）。 */
 export async function runReadDiary(
@@ -256,7 +256,7 @@ export async function runReadDiary(
     // 跟没写日记归成同一个 not_found 的话，角色张口就是「你昨天没写日记呀」——把一次
     // 根本没查成的事说成查过了，还顺带替用户断言了一件没发生的事。
     if (!findResult.success) {
-        return { ok: false, reason: 'unreachable', date: targetDate };
+        return { ok: false, reason: 'unreachable', date: targetDate, message: findResult.message };
     }
     if (findResult.entries.length === 0) {
         return { ok: false, reason: 'not_found', date: targetDate };
@@ -265,6 +265,7 @@ export async function runReadDiary(
     ctx.onProgress?.('diary', `找到 ${findResult.entries.length} 篇日记，正在阅读...`);
 
     const diaryContents: string[] = [];
+    const readFailures: string[] = [];
     for (const entry of findResult.entries) {
         const readResult = await notionReadDiaryContent(
             realtimeConfig.notionApiKey,
@@ -272,6 +273,8 @@ export async function runReadDiary(
         );
         if (readResult.success) {
             diaryContents.push(`📔「${entry.title}」(${entry.date})\n${readResult.content}`);
+        } else {
+            readFailures.push(`${entry.title}: ${readResult.message}`);
         }
     }
 
@@ -279,7 +282,7 @@ export async function runReadDiary(
     // 「（空白日记）」正常入列，到不了这一步。所以 empty_content 的意思是"读失败"，
     // 不是"日记是空的"——agenticToolFeedback 把它当"这次没跑成"处理就是为了这个。
     if (diaryContents.length === 0) {
-        return { ok: false, reason: 'empty_content', date: targetDate };
+        return { ok: false, reason: 'empty_content', date: targetDate, message: readFailures.join('; ') || '日记正文读取失败' };
     }
 
     const diaryText = diaryContents.join('\n\n---\n\n');
