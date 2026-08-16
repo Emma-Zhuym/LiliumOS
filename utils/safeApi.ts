@@ -25,6 +25,107 @@ export async function safeResponseJson(response: Response): Promise<any> {
     return parseRawBodyText(text, response.status, response.headers.get('content-type'));
 }
 
+// [EM-START: Vertex 原生工具调用响应兼容]
+const parseJsonRecord = (value: unknown): Record<string, any> | null => {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+        return value as Record<string, any>;
+    }
+    if (typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) return null;
+    try {
+        const parsed = JSON.parse(trimmed);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? parsed as Record<string, any>
+            : null;
+    } catch {
+        return null;
+    }
+};
+
+const nativeGeminiResponse = (value: unknown): Record<string, any> | null => {
+    const record = parseJsonRecord(value);
+    if (!record) return null;
+    if (Array.isArray(record.candidates)) return record;
+    const wrapped = parseJsonRecord(record.response);
+    return wrapped && Array.isArray(wrapped.candidates) ? wrapped : null;
+};
+
+/**
+ * 部分 Vertex/Claude 中转的 `/chat/completions` 会把 Google 原生响应整包塞进
+ * `message.content`，而不是转成 OpenAI tool_calls。若不在统一入口纠正，原始的
+ * response/candidates/functionCall/usageMetadata 会被当角色正文拆成几十个气泡。
+ */
+export function normalizeChatCompletionResponse(data: any): any {
+    const openAiContent = data?.choices?.[0]?.message?.content;
+    const native = nativeGeminiResponse(openAiContent) || nativeGeminiResponse(data);
+    if (!native) return data;
+
+    const choices = native.candidates.map((candidate: any, candidateIndex: number) => {
+        const parts = Array.isArray(candidate?.content?.parts) ? candidate.content.parts : [];
+        const textParts: string[] = [];
+        const reasoningParts: string[] = [];
+        const toolCalls: any[] = [];
+
+        for (const part of parts) {
+            if (typeof part?.text === 'string') {
+                (part.thought === true ? reasoningParts : textParts).push(part.text);
+            }
+            const call = part?.functionCall;
+            if (!call || typeof call.name !== 'string' || !call.name.trim()) continue;
+            const callIndex = toolCalls.length;
+            toolCalls.push({
+                id: typeof call.id === 'string' && call.id.trim()
+                    ? call.id.trim()
+                    : typeof part.id === 'string' && part.id.trim()
+                        ? part.id.trim()
+                        : `call_native_${candidateIndex}_${callIndex}`,
+                type: 'function',
+                function: {
+                    name: call.name.trim(),
+                    arguments: typeof call.args === 'string'
+                        ? call.args
+                        : JSON.stringify(call.args && typeof call.args === 'object' ? call.args : {}),
+                },
+            });
+        }
+
+        const nativeFinish = String(candidate?.finishReason || '').toUpperCase();
+        const finishReason = toolCalls.length > 0
+            ? 'tool_calls'
+            : nativeFinish === 'MAX_TOKENS' ? 'length'
+                : nativeFinish === 'STOP' ? 'stop'
+                    : nativeFinish.toLowerCase() || null;
+        return {
+            index: typeof candidate?.index === 'number' ? candidate.index : candidateIndex,
+            message: {
+                role: 'assistant',
+                content: textParts.join(''),
+                ...(reasoningParts.length ? { reasoning_content: reasoningParts.join('') } : {}),
+                ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
+            },
+            finish_reason: finishReason,
+        };
+    });
+
+    const usage = native.usageMetadata;
+    return {
+        ...(data && typeof data === 'object' && !Array.isArray(data) ? data : {}),
+        id: native.responseId || data?.id || 'native-chat-completion',
+        object: 'chat.completion',
+        model: native.modelVersion || data?.model || '',
+        choices,
+        ...(usage ? {
+            usage: {
+                prompt_tokens: usage.promptTokenCount,
+                completion_tokens: usage.candidatesTokenCount,
+                total_tokens: usage.totalTokenCount,
+            },
+        } : {}),
+    };
+}
+// [EM-END: Vertex 原生工具调用响应兼容]
+
 /** 判断响应是否是 SSE；兼容 OpenRouter 在首个 data 事件前发送的 ": OPENROUTER PROCESSING" 注释。 */
 export function isSseResponseText(text: string, contentType?: string | null): boolean {
     const firstLine = text
@@ -72,7 +173,7 @@ function parseRawBodyText(text: string, status: number, contentType?: string | n
     }
 
     try {
-        return JSON.parse(text);
+        return normalizeChatCompletionResponse(JSON.parse(text)); // [EM: Vertex 原生工具调用响应兼容]
     } catch (e) {
         // Show a snippet of what we got for debugging
         const preview = text.slice(0, 200);
@@ -216,7 +317,7 @@ class SseAssembler {
             console.log(`🔎 [SSE] 本条流的 delta 字段: ${[...this.deltaKeys].join(', ')}${this.content ? '' : ' (且正文为空!)'}`);
         }
         // 合成兼容结构
-        return {
+        return normalizeChatCompletionResponse({ // [EM: Vertex 原生工具调用响应兼容]
             id: this.firstChunk?.id || 'sse-assembled',
             object: 'chat.completion',
             created: this.firstChunk?.created || Math.floor(Date.now() / 1000),
@@ -234,7 +335,7 @@ class SseAssembler {
                 finish_reason: this.finishReason,
             }],
             usage: this.usage || this.firstChunk?.usage,
-        };
+        });
     }
 }
 
