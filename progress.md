@@ -4,12 +4,12 @@
 
 ## 快照范围
 
-- 发布分支：`main`，当前 `5e98fe58`（通知权限改为由用户点击触发）。
-- 当前工作分支：`merge-upstream-2026-08-15`；HEAD 与 `origin/main` 同为 `5e98fe58`，本地仍有尚未提交的 LiliumOS 品牌文案改动。
+- 发布分支：`main`，当前 `d214bf16`（LiliumOS 品牌、图标与旧本地存储键兼容迁移）。
+- 当前工作分支：`merge-upstream-2026-08-15`；HEAD 与 `origin/main` 同为 `d214bf16`。
 
 ## 最近完成
 
-- LiliumOS 品牌文案与新图标已在本地完成；公开仓库和 Pages 暂时保留 `Emma-Zhuym/SullyEM` 与原链接，待备份和访问迁移方案确认后再改名。
+- LiliumOS 品牌文案与新图标已发布；公开仓库改名为 `Emma-Zhuym/LiliumOS`，Pages 地址迁移到 `https://emma-zhuym.github.io/LiliumOS/`。
 - SimpleFIN 已完成账户、余额和交易的只读同步；新交易进入待分类复核，桌面角标和统一消息弹窗显示待处理数量。
 - 同步账户允许自定义昵称、类型、图标和颜色；SimpleFIN 后续同步只更新外部来源字段，不覆盖本地展示设置与层级分类。
 - Finance 支持交易页新建分类、详情字段对齐、信用卡还款转账语义，以及角色主动查询近期交易、消费汇总和账户快照。
