@@ -731,9 +731,9 @@ const processInboxMessageWithPostProcessing = async (
     // 这条 push 拆出的每条气泡共用一个时间戳 (跟降级存原稿路径同口径), 见
     // resolveInboxPersistTimestampForMessage。
     messageTimestamp: persistTimestamp,
-    // 补收的消息跳过拟人打字延迟, 一次性回填: 内容几小时前就在云端生成完了, 再一条条
-    // 慢放只会让用户干等, 期间他插的话还会把时间戳倒挂的口子撑开。实时收到的照旧慢放。
-    instantRender: !isFreshInboxDelivery(message.receivedAt, Date.now()),
+    // 后台通知已经展示过完整正文时，点进页面直接回填；只有到达时页面可见的实时消息
+    // 才保留拟人打字节奏。老 SW 没带可见性字段时退回 freshness 判据。
+    instantRender: shouldInstantRenderInboxMessage(message, Date.now()),
   });
 
   // ─── 即时对话（amsg2）的情绪评估结果 ───
@@ -1172,6 +1172,18 @@ export const isFreshInboxDelivery = (
 ): boolean => {
   if (typeof receivedAt !== 'number' || !Number.isFinite(receivedAt) || receivedAt <= 0) return true;
   return now - receivedAt <= INBOX_FRESH_DELIVERY_WINDOW_MS;
+};
+
+/**
+ * 后台通知已经展示完整正文时，页面恢复后直接回填；只有到达时页面可见的新消息才慢放。
+ * 老 Service Worker 没有 receivedWhileVisible 字段时，沿用原来的 freshness 判据。
+ */
+export const shouldInstantRenderInboxMessage = (
+  message: Pick<ActiveMsg2InboxMessage, 'receivedAt' | 'receivedWhileVisible'>,
+  now: number,
+): boolean => {
+  if (message.receivedWhileVisible === false) return true;
+  return !isFreshInboxDelivery(message.receivedAt, now);
 };
 
 /**

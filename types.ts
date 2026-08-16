@@ -465,6 +465,8 @@ export interface ActiveMsg2InboxMessage {
   metadata?: Record<string, any>;
   sentAt?: number;
   receivedAt: number;
+  /** 推送落到设备时是否有可见页面；后台通知点入时据此跳过二次慢放。 */
+  receivedWhileVisible?: boolean;
   /**
    * 已经尝试处理过几次（见 activeMsgRuntime 的 MAX_INBOX_PROCESS_ATTEMPTS）。
    * 处理失败时消息会写回收件箱等重试，这个计数决定什么时候放弃重试、退回存原稿保底。

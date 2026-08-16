@@ -1569,7 +1569,7 @@ async function removeQueuedRequest(id) {
 }
 
 // worker/sw-keep-alive.ts
-var SW_VERSION = "1.16.0";
+var SW_VERSION = "1.16.1";
 var PING_INTERVAL = 15e3;
 var MAX_MANUAL_ALIVE_MS = 5 * 6e4;
 var ACTIVE_MSG_DB_NAME = "ActiveMsg";
@@ -1807,6 +1807,14 @@ async function saveContentToInbox(payload) {
   const payloadTimestamp = payload?.timestamp;
   const parsedSentAt = payloadTimestamp ? new Date(payloadTimestamp).getTime() : NaN;
   const sentAt = Number.isFinite(parsedSentAt) ? parsedSentAt : Date.now();
+  let receivedWhileVisible = false;
+  try {
+    receivedWhileVisible = (await sw.clients.matchAll({ type: "window", includeUncontrolled: true })).some((client) => client.visibilityState === "visible");
+  } catch (e) {
+    traceSw("client-visibility-check-failed", payload, {
+      error: e instanceof Error ? e.message : String(e)
+    });
+  }
   if (!charId) {
     traceSw("content-drop-no-char", payload);
     return;
@@ -1838,7 +1846,8 @@ async function saveContentToInbox(payload) {
         totalMessages: payload?.totalMessages
       },
       sentAt,
-      receivedAt: Date.now()
+      receivedAt: Date.now(),
+      receivedWhileVisible
     });
   });
   traceSw("inbox-content-saved", payload, { bodyChars: body.length });

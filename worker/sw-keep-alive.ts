@@ -71,8 +71,10 @@ import { installReiSW } from '@rei-standard/amsg-sw';
  *            并往 ActiveMsg 库 kv store 写「订阅已变化」标记（主线程据此把新订阅逐条
  *            写回已排程的远端任务，见 utils/activeMsgRuntime.ts）。onupgradeneeded 补建
  *            kv store（SW-first 安装时主线程 schema 还没建过）。
+ *  - 1.16.1: content push 落 inbox 时记录是否存在可见页面；后台通知点进应用后直接
+ *            回填正文，不再把通知里已经展示过的完整回复按打字节奏二次慢放。
  */
-const SW_VERSION = '1.16.0';
+const SW_VERSION = '1.16.1';
 
 const PING_INTERVAL = 15_000;
 const MAX_MANUAL_ALIVE_MS = 5 * 60_000;
@@ -397,6 +399,16 @@ async function saveContentToInbox(payload: any) {
   const payloadTimestamp = payload?.timestamp;
   const parsedSentAt = payloadTimestamp ? new Date(payloadTimestamp).getTime() : NaN;
   const sentAt = Number.isFinite(parsedSentAt) ? parsedSentAt : Date.now();
+  // 必须在 SW 收到 push 的当刻记页面可见性；恢复页面后再看只会得到 visible。
+  let receivedWhileVisible = false;
+  try {
+    receivedWhileVisible = (await sw.clients.matchAll({ type: 'window', includeUncontrolled: true }))
+      .some(client => client.visibilityState === 'visible');
+  } catch (e) {
+    traceSw('client-visibility-check-failed', payload, {
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
 
   // 唯一不可恢复的是没 charId — 没法路由, 直接丢. 其它形态都接受:
   //   - body 非空 + directives 空 = 普通 content push (老路径)
@@ -437,6 +449,7 @@ async function saveContentToInbox(payload: any) {
       },
       sentAt,
       receivedAt: Date.now(),
+      receivedWhileVisible,
     });
   });
   traceSw('inbox-content-saved', payload, { bodyChars: body.length });

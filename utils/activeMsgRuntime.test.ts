@@ -21,6 +21,7 @@ import {
   resolveInboxPersistTimestamp,
   revokeSwallowedSelfLogEntry,
   runInstantChatStatusCheck,
+  shouldInstantRenderInboxMessage,
   cancelLateEmotionPoll,
   describeMultipartFailure,
   handleInstantErrorPushMessage,
@@ -354,6 +355,29 @@ describe('isFreshInboxDelivery（决定要不要慢放打字节奏）', () => {
   });
 });
 
+describe('shouldInstantRenderInboxMessage（通知与页面展示时序）', () => {
+  const NOW = 1_700_000_000_000;
+
+  it('后台收到并展示过通知 → 点进页面立即回填', () => {
+    expect(shouldInstantRenderInboxMessage({
+      receivedAt: NOW - 2_000,
+      receivedWhileVisible: false,
+    }, NOW)).toBe(true);
+  });
+
+  it('到达时页面可见 → 刚收到时保留打字节奏', () => {
+    expect(shouldInstantRenderInboxMessage({
+      receivedAt: NOW - 2_000,
+      receivedWhileVisible: true,
+    }, NOW)).toBe(false);
+  });
+
+  it('老 SW 没有可见性标记 → 沿用 freshness 兼容逻辑', () => {
+    expect(shouldInstantRenderInboxMessage({ receivedAt: NOW - 2_000 }, NOW)).toBe(false);
+    expect(shouldInstantRenderInboxMessage({ receivedAt: NOW - 8 * 60_000 }, NOW)).toBe(true);
+  });
+});
+
 // 端到端（走真库 + 真 flush）：钉住主路径（post-processing 逐条落库）和降级存原稿路径
 // 用的是同一个口径——离线补收落 sentAt，在线送达落写库当刻。修复前主路径永远落写库当刻
 // （离线补收用例挂）、降级路径永远落 sentAt（在线送达用例挂），两套口径各错一半。
@@ -580,8 +604,8 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
   // 一整个数量级。取 400ms 当界：慢机器把落库拖慢几倍也够不着，而慢放路径必然超过。
   // （别改成「补收比实时快」这种相对比较——接线被删掉时两边都慢放、耗时相当，
   //   谁快谁慢就由噪声决定，测试会时过时挂。）
-  it('补收的消息跳过拟人打字延迟，实时收到的照旧慢放', async () => {
-    const runFlush = async (charId: string, receivedAt: number) => {
+  it('后台收到的消息跳过拟人打字延迟，前台实时收到的照旧慢放', async () => {
+    const runFlush = async (charId: string, receivedAt: number, receivedWhileVisible?: boolean) => {
       await DB.saveCharacter({ id: charId, name: '打字节奏角色' } as any);
       await ActiveMsgStore.saveInboxMessage(inboxMsg({
         messageId: `msg-pace-${charId}`,
@@ -589,18 +613,19 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
         messageType: 'text',
         sentAt: receivedAt,
         receivedAt,
+        receivedWhileVisible,
       }));
       const t0 = Date.now();
       await flushInboxToChat();
       return Date.now() - t0;
     };
 
-    const freshMs = await runFlush('char-pace-fresh', Date.now());
-    const staleMs = await runFlush('char-pace-stale', Date.now() - 8 * 60_000);
+    const freshMs = await runFlush('char-pace-fresh', Date.now(), true);
+    const backgroundMs = await runFlush('char-pace-background', Date.now(), false);
 
     // 实时那条确实慢放了，否则下面那条断言就成了空气
     expect(freshMs, '实时送达该保留打字节奏').toBeGreaterThan(400);
-    expect(staleMs, '补收该跳过打字延迟').toBeLessThan(400);
+    expect(backgroundMs, '后台通知点入后该跳过打字延迟').toBeLessThan(400);
   }, 20000);
 
   // 同一条推送的「第二次到达」（outbox 补收先落库、被推送服务延迟的原始 push 几分钟后
