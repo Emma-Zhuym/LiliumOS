@@ -80,7 +80,7 @@ describe('requestNotificationPermissionFromGesture', () => {
 
     const failure = await requestNotificationPermissionFromGesture().catch((error) => error);
     expect(readAmsgFailKind(failure)).toBe('权限被拒');
-    expect(failure.message).toContain('设置 → 通知 → SullyEM');
+    expect(failure.message).toContain('设置 → 通知 → LiliumOS');
   });
 
   it('授权框未完成、仍为 default 时提示从主屏幕重新操作', async () => {
@@ -88,7 +88,7 @@ describe('requestNotificationPermissionFromGesture', () => {
 
     const failure = await requestNotificationPermissionFromGesture().catch((error) => error);
     expect(readAmsgFailKind(failure)).toBe('权限被拒');
-    expect(failure.message).toContain('从主屏幕打开 SullyEM');
+    expect(failure.message).toContain('从主屏幕打开 LiliumOS');
   });
 });
 

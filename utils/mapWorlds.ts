@@ -1,5 +1,5 @@
 /**
- * mapWorlds.ts — 地图世界存储与匹配（EM 独有）
+ * mapWorlds.ts — 地图世界存储与匹配（LiliumOS 独有）
  *
  * 从 MapApp.tsx 抽出，让 scheduleGenerator 也能读角色的地图地点清单
  * （生成日程时注入 prompt，slot 直出 regionId）。
@@ -33,13 +33,14 @@ export interface MapWorld {
   cityName?: string;      // 虚拟城市名，地图页标题
 }
 
-const MAP_DB = 'SullyEM_Map';
+// Physical name stays for existing installations; migrate it only with a dedicated IndexedDB copy step.
+const LEGACY_MAP_DB = 'SullyEM_Map';
 const MAP_DB_VER = 2;
 const STORE = 'worlds';
 
 function openMapDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(MAP_DB, MAP_DB_VER);
+    const req = indexedDB.open(LEGACY_MAP_DB, MAP_DB_VER);
     req.onerror = () => reject(req.error);
     req.onsuccess = () => resolve(req.result);
     req.onupgradeneeded = () => {

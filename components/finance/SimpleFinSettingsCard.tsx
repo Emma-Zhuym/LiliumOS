@@ -107,7 +107,7 @@ export const SimpleFinSettingsCard: React.FC<SimpleFinSettingsCardProps> = ({ on
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium" style={{ color: F.textPrimary }}>美国账户自动同步</div>
           <div className="text-[11px] mt-0.5 leading-relaxed" style={{ color: F.textTertiary }}>
-            SimpleFIN 只读取余额和交易；SullyEM 保留你的多层分类与备注
+            SimpleFIN 只读取余额和交易；LiliumOS 保留你的多层分类与备注
           </div>
         </div>
         {connected && <CheckCircle size={19} weight="fill" style={{ color: STATUS.success.main }} />}

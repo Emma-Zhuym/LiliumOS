@@ -912,7 +912,7 @@ const Appearance: React.FC = () => {
                             {
                                 key: 'bootAnimationEnabled' as const,
                                 title: '开机动画',
-                                description: '启动 SullyEM 时的整机入场过场。',
+                                description: '启动 LiliumOS 时的整机入场过场。',
                             },
                             {
                                 key: 'chatCharacterSwitchAnimationEnabled' as const,

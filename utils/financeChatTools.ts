@@ -40,7 +40,7 @@ export const FINANCE_CHAT_TOOLS = [
     type: 'function',
     function: {
       name: 'finance_get_spending_summary',
-      description: '汇总一段时间内的真实支出，并按 SullyEM 本地多层分类统计。可以在关心用户近期生活状态或想自然聊聊消费习惯时主动查看。',
+      description: '汇总一段时间内的真实支出，并按 LiliumOS 本地多层分类统计。可以在关心用户近期生活状态或想自然聊聊消费习惯时主动查看。',
       parameters: {
         type: 'object',
         properties: {
@@ -159,7 +159,7 @@ export function buildFinanceChatSystemBlock(pulse?: string | null): string {
     '[本轮可使用本地财务查询工具]',
     '这是用户的个人账本，你可以随时查看。',
     '用户聊到消费、账户或生活近况时可以查；你也可以出于好奇、关心近况或想给日常聊天增加意外话题而主动翻看，不必等用户先提到钱。',
-    '工具结果来自 SullyEM 本地账本，可能不是实时数据。留意 data_as_of，把查到的内容自然融入对话，不必像报表一样逐笔复述。',
+    '工具结果来自 LiliumOS 本地账本，可能不是实时数据。留意 data_as_of，把查到的内容自然融入对话，不必像报表一样逐笔复述。',
     pulse ? `[用户个人账本近况，仅供生活感知]\n${pulse}\n你可以自然提及、继续查细节或暂时忽略，按你此刻的兴趣决定。` : '',
   ].filter(Boolean).join('\n');
 }

@@ -11,6 +11,7 @@ import { calcCycleStatus } from '../utils/cycleCalc';
 import { F, S, R, HUE, STATUS, MOTION } from '../utils/clayTokens';
 import { HealthProfile, FitnessGoal, getHealthProfile, saveHealthProfile, calcBMR, calcTDEE, recommendCalories, calcDeficit } from '../utils/healthProfile';
 import { safeFetchJson, extractJson, extractContent } from '../utils/safeApi';
+import { readLiliumOSStorage, writeLiliumOSStorage } from '../utils/liliumosStorage';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -79,24 +80,25 @@ const GENERAL_SYMPTOMS = ['头痛', '感冒', '发烧', '胃痛', '恶心', '失
 const MODAL_BASE_H = 420;
 
 // ── 饮食草稿（按日期存 localStorage，白天随手记、晚上一次结算） ──────────────
-const DIET_DRAFT_KEY = 'sullyem_diet_draft';
+const DIET_DRAFT_KEY = 'liliumos_diet_draft';
+const LEGACY_DIET_DRAFT_KEYS = ['sullyem_diet_draft'];
 
 function loadDietDraft(date: string): string {
   try {
-    const m = JSON.parse(localStorage.getItem(DIET_DRAFT_KEY) || '{}');
+    const m = JSON.parse(readLiliumOSStorage(DIET_DRAFT_KEY, LEGACY_DIET_DRAFT_KEYS) || '{}');
     return typeof m[date] === 'string' ? m[date] : '';
   } catch { return ''; }
 }
 
 function saveDietDraft(date: string, text: string): void {
   try {
-    const m = JSON.parse(localStorage.getItem(DIET_DRAFT_KEY) || '{}');
+    const m = JSON.parse(readLiliumOSStorage(DIET_DRAFT_KEY, LEGACY_DIET_DRAFT_KEYS) || '{}');
     if (text.trim()) m[date] = text; else delete m[date];
     // 清理 7 天前的旧草稿（日期字符串 YYYY-MM-DD 可直接比较）
     const cutoff = new Date(Date.now() - 7 * 86400000);
     const cutoffStr = toDateStr(cutoff.getFullYear(), cutoff.getMonth() + 1, cutoff.getDate());
     for (const k of Object.keys(m)) if (k < cutoffStr) delete m[k];
-    localStorage.setItem(DIET_DRAFT_KEY, JSON.stringify(m));
+    writeLiliumOSStorage(DIET_DRAFT_KEY, JSON.stringify(m), LEGACY_DIET_DRAFT_KEYS);
   } catch {}
 }
 

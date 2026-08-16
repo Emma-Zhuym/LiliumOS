@@ -1,14 +1,14 @@
-# SullyEM // 手抓糯米机
+# LiliumOS // 手抓糯米机
 
 <div align="center">
-<img width="800" alt="banner" src="https://cdn.jsdelivr.net/gh/qegj567-cloud/SullyOS-assets@main/bgm/SULLY/sDN.png" />
+<img width="720" alt="LiliumOS" src="./assets/liliumos-wordmark.png" />
 </div>
 
 基于 [SullyOS](https://github.com/qegj567-cloud/SullyOS) 的个人二改。一个装在浏览器里的虚拟手机系统——React + TypeScript + Vite，local-first，数据全存 IndexedDB。
 
 ---
 
-## EM 二改功能
+## LiliumOS 扩展功能
 
 以下功能全部是在上游基础上新增或深度改造的。
 
@@ -55,7 +55,7 @@ Clay morphism 风格的健康记录器。支持训练 / 睡眠 / 饮食 / 经期
 
 ### Finance 记账
 
-多账户、多币种、层级分类、收入/支出/退款/转账、周期性交易、资产趋势和分类分析。角色可读取选定周期的消费记录并给出“TA 怎么看”。
+多账户、多币种、层级分类、收入/支出/退款/转账、周期性交易、资产趋势和分类分析。SimpleFIN 可只读同步美国账户的余额与交易，同时保留本地昵称、图标、颜色、层级分类和备注；新交易会进入待分类复核。角色可主动查看近期交易、搜索账目、汇总支出和读取账户快照。
 
 ### 投喂站 (Shopping)
 
@@ -126,7 +126,7 @@ DeviceMotion API 加速度计，判断静止 / 走路 / 跑步 / 摇晃，注入
 部署：**Vercel**（绑 GitHub main 分支自动部署）或 **GitHub Pages**（构建命令 `pnpm build`，输出目录 `dist`）。
 
 当前开发进度见 [`docs/roadmap.md`](./docs/roadmap.md) 和 [`progress.md`](./progress.md)。
-当前 `main` 发布基线为 `53c5ac7b`。最新上游更新正在验收分支 `merge-upstream-2026-08-02` 验证，尚待单独批准推进 main。
+当前 `main` 发布基线为 `5e98fe58`。LiliumOS 品牌文案与新图标正在本地验收；公开仓库和 Pages 暂时保留原 `SullyEM` 地址，待迁移方案确认后再改名。
 
 ---
 

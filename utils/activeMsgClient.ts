@@ -244,13 +244,13 @@ export const requestNotificationPermissionFromGesture = async (): Promise<void> 
 
   if (permission === 'denied') {
     throw withFailKind(
-      new Error('系统已经拒绝 SullyEM 的通知权限，网页不能再次弹出授权框。请到 iPhone「设置 → 通知 → SullyEM」里打开通知；如果列表里没有 SullyEM，请删除主屏幕 App 后重新添加。'),
+      new Error('系统已经拒绝 LiliumOS 的通知权限，网页不能再次弹出授权框。请到 iPhone「设置 → 通知 → LiliumOS」里打开通知；如果列表里没有 LiliumOS，请删除主屏幕 App 后重新添加。'),
       '权限被拒',
     );
   }
 
   throw withFailKind(
-    new Error('通知授权没有完成。请确认从主屏幕打开 SullyEM，再点一次并在系统弹窗中选择“允许”。'),
+    new Error('通知授权没有完成。请确认从主屏幕打开 LiliumOS，再点一次并在系统弹窗中选择“允许”。'),
     '权限被拒',
   );
 };

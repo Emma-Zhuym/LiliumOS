@@ -3932,7 +3932,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               // 梦境盲盒收藏册（账号级 localStorage，不挂在角色上，需单独随备份带走）
               dreamCollection: (mode === 'text_only' || mode === 'full') ? (() => { try { const s = localStorage.getItem('os_dream_collection'); return s ? JSON.parse(s) : undefined; } catch { return undefined; } })() : undefined,
 
-              // [EM-START: finance-backup-export] EM 记账系统（独立 IndexedDB: SullyEM_Finance）
+              // [EM-START: finance-backup-export] LiliumOS 记账系统（legacy IndexedDB: SullyEM_Finance）
               ...await (async () => {
                   if (mode !== 'text_only' && mode !== 'full') return {};
                   try {
@@ -3953,7 +3953,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               })(),
               // [EM-END: finance-backup-export]
 
-              // [EM-START: health-backup-export] EM 健康系统（独立 IndexedDB: SullyEM_Health）
+              // [EM-START: health-backup-export] LiliumOS 健康系统（legacy IndexedDB: SullyEM_Health）
               ...await (async () => {
                   if (mode !== 'text_only' && mode !== 'full') return {};
                   try {
@@ -3967,7 +3967,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               })(),
               // [EM-END: health-backup-export]
 
-              // [EM-START: shopping-backup-export] EM 购物系统（独立 IndexedDB: SullyEM_Shopping）
+              // [EM-START: shopping-backup-export] LiliumOS 购物系统（legacy IndexedDB: SullyEM_Shopping）
               ...await (async () => {
                   if (mode !== 'text_only' && mode !== 'full') return {};
                   try {
@@ -3986,7 +3986,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               })(),
               // [EM-END: shopping-backup-export]
 
-              // [EM-START: map-backup-export] EM 地图系统（独立 IndexedDB: SullyEM_Map）
+              // [EM-START: map-backup-export] LiliumOS 地图系统（legacy IndexedDB: SullyEM_Map）
               ...await (async () => {
                   if (mode !== 'text_only' && mode !== 'full') return {};
                   try {
@@ -4808,7 +4808,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               }
           }
 
-          // [EM-START: finance-backup-restore] EM 记账系统（独立 IndexedDB: SullyEM_Finance）
+          // [EM-START: finance-backup-restore] LiliumOS 记账系统（legacy IndexedDB: SullyEM_Finance）
           if (
               data.emFinanceAccounts !== undefined
               || data.emFinanceCategories !== undefined
@@ -4831,7 +4831,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           }
           // [EM-END: finance-backup-restore]
 
-          // [EM-START: health-backup-restore] EM 健康系统（独立 IndexedDB: SullyEM_Health）
+          // [EM-START: health-backup-restore] LiliumOS 健康系统（legacy IndexedDB: SullyEM_Health）
           if (data.emHealthEvents !== undefined) {
               try {
                   const { importAllHealthEvents } = await import('../utils/healthDb');
@@ -4840,7 +4840,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           }
           // [EM-END: health-backup-restore]
 
-          // [EM-START: shopping-backup-restore] EM 购物系统（独立 IndexedDB: SullyEM_Shopping）
+          // [EM-START: shopping-backup-restore] LiliumOS 购物系统（legacy IndexedDB: SullyEM_Shopping）
           if (
               data.emShoppingProducts !== undefined
               || data.emShoppingCart !== undefined
@@ -4859,7 +4859,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           }
           // [EM-END: shopping-backup-restore]
 
-          // [EM-START: map-backup-restore] EM 地图系统（独立 IndexedDB: SullyEM_Map）
+          // [EM-START: map-backup-restore] LiliumOS 地图系统（legacy IndexedDB: SullyEM_Map）
           if (data.emMapWorlds !== undefined) {
               try {
                   const { MapDB } = await import('../utils/mapWorlds');

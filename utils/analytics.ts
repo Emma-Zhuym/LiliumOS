@@ -1,7 +1,7 @@
 /**
  * Personal-fork compatibility shim.
  *
- * Upstream UI code still contains telemetry call sites. SullyEM intentionally
+ * Upstream UI code still contains telemetry call sites. LiliumOS intentionally
  * ships without analytics, so every export here is local-only and side-effect
  * free: no script injection, storage access, identifiers, or network requests.
  */

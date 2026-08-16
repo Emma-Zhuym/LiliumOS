@@ -1,6 +1,6 @@
 import { FinanceDB } from './financeDb';
 
-export const FINANCE_REVIEW_CHANGED_EVENT = 'sullyem:finance-review-changed';
+export const FINANCE_REVIEW_CHANGED_EVENT = 'liliumos:finance-review-changed';
 
 export interface FinanceReviewChangedDetail {
   newTransactionCount?: number;

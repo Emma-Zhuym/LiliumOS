@@ -1,5 +1,5 @@
 /**
- * financeDb.ts — EM 记账重设计的 IndexedDB 操作
+ * financeDb.ts — LiliumOS 记账系统的 IndexedDB 操作
  *
  * 独立数据库，不动上游 AetherOS_Data。
  * 三个 store：accounts / categories / transactions
@@ -7,7 +7,8 @@
 
 import { FinanceAccount, FinanceCategory, FinanceTransaction, FinanceTxType, RecurringRule } from '../types';
 
-const DB_NAME = 'SullyEM_Finance';
+// Physical name stays for existing installations; migrate it only with a dedicated IndexedDB copy step.
+const LEGACY_DB_NAME = 'SullyEM_Finance';
 const DB_VERSION = 4;
 
 const STORE_ACCOUNTS = 'accounts';
@@ -60,7 +61,7 @@ const DEFAULT_CATEGORIES: FinanceCategory[] = [
 
 function openFinanceDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    const request = indexedDB.open(LEGACY_DB_NAME, DB_VERSION);
     request.onerror = () => reject(request.error);
     request.onsuccess = () => resolve(request.result);
     request.onupgradeneeded = (event) => {

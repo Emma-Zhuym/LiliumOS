@@ -1,5 +1,5 @@
 /**
- * healthDb.ts — EM 健康 App 的 IndexedDB 操作
+ * healthDb.ts — LiliumOS 健康 App 的 IndexedDB 操作
  *
  * 独立数据库，不动上游 AetherOS_Data。
  * 一个 store：health_events（workout / period / symptom）
@@ -73,13 +73,14 @@ export type HealthEvent =
 
 // ── DB Setup ─────────────────────────────────────────────────────────────────
 
-const DB_NAME    = 'SullyEM_Health';
+// Physical name stays for existing installations; migrate it only with a dedicated IndexedDB copy step.
+const LEGACY_DB_NAME = 'SullyEM_Health';
 const DB_VERSION = 1;
 const STORE      = 'health_events';
 
 function openHealthDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    const req = indexedDB.open(LEGACY_DB_NAME, DB_VERSION);
     req.onerror   = () => reject(req.error);
     req.onsuccess = () => resolve(req.result);
     req.onupgradeneeded = (event) => {

@@ -217,7 +217,7 @@ class IntifaceClientSingleton {
 
       // 握手
       const info = await this.sendMsg('RequestServerInfo', {
-        ClientName: 'SullyEM',
+        ClientName: 'LiliumOS',
         MessageVersion: 3,
       }) as Record<string, unknown>;
       console.log('[Intiface] Connected to:', info.ServerName, 'v' + info.MessageVersion);

@@ -42,7 +42,8 @@ export interface ShopOrder {
   charReply?: string;
 }
 
-const DB_NAME = 'SullyEM_Shopping';
+// Physical name stays for existing installations; migrate it only with a dedicated IndexedDB copy step.
+const LEGACY_DB_NAME = 'SullyEM_Shopping';
 const DB_VERSION = 1;
 const STORE_PRODUCTS = 'products';
 const STORE_CART = 'cart';
@@ -51,7 +52,7 @@ const STORE_SETTINGS = 'settings';
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    const req = indexedDB.open(LEGACY_DB_NAME, DB_VERSION);
     req.onerror = () => reject(req.error);
     req.onsuccess = () => resolve(req.result);
     req.onupgradeneeded = () => {

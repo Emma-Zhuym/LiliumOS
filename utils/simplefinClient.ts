@@ -1,3 +1,5 @@
+import { readLiliumOSStorage, removeLiliumOSStorage, writeLiliumOSStorage } from './liliumosStorage';
+
 export interface SimpleFinError {
   code: string;
   msg: string;
@@ -43,7 +45,8 @@ export interface SimpleFinAccountSet {
   accounts: SimpleFinAccount[];
 }
 
-const ACCESS_URL_KEY = 'sullyem.simplefin.accessUrl.v1';
+const ACCESS_URL_KEY = 'liliumos.simplefin.accessUrl.v1';
+const LEGACY_ACCESS_URL_KEYS = ['sullyem.simplefin.accessUrl.v1'];
 
 function requireHttpsUrl(raw: string, label: string): URL {
   let url: URL;
@@ -70,7 +73,7 @@ function decodeSetupToken(token: string): URL {
 
 export function getSimpleFinAccessUrl(): string | null {
   try {
-    const value = localStorage.getItem(ACCESS_URL_KEY)?.trim();
+    const value = readLiliumOSStorage(ACCESS_URL_KEY, LEGACY_ACCESS_URL_KEYS)?.trim();
     return value || null;
   } catch {
     return null;
@@ -82,7 +85,7 @@ export function hasSimpleFinConnection(): boolean {
 }
 
 export function forgetSimpleFinConnection(): void {
-  try { localStorage.removeItem(ACCESS_URL_KEY); } catch { /* ignore */ }
+  removeLiliumOSStorage(ACCESS_URL_KEY, LEGACY_ACCESS_URL_KEYS);
 }
 
 export async function claimSimpleFinSetupToken(
@@ -101,7 +104,7 @@ export async function claimSimpleFinSetupToken(
     throw new Error('SimpleFIN 返回的 Access URL 缺少认证信息');
   }
   // Setup Token is one-time. Persist immediately so a later sync failure does not lose it.
-  localStorage.setItem(ACCESS_URL_KEY, accessUrl.toString());
+  writeLiliumOSStorage(ACCESS_URL_KEY, accessUrl.toString(), LEGACY_ACCESS_URL_KEYS);
 }
 
 function buildAuthorizedRequest(accessUrlRaw: string, params: URLSearchParams): { url: string; headers: HeadersInit } {

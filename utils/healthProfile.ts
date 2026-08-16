@@ -4,6 +4,8 @@
  * 存 localStorage，独立于 IndexedDB 健康事件
  */
 
+import { readLiliumOSStorage, writeLiliumOSStorage } from './liliumosStorage';
+
 export type FitnessGoal = 'maintain' | 'cut' | 'bulk';
 
 export interface HealthProfile {
@@ -18,17 +20,18 @@ export interface HealthProfile {
   sleepMinuteTarget?: number;
 }
 
-const KEY = 'sullyem_health_profile';
+const KEY = 'liliumos_health_profile';
+const LEGACY_KEYS = ['sullyem_health_profile'];
 
 export function getHealthProfile(): HealthProfile | null {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = readLiliumOSStorage(KEY, LEGACY_KEYS);
     return raw ? JSON.parse(raw) : null;
   } catch { return null; }
 }
 
 export function saveHealthProfile(p: HealthProfile): void {
-  localStorage.setItem(KEY, JSON.stringify(p));
+  writeLiliumOSStorage(KEY, JSON.stringify(p), LEGACY_KEYS);
 }
 
 // ── BMR 公式 ────────────────────────────────────────────────────────────────

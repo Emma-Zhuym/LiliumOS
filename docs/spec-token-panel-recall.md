@@ -40,7 +40,7 @@ roadmap（Token面板扩展）落地方案。目标：点开聊天头像栏 ⚡ 
 
 ## 边界情况
 
-- 短消息（"嗯""哈哈"）不触发召回是既有设计（KI-CO 同款优化，SullyEM 本来就有）→ 显示"未触发"属正常
+- 短消息（"嗯""哈哈"）不触发召回是既有设计（KI-CO 同款优化，LiliumOS 本来就有）→ 显示"未触发"属正常
 - 群聊：ContextComposition 是 1v1 聊天的 EM 功能，本期不动群聊
 - recallReceipts 本身**不用改**——它服务 extraction 反查，别把 UI 需求耦合进去；brief 是平行的新数据流
 

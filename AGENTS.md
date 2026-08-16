@@ -1,12 +1,12 @@
-# SullyEM Agent Instructions
+# LiliumOS Agent Instructions
 
-SullyEM 是 Emma 的个人 fork。开始仓库工作前先阅读 `.claude/CLAUDE.md`；其中的 EM 功能清单、哨兵约定、架构原则和合并规则同样适用于 Codex。判断当前功能进度时以 `docs/roadmap.md` 和 `progress.md` 为准，不从旧规格标题推断状态。
+LiliumOS 是 Emma 基于 SullyOS 维护的个人 fork。开始仓库工作前先阅读 `.claude/CLAUDE.md`；其中的 EM 功能清单、哨兵约定、架构原则和合并规则同样适用于 Codex。判断当前功能进度时以 `docs/roadmap.md` 和 `progress.md` 为准，不从旧规格标题推断状态。
 
 ## Engram 跨 Agent 交接
 
 本机通过 Piia Engram MCP 在 Claude Code 与 Codex 之间共享经过审核的工作记忆。
 
-1. 每个新任务开始时，若 Engram 工具可用，先调用 `get_resume_brief` 读取 SullyEM 最近一次交接；首次或上下文不足时再调用 `get_user_context`。
+1. 每个新任务开始时，若 Engram 工具可用，先调用 `get_resume_brief` 读取 LiliumOS 最近一次交接；首次或上下文不足时再调用 `get_user_context`。
 2. 完成实质性工作或准备切换 Agent 时，调用 `wrap_up_session`，记录完成内容、改动文件、验证结果、未解决问题和下一步。不得把它当作完成用户未授权操作的理由。
 3. 重要经验和决策分别用 `add_lesson`、`add_decision` 提议保存。当前为 strict 模式；出现待审核内容时，向 Emma 展示摘要并等待明确批准。
 4. 不存储密码、API key、token、个人敏感数据、论文受限原文或未经确认的推测。Git、仓库文档、原始数据和文献引用仍是事实来源；Engram 只做交接与检索层。

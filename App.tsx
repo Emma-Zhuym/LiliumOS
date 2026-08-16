@@ -11,13 +11,17 @@ import ChatBroadcast from './components/ChatBroadcast';
 import { isIOSStandaloneWebApp } from './utils/iosStandalone';
 import { installDevDebugLifecycleCapture } from './utils/devDebug';
 import { startMotionListening } from './utils/deviceMotion';
+import { readLiliumOSStorage } from './utils/liliumosStorage';
+
+const MOTION_ENABLED_KEY = 'liliumos_motion_enabled';
+const LEGACY_MOTION_ENABLED_KEYS = ['sullyem_motion_enabled'];
 
 const App: React.FC = () => {
   React.useEffect(() => {
     // 常驻监听前后台 / 焦点 / 网络事件；抓不抓由 devDebug 的 lifecycle 类勾选决定
     installDevDebugLifecycleCapture();
     // 运动感知：恢复上次的开启状态
-    if (typeof localStorage !== 'undefined' && localStorage.getItem('sullyem_motion_enabled') === '1') {
+    if (readLiliumOSStorage(MOTION_ENABLED_KEY, LEGACY_MOTION_ENABLED_KEYS) === '1') {
       startMotionListening();
     }
   }, []);

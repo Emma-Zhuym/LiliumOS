@@ -47,7 +47,7 @@ describe('normalizeSimpleFinSnapshot', () => {
     expect(normalized.newTransactionCount).toBe(1);
   });
 
-  it('preserves SullyEM category and note choices on later syncs', () => {
+  it('preserves LiliumOS category and note choices on later syncs', () => {
     const account: FinanceAccount = {
       id: 'simplefin:demo:credit-1',
       name: 'Discover',

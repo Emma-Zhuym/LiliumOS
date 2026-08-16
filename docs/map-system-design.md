@@ -51,9 +51,9 @@
 
 ---
 
-## 三、SullyEM 数据接入
+## 三、LiliumOS 数据接入
 
-| 原型里的硬编码 | 接入 SullyEM 后的数据来源 |
+| 原型里的硬编码 | 接入 LiliumOS 后的数据来源 |
 |---|---|
 | `character.mood` | `useCharStatus(schedule).status` |
 | `character.moodLabel` | status → "在线" / `activity+'中'` / "下线" |
@@ -151,6 +151,6 @@ Crossover 总图（星辰镇）统一给所有角色分配区域，可以先做�
 
 1. 原型代码移植（vanilla JS → TypeScript，global → import）
 2. `mapWorldConfig.ts` 定义角色世界区域（先做陈照 + Crossover）
-3. SullyEM 数据接入（useCharStatus、最近消息、openApp）
+3. LiliumOS 数据接入（useCharStatus、最近消息、openApp）
 4. 个人地标编辑功能
 5. 其余角色的世界区域补全

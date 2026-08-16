@@ -15,7 +15,7 @@
       "autoPort": true
     },
     {
-      "name": "SullyEM Preview (Vite)",
+      "name": "LiliumOS Preview (Vite)",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "preview"],
       "port": 4173,

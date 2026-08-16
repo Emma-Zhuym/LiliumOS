@@ -4216,7 +4216,7 @@ export interface FullBackupData {
     hotNewsSnapshots?: HotNewsSnapshot[];
     dreamCollection?: Record<string, { firstAt: number; count: number }>;  // 梦境盲盒收藏册（os_dream_collection，账号级 localStorage）
 
-    // [EM-START: finance-backup-types] EM 记账系统（独立 IndexedDB: SullyEM_Finance）
+    // [EM-START: finance-backup-types] LiliumOS 记账系统（legacy IndexedDB: SullyEM_Finance）
     emFinanceAccounts?: FinanceAccount[];
     emFinanceCategories?: FinanceCategory[];
     emFinanceTransactions?: FinanceTransaction[];

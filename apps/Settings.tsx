@@ -52,6 +52,10 @@ import {
 } from '../utils/avatarModelBackup';
 import { normalizeApiBaseUrl, normalizeApiCredential, normalizeApiModel } from '../utils/apiConfigNormalize';
 import { describeImageWithVisionApi, VISION_API_TEST_IMAGE_DATA_URL, visionApiConfigFromPreset } from '../utils/visionApi';
+import { readLiliumOSStorage, writeLiliumOSStorage } from '../utils/liliumosStorage';
+
+const MOTION_ENABLED_KEY = 'liliumos_motion_enabled';
+const LEGACY_MOTION_ENABLED_KEYS = ['sullyem_motion_enabled'];
 
 // hot_news（news.orz.ai）可选热榜平台。key 必须与 API 的 ?platform= 完全一致。
 const HOTNEWS_PLATFORM_OPTIONS: { key: string; label: string }[] = [
@@ -595,8 +599,7 @@ const Settings: React.FC = () => {
   const [rtFeishuTableId, setRtFeishuTableId] = useState(realtimeConfig.feishuTableId);
   const [rtXhsEnabled, setRtXhsEnabled] = useState(realtimeConfig.xhsEnabled);
   const [rtMotionEnabled, setRtMotionEnabled] = useState(() => {
-    if (typeof localStorage !== 'undefined') return localStorage.getItem('sullyem_motion_enabled') === '1';
-    return false;
+    return readLiliumOSStorage(MOTION_ENABLED_KEY, LEGACY_MOTION_ENABLED_KEYS) === '1';
   });
   // lite 模式走中心配置的主代理 worker（/api 是 worker/index.js 里的 XHSLite 桥）。
   // 用户改了「自定义网络代理」，lite 模式自动跟着切到新 worker。
@@ -2911,7 +2914,7 @@ const Settings: React.FC = () => {
                     onClick={async () => {
                         if (rtMotionEnabled) {
                             stopMotionListening();
-                            localStorage.setItem('sullyem_motion_enabled', '0');
+                            writeLiliumOSStorage(MOTION_ENABLED_KEY, '0', LEGACY_MOTION_ENABLED_KEYS);
                             setRtMotionEnabled(false);
                             addToast('运动感知已关闭', 'success');
                         } else {
@@ -2921,7 +2924,7 @@ const Settings: React.FC = () => {
                                 return;
                             }
                             startMotionListening();
-                            localStorage.setItem('sullyem_motion_enabled', '1');
+                            writeLiliumOSStorage(MOTION_ENABLED_KEY, '1', LEGACY_MOTION_ENABLED_KEYS);
                             setRtMotionEnabled(true);
                             addToast('运动感知已开启', 'success');
                         }
@@ -4326,12 +4329,12 @@ const Settings: React.FC = () => {
                                   const granted = await requestMotionPermission();
                                   if (!granted) { addToast('运动传感器权限被拒绝', 'error'); return; }
                                   startMotionListening();
-                                  localStorage.setItem('sullyem_motion_enabled', '1');
+                                  writeLiliumOSStorage(MOTION_ENABLED_KEY, '1', LEGACY_MOTION_ENABLED_KEYS);
                                   setRtMotionEnabled(true);
                                   addToast('运动感知已开启', 'success');
                               } else {
                                   stopMotionListening();
-                                  localStorage.setItem('sullyem_motion_enabled', '0');
+                                  writeLiliumOSStorage(MOTION_ENABLED_KEY, '0', LEGACY_MOTION_ENABLED_KEYS);
                                   setRtMotionEnabled(false);
                                   addToast('运动感知已关闭', 'success');
                               }
