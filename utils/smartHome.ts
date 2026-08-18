@@ -6,9 +6,19 @@ import {
     type McpServerConfig,
 } from './mcpClient';
 
-export type SmartHomeDeviceKind = 'light' | 'fan' | 'scene';
+export type SmartHomeDeviceKind = 'light' | 'fan' | 'monitor' | 'scene';
 export type SmartHomeConnectionState = 'online' | 'offline' | 'demo';
 export type SmartHomeRgbColor = [number, number, number];
+export type SmartHomeEnvironmentMetricKey = 'temperature' | 'humidity' | 'co2' | 'pm25' | 'pm10';
+
+export interface SmartHomeEnvironmentMetric {
+    key: SmartHomeEnvironmentMetricKey;
+    label: string;
+    value?: number;
+    unit: string;
+    entityId: string;
+    available: boolean;
+}
 
 export interface SmartHomeConfig {
     baseUrl: string;
@@ -41,14 +51,23 @@ export interface SmartHomeDevice {
     minColorTempKelvin?: number;
     maxColorTempKelvin?: number;
     percentage?: number;
+    speedCount?: number;
     presetMode?: string;
     presetModes?: string[];
+    airQuality?: string;
+    pm25?: number;
+    filterLife?: number;
+    displayOn?: boolean;
+    displayEntityId?: string;
+    nightAutoDisplayOff?: boolean;
+    nightAutoDisplayOffEntityId?: string;
+    metrics?: SmartHomeEnvironmentMetric[];
     lastUpdated?: string;
 }
 
 export interface SmartHomeCommand {
     entityId: string;
-    kind: SmartHomeDeviceKind;
+    kind: SmartHomeDeviceKind | 'switch';
     action: 'turn_on' | 'turn_off' | 'activate' | 'set_brightness' | 'set_rgb' | 'set_color_temp' | 'set_percentage' | 'set_preset';
     value?: number | string | SmartHomeRgbColor;
 }
@@ -169,11 +188,133 @@ const asRgbColor = (value: unknown): SmartHomeRgbColor | undefined => {
     return channels.map(channel => Math.max(0, Math.min(255, Math.round(channel!)))) as SmartHomeRgbColor;
 };
 
+const ENVIRONMENT_METRIC_ORDER: SmartHomeEnvironmentMetricKey[] = ['temperature', 'humidity', 'co2', 'pm25', 'pm10'];
+
+const ENVIRONMENT_METRIC_META: Record<SmartHomeEnvironmentMetricKey, { label: string; unit: string }> = {
+    temperature: { label: '温度', unit: '°C' },
+    humidity: { label: '湿度', unit: '%' },
+    co2: { label: 'CO₂', unit: 'ppm' },
+    pm25: { label: 'PM2.5', unit: 'µg/m³' },
+    pm10: { label: 'PM10', unit: 'µg/m³' },
+};
+
+const metricKeyForState = (entity: HomeAssistantState): SmartHomeEnvironmentMetricKey | null => {
+    if (!entity.entity_id.startsWith('sensor.')) return null;
+    const attributes = entity.attributes || {};
+    const deviceClass = typeof attributes.device_class === 'string' ? attributes.device_class.toLowerCase() : '';
+    const friendlyName = typeof attributes.friendly_name === 'string' ? attributes.friendly_name.toLowerCase() : '';
+    const searchable = `${entity.entity_id.toLowerCase()} ${deviceClass} ${friendlyName}`;
+    if (/pm(?:_|\s)?2(?:_|\.|\s)?5/.test(searchable) || deviceClass === 'pm25') return 'pm25';
+    if (/pm(?:_|\s)?10/.test(searchable) || deviceClass === 'pm10') return 'pm10';
+    if (/carbon[_\s-]?dioxide|\bco2\b|co₂/.test(searchable) || deviceClass === 'carbon_dioxide') return 'co2';
+    if (/temperature|温度/.test(searchable) || deviceClass === 'temperature') return 'temperature';
+    if (/humidity|湿度/.test(searchable) || deviceClass === 'humidity') return 'humidity';
+    return null;
+};
+
+const stripMetricSuffix = (value: string): string => value
+    .replace(/(?:[_\s-]+)(?:temperature|humidity|carbon[_\s-]?dioxide|co2|pm(?:[_\s.]?2[_\s.]?5)|pm(?:[_\s.]?10))$/i, '')
+    .replace(/(?:\s*)(?:温度|湿度|二氧化碳|CO₂|PM2\.5|PM10)$/i, '')
+    .trim();
+
+const buildEnvironmentMonitors = (states: HomeAssistantState[]): SmartHomeDevice[] => {
+    const groups = new Map<string, { name: string; metrics: SmartHomeEnvironmentMetric[]; lastUpdated?: string }>();
+    states.forEach(entity => {
+        const key = metricKeyForState(entity);
+        if (!key) return;
+        const objectId = entity.entity_id.split('.').slice(1).join('.');
+        const groupId = stripMetricSuffix(objectId) || objectId;
+        const attributes = entity.attributes || {};
+        const friendlyName = typeof attributes.friendly_name === 'string' ? attributes.friendly_name : '';
+        const groupName = stripMetricSuffix(friendlyName)
+            || groupId.replace(/[_.-]+/g, ' ').replace(/\b\w/g, character => character.toUpperCase());
+        const meta = ENVIRONMENT_METRIC_META[key];
+        const unit = typeof attributes.unit_of_measurement === 'string' ? attributes.unit_of_measurement : meta.unit;
+        const value = asNumber(entity.state);
+        const available = entity.state !== 'unavailable' && entity.state !== 'unknown' && value !== undefined;
+        const group = groups.get(groupId) || { name: groupName, metrics: [], lastUpdated: entity.last_updated };
+        group.metrics = group.metrics.filter(metric => metric.key !== key);
+        group.metrics.push({ key, label: meta.label, value, unit, entityId: entity.entity_id, available });
+        if (entity.last_updated && (!group.lastUpdated || entity.last_updated > group.lastUpdated)) {
+            group.lastUpdated = entity.last_updated;
+        }
+        groups.set(groupId, group);
+    });
+
+    return Array.from(groups.entries())
+        .filter(([, group]) => group.metrics.length >= 2)
+        .map(([groupId, group]) => {
+            const metrics = [...group.metrics].sort(
+                (a, b) => ENVIRONMENT_METRIC_ORDER.indexOf(a.key) - ENVIRONMENT_METRIC_ORDER.indexOf(b.key),
+            );
+            const available = metrics.some(metric => metric.available);
+            return {
+                id: `monitor.${groupId}`,
+                entityId: `monitor.${groupId}`,
+                name: group.name,
+                kind: 'monitor' as const,
+                state: available ? 'measuring' : 'unavailable',
+                available,
+                metrics,
+                lastUpdated: group.lastUpdated,
+            };
+        });
+};
+
+const entityObjectId = (entityId: string): string => entityId.split('.').slice(1).join('.').toLowerCase();
+
+const stateBoolean = (entity: HomeAssistantState | undefined): boolean | undefined => {
+    if (!entity) return undefined;
+    if (entity.state === 'on') return true;
+    if (entity.state === 'off') return false;
+    return undefined;
+};
+
+const enrichFanDevice = (device: SmartHomeDevice, states: HomeAssistantState[]): SmartHomeDevice => {
+    const fanObjectId = entityObjectId(device.entityId);
+    const related = states.filter(entity => {
+        const objectId = entityObjectId(entity.entity_id);
+        return objectId.startsWith(`${fanObjectId}_`);
+    });
+    const findRelated = (domain: string, patterns: RegExp[]): HomeAssistantState | undefined => related.find(entity => {
+        if (!entity.entity_id.startsWith(`${domain}.`)) return false;
+        const objectId = entityObjectId(entity.entity_id);
+        return patterns.some(pattern => pattern.test(objectId));
+    });
+    const filterLifeState = findRelated('sensor', [/filter[_-]?(?:life|remaining)/i]);
+    const pm25State = findRelated('sensor', [/pm(?:_|\.)?2(?:_|\.)?5/i, /pm25/i]);
+    const airQualityState = findRelated('sensor', [/air[_-]?quality/i]);
+    const displayState = findRelated('switch', [/(?:^|_)display$/i, /screen$/i]);
+    const nightAutoDisplayState = findRelated('switch', [
+        /light[_-]?detection/i,
+        /auto(?:matic)?[_-]?(?:display|screen)/i,
+        /night[_-]?(?:display|screen)/i,
+    ]);
+    const filterLife = asNumber(filterLifeState?.state);
+    const pm25 = asNumber(pm25State?.state);
+    const airQuality = airQualityState
+        && airQualityState.state !== 'unknown'
+        && airQualityState.state !== 'unavailable'
+        ? airQualityState.state
+        : undefined;
+    return {
+        ...device,
+        filterLife: filterLife ?? device.filterLife,
+        pm25: pm25 ?? device.pm25,
+        airQuality: airQuality ?? device.airQuality,
+        displayOn: stateBoolean(displayState) ?? device.displayOn,
+        displayEntityId: displayState?.entity_id ?? device.displayEntityId,
+        nightAutoDisplayOff: stateBoolean(nightAutoDisplayState) ?? device.nightAutoDisplayOff,
+        nightAutoDisplayOffEntityId: nightAutoDisplayState?.entity_id ?? device.nightAutoDisplayOffEntityId,
+    };
+};
+
 export const stateToSmartHomeDevice = (entity: HomeAssistantState): SmartHomeDevice | null => {
     const [domain] = entity.entity_id.split('.');
     if (domain !== 'light' && domain !== 'fan' && domain !== 'scene') return null;
     const attributes = entity.attributes || {};
     const rawBrightness = asNumber(attributes.brightness);
+    const percentageStep = asNumber(attributes.percentage_step);
     const name = typeof attributes.friendly_name === 'string'
         ? attributes.friendly_name
         : entity.entity_id.split('.').slice(1).join(' ').replace(/_/g, ' ');
@@ -191,8 +332,13 @@ export const stateToSmartHomeDevice = (entity: HomeAssistantState): SmartHomeDev
         minColorTempKelvin: asNumber(attributes.min_color_temp_kelvin),
         maxColorTempKelvin: asNumber(attributes.max_color_temp_kelvin),
         percentage: asNumber(attributes.percentage),
+        speedCount: asNumber(attributes.speed_count)
+            ?? (percentageStep ? Math.max(1, Math.round(100 / percentageStep)) : undefined),
         presetMode: typeof attributes.preset_mode === 'string' ? attributes.preset_mode : undefined,
         presetModes: asStringList(attributes.preset_modes),
+        airQuality: typeof attributes.air_quality === 'string' ? attributes.air_quality : undefined,
+        pm25: asNumber(attributes.pm2_5) ?? asNumber(attributes.pm25),
+        filterLife: asNumber(attributes.filter_life),
         lastUpdated: entity.last_updated,
     };
 };
@@ -204,11 +350,13 @@ export const testHomeAssistantConnection = async (config: SmartHomeConfig): Prom
 
 export const fetchSmartHomeDevices = async (config: SmartHomeConfig): Promise<SmartHomeDevice[]> => {
     const states = await requestJson<HomeAssistantState[]>(config, '/api/states');
-    return states
+    const controllableDevices = states
         .map(stateToSmartHomeDevice)
         .filter((device): device is SmartHomeDevice => device !== null)
+        .map(device => device.kind === 'fan' ? enrichFanDevice(device, states) : device);
+    return [...controllableDevices, ...buildEnvironmentMonitors(states)]
         .sort((a, b) => {
-            const order: Record<SmartHomeDeviceKind, number> = { light: 0, fan: 1, scene: 2 };
+            const order: Record<SmartHomeDeviceKind, number> = { light: 0, fan: 1, monitor: 2, scene: 3 };
             return order[a.kind] - order[b.kind] || a.name.localeCompare(b.name, 'zh-CN');
         });
 };
@@ -297,7 +445,22 @@ export const createDemoSmartHomeDevices = (): SmartHomeDevice[] => [
     },
     {
         id: 'fan.air_purifier', entityId: 'fan.air_purifier', name: '空气净化器', kind: 'fan',
-        state: 'on', available: true, percentage: 33, presetMode: 'manual', presetModes: ['manual', 'sleep'],
+        state: 'on', available: true, percentage: 50, speedCount: 4,
+        presetMode: 'auto', presetModes: ['auto', 'sleep', 'pet', 'manual'],
+        airQuality: 'very_good', pm25: 7, filterLife: 100,
+        displayOn: true, displayEntityId: 'switch.air_purifier_display',
+        nightAutoDisplayOff: true, nightAutoDisplayOffEntityId: 'switch.air_purifier_light_detection',
+    },
+    {
+        id: 'monitor.air_station', entityId: 'monitor.air_station', name: '空气监测器', kind: 'monitor',
+        state: 'measuring', available: true,
+        metrics: [
+            { key: 'temperature', label: '温度', value: 24.1, unit: '°C', entityId: 'sensor.air_station_temperature', available: true },
+            { key: 'humidity', label: '湿度', value: 46, unit: '%', entityId: 'sensor.air_station_humidity', available: true },
+            { key: 'co2', label: 'CO₂', value: 618, unit: 'ppm', entityId: 'sensor.air_station_co2', available: true },
+            { key: 'pm25', label: 'PM2.5', value: 7, unit: 'µg/m³', entityId: 'sensor.air_station_pm25', available: true },
+            { key: 'pm10', label: 'PM10', value: 12, unit: 'µg/m³', entityId: 'sensor.air_station_pm10', available: true },
+        ],
     },
     {
         id: 'scene.good_night', entityId: 'scene.good_night', name: '晚安', kind: 'scene',

@@ -4,7 +4,10 @@ import {
   CaretLeft,
   ChatCircleDots,
   CheckCircle,
+  CloudFog,
+  Drop,
   Gear,
+  Gauge,
   House,
   Lamp,
   Lightbulb,
@@ -12,6 +15,7 @@ import {
   Plus,
   Power,
   Sparkle,
+  ThermometerSimple,
   WarningCircle,
   Wind,
   X,
@@ -29,6 +33,7 @@ import {
   type SmartHomeCommand,
   type SmartHomeConfig,
   type SmartHomeDevice,
+  type SmartHomeEnvironmentMetric,
   type SmartHomeRgbColor,
 } from '../utils/smartHome';
 
@@ -144,16 +149,79 @@ const deviceSummary = (device: SmartHomeDevice): string => {
   if (device.kind === 'fan') {
     if (device.state !== 'on') return '已关闭';
     if (device.presetMode === 'sleep') return '睡眠模式';
+    if (device.presetMode === 'auto' || device.presetMode === 'default') return '自动模式';
+    if (device.presetMode === 'pet') return '宠物模式';
     return device.percentage === undefined ? '运行中' : `风速 ${device.percentage}%`;
+  }
+  if (device.kind === 'monitor') {
+    const co2 = device.metrics?.find(metric => metric.key === 'co2' && metric.available);
+    const pm25 = device.metrics?.find(metric => metric.key === 'pm25' && metric.available);
+    const readings = [co2, pm25].filter((metric): metric is SmartHomeEnvironmentMetric => Boolean(metric));
+    return readings.length
+      ? readings.map(metric => `${metric.label} ${formatMetricValue(metric)}`).join(' · ')
+      : '等待传感器数据';
   }
   return '轻触运行';
 };
 
 const DeviceIcon: React.FC<{ device: SmartHomeDevice }> = ({ device }) => {
   if (device.kind === 'fan') return <Wind size={22} weight="bold" color={F.surfaceRaised} />;
+  if (device.kind === 'monitor') return <Gauge size={22} weight="bold" color={F.surfaceRaised} />;
   if (device.kind === 'scene') return <Sparkle size={22} weight="bold" color={F.surfaceRaised} />;
   return <Lightbulb size={22} weight="bold" color={F.surfaceRaised} />;
 };
+
+const formatMetricValue = (metric: SmartHomeEnvironmentMetric): string => {
+  if (!metric.available || metric.value === undefined) return '--';
+  const value = metric.key === 'temperature'
+    ? metric.value.toFixed(1).replace(/\.0$/, '')
+    : Math.round(metric.value).toString();
+  const separator = metric.unit === '%' || metric.unit === '°C' || metric.unit === '°F' ? '' : ' ';
+  return `${value}${separator}${metric.unit}`;
+};
+
+const MetricIcon: React.FC<{ metric: SmartHomeEnvironmentMetric; size?: number }> = ({ metric, size = 18 }) => {
+  if (metric.key === 'temperature') return <ThermometerSimple size={size} weight="bold" />;
+  if (metric.key === 'humidity') return <Drop size={size} weight="bold" />;
+  return <CloudFog size={size} weight="bold" />;
+};
+
+const ROOM_CLIMATE_KEYS: SmartHomeEnvironmentMetric['key'][] = ['temperature', 'humidity'];
+const AIR_QUALITY_KEYS: SmartHomeEnvironmentMetric['key'][] = ['co2', 'pm25', 'pm10'];
+
+const RoomClimateStrip: React.FC<{ metrics: SmartHomeEnvironmentMetric[] }> = ({ metrics }) => (
+  <div
+    className="mt-4 grid"
+    style={{
+      gridTemplateColumns: `repeat(${metrics.length}, minmax(0, 1fr))`,
+      padding: `${SP[2]}px ${SP[1]}px`,
+      borderRadius: R.medium,
+      background: F.surfaceSunken,
+      boxShadow: S.sunken,
+    }}
+  >
+    {metrics.map((metric, index) => (
+      <div
+        key={metric.key}
+        className="flex min-w-0 items-center justify-center gap-2"
+        style={{
+          padding: `0 ${SP[2]}px`,
+          borderLeft: index > 0 ? `1px solid ${F.divider}` : undefined,
+        }}
+      >
+        <span className="flex shrink-0 items-center justify-center" style={{ color: PRODUCT.ink }}>
+          <MetricIcon metric={metric} size={20} />
+        </span>
+        <span className="min-w-0">
+          <span className="block truncate text-[20px] font-semibold leading-6 tabular-nums" style={{ color: metric.available ? F.textPrimary : F.textTertiary }}>
+            {formatMetricValue(metric)}
+          </span>
+          <span className="block text-[11px] leading-4" style={{ color: F.textTertiary }}>{metric.label}</span>
+        </span>
+      </div>
+    ))}
+  </div>
+);
 
 const DeviceRow: React.FC<{
   device: SmartHomeDevice;
@@ -223,6 +291,69 @@ const DeviceList: React.FC<{
     ))}
   </div>
 );
+
+const EnvironmentMonitorCard: React.FC<{
+  device: SmartHomeDevice;
+  onOpen: () => void;
+}> = ({ device, onOpen }) => {
+  const overviewMetrics = AIR_QUALITY_KEYS
+    .map(key => device.metrics?.find(metric => metric.key === key))
+    .filter((metric): metric is SmartHomeEnvironmentMetric => Boolean(metric));
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="w-full text-left active:translate-y-[1px] transition-transform"
+      style={{
+        padding: SP[3],
+        borderRadius: R.bigCard,
+        background: PRODUCT.tint,
+        border: `1px solid ${PRODUCT.soft}`,
+        boxShadow: S.raisedSoft,
+        transitionDuration: MOTION.tap,
+      }}
+    >
+      <span className="flex items-center gap-3">
+        <span
+          className="flex shrink-0 items-center justify-center"
+          style={{ width: 44, height: 44, borderRadius: R.small, background: PRODUCT.main }}
+        >
+          <Gauge size={22} weight="bold" color={F.surfaceRaised} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[15px] font-semibold" style={{ color: F.textPrimary }}>{device.name}</span>
+          <span className="mt-1 block text-[13px]" style={{ color: device.available ? F.textSecondary : STATUS.warning.ink }}>
+            {device.available ? `${overviewMetrics.length} 项空气数据正在监测` : '传感器暂时不可用'}
+          </span>
+        </span>
+        <CaretLeft
+          size={18}
+          weight="bold"
+          style={{ color: F.textTertiary, transform: 'rotate(180deg)' }}
+        />
+      </span>
+      {overviewMetrics.length ? (
+        <span className="mt-4 grid grid-cols-3 gap-2">
+          {overviewMetrics.map(metric => (
+            <span
+              key={metric.key}
+              className="flex min-w-0 flex-col gap-1"
+              style={{ padding: `${SP[2]}px ${SP[1]}px`, borderRadius: R.medium, background: F.surfaceSunken, boxShadow: S.sunken }}
+            >
+              <span className="flex items-center gap-1 text-[11px]" style={{ color: F.textTertiary }}>
+                <MetricIcon metric={metric} size={16} />
+                {metric.label}
+              </span>
+              <span className="truncate text-[15px] font-semibold tabular-nums" style={{ color: F.textPrimary }}>
+                {formatMetricValue(metric)}
+              </span>
+            </span>
+          ))}
+        </span>
+      ) : null}
+    </button>
+  );
+};
 
 const EmptyState: React.FC<{ text: string }> = ({ text }) => (
   <div
@@ -334,6 +465,105 @@ const supportsRgbColor = (device: SmartHomeDevice): boolean =>
   Boolean(device.rgbColor)
   || (device.supportedColorModes || []).some(mode => COLOR_CAPABLE_MODES.has(mode));
 
+const EnvironmentMetricsGrid: React.FC<{ metrics: SmartHomeEnvironmentMetric[] }> = ({ metrics }) => (
+  <div className="flex flex-col gap-2">
+    <span className="text-[13px] font-semibold" style={{ color: F.textSecondary }}>实时读数</span>
+    <div className="grid grid-cols-2 gap-3">
+      {metrics.map(metric => (
+        <div
+          key={metric.key}
+          className="flex min-w-0 items-center gap-3"
+          style={{ padding: SP[3], borderRadius: R.smallCard, background: F.surfaceSunken, boxShadow: S.sunken }}
+        >
+          <span className="flex shrink-0 items-center justify-center" style={{ width: 36, height: 36, borderRadius: R.small, background: PRODUCT.soft, color: PRODUCT.ink }}>
+            <MetricIcon metric={metric} />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-[12px]" style={{ color: F.textTertiary }}>{metric.label}</span>
+            <span className="block truncate text-[18px] font-semibold tabular-nums" style={{ color: metric.available ? F.textPrimary : F.textTertiary }}>
+              {formatMetricValue(metric)}
+            </span>
+          </span>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+const FAN_PRESET_META: Record<string, { label: string; order: number }> = {
+  auto: { label: '自动', order: 0 },
+  default: { label: '自动', order: 0 },
+  sleep: { label: '睡眠', order: 1 },
+  pet: { label: '宠物', order: 2 },
+  manual: { label: '手动', order: 3 },
+  normal: { label: '手动', order: 3 },
+};
+
+const fanPresetOptions = (device: SmartHomeDevice): { label: string; value: string }[] => {
+  const labels = new Set<string>();
+  return (device.presetModes || [])
+    .map(mode => ({ mode, meta: FAN_PRESET_META[mode.toLowerCase()] }))
+    .filter((item): item is { mode: string; meta: { label: string; order: number } } => Boolean(item.meta))
+    .sort((a, b) => a.meta.order - b.meta.order)
+    .filter(item => {
+      if (labels.has(item.meta.label)) return false;
+      labels.add(item.meta.label);
+      return true;
+    })
+    .map(item => ({ label: item.meta.label, value: item.mode }));
+};
+
+const airQualityLabel = (device: SmartHomeDevice): string => {
+  const normalized = (device.airQuality || '').toLowerCase().replace(/[\s-]+/g, '_');
+  const named: Record<string, string> = {
+    excellent: '空气很好',
+    very_good: '空气很好',
+    good: '空气不错',
+    moderate: '空气一般',
+    poor: '空气较差',
+    very_poor: '空气较差',
+  };
+  if (named[normalized]) return named[normalized];
+  if (device.pm25 === undefined) return '正在净化';
+  if (device.pm25 <= 12) return '空气很好';
+  if (device.pm25 <= 35) return '空气不错';
+  if (device.pm25 <= 55) return '空气一般';
+  return '空气较差';
+};
+
+const PurifierStatusCard: React.FC<{ device: SmartHomeDevice }> = ({ device }) => {
+  const details = [
+    device.pm25 === undefined ? null : `PM2.5 ${Math.round(device.pm25)}`,
+    device.filterLife === undefined ? null : `滤芯 ${Math.round(device.filterLife)}%`,
+  ].filter((item): item is string => Boolean(item));
+  return (
+    <div
+      className="flex items-center justify-between gap-3"
+      style={{ padding: SP[3], borderRadius: R.smallCard, background: PRODUCT.tint, border: `1px solid ${PRODUCT.soft}` }}
+    >
+      <span className="text-[15px] font-semibold" style={{ color: PRODUCT.ink }}>{airQualityLabel(device)}</span>
+      {details.length ? (
+        <span className="text-right text-[13px] tabular-nums" style={{ color: F.textSecondary }}>{details.join(' · ')}</span>
+      ) : null}
+    </div>
+  );
+};
+
+const PurifierToggleRow: React.FC<{
+  label: string;
+  checked: boolean;
+  disabled: boolean;
+  onChange: () => void;
+}> = ({ label, checked, disabled, onChange }) => (
+  <div
+    className="flex items-center justify-between gap-3"
+    style={{ minHeight: 64, padding: `0 ${SP[3]}px`, borderRadius: R.smallCard, background: F.surface, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}
+  >
+    <span className="text-[15px] font-semibold" style={{ color: F.textPrimary }}>{label}</span>
+    <Toggle checked={checked} disabled={disabled} label={label} onChange={onChange} />
+  </div>
+);
+
 const ControlSheet: React.FC<{
   device: SmartHomeDevice;
   busy: boolean;
@@ -346,9 +576,12 @@ const ControlSheet: React.FC<{
   const [brightnessDraft, setBrightnessDraft] = useState(device.brightness ?? 100);
   const [colorTempDraft, setColorTempDraft] = useState(device.colorTempKelvin ?? minColorTemp);
   const [rgbDraft, setRgbDraft] = useState<SmartHomeRgbColor>(device.rgbColor || [255, 238, 210]);
-  const presetOptions = (device.presetModes || []).slice(0, 4).map(mode => ({
-    label: mode === 'sleep' ? '睡眠' : mode === 'auto' ? '自动' : mode === 'manual' ? '手动' : mode,
-    value: mode,
+  const presetOptions = fanPresetOptions(device);
+  const manualMode = !device.presetMode || ['manual', 'normal'].includes(device.presetMode.toLowerCase()) || presetOptions.length === 0;
+  const speedCount = Math.max(1, Math.min(8, Math.round(device.speedCount || 3)));
+  const speedOptions = Array.from({ length: speedCount }, (_, index) => ({
+    label: `${index + 1}档`,
+    value: Math.round(((index + 1) / speedCount) * 100),
   }));
 
   useEffect(() => {
@@ -368,6 +601,8 @@ const ControlSheet: React.FC<{
         className="w-full animate-slide-up"
         style={{
           padding: `${SP[2]}px ${SP[4]}px calc(var(--safe-bottom) + ${SP[4]}px)`,
+          maxHeight: 'calc(100% - var(--chrome-top))',
+          overflowY: 'auto',
           borderRadius: `${R.sheet}px ${R.sheet}px 0 0`,
           background: F.surface,
           boxShadow: S.floating,
@@ -467,20 +702,9 @@ const ControlSheet: React.FC<{
                 />
               ) : null}
             </>
-          ) : (
+          ) : device.kind === 'fan' ? (
             <>
-              <div className="flex flex-col gap-2">
-                <span className="text-[13px] font-semibold" style={{ color: F.textSecondary }}>风速</span>
-                <Segmented
-                  value={device.percentage}
-                  options={[
-                    { label: '低', value: 33 },
-                    { label: '中', value: 66 },
-                    { label: '高', value: 100 },
-                  ]}
-                  onChange={value => onCommand({ entityId: device.entityId, kind: 'fan', action: 'set_percentage', value })}
-                />
-              </div>
+              <PurifierStatusCard device={device} />
               {presetOptions.length > 0 ? (
                 <div className="flex flex-col gap-2">
                   <span className="text-[13px] font-semibold" style={{ color: F.textSecondary }}>模式</span>
@@ -491,24 +715,71 @@ const ControlSheet: React.FC<{
                   />
                 </div>
               ) : null}
+              {manualMode ? (
+                <div className="flex flex-col gap-2">
+                  <span className="text-[13px] font-semibold" style={{ color: F.textSecondary }}>风速</span>
+                  <Segmented
+                    value={device.percentage}
+                    options={speedOptions}
+                    onChange={value => onCommand({ entityId: device.entityId, kind: 'fan', action: 'set_percentage', value })}
+                  />
+                </div>
+              ) : null}
+              {device.displayEntityId && device.displayOn !== undefined ? (
+                <PurifierToggleRow
+                  label="机身屏幕"
+                  checked={device.displayOn}
+                  disabled={busy || !device.available}
+                  onChange={() => onCommand({
+                    entityId: device.displayEntityId!,
+                    kind: 'switch',
+                    action: device.displayOn ? 'turn_off' : 'turn_on',
+                  })}
+                />
+              ) : null}
+              {device.nightAutoDisplayOffEntityId && device.nightAutoDisplayOff !== undefined ? (
+                <PurifierToggleRow
+                  label="夜间自动熄屏"
+                  checked={device.nightAutoDisplayOff}
+                  disabled={busy || !device.available}
+                  onChange={() => onCommand({
+                    entityId: device.nightAutoDisplayOffEntityId!,
+                    kind: 'switch',
+                    action: device.nightAutoDisplayOff ? 'turn_off' : 'turn_on',
+                  })}
+                />
+              ) : null}
+            </>
+          ) : (
+            <>
+              <EnvironmentMetricsGrid metrics={(device.metrics || []).filter(metric => AIR_QUALITY_KEYS.includes(metric.key))} />
+              <div
+                className="flex items-center gap-2 text-[13px]"
+                style={{ padding: SP[2], borderRadius: R.medium, background: PRODUCT.tint, color: PRODUCT.ink }}
+              >
+                <ArrowsClockwise size={18} weight="bold" className="shrink-0" />
+                <span>Home Assistant 连接后会自动更新这些数据</span>
+              </div>
             </>
           )}
-          <button
-            type="button"
-            disabled={busy || !device.available}
-            onClick={() => onCommand({ entityId: device.entityId, kind: device.kind, action: on ? 'turn_off' : 'turn_on' })}
-            className="flex w-full items-center justify-center gap-2 text-[15px] font-semibold active:translate-y-[1px] disabled:opacity-50"
-            style={{
-              height: 48,
-              borderRadius: R.button,
-              background: on ? F.textPrimary : PRODUCT.main,
-              color: F.surface,
-              boxShadow: S.raisedSoft,
-            }}
-          >
-            <Power size={20} weight="bold" />
-            {busy ? '正在同步' : on ? '关闭设备' : '开启设备'}
-          </button>
+          {device.kind !== 'monitor' ? (
+            <button
+              type="button"
+              disabled={busy || !device.available}
+              onClick={() => onCommand({ entityId: device.entityId, kind: device.kind, action: on ? 'turn_off' : 'turn_on' })}
+              className="flex w-full items-center justify-center gap-2 text-[15px] font-semibold active:translate-y-[1px] disabled:opacity-50"
+              style={{
+                height: 48,
+                borderRadius: R.button,
+                background: on ? F.textPrimary : PRODUCT.main,
+                color: F.surface,
+                boxShadow: S.raisedSoft,
+              }}
+            >
+              <Power size={20} weight="bold" />
+              {busy ? '正在同步' : on ? '关闭设备' : '开启设备'}
+            </button>
+          ) : null}
         </div>
       </div>
     </div>
@@ -633,12 +904,25 @@ const SmartHomeApp: React.FC = () => {
 
   const lights = useMemo(() => devices.filter(device => device.kind === 'light'), [devices]);
   const fans = useMemo(() => devices.filter(device => device.kind === 'fan'), [devices]);
+  const monitors = useMemo(() => devices.filter(device => device.kind === 'monitor'), [devices]);
   const scenes = useMemo(() => devices.filter(device => device.kind === 'scene'), [devices]);
-  const activeCount = devices.filter(device => device.kind !== 'scene' && device.state === 'on').length;
+  const roomClimateMetrics = useMemo(() => {
+    const allMetrics = monitors.flatMap(monitor => monitor.metrics || []);
+    return ROOM_CLIMATE_KEYS
+      .map(key => allMetrics.find(metric => metric.key === key && metric.available))
+      .filter((metric): metric is SmartHomeEnvironmentMetric => Boolean(metric));
+  }, [monitors]);
+  const activeCount = devices.filter(device => (device.kind === 'light' || device.kind === 'fan') && device.state === 'on').length;
   const unavailableCount = devices.filter(device => device.kind !== 'scene' && !device.available).length;
 
   const updateDemoDevice = (command: SmartHomeCommand) => {
     setDevices(current => current.map(device => {
+      if (command.entityId === device.displayEntityId) {
+        return { ...device, displayOn: command.action === 'turn_on' };
+      }
+      if (command.entityId === device.nightAutoDisplayOffEntityId) {
+        return { ...device, nightAutoDisplayOff: command.action === 'turn_on' };
+      }
       if (device.entityId !== command.entityId) return device;
       if (command.action === 'turn_on') return { ...device, state: 'on' };
       if (command.action === 'turn_off') return { ...device, state: 'off' };
@@ -688,7 +972,7 @@ const SmartHomeApp: React.FC = () => {
   });
 
   const allOff = async () => {
-    const active = devices.filter(device => device.kind !== 'scene' && device.state === 'on');
+    const active = devices.filter(device => (device.kind === 'light' || device.kind === 'fan') && device.state === 'on');
     for (const device of active) {
       await runCommand({ entityId: device.entityId, kind: device.kind, action: 'turn_off' });
     }
@@ -863,6 +1147,7 @@ const SmartHomeApp: React.FC = () => {
                 </p>
               </div>
             </div>
+            {roomClimateMetrics.length ? <RoomClimateStrip metrics={roomClimateMetrics} /> : null}
             <div className="mt-5 grid grid-cols-2 gap-3">
               <button
                 type="button"
@@ -901,7 +1186,11 @@ const SmartHomeApp: React.FC = () => {
               </section>
               <section className="flex flex-col gap-3">
                 <SectionTitle>空气</SectionTitle>
-                {fans.length ? <DeviceList devices={fans} busyIds={busyIds} onOpen={setSelected} onToggle={toggleDevice} /> : <EmptyState text="尚未发现空气设备" />}
+                {monitors.map(monitor => (
+                  <EnvironmentMonitorCard key={monitor.entityId} device={monitor} onOpen={() => setSelected(monitor)} />
+                ))}
+                {fans.length ? <DeviceList devices={fans} busyIds={busyIds} onOpen={setSelected} onToggle={toggleDevice} /> : null}
+                {!monitors.length && !fans.length ? <EmptyState text="尚未发现空气设备" /> : null}
               </section>
             </>
           ) : (
@@ -961,7 +1250,9 @@ const SmartHomeApp: React.FC = () => {
       {selected ? (
         <ControlSheet
           device={selected}
-          busy={busyIds.has(selected.entityId)}
+          busy={busyIds.has(selected.entityId)
+            || Boolean(selected.displayEntityId && busyIds.has(selected.displayEntityId))
+            || Boolean(selected.nightAutoDisplayOffEntityId && busyIds.has(selected.nightAutoDisplayOffEntityId))}
           onClose={() => setSelected(null)}
           onCommand={command => void runCommand(command)}
         />
