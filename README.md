@@ -63,7 +63,7 @@ Clay morphism 风格的健康记录器。支持训练 / 睡眠 / 饮食 / 经期
 
 ### 共栖舱 (Smart Home)
 
-统一控制 Home Assistant 中的灯光、空气净化器与场景。支持设备开关、灯光亮度/色温连续滑杆、净化器风速/模式，并提供设备/场景同步入口；可把 Home Assistant MCP 接入角色工具。内置演示模式，真实设备连接需要 Home Assistant 地址和长期访问令牌。
+统一控制 Home Assistant 中的灯光、空气净化器与场景。支持设备开关、灯光亮度/色温、按设备能力显示的 RGB 取色器、净化器风速/模式，并提供设备/场景同步入口；可把 Home Assistant MCP 接入角色工具。内置演示模式，真实设备连接需要 Home Assistant 地址和长期访问令牌。
 
 ### 设备运动感知
 

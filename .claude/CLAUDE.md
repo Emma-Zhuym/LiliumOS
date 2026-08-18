@@ -176,6 +176,7 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 
 ### 21. Smart Home「共栖舱」App + 备份
 - `apps/SmartHomeApp.tsx` / `utils/smartHome.ts` — Home Assistant 灯光、风扇/空气净化器和场景控制；演示模式与真实 REST 模式必须并存
+- RGB 控制必须依据灯实体的 `supported_color_modes`（或已有 `rgb_color`）按能力显示，通过 `light.turn_on` 的 `rgb_color` 写入；普通白光灯不得显示无效取色器
 - `utils/smartHome.ts` 的角色控制复用通用 MCP 客户端，将 Home Assistant `/api/mcp/assist` 保存为 MCP server；不得另造聊天工具链
 - `context/OSContext.tsx` / `utils/db.ts` — `smartHomeLocal` 随完整备份导出/恢复，不得遗漏连接配置
 - `utils/safeAreaApps.ts` 必须保留 `AppID.SmartHome`，确保顶栏和内容区遵循安全区约定

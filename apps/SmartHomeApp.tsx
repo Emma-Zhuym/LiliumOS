@@ -29,6 +29,7 @@ import {
   type SmartHomeCommand,
   type SmartHomeConfig,
   type SmartHomeDevice,
+  type SmartHomeRgbColor,
 } from '../utils/smartHome';
 
 type MainTab = 'devices' | 'scenes';
@@ -309,6 +310,30 @@ const RangeControl: React.FC<{
   </div>
 );
 
+const COLOR_CAPABLE_MODES = new Set(['hs', 'rgb', 'rgbw', 'rgbww', 'xy']);
+const COLOR_PRESETS: Array<{ name: string; value: SmartHomeRgbColor }> = [
+  { name: '雪白', value: [255, 255, 255] },
+  { name: '暖白', value: [255, 238, 210] },
+  { name: '奶油黄', value: [255, 207, 94] },
+  { name: '夜蓝', value: [70, 112, 255] },
+  { name: '紫罗兰', value: [155, 112, 255] },
+  { name: '暖橙', value: [255, 126, 72] },
+];
+
+const rgbToHex = ([red, green, blue]: SmartHomeRgbColor): string =>
+  `#${[red, green, blue].map(channel => Math.max(0, Math.min(255, channel)).toString(16).padStart(2, '0')).join('')}`;
+
+const hexToRgb = (value: string): SmartHomeRgbColor | null => {
+  const match = /^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(value);
+  return match
+    ? [Number.parseInt(match[1], 16), Number.parseInt(match[2], 16), Number.parseInt(match[3], 16)]
+    : null;
+};
+
+const supportsRgbColor = (device: SmartHomeDevice): boolean =>
+  Boolean(device.rgbColor)
+  || (device.supportedColorModes || []).some(mode => COLOR_CAPABLE_MODES.has(mode));
+
 const ControlSheet: React.FC<{
   device: SmartHomeDevice;
   busy: boolean;
@@ -320,6 +345,7 @@ const ControlSheet: React.FC<{
   const maxColorTemp = device.maxColorTempKelvin || 6500;
   const [brightnessDraft, setBrightnessDraft] = useState(device.brightness ?? 100);
   const [colorTempDraft, setColorTempDraft] = useState(device.colorTempKelvin ?? minColorTemp);
+  const [rgbDraft, setRgbDraft] = useState<SmartHomeRgbColor>(device.rgbColor || [255, 238, 210]);
   const presetOptions = (device.presetModes || []).slice(0, 4).map(mode => ({
     label: mode === 'sleep' ? '睡眠' : mode === 'auto' ? '自动' : mode === 'manual' ? '手动' : mode,
     value: mode,
@@ -328,7 +354,13 @@ const ControlSheet: React.FC<{
   useEffect(() => {
     setBrightnessDraft(device.brightness ?? 100);
     setColorTempDraft(device.colorTempKelvin ?? minColorTemp);
-  }, [device.entityId, device.brightness, device.colorTempKelvin, minColorTemp]);
+    setRgbDraft(device.rgbColor || [255, 238, 210]);
+  }, [device.entityId, device.brightness, device.colorTempKelvin, device.rgbColor, minColorTemp]);
+
+  const commitRgb = (value: SmartHomeRgbColor) => {
+    setRgbDraft(value);
+    onCommand({ entityId: device.entityId, kind: 'light', action: 'set_rgb', value });
+  };
 
   return (
     <div className="absolute inset-0 flex items-end" style={{ background: 'rgba(46,42,40,.35)' }} onClick={onClose}>
@@ -372,6 +404,53 @@ const ControlSheet: React.FC<{
                 onChange={setBrightnessDraft}
                 onCommit={value => onCommand({ entityId: device.entityId, kind: 'light', action: 'set_brightness', value })}
               />
+              {supportsRgbColor(device) ? (
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-[13px] font-semibold" style={{ color: F.textSecondary }}>颜色</span>
+                    <span className="text-[11px] font-semibold tabular-nums" style={{ color: PRODUCT.ink }}>
+                      R {rgbDraft[0]} · G {rgbDraft[1]} · B {rgbDraft[2]}
+                    </span>
+                  </div>
+                  <div
+                    className="flex items-center gap-3"
+                    style={{ padding: `${SP[2]}px ${SP[3]}px`, borderRadius: R.large, background: F.surfaceSunken, boxShadow: S.sunken }}
+                  >
+                    <label
+                      className="relative flex shrink-0 cursor-pointer items-center justify-center overflow-hidden"
+                      style={{ width: 48, height: 48, borderRadius: R.medium, background: rgbToHex(rgbDraft), border: `2px solid ${F.surface}` }}
+                      title="打开取色器"
+                    >
+                      <input
+                        type="color"
+                        aria-label="灯光颜色"
+                        value={rgbToHex(rgbDraft)}
+                        disabled={busy || !device.available}
+                        onChange={event => {
+                          const next = hexToRgb(event.currentTarget.value);
+                          if (next) commitRgb(next);
+                        }}
+                        className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
+                      />
+                      <Sparkle size={18} weight="fill" color="#fff" />
+                    </label>
+                    <div className="grid min-w-0 flex-1 grid-cols-6 gap-2">
+                      {COLOR_PRESETS.map(preset => (
+                        <button
+                          key={preset.name}
+                          type="button"
+                          aria-label={`设为${preset.name}`}
+                          title={preset.name}
+                          disabled={busy || !device.available}
+                          onClick={() => commitRgb(preset.value)}
+                          className="aspect-square w-full active:scale-95 disabled:opacity-50"
+                          style={{ borderRadius: R.pill, background: rgbToHex(preset.value), border: `2px solid ${rgbToHex(rgbDraft) === rgbToHex(preset.value) ? F.textPrimary : F.surface}` }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
               {device.minColorTempKelvin && device.maxColorTempKelvin ? (
                 <RangeControl
                   label="色温"
@@ -564,6 +643,9 @@ const SmartHomeApp: React.FC = () => {
       if (command.action === 'turn_on') return { ...device, state: 'on' };
       if (command.action === 'turn_off') return { ...device, state: 'off' };
       if (command.action === 'set_brightness') return { ...device, state: 'on', brightness: Number(command.value) };
+      if (command.action === 'set_rgb' && Array.isArray(command.value)) {
+        return { ...device, state: 'on', rgbColor: command.value as SmartHomeRgbColor };
+      }
       if (command.action === 'set_color_temp') return { ...device, state: 'on', colorTempKelvin: Number(command.value) };
       if (command.action === 'set_percentage') return { ...device, state: 'on', percentage: Number(command.value), presetMode: 'manual' };
       if (command.action === 'set_preset') return { ...device, state: 'on', presetMode: String(command.value) };

@@ -10,7 +10,7 @@
 ## 最近完成
 
 - 角色可绑定「设置 → API」里已有的命名预设；Chat 页快捷切换只改当前角色，私聊、本地主动消息与 Active Message 2.0 按同一角色路由，旧角色继续跟随主 API，预设缺失时安全回退。
-- 新增「共栖舱」Smart Home App：可统一控制 Home Assistant 灯光、空气净化器和场景，支持亮度/色温连续滑杆、设备/场景同步入口、演示模式、REST 连接测试、可选代理及角色 MCP 接入。
+- 新增「共栖舱」Smart Home App：可统一控制 Home Assistant 灯光、空气净化器和场景，支持亮度/色温、按实体能力显示的 RGB 取色器、设备/场景同步入口、演示模式、REST 连接测试、可选代理及角色 MCP 接入。
 - Smart Home 连接配置已进入完整备份/恢复；适配层、授权请求、服务调用与备份路径已有回归测试。
 - 新 App 已完成桌面与 390px 手机尺寸检查；真实 Tapo Matter 灯泡和 Levoit Core 200S-P 联调等待 Home Assistant 常驻主机就位。
 - LiliumOS 品牌文案与新图标已发布；公开仓库改名为 `Emma-Zhuym/LiliumOS`，Pages 地址迁移到 `https://emma-zhuym.github.io/LiliumOS/`。

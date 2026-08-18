@@ -8,6 +8,7 @@ import {
 
 export type SmartHomeDeviceKind = 'light' | 'fan' | 'scene';
 export type SmartHomeConnectionState = 'online' | 'offline' | 'demo';
+export type SmartHomeRgbColor = [number, number, number];
 
 export interface SmartHomeConfig {
     baseUrl: string;
@@ -34,6 +35,8 @@ export interface SmartHomeDevice {
     state: string;
     available: boolean;
     brightness?: number;
+    rgbColor?: SmartHomeRgbColor;
+    supportedColorModes?: string[];
     colorTempKelvin?: number;
     minColorTempKelvin?: number;
     maxColorTempKelvin?: number;
@@ -46,8 +49,8 @@ export interface SmartHomeDevice {
 export interface SmartHomeCommand {
     entityId: string;
     kind: SmartHomeDeviceKind;
-    action: 'turn_on' | 'turn_off' | 'activate' | 'set_brightness' | 'set_color_temp' | 'set_percentage' | 'set_preset';
-    value?: number | string;
+    action: 'turn_on' | 'turn_off' | 'activate' | 'set_brightness' | 'set_rgb' | 'set_color_temp' | 'set_percentage' | 'set_preset';
+    value?: number | string | SmartHomeRgbColor;
 }
 
 const SMART_HOME_CONFIG_KEY = 'liliumos.smart_home.config';
@@ -159,6 +162,13 @@ const asNumber = (value: unknown): number | undefined => {
 const asStringList = (value: unknown): string[] | undefined =>
     Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : undefined;
 
+const asRgbColor = (value: unknown): SmartHomeRgbColor | undefined => {
+    if (!Array.isArray(value) || value.length < 3) return undefined;
+    const channels = value.slice(0, 3).map(asNumber);
+    if (channels.some(channel => channel === undefined)) return undefined;
+    return channels.map(channel => Math.max(0, Math.min(255, Math.round(channel!)))) as SmartHomeRgbColor;
+};
+
 export const stateToSmartHomeDevice = (entity: HomeAssistantState): SmartHomeDevice | null => {
     const [domain] = entity.entity_id.split('.');
     if (domain !== 'light' && domain !== 'fan' && domain !== 'scene') return null;
@@ -175,6 +185,8 @@ export const stateToSmartHomeDevice = (entity: HomeAssistantState): SmartHomeDev
         state: entity.state,
         available: entity.state !== 'unavailable' && entity.state !== 'unknown',
         brightness: rawBrightness === undefined ? undefined : Math.round((rawBrightness / 255) * 100),
+        rgbColor: asRgbColor(attributes.rgb_color),
+        supportedColorModes: asStringList(attributes.supported_color_modes),
         colorTempKelvin: asNumber(attributes.color_temp_kelvin),
         minColorTempKelvin: asNumber(attributes.min_color_temp_kelvin),
         maxColorTempKelvin: asNumber(attributes.max_color_temp_kelvin),
@@ -209,6 +221,12 @@ const serviceForCommand = (command: SmartHomeCommand): { domain: string; service
     }
     if (command.action === 'set_brightness') {
         data.brightness_pct = Number(command.value);
+        return { domain: 'light', service: 'turn_on', data };
+    }
+    if (command.action === 'set_rgb') {
+        const rgbColor = asRgbColor(command.value);
+        if (!rgbColor) throw new Error('RGB 颜色格式无效');
+        data.rgb_color = rgbColor;
         return { domain: 'light', service: 'turn_on', data };
     }
     if (command.action === 'set_color_temp') {
@@ -267,12 +285,14 @@ export const enableHomeAssistantMcp = async (
 export const createDemoSmartHomeDevices = (): SmartHomeDevice[] => [
     {
         id: 'light.bedside', entityId: 'light.bedside', name: '床头灯', kind: 'light',
-        state: 'on', available: true, brightness: 38, colorTempKelvin: 3000,
+        state: 'on', available: true, brightness: 38, rgbColor: [255, 238, 210],
+        supportedColorModes: ['color_temp', 'hs'], colorTempKelvin: 3000,
         minColorTempKelvin: 2500, maxColorTempKelvin: 6500,
     },
     {
         id: 'light.floor', entityId: 'light.floor', name: '落地灯', kind: 'light',
-        state: 'off', available: true, brightness: 70, colorTempKelvin: 4000,
+        state: 'off', available: true, brightness: 70, rgbColor: [255, 255, 255],
+        supportedColorModes: ['color_temp', 'hs'], colorTempKelvin: 4000,
         minColorTempKelvin: 2500, maxColorTempKelvin: 6500,
     },
     {

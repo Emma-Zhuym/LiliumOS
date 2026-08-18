@@ -53,10 +53,12 @@ describe('smartHome Home Assistant adapter', () => {
             state: 'on',
             attributes: {
                 friendly_name: '床头灯', brightness: 128, color_temp_kelvin: 3000,
+                rgb_color: [12, 34, 56], supported_color_modes: ['color_temp', 'hs'],
                 min_color_temp_kelvin: 2500, max_color_temp_kelvin: 6500,
             },
         })).toMatchObject({
             kind: 'light', name: '床头灯', brightness: 50, colorTempKelvin: 3000,
+            rgbColor: [12, 34, 56], supportedColorModes: ['color_temp', 'hs'],
             minColorTempKelvin: 2500, maxColorTempKelvin: 6500, available: true,
         });
         expect(stateToSmartHomeDevice({
@@ -94,6 +96,11 @@ describe('smartHome Home Assistant adapter', () => {
             entityId: 'light.bedside', kind: 'light', action: 'set_color_temp', value: 3200,
         });
         expect(fetchMock.mock.calls[1][1]?.body).toBe(JSON.stringify({ entity_id: 'light.bedside', color_temp_kelvin: 3200 }));
+
+        await sendSmartHomeCommand(config, {
+            entityId: 'light.bedside', kind: 'light', action: 'set_rgb', value: [110, 72, 255],
+        });
+        expect(fetchMock.mock.calls[2][1]?.body).toBe(JSON.stringify({ entity_id: 'light.bedside', rgb_color: [110, 72, 255] }));
         fetchMock.mockRestore();
     });
 
