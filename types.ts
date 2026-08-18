@@ -251,11 +251,28 @@ export interface VisionApiConfig {
   model: string;
 }
 
+export type ImageGenerationProvider = 'pollinations-free' | 'openai-compatible';
+
+export interface ImageGenerationApiConfig {
+  /** 缺省与 pollinations-free 等价，保证旧角色的 [[SEND_PHOTO]] 零配置继续可用。 */
+  provider: ImageGenerationProvider;
+  /** OpenAI Images 兼容接口的 /v1 根地址；内置免费通道不读取。 */
+  baseUrl?: string;
+  /** 自定义接口凭据；允许留空以兼容本地或免鉴权服务。 */
+  apiKey?: string;
+  /** 自定义接口的生图模型。 */
+  model?: string;
+  /** 自定义接口支持图片输入时，上传角色当前立绘作为身份参考。缺省视为开启。 */
+  useCharacterReference?: boolean;
+}
+
 export interface APIConfig {
   baseUrl: string;
   apiKey: string;
   // 可选识图中转：给不支持 image_url 的主模型补视觉能力。
   visionApi?: VisionApiConfig;
+  // 聊天 [[SEND_PHOTO]] 的独立生图通道；缺省继续走内置免费 Pollinations。
+  imageGeneration?: ImageGenerationApiConfig;
   minimaxApiKey?: string;
   minimaxGroupId?: string;
   // 'domestic' → https://api.minimaxi.com (国内站)

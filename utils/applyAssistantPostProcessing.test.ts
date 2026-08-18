@@ -46,6 +46,23 @@ const quotedUserMsg = {
     timestamp: Date.now() - 1000,
 };
 
+describe('SEND_PHOTO 生图通道', () => {
+    it('零配置继续走内置免费生图，并记录所用通道', async () => {
+        const charId = `c-photo-${Date.now()}`;
+        const ctx = makeCtx(charId, []);
+        ctx.instantRender = true;
+
+        await applyAssistantPostProcessing('[[SEND_PHOTO: 在窗边看书]]', ctx);
+
+        const msgs = await DB.getRecentMessagesByCharId(charId, 20);
+        const image = msgs.find(message => message.role === 'assistant' && message.type === 'image');
+        expect(image?.content).toContain('https://image.pollinations.ai/prompt/');
+        expect((image?.metadata as any)?.imageGenerationProvider).toBe('pollinations-free');
+        expect((image?.metadata as any)?.characterReferenceUsed).toBe(false);
+        expect((image?.metadata as any)?.photoPrompt).toBe('在窗边看书');
+    }, 10000);
+});
+
 describe('renderAndPersist 引用解析', () => {
     it('[[QUOTE:]] 单独成行 (后跟 SEND_EMOJI + 正文) 时引用顺延到第一条文字气泡', async () => {
         const charId = `c-quote-${Date.now()}`;

@@ -25,7 +25,7 @@
  * Phase 2 会让 worker 端把识别出的副作用 (RECALL/SEARCH/...) 结构化传 directives, 这里只重放。
  */
 
-import { CharacterProfile, UserProfile, Message, Emoji, RealtimeConfig } from '../types';
+import { CharacterProfile, UserProfile, Message, Emoji, RealtimeConfig, APIConfig } from '../types';
 import { DB } from './db';
 import { ChatParser, type FrozenMusicSong } from './chatParser';
 import { resolveCharTimeZone } from './timezone';
@@ -50,6 +50,7 @@ import {
 } from './agenticTools';
 import { getLocalDateKey } from './localDate';
 import { normalizeAssistantActionFormatting } from './assistantActionFormat';
+import { generateChatImage } from './imageGeneration';
 
 // ─── 模块内辅助 ──────────────────────────────────────────────────────────────
 
@@ -286,7 +287,7 @@ export interface PostProcessApiCall {
     /** Authorization 头等 */
     headers: Record<string, string>;
     /** 当前生效的 API (拿 model / 兜底其他配置用) */
-    effectiveApi: { baseUrl: string; apiKey: string; model: string };
+    effectiveApi: Pick<APIConfig, 'baseUrl' | 'apiKey' | 'model'> & Partial<APIConfig>;
 }
 
 export interface PostProcessMusicHooks {
@@ -687,7 +688,7 @@ export async function applyAssistantPostProcessing(
                 if (part.type === 'emoji') {
                     await sendEmojiBubble(part.content);
                 } else if (part.type === 'photo') {
-                    // EM: [[SEND_PHOTO: description]] — generate via Pollinations (free, no API key)
+                    // EM: [[SEND_PHOTO: description]] — 走设置中的生图 API；默认仍是免配置免费通道。
                     await new Promise(r => setTimeout(r, Math.random() * 400 + 200));
                     // 风格预设：per-character photoStyle → 追加到描述末尾
                     const PHOTO_STYLE_PRESETS: Record<string, string> = {
@@ -702,9 +703,40 @@ export async function applyAssistantPostProcessing(
                     const styleTags = (char as any).photoStyle && PHOTO_STYLE_PRESETS[(char as any).photoStyle]
                         ? `, ${PHOTO_STYLE_PRESETS[(char as any).photoStyle]}`
                         : '';
-                    const seed = Math.floor(Math.random() * 1000000);
-                    const photoUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(part.content + styleTags)}?width=512&height=512&seed=${seed}&nologo=true`;
-                    await DB.saveMessage({ charId: char.id, role: 'assistant', type: 'image', content: photoUrl, metadata: { ...takeMeta(mcdInheritMeta), aiGenerated: true, photoPrompt: part.content, photoStyle: (char as any).photoStyle } } as any);
+                    try {
+                        const generated = await generateChatImage({
+                            prompt: part.content + styleTags,
+                            char,
+                            config: effectiveApi.imageGeneration,
+                        });
+                        if (generated.warning) addToast(generated.warning, 'info');
+                        await persistMessage({
+                            charId: char.id,
+                            role: 'assistant',
+                            type: 'image',
+                            content: generated.url,
+                            metadata: {
+                                ...takeMeta(mcdInheritMeta),
+                                aiGenerated: true,
+                                photoPrompt: part.content,
+                                photoStyle: (char as any).photoStyle,
+                                imageGenerationProvider: generated.provider,
+                                imageGenerationModel: generated.model,
+                                characterReferenceUsed: generated.referenceUsed,
+                            },
+                        } as any);
+                    } catch (error) {
+                        const reason = error instanceof Error ? error.message : String(error);
+                        console.warn('[Chat] 生图失败', error);
+                        addToast(`生图失败：${reason}`, 'error');
+                        await persistMessage({
+                            charId: char.id,
+                            role: 'assistant',
+                            type: 'text',
+                            content: '（图片生成失败，请检查设置里的生图 API）',
+                            metadata: { ...takeMeta(mcdInheritMeta), aiGenerated: true, imageGenerationFailed: true },
+                        } as any);
+                    }
                     setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
                 } else {
                     const rawBlocks = part.content.split(/^\s*---\s*$/m).filter(b => b.trim());

@@ -19,7 +19,7 @@ import { getProxyWorkerUrl, setProxyWorkerUrl, DEFAULT_PROXY_WORKER } from '../u
 import { VOICE_ACTING_GUIDE } from '../utils/minimaxTts';
 import { FISH_VOICE_ACTING_GUIDE } from '../utils/fishAudioTts';
 import { DATE_VOICE_GUIDE } from '../utils/datePrompts';
-import { Sun, Newspaper, NotePencil, Notebook, Book, ForkKnife, Coffee, PersonSimpleRun, PlugsConnected } from '@phosphor-icons/react'; // [EM: PersonSimpleRun]
+import { Sun, Newspaper, NotePencil, Notebook, Book, ForkKnife, Coffee, PersonSimpleRun, PlugsConnected, ImageSquare } from '@phosphor-icons/react'; // [EM: PersonSimpleRun]
 import { requestMotionPermission, startMotionListening, stopMotionListening, isMotionListening } from '../utils/deviceMotion'; // [EM: device-motion]
 import { loadMcpServers, saveMcpServers, createMcpServer, testMcpConnection, resetMcpSession, getMcpUseNativeTools, setMcpUseNativeTools, type McpServerConfig } from '../utils/mcpClient';
 import { loadPushConfig, savePushConfig, registerScheduleOnWorker, startHeartbeat, stopHeartbeat, isPushConfigAvailable, ensureSubscribed, sendTestPush, getPushDiagnostics, resetSubscription, deepResetSubscription, type PushDiagnostics } from '../utils/proactivePushConfig';
@@ -53,6 +53,8 @@ import {
 import { normalizeApiBaseUrl, normalizeApiCredential, normalizeApiModel } from '../utils/apiConfigNormalize';
 import { describeImageWithVisionApi, VISION_API_TEST_IMAGE_DATA_URL, visionApiConfigFromPreset } from '../utils/visionApi';
 import { readLiliumOSStorage, writeLiliumOSStorage } from '../utils/liliumosStorage';
+import { resolveImageGenerationConfig } from '../utils/imageGeneration';
+import { F, HUE, R, S, SP } from '../utils/clayTokens';
 
 const MOTION_ENABLED_KEY = 'liliumos_motion_enabled';
 const LEGACY_MOTION_ENABLED_KEYS = ['sullyem_motion_enabled'];
@@ -85,10 +87,19 @@ const HOTNEWS_PLATFORM_OPTIONS: { key: string; label: string }[] = [
 // 这里设为 false 只是把设置页里的入口隐藏掉，想恢复改回 true 即可。
 const SHOW_PROACTIVE_PUSH_ACCEL_UI = false;
 const VISION_MODEL_LIST_STORAGE_KEY = 'os_vision_available_models';
+const IMAGE_MODEL_LIST_STORAGE_KEY = 'os_image_available_models';
 
 const readStoredVisionModels = (): string[] => {
     try {
         return normalizeModelIds(JSON.parse(localStorage.getItem(VISION_MODEL_LIST_STORAGE_KEY) || '[]'));
+    } catch {
+        return [];
+    }
+};
+
+const readStoredImageModels = (): string[] => {
+    try {
+        return normalizeModelIds(JSON.parse(localStorage.getItem(IMAGE_MODEL_LIST_STORAGE_KEY) || '[]'));
     } catch {
         return [];
     }
@@ -148,7 +159,7 @@ const SettingsSection: React.FC<{
     return (
         <section {...sectionProps} className="bg-[#fffefe] rounded-3xl p-5 shadow-[0_8px_24px_rgba(15,23,42,0.05)] border border-slate-200/80">
             <div className={`flex items-center justify-between gap-2 ${open ? 'mb-4' : ''}`}>
-                <button type="button" onClick={() => setOpen(v => !v)} className="flex items-center gap-2 flex-1 min-w-0 text-left">
+                <button type="button" onClick={() => setOpen(v => !v)} className="flex items-center gap-2 flex-1 min-w-0 rounded-xl text-left outline-none focus-visible:ring-2 focus-visible:ring-slate-300">
                     {icon}
                     <h2 className="text-sm font-semibold text-slate-600 tracking-wider">{title}</h2>
                     {badge}
@@ -485,6 +496,17 @@ const Settings: React.FC = () => {
   const [visionStatusMsg, setVisionStatusMsg] = useState('');
   const [testingVisionApi, setTestingVisionApi] = useState(false);
   const [visionTestResult, setVisionTestResult] = useState<string | null>(null);
+  const [localImageProvider, setLocalImageProvider] = useState<'pollinations-free' | 'openai-compatible'>(
+    () => resolveImageGenerationConfig(apiConfig.imageGeneration).provider,
+  );
+  const [localImageUrl, setLocalImageUrl] = useState(() => resolveImageGenerationConfig(apiConfig.imageGeneration).baseUrl);
+  const [localImageKey, setLocalImageKey] = useState(() => resolveImageGenerationConfig(apiConfig.imageGeneration).apiKey);
+  const [localImageModel, setLocalImageModel] = useState(() => resolveImageGenerationConfig(apiConfig.imageGeneration).model);
+  const [availableImageModels, setAvailableImageModels] = useState<string[]>(readStoredImageModels);
+  const [localUseCharacterReference, setLocalUseCharacterReference] = useState(
+    () => resolveImageGenerationConfig(apiConfig.imageGeneration).useCharacterReference,
+  );
+  const [imageGenerationStatusMsg, setImageGenerationStatusMsg] = useState('');
   const [localMiniMaxKey, setLocalMiniMaxKey] = useState(apiConfig.minimaxApiKey || '');
   const [localMiniMaxGroupId, setLocalMiniMaxGroupId] = useState(apiConfig.minimaxGroupId || '');
   const [localMiniMaxRegion, setLocalMiniMaxRegion] = useState<'domestic' | 'overseas'>(
@@ -514,6 +536,7 @@ const Settings: React.FC = () => {
   const [showApiAdvanced, setShowApiAdvanced] = useState(false);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [isLoadingVisionModels, setIsLoadingVisionModels] = useState(false);
+  const [isLoadingImageModels, setIsLoadingImageModels] = useState(false);
   const [newPresetName, setNewPresetName] = useState('');
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
   const [selectedPresetName, setSelectedPresetName] = useState('');
@@ -525,6 +548,8 @@ const Settings: React.FC = () => {
   const [modelFilter, setModelFilter] = useState('');
   const [showVisionModelModal, setShowVisionModelModal] = useState(false);
   const [visionModelFilter, setVisionModelFilter] = useState('');
+  const [showImageModelModal, setShowImageModelModal] = useState(false);
+  const [imageModelFilter, setImageModelFilter] = useState('');
   const [showExportModal, setShowExportModal] = useState(false); // Used for completion now
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showPresetModal, setShowPresetModal] = useState(false);
@@ -670,6 +695,10 @@ const Settings: React.FC = () => {
   const visionModelPickerView = useMemo(
       () => buildModelPickerView(availableVisionModels, visionModelFilter),
       [visionModelFilter, availableVisionModels],
+  );
+  const imageModelPickerView = useMemo(
+      () => buildModelPickerView(availableImageModels, imageModelFilter),
+      [imageModelFilter, availableImageModels],
   );
 
   const refreshPpDiag = useCallback(async () => {
@@ -861,6 +890,12 @@ const Settings: React.FC = () => {
       setLocalVisionUrl(apiConfig.visionApi?.baseUrl || '');
       setLocalVisionKey(apiConfig.visionApi?.apiKey || '');
       setLocalVisionModel(apiConfig.visionApi?.model || '');
+      const imageGeneration = resolveImageGenerationConfig(apiConfig.imageGeneration);
+      setLocalImageProvider(imageGeneration.provider);
+      setLocalImageUrl(imageGeneration.baseUrl);
+      setLocalImageKey(imageGeneration.apiKey);
+      setLocalImageModel(imageGeneration.model);
+      setLocalUseCharacterReference(imageGeneration.useCharacterReference);
       setLocalMiniMaxKey(apiConfig.minimaxApiKey || '');
       setLocalMiniMaxGroupId(apiConfig.minimaxGroupId || '');
       setLocalMiniMaxRegion(apiConfig.minimaxRegion === 'overseas' ? 'overseas' : 'domestic');
@@ -1007,6 +1042,69 @@ const Settings: React.FC = () => {
     updateApiConfig({ visionApi: nextVisionApi });
     setVisionStatusMsg(nextVisionApi.enabled ? '识图 API 已接入' : '已关闭，沿用原有识图方式');
     setTimeout(() => setVisionStatusMsg(''), 2200);
+  };
+
+  const handleSaveImageGenerationApi = () => {
+    const nextImageGeneration = {
+      provider: localImageProvider,
+      baseUrl: normalizeApiBaseUrl(localImageUrl),
+      apiKey: normalizeApiCredential(localImageKey),
+      model: normalizeApiModel(localImageModel),
+      useCharacterReference: localUseCharacterReference,
+    } as const;
+    if (nextImageGeneration.provider === 'openai-compatible' && (!nextImageGeneration.baseUrl || !nextImageGeneration.model)) {
+      addToast('自定义生图接口至少需要填写 URL 和 Model', 'error');
+      return;
+    }
+    setLocalImageUrl(nextImageGeneration.baseUrl);
+    setLocalImageKey(nextImageGeneration.apiKey);
+    setLocalImageModel(nextImageGeneration.model);
+    updateApiConfig({ imageGeneration: nextImageGeneration });
+    setImageGenerationStatusMsg(
+      nextImageGeneration.provider === 'pollinations-free'
+        ? '已使用内置免费生图'
+        : nextImageGeneration.useCharacterReference
+          ? '自定义生图已接入 · 会优先使用角色立绘参考'
+          : '自定义生图已接入 · 当前不使用角色立绘参考',
+    );
+    setTimeout(() => setImageGenerationStatusMsg(''), 2400);
+  };
+
+  const fetchImageModels = async () => {
+    const baseUrl = normalizeApiBaseUrl(localImageUrl);
+    const apiKey = normalizeApiCredential(localImageKey);
+    if (!baseUrl) {
+      setImageGenerationStatusMsg('请先填写生图 URL');
+      return;
+    }
+    setIsLoadingImageModels(true);
+    setImageGenerationStatusMsg('正在拉取生图模型...');
+    try {
+      const response = await fetch(`${baseUrl}/models`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+        },
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const models = extractModelIds(await safeResponseJson(response));
+      if (models.length === 0) {
+        setImageGenerationStatusMsg('模型列表为空或格式不兼容，可手动输入');
+        return;
+      }
+      setAvailableImageModels(models);
+      try { localStorage.setItem(IMAGE_MODEL_LIST_STORAGE_KEY, JSON.stringify(models)); } catch { /* ignore */ }
+      if (!models.includes(normalizeApiModel(localImageModel))) setLocalImageModel(models[0]);
+      setImageModelFilter('');
+      setImageGenerationStatusMsg(`获取到 ${models.length} 个模型`);
+      setShowImageModelModal(true);
+    } catch (error: any) {
+      console.error('Fetch Image Models Error', error);
+      setImageGenerationStatusMsg(`拉取失败${error?.message ? `：${error.message}` : ''}，可手动输入`);
+    } finally {
+      setIsLoadingImageModels(false);
+    }
   };
 
   const loadVisionApiPreset = (preset: typeof apiPresets[0]) => {
@@ -2582,6 +2680,196 @@ const Settings: React.FC = () => {
             </div>
         </SettingsSection>
 
+        {/* 聊天 [[SEND_PHOTO]] 的独立生图通道。默认沿用免配置免费服务；自定义接口可上传角色立绘作身份参考。 */}
+        <SettingsSection
+            title="生图 API"
+            badge={
+                <span
+                    className="text-[9px] font-bold px-2 py-1"
+                    style={{
+                        borderRadius: R.pill,
+                        color: resolveImageGenerationConfig(apiConfig.imageGeneration).provider === 'pollinations-free' ? HUE.gray.ink : HUE.rose.ink,
+                        background: resolveImageGenerationConfig(apiConfig.imageGeneration).provider === 'pollinations-free' ? HUE.gray.tint : HUE.rose.tint,
+                    }}
+                >
+                    {resolveImageGenerationConfig(apiConfig.imageGeneration).provider === 'pollinations-free' ? '内置免费' : '自定义'}
+                </span>
+            }
+            icon={
+                <div
+                    className="p-2"
+                    style={{ borderRadius: R.small, color: HUE.rose.ink, background: HUE.rose.tint }}
+                >
+                    <ImageSquare size={16} weight="duotone" />
+                </div>
+            }
+        >
+            <div className="space-y-4">
+                <div
+                    className="grid grid-cols-2 p-1.5"
+                    style={{ borderRadius: R.large, background: F.surfaceSunken, boxShadow: S.sunken }}
+                >
+                    {([
+                        ['pollinations-free', '内置免费'],
+                        ['openai-compatible', '自定义接口'],
+                    ] as const).map(([provider, label]) => {
+                        const selected = localImageProvider === provider;
+                        return (
+                            <button
+                                key={provider}
+                                type="button"
+                                aria-pressed={selected}
+                                onClick={() => { setLocalImageProvider(provider); setImageGenerationStatusMsg(''); }}
+                                className="py-2.5 text-xs font-bold transition-all outline-none focus-visible:ring-2"
+                                style={{
+                                    borderRadius: R.medium,
+                                    color: selected ? HUE.rose.ink : F.textTertiary,
+                                    background: selected ? F.surfaceRaised : 'transparent',
+                                    boxShadow: selected ? S.raisedSoft : 'none',
+                                    ['--tw-ring-color' as string]: HUE.rose.soft,
+                                }}
+                            >
+                                {label}
+                            </button>
+                        );
+                    })}
+                </div>
+
+                {localImageProvider === 'pollinations-free' ? (
+                    <div
+                        className="px-4 py-3.5"
+                        style={{ borderRadius: R.smallCard, background: HUE.rose.tint, border: `1px solid ${HUE.rose.soft}` }}
+                    >
+                        <div className="text-xs font-bold" style={{ color: HUE.rose.ink }}>现在就能用，不需要 Key</div>
+                        <p className="mt-1.5 text-[10px] leading-relaxed" style={{ color: F.textSecondary }}>
+                            保留原来的 Pollinations 免费生图。它只读取文字描述，不能把角色立绘作为面部参考，所以同一个角色的脸可能会变化。
+                        </p>
+                    </div>
+                ) : (
+                    <div className="space-y-3">
+                        <p className="px-1 text-[10px] leading-relaxed" style={{ color: F.textTertiary }}>
+                            适用于提供 OpenAI 风格 <span className="font-mono">/images/generations</span> 与 <span className="font-mono">/images/edits</span> 的生图服务。Key 可留空，方便连接本机接口。
+                        </p>
+                        {([
+                            { label: 'URL', value: localImageUrl, setValue: setLocalImageUrl, type: 'text', placeholder: 'https://.../v1' },
+                            { label: 'Key（可选）', value: localImageKey, setValue: setLocalImageKey, type: 'password', placeholder: 'sk-...' },
+                        ] as const).map(field => (
+                            <label key={field.label} className="block">
+                                <span className="mb-1.5 block pl-1 text-[10px] font-bold uppercase tracking-widest" style={{ color: F.textTertiary }}>
+                                    {field.label}
+                                </span>
+                                <input
+                                    type={field.type}
+                                    value={field.value}
+                                    onChange={event => field.setValue(event.target.value)}
+                                    placeholder={field.placeholder}
+                                    className="w-full px-4 py-3 text-sm font-mono outline-none transition-colors"
+                                    style={{
+                                        borderRadius: R.input,
+                                        color: F.textPrimary,
+                                        background: F.surfaceRaised,
+                                        border: `1px solid ${F.borderSoft}`,
+                                        boxShadow: S.sunken,
+                                    }}
+                                />
+                            </label>
+                        ))}
+
+                        <div>
+                            <div className="mb-1.5 flex items-center justify-between gap-3 pl-1">
+                                <label className="text-[10px] font-bold uppercase tracking-widest" style={{ color: F.textTertiary }}>Model</label>
+                                <button
+                                    type="button"
+                                    onClick={fetchImageModels}
+                                    disabled={isLoadingImageModels || !localImageUrl.trim()}
+                                    className="text-[10px] font-bold disabled:opacity-40"
+                                    style={{ color: HUE.rose.ink }}
+                                >
+                                    {isLoadingImageModels ? 'Fetching...' : '刷新模型列表'}
+                                </button>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowImageModelModal(true)}
+                                className="flex w-full items-center justify-between gap-2 px-4 py-3 text-sm outline-none focus-visible:ring-2"
+                                style={{
+                                    borderRadius: R.input,
+                                    color: localImageModel ? F.textPrimary : F.textTertiary,
+                                    background: F.surfaceRaised,
+                                    border: `1px solid ${F.borderSoft}`,
+                                    boxShadow: S.sunken,
+                                    ['--tw-ring-color' as string]: HUE.rose.soft,
+                                }}
+                            >
+                                <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left font-mono">
+                                    {localImageModel || '选择或手动输入模型...'}
+                                </span>
+                                <span aria-hidden="true" style={{ color: F.textTertiary }}>⌄</span>
+                            </button>
+                        </div>
+
+                        <div
+                            className="flex items-start justify-between gap-4 px-4 py-3.5"
+                            style={{ borderRadius: R.smallCard, background: F.surfaceWarm, border: `1px solid ${F.borderSoft}` }}
+                        >
+                            <div className="min-w-0">
+                                <div className="text-xs font-bold" style={{ color: F.textPrimary }}>用角色立绘保持面部特征</div>
+                                <p className="mt-1 text-[10px] leading-relaxed" style={{ color: F.textTertiary }}>
+                                    优先读取当前皮肤的普通立绘，再用默认立绘或头像；不会拿 Q 版立绘当脸。立绘只会发送给你填写的生图接口。
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                role="switch"
+                                aria-checked={localUseCharacterReference}
+                                onClick={() => setLocalUseCharacterReference(value => !value)}
+                                className="relative mt-0.5 inline-flex h-7 w-12 shrink-0 items-center transition-colors"
+                                style={{
+                                    borderRadius: R.pill,
+                                    background: localUseCharacterReference ? HUE.rose.main : HUE.gray.soft,
+                                    boxShadow: S.sunken,
+                                }}
+                            >
+                                <span
+                                    className={`inline-block h-5 w-5 transition-transform ${localUseCharacterReference ? 'translate-x-6' : 'translate-x-1'}`}
+                                    style={{ borderRadius: R.pill, background: F.surfaceRaised, boxShadow: S.raisedSoft }}
+                                />
+                            </button>
+                        </div>
+
+                        {localUseCharacterReference && (
+                            <p className="px-1 text-[9px] leading-relaxed" style={{ color: F.textTertiary }}>
+                                只有接口和模型支持图片编辑时才能参考立绘；不支持时会提示并自动退回纯文字生图。
+                            </p>
+                        )}
+                    </div>
+                )}
+
+                <button
+                    type="button"
+                    onClick={handleSaveImageGenerationApi}
+                    className="w-full py-3 text-sm font-bold active:scale-[0.98] transition-transform"
+                    style={{
+                        borderRadius: R.button,
+                        color: F.surfaceRaised,
+                        background: HUE.rose.main,
+                        boxShadow: S.raisedMedium,
+                        marginTop: SP[3],
+                    }}
+                >
+                    保存生图 API
+                </button>
+                {imageGenerationStatusMsg && (
+                    <div
+                        className="px-3 py-2 text-center text-[11px]"
+                        style={{ borderRadius: R.small, color: HUE.rose.ink, background: HUE.rose.tint }}
+                    >
+                        {imageGenerationStatusMsg}
+                    </div>
+                )}
+            </div>
+        </SettingsSection>
+
         {/* API 调用记录入口 — 点开看最近 5 天各 App / 角色 / 用途的调用明细 */}
         <button
             type="button"
@@ -3852,6 +4140,100 @@ const Settings: React.FC = () => {
                                 {availableVisionModels.length === 0
                                     ? '列表为空，可手动输入或点击“刷新模型列表”拉取'
                                     : `没有匹配 "${visionModelFilter}" 的模型`}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        })()}
+      </Modal>
+
+      {/* 生图 API 使用自己的模型列表，不会切换聊天或识图模型。 */}
+      <Modal isOpen={showImageModelModal} title="选择生图模型" onClose={() => setShowImageModelModal(false)}>
+        {(() => {
+            const { filtered, commonPrefix } = imageModelPickerView;
+            return (
+                <div className="space-y-3 p-1">
+                    <div className="flex gap-2">
+                        <input
+                            type="text"
+                            value={localImageModel}
+                            onChange={event => setLocalImageModel(event.target.value)}
+                            placeholder="手动输入生图模型名称..."
+                            className="min-w-0 flex-1 px-4 py-2.5 text-sm font-mono outline-none"
+                            style={{
+                                borderRadius: R.input,
+                                color: F.textPrimary,
+                                background: F.surfaceRaised,
+                                border: `1px solid ${F.borderSoft}`,
+                                boxShadow: S.sunken,
+                            }}
+                        />
+                        <button
+                            type="button"
+                            onClick={() => setShowImageModelModal(false)}
+                            className="px-4 py-2.5 text-sm font-bold active:scale-95 transition-transform"
+                            style={{ borderRadius: R.button, color: F.surfaceRaised, background: HUE.rose.main }}
+                        >
+                            确定
+                        </button>
+                    </div>
+                    {availableImageModels.length > 0 && (
+                        <div className="relative">
+                            <input
+                                type="text"
+                                value={imageModelFilter}
+                                onChange={event => setImageModelFilter(event.target.value)}
+                                placeholder={`搜索 ${availableImageModels.length} 个生图模型...`}
+                                className="w-full px-4 py-2 text-xs outline-none"
+                                style={{ borderRadius: R.input, color: F.textSecondary, background: F.surfaceWarm, border: `1px solid ${F.borderSoft}` }}
+                            />
+                            {imageModelFilter && (
+                                <button
+                                    type="button"
+                                    onClick={() => setImageModelFilter('')}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 px-2 text-xs"
+                                    style={{ color: F.textTertiary }}
+                                >×</button>
+                            )}
+                        </div>
+                    )}
+                    {commonPrefix && (
+                        <div className="flex flex-wrap items-center gap-1 px-1 text-[10px]" style={{ color: F.textTertiary }}>
+                            <span>共同前缀:</span>
+                            <code className="break-all px-1.5 py-0.5 font-mono" style={{ borderRadius: R.tiny, background: F.surfaceSunken }}>{commonPrefix}</code>
+                        </div>
+                    )}
+                    <div className="max-h-[40vh] space-y-2 overflow-y-auto no-scrollbar">
+                        {filtered.length > 0 ? filtered.map(model => {
+                            const suffix = commonPrefix && model.startsWith(commonPrefix) ? model.slice(commonPrefix.length) : model;
+                            const selected = model === localImageModel;
+                            return (
+                                <button
+                                    key={model}
+                                    type="button"
+                                    onClick={() => { setLocalImageModel(model); setShowImageModelModal(false); }}
+                                    title={model}
+                                    className="flex w-full items-start justify-between gap-2 px-4 py-3 text-left text-sm font-mono"
+                                    style={{
+                                        borderRadius: R.medium,
+                                        color: selected ? HUE.rose.ink : F.textSecondary,
+                                        background: selected ? HUE.rose.tint : F.surfaceWarm,
+                                        border: `1px solid ${selected ? HUE.rose.soft : F.borderSoft}`,
+                                    }}
+                                >
+                                    <span className="min-w-0 flex-1 break-all leading-relaxed">
+                                        {commonPrefix && suffix !== model && <span style={{ color: F.textTertiary }}>{commonPrefix}</span>}
+                                        <span>{suffix}</span>
+                                    </span>
+                                    {selected && <span className="mt-1.5 h-2 w-2 shrink-0" style={{ borderRadius: R.pill, background: HUE.rose.main }} />}
+                                </button>
+                            );
+                        }) : (
+                            <div className="py-8 text-center text-xs" style={{ color: F.textTertiary }}>
+                                {availableImageModels.length === 0
+                                    ? '列表为空，可手动输入或点击“刷新模型列表”拉取'
+                                    : `没有匹配 “${imageModelFilter}” 的模型`}
                             </div>
                         )}
                     </div>

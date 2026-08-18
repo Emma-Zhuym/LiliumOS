@@ -28,6 +28,13 @@ describe('API config normalization', () => {
         apiKey: '\u200Bvision-key\u2060',
         model: ' vision-model ',
       },
+      imageGeneration: {
+        provider: 'openai-compatible',
+        baseUrl: ' https://image.example.com/v1///\u200B ',
+        apiKey: '\uFEFFimage-key\u2060',
+        model: ' image-model ',
+        useCharacterReference: true,
+      },
     })).toEqual({
       baseUrl: 'https://api.example.com/v1',
       apiKey: 'sk-test',
@@ -40,6 +47,13 @@ describe('API config normalization', () => {
         baseUrl: 'https://vision.example.com/v1',
         apiKey: 'vision-key',
         model: 'vision-model',
+      },
+      imageGeneration: {
+        provider: 'openai-compatible',
+        baseUrl: 'https://image.example.com/v1',
+        apiKey: 'image-key',
+        model: 'image-model',
+        useCharacterReference: true,
       },
     });
   });

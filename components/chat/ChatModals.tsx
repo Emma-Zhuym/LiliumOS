@@ -624,7 +624,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                                  </button>
                              ))}
                          </div>
-                         <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">选择风格后，AI 发照片时会在描述末尾追加对应的画风 tag，影响 Pollinations 生图效果。</p>
+                         <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">选择风格后，AI 发照片时会在描述末尾追加对应的画风 tag，影响当前生图 API 的生成效果。</p>
                      </div>
 
                      {/* Voice TTS */}

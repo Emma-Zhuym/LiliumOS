@@ -692,14 +692,9 @@ const processInboxMessageWithPostProcessing = async (
         'Content-Type': 'application/json',
         ...(apiConfig.apiKey ? { Authorization: `Bearer ${apiConfig.apiKey}` } : {}),
       },
-      // effectiveApi 在 push 路径里没人读 — skipSecondPassLLM=true 把所有二轮 LLM 入口都堵了。
-      // 留着只为满足 ctx 类型形状; Phase 2 worker 走续跑时也不会让客户端再发 LLM 请求, 所以这里
-      // 长期就是个空架子, 不要花精力同步 os_api_presets / os_available_models 等运行时切换。
-      effectiveApi: {
-        baseUrl: apiConfig.baseUrl,
-        apiKey: apiConfig.apiKey,
-        model: apiConfig.model,
-      },
+      // push 也会复用后处理里的 [[SEND_PHOTO]]，因此这里需要带上全局生图配置；
+      // 聊天 LLM 的角色预设仍由 Worker 决定，不在这里重新切换。
+      effectiveApi: apiConfig,
     },
     hooks: {
       // setMessages 在 React 外面跑, 没法直接 setState, 只 fire 一次 progress 事件让

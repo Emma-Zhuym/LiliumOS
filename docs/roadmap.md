@@ -61,6 +61,9 @@ LiliumOS「共栖舱」App、Home Assistant REST 适配、演示模式、完整�
 ### 2026-08-17
 
 - 角色主聊天 API 改为可引用已有命名预设；Chat 页快捷切换只更新当前角色，私聊、心跳主动消息和 Active Message 2.0 共用同一角色路由，保留原有主动消息副 API 优先级与旧角色全局回退。
+- 新增独立生图 API：默认沿用免 Key 的 Pollinations；自定义通道兼容 OpenAI Images 的生成/编辑端点，并提供与主 API 一致的 `/models` 拉取、搜索选择和手动输入。
+- 私聊与主动消息的 `[[SEND_PHOTO]]` 共用生图路由；自定义通道可用角色当前立绘维持面部特征，Q 版立绘永不参与参考，接口不支持图片编辑时自动提示并降级。
+- 生图配置随 `apiConfig` 进入本地持久化和文字/完整备份；实现契约见 `docs/image-generation-api.md`。
 - 新增「共栖舱」App：统一展示灯光、空气净化器和 Home Assistant 场景，支持快速开关、全部关闭、亮度/色温及按设备能力显示的 RGB 取色器。
 - 新增 Home Assistant REST 连接与可选代理配置；可测试连接、发现实体，并把官方 MCP 端点写入 LiliumOS 角色工具系统。
 - Smart Home 配置进入完整备份/恢复；新增适配层、请求路径和备份回归测试。
@@ -118,6 +121,7 @@ LiliumOS「共栖舱」App、Home Assistant REST 适配、演示模式、完整�
 - Smart Home「共栖舱」App、演示模式、Home Assistant REST/MCP 接入与备份。
 - Open-Meteo 免 key 天气。
 - 照片收藏与查手机轮播。
+- 独立生图 API、模型列表选择、角色立绘身份参考与 `SEND_PHOTO` 共用路由。
 - Intiface 硬件集成、聊天工具和悬浮控制球。
 - EM 角色代记、语音感知/发送（含无 TTS 的转文字语音条）、日程分钟精度与密度滑块、桌面拖拽排序。
 

@@ -18,6 +18,7 @@ export const normalizeApiModel = (value: unknown): string =>
 
 export function normalizeApiConfig(config: APIConfig): APIConfig {
   const visionApi = config.visionApi;
+  const imageGeneration = config.imageGeneration;
   return {
     ...config,
     baseUrl: normalizeApiBaseUrl(config.baseUrl),
@@ -29,6 +30,17 @@ export function normalizeApiConfig(config: APIConfig): APIConfig {
         baseUrl: normalizeApiBaseUrl(visionApi.baseUrl),
         apiKey: normalizeApiCredential(visionApi.apiKey),
         model: normalizeApiModel(visionApi.model),
+      },
+    } : {}),
+    ...(imageGeneration ? {
+      imageGeneration: {
+        provider: imageGeneration.provider === 'openai-compatible'
+          ? 'openai-compatible'
+          : 'pollinations-free',
+        baseUrl: normalizeApiBaseUrl(imageGeneration.baseUrl),
+        apiKey: normalizeApiCredential(imageGeneration.apiKey),
+        model: normalizeApiModel(imageGeneration.model),
+        useCharacterReference: imageGeneration.useCharacterReference !== false,
       },
     } : {}),
   };
