@@ -123,6 +123,13 @@ check "formatter 简报写入" utils/memoryPalace/formatter.ts "setLastRecallBri
 check "payload 简报穿透" utils/chatRequestPayload.ts "recalledMemories: getLastRecallBriefs"
 check "⚡ 面板召回小节" components/chat/ChatHeaderShell.tsx "[EM-START: token-panel-recall]"
 
+echo "── 七夕特别时光 ──"
+check "七夕完整活动" components/events/qixi/QixiDemoEvent.tsx "QIXI_MODEL_API_CALL_COUNT = 4"
+check "七夕角色独立 API" components/ValentineEvent.tsx "[EM: qixi-character-api]"
+check "七夕四次调用文案" components/ValentineEvent.tsx "[EM: qixi-api-call-copy]"
+check "七夕专用召回上限" utils/memoryPalace/pipeline.ts "[EM: qixi-recall-cap]"
+check "七夕聊天上下文" utils/chatPrompts.ts "formatQixiEventCardForContext"
+
 echo ""
 if [ $FAIL -gt 0 ]; then
     echo "🔴 $FAIL 项缺失（$PASS 项通过）——EM 功能被 merge 冲掉了，对照 .claude/CLAUDE.md 补回来"

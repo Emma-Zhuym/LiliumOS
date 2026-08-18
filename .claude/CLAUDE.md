@@ -65,7 +65,7 @@ merge 时 `grep -rn "EM-START\|\[EM:" --include="*.ts" --include="*.tsx"` 就能
 ### merge 后必跑自检
 
 ```bash
-bash scripts/check-em-patches.sh   # 当前 74 项锚点检查，红了就是功能被冲掉
+bash scripts/check-em-patches.sh   # 当前 79 项锚点检查，红了就是功能被冲掉
 pnpm vitest run                    # 单元测试
 ```
 
@@ -196,6 +196,14 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - 只有 Elias 的未来 Codex bridge 是专属通道
 - 心跳不进入普通任务清单，但 `hasActiveAiTask` 必须把它算作需要持续同步 fire_pack 的 AI 任务
 - 发布该功能时前端与 `worker/amsg/worker.bundle.js` 必须成对更新；详细契约见 `docs/amsg2-heartbeat.md`
+
+### 23. 七夕「星月梦境童话」
+- `components/ValentineEvent.tsx` 必须用 `resolveCharacterApiConfig` 为所选角色解析 API；不得退回直接把全局 `apiConfig` 传给七夕会话
+- 新旅程实际调用 4 次模型 API，活动卡和生成前确认文案必须一致；重看旧记录不得调用模型或重复写入私聊
+- `qixi_event_card` 与角色返回消息以 `qixiRunId` 幂等写入，完整活动内容通过 `utils/qixiChatCard.ts` 进入后续聊天上下文
+- `qixi_2026_dual_layer_v7` 是稳定存储键；内部快照版本升级时不得顺手改键导致旧记录失联
+- 七夕专用召回上限 20 条只通过 `injectMemoryPalace` 的可选参数生效，不得改变普通聊天召回上限
+- 详细契约见 `docs/qixi-special-moment.md`
 
 ## 合并时常见坑（踩过的 bug）
 

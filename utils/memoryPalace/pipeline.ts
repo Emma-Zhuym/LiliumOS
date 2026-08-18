@@ -318,6 +318,11 @@ function splitLastTurnQueries(messages: Message[]): {
  *
  * @param queryOverride App 自定义上下文（场景、题目等），会与最近一轮对话拼接后一起检索
  */
+export interface RecallRetrievalOptions { // [EM: qixi-recall-cap]
+    /** 调用方专用的最终召回/格式化上限；普通聊天仍保持原有默认值。 */
+    formatterMaxOutputItems?: number;
+}
+
 export async function retrieveMemories(
     recentMessages: Message[],
     charId: string,
@@ -329,6 +334,7 @@ export async function retrieveMemories(
     userName?: string,
     remoteVectorConfig?: RemoteVectorConfig,
     charName?: string,
+    recallOptions?: RecallRetrievalOptions,
 ): Promise<string> {
     // ── 分段计时：定位 memoryPalace 到底是网络慢还是计算慢 ──
     // tag: NET = 远端 API RTT；IDB = IndexedDB 读写；CPU = 纯本地计算
@@ -846,7 +852,9 @@ export async function retrieveMemories(
         //
         //   注入层面不做特别对待：rerank 追加的几条直接混入主 results，formatter
         //   按 finalScore 排序渲染。用户/LLM 不会感知是 rerank 推荐的，F12 里能看。
-        let formatterCap: number | undefined = undefined;
+        let formatterCap: number | undefined = recallOptions?.formatterMaxOutputItems == null
+            ? undefined
+            : Math.max(1, Math.min(30, Math.floor(recallOptions.formatterMaxOutputItems)));
         if (doRerank) {
             const rerankTailT0 = performance.now();
             const rrData = await rerankApiPromise;
@@ -889,7 +897,7 @@ export async function retrieveMemories(
                 // 排序自然落位；但通过 formatterCap 保证它们不被切掉。
                 if (rerankPicks.length > 0) {
                     results = [...results, ...rerankPicks.map(p => p.sm)];
-                    formatterCap = 15 + rerankPicks.length;
+                    formatterCap = Math.max(formatterCap ?? 15, 15 + rerankPicks.length);
                 }
             }
             // rerank_tail = 等 rerankApiPromise 落地 + dedup + touch，理想值接近 0
@@ -956,6 +964,7 @@ export async function injectMemoryPalace(
     recentMessages?: Message[],
     queryHint?: string,
     userName?: string,
+    traceContext?: { entryPoint?: string; formatterMaxOutputItems?: number },
 ): Promise<void> {
     if (!char.memoryPalaceEnabled) return;
     const embeddingConfig = getEmbeddingConfig(char.embeddingConfig);
@@ -989,6 +998,7 @@ export async function injectMemoryPalace(
             resolvedUserName,
             getRemoteVectorConfig(),
             char.name,
+            { formatterMaxOutputItems: traceContext?.formatterMaxOutputItems },
         );
         if (context) {
             char.memoryPalaceInjection = context;

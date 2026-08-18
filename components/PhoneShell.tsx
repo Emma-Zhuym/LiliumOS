@@ -137,6 +137,8 @@ const APP_BY_ID: Partial<Record<AppID, PreloadableLazy>> = {
 setAppPayloadWarmer((id: AppID) => { const c = APP_BY_ID[id]; if (c) warmLazy(c); });
 
 import { Like520Controller, shouldShowLike520Popup } from './Like520Event';
+import { QixiLaunchPopup } from './QixiLaunchPopup';
+import { shouldShowQixiLaunchPopup } from '../utils/qixiLaunchPopup';
 import { UpdateNotificationController, shouldShowUpdateNotification } from './UpdateNotificationEvent';
 import { WorkerUpdateReminderController, shouldShowWorkerUpdateReminder, rearmWorkerUpdateReminder } from './WorkerUpdateReminderEvent';
 import { loadInstantConfig, probeInstantWorkerVersion } from '../utils/instantPushClient';
@@ -488,29 +490,42 @@ const PhoneShell: React.FC = () => {
     }
   }, [showDisclaimer, showImportRecoveryPrompt, showAuthorLetter, showUpdateNotification, isDataLoaded, isLocked]);
 
+  // 七夕特别活动推送：严格按北京时间 2026-08-19 判断，处理后不再重复弹出。
+  const [showQixiLaunchPopup, setShowQixiLaunchPopup] = useState(false);
+  const qixiLaunchAsked = useRef(false);
+  useEffect(() => {
+    if (qixiLaunchAsked.current) return;
+    if (showDisclaimer || showImportRecoveryPrompt || showAuthorLetter || showUpdateNotification) return;
+    if (!isDataLoaded || isLocked) return;
+    if (shouldShowQixiLaunchPopup()) {
+      qixiLaunchAsked.current = true;
+      setShowQixiLaunchPopup(true);
+    }
+  }, [showDisclaimer, showImportRecoveryPrompt, showAuthorLetter, showUpdateNotification, isDataLoaded, isLocked]);
+
   // 520 特别活动弹窗（2026-05-20 当天，且没被 dismiss / completed）
   // 一次性：用户点过任何按钮就标记 dismissed，下次刷新不再出现；
   // API 配置改成弹窗内嵌，配完直接进活动，不再需要把弹窗暂存让位给 Settings。
   const [showLike520Popup, setShowLike520Popup] = useState(false);
   useEffect(() => {
-    if (showDisclaimer || showImportRecoveryPrompt || showAuthorLetter || showUpdateNotification) return;
+    if (showDisclaimer || showImportRecoveryPrompt || showAuthorLetter || showUpdateNotification || showQixiLaunchPopup) return;
     if (!isDataLoaded) return;
     if (shouldShowLike520Popup()) setShowLike520Popup(true);
-  }, [showDisclaimer, showImportRecoveryPrompt, showAuthorLetter, showUpdateNotification, isDataLoaded]);
+  }, [showDisclaimer, showImportRecoveryPrompt, showAuthorLetter, showUpdateNotification, showQixiLaunchPopup, isDataLoaded]);
 
   // Worker 后端更新提醒 — 只对启用了 Instant Push 的用户弹，且当前 worker 版本未确认过
   const [showWorkerUpdateReminder, setShowWorkerUpdateReminder] = useState(false);
   useEffect(() => {
-    if (showDisclaimer || showImportRecoveryPrompt || showAuthorLetter || showUpdateNotification || showLike520Popup) return;
+    if (showDisclaimer || showImportRecoveryPrompt || showAuthorLetter || showUpdateNotification || showQixiLaunchPopup || showLike520Popup) return;
     if (!isDataLoaded) return;
     if (shouldShowWorkerUpdateReminder()) setShowWorkerUpdateReminder(true);
-  }, [showDisclaimer, showImportRecoveryPrompt, showAuthorLetter, showUpdateNotification, showLike520Popup, isDataLoaded]);
+  }, [showDisclaimer, showImportRecoveryPrompt, showAuthorLetter, showUpdateNotification, showQixiLaunchPopup, showLike520Popup, isDataLoaded]);
 
   useEffect(() => {
-    if (showDisclaimer || showUpdateNotification) return;
+    if (showDisclaimer || showUpdateNotification || showQixiLaunchPopup) return;
     if (!isDataLoaded) return;
     if (shouldShowLike520Popup()) setShowLike520Popup(true);
-  }, [showDisclaimer, showUpdateNotification, isDataLoaded]);
+  }, [showDisclaimer, showUpdateNotification, showQixiLaunchPopup, isDataLoaded]);
   // 部署漂移自检：启动后异步 GET {workerUrl}/version（每 24h 最多一次）。
   // 常量比对只能发现「前端更新了」，发现不了「用户 seen 过但实际没部署 / 部署的是更老的包」——
   // 前端托管自动更新、worker 停在用户上次贴代码那天，这种漂移正是 instant 各类
@@ -537,10 +552,10 @@ const PhoneShell: React.FC = () => {
   // 「该备份啦」提醒 — local-first 数据只在本机，隔 N 天（默认 7，可在设置里改）没导出就弹一次
   const [showBackupReminder, setShowBackupReminder] = useState(false);
   useEffect(() => {
-    if (showDisclaimer || showImportRecoveryPrompt || showAuthorLetter || showUpdateNotification || showLike520Popup || showWorkerUpdateReminder) return;
+    if (showDisclaimer || showImportRecoveryPrompt || showAuthorLetter || showUpdateNotification || showQixiLaunchPopup || showLike520Popup || showWorkerUpdateReminder) return;
     if (!isDataLoaded || isLocked) return;
     if (shouldShowBackupReminder()) setShowBackupReminder(true);
-  }, [showDisclaimer, showImportRecoveryPrompt, showAuthorLetter, showUpdateNotification, showLike520Popup, showWorkerUpdateReminder, isDataLoaded, isLocked]);
+  }, [showDisclaimer, showImportRecoveryPrompt, showAuthorLetter, showUpdateNotification, showQixiLaunchPopup, showLike520Popup, showWorkerUpdateReminder, isDataLoaded, isLocked]);
 
   const dismissBackupReminder = () => {
     markBackupReminderShown();
@@ -886,22 +901,27 @@ const PhoneShell: React.FC = () => {
          <UpdateNotificationController onClose={() => setShowUpdateNotification(false)} />
        )}
 
+       {/* 七夕特别活动推送（北京时间 2026-08-19，当天至多出现一次） */}
+       {!showDisclaimer && !showImportRecoveryPrompt && !showAuthorLetter && !showUpdateNotification && showQixiLaunchPopup && (
+         <QixiLaunchPopup onClose={() => setShowQixiLaunchPopup(false)} />
+       )}
+
        {/* 520 特别活动弹窗（2026-05-20 当天，一次性） */}
-       {!showDisclaimer && !showImportRecoveryPrompt && !showAuthorLetter && !showUpdateNotification && showLike520Popup && (
+       {!showDisclaimer && !showImportRecoveryPrompt && !showAuthorLetter && !showUpdateNotification && !showQixiLaunchPopup && showLike520Popup && (
          <Like520Controller
            onClose={() => setShowLike520Popup(false)}
          />
        )}
 
        {/* Worker 后端更新提醒（仅启用 Instant Push 的用户，每个 worker 版本一次） */}
-       {!showDisclaimer && !showImportRecoveryPrompt && !showAuthorLetter && !showUpdateNotification && !showLike520Popup && showWorkerUpdateReminder && (
+       {!showDisclaimer && !showImportRecoveryPrompt && !showAuthorLetter && !showUpdateNotification && !showQixiLaunchPopup && !showLike520Popup && showWorkerUpdateReminder && (
          <WorkerUpdateReminderController
            onClose={() => setShowWorkerUpdateReminder(false)}
          />
        )}
 
        {/* 「该备份啦」提醒（local-first 数据只在本机，隔 N 天没导出弹一次） */}
-       {!showDisclaimer && !showImportRecoveryPrompt && !showAuthorLetter && !showUpdateNotification && !showLike520Popup && !showWorkerUpdateReminder && showBackupReminder && (
+       {!showDisclaimer && !showImportRecoveryPrompt && !showAuthorLetter && !showUpdateNotification && !showQixiLaunchPopup && !showLike520Popup && !showWorkerUpdateReminder && showBackupReminder && (
          <BackupReminderController
            onDismiss={dismissBackupReminder}
            onGoBackup={goBackupFromReminder}
