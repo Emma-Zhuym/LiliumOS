@@ -51,6 +51,7 @@ import {
 import { getLocalDateKey } from './localDate';
 import { normalizeAssistantActionFormatting } from './assistantActionFormat';
 import { generateChatImage } from './imageGeneration';
+import { getPhotoStylePrompt } from './photoStylePresets';
 
 // ─── 模块内辅助 ──────────────────────────────────────────────────────────────
 
@@ -691,18 +692,8 @@ export async function applyAssistantPostProcessing(
                     // EM: [[SEND_PHOTO: description]] — 走设置中的生图 API；默认仍是免配置免费通道。
                     await new Promise(r => setTimeout(r, Math.random() * 400 + 200));
                     // 风格预设：per-character photoStyle → 追加到描述末尾
-                    const PHOTO_STYLE_PRESETS: Record<string, string> = {
-                        'soft-film':      'analog film, polaroid, warm indoor light, film grain, soft focus',
-                        'clean-anime':    'anime illustration, clean lineart, soft cel shading, vivid colors',
-                        'cozy-home':      'cozy interior, warm lighting, lifestyle photography, homey atmosphere',
-                        'film-landscape': '35mm film photography, natural scenery, muted tones, cinematic',
-                        'still-life':     'still life photography, desaturated, minimal, soft shadows, quiet',
-                        'moody-portrait': 'moody portrait, cinematic lighting, atmospheric, dramatic shadows',
-                        'chinese-anime':  'chinese animation style, detailed illustration, vibrant, refined character art',
-                    };
-                    const styleTags = (char as any).photoStyle && PHOTO_STYLE_PRESETS[(char as any).photoStyle]
-                        ? `, ${PHOTO_STYLE_PRESETS[(char as any).photoStyle]}`
-                        : '';
+                    const photoStylePrompt = getPhotoStylePrompt((char as any).photoStyle);
+                    const styleTags = photoStylePrompt ? `, ${photoStylePrompt}` : '';
                     try {
                         const generated = await generateChatImage({
                             prompt: part.content + styleTags,

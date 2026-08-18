@@ -6,6 +6,7 @@ import type {
 } from '../types';
 import { dataUrlToBlob, getBlobForRef, isBlobRef } from './blobRef';
 import { getProxyWorkerUrl } from './proxyWorker';
+import { recordApiCall, type ApiCallMeta } from './apiCallLog';
 
 export const DEFAULT_IMAGE_GENERATION_CONFIG: Required<Pick<ImageGenerationApiConfig, 'provider' | 'useCharacterReference'>> = {
   provider: 'pollinations-free',
@@ -195,24 +196,91 @@ const parseImageResponse = async (response: Response): Promise<string> => {
   throw new Error('生图接口没有返回可用图片');
 };
 
+const imageCallMeta = (
+  input: GenerateChatImageInput,
+  referenceUsed: boolean,
+  requestMode: ImageGenerationRequestMode,
+): ApiCallMeta => ({
+  appId: input.char ? 'chat' : 'settings',
+  appName: input.char ? '消息' : '设置',
+  charId: input.char?.id,
+  charName: input.char?.name,
+  purpose: input.char
+    ? `AI 发照片${referenceUsed ? ' · 参考立绘' : ''}${requestMode === 'proxy' ? ' · Worker 中转' : ''}`
+    : `测试生图 API${requestMode === 'proxy' ? ' · Worker 中转' : ''}`,
+});
+
+/**
+ * 生图不经过 chat/completions 的全局日志拦截器，因此在这里显式记一笔。
+ * logBody 只含模型与文字提示词，绝不把 Key、FormData 或参考图 Base64 落库。
+ */
+const requestAndParseImage = async (input: {
+  networkUrl: string;
+  logicalUrl: string;
+  init: RequestInit;
+  model: string;
+  prompt: string;
+  meta: ApiCallMeta;
+  fetchImpl: typeof fetch;
+}): Promise<string> => {
+  const startedAt = Date.now();
+  let response: Response | undefined;
+  const logBody = {
+    model: input.model,
+    messages: [{ role: 'user', content: input.prompt }],
+  };
+  try {
+    response = await input.fetchImpl(input.networkUrl, input.init);
+    const image = await parseImageResponse(response);
+    recordApiCall({
+      url: input.logicalUrl,
+      body: logBody,
+      status: response.status,
+      ok: true,
+      meta: input.meta,
+      durationMs: Date.now() - startedAt,
+    });
+    return image;
+  } catch (error) {
+    recordApiCall({
+      url: input.logicalUrl,
+      body: logBody,
+      status: response?.status,
+      ok: false,
+      meta: input.meta,
+      durationMs: Date.now() - startedAt,
+    });
+    throw error;
+  }
+};
+
 const requestGeneration = async (
   config: ResolvedImageGenerationConfig,
   prompt: string,
   fetchImpl: typeof fetch,
+  meta: ApiCallMeta,
 ): Promise<string> => {
-  const response = await fetchImpl(buildImageApiUrl(config.baseUrl, 'generations'), {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
+  const url = buildImageApiUrl(config.baseUrl, 'generations');
+  return requestAndParseImage({
+    networkUrl: url,
+    logicalUrl: url,
+    model: config.model,
+    prompt,
+    meta,
+    fetchImpl,
+    init: {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
+      },
+      body: JSON.stringify({
+        model: config.model,
+        prompt,
+        n: 1,
+      }),
     },
-    body: JSON.stringify({
-      model: config.model,
-      prompt,
-      n: 1,
-    }),
   });
-  return parseImageResponse(response);
 };
 
 const requestEdit = async (
@@ -220,18 +288,28 @@ const requestEdit = async (
   prompt: string,
   reference: Blob,
   fetchImpl: typeof fetch,
+  meta: ApiCallMeta,
 ): Promise<string> => {
   const form = new FormData();
+  const fullPrompt = `${IDENTITY_REFERENCE_PROMPT}\n\nScene prompt: ${prompt}`;
   form.append('model', config.model);
-  form.append('prompt', `${IDENTITY_REFERENCE_PROMPT}\n\nScene prompt: ${prompt}`);
+  form.append('prompt', fullPrompt);
   form.append('image', reference, `character-reference.${reference.type === 'image/jpeg' ? 'jpg' : 'png'}`);
   form.append('n', '1');
-  const response = await fetchImpl(buildImageApiUrl(config.baseUrl, 'edits'), {
-    method: 'POST',
-    headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : undefined,
-    body: form,
+  const url = buildImageApiUrl(config.baseUrl, 'edits');
+  return requestAndParseImage({
+    networkUrl: url,
+    logicalUrl: url,
+    model: config.model,
+    prompt: fullPrompt,
+    meta,
+    fetchImpl,
+    init: {
+      method: 'POST',
+      headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : undefined,
+      body: form,
+    },
   });
-  return parseImageResponse(response);
 };
 
 const requestViaProxy = async (
@@ -239,21 +317,30 @@ const requestViaProxy = async (
   prompt: string,
   reference: Blob | undefined,
   fetchImpl: typeof fetch,
+  meta: ApiCallMeta,
 ): Promise<string> => {
-  const response = await fetchImpl(`${getProxyWorkerUrl()}/image-generation`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
+  const fullPrompt = reference ? `${IDENTITY_REFERENCE_PROMPT}\n\nScene prompt: ${prompt}` : prompt;
+  return requestAndParseImage({
+    networkUrl: `${getProxyWorkerUrl()}/image-generation`,
+    logicalUrl: buildImageApiUrl(config.baseUrl, reference ? 'edits' : 'generations'),
+    model: config.model,
+    prompt: fullPrompt,
+    meta,
+    fetchImpl,
+    init: {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
+      },
+      body: JSON.stringify({
+        baseUrl: config.baseUrl,
+        model: config.model,
+        prompt: fullPrompt,
+        referenceImageDataUrl: reference ? await blobToDataUrl(reference) : undefined,
+      }),
     },
-    body: JSON.stringify({
-      baseUrl: config.baseUrl,
-      model: config.model,
-      prompt: reference ? `${IDENTITY_REFERENCE_PROMPT}\n\nScene prompt: ${prompt}` : prompt,
-      referenceImageDataUrl: reference ? await blobToDataUrl(reference) : undefined,
-    }),
   });
-  return parseImageResponse(response);
 };
 
 export async function generateChatImage(input: GenerateChatImageInput): Promise<GeneratedChatImage> {
@@ -277,9 +364,10 @@ export async function generateChatImage(input: GenerateChatImageInput): Promise<
   if (referenceSource) {
     try {
       const referenceBlob = await toReferenceBlob(referenceSource, fetchImpl);
+      const meta = imageCallMeta(input, true, config.requestMode);
       const url = config.requestMode === 'proxy'
-        ? await requestViaProxy(config, input.prompt, referenceBlob, fetchImpl)
-        : await requestEdit(config, input.prompt, referenceBlob, fetchImpl);
+        ? await requestViaProxy(config, input.prompt, referenceBlob, fetchImpl, meta)
+        : await requestEdit(config, input.prompt, referenceBlob, fetchImpl, meta);
       return { url, provider: config.provider, model: config.model, referenceUsed: true };
     } catch (error) {
       const canFallback = !(error instanceof ImageApiResponseError)
@@ -293,8 +381,8 @@ export async function generateChatImage(input: GenerateChatImageInput): Promise<
 
   return {
     url: config.requestMode === 'proxy'
-      ? await requestViaProxy(config, input.prompt, undefined, fetchImpl)
-      : await requestGeneration(config, input.prompt, fetchImpl),
+      ? await requestViaProxy(config, input.prompt, undefined, fetchImpl, imageCallMeta(input, false, config.requestMode))
+      : await requestGeneration(config, input.prompt, fetchImpl, imageCallMeta(input, false, config.requestMode)),
     provider: config.provider,
     model: config.model,
     referenceUsed: false,

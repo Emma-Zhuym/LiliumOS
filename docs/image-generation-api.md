@@ -1,6 +1,6 @@
 # LiliumOS 生图 API 与角色立绘参考
 
-> 状态：第二版兼容性修复已实现，主 Worker 中转路由尚待部署。最后核对：2026-08-18。
+> 状态：自定义直连与主 Worker 中转均已在线出图，角色画风预设和本地 API 调用记录已接入。最后核对：2026-08-18。
 
 ## 目标
 
@@ -32,6 +32,22 @@
 - 设置页可直接生成一张测试图并显示真实错误，不必等待聊天模型触发 `SEND_PHOTO`。
 - `/models` 不可用或格式不兼容时仍可手动输入模型名。
 - 生图模型列表和选择不改变主聊天模型或识图模型。
+
+## 角色画风预设
+
+聊天设置中的“发照片风格”由 `utils/photoStylePresets.ts` 统一提供标签和提示词，避免界面选项与实际生成标签漂移。当前预设为：
+
+- 无
+- 真实随拍
+- 日系透明水彩
+- 半写实幻想
+- 柔光胶片
+- 韩系精绘
+- 清透日漫
+- 电影写真
+- 厚涂插画
+
+其中，水彩预设只迁移透明水彩、纸张颗粒、晕染和细线稿，不复制参考作品的姿势、服装、构图或背景；半写实幻想保留二次元五官比例，强化湿发、珠宝、水面和织物等真实材质，同时压制毛孔级和 uncanny 的过度真人化；韩系精绘只采用彩色条漫/乙女游戏 CG 式的干净线稿、赛璐璐与柔和体积上色，不锁定粉色或任何固定背景物件。
 
 ## 配置契约
 
@@ -102,6 +118,14 @@ interface ImageGenerationApiConfig {
 
 身份一致性属于模型能力和提示词共同作用的尽力而为结果，不承诺像素级锁脸。
 
+## API 调用记录
+
+- 自定义生图的 `/images/generations` 与 `/images/edits` 会进入 `设置 → API 调用记录`，不再只由中转站侧留痕。
+- 记录包含请求模型、成功/失败、HTTP 状态、完整响应耗时、角色、是否尝试参考立绘以及是否经 Worker 中转。
+- 参考图编辑失败后若触发纯文字降级，两次调用分别记录，便于区分“编辑不支持”和“最终仍成功出图”。
+- 本地日志只统计文字提示词长度；不会保存 API Key、multipart 表单、角色立绘 Base64 或生成图片正文。
+- 历史请求不会补录；功能更新后的新请求才会出现。
+
 ## 消息与主动消息链
 
 - `utils/applyAssistantPostProcessing.ts` 统一处理 `[[SEND_PHOTO]]`。
@@ -125,11 +149,11 @@ interface ImageGenerationApiConfig {
 - `utils/apiConfigNormalize.test.ts`
 - `utils/applyAssistantPostProcessing.test.ts`
 - `worker/imageGenerationProxy.test.ts`
-- 本轮定向验证合计 37 tests passed。
+- 最新定向验证覆盖生图协议、调用记录、聊天后处理与画风预设，合计 70 tests passed，其中画风预设 5 tests passed。
 - Worker bundle 与 Vite 生产构建通过。
 - `bash scripts/check-em-patches.sh`：74/74。
 - localhost 页面检查覆盖：免费/自定义切换、直连/中转模式、测试生图、立绘参考、模型列表入口和模型选择弹层。
-- 全仓 `tsc --noEmit` 仍被既有的 MemoryPalace、MessageItem、CompanionHome 等错误阻断，本次相关文件未新增报错。
+- localhost 聊天设置已确认九个画风选项完整显示；自定义浏览器直连与 Worker 中转均完成真实出图。
 
 ## 相关实现
 

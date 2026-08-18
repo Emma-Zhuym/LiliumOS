@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { CharacterProfile } from '../types';
+import { recordApiCall } from './apiCallLog';
 import {
   buildImageApiUrl,
   buildImageModelsUrl,
@@ -8,6 +9,8 @@ import {
   pickCharacterImageReference,
   resolveImageGenerationConfig,
 } from './imageGeneration';
+
+vi.mock('./apiCallLog', () => ({ recordApiCall: vi.fn() }));
 
 const character = (patch: Partial<CharacterProfile> = {}): CharacterProfile => ({
   id: 'c1',
@@ -74,6 +77,13 @@ describe('generateChatImage', () => {
     expect((calls[0][1]?.body as FormData).get('image')).toBeInstanceOf(Blob);
     expect((calls[0][1]?.body as FormData).get('image[]')).toBeNull();
     expect(result).toMatchObject({ referenceUsed: true, url: 'data:image/png;base64,QUJD' });
+    expect(recordApiCall).toHaveBeenCalledWith(expect.objectContaining({
+      url: 'https://img.example/v1/images/edits',
+      ok: true,
+      meta: expect.objectContaining({ purpose: 'AI 发照片 · 参考立绘' }),
+    }));
+    const loggedBody = vi.mocked(recordApiCall).mock.calls.at(-1)?.[0].body as any;
+    expect(JSON.stringify(loggedBody)).not.toContain('QUJD');
   });
 
   it('uses the configured Worker relay for a static frontend', async () => {
@@ -94,6 +104,10 @@ describe('generateChatImage', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(String(fetchImpl.mock.calls[0][0])).toContain('/image-generation');
     expect(result.url).toBe('data:image/webp;base64,QUJD');
+    expect(recordApiCall).toHaveBeenCalledWith(expect.objectContaining({
+      url: 'https://img.example/v1/images/generations',
+      meta: expect.objectContaining({ purpose: '测试生图 API · Worker 中转' }),
+    }));
   });
 
   it('falls back to text generation when the model rejects reference images', async () => {

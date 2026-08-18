@@ -9,6 +9,7 @@ import { formatSleepTimelineTime, SLEEP_TIMELINE_END, SLEEP_TIMELINE_START } fro
 import { isTranslationLangPreset, normalizeTranslationLangLabel, TRANSLATION_LANG_MAX_LENGTH, TRANSLATION_LANG_PRESETS } from '../../utils/translationLang';
 import type { ContextRangeMode, ContextRangeSnapshot } from '../../utils/chatContextRange';
 import { trackEvent } from '../../utils/analytics';
+import { PHOTO_STYLE_PRESETS } from '../../utils/photoStylePresets';
 
 interface ChatModalsProps {
     modalType: string;
@@ -608,21 +609,12 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                      <div className="pt-2 border-t border-slate-100">
                          <label className="text-xs font-bold text-slate-400 uppercase block mb-2">发照片风格</label>
                          <div className="flex flex-wrap gap-1.5">
-                             {[
-                                 { v: '', l: '无' },
-                                 { v: 'soft-film', l: '柔光胶片' },
-                                 { v: 'clean-anime', l: '清透动画' },
-                                 { v: 'cozy-home', l: '居家温暖' },
-                                 { v: 'film-landscape', l: '胶片风景' },
-                                 { v: 'still-life', l: '低饱和静物' },
-                                 { v: 'moody-portrait', l: '氛围写真' },
-                                 { v: 'chinese-anime', l: '国漫风' },
-                             ].map(opt => (
-                                 <button key={opt.v} onClick={() => onSetPhotoStyle?.(opt.v)}
-                                     className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-all ${(photoStyle || '') === opt.v ? 'bg-violet-500 text-white' : 'bg-slate-100 text-slate-500'}`}>
-                                     {opt.l}
-                                 </button>
-                             ))}
+                            {PHOTO_STYLE_PRESETS.map(opt => (
+                                <button key={opt.value} onClick={() => onSetPhotoStyle?.(opt.value)}
+                                    className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-all ${(photoStyle || '') === opt.value ? 'bg-violet-500 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                                    {opt.label}
+                                </button>
+                            ))}
                          </div>
                          <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">选择风格后，AI 发照片时会在描述末尾追加对应的画风 tag，影响当前生图 API 的生成效果。</p>
                      </div>

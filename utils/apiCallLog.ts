@@ -160,9 +160,9 @@ function stripTrailingSlash(s: string): string {
     return s.replace(/\/+$/, '');
 }
 
-/** 把 `https://host/v1/chat/completions` 还原成 `https://host/v1`（预设里存的 baseUrl 形态）。 */
+/** 把具体调用端点还原成预设里保存的 `https://host/v1` 形态。 */
 function deriveBaseUrl(url: string): string {
-    return stripTrailingSlash(url.replace(/\/chat\/completions\/?$/i, ''));
+    return stripTrailingSlash(url.replace(/\/(?:chat\/completions|images\/(?:generations|edits))\/?$/i, ''));
 }
 
 function hostOf(url: string): string {
