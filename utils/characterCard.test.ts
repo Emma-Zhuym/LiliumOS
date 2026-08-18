@@ -8,6 +8,7 @@ describe('stripSensitiveCardFields', () => {
       systemPrompt: '你是小明',
       emotionConfig: { enabled: true, api: { baseUrl: 'https://x', apiKey: 'sk-SECRET', model: 'gpt' } },
       embeddingConfig: { baseUrl: 'https://x', apiKey: 'sk-SECRET2', model: 'emb', dimensions: 1024 },
+      chatApiPresetId: 'local-private-preset',
       proactiveConfig: { enabled: true, intervalMinutes: 60, secondaryApi: { baseUrl: 'https://x', apiKey: 'sk-SECRET3', model: 'gpt' } },
       activeMsg2Config: { enabled: true, secondaryApi: { apiKey: 'sk-SECRET4' } },
     };
@@ -20,6 +21,7 @@ describe('stripSensitiveCardFields', () => {
     expect(json).not.toContain('sk-SECRET');
     expect(out).not.toHaveProperty('emotionConfig');
     expect(out).not.toHaveProperty('embeddingConfig');
+    expect(out).not.toHaveProperty('chatApiPresetId');
     expect(out).not.toHaveProperty('proactiveConfig');
     expect(out).not.toHaveProperty('activeMsg2Config');
   });
@@ -77,7 +79,7 @@ describe('stripSensitiveCardFields', () => {
   });
 
   it('清单覆盖四类敏感字段', () => {
-    for (const k of ['emotionConfig', 'embeddingConfig', 'bubbleStyle', 'chatVoiceLang', 'memoryPalaceWaterline', 'activeBuffs', 'phoneState']) {
+    for (const k of ['emotionConfig', 'embeddingConfig', 'chatApiPresetId', 'bubbleStyle', 'chatVoiceLang', 'memoryPalaceWaterline', 'activeBuffs', 'phoneState']) {
       expect(CARD_STRIPPED_FIELDS).toContain(k);
     }
   });

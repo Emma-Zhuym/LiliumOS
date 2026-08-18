@@ -88,7 +88,7 @@ const CharacterCard: React.FC<{
 );
 
 const Character: React.FC = () => {
-  const { closeApp, openApp, characters, activeCharacterId, setActiveCharacterId, addCharacter, updateCharacter, deleteCharacter, characterGroups, createCharacterGroup, renameCharacterGroup, deleteCharacterGroup, apiConfig, addToast, userProfile, worldbooks, addWorldbook } = useOS();
+  const { closeApp, openApp, characters, activeCharacterId, setActiveCharacterId, addCharacter, updateCharacter, deleteCharacter, characterGroups, createCharacterGroup, renameCharacterGroup, deleteCharacterGroup, apiConfig, apiPresets, addToast, userProfile, worldbooks, addWorldbook } = useOS();
   const launchIntent = characterLaunch.peek();
   const [view, setView] = useState<'list' | 'detail'>(() => launchIntent ? 'detail' : 'list');
   const [charPage, setCharPage] = useState(0); // 角色列表分页（每页 6 个，仅未建分组时）
@@ -1369,6 +1369,41 @@ const parsed = normalizeUserImpression(JSON.parse(content));
                                    )}
                                </div>
                            </div>
+
+                           {/* [EM-START: character-api-preset] */}
+                           <div className="bg-white rounded-3xl p-4 shadow-sm border border-slate-100">
+                               <label className="text-[10px] font-bold text-violet-500 uppercase tracking-widest block">聊天 API</label>
+                               <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                                   给这个角色绑定「设置 → API」里已经保存的预设。只影响 ta 的聊天与主动消息；不选就继续跟随主 API。
+                               </p>
+                               <select
+                                   value={formData.chatApiPresetId || ''}
+                                   onChange={(e) => {
+                                       handleChange('chatApiPresetId', e.target.value || undefined);
+                                       trackEvent('切换角色聊天 API', { mode: e.target.value ? 'preset' : 'global' });
+                                   }}
+                                   className="mt-3 w-full bg-slate-50 rounded-2xl px-3 py-2.5 text-xs text-slate-700 border border-slate-200 outline-none focus:ring-1 focus:ring-primary/30"
+                               >
+                                   <option value="">跟随主 API</option>
+                                   {formData.chatApiPresetId && !apiPresets.some((preset) => preset.id === formData.chatApiPresetId) && (
+                                       <option value={formData.chatApiPresetId}>原预设已删除（现在跟随主 API）</option>
+                                   )}
+                                   {apiPresets.map((preset) => (
+                                       <option key={preset.id} value={preset.id}>{preset.name} · {preset.config.model || '未填模型'}</option>
+                                   ))}
+                               </select>
+                               {formData.chatApiPresetId && !apiPresets.some((preset) => preset.id === formData.chatApiPresetId) && (
+                                   <p className="mt-2 text-[10px] leading-relaxed text-amber-500">
+                                       这个预设已经不在设置里了，ta 会先安全使用主 API。你可以在上面重新选择。
+                                   </p>
+                               )}
+                               {apiPresets.length === 0 && (
+                                   <p className="mt-2 text-[10px] leading-relaxed text-slate-400">
+                                       还没有命名预设；先去设置保存一份，回来就能直接选。
+                                   </p>
+                               )}
+                           </div>
+                           {/* [EM-END: character-api-preset] */}
 
                            <div>
                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">核心指令 (System Prompt)</label>

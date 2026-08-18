@@ -43,6 +43,7 @@ import {
 } from './amsgLlmCredentials';
 import { trackEvent } from './analytics';
 import { DB } from './db';
+import { resolveCharacterApiConfig } from './characterApi';
 
 /** 失败重试的退避起点，逐次翻倍（30s → 60s → 120s）。 */
 const RETRY_BASE_MS = 30_000;
@@ -487,9 +488,10 @@ export const buildCredentialRowsToResync = async (
   for (const { charId, purpose } of wanted) {
     const char = byId.get(charId);
     if (!char) continue;
+    const characterApi = resolveCharacterApiConfig(char, apiConfig).apiConfig;
     const row = purpose === 'chat'
-      ? buildCharChatCredRow(char, char.activeMsg2Config, apiConfig)
-      : buildCharEmotionCredRow(charId, char.emotionConfig?.api, apiConfig);
+      ? buildCharChatCredRow(char, char.activeMsg2Config, characterApi)
+      : buildCharEmotionCredRow(charId, char.emotionConfig?.api, characterApi);
     if (row) rows.push(row);
   }
   return rows;

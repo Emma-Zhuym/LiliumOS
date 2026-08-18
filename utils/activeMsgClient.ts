@@ -45,6 +45,7 @@ import {
   type LlmCredentialRow,
 } from './amsgLlmCredentials';
 import { flattenContentPartsToText } from './promptMessageCleanup';
+import { resolveCharacterApiConfig } from './characterApi';
 import {
   AMSG_FIRE_PACK_KEY,
   FIRE_PACK_VERSION,
@@ -440,7 +441,8 @@ const initializeClient = (config: ActiveMsg2GlobalConfig) => {
 
 const resolveApiConfig = (char: CharacterProfile, config: ActiveMsg2CharacterConfig, apiConfig: APIConfig) => {
   const useSecondary = config.useSecondaryApi && config.secondaryApi?.baseUrl;
-  const source = useSecondary ? config.secondaryApi! : apiConfig;
+  const characterApi = resolveCharacterApiConfig(char, apiConfig).apiConfig;
+  const source = useSecondary ? config.secondaryApi! : characterApi;
 
   if (!source.baseUrl || !source.apiKey || !source.model) {
     throw new Error('主动消息 2.0 缺少可用的 API URL / Key / Model。');
@@ -2079,7 +2081,11 @@ export const ActiveMsgClient = {
         // 引用与内联三件套上游只收一种，同传直接 400——所以这条路上一个内联字段都不写。
         // 行的值按 (char, config, apiConfig) 现算，与后台补传那条路同一个入口，
         // 两边算出来的指纹才对得上（否则每次排程都会白传一次）。
-        credRow = buildCharChatCredRow(char, config, apiConfig);
+        credRow = buildCharChatCredRow(
+          char,
+          config,
+          resolveCharacterApiConfig(char, apiConfig).apiConfig,
+        );
         if (!credRow) throw new Error('主动消息 2.0 缺少可用的 API URL / Key / Model。');
         payload.credRefs = { chat: credRow.credId };
       } else {

@@ -1,6 +1,6 @@
 
 import { useState, useRef, useEffect, MutableRefObject } from 'react';
-import { CharacterProfile, UserProfile, Message, Emoji, EmojiCategory, GroupProfile, RealtimeConfig, CharacterBuff, Amsg2ExpiredNoticeRecord } from '../types';
+import { CharacterProfile, UserProfile, Message, Emoji, EmojiCategory, GroupProfile, RealtimeConfig, CharacterBuff, Amsg2ExpiredNoticeRecord, ApiPreset } from '../types';
 import { DB } from '../utils/db';
 import { ChatPrompts } from '../utils/chatPrompts';
 import { safeFetchJson, safeResponseJson } from '../utils/safeApi';
@@ -50,6 +50,7 @@ import { getLastRealUserMessageAt } from '../utils/amsg2ExpireGuard';
 import { getPendingTasks, hasActiveAiTask, isAmsg2EnabledForChar } from '../utils/amsg2Tasks';
 import { buildAmsg2NoticesText, buildAmsg2TaskContextText, collectAmsg2TaskContext } from '../utils/amsg2TaskContext';
 import { resolveCharTimeZone } from '../utils/timezone';
+import { resolveCharacterApiConfig } from '../utils/characterApi';
 import { getInstantChatPending, resolveInstantChatReadiness, sendInstantChatTurn, stageInstantChatExpiredNotices } from '../utils/amsgInstantChat';
 // worker 模块的常量叶子（零运行时依赖，前端引它不带进 worker 环境）：
 // 云端 fire 的总时长上限，安全网超时从它推导，worker 调预算时前端自动跟上。
@@ -462,6 +463,7 @@ interface UseChatAIProps {
     char: CharacterProfile | undefined;
     userProfile: UserProfile;
     apiConfig: any;
+    apiPresets: ApiPreset[];
     groups: GroupProfile[];
     emojis: Emoji[];
     categories: EmojiCategory[];
@@ -490,6 +492,7 @@ export const useChatAI = ({
     char,
     userProfile,
     apiConfig,
+    apiPresets,
     groups,
     emojis,
     categories,
@@ -579,11 +582,11 @@ export const useChatAI = ({
     // 用 ref 包高频变化的依赖 (music / userProfile / 等), 不在 dep 数组里 → effect 只在 char.id 变时
     // 重建 listener (切角色), 避免 music 每秒 tick 一次都 remove+addEventListener.
     const emotionEvalDepsRef = useRef({
-        userProfile, groups, emojis, categories, realtimeConfig, apiConfig,
+        userProfile, groups, emojis, categories, realtimeConfig, apiConfig, apiPresets,
         translationConfig, music, mcdMiniAppRef, luckinMiniAppRef, luckinChatRef, evolvedNarrative,
     });
     emotionEvalDepsRef.current = {
-        userProfile, groups, emojis, categories, realtimeConfig, apiConfig,
+        userProfile, groups, emojis, categories, realtimeConfig, apiConfig, apiPresets,
         translationConfig, music, mcdMiniAppRef, luckinMiniAppRef, luckinChatRef, evolvedNarrative,
     };
 
@@ -607,9 +610,10 @@ export const useChatAI = ({
                 return;
             }
             // 评估跟随全局流式开关（与 triggerAI 路径同口径；专用情绪 API 自带 stream 时以它为准）
+            const evalCharacterApi = resolveCharacterApiConfig(evalChar, deps.apiConfig, deps.apiPresets).apiConfig;
             const emotionApi = (evalChar.emotionConfig.api?.baseUrl)
-                ? { ...evalChar.emotionConfig.api, stream: (evalChar.emotionConfig.api as any).stream ?? !!(deps.apiConfig.stream ?? false) }
-                : { baseUrl: deps.apiConfig.baseUrl, apiKey: deps.apiConfig.apiKey, model: deps.apiConfig.model, stream: !!(deps.apiConfig.stream ?? false) };
+                ? { ...evalChar.emotionConfig.api, stream: (evalChar.emotionConfig.api as any).stream ?? !!(evalCharacterApi.stream ?? false) }
+                : { baseUrl: evalCharacterApi.baseUrl, apiKey: evalCharacterApi.apiKey, model: evalCharacterApi.model, stream: !!(evalCharacterApi.stream ?? false) };
 
             try {
                 // 重新从 DB 拉与主聊天一致的「自适应/拉杆最大范围 + 用户断点」。
@@ -748,7 +752,11 @@ export const useChatAI = ({
         // 早退路径也要熄「发送准备中」灯: caller (Chat.tsx) 是先 setInstantSendingActive(true)
         // 再调 triggerAI 的, 这里 return 掉而不通知的话指示灯会永远亮着。
         if (isTyping || !char) { onInstantPosted?.(); return; }
-        const effectiveApi = overrideApiConfig || apiConfig;
+        // [EM-START: character-api-routing]
+        // 手动 override（少数重试/特殊入口）优先；普通私聊按角色绑定的命名预设路由。
+        // 旧角色没绑定、或预设被删时，resolver 会保持原来的全局 API 行为。
+        const effectiveApi = overrideApiConfig || resolveCharacterApiConfig(char, apiConfig, apiPresets).apiConfig;
+        // [EM-END: character-api-routing]
         if (!effectiveApi.baseUrl) { alert("请先在设置中配置 API URL"); onInstantPosted?.(); return; }
 
         // 重 roll（回溯重生）时不带入上一轮的情绪余波：清掉 buff 注入（buffInjection/activeBuffs）和
@@ -777,7 +785,7 @@ export const useChatAI = ({
         // 累加，所以由 session 兜住最新 config，别从 char 快照上读写（char 是生成开始的
         // 那份，updateCharacter 不回写它）。finally 里打脏也要读它，所以声明在 try 外面。
         const amsg2Session = createAmsg2ToolSession({
-            char, userProfile, groups, realtimeConfig, apiConfig, updateCharacter,
+            char, userProfile, groups, realtimeConfig, apiConfig: effectiveApi, updateCharacter,
         });
         // 本轮里角色自己新排出来的任务。排程现状块每轮现算时靠它把这些点名标出来——不标
         // 的话角色分不清清单上哪条是自己刚排的，回头又排一条一模一样的。
@@ -1062,7 +1070,7 @@ export const useChatAI = ({
             const emotionApi = emotionEvalEnabled
                 ? ((char.emotionConfig!.api?.baseUrl)
                     ? { ...char.emotionConfig!.api!, stream: (char.emotionConfig!.api as any).stream ?? evalStream }
-                    : { baseUrl: apiConfig.baseUrl, apiKey: apiConfig.apiKey, model: apiConfig.model, stream: evalStream })
+                    : { baseUrl: effectiveApi.baseUrl, apiKey: effectiveApi.apiKey, model: effectiveApi.model, stream: evalStream })
                 : null;
             // 本地路径的情绪评估：主 fetch 发出后立即发射（见下方调用点）。
             // 历史备注：曾为串行中转做过 1.5s 错峰（评估抢跑会把主回复压后一个评估时长），

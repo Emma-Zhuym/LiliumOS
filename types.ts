@@ -2567,6 +2567,8 @@ export interface MemoryPalaceWaterlineConfig {
 export interface CharacterProfile {
   id: string;
   name: string;
+  /** 角色主聊天 API：引用设置里已有的命名预设；未设置或预设已删除时跟随主 API。 */
+  chatApiPresetId?: string;
   themeColor?: number; // [EM: theme-color] 小小窝日程小组件主题色相 (hsl hue 0-360)，undefined=默认260紫
   avatar: string;
   /**

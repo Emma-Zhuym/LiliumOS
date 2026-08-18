@@ -20,6 +20,7 @@ export const CARD_STRIPPED_FIELDS = [
   // 1) 凭据（含 apiKey，灾难级泄漏）
   'emotionConfig',
   'embeddingConfig',
+  'chatApiPresetId',        // 本机预设 id；接收方可能恰好有同 id 的另一套私密配置
   'proactiveConfig',
   'activeMsg2Config',
 

@@ -168,6 +168,12 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - 真实自动合成额外要求 `characterHasVoice(char, apiConfig)`；未配置时只跳过合成，不能阻断标签输出或改成普通文本。
 - `apps/ThemeMaker.tsx` 与 `MessageItem.tsx` 的 `voiceBarBg`、`voiceBarActiveBg`、`voiceBarBtnColor`、`voiceBarWaveColor`、`voiceBarTextColor` 是上游主题契约。EM 用户文字语音也必须复用它们；不得删除面板或用普通气泡颜色替代。
 
+### 20. 角色聊天 API 独立绑定
+- `CharacterProfile.chatApiPresetId` 只引用「设置 → API」中已有的命名预设；未设置或预设删除时必须回退主 API。
+- Chat 快捷栏切换 API 只更新当前角色，不能调用 `updateApiConfig` 改动全局主 API；角色设定页与 Chat 共用同一字段。
+- `utils/characterApi.ts` 是私聊、本地主动消息、QQ Bridge 与 Active Message 2.0 的统一解析入口；主动消息专用 `secondaryApi` 仍保持更高优先级。
+- 分享角色卡必须剥离本机 `chatApiPresetId`，完整备份则保留角色和预设引用。
+
 ## 合并时常见坑（踩过的 bug）
 
 ### PhoneShell.tsx — messageSubView 必须解构

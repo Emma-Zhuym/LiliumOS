@@ -1,14 +1,15 @@
 # LiliumOS Current Progress
 
-> 发布基线与验收分支并列记录。最后更新：2026-08-16。
+> 发布基线与验收分支并列记录。最后更新：2026-08-17。
 
 ## 快照范围
 
-- 发布分支：`main`，当前 `d214bf16`（LiliumOS 品牌、图标与旧本地存储键兼容迁移）。
-- 当前工作分支：`merge-upstream-2026-08-15`；HEAD 与 `origin/main` 同为 `d214bf16`。
+- 本地发布分支：`main`，已包含 LiliumOS 品牌迁移与角色 API 独立绑定。
+- 远端 `origin/main` 的最后核对基线为 `fddf7c5a`；推送仍需单独批准。
 
 ## 最近完成
 
+- 角色可绑定「设置 → API」里已有的命名预设；Chat 页快捷切换只改当前角色，私聊、本地主动消息与 Active Message 2.0 按同一角色路由，旧角色继续跟随主 API，预设缺失时安全回退。
 - LiliumOS 品牌文案与新图标已发布；公开仓库改名为 `Emma-Zhuym/LiliumOS`，Pages 地址迁移到 `https://emma-zhuym.github.io/LiliumOS/`。
 - SimpleFIN 已完成账户、余额和交易的只读同步；新交易进入待分类复核，桌面角标和统一消息弹窗显示待处理数量。
 - 同步账户允许自定义昵称、类型、图标和颜色；SimpleFIN 后续同步只更新外部来源字段，不覆盖本地展示设置与层级分类。
@@ -34,6 +35,7 @@
 
 ## 验证基线
 
+- 角色 API 解绑（2026-08-17）：生产构建通过；角色路由、角色卡隐私与主动消息相关定向测试 208 passed；`check-em-patches.sh` 74/74；全仓类型检查仍被既有的 MemoryPalace 等错误阻断，本次改动文件未新增报错。
 - `main`（2026-07-29）：`check-em-patches.sh` 74/74；`pnpm vitest run` 123 个测试文件、1250 passed、5 skipped；构建通过。
 - 验收分支（2026-08-01）：`check-em-patches.sh` 74/74；全量 `pnpm vitest run` 133 个测试文件、1355 passed、5 skipped；构建通过。
 - 验收分支定向补测：语音提示词/标签/转文字相关测试 57 passed；日程生成与 MessageItem 定向测试 18 passed。

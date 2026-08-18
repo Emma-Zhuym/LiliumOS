@@ -44,6 +44,8 @@ const QQBridge: React.FC = () => {
     characters,
     characterGroups,
     apiConfig,
+    // [EM: character-api-preset]
+    apiPresets,
     userProfile,
     groups,
     realtimeConfig,
@@ -86,6 +88,8 @@ const QQBridge: React.FC = () => {
     char: char || undefined,
     userProfile,
     apiConfig,
+    // [EM: character-api-preset]
+    apiPresets,
     groups,
     emojis: [],
     categories: [],

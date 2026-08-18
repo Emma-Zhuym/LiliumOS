@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { ShareNetwork, Trash, Plus, Smiley, PaperPlaneTilt, Money, BookOpenText, GearSix, Image, Lock, ArrowsClockwise, ChatCircleDots, CalendarBlank, ForkKnife, Coffee, Code, Brain, PencilSimple, BellSimpleRinging, NotePencil, GameController, Microphone, Waveform, Sparkle, CaretDown, FadersHorizontal, LinkSimple, MagicWand, Alarm } from '@phosphor-icons/react'; // [EM: icons NotePencil/GameController/Microphone/Waveform]
 import { intifaceClient } from '../../utils/intifaceClient'; // [EM: intiface]
-import { CharacterProfile, ChatTheme, EmojiCategory, Emoji, APIConfig, ApiPreset } from '../../types';
+import { CharacterProfile, ChatTheme, EmojiCategory, Emoji, ApiPreset } from '../../types';
 import { PRESET_THEMES } from './ChatConstants';
 import { AcnhActionTile } from '../os/acnhIcons';
 import { isIOSStandaloneWebApp } from '../../utils/iosStandalone';
@@ -61,9 +61,10 @@ interface ChatInputAreaProps {
     /** 外观设置中开启的聊天快捷栏：默认关闭，避免改动上游输入栏形态。 */
     // [EM-START: chat-quick-toolbar-props]
     quickToolbarEnabled?: boolean;
-    apiConfig?: APIConfig;
     apiPresets?: ApiPreset[];
+    activeApiPresetId?: string;
     onApiPresetSelect?: (preset: ApiPreset) => void;
+    onFollowMainApi?: () => void;
     // [EM-END: chat-quick-toolbar-props]
     /** 动森彩蛋模式：输入栏换成木质草绿圆角。 */
     acnh?: boolean;
@@ -94,9 +95,10 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     sendButtonStyle = 'circle',
     chromeStyle = 'soft',
     quickToolbarEnabled = false,
-    apiConfig,
     apiPresets = [],
+    activeApiPresetId,
     onApiPresetSelect,
+    onFollowMainApi,
     acnh = false,
     onVoiceSend,
 }) => {
@@ -436,12 +438,13 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
           : 'text-slate-400';
 
     const selectedEmojiUrls = emojiSelectionMode ? new Set(selectedEmojis.map(se => se.url)) : new Set();
-    const currentApiPreset = apiConfig
-        ? apiPresets.find((preset) =>
-            preset.config.baseUrl === apiConfig.baseUrl &&
-            preset.config.model === apiConfig.model
-        )
+    // [EM-START: chat-role-api-current]
+    // “当前”严格按角色保存的 preset id 判断，不再拿 URL/模型反猜全局 API。
+    const currentApiPreset = activeApiPresetId
+        ? apiPresets.find((preset) => preset.id === activeApiPresetId)
         : undefined;
+    const isFollowingMainApi = !currentApiPreset;
+    // [EM-END: chat-role-api-current]
 
     const sendAsVoice = () => {
         const text = input.trim();
@@ -633,6 +636,23 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                 </div>
                             </div>
                             <div className="flex-1 overflow-y-auto p-4">
+                                {/* [EM-START: chat-role-api-follow-main] */}
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        onFollowMainApi?.();
+                                        setShowApiPresets(false);
+                                    }}
+                                    className={`mb-2 flex w-full items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left text-[13px] transition-all active:scale-[0.98] ${
+                                        isFollowingMainApi
+                                            ? isPixelStyle ? 'bg-[#c99872] text-[#fff7ed]' : isDiscordStyle ? 'bg-indigo-500/80 text-white' : 'bg-primary/10 text-primary'
+                                            : isPixelStyle ? 'text-[#8f674a] hover:bg-[#fff7ed]' : isDiscordStyle ? 'text-slate-200 hover:bg-slate-800' : 'text-slate-600 hover:bg-white'
+                                    }`}
+                                >
+                                    <span className="font-bold">跟随主 API</span>
+                                    {isFollowingMainApi && <span className="shrink-0 text-[11px] font-bold">当前</span>}
+                                </button>
+                                {/* [EM-END: chat-role-api-follow-main] */}
                                 {apiPresets.length === 0 ? (
                                     <div className={`px-2 py-3 text-[11px] ${isDiscordStyle ? 'text-slate-400' : isPixelStyle ? 'text-[#8f674a]' : 'text-slate-400'}`}>暂无预设，先去设置里保存当前 API 配置。</div>
                                 ) : apiPresets.map((preset) => {

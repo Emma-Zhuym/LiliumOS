@@ -85,7 +85,7 @@ type InstantToolUiStatus = {
 };
 
 const Chat: React.FC = () => {
-    const { characters, activeCharacterId, setActiveCharacterId, updateCharacter, apiConfig, updateApiConfig, apiPresets, addApiPreset, closeApp, customThemes, removeCustomTheme, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar, setMessageSubView } = useOS(); // [EM: message-sub-view-destructure]
+    const { characters, activeCharacterId, setActiveCharacterId, updateCharacter, apiConfig, apiPresets, addApiPreset, closeApp, customThemes, removeCustomTheme, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar, setMessageSubView } = useOS(); // [EM: message-sub-view-destructure]
     const isProactiveComposing = !!(activeCharacterId && proactiveComposingChars[activeCharacterId]);
     const localDateKey = useLocalDateKey();
 
@@ -343,6 +343,8 @@ const Chat: React.FC = () => {
         char,
         userProfile,
         apiConfig,
+        // [EM: character-api-preset]
+        apiPresets,
         groups,
         emojis: aiVisibleEmojis,
         categories: visibleCategories,
@@ -3826,11 +3828,15 @@ const Chat: React.FC = () => {
                     sendButtonStyle={osTheme.chatSendButtonStyle}
                     chromeStyle={osTheme.chatChromeStyle}
                     quickToolbarEnabled={osTheme.chatQuickToolbar === true}
-                    apiConfig={apiConfig}
                     apiPresets={apiPresets}
+                    activeApiPresetId={char.chatApiPresetId}
                     onApiPresetSelect={(preset) => {
-                        updateApiConfig(preset.config);
-                        addToast(`已切换 API：${preset.name}`, 'success');
+                        updateCharacter(char.id, { chatApiPresetId: preset.id });
+                        addToast(`${char.name} 已切换 API：${preset.name}`, 'success');
+                    }}
+                    onFollowMainApi={() => {
+                        updateCharacter(char.id, { chatApiPresetId: undefined });
+                        addToast(`${char.name} 已改为跟随主 API`, 'success');
                     }}
                     acnh={acnh}
                     onVoiceSend={handleVoiceSend}

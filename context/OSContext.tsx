@@ -54,7 +54,7 @@ import { ActiveMsgClient } from '../utils/activeMsgClient';
 import { resolveCharTimeZone } from '../utils/timezone';
 import { ActiveMsgStore, exportAmsg2GlobalConfig } from '../utils/activeMsgStore';
 import { charMayHaveCloudState, purgeCharCloudState } from '../utils/amsg2CharCleanup';
-import { markAmsgStateDirty, markAmsgStateDirtyForAll, resumePendingAmsgStateSync, syncAmsgToolConfigAndPrompts } from '../utils/amsgStateSync';
+import { markAmsgStateDirty, markAmsgStateDirtyForAll, resumePendingAmsgStateSync, syncAmsgLlmCredentials, syncAmsgToolConfigAndPrompts } from '../utils/amsgStateSync';
 import { loadMusicPlaybackSnapshot } from './MusicContext';
 import { setCharNameRegistry } from '../utils/charNameRegistry';
 import { AVATAR_ASSET_PREFIX, resolveAvatarRef } from '../utils/avatarAsset';
@@ -67,6 +67,7 @@ import { isEmotionEvalSkipped } from '../utils/devDebug';
 import { isBenignApplicationConsoleMessage } from '../utils/applicationConsole';
 import { toMountedWorldbook } from '../utils/worldbook';
 import { initLocalStorageMirror } from '../utils/lsMirror';
+import { resolveCharacterApiConfig } from '../utils/characterApi';
 import { FINANCE_REVIEW_CHANGED_EVENT, getFinanceReviewCount, type FinanceReviewChangedDetail } from '../utils/financeReview';
 // 备份用：把存在 localStorage 的本机配置随导出一起带走（键名须与 importFullData 对齐）
 import { exportPostOfficeLocal } from '../utils/vrWorld/postOffice';
@@ -2103,6 +2104,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   }, [characters]);
   const apiConfigRef = useRef(apiConfig);
   apiConfigRef.current = apiConfig;
+  const apiPresetsRef = useRef(apiPresets);
+  apiPresetsRef.current = apiPresets;
 
   // Keep the MiniMax endpoint module in sync with the user's region choice
   // so every minimaxFetch() call reads the latest preference.
@@ -2186,7 +2189,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           // Determine which API to use
           const pCfg = char.proactiveConfig;
           const useSecondary = pCfg?.useSecondaryApi && pCfg.secondaryApi?.baseUrl;
-          const api = useSecondary ? pCfg!.secondaryApi! : currentApiConfig;
+          const characterApi = resolveCharacterApiConfig(char, currentApiConfig, apiPresetsRef.current).apiConfig;
+          const api = useSecondary ? pCfg!.secondaryApi! : characterApi;
           if (!api.baseUrl) {
               drainQueuedProactive();
               return;
@@ -2284,7 +2288,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               if (!payload.flags.promptBuildSkipped && !isEmotionEvalSkipped() && isScheduleFeatureOn(char) && char.emotionConfig?.enabled) {
                   const emotionApi = (char.emotionConfig.api?.baseUrl)
                       ? char.emotionConfig.api
-                      : { baseUrl: apiConfigRef.current.baseUrl, apiKey: apiConfigRef.current.apiKey, model: apiConfigRef.current.model };
+                      : { baseUrl: characterApi.baseUrl, apiKey: characterApi.apiKey, model: characterApi.model };
                   if (emotionApi.baseUrl && currentUserProfile) {
                       evaluateEmotionBackground(char, currentUserProfile, systemPrompt, apiMessages, emotionApi)
                           .then((innerState) => {
@@ -3006,9 +3010,26 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       setAvailableModels(safeModels);
       localStorage.setItem('os_available_models', JSON.stringify(safeModels));
   };
-  const addApiPreset = (name: string, config: APIConfig) => { setApiPresets(prev => { const next = [...prev, normalizeApiPreset({ id: Date.now().toString(), name, config })]; localStorage.setItem('os_api_presets', JSON.stringify(next)); return next; }); };
-  const updateApiPreset = (id: string, name: string, config: APIConfig) => { setApiPresets(prev => { const next = prev.map(p => p.id === id ? normalizeApiPreset({ ...p, name, config }) : p); localStorage.setItem('os_api_presets', JSON.stringify(next)); return next; }); };
-  const removeApiPreset = (id: string) => { setApiPresets(prev => { const next = prev.filter(p => p.id !== id); localStorage.setItem('os_api_presets', JSON.stringify(next)); return next; }); };
+  const addApiPreset = (name: string, config: APIConfig) => {
+    const next = [...apiPresets, normalizeApiPreset({ id: Date.now().toString(), name, config })];
+    localStorage.setItem('os_api_presets', JSON.stringify(next));
+    setApiPresets(next);
+  };
+  const updateApiPreset = (id: string, name: string, config: APIConfig) => {
+    const next = apiPresets.map(p => p.id === id ? normalizeApiPreset({ ...p, name, config }) : p);
+    localStorage.setItem('os_api_presets', JSON.stringify(next));
+    setApiPresets(next);
+  };
+  const removeApiPreset = (id: string) => {
+    const next = apiPresets.filter(p => p.id !== id);
+    localStorage.setItem('os_api_presets', JSON.stringify(next));
+    setApiPresets(next);
+    // 仍绑定这个 id 的角色会回退主 API；同步云端，避免旧排程继续拿已删除预设的凭据。
+    syncAmsgLlmCredentials(apiConfig);
+    void ActiveMsgClient.refreshApiCredentialsForPendingTasks(apiConfig).catch((error) => {
+      console.warn('[amsg2] API 预设删除后刷新远端任务凭据失败', error);
+    });
+  };
   const savePresets = (presets: ApiPreset[]) => { const normalized = presets.map(normalizeApiPreset); setApiPresets(normalized); localStorage.setItem('os_api_presets', JSON.stringify(normalized)); };
   const addCharacter = async () => {
     const name = 'New Character';
@@ -3055,6 +3076,15 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               console.warn('[amsg2] 角色资料变更后刷新远端任务行失败', target.id, error);
             });
           }
+          // [EM-START: character-api-preset-cloud-refresh]
+          // 角色换绑预设后，凭据引用行和旧 Worker 冻结在任务里的凭据都要一起换新。
+          if (before?.chatApiPresetId !== target.chatApiPresetId) {
+            syncAmsgLlmCredentials(apiConfig);
+            void ActiveMsgClient.refreshApiCredentialsForPendingTasks(apiConfig).catch((error) => {
+              console.warn('[amsg2] 角色聊天 API 换绑后刷新远端任务凭据失败', target.id, error);
+            });
+          }
+          // [EM-END: character-api-preset-cloud-refresh]
         });
       }
       return updated;
