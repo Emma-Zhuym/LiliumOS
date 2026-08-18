@@ -51,6 +51,32 @@ function isUnsafeFetchTarget(parsed) {
   return false;
 }
 
+// ---- /image-generation 用：静态站点的 OpenAI Images 兼容中转 ----
+// 只允许 POST 到用户给定公网 HTTPS 源的 /models、/images/generations、/images/edits。
+// Worker 不保存凭据；Authorization 只在本次请求中透传给目标接口。
+function normalizeImageApiBaseUrl(baseUrl) {
+  return String(baseUrl || '')
+    .trim()
+    .replace(/\/+$/, '')
+    .replace(/\/images\/(?:generations|edits)$/i, '')
+    .replace(/\/images$/i, '')
+    .replace(/\/models$/i, '');
+}
+
+function buildImageApiTarget(baseUrl, mode) {
+  const normalized = normalizeImageApiBaseUrl(baseUrl);
+  return mode === 'models' ? `${normalized}/models` : `${normalized}/images/${mode}`;
+}
+
+function imageDataUrlToBlob(dataUrl) {
+  const match = /^data:([^;]+);base64,([\s\S]+)$/.exec(String(dataUrl || ''));
+  if (!match) return null;
+  const binary = atob(match[2]);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return { blob: new Blob([bytes], { type: match[1] || 'image/png' }), mimeType: match[1] || 'image/png' };
+}
+
 // 读 Response body, 累加到 maxBytes 就停 (防超大页面打爆 worker)。
 async function readBodyCapped(res, maxBytes) {
   const reader = (res.body && res.body.getReader) ? res.body.getReader() : null;
@@ -2369,6 +2395,80 @@ export default {
     // CORS preflight
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders(origin) });
+    }
+
+    // ========== OpenAI Images 兼容中转（静态 GitHub Pages 绕 CORS） ==========
+    if (url.pathname === '/image-generation' || url.pathname === '/image-generation/models') {
+      if (request.method !== 'POST') {
+        return jsonResponse({ error: 'Method not allowed' }, { status: 405, origin });
+      }
+      const declaredLength = Number(request.headers.get('Content-Length') || 0);
+      if (declaredLength > 25 * 1024 * 1024) {
+        return jsonResponse({ error: 'Request body too large' }, { status: 413, origin });
+      }
+
+      let body;
+      try {
+        body = await request.json();
+      } catch {
+        return jsonResponse({ error: 'Invalid JSON body' }, { status: 400, origin });
+      }
+
+      const mode = url.pathname.endsWith('/models')
+        ? 'models'
+        : (body.referenceImageDataUrl ? 'edits' : 'generations');
+      let target;
+      try {
+        target = new URL(buildImageApiTarget(body.baseUrl, mode));
+      } catch {
+        return jsonResponse({ error: 'Invalid image API base URL' }, { status: 400, origin });
+      }
+      if (target.protocol !== 'https:' || isUnsafeFetchTarget(target)) {
+        return jsonResponse({ error: 'Only public HTTPS image APIs are allowed' }, { status: 400, origin });
+      }
+      if (mode !== 'models' && (!String(body.model || '').trim() || !String(body.prompt || '').trim())) {
+        return jsonResponse({ error: 'Missing image model or prompt' }, { status: 400, origin });
+      }
+
+      const auth = request.headers.get('Authorization');
+      const upstreamHeaders = new Headers({ Accept: 'application/json, image/*' });
+      if (auth) upstreamHeaders.set('Authorization', auth);
+      let upstreamBody;
+
+      if (mode === 'models') {
+        upstreamHeaders.set('Content-Type', 'application/json');
+      } else if (mode === 'edits') {
+        const converted = imageDataUrlToBlob(body.referenceImageDataUrl);
+        if (!converted) return jsonResponse({ error: 'Invalid reference image data URL' }, { status: 400, origin });
+        const form = new FormData();
+        form.set('model', String(body.model).trim());
+        form.set('prompt', String(body.prompt).trim());
+        form.set('n', '1');
+        form.append('image', converted.blob, `character-reference.${converted.mimeType === 'image/jpeg' ? 'jpg' : 'png'}`);
+        upstreamBody = form;
+      } else {
+        upstreamHeaders.set('Content-Type', 'application/json');
+        upstreamBody = JSON.stringify({
+          model: String(body.model).trim(),
+          prompt: String(body.prompt).trim(),
+          n: 1,
+        });
+      }
+
+      try {
+        const upstream = await fetch(target.toString(), {
+          method: mode === 'models' ? 'GET' : 'POST',
+          headers: upstreamHeaders,
+          body: upstreamBody,
+          redirect: 'manual',
+        });
+        const headers = new Headers(corsHeaders(origin));
+        headers.set('Content-Type', upstream.headers.get('Content-Type') || 'application/json; charset=utf-8');
+        headers.set('Cache-Control', 'no-store');
+        return new Response(upstream.body, { status: upstream.status, headers });
+      } catch (e) {
+        return jsonResponse({ error: 'Image API upstream fetch failed', detail: String(e && e.message || e) }, { status: 502, origin });
+      }
     }
 
     // ========== 小红书 Lite API (/api/<command>) ==========

@@ -252,6 +252,7 @@ export interface VisionApiConfig {
 }
 
 export type ImageGenerationProvider = 'pollinations-free' | 'openai-compatible';
+export type ImageGenerationRequestMode = 'direct' | 'proxy';
 
 export interface ImageGenerationApiConfig {
   /** 缺省与 pollinations-free 等价，保证旧角色的 [[SEND_PHOTO]] 零配置继续可用。 */
@@ -262,6 +263,8 @@ export interface ImageGenerationApiConfig {
   apiKey?: string;
   /** 自定义接口的生图模型。 */
   model?: string;
+  /** 静态网页可选经主 Worker 中转以绕过 CORS；旧配置缺省保持浏览器直连。 */
+  requestMode?: ImageGenerationRequestMode;
   /** 自定义接口支持图片输入时，上传角色当前立绘作为身份参考。缺省视为开启。 */
   useCharacterReference?: boolean;
 }

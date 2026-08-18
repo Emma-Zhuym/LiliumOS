@@ -2,8 +2,10 @@ import type {
   CharacterProfile,
   ImageGenerationApiConfig,
   ImageGenerationProvider,
+  ImageGenerationRequestMode,
 } from '../types';
 import { dataUrlToBlob, getBlobForRef, isBlobRef } from './blobRef';
+import { getProxyWorkerUrl } from './proxyWorker';
 
 export const DEFAULT_IMAGE_GENERATION_CONFIG: Required<Pick<ImageGenerationApiConfig, 'provider' | 'useCharacterReference'>> = {
   provider: 'pollinations-free',
@@ -15,6 +17,7 @@ export interface ResolvedImageGenerationConfig {
   baseUrl: string;
   apiKey: string;
   model: string;
+  requestMode: ImageGenerationRequestMode;
   useCharacterReference: boolean;
 }
 
@@ -88,8 +91,30 @@ export const resolveImageGenerationConfig = (
   baseUrl: String(config?.baseUrl || '').trim().replace(/\/+$/, ''),
   apiKey: String(config?.apiKey || '').trim(),
   model: String(config?.model || '').trim(),
+  requestMode: config?.requestMode === 'proxy' ? 'proxy' : 'direct',
   useCharacterReference: config?.useCharacterReference !== false,
 });
+
+const normalizeImagesBaseUrl = (baseUrl: string): string => baseUrl
+  .trim()
+  .replace(/\/+$/, '')
+  .replace(/\/images\/(?:generations|edits)$/i, '')
+  .replace(/\/images$/i, '');
+
+export const buildImageApiUrl = (baseUrl: string, mode: 'generations' | 'edits'): string => {
+  const trimmed = baseUrl.trim().replace(/\/+$/, '');
+  if (/\/images\/(?:generations|edits)$/i.test(trimmed)) {
+    return trimmed.replace(/\/images\/(?:generations|edits)$/i, `/images/${mode}`);
+  }
+  if (/\/images$/i.test(trimmed)) return `${trimmed}/${mode}`;
+  return `${normalizeImagesBaseUrl(trimmed)}/images/${mode}`;
+};
+
+export const buildImageModelsUrl = (baseUrl: string): string => {
+  const trimmed = baseUrl.trim().replace(/\/+$/, '');
+  if (/\/models$/i.test(trimmed)) return trimmed;
+  return `${normalizeImagesBaseUrl(trimmed)}/models`;
+};
 
 export const buildPollinationsImageUrl = (prompt: string, seed = Math.floor(Math.random() * 1_000_000)): string =>
   `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=512&height=512&seed=${seed}&nologo=true`;
@@ -109,21 +134,64 @@ const toReferenceBlob = async (source: string, fetchImpl: typeof fetch): Promise
 };
 
 const responseMessage = (payload: any, fallback: string): string =>
-  String(payload?.error?.message || payload?.message || payload?.detail || fallback);
+  String(payload?.error?.message || payload?.error || payload?.message || payload?.detail || fallback);
+
+const blobToDataUrl = async (blob: Blob): Promise<string> => {
+  if (typeof FileReader !== 'undefined') {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(reader.error || new Error('图片读取失败'));
+      reader.onload = () => resolve(String(reader.result || ''));
+      reader.readAsDataURL(blob);
+    });
+  }
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = '';
+  bytes.forEach(byte => { binary += String.fromCharCode(byte); });
+  return `data:${blob.type || 'image/png'};base64,${btoa(binary)}`;
+};
+
+const imageFromPayload = (payload: any): string | undefined => {
+  if (!payload) return undefined;
+  if (typeof payload === 'string') {
+    if (/^(?:https?:\/\/|data:image\/)/i.test(payload)) return payload;
+    return `data:image/png;base64,${payload}`;
+  }
+  for (const key of ['url', 'image_url']) {
+    const value = payload[key];
+    if (typeof value === 'string' && value) return value;
+    if (typeof value?.url === 'string' && value.url) return value.url;
+  }
+  for (const key of ['b64_json', 'base64', 'b64', 'image', 'result']) {
+    const value = payload[key];
+    if (typeof value === 'string' && value) {
+      return /^data:image\//i.test(value) ? value : `data:${payload.mimeType || 'image/png'};base64,${value}`;
+    }
+  }
+  for (const key of ['data', 'images', 'output', 'content']) {
+    const values = payload[key];
+    if (!Array.isArray(values)) continue;
+    for (const value of values) {
+      const found = imageFromPayload(value);
+      if (found) return found;
+    }
+  }
+  return undefined;
+};
 
 const parseImageResponse = async (response: Response): Promise<string> => {
+  const contentType = (response.headers.get('Content-Type') || '').toLowerCase();
+  if (response.ok && contentType.startsWith('image/')) {
+    return blobToDataUrl(await response.blob());
+  }
   const raw = await response.text();
   let payload: any = null;
   try { payload = raw ? JSON.parse(raw) : null; } catch { /* retain raw for error */ }
   if (!response.ok) {
     throw new ImageApiResponseError(responseMessage(payload, raw.slice(0, 180) || `HTTP ${response.status}`), response.status);
   }
-  const item = payload?.data?.[0] ?? payload?.images?.[0] ?? payload?.output?.[0];
-  if (typeof item === 'string' && item) return item;
-  if (typeof item?.url === 'string' && item.url) return item.url;
-  if (typeof item?.b64_json === 'string' && item.b64_json) return `data:image/png;base64,${item.b64_json}`;
-  if (typeof payload?.url === 'string' && payload.url) return payload.url;
-  if (typeof payload?.b64_json === 'string' && payload.b64_json) return `data:image/png;base64,${payload.b64_json}`;
+  const image = imageFromPayload(payload);
+  if (image) return image;
   throw new Error('生图接口没有返回可用图片');
 };
 
@@ -132,7 +200,7 @@ const requestGeneration = async (
   prompt: string,
   fetchImpl: typeof fetch,
 ): Promise<string> => {
-  const response = await fetchImpl(`${config.baseUrl}/images/generations`, {
+  const response = await fetchImpl(buildImageApiUrl(config.baseUrl, 'generations'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -142,7 +210,6 @@ const requestGeneration = async (
       model: config.model,
       prompt,
       n: 1,
-      size: '1024x1024',
     }),
   });
   return parseImageResponse(response);
@@ -157,13 +224,34 @@ const requestEdit = async (
   const form = new FormData();
   form.append('model', config.model);
   form.append('prompt', `${IDENTITY_REFERENCE_PROMPT}\n\nScene prompt: ${prompt}`);
-  form.append('image[]', reference, `character-reference.${reference.type === 'image/jpeg' ? 'jpg' : 'png'}`);
-  form.append('size', '1024x1024');
+  form.append('image', reference, `character-reference.${reference.type === 'image/jpeg' ? 'jpg' : 'png'}`);
   form.append('n', '1');
-  const response = await fetchImpl(`${config.baseUrl}/images/edits`, {
+  const response = await fetchImpl(buildImageApiUrl(config.baseUrl, 'edits'), {
     method: 'POST',
     headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : undefined,
     body: form,
+  });
+  return parseImageResponse(response);
+};
+
+const requestViaProxy = async (
+  config: ResolvedImageGenerationConfig,
+  prompt: string,
+  reference: Blob | undefined,
+  fetchImpl: typeof fetch,
+): Promise<string> => {
+  const response = await fetchImpl(`${getProxyWorkerUrl()}/image-generation`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : {}),
+    },
+    body: JSON.stringify({
+      baseUrl: config.baseUrl,
+      model: config.model,
+      prompt: reference ? `${IDENTITY_REFERENCE_PROMPT}\n\nScene prompt: ${prompt}` : prompt,
+      referenceImageDataUrl: reference ? await blobToDataUrl(reference) : undefined,
+    }),
   });
   return parseImageResponse(response);
 };
@@ -189,7 +277,9 @@ export async function generateChatImage(input: GenerateChatImageInput): Promise<
   if (referenceSource) {
     try {
       const referenceBlob = await toReferenceBlob(referenceSource, fetchImpl);
-      const url = await requestEdit(config, input.prompt, referenceBlob, fetchImpl);
+      const url = config.requestMode === 'proxy'
+        ? await requestViaProxy(config, input.prompt, referenceBlob, fetchImpl)
+        : await requestEdit(config, input.prompt, referenceBlob, fetchImpl);
       return { url, provider: config.provider, model: config.model, referenceUsed: true };
     } catch (error) {
       const canFallback = !(error instanceof ImageApiResponseError)
@@ -202,7 +292,9 @@ export async function generateChatImage(input: GenerateChatImageInput): Promise<
   }
 
   return {
-    url: await requestGeneration(config, input.prompt, fetchImpl),
+    url: config.requestMode === 'proxy'
+      ? await requestViaProxy(config, input.prompt, undefined, fetchImpl)
+      : await requestGeneration(config, input.prompt, fetchImpl),
     provider: config.provider,
     model: config.model,
     referenceUsed: false,

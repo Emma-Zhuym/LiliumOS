@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { CharacterProfile } from '../types';
 import {
+  buildImageApiUrl,
+  buildImageModelsUrl,
   buildPollinationsImageUrl,
   generateChatImage,
   pickCharacterImageReference,
@@ -21,9 +23,16 @@ describe('image generation configuration', () => {
   it('keeps the legacy free provider as the zero-config default', () => {
     expect(resolveImageGenerationConfig()).toMatchObject({
       provider: 'pollinations-free',
+      requestMode: 'direct',
       useCharacterReference: true,
     });
     expect(buildPollinationsImageUrl('hello world', 12)).toContain('hello%20world');
+  });
+
+  it('accepts either a v1 root or a complete Images endpoint', () => {
+    expect(buildImageApiUrl('https://img.example/v1', 'generations')).toBe('https://img.example/v1/images/generations');
+    expect(buildImageApiUrl('https://img.example/v1/images/generations', 'edits')).toBe('https://img.example/v1/images/edits');
+    expect(buildImageModelsUrl('https://img.example/v1/images')).toBe('https://img.example/v1/models');
   });
 
   it('uses the active skin normal portrait before default sprites and avatar', () => {
@@ -62,8 +71,29 @@ describe('generateChatImage', () => {
     const calls = (fetchImpl as any).mock.calls as Array<[RequestInfo | URL, RequestInit | undefined]>;
     expect(calls[0][0]).toBe('https://img.example/v1/images/edits');
     expect(calls[0][1]?.body).toBeInstanceOf(FormData);
-    expect((calls[0][1]?.body as FormData).get('image[]')).toBeInstanceOf(Blob);
+    expect((calls[0][1]?.body as FormData).get('image')).toBeInstanceOf(Blob);
+    expect((calls[0][1]?.body as FormData).get('image[]')).toBeNull();
     expect(result).toMatchObject({ referenceUsed: true, url: 'data:image/png;base64,QUJD' });
+  });
+
+  it('uses the configured Worker relay for a static frontend', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ b64: 'QUJD', mimeType: 'image/webp' }), { status: 200 }));
+    const result = await generateChatImage({
+      prompt: 'a lily',
+      config: {
+        provider: 'openai-compatible',
+        baseUrl: 'https://img.example/v1/images/generations',
+        apiKey: 'k',
+        model: 'image-model',
+        requestMode: 'proxy',
+        useCharacterReference: false,
+      },
+      fetchImpl: fetchImpl as any,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(String(fetchImpl.mock.calls[0][0])).toContain('/image-generation');
+    expect(result.url).toBe('data:image/webp;base64,QUJD');
   });
 
   it('falls back to text generation when the model rejects reference images', async () => {

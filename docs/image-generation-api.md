@@ -1,6 +1,6 @@
 # LiliumOS 生图 API 与角色立绘参考
 
-> 状态：第一版已实现，尚未提交或发布。最后核对：2026-08-17。
+> 状态：第二版兼容性修复已实现，主 Worker 中转路由尚待部署。最后核对：2026-08-18。
 
 ## 目标
 
@@ -27,7 +27,9 @@
 - 接口形状：OpenAI Images 兼容。
 - 必填：API 根 URL、Model。
 - 可选：API Key，允许连接免鉴权或本机服务。
+- 请求模式可选“稳定中转”或“浏览器直连”。中转适合 GitHub Pages 等静态部署；直连适合本机服务或已正确配置 CORS 的远程接口。
 - “刷新模型列表”请求 `{baseUrl}/models`，复用通用模型列表解析器；成功后打开可搜索的独立生图模型选择页。
+- 设置页可直接生成一张测试图并显示真实错误，不必等待聊天模型触发 `SEND_PHOTO`。
 - `/models` 不可用或格式不兼容时仍可手动输入模型名。
 - 生图模型列表和选择不改变主聊天模型或识图模型。
 
@@ -41,11 +43,13 @@ interface ImageGenerationApiConfig {
   baseUrl?: string;
   apiKey?: string;
   model?: string;
+  requestMode?: 'direct' | 'proxy';
   useCharacterReference?: boolean;
 }
 ```
 
 - 缺少配置时等价于 `pollinations-free`。
+- 旧自定义配置的 `requestMode` 缺省为 `direct`，升级不会静默把 Key 改道到 Worker。
 - `useCharacterReference` 缺省视为开启，但只对自定义接口生效。
 - URL、Key、Model 经过与主 API 相同的边缘空白和不可见字符清理。
 - 配置随 `apiConfig` 写入本地存储，并进入文字备份与完整备份；恢复时沿用现有 `updateApiConfig` 归一化入口。
@@ -73,11 +77,11 @@ interface ImageGenerationApiConfig {
 
 请求：`POST {baseUrl}/images/generations`。
 
-请求体包含 `model`、`prompt`、`n: 1`、`size: 1024x1024`。响应可返回 URL 或 `b64_json`。
+请求体包含 `model`、`prompt`、`n: 1`。不再强制发送 `size`，避免不接受 `1024x1024` 的兼容接口直接拒绝。响应支持原始图片、URL、`b64_json`、`b64`、`base64` 及常见嵌套数组。
 
 ### 带角色参考生成
 
-请求：`POST {baseUrl}/images/edits`，使用 multipart 表单与 `image[]` 字段。
+请求：`POST {baseUrl}/images/edits`，使用 multipart 表单与单图 `image` 字段。
 
 场景描述前会加入身份保持说明，要求尽量维持脸型、眼睛、五官比例、发际线、发色和辨识特征，同时不强制复制参考图的姿势、表情、服装、构图与背景。
 
@@ -88,6 +92,13 @@ interface ImageGenerationApiConfig {
 - 编辑接口返回 400、404、405、415 或 422：视为接口/模型不支持参考图，提示后尝试纯文字生成。
 - 401、403、429 与服务端错误不静默吞掉，直接按生图失败处理。
 - 生图失败时显示错误提示，并落一条“请检查设置里的生图 API”的文字气泡，避免整段回复无声消失。
+
+### 静态前端中转
+
+- `requestMode: direct`：浏览器直接请求自定义 API；对方必须放行当前网页来源、`Authorization` 和 `Content-Type` 的 CORS 预检。
+- `requestMode: proxy`：浏览器请求主 Worker 的 `/image-generation` 或 `/image-generation/models`，由 Worker 服务端访问自定义 API。
+- Worker 只接受公网 HTTPS 地址，只转发 `/models`、`/images/generations` 和 `/images/edits`，拒绝本机及私网目标。
+- Worker 不持久化 Key、提示词、参考图或结果；Key 仅作为本次上游请求的 `Authorization` 头透传。
 
 身份一致性属于模型能力和提示词共同作用的尽力而为结果，不承诺像素级锁脸。
 
@@ -102,20 +113,22 @@ interface ImageGenerationApiConfig {
 
 - 内置免费通道会把文字提示发送给 Pollinations。
 - 自定义通道会把文字提示发送给用户填写的服务；开启角色参考时还会上传选中的角色立绘。
+- 选择“稳定中转”时，上述数据会临时经过当前配置的主代理 Worker；选择“浏览器直连”时不会经过 Worker。
 - Key 保存在 LiliumOS 的本地 API 配置中；用户导出含 API 配置的备份时，Key 会跟随备份内容。
 - 不把生图 Key、角色立绘或生成结果写入 Engram。
 
 ## 验证基线
 
-2026-08-17：
+2026-08-18：
 
 - `utils/imageGeneration.test.ts`
 - `utils/apiConfigNormalize.test.ts`
 - `utils/applyAssistantPostProcessing.test.ts`
-- 合计 31 tests passed。
+- `worker/imageGenerationProxy.test.ts`
+- 本轮定向验证合计 37 tests passed。
 - Worker bundle 与 Vite 生产构建通过。
 - `bash scripts/check-em-patches.sh`：74/74。
-- localhost 手机宽度检查通过：免费/自定义切换、立绘参考开关、模型列表入口和模型选择弹层。
+- localhost 页面检查覆盖：免费/自定义切换、直连/中转模式、测试生图、立绘参考、模型列表入口和模型选择弹层。
 - 全仓 `tsc --noEmit` 仍被既有的 MemoryPalace、MessageItem、CompanionHome 等错误阻断，本次相关文件未新增报错。
 
 ## 相关实现
@@ -125,6 +138,7 @@ interface ImageGenerationApiConfig {
 - `utils/applyAssistantPostProcessing.ts`
 - `utils/activeMsgRuntime.ts`
 - `apps/Settings.tsx`
+- `worker/index.js`
 - `components/chat/ChatModals.tsx`
 
 ## 外部参考
@@ -132,3 +146,5 @@ interface ImageGenerationApiConfig {
 - [OpenAI Image generation guide](https://developers.openai.com/api/docs/guides/image-generation)
 - [OpenAI Images edit endpoint](https://developers.openai.com/api/reference/resources/images/methods/edit)
 - [Pollinations API documentation](https://github.com/pollinations/pollinations/blob/main/APIDOCS.md)
+- [ai-virtual-phone image generation service](https://github.com/xiaolongbao0709/ai-virtual-phone/blob/main/lib/image-generation-service.ts)
+- [ai-virtual-phone server image route](https://github.com/xiaolongbao0709/ai-virtual-phone/blob/main/app/api/image-generation/route.ts)

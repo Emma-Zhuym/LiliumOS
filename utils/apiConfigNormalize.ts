@@ -40,6 +40,7 @@ export function normalizeApiConfig(config: APIConfig): APIConfig {
         baseUrl: normalizeApiBaseUrl(imageGeneration.baseUrl),
         apiKey: normalizeApiCredential(imageGeneration.apiKey),
         model: normalizeApiModel(imageGeneration.model),
+        requestMode: imageGeneration.requestMode === 'proxy' ? 'proxy' : 'direct',
         useCharacterReference: imageGeneration.useCharacterReference !== false,
       },
     } : {}),

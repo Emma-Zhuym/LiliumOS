@@ -53,7 +53,7 @@ import {
 import { normalizeApiBaseUrl, normalizeApiCredential, normalizeApiModel } from '../utils/apiConfigNormalize';
 import { describeImageWithVisionApi, VISION_API_TEST_IMAGE_DATA_URL, visionApiConfigFromPreset } from '../utils/visionApi';
 import { readLiliumOSStorage, writeLiliumOSStorage } from '../utils/liliumosStorage';
-import { resolveImageGenerationConfig } from '../utils/imageGeneration';
+import { buildImageModelsUrl, generateChatImage, resolveImageGenerationConfig } from '../utils/imageGeneration';
 import { F, HUE, R, S, SP } from '../utils/clayTokens';
 
 const MOTION_ENABLED_KEY = 'liliumos_motion_enabled';
@@ -502,11 +502,14 @@ const Settings: React.FC = () => {
   const [localImageUrl, setLocalImageUrl] = useState(() => resolveImageGenerationConfig(apiConfig.imageGeneration).baseUrl);
   const [localImageKey, setLocalImageKey] = useState(() => resolveImageGenerationConfig(apiConfig.imageGeneration).apiKey);
   const [localImageModel, setLocalImageModel] = useState(() => resolveImageGenerationConfig(apiConfig.imageGeneration).model);
+  const [localImageRequestMode, setLocalImageRequestMode] = useState(() => resolveImageGenerationConfig(apiConfig.imageGeneration).requestMode);
   const [availableImageModels, setAvailableImageModels] = useState<string[]>(readStoredImageModels);
   const [localUseCharacterReference, setLocalUseCharacterReference] = useState(
     () => resolveImageGenerationConfig(apiConfig.imageGeneration).useCharacterReference,
   );
   const [imageGenerationStatusMsg, setImageGenerationStatusMsg] = useState('');
+  const [testingImageGeneration, setTestingImageGeneration] = useState(false);
+  const [imageGenerationPreview, setImageGenerationPreview] = useState<string | null>(null);
   const [localMiniMaxKey, setLocalMiniMaxKey] = useState(apiConfig.minimaxApiKey || '');
   const [localMiniMaxGroupId, setLocalMiniMaxGroupId] = useState(apiConfig.minimaxGroupId || '');
   const [localMiniMaxRegion, setLocalMiniMaxRegion] = useState<'domestic' | 'overseas'>(
@@ -895,6 +898,7 @@ const Settings: React.FC = () => {
       setLocalImageUrl(imageGeneration.baseUrl);
       setLocalImageKey(imageGeneration.apiKey);
       setLocalImageModel(imageGeneration.model);
+      setLocalImageRequestMode(imageGeneration.requestMode);
       setLocalUseCharacterReference(imageGeneration.useCharacterReference);
       setLocalMiniMaxKey(apiConfig.minimaxApiKey || '');
       setLocalMiniMaxGroupId(apiConfig.minimaxGroupId || '');
@@ -1050,6 +1054,7 @@ const Settings: React.FC = () => {
       baseUrl: normalizeApiBaseUrl(localImageUrl),
       apiKey: normalizeApiCredential(localImageKey),
       model: normalizeApiModel(localImageModel),
+      requestMode: localImageRequestMode,
       useCharacterReference: localUseCharacterReference,
     } as const;
     if (nextImageGeneration.provider === 'openai-compatible' && (!nextImageGeneration.baseUrl || !nextImageGeneration.model)) {
@@ -1080,13 +1085,22 @@ const Settings: React.FC = () => {
     setIsLoadingImageModels(true);
     setImageGenerationStatusMsg('正在拉取生图模型...');
     try {
-      const response = await fetch(`${baseUrl}/models`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-        },
-      });
+      const response = localImageRequestMode === 'proxy'
+        ? await fetch(`${getProxyWorkerUrl()}/image-generation/models`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+            },
+            body: JSON.stringify({ baseUrl }),
+          })
+        : await fetch(buildImageModelsUrl(baseUrl), {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+            },
+          });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const models = extractModelIds(await safeResponseJson(response));
       if (models.length === 0) {
@@ -1104,6 +1118,39 @@ const Settings: React.FC = () => {
       setImageGenerationStatusMsg(`拉取失败${error?.message ? `：${error.message}` : ''}，可手动输入`);
     } finally {
       setIsLoadingImageModels(false);
+    }
+  };
+
+  const handleTestImageGeneration = async () => {
+    const config = {
+      provider: localImageProvider,
+      baseUrl: normalizeApiBaseUrl(localImageUrl),
+      apiKey: normalizeApiCredential(localImageKey),
+      model: normalizeApiModel(localImageModel),
+      requestMode: localImageRequestMode,
+      useCharacterReference: false,
+    } as const;
+    if (config.provider === 'openai-compatible' && (!config.baseUrl || !config.model)) {
+      setImageGenerationStatusMsg('请先填写生图 URL 和 Model');
+      return;
+    }
+    setTestingImageGeneration(true);
+    setImageGenerationPreview(null);
+    setImageGenerationStatusMsg('正在生成测试图片，慢模型可能需要几分钟...');
+    try {
+      const result = await generateChatImage({
+        prompt: 'A small white lily on a clean windowsill in soft morning light, candid phone photo',
+        config,
+      });
+      setImageGenerationPreview(result.url);
+      setImageGenerationStatusMsg('测试生图成功');
+      trackEvent('测试生图 API', { result: '成功', mode: config.requestMode });
+    } catch (error: any) {
+      console.error('Test Image Generation Error', error);
+      setImageGenerationStatusMsg(`测试失败：${error?.message || '未知错误'}`);
+      trackEvent('测试生图 API', { result: '失败', mode: config.requestMode });
+    } finally {
+      setTestingImageGeneration(false);
     }
   };
 
@@ -2750,6 +2797,40 @@ const Settings: React.FC = () => {
                         <p className="px-1 text-[10px] leading-relaxed" style={{ color: F.textTertiary }}>
                             适用于提供 OpenAI 风格 <span className="font-mono">/images/generations</span> 与 <span className="font-mono">/images/edits</span> 的生图服务。Key 可留空，方便连接本机接口。
                         </p>
+                        <div
+                            className="grid grid-cols-2 p-1.5"
+                            style={{ borderRadius: R.large, background: F.surfaceSunken, boxShadow: S.sunken }}
+                        >
+                            {([
+                                ['proxy', '稳定中转'],
+                                ['direct', '浏览器直连'],
+                            ] as const).map(([mode, label]) => {
+                                const selected = localImageRequestMode === mode;
+                                return (
+                                    <button
+                                        key={mode}
+                                        type="button"
+                                        aria-pressed={selected}
+                                        onClick={() => { setLocalImageRequestMode(mode); setImageGenerationStatusMsg(''); }}
+                                        className="py-2.5 text-xs font-bold transition-all outline-none focus-visible:ring-2"
+                                        style={{
+                                            borderRadius: R.medium,
+                                            color: selected ? HUE.rose.ink : F.textTertiary,
+                                            background: selected ? F.surfaceRaised : 'transparent',
+                                            boxShadow: selected ? S.raisedSoft : 'none',
+                                            ['--tw-ring-color' as string]: HUE.rose.soft,
+                                        }}
+                                    >
+                                        {label}
+                                    </button>
+                                );
+                            })}
+                        </div>
+                        <p className="px-1 text-[9px] leading-relaxed" style={{ color: F.textTertiary }}>
+                            {localImageRequestMode === 'proxy'
+                                ? '经当前网络代理 Worker 临时转发，适合 GitHub Pages；Key 和提示词不会保存在 Worker。'
+                                : '从当前浏览器直接请求，适合本机接口；远程接口必须允许跨域。'}
+                        </p>
                         {([
                             { label: 'URL', value: localImageUrl, setValue: setLocalImageUrl, type: 'text', placeholder: 'https://.../v1' },
                             { label: 'Key（可选）', value: localImageKey, setValue: setLocalImageKey, type: 'password', placeholder: 'sk-...' },
@@ -2845,20 +2926,35 @@ const Settings: React.FC = () => {
                     </div>
                 )}
 
-                <button
-                    type="button"
-                    onClick={handleSaveImageGenerationApi}
-                    className="w-full py-3 text-sm font-bold active:scale-[0.98] transition-transform"
-                    style={{
-                        borderRadius: R.button,
-                        color: F.surfaceRaised,
-                        background: HUE.rose.main,
-                        boxShadow: S.raisedMedium,
-                        marginTop: SP[3],
-                    }}
-                >
-                    保存生图 API
-                </button>
+                <div className="grid grid-cols-2 gap-2" style={{ marginTop: SP[3] }}>
+                    <button
+                        type="button"
+                        onClick={handleTestImageGeneration}
+                        disabled={testingImageGeneration}
+                        className="py-3 text-sm font-bold active:scale-[0.98] transition-transform disabled:opacity-50"
+                        style={{
+                            borderRadius: R.button,
+                            color: HUE.rose.ink,
+                            background: HUE.rose.tint,
+                            border: `1px solid ${HUE.rose.soft}`,
+                        }}
+                    >
+                        {testingImageGeneration ? '生成中...' : '测试生图'}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleSaveImageGenerationApi}
+                        className="py-3 text-sm font-bold active:scale-[0.98] transition-transform"
+                        style={{
+                            borderRadius: R.button,
+                            color: F.surfaceRaised,
+                            background: HUE.rose.main,
+                            boxShadow: S.raisedMedium,
+                        }}
+                    >
+                        保存生图 API
+                    </button>
+                </div>
                 {imageGenerationStatusMsg && (
                     <div
                         className="px-3 py-2 text-center text-[11px]"
@@ -2866,6 +2962,14 @@ const Settings: React.FC = () => {
                     >
                         {imageGenerationStatusMsg}
                     </div>
+                )}
+                {imageGenerationPreview && (
+                    <img
+                        src={imageGenerationPreview}
+                        alt="生图接口测试结果"
+                        className="w-full object-cover"
+                        style={{ aspectRatio: '1 / 1', borderRadius: R.smallCard, border: `1px solid ${F.borderSoft}` }}
+                    />
                 )}
             </div>
         </SettingsSection>

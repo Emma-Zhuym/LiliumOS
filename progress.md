@@ -12,6 +12,7 @@
 - 角色可绑定「设置 → API」里已有的命名预设；Chat 页快捷切换只改当前角色，私聊、本地主动消息与 Active Message 2.0 按同一角色路由，旧角色继续跟随主 API，预设缺失时安全回退。
 - 新增独立「生图 API」设置：默认保留免 Key 的内置 Pollinations；自定义 OpenAI Images 兼容接口支持 `/models` 拉取、搜索选择与手动填写模型，并可上传角色当前立绘作面部特征参考。
 - 私聊与主动消息的 `[[SEND_PHOTO]]` 已共用生图路由；参考图按“当前皮肤普通立绘 → 默认立绘 → 头像”选择，永不使用 Q 版立绘，不支持图片编辑时提示并降级为纯文字生图。
+- 自定义生图新增直连/稳定中转模式、设置页测试生图、完整端点 URL 归一化、原始图片与多种 Base64 响应解析；主 Worker 中转解决 GitHub Pages 的 CORS 限制，并限制为公网 HTTPS Images 端点。
 - 新增「共栖舱」Smart Home App：可统一控制 Home Assistant 灯光、空气净化器和场景，支持亮度/色温、按实体能力显示的 RGB 取色器、设备/场景同步入口、演示模式、REST 连接测试、可选代理及角色 MCP 接入。
 - Smart Home 连接配置已进入完整备份/恢复；适配层、授权请求、服务调用与备份路径已有回归测试。
 - 新 App 已完成桌面与 390px 手机尺寸检查；真实 Tapo Matter 灯泡和 Levoit Core 200S-P 联调等待 Home Assistant 常驻主机就位。
@@ -41,6 +42,7 @@
 ## 验证基线
 
 - 生图 API（2026-08-17）：`imageGeneration`、API 配置归一化与聊天后处理共 31 tests passed；Worker bundle、生产构建、`check-em-patches.sh` 74/74 与 localhost 手机宽度交互检查通过。全仓类型检查仍被既有错误阻断，本次相关文件未新增报错。
+- 生图兼容修复（2026-08-18）：生图协议、配置归一化、聊天后处理与 Worker 中转共 37 tests passed；生产构建与 `check-em-patches.sh` 74/74 通过。中转路由尚待部署主 Worker 后在线验收。
 - 角色 API 解绑（2026-08-17）：生产构建通过；角色路由、角色卡隐私与主动消息相关定向测试 208 passed；`check-em-patches.sh` 74/74；全仓类型检查仍被既有的 MemoryPalace 等错误阻断，本次改动文件未新增报错。
 - Smart Home（2026-08-17）：当前相关 3 个测试文件 23 passed；`check-em-patches.sh` 74/74；生产构建通过；桌面与 390px 手机布局通过浏览器检查。此前全量测试 3336 passed / 5 skipped，另有 2 项既有日期测试失败（`lifeRecords` 药盒创建日、`notionDiaryCadence` 跨时区日期），与本次改动无关且单独复跑可复现。
 - `main`（2026-07-29）：`check-em-patches.sh` 74/74；`pnpm vitest run` 123 个测试文件、1250 passed、5 skipped；构建通过。

@@ -53,6 +53,7 @@ describe('API config normalization', () => {
         baseUrl: 'https://image.example.com/v1',
         apiKey: 'image-key',
         model: 'image-model',
+        requestMode: 'direct',
         useCharacterReference: true,
       },
     });
