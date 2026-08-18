@@ -73,8 +73,11 @@ import { installReiSW } from '@rei-standard/amsg-sw';
  *            kv store（SW-first 安装时主线程 schema 还没建过）。
  *  - 1.16.1: content push 落 inbox 时记录是否存在可见页面；后台通知点进应用后直接
  *            回填正文，不再把通知里已经展示过的完整回复按打字节奏二次慢放。
+ *  - 1.17.0: 升级 amsg-sw，通知的 silent 认 'when-visible' 这一档：静不静音改由 SW 按
+ *            收到推送那一刻的窗口可见性算，用户看着页面时安静、切后台照常响铃震动。
+ *            老 SW 把这个字符串当真值，会一律静音。
  */
-const SW_VERSION = '1.16.1';
+const SW_VERSION = '1.17.0';
 
 const PING_INTERVAL = 15_000;
 const MAX_MANUAL_ALIVE_MS = 5 * 60_000;
