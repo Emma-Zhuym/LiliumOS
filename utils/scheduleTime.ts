@@ -1,11 +1,13 @@
 import type { CharacterProfile, ScheduleSlot } from '../types';
+import {
+    normalizeAmsgSleepWindow,
+} from './amsgSleepGuard';
 import { getLocalDateKey } from './localDate';
 import { nowInTimeZone, resolveCharTimeZone } from './timezone';
 
 type ScheduleCharacter = Pick<CharacterProfile, 'customTimezoneEnabled' | 'customTimezone' | 'sleepWindow'>;
 
-export const SLEEP_TIMELINE_START = 21 * 60 + 30;
-export const SLEEP_TIMELINE_END = 24 * 60 + 10 * 60;
+export { SLEEP_TIMELINE_END, SLEEP_TIMELINE_START } from './amsgSleepGuard';
 
 export interface SleepWindowState {
     isSleeping: boolean;
@@ -26,12 +28,10 @@ export const getSleepWindowState = (
     char?: ScheduleCharacter | null,
     base: Date = new Date(),
 ): SleepWindowState | null => {
-    const window = char?.sleepWindow;
+    const window = normalizeAmsgSleepWindow(char?.sleepWindow);
     if (!window) return null;
 
-    const bedtimeMinutes = Math.round(window.bedtimeMinutes);
-    const wakeTimeMinutes = Math.round(window.wakeTimeMinutes);
-    if (bedtimeMinutes < SLEEP_TIMELINE_START || wakeTimeMinutes > SLEEP_TIMELINE_END || wakeTimeMinutes <= bedtimeMinutes) return null;
+    const { bedtimeMinutes, wakeTimeMinutes } = window;
 
     const wallClock = getScheduleWallClock(char, base);
     const clockMinutes = wallClock.getHours() * 60 + wallClock.getMinutes();

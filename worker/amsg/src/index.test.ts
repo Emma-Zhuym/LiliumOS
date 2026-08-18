@@ -2,7 +2,7 @@
 // onBeforeFire 的四道门 —— 这个功能最关键的决策路径，一个判断写错位就是「该拦的没拦」
 // 或者「全都不发」。门的顺序本身也是行为的一部分（注释里专门写过），一起钉住。
 //
-// 顺序：charId 校验 → 活跃会话租约(skip) → fire_pack 存在(否则抛) → 防穿帮闸(skip)
+// 顺序：charId 校验 → 活跃会话租约(skip / 心跳自然融入) → fire_pack 存在(否则抛) → 防穿帮闸(skip)
 //      → 任务指令存在(否则抛) → 挂 scratch + 填槽返回
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { readFile } from 'node:fs/promises';
@@ -43,6 +43,13 @@ import { buildMcpNameMap, MCP_FIRE_NAME_BUDGET, type McpFireServer } from '../..
 import { MAX_FIRE_SCHEDULES } from '../../../utils/amsgFireSchedule';
 import { MAX_ACTIVE_TASKS_PER_CHAR, shortTaskId } from '../../../utils/amsg2Tasks';
 import { isAmsgServerVersionAtLeast } from '../../../utils/amsgWorkerVersion';
+import {
+  AMSG_HEARTBEAT_CONTROL_KEY,
+  AMSG_HEARTBEAT_NOOP,
+  buildHeartbeatControl,
+  heartbeatTaskUuid,
+  nextHeartbeatTimeMs,
+} from '../../../utils/amsgHeartbeat';
 
 const CHAR_ID = 'preset-nyah';
 const TASK_UUID = '3637dae1-1461-4444-a747-34e406f67acc';
@@ -64,6 +71,7 @@ const firePackValue = (
   builtAt: PACK_BUILT_AT,
   pendingTasks: [],
   scene: null,
+  sleepWindow: null,
   selfScheduleEnabled: true,
   ...extra,
 });
@@ -219,6 +227,7 @@ const runFire = async (
     /** 同一个 store 连跑几轮时换一下，messageId 才跟着变。 */
     taskId?: number;
     sessionId?: string;
+    scheduleTask?: ReturnType<typeof vi.fn>;
   },
 ) => {
   const scratch: Record<string, unknown> = {};
@@ -234,11 +243,12 @@ const runFire = async (
     writeState: store.writeState,
     now: NOW,
     scratch,
+    scheduleTask: opts.scheduleTask,
   } as any);
   const decision = await amsgHooks.onLLMOutput({
     sessionId: opts.sessionId ?? `sess_task_${taskId}@1`, taskId, taskUuid: TASK_UUID,
     llmResponse: opts.llmResponse ?? {}, llmOutputText: opts.llmOutput, contactName: 'Nyah',
-    metadata, scratch, writeState: store.writeState,
+    metadata, scratch, writeState: store.writeState, scheduleTask: opts.scheduleTask,
   } as any) as any;
   return { decision, metadata, scratch };
 };
@@ -567,6 +577,169 @@ describe('onBeforeFire 四道门', () => {
   it('任务 metadata 缺 charId → 抛错', async () => {
     const { ctx } = makeCtx({ metadata: { charId: undefined } });
     await expect(amsgHooks.onBeforeFire(ctx)).rejects.toThrow(/charId/);
+  });
+});
+
+describe('心跳滚动续排', () => {
+  const heartbeatMetadata = {
+    amsgHeartbeat: true,
+    amsgHeartbeatIntervalMinutes: 60,
+    amsgHeartbeatGeneration: 'heartbeat-generation-1',
+    amsgHeartbeatApi: 'emotion',
+    amsgSelfScheduled: true,
+    amsgExpirePolicy: 'force',
+  };
+  const controlValue = JSON.stringify(buildHeartbeatControl({
+    enabled: true,
+    intervalMinutes: 60,
+    generation: 'heartbeat-generation-1',
+    updatedAt: NOW.getTime(),
+  }));
+
+  it('先排下一跳，再因正在聊天安静让路', async () => {
+    const expectedNextMs = nextHeartbeatTimeMs(
+      NOW.getTime(),
+      NOW.getTime(),
+      60,
+      `${CHAR_ID}:heartbeat-generation-1`,
+    );
+    const scheduleTask = vi.fn().mockResolvedValue({
+      created: true,
+      id: 43,
+      uuid: heartbeatTaskUuid(CHAR_ID, expectedNextMs),
+      nextSendAt: new Date(expectedNextMs).toISOString(),
+    });
+    const { ctx, writeState } = makeCtx({
+      metadata: heartbeatMetadata,
+      charRows: [
+        { key: AMSG_HEARTBEAT_CONTROL_KEY, value: controlValue },
+        { key: AMSG_CHAT_PRESENCE_KEY, value: presenceValue(NOW.getTime()) },
+      ],
+    });
+    (ctx as any).scheduleTask = scheduleTask;
+
+    await expect(amsgHooks.onBeforeFire(ctx as any)).resolves.toEqual({ skip: true });
+    expect(scheduleTask).toHaveBeenCalledTimes(1);
+    expect(scheduleTask).toHaveBeenCalledWith(expect.objectContaining({
+      firstSendTime: new Date(expectedNextMs).toISOString(),
+      recurrenceType: 'none',
+      messageType: 'auto',
+      uuid: heartbeatTaskUuid(CHAR_ID, expectedNextMs),
+      metadata: expect.objectContaining({
+        amsgHeartbeat: true,
+        amsgHeartbeatGeneration: 'heartbeat-generation-1',
+        amsgHeartbeatApi: 'emotion',
+      }),
+    }));
+    expect(writeState, '心跳主动让路不该伪装成一次失败记录').not.toHaveBeenCalled();
+  });
+
+  it('选择自然融入时不跳过，临时换成顺着当前对话的心跳指令', async () => {
+    const mergeControl = JSON.stringify(buildHeartbeatControl({
+      enabled: true,
+      intervalMinutes: 60,
+      activeChatPolicy: 'merge',
+      generation: 'heartbeat-generation-1',
+      updatedAt: NOW.getTime(),
+    }));
+    const scheduleTask = vi.fn().mockResolvedValue({
+      created: true,
+      id: 43,
+      uuid: 'heartbeat-next-merge',
+      nextSendAt: '2026-07-25T13:00:00.000Z',
+    });
+    const { ctx } = makeCtx({
+      metadata: heartbeatMetadata,
+      charRows: [
+        { key: AMSG_HEARTBEAT_CONTROL_KEY, value: mergeControl },
+        { key: AMSG_CHAT_PRESENCE_KEY, value: presenceValue(NOW.getTime()) },
+        { key: AMSG_FIRE_PACK_KEY, value: firePackValue() },
+        { key: AMSG_TOOL_PACK_KEY, value: toolPackValue },
+      ],
+    });
+    (ctx as any).scheduleTask = scheduleTask;
+
+    const result = await amsgHooks.onBeforeFire(ctx as any);
+    const prompt = fired(result).messages[0].content;
+    expect(scheduleTask).toHaveBeenCalledTimes(1);
+    expect(prompt).toContain('【正在聊天时的处理】');
+    expect(prompt).toContain('顺着当前话题');
+    expect(prompt).not.toContain('{{AMSG_');
+  });
+
+  it('控制行已换代时旧链直接结束，不再长出下一跳', async () => {
+    const scheduleTask = vi.fn();
+    const staleControl = JSON.stringify(buildHeartbeatControl({
+      enabled: true,
+      intervalMinutes: 30,
+      generation: 'heartbeat-generation-2',
+      updatedAt: NOW.getTime(),
+    }));
+    const { ctx } = makeCtx({
+      metadata: heartbeatMetadata,
+      charRows: [{ key: AMSG_HEARTBEAT_CONTROL_KEY, value: staleControl }],
+    });
+    (ctx as any).scheduleTask = scheduleTask;
+
+    await expect(amsgHooks.onBeforeFire(ctx as any)).resolves.toEqual({ skip: true });
+    expect(scheduleTask).not.toHaveBeenCalled();
+  });
+
+  it('日程显示正在睡觉时只续排下一跳，不调用模型或工具状态', async () => {
+    const expectedNextMs = nextHeartbeatTimeMs(
+      NOW.getTime(),
+      NOW.getTime(),
+      60,
+      `${CHAR_ID}:heartbeat-generation-1`,
+    );
+    const scheduleTask = vi.fn().mockResolvedValue({
+      created: true,
+      id: 43,
+      uuid: heartbeatTaskUuid(CHAR_ID, expectedNextMs),
+      nextSendAt: new Date(expectedNextMs).toISOString(),
+    });
+    const { ctx, writeState } = makeCtx({
+      metadata: heartbeatMetadata,
+      charRows: [
+        { key: AMSG_HEARTBEAT_CONTROL_KEY, value: controlValue },
+        { key: AMSG_FIRE_PACK_KEY, value: firePackValue(null, {
+          tzId: 'UTC',
+          scene: {
+            charId: CHAR_ID,
+            dateKey: '2026-07-25',
+            schedule: { slots: [{ startTime: '11:30', activity: '午睡' }] },
+            songPool: [],
+          },
+        }) },
+      ],
+    });
+    (ctx as any).scheduleTask = scheduleTask;
+
+    await expect(amsgHooks.onBeforeFire(ctx as any)).resolves.toEqual({ skip: true });
+    expect(scheduleTask).toHaveBeenCalledTimes(1);
+    expect(writeState, '睡眠跳过是正常状态，不写失败或作废记录').not.toHaveBeenCalled();
+  });
+
+  it('模型明确选择安静时不发 push，也不写 last_skip', async () => {
+    const store = makeFireStore();
+    store.rows.set(AMSG_HEARTBEAT_CONTROL_KEY, controlValue);
+    const scheduleTask = vi.fn().mockResolvedValue({
+      created: true,
+      id: 43,
+      uuid: 'heartbeat-next',
+      nextSendAt: '2026-07-25T13:00:00.000Z',
+    });
+    const { decision } = await runFire(store, {
+      metadata: {
+        ...heartbeatMetadata,
+        amsgTaskInstruction: '心跳判断',
+      },
+      llmOutput: AMSG_HEARTBEAT_NOOP,
+      scheduleTask,
+    });
+
+    expect(decision.decision).toBe('skip-push');
+    expect(store.rows.has(AMSG_LAST_SKIP_KEY)).toBe(false);
   });
 });
 
@@ -1661,6 +1834,7 @@ describe('self_log — 角色自述回写', () => {
     builtAt,
     pendingTasks: [],
     scene: null,
+    sleepWindow: null,
     selfScheduleEnabled: true,
   });
 

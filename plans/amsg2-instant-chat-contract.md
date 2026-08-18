@@ -66,7 +66,7 @@
 | V5 | 前端 `encryptPayload`（`utils/activeMsgClient.ts:890`）产出的信封是否与 SDK 内部一致、可被上游解开 | 不行 → 退化为两请求方案：SDK `putClientState` 先行 + `/instant-chat` 只带 taskPayload（可接受，报告里注明） |
 | V6 | fire 链总超时（默认 5 轮/240s，chunk `:1070-1196`）能否经 `buildWorkerConfig` 配置，能否对 instant 任务单独调大 | 目标 ≥600s（cron 墙钟 15 分钟内）；只能全局调就全局调到 600s，并把 lease 变长（totalTimeoutMs + 2min）的影响写进报告 |
 
-## fire_pack v7：`chat` 字段
+## fire_pack v8：`chat` 与睡眠硬闸
 
 - `AmsgFirePack`（`utils/amsgFirePack.ts`）增可选字段：
 
@@ -83,8 +83,10 @@
   }
   ```
 
-- `FIRE_PACK_VERSION` 6 → 7。开发期规矩：**不做旧格式兼容**，v6 包 parse 直接拒
-  （现有定时任务的 fire_pack 会在下一轮 dirty-sync 时以 v7 重传，无需迁移代码）。
+- `chat` 字段在 v7 引入；v8 新增必填的 `sleepWindow: { bedtimeMinutes; wakeTimeMinutes } | null`。
+  Worker 用它在心跳调用模型前执行跨午夜睡眠硬闸，并以 `scene.schedule` 的明确睡眠 slot
+  作为后备。开发期规矩仍是**不做旧格式兼容**：v7 包 parse 直接拒，下一轮 dirty-sync
+  会以 v8 重传，无需迁移代码，也不会因缺字段把旧包误判成清醒。
 - `onBeforeFire`（`index.ts:791`）新增 instant 分支：`metadata.amsgInstantChat`
   为真时——
   - 用 `pack.chat.messages` 组请求消息（不走 `renderFirePack` 模板渲染），

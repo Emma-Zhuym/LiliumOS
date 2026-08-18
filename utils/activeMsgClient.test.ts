@@ -23,6 +23,7 @@ const { reiClient } = vi.hoisted(() => ({
     putPushSubscription: vi.fn(),
     getPushSubscription: vi.fn(),
     deletePushSubscription: vi.fn(),
+    putLlmCredentials: vi.fn(),
     // 加密信封的封包 / 解包（库的私有方法，客户端通过桥接类型调）。
     _encrypt: vi.fn(),
     _decrypt: vi.fn(),
@@ -49,6 +50,8 @@ import {
   AMSG_SLOT_TASK_LIST, AMSG_SLOT_TIME_SINCE_USER, AMSG_SLOT_USER_CLOCK,
 } from './amsgFirePack';
 import { clearInstantChatPending, setInstantChatPending } from './amsgInstantChat';
+import { buildHeartbeatControl } from './amsgHeartbeat';
+import { ActiveMsgStore } from './activeMsgStore';
 import { AMSG_TOOL_CONFIG_KEY, AMSG_TOOL_PACK_KEY } from './amsgToolPack';
 import * as dailySchedule from './dailySchedule';
 import { ChatPrompts } from './chatPrompts';
@@ -610,6 +613,116 @@ describe('ActiveMsgClient.cancelAllTasksForChar', () => {
   });
 });
 
+describe('ActiveMsgClient 心跳控制', () => {
+  const heartbeatParams = {
+    char: { id: 'char-heartbeat', name: '小满', memories: [] } as any,
+    config: { enabled: true, heartbeatEnabled: true, tasks: [] } as any,
+    intervalMinutes: 30,
+    userProfile: { name: '小明' } as any,
+    groups: [],
+    realtimeConfig: {} as any,
+    apiConfig: { baseUrl: 'https://api.example.dev', apiKey: 'sk-test', model: 'gpt-test' } as any,
+  };
+
+  beforeEach(() => {
+    reiClient.init.mockReset().mockResolvedValue(undefined);
+    reiClient.putClientState.mockReset().mockResolvedValue({ success: true });
+    reiClient.getClientState.mockReset();
+  });
+
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it('打开时建首跳、写新代次控制行，再幂等清掉旧链', async () => {
+    vi.spyOn(ActiveMsgClient, 'listRemoteTasksForChar').mockResolvedValue([
+      { uuid: 'old-heartbeat', messageSubtype: 'heartbeat', lastError: null },
+      { uuid: 'normal-task', messageSubtype: 'chat', lastError: null },
+    ]);
+    const schedule = vi.spyOn(ActiveMsgClient, 'scheduleCharacterTask').mockResolvedValue({
+      uuid: 'new-heartbeat',
+      firstSendAt: '2026-08-18T20:03:00.000Z',
+      clientTaskId: 'client-heartbeat',
+      anchorMs: 0,
+      replacedCancelFailed: false,
+      status: 'pending',
+    } as any);
+    const cancel = vi.spyOn(ActiveMsgClient, 'cancelTask')
+      .mockResolvedValue({ uuid: 'old-heartbeat', alreadyGone: true });
+
+    const result = await ActiveMsgClient.enableHeartbeat(heartbeatParams);
+
+    expect(result.uuid).toBe('new-heartbeat');
+    expect(schedule).toHaveBeenCalledWith(expect.objectContaining({
+      replaceTaskUuid: 'old-heartbeat',
+      task: expect.objectContaining({
+        mode: 'auto',
+        recurrenceType: 'none',
+        selfScheduled: true,
+        messageSubtype: 'heartbeat',
+        heartbeatIntervalMinutes: 30,
+        heartbeatGeneration: expect.any(String),
+      }),
+    }));
+    const scheduledGeneration = schedule.mock.calls[0][0].task.heartbeatGeneration;
+    const controlEntry = reiClient.putClientState.mock.calls[0][0][0];
+    expect(controlEntry.key).toBe('heartbeat_control');
+    expect(JSON.parse(controlEntry.value)).toEqual(expect.objectContaining({
+      enabled: true,
+      intervalMinutes: 30,
+      activeChatPolicy: 'skip',
+      generation: scheduledGeneration,
+    }));
+    expect(cancel).toHaveBeenCalledWith('old-heartbeat');
+    expect(cancel).not.toHaveBeenCalledWith('normal-task');
+  });
+
+  it('关闭时先写 disabled 控制行，只取消隐藏心跳', async () => {
+    vi.spyOn(ActiveMsgClient, 'listRemoteTasksForChar').mockResolvedValue([
+      { uuid: 'heartbeat-1', messageSubtype: 'heartbeat', lastError: null },
+      { uuid: 'normal-task', messageSubtype: 'chat', lastError: null },
+    ]);
+    const cancel = vi.spyOn(ActiveMsgClient, 'cancelTask')
+      .mockResolvedValue({ uuid: 'heartbeat-1', alreadyGone: false });
+
+    const result = await ActiveMsgClient.disableHeartbeat('char-heartbeat');
+
+    expect(result).toEqual({ targets: ['heartbeat-1'], failed: [] });
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(cancel).toHaveBeenCalledWith('heartbeat-1');
+    const controlEntry = reiClient.putClientState.mock.calls[0][0][0];
+    expect(JSON.parse(controlEntry.value)).toEqual(expect.objectContaining({ enabled: false }));
+  });
+
+  it('心跳开着时原位更新热聊策略，不换代也不重建下一跳', async () => {
+    reiClient.getClientState.mockResolvedValue({
+      success: true,
+      data: {
+        entries: [{
+          key: 'heartbeat_control',
+          value: JSON.stringify(buildHeartbeatControl({
+            enabled: true,
+            intervalMinutes: 120,
+            activeChatPolicy: 'skip',
+            generation: 'generation-keep',
+            updatedAt: 100,
+          })),
+        }],
+      },
+    });
+    const schedule = vi.spyOn(ActiveMsgClient, 'scheduleCharacterTask');
+
+    await ActiveMsgClient.updateHeartbeatActiveChatPolicy('char-heartbeat', 'merge');
+
+    expect(schedule).not.toHaveBeenCalled();
+    const controlEntry = reiClient.putClientState.mock.calls[0][0][0];
+    expect(JSON.parse(controlEntry.value)).toEqual(expect.objectContaining({
+      enabled: true,
+      intervalMinutes: 120,
+      activeChatPolicy: 'merge',
+      generation: 'generation-keep',
+    }));
+  });
+});
+
 // 回归守卫：排程建任务前会把整份 fire_pack PUT 上去，而用户刚发出去的那条即时对话还
 // 欠着回复时，云端那一份是 POST /instant-chat 带上去的、比常规的包多一段 chat——worker
 // 到点全靠它拿这一轮的对话。盖掉的话 onBeforeFire 当场硬失败（fire_pack 里没有 chat 段），
@@ -628,6 +741,7 @@ describe('scheduleCharacterTask 与欠着的即时对话 chat 段', () => {
       putBatches.push(entries);
       return { success: true };
     });
+    reiClient.putLlmCredentials.mockReset().mockResolvedValue({ success: true });
     reiClient._encrypt.mockReset().mockResolvedValue({ iv: 'iv', authTag: 'tag', encryptedData: 'enc' });
     // 模板本体、表情全库、推送登记这些都不在被测范围，桩掉。
     vi.spyOn(DB, 'getRecentMessagesByCharId').mockResolvedValue([] as any);
@@ -683,6 +797,122 @@ describe('scheduleCharacterTask 与欠着的即时对话 chat 段', () => {
     expect(writtenKeys()).toContain(AMSG_TOOL_CONFIG_KEY);
     // 任务本身照建：等回复不是拒绝排程的理由，抽掉的那份包由销账后的状态同步补上。
     expect(result.uuid).toBe('remote-uuid');
+  });
+
+  it('心跳省钱开关 → 直接复用角色已保存的情绪副 API，不改普通排程配置', async () => {
+    await ActiveMsgClient.scheduleCharacterTask({
+      char: {
+        id: CHAR_ID,
+        name: '小满',
+        memories: [],
+        emotionConfig: {
+          enabled: true,
+          api: { baseUrl: 'https://emotion.example.dev/v1', apiKey: 'sk-emotion', model: 'mini-emotion' },
+        },
+      } as any,
+      config: { enabled: true, tasks: [], heartbeatUseEmotionApi: true } as any,
+      task: {
+        mode: 'auto',
+        firstSendTime: new Date(Date.now() + 3600_000).toISOString(),
+        recurrenceType: 'none',
+        messageSubtype: 'heartbeat',
+        heartbeatIntervalMinutes: 60,
+        heartbeatGeneration: 'generation-emotion',
+      },
+      userProfile: { name: '小明' } as any,
+      groups: [],
+      realtimeConfig: {} as any,
+      apiConfig: { baseUrl: 'https://main.example.dev/v1', apiKey: 'sk-main', model: 'main-model' } as any,
+    });
+
+    const encryptedSource = reiClient._encrypt.mock.calls.at(-1)?.[0];
+    const payload = JSON.parse(encryptedSource);
+    expect(payload).toMatchObject({
+      apiUrl: 'https://emotion.example.dev/v1/chat/completions',
+      apiKey: 'sk-emotion',
+      primaryModel: 'mini-emotion',
+      metadata: { amsgHeartbeatApi: 'emotion' },
+    });
+  });
+
+  it('情绪副 API 没填完整 → 心跳安全回落到原来的主动消息 API', async () => {
+    await ActiveMsgClient.scheduleCharacterTask({
+      char: {
+        id: CHAR_ID,
+        name: '小满',
+        memories: [],
+        emotionConfig: {
+          enabled: true,
+          api: { baseUrl: 'https://emotion.example.dev/v1', apiKey: '', model: '' },
+        },
+      } as any,
+      config: { enabled: true, tasks: [], heartbeatUseEmotionApi: true } as any,
+      task: {
+        mode: 'auto',
+        firstSendTime: new Date(Date.now() + 3600_000).toISOString(),
+        recurrenceType: 'none',
+        messageSubtype: 'heartbeat',
+        heartbeatIntervalMinutes: 60,
+        heartbeatGeneration: 'generation-fallback',
+      },
+      userProfile: { name: '小明' } as any,
+      groups: [],
+      realtimeConfig: {} as any,
+      apiConfig: { baseUrl: 'https://main.example.dev/v1', apiKey: 'sk-main', model: 'main-model' } as any,
+    });
+
+    const encryptedSource = reiClient._encrypt.mock.calls.at(-1)?.[0];
+    const payload = JSON.parse(encryptedSource);
+    expect(payload).toMatchObject({
+      apiUrl: 'https://main.example.dev/v1/chat/completions',
+      apiKey: 'sk-main',
+      primaryModel: 'main-model',
+      metadata: { amsgHeartbeatApi: 'default' },
+    });
+  });
+
+  it('新版 Worker 的凭据引用路径 → chat 用途指向 emotion 行，Key 不进入任务信封', async () => {
+    vi.spyOn(ActiveMsgStore, 'getGlobalConfig').mockResolvedValue({
+      userId: TEST_USER_ID,
+      workerUrl: 'https://amsg.example.workers.dev',
+      serverToken: '',
+      llmCredentialsSupported: true,
+    } as any);
+    const charId = `${CHAR_ID}-emotion-ref`;
+
+    await ActiveMsgClient.scheduleCharacterTask({
+      char: {
+        id: charId,
+        name: '小满',
+        memories: [],
+        emotionConfig: {
+          enabled: true,
+          api: { baseUrl: 'https://emotion.example.dev/v1', apiKey: 'sk-emotion-ref', model: 'mini-emotion' },
+        },
+      } as any,
+      config: { enabled: true, tasks: [], heartbeatUseEmotionApi: true } as any,
+      task: {
+        mode: 'auto',
+        firstSendTime: new Date(Date.now() + 3600_000).toISOString(),
+        recurrenceType: 'none',
+        messageSubtype: 'heartbeat',
+        heartbeatIntervalMinutes: 60,
+        heartbeatGeneration: 'generation-ref',
+      },
+      userProfile: { name: '小明' } as any,
+      groups: [],
+      realtimeConfig: {} as any,
+      apiConfig: { baseUrl: 'https://main.example.dev/v1', apiKey: 'sk-main', model: 'main-model' } as any,
+    });
+
+    expect(reiClient.putLlmCredentials).toHaveBeenCalledWith([expect.objectContaining({
+      credId: `char:${charId}/emotion`,
+      value: expect.objectContaining({ primaryModel: 'mini-emotion' }),
+    })]);
+    const encryptedSource = reiClient._encrypt.mock.calls.at(-1)?.[0];
+    const payload = JSON.parse(encryptedSource);
+    expect(payload.credRefs).toEqual({ chat: `char:${charId}/emotion` });
+    expect(JSON.stringify(payload)).not.toContain('sk-emotion-ref');
   });
 });
 
@@ -921,6 +1151,13 @@ describe('buildFirePack 的时区参照系与模板（①）', () => {
     expect(out.tzId).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
   });
 
+  it('明确睡眠区间随包上云，未设置时也写成 null 而不是缺字段', async () => {
+    expect((await pack(baseChar())).sleepWindow).toBeNull();
+    expect((await pack(baseChar({
+      sleepWindow: { bedtimeMinutes: 23 * 60, wakeTimeMinutes: 24 * 60 + 7 * 60 + 30 },
+    }))).sleepWindow).toEqual({ bedtimeMinutes: 1380, wakeTimeMinutes: 1890 });
+  });
+
   it('buildSystemPrompt 收到 forFirePack —— 打包时刻的状态一律不烤进模板', async () => {
     await pack(baseChar());
     expect(systemPromptSpy).toHaveBeenCalledTimes(1);
@@ -1023,12 +1260,13 @@ describe('buildFirePack 的时区参照系与模板（①）', () => {
   it('作息表随包带原始数据 + 槽位跟在当前时间后面', async () => {
     vi.spyOn(dailySchedule, 'getDailyScheduleForChar').mockResolvedValue({
       id: 's', charId: 'char-1', date: '2026-08-02', generatedAt: 0,
-      slots: [{ startTime: '08:00', activity: '晨跑' }],
+      slots: [{ startTime: '08:00', activity: '晨跑', availability: 'busy' }],
     } as any);
 
     const out = await pack(baseChar({ scheduleFeatureEnabled: true }));
     expect(out.scene?.schedule?.slots).toHaveLength(1);
     expect(out.scene?.charId).toBe('char-1');
+    expect(out.scene?.schedule?.slots[0].availability).toBe('busy');
     expect(out.template).toContain(`${AMSG_SLOT_USER_CLOCK}${AMSG_SLOT_SCENE}`);
   });
 

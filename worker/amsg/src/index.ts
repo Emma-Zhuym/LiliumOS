@@ -63,8 +63,20 @@ import {
   unpackStateValue,
 } from '../../../utils/amsgFirePack';
 import { resolveFireSceneSong } from '../../../utils/amsgFireScene';
+import { resolveHeartbeatSleepReason } from '../../../utils/amsgSleepGuard';
 import { shouldExpireFire } from '../../../utils/amsg2ExpireGuard';
 import { buildFireTaskListBlock, isPendingTask, MAX_ACTIVE_TASKS_PER_CHAR, shortTaskId } from '../../../utils/amsg2Tasks';
+import {
+  AMSG_HEARTBEAT_CONTROL_KEY,
+  AMSG_HEARTBEAT_NOOP,
+  buildHeartbeatTaskInstruction,
+  heartbeatTaskUuid,
+  isHeartbeatMetadata,
+  nextHeartbeatTimeMs,
+  normalizeHeartbeatInterval,
+  parseHeartbeatControl,
+  stripHeartbeatNoop,
+} from '../../../utils/amsgHeartbeat';
 import {
   AMSG_FIRE_CANCEL_TOOL,
   AMSG_FIRE_RENEW_TOOL,
@@ -1538,9 +1550,70 @@ export const amsgHooks = {
       }
     };
 
-    const charRows = await ctx.readState(amsgStateNamespace(charId));
-
     const taskMeta = (ctx.task.metadata ?? {}) as Record<string, unknown>;
+    const heartbeat = isHeartbeatMetadata(taskMeta);
+    const charRows = await ctx.readState(amsgStateNamespace(charId));
+    let heartbeatControl: ReturnType<typeof parseHeartbeatControl> = null;
+
+    // 心跳是一串隐藏的一次性任务。当前这一跳不管之后是主动发消息、因热聊让路、达到
+    // 连发上限，还是模型选择安静，都必须先把下一跳排好，网页关着时链才不会断。
+    // uuid 由角色 + 下一触发时刻确定，fire 重试只会撞 duplicate，不会多长一条分支。
+    if (heartbeat) {
+      heartbeatControl = parseHeartbeatControl(
+        charRows.find((row) => row.key === AMSG_HEARTBEAT_CONTROL_KEY)?.value,
+      );
+      const generation = typeof taskMeta.amsgHeartbeatGeneration === 'string'
+        ? taskMeta.amsgHeartbeatGeneration : '';
+      // 控制行是“这条链现在还被用户允许吗”的事实源。关开关或改频率会先换 generation，
+      // 已经被 Cron 取走的旧任务也只能安静结束，不能在取消竞态里重新长出下一跳。
+      if (!heartbeatControl?.enabled || !generation || heartbeatControl.generation !== generation) {
+        console.log('[amsg:heartbeat-stale]', {
+          charId,
+          taskGeneration: generation || null,
+          controlGeneration: heartbeatControl?.generation ?? null,
+          enabled: heartbeatControl?.enabled ?? false,
+        });
+        return { skip: true } as const;
+      }
+      const occurrenceMs = Date.parse(String(ctx.task.nextSendAt));
+      if (!Number.isFinite(occurrenceMs)) {
+        throw fail('心跳任务行 next_send_at 解析不出触发时刻', { nextSendAt: ctx.task.nextSendAt });
+      }
+      if (typeof ctx.scheduleTask !== 'function') {
+        throw fail('当前 Worker 版本不支持心跳续排，请重新复制并部署最新 Worker');
+      }
+      const interval = normalizeHeartbeatInterval(heartbeatControl.intervalMinutes);
+      const nextMs = nextHeartbeatTimeMs(
+        occurrenceMs,
+        ctx.now.getTime(),
+        interval,
+        `${charId}:${generation}`,
+      );
+      const nextUuid = heartbeatTaskUuid(charId, nextMs);
+      await ctx.scheduleTask({
+        firstSendTime: new Date(nextMs).toISOString(),
+        recurrenceType: 'none',
+        messageType: 'auto',
+        uuid: nextUuid,
+        metadata: {
+          charId,
+          charName: typeof taskMeta.charName === 'string' ? taskMeta.charName : ctx.task.contactName,
+          source: 'active_msg_2',
+          amsgMode: 'auto',
+          amsgClientTaskId: nextUuid,
+          amsgExpirePolicy: 'force',
+          amsgAnchorMs: 0,
+          amsgSelfScheduled: true,
+          amsgHeartbeat: true,
+          amsgHeartbeatIntervalMinutes: interval,
+          amsgHeartbeatGeneration: generation,
+          amsgHeartbeatApi: taskMeta.amsgHeartbeatApi === 'emotion' ? 'emotion' : 'default',
+          amsgTaskInstruction: buildHeartbeatTaskInstruction(interval),
+        },
+      });
+      console.log('[amsg:heartbeat-next]', { charId, nextUuid, nextAt: new Date(nextMs).toISOString() });
+    }
+
     const policy = typeof taskMeta.amsgExpirePolicy === 'string'
       ? taskMeta.amsgExpirePolicy : undefined;
 
@@ -1557,23 +1630,44 @@ export const amsgHooks = {
 
     // 同角色活跃会话租约：一轮对话生成期间客户端每 15s 续租，45s TTL。
     // 这是 worker 防通知的第一道快速门；缺失/过期/坏数据就继续走 fire_pack 规则。
-    // 保持在 fire_pack 检查之前：用户正在聊天时应该直接 skip，既省一次状态读，
-    // 也让「状态不完整」的异常任务在用户正忙时安静跳过、而不是抛错刷失败计数。
+    // 保持在 fire_pack 检查之前：普通 expire 任务和 heartbeat=skip 可以直接省掉状态解析；
+    // heartbeat=merge 则只在这里临时换指令，继续读完整上下文生成顺着对话的那一句。
     const presence = parseAmsgChatPresence(
       charRows.find((r) => r.key === AMSG_CHAT_PRESENCE_KEY)?.value,
     );
-    if (!instant && policy === 'expire' && isFreshChatPresence(presence, charId, ctx.now.getTime())) {
-      console.log('[amsg:expire-skip]', {
-        taskId: ctx.task.id,
-        reason: 'active-chat-presence',
-        presenceActiveAt: presence?.activeAt,
-      });
-      // 这道门在解析 fire_pack 之前，拿不到 occurrenceMs，用任务行的名义时刻。
-      await recordSkip(
-        ctx, charId, 'active-chat-presence',
-        Date.parse(String(ctx.task.nextSendAt)) || ctx.now.getTime(),
-      );
-      return { skip: true } as const;
+    const activeChatPresence = !instant && (heartbeat || policy === 'expire')
+      && isFreshChatPresence(presence, charId, ctx.now.getTime());
+    if (activeChatPresence) {
+      if (heartbeat && heartbeatControl?.activeChatPolicy === 'merge') {
+        // “自然融入”仍是这一跳自己的生成，但任务指令把它约束成顺着正在进行的对话
+        // 补一句；没有合适内容继续走 HEARTBEAT_NOOP。不要在任务创建时永久烤进去——
+        // 同一条滚动链下一跳未必还在热聊，只有这次租约新鲜时才临时换指令。
+        taskMeta.amsgTaskInstruction = buildHeartbeatTaskInstruction(
+          heartbeatControl.intervalMinutes,
+          { activeChat: true },
+        );
+        console.log('[amsg:heartbeat-active-chat-merge]', {
+          taskId: ctx.task.id,
+          charId,
+          presenceActiveAt: presence?.activeAt,
+        });
+      } else {
+        console.log('[amsg:expire-skip]', {
+          taskId: ctx.task.id,
+          reason: 'active-chat-presence',
+          presenceActiveAt: presence?.activeAt,
+        });
+        // 这道门在解析 fire_pack 之前，拿不到 occurrenceMs，用任务行的名义时刻。
+        // 普通任务仍要给面板一个“为什么没发”的交代；心跳安静让路是正常状态，不把它
+        // 伪装成失败或作废记录。下一跳已经在上面排好。
+        if (!heartbeat) {
+          await recordSkip(
+            ctx, charId, 'active-chat-presence',
+            Date.parse(String(ctx.task.nextSendAt)) || ctx.now.getTime(),
+          );
+        }
+        return { skip: true } as const;
+      }
     }
 
     const packRow = charRows.find((r) => r.key === AMSG_FIRE_PACK_KEY);
@@ -1592,6 +1686,26 @@ export const amsgHooks = {
     // 出来的东西驴唇不对马嘴，而用户完全看不出这是坏了还是角色就这样。
     if (instant && !pack.chat) {
       throw fail('即时对话任务的 fire_pack 里没有 chat 段（云端状态没跟上）');
+    }
+
+    // 睡眠硬闸只管周期心跳，不碰用户明确排下的普通任务或即时回复。下一跳已经在上面
+    // 幂等续排好；这里按角色时区读取明确睡眠区间，没设时再看当天日程当前时段。
+    // 睡着 = 在任何模型 / 情绪副 API / 工具调用之前安静结束，不写失败、不发通知。
+    if (heartbeat) {
+      const sleepReason = resolveHeartbeatSleepReason({
+        sleepWindow: pack.sleepWindow,
+        scene: pack.scene,
+        nowMs: ctx.now.getTime(),
+        tzId: pack.tzId,
+      });
+      if (sleepReason) {
+        console.log('[amsg:heartbeat-sleep-skip]', {
+          taskId: ctx.task.id,
+          charId,
+          reason: sleepReason,
+        });
+        return { skip: true } as const;
+      }
     }
 
     // 定时轮撞上占位模板：角色 2.0 关着且无任务时，即时对话上传的轻量包把 template 填成
@@ -1929,7 +2043,10 @@ export const amsgHooks = {
   },
 
   async onLLMOutput(ctx: SessionCtx) {
-    const content = stripReasoningTags(ctx.llmOutputText || '').trim();
+    const rawContent = stripReasoningTags(ctx.llmOutputText || '').trim();
+    const heartbeat = isHeartbeatMetadata(ctx.metadata);
+    const heartbeatNoop = heartbeat && rawContent.includes(AMSG_HEARTBEAT_NOOP);
+    const content = heartbeat ? stripHeartbeatNoop(rawContent) : rawContent;
 
     // 任务身份直接从 ctx 上读（sessionId 是给日志和去重用的不透明串，不拿它切）。
     const taskId = ctx.taskId != null ? String(ctx.taskId) : null;
@@ -2046,13 +2163,15 @@ export const amsgHooks = {
       // ⑤ 没发出去也留痕：模型返回空/纯拒答、或者只做了副作用没说话时，上游把任务
       // 当成功消费，用户看到的就是「说好的消息凭空消失」。写一条 last_skip，面板能
       // 照实解释是哪种。best-effort，写不进去不影响 skip 本身。
-      await writeLastSkip(ctx.writeState, stash.charId, {
-        v: 1,
-        taskUuid: stash.taskUuid,
-        occurrenceMs: stash.occurrenceMs,
-        reason: decision.reason,
-        skippedAt: Date.now(),
-      });
+      if (!heartbeatNoop) {
+        await writeLastSkip(ctx.writeState, stash.charId, {
+          v: 1,
+          taskUuid: stash.taskUuid,
+          occurrenceMs: stash.occurrenceMs,
+          reason: decision.reason,
+          skippedAt: Date.now(),
+        });
+      }
       // 即时对话被 skip：一次性行会被上游当成功消费删掉，客户端点名只能看到「行没了、
       // outbox 也空」，落下的说明是「回复没能取回」——把「没生成出来」说成了「取不回」。
       // 也写一份 chat_fail（认 uuid），客户端 gone 分支读回后能照实说「模型这轮没说话」。

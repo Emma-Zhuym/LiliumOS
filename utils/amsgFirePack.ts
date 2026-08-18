@@ -17,6 +17,7 @@
 
 import type { ActiveMsg2TaskRecord } from '../types';
 import { renderFireSceneBlock, type AmsgFireScene } from './amsgFireScene';
+import { normalizeAmsgSleepWindow, type AmsgSleepWindow } from './amsgSleepGuard';
 
 export const AMSG_STATE_NAMESPACE_PREFIX = 'amsg:char:';
 export const amsgStateNamespace = (charId: string) => `${AMSG_STATE_NAMESPACE_PREFIX}${charId}`;
@@ -392,6 +393,11 @@ export interface AmsgFirePack {
    * AMSG_SLOT_SCENE。没日程的角色为 null，那个槽位被抹平。
    */
   scene: AmsgFireScene | null;
+  /**
+   * 日程 / 情绪面板里按角色设置的固定睡眠区间。null 代表没有明确区间，Worker 再看
+   * scene 当前时段是否明确写着睡眠。必填是为了让新版 Worker 绝不对旧包 fail-open。
+   */
+  sleepWindow: AmsgSleepWindow | null;
   /**
    * 即时对话用的对话消息（见 AmsgFirePackChat）。只有开了即时对话的角色才带，
    * 定时任务那条路不读它。标了 `amsgInstantChat` 的任务缺这一份 = 按失败处理，
@@ -810,7 +816,7 @@ export const renderFirePack = (
  * 唯一的例外是「说清楚为什么」：见 describeFirePackVersion，worker 拿它拼失败原因，
  * 面板的 lastError 才能直接告诉用户该重贴 bundle 还是该刷新前端。
  */
-export const FIRE_PACK_VERSION = 7;
+export const FIRE_PACK_VERSION = 8;
 
 /**
  * 即时对话任务行的 messageSubtype 标签。上游只当自由文本原样透传；客户端两处都认它：
@@ -882,6 +888,7 @@ export const parseFirePack = (value: string): AmsgFirePack | null => {
       typeof parsed.builtAt === 'number' &&
       Array.isArray(parsed.pendingTasks) &&
       (parsed.scene === null || typeof parsed.scene === 'object') &&
+      (parsed.sleepWindow === null || normalizeAmsgSleepWindow(parsed.sleepWindow) !== null) &&
       (parsed.maxUnansweredSends === undefined
         || (typeof parsed.maxUnansweredSends === 'number'
           && Number.isFinite(parsed.maxUnansweredSends)

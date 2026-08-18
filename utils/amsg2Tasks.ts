@@ -22,6 +22,7 @@ import {
 } from '../types';
 import { FIRE_GRACE_MS, recurrencePeriodMs } from './amsg2ExpireGuard';
 import { AMSG_INSTANT_CHAT_SUBTYPE, type AmsgTzRef, formatFireTimeShort } from './amsgFirePack';
+import { AMSG_HEARTBEAT_SUBTYPE } from './amsgHeartbeat';
 
 export const MAX_ACTIVE_TASKS_PER_CHAR = 5;
 
@@ -215,7 +216,8 @@ export const canExpire = (task: ActiveMsg2TaskRecord): boolean =>
 export const hasActiveAiTask = (
   config: ActiveMsg2CharacterConfig | undefined,
   nowMs = Date.now(),
-): boolean => getPendingTasks(config, nowMs).some((t) => t.mode !== 'fixed');
+): boolean => config?.heartbeatEnabled === true
+  || getPendingTasks(config, nowMs).some((t) => t.mode !== 'fixed');
 
 /**
  * fire 时刻注进 prompt 的「你现在还挂着哪些排程」。
@@ -438,7 +440,7 @@ export interface RemoteTaskProjection {
   lastError: RemoteTaskLastError | null;
   clientTaskId?: string;
   messageType?: string;
-  /** 排程方写的自由文本标签；即时对话的行是 'instant-chat'，定时任务是 'chat'。 */
+  /** 排程方写的自由文本标签；即时对话是 'instant-chat'，心跳是 'heartbeat'。 */
   messageSubtype?: string;
   recurrenceType?: string;
   nextSendAt?: string;
@@ -473,13 +475,14 @@ export const reconcileTasksWithRemote = (
   const adopted = remote
     // 字段不全的行不补：宁可少一条，也别拿默认值凑一条跟远端对不上的记录出来。
     // 已经失败的行也不补：它不会再响，补进来就是清单上一条永远等不到的幽灵任务。
-    // 即时对话的行同样不补：那是用户此刻正等着的一轮聊天，不是排程，进了清单会显示成
-    // 「待触发的任务」，还可能被「取消全部」顺手掐掉。
+    // 即时对话和心跳都不补：前者是用户正等着的一轮聊天，后者由独立开关管理。混进普通
+    // 清单会显示成假任务，还可能被编辑成失去续排 metadata 的残链。
     .filter((row) => (
       !known.has(row.uuid)
       && row.nextSendAt && row.recurrenceType && row.messageType
       && row.status !== 'failed'
       && row.messageSubtype !== AMSG_INSTANT_CHAT_SUBTYPE
+      && row.messageSubtype !== AMSG_HEARTBEAT_SUBTYPE
     ))
     .map((row): ActiveMsg2TaskRecord => ({
       taskUuid: row.uuid,

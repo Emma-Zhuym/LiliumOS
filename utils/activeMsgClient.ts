@@ -2,7 +2,9 @@ import { ReiClient } from '@rei-standard/amsg-client';
 import {
   ActiveMsg2CharacterConfig,
   ActiveMsg2ExpirePolicy,
+  ActiveMsg2HeartbeatChatPolicy,
   ActiveMsg2GlobalConfig,
+  ActiveMsg2ApiConfig,
   ActiveMsg2Mode,
   ActiveMsg2Recurrence,
   ActiveMsg2TaskRecord,
@@ -47,6 +49,16 @@ import {
 import { flattenContentPartsToText } from './promptMessageCleanup';
 import { resolveCharacterApiConfig } from './characterApi';
 import {
+  AMSG_HEARTBEAT_CONTROL_KEY,
+  AMSG_HEARTBEAT_SUBTYPE,
+  buildHeartbeatControl,
+  buildHeartbeatTaskInstruction,
+  HEARTBEAT_FIRST_WAKE_DELAY_MS,
+  normalizeHeartbeatActiveChatPolicy,
+  normalizeHeartbeatInterval,
+  parseHeartbeatControl,
+} from './amsgHeartbeat';
+import {
   AMSG_FIRE_PACK_KEY,
   FIRE_PACK_VERSION,
   AMSG_SLOT_AWAY_HINT,
@@ -69,6 +81,7 @@ import {
   parseLastSkip,
 } from './amsgFirePack';
 import type { AmsgFireScene } from './amsgFireScene';
+import { normalizeAmsgSleepWindow } from './amsgSleepGuard';
 import { buildSongPool } from './charMusicSchedule';
 import { getDailyScheduleForChar } from './dailySchedule';
 import { getLocalDateKey } from './localDate';
@@ -452,6 +465,27 @@ const resolveApiConfig = (char: CharacterProfile, config: ActiveMsg2CharacterCon
 };
 
 /**
+ * 心跳的省钱通道：用户明确开启时优先用角色已保存的情绪副 API。这里要求三件套完整；
+ * 只填了一半不能让整条云端心跳变成到点 401，而是安全回落到主动消息原本的 API 路由。
+ */
+const resolveHeartbeatApiConfig = (
+  char: CharacterProfile,
+  config: ActiveMsg2CharacterConfig,
+  apiConfig: APIConfig,
+): { api: ActiveMsg2ApiConfig; source: 'emotion' | 'default' } => {
+  const emotionApi = char.emotionConfig?.api;
+  if (
+    config.heartbeatUseEmotionApi
+    && emotionApi?.baseUrl?.trim()
+    && emotionApi.apiKey?.trim()
+    && emotionApi.model?.trim()
+  ) {
+    return { api: emotionApi, source: 'emotion' };
+  }
+  return { api: resolveApiConfig(char, config, apiConfig), source: 'default' };
+};
+
+/**
  * 一个角色的 AI 任务此刻该用的凭据补丁（update-message 载荷）。
  * 生效凭据的算法与排程时同一份 resolveApiConfig：角色开了单独 API 就写单独 API 的值，
  * 没开才用全局聊天 API——凭据刷新绝不能把单独 API 的任务盖成全局凭据。
@@ -643,6 +677,7 @@ export const buildFirePack = async (
             ...(s.emoji ? { emoji: s.emoji } : {}),
             ...(s.location ? { location: s.location } : {}),
             ...(s.innerThought ? { innerThought: s.innerThought } : {}),
+            ...(s.availability ? { availability: s.availability } : {}),
           })),
           ...(schedule.flowNarrative ? { flowNarrative: schedule.flowNarrative } : {}),
         },
@@ -775,6 +810,9 @@ export const buildFirePack = async (
     // 「此刻在做什么」也带原始素材：整天的作息表 + 歌单抽样池，worker 到点按 tzId
     // 挑当前时段。烤成文字的话，凌晨三点触发时角色会说「我在健身房呢」。
     scene,
+    // 明确睡眠区间独立带上去：它跨午夜且长期稳定，不能指望当天 scene 恰好还新鲜。
+    // 没设时写 null（而不是缺字段），新版 Worker 因此不会把旧 fire_pack 当成“清醒”。
+    sleepWindow: normalizeAmsgSleepWindow(char.sleepWindow),
   };
 };
 
@@ -1971,6 +2009,137 @@ export const ActiveMsgClient = {
     return { targets, failed };
   },
 
+  /**
+   * 打开心跳：先建新的第一跳，再清掉这个角色旧的心跳链。
+   *
+   * 创建成功之前不碰旧链，避免一次网络失败把原本能工作的心跳掐断。旧链清理逐条幂等，
+   * 所以 scheduleCharacterTask 内部已经取消过的第一条再取消一次也只会得到 alreadyGone。
+   */
+  async enableHeartbeat(params: {
+    char: CharacterProfile;
+    config: ActiveMsg2CharacterConfig;
+    intervalMinutes: number;
+    userProfile: UserProfile;
+    groups: GroupProfile[];
+    realtimeConfig: RealtimeConfig;
+    apiConfig: APIConfig;
+  }): Promise<{
+    uuid: string;
+    nextWakeAt: string;
+    failedOldUuids: string[];
+  }> {
+    const interval = normalizeHeartbeatInterval(params.intervalMinutes);
+    const existing = (await this.listRemoteTasksForChar(params.char.id))
+      .filter((task) => task.messageSubtype === AMSG_HEARTBEAT_SUBTYPE);
+    const firstSendTime = new Date(Date.now() + HEARTBEAT_FIRST_WAKE_DELAY_MS).toISOString();
+    const generation = crypto.randomUUID();
+    const result = await this.scheduleCharacterTask({
+      char: params.char,
+      config: params.config,
+      task: {
+        mode: 'auto',
+        firstSendTime,
+        recurrenceType: 'none',
+        selfScheduled: true,
+        messageSubtype: AMSG_HEARTBEAT_SUBTYPE,
+        heartbeatIntervalMinutes: interval,
+        heartbeatGeneration: generation,
+      },
+      replaceTaskUuid: existing[0]?.uuid,
+      userProfile: params.userProfile,
+      groups: params.groups,
+      realtimeConfig: params.realtimeConfig,
+      apiConfig: params.apiConfig,
+    });
+
+    // 新任务建成之后再切换控制行：如果建任务失败，旧链仍然有效；控制行上传失败则把
+    // 刚建的新任务回滚掉，避免 UI 报失败但三分钟后它仍悄悄开始续排。
+    try {
+      const globalConfig = await ensureWorkerReady();
+      const client = await initializeClient(globalConfig);
+      const now = Date.now();
+      await putClientStateOrThrow(client, [{
+        namespace: amsgStateNamespace(params.char.id),
+        key: AMSG_HEARTBEAT_CONTROL_KEY,
+        value: JSON.stringify(buildHeartbeatControl({
+          enabled: true,
+          intervalMinutes: interval,
+          activeChatPolicy: params.config.heartbeatActiveChatPolicy,
+          generation,
+          updatedAt: now,
+        })),
+        updatedAt: now,
+      }], '保存心跳控制状态');
+    } catch (error) {
+      try { await this.cancelTask(result.uuid); } catch { /* 由原错误向用户说明，远端清理由重开面板补救 */ }
+      throw error;
+    }
+
+    const failedOldUuids: string[] = [];
+    for (const old of existing) {
+      try { await this.cancelTask(old.uuid); } catch { failedOldUuids.push(old.uuid); }
+    }
+    return {
+      uuid: result.uuid,
+      nextWakeAt: result.firstSendAt,
+      failedOldUuids,
+    };
+  },
+
+  /**
+   * 心跳开着时只改「热聊时怎么办」这一个控制字段，不重建整条链，也不把下一次醒来
+   * 重置到三分钟后。先读回当前代次再覆盖同一行，generation / 频率保持原样。
+   */
+  async updateHeartbeatActiveChatPolicy(
+    charId: string,
+    policy: ActiveMsg2HeartbeatChatPolicy,
+  ): Promise<void> {
+    const current = parseHeartbeatControl(
+      await this.readClientStateValue(amsgStateNamespace(charId), AMSG_HEARTBEAT_CONTROL_KEY),
+    );
+    if (!current?.enabled) {
+      throw new Error('云端心跳当前没有开启，请重新打开心跳后再设置。');
+    }
+    await this.writeClientStateValue(
+      amsgStateNamespace(charId),
+      AMSG_HEARTBEAT_CONTROL_KEY,
+      JSON.stringify(buildHeartbeatControl({
+        ...current,
+        activeChatPolicy: normalizeHeartbeatActiveChatPolicy(policy),
+        updatedAt: Date.now(),
+      })),
+    );
+  },
+
+  /** 关掉这个角色所有隐藏心跳；远端清单读不到时不能假装已经关掉。 */
+  async disableHeartbeat(charId: string): Promise<{ targets: string[]; failed: string[] }> {
+    // 先翻控制行：正在 fire 的旧任务即使恰好已经被 Cron 取走，也会在续排前看到 disabled，
+    // 不会趁取消清单的竞态再生出下一条。
+    const globalConfig = await ensureWorkerReady();
+    const client = await initializeClient(globalConfig);
+    const now = Date.now();
+    await putClientStateOrThrow(client, [{
+      namespace: amsgStateNamespace(charId),
+      key: AMSG_HEARTBEAT_CONTROL_KEY,
+      value: JSON.stringify(buildHeartbeatControl({
+        enabled: false,
+        intervalMinutes: undefined,
+        generation: crypto.randomUUID(),
+        updatedAt: now,
+      })),
+      updatedAt: now,
+    }], '关闭心跳控制状态');
+
+    const targets = (await this.listRemoteTasksForChar(charId))
+      .filter((task) => task.messageSubtype === AMSG_HEARTBEAT_SUBTYPE)
+      .map((task) => task.uuid);
+    const failed: string[] = [];
+    for (const uuid of targets) {
+      try { await this.cancelTask(uuid); } catch { failed.push(uuid); }
+    }
+    return { targets, failed };
+  },
+
   async scheduleCharacterTask(params: {
     char: CharacterProfile;
     /** 角色级共享设置（secondaryApi / maxTokens）。 */
@@ -1985,6 +2154,12 @@ export const ActiveMsgClient = {
       expirePolicy?: ActiveMsg2ExpirePolicy;
       /** 角色自己排的（工具桥传 true）。带上 metadata 标记，连发上限的到点兜底闸只拦它。 */
       selfScheduled?: boolean;
+      /** 隐藏任务的用途标签；普通排程不传，心跳传 'heartbeat'。 */
+      messageSubtype?: string;
+      /** 心跳频率。带上它时使用心跳专属指令、隐藏标签和续排 metadata。 */
+      heartbeatIntervalMinutes?: number;
+      /** 同一条滚动链的代号；改频率会换代，旧链即使撞上 fire 也不会再续排。 */
+      heartbeatGeneration?: string;
     };
     /** 编辑/续期时传旧任务 uuid：先取消它再新建（不传 = 纯新建）。 */
     replaceTaskUuid?: string;
@@ -2002,9 +2177,11 @@ export const ActiveMsgClient = {
     else await this.registerPushSubscription();
 
     // 数量封顶：待触发任务（不含被替换的那个）满 5 个就拒绝，让角色/用户先清。
+    const isHeartbeat = task.messageSubtype === AMSG_HEARTBEAT_SUBTYPE;
+    const heartbeatInterval = normalizeHeartbeatInterval(task.heartbeatIntervalMinutes);
     const pendingOthers = getPendingTasks(config, Date.now())
       .filter((t) => t.taskUuid !== replaceTaskUuid);
-    if (pendingOthers.length >= MAX_ACTIVE_TASKS_PER_CHAR) {
+    if (!isHeartbeat && pendingOthers.length >= MAX_ACTIVE_TASKS_PER_CHAR) {
       throw new Error(`该角色的待触发任务已达上限 ${MAX_ACTIVE_TASKS_PER_CHAR} 个，请先取消或合并已有任务。`);
     }
 
@@ -2034,7 +2211,7 @@ export const ActiveMsgClient = {
       // 本地 base64 头像过不了 worker 的校验，不合格干脆不带这个字段（见 toRemoteAvatarUrl）。
       ...(remoteAvatarUrl ? { avatarUrl: remoteAvatarUrl } : {}),
       messageType: task.mode,
-      messageSubtype: 'chat',
+      messageSubtype: task.messageSubtype || 'chat',
       firstSendTime,
       recurrenceType: task.recurrenceType,
       // 角色的时间参照系（与 fire_pack 同一份）。daily / weekly 由 worker 按这个时区的
@@ -2052,10 +2229,17 @@ export const ActiveMsgClient = {
         // recurrenceType / occurrenceMs 不往这儿抄：库会把它们盖在每条 push 顶层，
         // 角色在 fire 里自排的任务也一样有，抄一份反而多一处会漏写的地方。
         amsgClientTaskId: clientTaskId,
-        amsgExpirePolicy: resolveExpirePolicy(task.mode, task.expirePolicy),
+        // 心跳不能用“排程后聊过天就整条作废”的锚点语义，否则第一次聊天之后以后每一跳
+        // 都会被 conversation-moved-on 吞掉。它有自己的“正在热聊就让路”门。
+        amsgExpirePolicy: isHeartbeat ? 'force' : resolveExpirePolicy(task.mode, task.expirePolicy),
         amsgAnchorMs: anchorMs,
         // 自排标记：到点兜底闸只拦带它的任务（用户面板排的不带、不受连发上限管）。
-        ...(task.selfScheduled ? { amsgSelfScheduled: true } : {}),
+        ...((task.selfScheduled || isHeartbeat) ? { amsgSelfScheduled: true } : {}),
+        ...(isHeartbeat ? {
+          amsgHeartbeat: true,
+          amsgHeartbeatIntervalMinutes: heartbeatInterval,
+          amsgHeartbeatGeneration: task.heartbeatGeneration,
+        } : {}),
       },
     };
 
@@ -2069,9 +2253,15 @@ export const ActiveMsgClient = {
       if (!userMessage) throw new Error('固定消息模式需要填写消息内容。');
       payload.userMessage = userMessage;
     } else {
-      const activeApi = resolveApiConfig(char, config, apiConfig);
+      const heartbeatApi = isHeartbeat
+        ? resolveHeartbeatApiConfig(char, config, apiConfig)
+        : null;
+      const activeApi = heartbeatApi?.api ?? resolveApiConfig(char, config, apiConfig);
+      if (isHeartbeat) payload.metadata.amsgHeartbeatApi = heartbeatApi?.source ?? 'default';
       // 「本次任务」指令随任务 metadata 走，worker 到点拿它填 fire_pack 的指令槽。
-      payload.metadata.amsgTaskInstruction = buildTaskInstruction(task.mode, task.promptHint);
+      payload.metadata.amsgTaskInstruction = isHeartbeat
+        ? buildHeartbeatTaskInstruction(heartbeatInterval)
+        : buildTaskInstruction(task.mode, task.promptHint);
       // 服务端要求「completePrompt 或 messages」二选一，且 messages 必须非空、
       // content 必须非空字符串，所以这里给一条占位。到点真正发给 LLM 的 messages 由
       // worker 的 onBeforeFire 返回值覆盖（库用 { ...payload, messages } 调 LLM），
@@ -2081,11 +2271,10 @@ export const ActiveMsgClient = {
         // 引用与内联三件套上游只收一种，同传直接 400——所以这条路上一个内联字段都不写。
         // 行的值按 (char, config, apiConfig) 现算，与后台补传那条路同一个入口，
         // 两边算出来的指纹才对得上（否则每次排程都会白传一次）。
-        credRow = buildCharChatCredRow(
-          char,
-          config,
-          resolveCharacterApiConfig(char, apiConfig).apiConfig,
-        );
+        const characterApi = resolveCharacterApiConfig(char, apiConfig).apiConfig;
+        credRow = heartbeatApi?.source === 'emotion'
+          ? buildCharEmotionCredRow(char.id, char.emotionConfig?.api, characterApi)
+          : buildCharChatCredRow(char, config, characterApi);
         if (!credRow) throw new Error('主动消息 2.0 缺少可用的 API URL / Key / Model。');
         payload.credRefs = { chat: credRow.credId };
       } else {

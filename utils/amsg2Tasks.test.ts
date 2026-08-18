@@ -78,6 +78,7 @@ describe('amsg2Tasks helpers', () => {
     expect(getPendingTasks(config, now).map((t) => shortTaskId(t.taskUuid))).toEqual(['aabbccdd', 'fixed000']);
     expect(hasActiveAiTask(config, now)).toBe(true);
     expect(hasActiveAiTask({ enabled: true, tasks: [fixed, past] }, now)).toBe(false);
+    expect(hasActiveAiTask({ enabled: true, heartbeatEnabled: true, tasks: [] }, now)).toBe(true);
     expect(hasActiveAiTask(undefined, now)).toBe(false);
   });
 });
@@ -613,6 +614,10 @@ describe('reconcileTasksWithRemote（跟远端底账对一次账）', () => {
   // 任务，还可能被「取消全部」把用户正等着的回复顺手掐掉。
   it('远端那行是即时对话 → 不补进清单', () => {
     expect(reconcileTasksWithRemote([], [remoteRow({ messageSubtype: 'instant-chat' })])).toEqual([]);
+  });
+
+  it('远端那行是隐藏心跳 → 交给心跳开关管理，不补进普通任务清单', () => {
+    expect(reconcileTasksWithRemote([], [remoteRow({ messageSubtype: 'heartbeat' })])).toEqual([]);
   });
 });
 

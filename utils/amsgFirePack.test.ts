@@ -115,7 +115,7 @@ describe('formatFireTimeFull / formatFireTimeShort（角色参照系的自然中
 
 describe('renderFirePack', () => {
   const basePack: AmsgFirePack = {
-    v: FIRE_PACK_VERSION, builtAt: 1_700_000_000_000, pendingTasks: [], scene: null, selfScheduleEnabled: true,
+    v: FIRE_PACK_VERSION, builtAt: 1_700_000_000_000, pendingTasks: [], scene: null, sleepWindow: null, selfScheduleEnabled: true,
     template: [
       `当前本地时间：${AMSG_SLOT_CURRENT_TIME}`,
       AMSG_SLOT_TIME_SINCE_USER,
@@ -171,7 +171,7 @@ describe('对方那边现在几点（AMSG_SLOT_USER_CLOCK）', () => {
   // 纽约角色 / 上海用户：2026-08-02T13:00Z = 纽约 09:00、上海 21:00。
   const AT = Date.UTC(2026, 7, 2, 13, 0);
   const nyChar: AmsgFirePack = {
-    v: FIRE_PACK_VERSION, builtAt: 1, pendingTasks: [], scene: null, selfScheduleEnabled: true, lastUserMessageAt: null,
+    v: FIRE_PACK_VERSION, builtAt: 1, pendingTasks: [], scene: null, sleepWindow: null, selfScheduleEnabled: true, lastUserMessageAt: null,
     template: `当前本地时间（你所在地）：${AMSG_SLOT_CURRENT_TIME}${AMSG_SLOT_USER_CLOCK}`,
     tzId: 'America/New_York',
     userTzId: 'Asia/Shanghai',
@@ -206,7 +206,7 @@ describe('对方那边现在几点（AMSG_SLOT_USER_CLOCK）', () => {
 describe('parseFirePack', () => {
   const valid: AmsgFirePack = {
     v: FIRE_PACK_VERSION, template: 'x', lastUserMessageAt: null, tzId: 'Asia/Shanghai', userTzId: 'Asia/Shanghai', targetName: 'A',
-    builtAt: 1_700_000_000_000, pendingTasks: [], scene: null, selfScheduleEnabled: true,
+    builtAt: 1_700_000_000_000, pendingTasks: [], scene: null, sleepWindow: null, selfScheduleEnabled: true,
   };
 
   it('合法 JSON 原样返回', () => {
@@ -219,6 +219,19 @@ describe('parseFirePack', () => {
     expect(parseFirePack(JSON.stringify(noBuiltAt))).toBeNull();
     expect(parseFirePack(JSON.stringify(noTasks))).toBeNull();
     expect(parseFirePack(JSON.stringify({ ...valid, builtAt: 'x' }))).toBeNull();
+  });
+
+  it('睡眠区间是新版必填硬闸：明确 null 合法，缺失或坏形状拒绝', () => {
+    const { sleepWindow: _s, ...missingSleepWindow } = valid;
+    expect(parseFirePack(JSON.stringify(missingSleepWindow))).toBeNull();
+    expect(parseFirePack(JSON.stringify({
+      ...valid,
+      sleepWindow: { bedtimeMinutes: 23 * 60, wakeTimeMinutes: 24 * 60 + 7 * 60 + 30 },
+    }))?.sleepWindow).toEqual({ bedtimeMinutes: 1380, wakeTimeMinutes: 1890 });
+    expect(parseFirePack(JSON.stringify({
+      ...valid,
+      sleepWindow: { bedtimeMinutes: 500, wakeTimeMinutes: 600 },
+    }))).toBeNull();
   });
 
   it('lastUserMessageAt 数字也合法', () => {
@@ -264,7 +277,7 @@ describe('self_log', () => {
   const packAt = 1_700_000_000_000;
   const pack: AmsgFirePack = {
     v: FIRE_PACK_VERSION, template: 'x', lastUserMessageAt: null, tzId: 'UTC', userTzId: 'UTC', targetName: '小明同学',
-    builtAt: packAt, pendingTasks: [], scene: null, selfScheduleEnabled: true,
+    builtAt: packAt, pendingTasks: [], scene: null, sleepWindow: null, selfScheduleEnabled: true,
   };
   const entry = (id: string, text: string, at = packAt) => ({ id, at, text });
 
@@ -515,7 +528,7 @@ describe('连发提醒（自述块内的计数与上限）', () => {
   const packAt = 1_700_000_000_000;
   const slotted: AmsgFirePack = {
     v: FIRE_PACK_VERSION, lastUserMessageAt: null, tzId: 'UTC', userTzId: 'UTC', targetName: '小明同学',
-    builtAt: packAt, pendingTasks: [], scene: null, selfScheduleEnabled: true,
+    builtAt: packAt, pendingTasks: [], scene: null, sleepWindow: null, selfScheduleEnabled: true,
     template: `【最近对话上下文】\n用户：在吗${AMSG_SLOT_SELF_LOG}\n\n【本次任务】\n${AMSG_SLOT_TASK_INSTRUCTION}`,
   };
   const entry = (id: string, text: string) => ({ id, at: packAt, text });
@@ -605,7 +618,7 @@ describe('fire_pack 任务指令槽', () => {
     v: FIRE_PACK_VERSION,
     template: `头部\n${AMSG_SLOT_TASK_INSTRUCTION}\n尾部 ${AMSG_SLOT_CURRENT_TIME}`,
     lastUserMessageAt: null, tzId: 'Asia/Shanghai', userTzId: 'Asia/Shanghai', targetName: '小明同学',
-    builtAt: 1_700_000_000_000, pendingTasks: [], scene: null, selfScheduleEnabled: true,
+    builtAt: 1_700_000_000_000, pendingTasks: [], scene: null, sleepWindow: null, selfScheduleEnabled: true,
   };
 
   it('renderFirePack 用传入的任务指令填槽', () => {
@@ -633,6 +646,7 @@ describe('client_state 值压缩', () => {
     builtAt: 1_700_000_000_000,
     pendingTasks: [],
     scene: null,
+    sleepWindow: null,
     selfScheduleEnabled: true,
   });
 
@@ -697,7 +711,7 @@ describe('client_state 值压缩', () => {
 describe('fire_pack 版本对不上时说清该做什么', () => {
   const pack = (v: unknown) => JSON.stringify({
     v, template: 'x', lastUserMessageAt: null, tzId: 'UTC', userTzId: 'UTC', targetName: 'A',
-    builtAt: 1, pendingTasks: [], scene: null, selfScheduleEnabled: true,
+    builtAt: 1, pendingTasks: [], scene: null, sleepWindow: null, selfScheduleEnabled: true,
   });
 
   it('旧包（worker 新、前端旧）→ 让用户打开一次网页重传', () => {
@@ -722,26 +736,26 @@ describe('fire_pack 版本对不上时说清该做什么', () => {
   });
 });
 
-// ─── v7：即时对话的 chat 段 ───
+// ─── v8：睡眠硬闸 + 即时对话的 chat 段 ───
 //
 // 开发期规矩：版本对不上整包打回，不做任何形状兼容。v6 的包被放行的话，标了即时对话
 // 的任务会拿不到 chat 段——而那时 worker 已经走过版本门，只能一路跑到「用主动消息模板
 // 答用户刚说的话」，出来的东西驴唇不对马嘴且没有报错。
-describe('fire_pack v7 的 chat 段', () => {
+describe('fire_pack v8 的 chat 段', () => {
   const base: AmsgFirePack = {
     v: FIRE_PACK_VERSION, template: 'x', lastUserMessageAt: null,
     tzId: 'Asia/Shanghai', userTzId: 'Asia/Shanghai', targetName: '小明',
-    builtAt: 1_700_000_000_000, pendingTasks: [], scene: null, selfScheduleEnabled: true,
+    builtAt: 1_700_000_000_000, pendingTasks: [], scene: null, sleepWindow: null, selfScheduleEnabled: true,
   };
   const chat = { messages: [{ role: 'user', content: '在吗' }], builtAt: 1_700_000_000_000 };
 
-  it('当前版本号是 7（升版要前端和 worker 一起动）', () => {
-    expect(FIRE_PACK_VERSION).toBe(7);
+  it('当前版本号是 8（升版要前端和 worker 一起动）', () => {
+    expect(FIRE_PACK_VERSION).toBe(8);
   });
 
-  it('v6 的包直接拒（不做旧格式兼容）', () => {
-    expect(parseFirePack(JSON.stringify({ ...base, v: 6 }))).toBeNull();
-    expect(describeFirePackVersion(JSON.stringify({ ...base, v: 6 })))
+  it('v7 的包直接拒（不做旧格式兼容）', () => {
+    expect(parseFirePack(JSON.stringify({ ...base, v: 7 }))).toBeNull();
+    expect(describeFirePackVersion(JSON.stringify({ ...base, v: 7 })))
       .toContain('前端比 worker 旧');
   });
 

@@ -6852,9 +6852,68 @@ var buildScheduleInjection = (schedule, evolvedNarrative, now = /* @__PURE__ */ 
   return out;
 };
 
-// utils/scheduleTime.ts
+// utils/amsgSleepGuard.ts
 var SLEEP_TIMELINE_START = 21 * 60 + 30;
 var SLEEP_TIMELINE_END = 24 * 60 + 10 * 60;
+var normalizeAmsgSleepWindow = (value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const source = value;
+  if (typeof source.bedtimeMinutes !== "number" || typeof source.wakeTimeMinutes !== "number") return null;
+  const bedtimeMinutes = Math.round(source.bedtimeMinutes);
+  const wakeTimeMinutes = Math.round(source.wakeTimeMinutes);
+  if (!Number.isFinite(bedtimeMinutes) || !Number.isFinite(wakeTimeMinutes)) return null;
+  if (bedtimeMinutes < SLEEP_TIMELINE_START || wakeTimeMinutes > SLEEP_TIMELINE_END || wakeTimeMinutes <= bedtimeMinutes) return null;
+  return { bedtimeMinutes, wakeTimeMinutes };
+};
+var timelineMinutesAt = (nowMs, tzId) => {
+  const wallNow = nowInTimeZone(tzId, new Date(nowMs));
+  const minutes = wallNow.getHours() * 60 + wallNow.getMinutes();
+  return minutes < 10 * 60 ? minutes + 24 * 60 : minutes;
+};
+var isInsideSleepWindow = (window2, nowMs, tzId) => {
+  const minutes = timelineMinutesAt(nowMs, tzId);
+  return minutes >= window2.bedtimeMinutes && minutes < window2.wakeTimeMinutes;
+};
+var SLEEP_SLOT_PATTERN = /睡眠中|睡觉|入睡|熟睡|沉睡|午睡|小睡|补觉|就寝|休眠|梦乡|睡着|睡懒觉|\b(?:sleep|asleep|napping|nap)\b/i;
+var AWAKE_SLEEP_PATTERN = /睡前|睡觉前|准备(?:睡|就寝)|失眠|起床|醒来|刚醒|赖床|before sleep|bedtime routine/i;
+var scheduleSlotIsSleeping = (slot) => {
+  if (!slot) return false;
+  const text = `${slot.activity || ""} ${slot.description || ""}`;
+  return !AWAKE_SLEEP_PATTERN.test(text) && SLEEP_SLOT_PATTERN.test(text);
+};
+var parseSlotMinutes = (slot) => {
+  const [hour, minute] = slot.startTime.split(":").map(Number);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return hour * 60 + minute;
+};
+var previousDateKey = (dateKey) => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+  if (!match) return null;
+  const instant = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])) - 864e5;
+  return new Date(instant).toISOString().slice(0, 10);
+};
+var resolveSceneSlot = (scene, nowMs, tzId) => {
+  if (!scene?.schedule?.slots?.length) return null;
+  const wallNow = nowInTimeZone(tzId, new Date(nowMs));
+  const currentDateKey = getLocalDateKey(wallNow);
+  const priorDateKey = previousDateKey(currentDateKey);
+  if (scene.dateKey !== currentDateKey && scene.dateKey !== priorDateKey) return null;
+  const validSlots = scene.schedule.slots.map((slot) => ({ slot, minutes: parseSlotMinutes(slot) })).filter((entry) => entry.minutes !== null).sort((a, b) => a.minutes - b.minutes);
+  if (validSlots.length === 0) return null;
+  const currentMinutes = wallNow.getHours() * 60 + wallNow.getMinutes();
+  if (scene.dateKey === priorDateKey && currentMinutes >= validSlots[0].minutes) return null;
+  for (let i = validSlots.length - 1; i >= 0; i -= 1) {
+    if (currentMinutes >= validSlots[i].minutes) return validSlots[i].slot;
+  }
+  return validSlots[validSlots.length - 1].slot;
+};
+var resolveHeartbeatSleepReason = (input) => {
+  const window2 = normalizeAmsgSleepWindow(input.sleepWindow);
+  if (window2 && isInsideSleepWindow(window2, input.nowMs, input.tzId)) return "sleep-window";
+  const currentSlot = resolveSceneSlot(input.scene, input.nowMs, input.tzId);
+  return scheduleSlotIsSleeping(currentSlot) ? "schedule-sleep" : null;
+};
 
 // utils/charMusicSchedule.ts
 var LISTENING_KEYWORDS = [
@@ -7139,7 +7198,7 @@ var renderFirePack = (pack, nowMs, taskInstruction, extras) => {
 ${realtimeWorld}` : "");
   return out;
 };
-var FIRE_PACK_VERSION = 7;
+var FIRE_PACK_VERSION = 8;
 var describeFirePackVersion = (value) => {
   let v;
   try {
@@ -7170,7 +7229,7 @@ var chatFieldOk = (chat) => {
 var parseFirePack = (value) => {
   try {
     const parsed = JSON.parse(value);
-    if (parsed && typeof parsed === "object" && parsed.v === FIRE_PACK_VERSION && chatFieldOk(parsed.chat) && typeof parsed.template === "string" && parsed.template.length > 0 && (parsed.lastUserMessageAt === null || typeof parsed.lastUserMessageAt === "number") && typeof parsed.tzId === "string" && parsed.tzId.length > 0 && typeof parsed.userTzId === "string" && parsed.userTzId.length > 0 && typeof parsed.targetName === "string" && typeof parsed.builtAt === "number" && Array.isArray(parsed.pendingTasks) && (parsed.scene === null || typeof parsed.scene === "object") && (parsed.maxUnansweredSends === void 0 || typeof parsed.maxUnansweredSends === "number" && Number.isFinite(parsed.maxUnansweredSends) && parsed.maxUnansweredSends >= 0) && typeof parsed.selfScheduleEnabled === "boolean") {
+    if (parsed && typeof parsed === "object" && parsed.v === FIRE_PACK_VERSION && chatFieldOk(parsed.chat) && typeof parsed.template === "string" && parsed.template.length > 0 && (parsed.lastUserMessageAt === null || typeof parsed.lastUserMessageAt === "number") && typeof parsed.tzId === "string" && parsed.tzId.length > 0 && typeof parsed.userTzId === "string" && parsed.userTzId.length > 0 && typeof parsed.targetName === "string" && typeof parsed.builtAt === "number" && Array.isArray(parsed.pendingTasks) && (parsed.scene === null || typeof parsed.scene === "object") && (parsed.sleepWindow === null || normalizeAmsgSleepWindow(parsed.sleepWindow) !== null) && (parsed.maxUnansweredSends === void 0 || typeof parsed.maxUnansweredSends === "number" && Number.isFinite(parsed.maxUnansweredSends) && parsed.maxUnansweredSends >= 0) && typeof parsed.selfScheduleEnabled === "boolean") {
       return parsed;
     }
   } catch {
@@ -7199,6 +7258,84 @@ function shouldExpireFire(input) {
   return last > anchor;
 }
 var DELIVERED_WINDOW_MS = 30 * 6e4;
+
+// utils/amsgHeartbeat.ts
+var AMSG_HEARTBEAT_CONTROL_KEY = "heartbeat_control";
+var AMSG_HEARTBEAT_NOOP = "[[HEARTBEAT_NOOP]]";
+var HEARTBEAT_INTERVAL_OPTIONS = [30, 60, 120, 240];
+var DEFAULT_HEARTBEAT_INTERVAL_MINUTES = 60;
+var HEARTBEAT_FIRST_WAKE_DELAY_MS = 3 * 6e4;
+var DEFAULT_HEARTBEAT_ACTIVE_CHAT_POLICY = "skip";
+var normalizeHeartbeatActiveChatPolicy = (value) => value === "merge" ? "merge" : DEFAULT_HEARTBEAT_ACTIVE_CHAT_POLICY;
+var normalizeHeartbeatInterval = (value) => {
+  const numeric = typeof value === "number" && Number.isFinite(value) ? value : NaN;
+  return HEARTBEAT_INTERVAL_OPTIONS.includes(numeric) ? numeric : DEFAULT_HEARTBEAT_INTERVAL_MINUTES;
+};
+var heartbeatJitterWindowMinutes = (intervalMinutes) => Math.min(20, Math.max(5, Math.round(normalizeHeartbeatInterval(intervalMinutes) * 0.1)));
+var isHeartbeatMetadata = (metadata) => Boolean(metadata && typeof metadata === "object" && metadata.amsgHeartbeat === true);
+var parseHeartbeatControl = (value) => {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value);
+    if (parsed.v !== 1 || typeof parsed.enabled !== "boolean" || typeof parsed.generation !== "string" || !parsed.generation) return null;
+    return {
+      v: 1,
+      enabled: parsed.enabled,
+      intervalMinutes: normalizeHeartbeatInterval(parsed.intervalMinutes),
+      activeChatPolicy: normalizeHeartbeatActiveChatPolicy(parsed.activeChatPolicy),
+      generation: parsed.generation,
+      updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : 0
+    };
+  } catch {
+    return null;
+  }
+};
+var buildHeartbeatTaskInstruction = (intervalMinutes, options = {}) => {
+  const interval = normalizeHeartbeatInterval(intervalMinutes);
+  return [
+    `\u8FD9\u662F\u4F60\u7684\u5468\u671F\u5FC3\u8DF3\uFF08\u7EA6\u6BCF ${interval} \u5206\u949F\u9192\u6765\u4E00\u6B21\uFF09\uFF0C\u4E0D\u662F\u4E00\u6761\u5FC5\u987B\u53D1\u9001\u7684\u5B9A\u65F6\u6D88\u606F\u3002`,
+    "\u5148\u7ED3\u5408\u5F53\u524D\u65F6\u95F4\u3001\u6700\u8FD1\u5BF9\u8BDD\u3001\u4F60\u81EA\u5DF1\u7684\u72B6\u6001\u8BB0\u5F55\u548C\u53EF\u7528\u5DE5\u5177\uFF0C\u5224\u65AD\u6B64\u523B\u662F\u5426\u6709\u81EA\u7136\u3001\u5177\u4F53\u7684\u7406\u7531\u4E3B\u52A8\u8054\u7CFB\u7528\u6237\u3002",
+    "\u5982\u679C\u6709\uFF0C\u5C31\u50CF\u5E73\u65F6\u804A\u5929\u4E00\u6837\u53D1 1-3 \u6761\u7B80\u77ED\u81EA\u7136\u7684\u6D88\u606F\uFF1B\u53EF\u4EE5\u5173\u5FC3\u3001\u5206\u4EAB\u3001\u63D0\u9192\u6216\u627F\u63A5\u4E4B\u524D\u7684\u8BDD\u9898\uFF0C\u4F46\u4E0D\u8981\u590D\u8FF0\u7CFB\u7EDF\u6392\u7A0B\uFF0C\u4E0D\u8981\u63D0\u201C\u5FC3\u8DF3\u201D\u201C\u4EFB\u52A1\u201D\u201C\u81EA\u52A8\u5524\u9192\u201D\uFF0C\u4E5F\u4E0D\u8981\u7528\u7A7A\u6CDB\u6A21\u677F\u5F0F\u95EE\u5019\u3002",
+    `\u5982\u679C\u6CA1\u6709\u5408\u9002\u7684\u8BDD\uFF0C\u6B63\u6587\u53EA\u80FD\u8F93\u51FA ${AMSG_HEARTBEAT_NOOP}\uFF0C\u4E0D\u8981\u9644\u52A0\u89E3\u91CA\uFF0C\u4E5F\u4E0D\u8981\u4E3A\u4E86\u8BC1\u660E\u4F60\u9192\u8FC7\u800C\u786C\u53D1\u6D88\u606F\u3002`,
+    "\u7528\u6237\u4E00\u6BB5\u65F6\u95F4\u6CA1\u6709\u5F00\u53E3\u65F6\uFF0C\u4F60\u53EF\u4EE5\u66F4\u613F\u610F\u4E3B\u52A8\u9760\u8FD1\uFF0C\u4F46\u4E0D\u8981\u50AC\u4FC3\u3001\u8D23\u602A\u3001\u5236\u9020\u5185\u759A\uFF0C\u4E5F\u4E0D\u8981\u5728\u5BF9\u65B9\u5C1A\u672A\u56DE\u590D\u65F6\u8FDE\u7EED\u5806\u5F88\u591A\u76F8\u4F3C\u6D88\u606F\u3002",
+    ...options.activeChat ? [
+      "",
+      "\u3010\u6B63\u5728\u804A\u5929\u65F6\u7684\u5904\u7406\u3011",
+      "\u7528\u6237\u6B64\u523B\u6B63\u5728\u548C\u4F60\u804A\u5929\u3002\u4E0D\u8981\u53E6\u8D77\u8BDD\u9898\u3001\u4E0D\u8981\u50CF\u7A81\u7136\u5F39\u51FA\u7684\u901A\u77E5\uFF0C\u4E5F\u4E0D\u8981\u91CD\u590D\u56DE\u7B54\u7528\u6237\u521A\u8BF4\u7684\u8BDD\u3002",
+      `\u53EA\u6709\u5F53\u4F60\u80FD\u987A\u7740\u5F53\u524D\u8BDD\u9898\u81EA\u7136\u8865\u5145\u4E00\u53E5\u65F6\u624D\u53D1\u9001\uFF0C\u800C\u4E14\u5C3D\u91CF\u53EA\u53D1 1 \u6761\u77ED\u6D88\u606F\uFF1B\u5426\u5219\u8F93\u51FA ${AMSG_HEARTBEAT_NOOP}\u3002`
+    ] : []
+  ].join("\n");
+};
+var stripHeartbeatNoop = (content) => content.split(AMSG_HEARTBEAT_NOOP).join("").trim();
+var stableHashNumber = (value) => {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+};
+var heartbeatJitterMinutes = (seed, nominalNextMs, intervalMinutes) => {
+  const window2 = heartbeatJitterWindowMinutes(intervalMinutes);
+  const bucketCount = window2 * 2 + 1;
+  return stableHashNumber(`${seed}:${Math.trunc(nominalNextMs)}`) % bucketCount - window2;
+};
+var nextHeartbeatTimeMs = (occurrenceMs, nowMs, intervalMinutes, jitterSeed = "heartbeat") => {
+  const interval = normalizeHeartbeatInterval(intervalMinutes);
+  const periodMs = interval * 6e4;
+  const safeOccurrence = Number.isFinite(occurrenceMs) ? occurrenceMs : nowMs;
+  const earliest = nowMs + 6e4;
+  let steps = Math.max(1, Math.ceil((earliest - safeOccurrence) / periodMs));
+  for (let attempt = 0; attempt < 3; attempt += 1, steps += 1) {
+    const nominalNext = safeOccurrence + steps * periodMs;
+    const jitterMs = heartbeatJitterMinutes(jitterSeed, nominalNext, interval) * 6e4;
+    const candidate = nominalNext + jitterMs;
+    if (candidate >= earliest) return candidate;
+  }
+  return earliest;
+};
+var stableHash = (value) => stableHashNumber(value).toString(36);
+var heartbeatTaskUuid = (charId, occurrenceMs) => `heartbeat-${stableHash(charId)}-${Math.trunc(occurrenceMs).toString(36)}`;
 
 // utils/amsg2Tasks.ts
 var MAX_ACTIVE_TASKS_PER_CHAR = 5;
@@ -12602,26 +12739,95 @@ var amsgHooks = {
         throw fail2(`${label} \u89E3\u538B\u5931\u8D25\uFF08\u6570\u636E\u635F\u574F\uFF09`, { error: String(error) });
       }
     };
-    const charRows = await ctx.readState(amsgStateNamespace(charId));
     const taskMeta = ctx.task.metadata ?? {};
+    const heartbeat = isHeartbeatMetadata(taskMeta);
+    const charRows = await ctx.readState(amsgStateNamespace(charId));
+    let heartbeatControl = null;
+    if (heartbeat) {
+      heartbeatControl = parseHeartbeatControl(
+        charRows.find((row) => row.key === AMSG_HEARTBEAT_CONTROL_KEY)?.value
+      );
+      const generation = typeof taskMeta.amsgHeartbeatGeneration === "string" ? taskMeta.amsgHeartbeatGeneration : "";
+      if (!heartbeatControl?.enabled || !generation || heartbeatControl.generation !== generation) {
+        console.log("[amsg:heartbeat-stale]", {
+          charId,
+          taskGeneration: generation || null,
+          controlGeneration: heartbeatControl?.generation ?? null,
+          enabled: heartbeatControl?.enabled ?? false
+        });
+        return { skip: true };
+      }
+      const occurrenceMs2 = Date.parse(String(ctx.task.nextSendAt));
+      if (!Number.isFinite(occurrenceMs2)) {
+        throw fail2("\u5FC3\u8DF3\u4EFB\u52A1\u884C next_send_at \u89E3\u6790\u4E0D\u51FA\u89E6\u53D1\u65F6\u523B", { nextSendAt: ctx.task.nextSendAt });
+      }
+      if (typeof ctx.scheduleTask !== "function") {
+        throw fail2("\u5F53\u524D Worker \u7248\u672C\u4E0D\u652F\u6301\u5FC3\u8DF3\u7EED\u6392\uFF0C\u8BF7\u91CD\u65B0\u590D\u5236\u5E76\u90E8\u7F72\u6700\u65B0 Worker");
+      }
+      const interval = normalizeHeartbeatInterval(heartbeatControl.intervalMinutes);
+      const nextMs = nextHeartbeatTimeMs(
+        occurrenceMs2,
+        ctx.now.getTime(),
+        interval,
+        `${charId}:${generation}`
+      );
+      const nextUuid = heartbeatTaskUuid(charId, nextMs);
+      await ctx.scheduleTask({
+        firstSendTime: new Date(nextMs).toISOString(),
+        recurrenceType: "none",
+        messageType: "auto",
+        uuid: nextUuid,
+        metadata: {
+          charId,
+          charName: typeof taskMeta.charName === "string" ? taskMeta.charName : ctx.task.contactName,
+          source: "active_msg_2",
+          amsgMode: "auto",
+          amsgClientTaskId: nextUuid,
+          amsgExpirePolicy: "force",
+          amsgAnchorMs: 0,
+          amsgSelfScheduled: true,
+          amsgHeartbeat: true,
+          amsgHeartbeatIntervalMinutes: interval,
+          amsgHeartbeatGeneration: generation,
+          amsgHeartbeatApi: taskMeta.amsgHeartbeatApi === "emotion" ? "emotion" : "default",
+          amsgTaskInstruction: buildHeartbeatTaskInstruction(interval)
+        }
+      });
+      console.log("[amsg:heartbeat-next]", { charId, nextUuid, nextAt: new Date(nextMs).toISOString() });
+    }
     const policy = typeof taskMeta.amsgExpirePolicy === "string" ? taskMeta.amsgExpirePolicy : void 0;
     const emotionEvalSpec = takeEmotionEvalSpec(ctx.task.metadata);
     const presence = parseAmsgChatPresence(
       charRows.find((r) => r.key === AMSG_CHAT_PRESENCE_KEY)?.value
     );
-    if (!instant && policy === "expire" && isFreshChatPresence(presence, charId, ctx.now.getTime())) {
-      console.log("[amsg:expire-skip]", {
-        taskId: ctx.task.id,
-        reason: "active-chat-presence",
-        presenceActiveAt: presence?.activeAt
-      });
-      await recordSkip(
-        ctx,
-        charId,
-        "active-chat-presence",
-        Date.parse(String(ctx.task.nextSendAt)) || ctx.now.getTime()
-      );
-      return { skip: true };
+    const activeChatPresence = !instant && (heartbeat || policy === "expire") && isFreshChatPresence(presence, charId, ctx.now.getTime());
+    if (activeChatPresence) {
+      if (heartbeat && heartbeatControl?.activeChatPolicy === "merge") {
+        taskMeta.amsgTaskInstruction = buildHeartbeatTaskInstruction(
+          heartbeatControl.intervalMinutes,
+          { activeChat: true }
+        );
+        console.log("[amsg:heartbeat-active-chat-merge]", {
+          taskId: ctx.task.id,
+          charId,
+          presenceActiveAt: presence?.activeAt
+        });
+      } else {
+        console.log("[amsg:expire-skip]", {
+          taskId: ctx.task.id,
+          reason: "active-chat-presence",
+          presenceActiveAt: presence?.activeAt
+        });
+        if (!heartbeat) {
+          await recordSkip(
+            ctx,
+            charId,
+            "active-chat-presence",
+            Date.parse(String(ctx.task.nextSendAt)) || ctx.now.getTime()
+          );
+        }
+        return { skip: true };
+      }
     }
     const packRow = charRows.find((r) => r.key === AMSG_FIRE_PACK_KEY);
     if (!packRow) throw fail2("\u4E91\u7AEF\u6CA1\u6709\u8FD9\u4E2A\u89D2\u8272\u7684 fire_pack");
@@ -12630,6 +12836,22 @@ var amsgHooks = {
     if (!pack) throw fail2(`fire_pack \u89E3\u6790\u5931\u8D25\uFF1A${describeFirePackVersion(packJson)}`);
     if (instant && !pack.chat) {
       throw fail2("\u5373\u65F6\u5BF9\u8BDD\u4EFB\u52A1\u7684 fire_pack \u91CC\u6CA1\u6709 chat \u6BB5\uFF08\u4E91\u7AEF\u72B6\u6001\u6CA1\u8DDF\u4E0A\uFF09");
+    }
+    if (heartbeat) {
+      const sleepReason = resolveHeartbeatSleepReason({
+        sleepWindow: pack.sleepWindow,
+        scene: pack.scene,
+        nowMs: ctx.now.getTime(),
+        tzId: pack.tzId
+      });
+      if (sleepReason) {
+        console.log("[amsg:heartbeat-sleep-skip]", {
+          taskId: ctx.task.id,
+          charId,
+          reason: sleepReason
+        });
+        return { skip: true };
+      }
     }
     if (!instant && pack.template === AMSG2_INSTANT_STUB_TEMPLATE) {
       console.warn("[amsg:fire-pack-stub] fire_pack \u8FD8\u662F\u5373\u65F6\u5BF9\u8BDD\u7684\u5360\u4F4D\u6A21\u677F\uFF0C\u7B49\u5BA2\u6237\u7AEF\u8865\u4F20\u540E\u91CD\u8BD5", {
@@ -12823,7 +13045,10 @@ var amsgHooks = {
     };
   },
   async onLLMOutput(ctx) {
-    const content = stripReasoningTags(ctx.llmOutputText || "").trim();
+    const rawContent = stripReasoningTags(ctx.llmOutputText || "").trim();
+    const heartbeat = isHeartbeatMetadata(ctx.metadata);
+    const heartbeatNoop = heartbeat && rawContent.includes(AMSG_HEARTBEAT_NOOP);
+    const content = heartbeat ? stripHeartbeatNoop(rawContent) : rawContent;
     const taskId = ctx.taskId != null ? String(ctx.taskId) : null;
     if (taskId == null) {
       console.warn("[amsg:agentic] ctx \u4E0A\u6CA1\u6709 taskId\uFF0C\u9001\u8FBE\u5F52\u5C5E\u4F1A\u5931\u6548", ctx.sessionId);
@@ -12894,13 +13119,15 @@ var amsgHooks = {
       });
     }
     if (decision.decision === "skip-push") {
-      await writeLastSkip(ctx.writeState, stash.charId, {
-        v: 1,
-        taskUuid: stash.taskUuid,
-        occurrenceMs: stash.occurrenceMs,
-        reason: decision.reason,
-        skippedAt: Date.now()
-      });
+      if (!heartbeatNoop) {
+        await writeLastSkip(ctx.writeState, stash.charId, {
+          v: 1,
+          taskUuid: stash.taskUuid,
+          occurrenceMs: stash.occurrenceMs,
+          reason: decision.reason,
+          skippedAt: Date.now()
+        });
+      }
       if (stash.instant && stash.taskUuid && ctx.writeState) {
         await writeChatFail(ctx.writeState, stash.charId, {
           uuid: stash.taskUuid,
