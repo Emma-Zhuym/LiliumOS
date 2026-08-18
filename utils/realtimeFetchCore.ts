@@ -138,6 +138,60 @@ export const performSearch = async (query: string, apiKey: string): Promise<{ su
 // ==================== Notion（经代理 worker /notion/*） ====================
 
 /**
+ * 获取角色最近的日记。查询是只读操作，短暂断线或 Worker 5xx 时可安全重试。
+ */
+export const notionGetRecentDiaries = async (
+    apiKey: string,
+    databaseId: string,
+    characterName: string,
+    limit: number = 5
+): Promise<{ success: boolean; entries: DiaryPreview[]; message: string }> => {
+    try {
+        const response = await fetchReadWithRetry(`${getProxyWorkerUrl()}/notion/query`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Notion-API-Key': apiKey
+            },
+            body: JSON.stringify({
+                database_id: databaseId,
+                filter: {
+                    property: 'Name',
+                    title: { starts_with: `[${characterName}]` }
+                },
+                sorts: [{ property: 'Date', direction: 'descending' }],
+                page_size: limit
+            })
+        });
+
+        const text = await response.text();
+        if (!response.ok) {
+            console.error('Query diaries failed:', response.status, text);
+            return { success: false, entries: [], message: `查询失败: ${response.status}` };
+        }
+
+        const data = JSON.parse(text);
+        if (!data.results || data.results.length === 0) {
+            return { success: true, entries: [], message: '暂无日记' };
+        }
+
+        const entries: DiaryPreview[] = data.results.map((page: any) => {
+            const title = page.properties?.Name?.title?.[0]?.plain_text || '无标题';
+            return {
+                id: page.id,
+                title: title.replace(/^\[.*?\]\s*/, ''),
+                date: page.properties?.Date?.date?.start || '',
+                url: page.url
+            };
+        });
+        return { success: true, entries, message: '获取成功' };
+    } catch (e: any) {
+        console.error('Get diaries failed:', e);
+        return { success: false, entries: [], message: `获取失败: ${e.message}` };
+    }
+};
+
+/**
  * 按日期查找角色的日记（通过 Worker 代理）
  * 支持一天多篇日记，全部返回
  *

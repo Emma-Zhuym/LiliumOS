@@ -356,10 +356,11 @@ describe('probeOriginReachability', () => {
 });
 
 describe('describeReachabilityProbe', () => {
-    it('通了 → 指向 CORS/限流，明确说「网络路径是通的」', () => {
+    it('根路径通了 → 只确认当前可达，不把原接口失败武断归因给 CORS', () => {
         const text = describeReachabilityProbe('reachable', 'sullymeow.ccwu.cc');
-        expect(text).toContain('网络路径是通的');
+        expect(text).toContain('域名当前可达');
         expect(text).toContain('CORS');
+        expect(text).toContain('不能据此确认');
         expect(text).not.toContain('梯子的分流规则');
     });
 

@@ -4,7 +4,7 @@ vi.mock('./proxyWorker', () => ({
   getProxyWorkerUrl: () => 'https://worker.test',
 }));
 
-import { notionGetDiaryByDate, notionReadDiaryContent } from './realtimeFetchCore';
+import { notionGetDiaryByDate, notionGetRecentDiaries, notionReadDiaryContent } from './realtimeFetchCore';
 
 const response = (status: number, body: unknown): Response => new Response(JSON.stringify(body), {
   status,
@@ -28,6 +28,19 @@ describe('Notion read retries', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const pending = notionGetDiaryByDate('key', 'db', '测试角色', '2026-08-01');
+    await vi.runAllTimersAsync();
+
+    await expect(pending).resolves.toMatchObject({ success: true, entries: [] });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries Load failed while fetching recent diaries', async () => {
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError('Load failed'))
+      .mockResolvedValueOnce(response(200, { results: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const pending = notionGetRecentDiaries('key', 'db', '测试角色');
     await vi.runAllTimersAsync();
 
     await expect(pending).resolves.toMatchObject({ success: true, entries: [] });

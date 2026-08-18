@@ -10,6 +10,7 @@ import { getProxyWorkerUrl } from './proxyWorker';
 import { nowInTimeZone } from './timezone';
 import {
     performSearch as performSearchCore,
+    notionGetRecentDiaries,
     notionGetDiaryByDate,
     notionReadDiaryContent,
     notionSearchUserNotes,
@@ -806,56 +807,7 @@ export const NotionManager = {
         characterName: string,
         limit: number = 5
     ): Promise<{ success: boolean; entries: DiaryPreview[]; message: string }> => {
-        try {
-            const response = await fetch(`${NotionManager.WORKER_URL}/notion/query`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Notion-API-Key': apiKey
-                },
-                body: JSON.stringify({
-                    database_id: databaseId,
-                    filter: {
-                        property: 'Name',
-                        title: {
-                            starts_with: `[${characterName}]`
-                        }
-                    },
-                    sorts: [{ property: 'Date', direction: 'descending' }],
-                    page_size: limit
-                })
-            });
-
-            const text = await response.text();
-
-            if (!response.ok) {
-                console.error('Query diaries failed:', response.status, text);
-                return { success: false, entries: [], message: `查询失败: ${response.status}` };
-            }
-
-            const data = JSON.parse(text);
-
-            if (!data.results || data.results.length === 0) {
-                return { success: true, entries: [], message: '暂无日记' };
-            }
-
-            const entries: DiaryPreview[] = data.results.map((page: any) => {
-                const title = page.properties?.Name?.title?.[0]?.plain_text || '无标题';
-                // 移除角色名前缀，只保留实际标题
-                const cleanTitle = title.replace(/^\[.*?\]\s*/, '');
-                return {
-                    id: page.id,
-                    title: cleanTitle,
-                    date: page.properties?.Date?.date?.start || '',
-                    url: page.url
-                };
-            });
-
-            return { success: true, entries, message: '获取成功' };
-        } catch (e: any) {
-            console.error('Get diaries failed:', e);
-            return { success: false, entries: [], message: `获取失败: ${e.message}` };
-        }
+        return notionGetRecentDiaries(apiKey, databaseId, characterName, limit);
     },
 
     /**
