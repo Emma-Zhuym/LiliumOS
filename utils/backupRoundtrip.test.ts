@@ -101,6 +101,28 @@ describe('v2 真实链路：分片 → 组装 → importFullData', () => {
         localStorage.removeItem('aetheros.mcp.useNativeTools');
     });
 
+    it('智能家居连接配置作为 v2 元数据完整恢复', async () => {
+        const smartHomeLocal = {
+            'liliumos.smart_home.config': JSON.stringify({
+                baseUrl: 'https://ha.example.com',
+                token: 'home-token',
+                proxyUrl: '',
+                proxyKey: '',
+                demoMode: false,
+            }),
+        };
+        const zip = new FakeZip();
+        const manifest = await writeV2Backup(zip, { smartHomeLocal } as any, {});
+        const data: any = await assembleV2Backup(zip, manifest);
+        localStorage.removeItem('liliumos.smart_home.config');
+        await DB.importFullData(data);
+        expect(JSON.parse(localStorage.getItem('liliumos.smart_home.config') || '{}')).toMatchObject({
+            baseUrl: 'https://ha.example.com',
+            demoMode: false,
+        });
+        localStorage.removeItem('liliumos.smart_home.config');
+    });
+
     // ─── 主动消息 2.0 的全局配置 ───
     // 它存在独立的 ActiveMsg 库里，不在主库那份 store 清单内。曾经整份漏在备份外：
     // 同一台设备上恢复看不出问题（那个库没被动过），换设备就是 Worker 地址、共享密钥、

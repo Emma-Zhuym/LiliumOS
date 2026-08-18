@@ -61,6 +61,10 @@ Clay morphism 风格的健康记录器。支持训练 / 睡眠 / 饮食 / 经期
 
 包含网购与外卖店铺；店铺目录和店内商品列表独立滚动，长列表不会把商品挤出可操作区域。
 
+### 共栖舱 (Smart Home)
+
+统一控制 Home Assistant 中的灯光、空气净化器与场景。支持设备开关、灯光亮度/色温连续滑杆、净化器风速/模式，并提供设备/场景同步入口；可把 Home Assistant MCP 接入角色工具。内置演示模式，真实设备连接需要 Home Assistant 地址和长期访问令牌。
+
 ### 设备运动感知
 
 DeviceMotion API 加速度计，判断静止 / 走路 / 跑步 / 摇晃，注入角色聊天上下文。角色知道你在干嘛——"你在跑步吗？注意安全"。
@@ -79,7 +83,7 @@ DeviceMotion API 加速度计，判断静止 / 走路 / 跑步 / 摇晃，注入
 
 ### 完整备份
 
-全量导出/恢复覆盖 EM 的 Finance、Health、Shopping、Map 数据和 Finance 周期规则，以及剧情剧场的故事线、预设、面具与独立记忆设置。
+全量导出/恢复覆盖 EM 的 Finance、Health、Shopping、Map 数据、Smart Home 连接配置和 Finance 周期规则，以及剧情剧场的故事线、预设、面具与独立记忆设置。
 
 ---
 

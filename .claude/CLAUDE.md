@@ -174,6 +174,13 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - `utils/characterApi.ts` 是私聊、本地主动消息、QQ Bridge 与 Active Message 2.0 的统一解析入口；主动消息专用 `secondaryApi` 仍保持更高优先级。
 - 分享角色卡必须剥离本机 `chatApiPresetId`，完整备份则保留角色和预设引用。
 
+### 21. Smart Home「共栖舱」App + 备份
+- `apps/SmartHomeApp.tsx` / `utils/smartHome.ts` — Home Assistant 灯光、风扇/空气净化器和场景控制；演示模式与真实 REST 模式必须并存
+- `utils/smartHome.ts` 的角色控制复用通用 MCP 客户端，将 Home Assistant `/api/mcp/assist` 保存为 MCP server；不得另造聊天工具链
+- `context/OSContext.tsx` / `utils/db.ts` — `smartHomeLocal` 随完整备份导出/恢复，不得遗漏连接配置
+- `utils/safeAreaApps.ts` 必须保留 `AppID.SmartHome`，确保顶栏和内容区遵循安全区约定
+- 真实 Tapo / Levoit 实体字段尚待 Home Assistant 主机验收，不能写成已完成硬件联调
+
 ## 合并时常见坑（踩过的 bug）
 
 ### PhoneShell.tsx — messageSubView 必须解构

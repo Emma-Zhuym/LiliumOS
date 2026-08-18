@@ -10,6 +10,9 @@
 ## 最近完成
 
 - 角色可绑定「设置 → API」里已有的命名预设；Chat 页快捷切换只改当前角色，私聊、本地主动消息与 Active Message 2.0 按同一角色路由，旧角色继续跟随主 API，预设缺失时安全回退。
+- 新增「共栖舱」Smart Home App：可统一控制 Home Assistant 灯光、空气净化器和场景，支持亮度/色温连续滑杆、设备/场景同步入口、演示模式、REST 连接测试、可选代理及角色 MCP 接入。
+- Smart Home 连接配置已进入完整备份/恢复；适配层、授权请求、服务调用与备份路径已有回归测试。
+- 新 App 已完成桌面与 390px 手机尺寸检查；真实 Tapo Matter 灯泡和 Levoit Core 200S-P 联调等待 Home Assistant 常驻主机就位。
 - LiliumOS 品牌文案与新图标已发布；公开仓库改名为 `Emma-Zhuym/LiliumOS`，Pages 地址迁移到 `https://emma-zhuym.github.io/LiliumOS/`。
 - SimpleFIN 已完成账户、余额和交易的只读同步；新交易进入待分类复核，桌面角标和统一消息弹窗显示待处理数量。
 - 同步账户允许自定义昵称、类型、图标和颜色；SimpleFIN 后续同步只更新外部来源字段，不覆盖本地展示设置与层级分类。
@@ -36,6 +39,7 @@
 ## 验证基线
 
 - 角色 API 解绑（2026-08-17）：生产构建通过；角色路由、角色卡隐私与主动消息相关定向测试 208 passed；`check-em-patches.sh` 74/74；全仓类型检查仍被既有的 MemoryPalace 等错误阻断，本次改动文件未新增报错。
+- Smart Home（2026-08-17）：当前相关 3 个测试文件 23 passed；`check-em-patches.sh` 74/74；生产构建通过；桌面与 390px 手机布局通过浏览器检查。此前全量测试 3336 passed / 5 skipped，另有 2 项既有日期测试失败（`lifeRecords` 药盒创建日、`notionDiaryCadence` 跨时区日期），与本次改动无关且单独复跑可复现。
 - `main`（2026-07-29）：`check-em-patches.sh` 74/74；`pnpm vitest run` 123 个测试文件、1250 passed、5 skipped；构建通过。
 - 验收分支（2026-08-01）：`check-em-patches.sh` 74/74；全量 `pnpm vitest run` 133 个测试文件、1355 passed、5 skipped；构建通过。
 - 验收分支定向补测：语音提示词/标签/转文字相关测试 57 passed；日程生成与 MessageItem 定向测试 18 passed。
@@ -53,11 +57,13 @@
 - Online / Busy / Offline；日程支持角色独立的 5–12 段密度、生活系日常节律与睡眠区间。
 - 多角色独立剧情剧场。
 - Open-Meteo、照片收藏、查手机轮播、Shopping、EM 角色代记、聊天快捷工具栏。
+- Smart Home「共栖舱」App、Home Assistant REST/MCP 接入、演示模式与备份。
 
 ### 部分完成
 
 - Health：核心记录、周期、饮食识别、聊天摘要和备份已完成；Apple Health 真导入、Notion 同步和角色周评未完成。
 - 共读：epub、用户/角色批注已完成；回信支路、高亮和 PDF 未完成。
+- Smart Home：软件接入已完成；真实设备发现、实体映射和角色控制仍待 Home Assistant 主机验收。
 
 ### 待做
 

@@ -41,6 +41,7 @@ export enum AppID {
   CharCreatorDev = 'char_creator_dev', // 捏脸系统开发模式 — 仅开发模式可见，向捏人器指定类目追加自定义部件
   WorldHome = 'world_home', // 家园 — 同世界观多角色共同生活的大世界（观测驱动演绎，每角色独立 LLM 调用 + NPC 世界引擎）
   Shopping = 'shopping', // EM: 投喂站 — 角色扮演购物模块（网购+外卖）
+  SmartHome = 'smart_home', // EM: 共栖舱 — Home Assistant 统一设备控制
 }
 
 export interface SystemLog {
@@ -4106,6 +4107,7 @@ export interface FullBackupData {
     luckinLocal?: Record<string, string>;      // 瑞幸：token + 启用状态（存 localStorage）
     mcdLocal?: Record<string, string>;         // 麦当劳：token + 启用状态（存 localStorage）
     mcpLocal?: Record<string, string>;         // 通用 MCP：用户自配的服务器列表（存 localStorage）
+    smartHomeLocal?: Record<string, string>;   // 智能家居：Home Assistant 地址与连接配置（存 localStorage）
     desktopSkinLocal?: Record<string, string>; // 桌面皮肤偏好：电子宠物/手游风的界面配色 + 看板 banner（存 localStorage；看板图令牌导出时解析为 data URL）
     songs?: SongSheet[]; // Songwriting app data
     

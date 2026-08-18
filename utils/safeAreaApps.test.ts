@@ -13,7 +13,8 @@ const SELF_HANDLED: AppID[] = [
     AppID.Call, AppID.VoiceDesigner, AppID.Guidebook, AppID.LifeSim, AppID.MemoryPalace,
     AppID.Handbook, AppID.QQBridge, AppID.HotNews, AppID.WorldHome, AppID.CharCreatorDev,
     AppID.SpecialMoments,
-    AppID.Health, AppID.Shopping, AppID.Map, // [EM: self-safe-area-apps] EM 三 App 同样自理安全区
+    AppID.Health, AppID.Shopping, AppID.Map, // [EM: self-safe-area-apps] EM Apps 同样自理安全区
+    AppID.SmartHome,
 ];
 
 describe('shellHandlesSafeArea', () => {

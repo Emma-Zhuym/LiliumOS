@@ -29,6 +29,16 @@
 - 整合多库权限、TAG 查询、日记模板和标签管理。
 - 复用并扩展 `utils/notionExtraConfig.ts`，保持 `NotionExtraDatabase.name` 字段契约。
 
+### P1：Smart Home 真实设备验收
+
+LiliumOS「共栖舱」App、Home Assistant REST 适配、演示模式、完整备份和角色 MCP 接入已完成。
+
+仍待完成：
+
+- 在常驻 Mac mini 上部署 Home Assistant，并接入两只 Tapo Matter 灯泡。
+- 通过 VeSync 集成接入 Levoit Core 200S-P，核对实际实体名、风速和模式字段。
+- 用真实设备验收开关、亮度、色温、净化器档位、场景和角色控制。
+
 ### P2：位置感知聊天
 
 - 复用 `utils/geo.ts` 获取位置，通过 Google Places 反查地名与周边 POI。
@@ -51,6 +61,10 @@
 ### 2026-08-17
 
 - 角色主聊天 API 改为可引用已有命名预设；Chat 页快捷切换只更新当前角色，私聊、心跳主动消息和 Active Message 2.0 共用同一角色路由，保留原有主动消息副 API 优先级与旧角色全局回退。
+- 新增「共栖舱」App：统一展示灯光、空气净化器和 Home Assistant 场景，支持快速开关、全部关闭及设备控制面板。
+- 新增 Home Assistant REST 连接与可选代理配置；可测试连接、发现实体，并把官方 MCP 端点写入 LiliumOS 角色工具系统。
+- Smart Home 配置进入完整备份/恢复；新增适配层、请求路径和备份回归测试。
+- 桌面与 390px 手机尺寸完成界面检查；真实设备联调保留到 Home Assistant 主机就位后进行。
 
 ### 2026-08-15 至 2026-08-16
 
@@ -101,6 +115,7 @@
 - Finance 重设计：多账户/币种、分类、流水、周期规则、趋势分析和“TA 怎么看”。
 - Health 核心 App 与聊天健康摘要。
 - Shopping 投喂站。
+- Smart Home「共栖舱」App、演示模式、Home Assistant REST/MCP 接入与备份。
 - Open-Meteo 免 key 天气。
 - 照片收藏与查手机轮播。
 - Intiface 硬件集成、聊天工具和悬浮控制球。
