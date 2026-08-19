@@ -44,6 +44,11 @@ describe('打脏入口接线（保存后调 markAmsgStateDirty）', () => {
   it('OSContext 启动路径接了底账补传 resumePendingAmsgStateSync', () => {
     expect(read('../context/OSContext.tsx')).toContain('resumePendingAmsgStateSync({');
   });
+
+  it('心跳功能回滚后，启动时会清掉残留的隐藏心跳任务', () => {
+    const src = read('../context/OSContext.tsx');
+    expect(src).toContain('cleanupRemovedAmsgHeartbeats(finalChars.map((char) => char.id))');
+  });
 });
 
 // 换 Key 之后云端那几行凭据不重传的话，已排程的任务到点全部 401，而界面上一切正常。
@@ -80,9 +85,6 @@ describe('更新 Worker 之后的自动验证', () => {
     const src = read('../components/settings/ActiveMsgGlobalSettingsModal.tsx');
     const fn = sliceBetween(src, 'const handleSelfUpdateWorker', 'const handleAttachUpdateKey');
     expect(fn).toContain('await ActiveMsgClient.connect()');
-    expect(fn).toContain('await ActiveMsgClient.probeWorkerVersion()');
-    expect(fn).toContain("verified.state !== 'current'");
-    expect(fn).toContain("result: 'version-mismatch'");
     expect(fn, '验证没过要单独说，别把「代码换上了」和「表补齐了」混成一句').toContain('重新连接并验证');
   });
 });

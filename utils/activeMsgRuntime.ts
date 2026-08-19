@@ -26,7 +26,6 @@ import {
   failInstantChatPending,
   getInstantChatPending,
   listInstantChatPendings,
-  recordInstantChatCloudSuccess,
   settleInstantChatExpiredNotices,
 } from './amsgInstantChat';
 import { flushAmsgState } from './amsgStateSync';
@@ -1841,9 +1840,6 @@ const flushInboxToChatImpl = async () => {
         const segTotal = Number((message.metadata as any)?.totalMessages);
         const isLastSegment = !Number.isFinite(segTotal) || segTotal <= 1
           || (Number.isFinite(segIndex) && segIndex >= segTotal);
-        if (isLastSegment) {
-          recordInstantChatCloudSuccess(pendingForChar, message.metadata as Record<string, unknown>);
-        }
         if (isLastSegment && clearInstantChatPending(message.charId)) {
           scheduleNextInstantChatStatusCheck();
           // 随这一轮上云的「任务被作废」回执到这里才真的销账。发出时（worker 回 202）

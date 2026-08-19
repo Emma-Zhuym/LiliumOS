@@ -3,7 +3,6 @@ import Modal from '../os/Modal';
 import {
   ActiveMsg2CharacterConfig,
   ActiveMsg2ExpirePolicy,
-  ActiveMsg2HeartbeatChatPolicy,
   ActiveMsg2Mode,
   ActiveMsg2Recurrence,
   ActiveMsg2TaskRecord,
@@ -14,13 +13,6 @@ import {
   UserProfile,
 } from '../../types';
 import { ActiveMsgClient, getDefaultActiveMsgFirstSendTime } from '../../utils/activeMsgClient';
-import {
-  DEFAULT_HEARTBEAT_INTERVAL_MINUTES,
-  HEARTBEAT_INTERVAL_OPTIONS,
-  heartbeatJitterWindowMinutes,
-  normalizeHeartbeatActiveChatPolicy,
-  normalizeHeartbeatInterval,
-} from '../../utils/amsgHeartbeat';
 import { ActiveMsgStore } from '../../utils/activeMsgStore';
 import { type AmsgLastSkip, DEFAULT_MAX_UNANSWERED_SENDS, describeLastSkip } from '../../utils/amsgFirePack';
 import { isInstantChatReady } from '../../utils/amsgInstantChat';
@@ -50,7 +42,6 @@ import {
   shortTaskId,
   toDatetimeLocalValue,
 } from '../../utils/amsg2Tasks';
-import { F, HUE, MOTION, R, S, SP, STATUS } from '../../utils/clayTokens';
 
 interface ActiveMsg2SettingsModalProps {
   isOpen: boolean;
@@ -106,17 +97,6 @@ const ActiveMsg2SettingsModal: React.FC<ActiveMsg2SettingsModalProps> = ({
   const [enabled, setEnabled] = useState(() => isAmsg2EnabledForChar(char));
   // 即时对话按角色单独关：undefined = 跟随全局默认开，所以只有显式 false 才显示成关。
   const [instantChatOn, setInstantChatOn] = useState(saved?.instantChatEnabled !== false);
-  const [heartbeatOn, setHeartbeatOn] = useState(saved?.heartbeatEnabled === true);
-  const [heartbeatInterval, setHeartbeatInterval] = useState(
-    normalizeHeartbeatInterval(saved?.heartbeatIntervalMinutes),
-  );
-  const [heartbeatUseEmotionApi, setHeartbeatUseEmotionApi] = useState(
-    saved?.heartbeatUseEmotionApi === true,
-  );
-  const [heartbeatActiveChatPolicy, setHeartbeatActiveChatPolicy] = useState(
-    normalizeHeartbeatActiveChatPolicy(saved?.heartbeatActiveChatPolicy),
-  );
-  const [heartbeatBusy, setHeartbeatBusy] = useState(false);
   // 全局那道门开没开（isInstantChatReady 读回来的）。没开时下面那行开关置灰。
   const [globalInstantChatOn, setGlobalInstantChatOn] = useState(false);
   const [mode, setMode] = useState<ActiveMsg2Mode>('auto');
@@ -152,13 +132,6 @@ const ActiveMsg2SettingsModal: React.FC<ActiveMsg2SettingsModalProps> = ({
   }> | null>(null);
   // 防穿帮闸最近一次跳过的记录（worker 写的）。null = 没有记录 / 没读到。
   const [lastSkip, setLastSkip] = useState<AmsgLastSkip | null>(null);
-  const emotionHeartbeatApi = char.emotionConfig?.api;
-  const emotionHeartbeatApiReady = Boolean(
-    emotionHeartbeatApi?.baseUrl?.trim()
-    && emotionHeartbeatApi.apiKey?.trim()
-    && emotionHeartbeatApi.model?.trim(),
-  );
-  const heartbeatJitterWindow = heartbeatJitterWindowMinutes(heartbeatInterval);
 
   // 表单值重置：面板打开或切换编辑对象时，用被编辑任务的字段填表单（新建则填默认值）。
   // 角色级共享设置（maxTokens / 单独 API）始终跟随保存值。
@@ -171,10 +144,6 @@ const ActiveMsg2SettingsModal: React.FC<ActiveMsg2SettingsModalProps> = ({
     // 工具注入门分家（见 isAmsg2EnabledForChar 的注释）。
     setEnabled(isAmsg2EnabledForChar(char));
     setInstantChatOn(config?.instantChatEnabled !== false);
-    setHeartbeatOn(config?.heartbeatEnabled === true);
-    setHeartbeatInterval(normalizeHeartbeatInterval(config?.heartbeatIntervalMinutes));
-    setHeartbeatUseEmotionApi(config?.heartbeatUseEmotionApi === true);
-    setHeartbeatActiveChatPolicy(normalizeHeartbeatActiveChatPolicy(config?.heartbeatActiveChatPolicy));
     setMaxTokens(config?.maxTokens ? String(config.maxTokens) : '');
     setMaxUnanswered(config?.maxUnansweredSends === undefined ? '' : String(config.maxUnansweredSends));
     setUseSecondaryApi(config?.useSecondaryApi ?? false);
@@ -279,11 +248,6 @@ const ActiveMsg2SettingsModal: React.FC<ActiveMsg2SettingsModalProps> = ({
     tasks: tasksOf(prev?.tasks ?? []),
     // 开着就存 undefined（= 跟随全局默认开），只有显式关掉才落 false。
     instantChatEnabled: instantChatOn ? undefined : false,
-    heartbeatEnabled: prev?.heartbeatEnabled,
-    heartbeatIntervalMinutes: prev?.heartbeatIntervalMinutes,
-    heartbeatUseEmotionApi: prev?.heartbeatUseEmotionApi,
-    heartbeatActiveChatPolicy,
-    heartbeatLastError: prev?.heartbeatLastError,
     maxTokens: maxTokens.trim() ? Number(maxTokens) : undefined,
     maxUnansweredSends: maxUnanswered === '' ? undefined : Number(maxUnanswered),
     useSecondaryApi: useSecondaryApi && !!secUrl,
@@ -328,142 +292,6 @@ const ActiveMsg2SettingsModal: React.FC<ActiveMsg2SettingsModalProps> = ({
       // 开着存 undefined（= 跟随全局默认开），只有显式关掉才落 false。
       instantChatEnabled: next ? undefined : false,
     }));
-  };
-
-  /**
-   * 心跳开关与频率都是即时生效：打开会创建第一跳，改频率会先建新链再清旧链，关闭会
-   * 确认远端隐藏任务已经取消。只改本地开关会留下网页关掉后仍继续响的幽灵心跳。
-   */
-  const applyHeartbeat = async (
-    nextEnabled: boolean,
-    nextInterval = heartbeatInterval,
-    nextUseEmotionApi = heartbeatUseEmotionApi,
-  ) => {
-    if (heartbeatBusy) return;
-    const interval = normalizeHeartbeatInterval(nextInterval);
-    setHeartbeatBusy(true);
-    try {
-      if (nextEnabled) {
-        if (!enabled) throw new Error('请先打开这个角色的“主动消息 2.0”。');
-        if (!globalReady) throw new Error('请先去系统设置里完成“主动消息 2.0”的全局配置。');
-        const nextConfig = buildConfig(char.activeMsg2Config, (list) => list, {
-          heartbeatEnabled: true,
-          heartbeatIntervalMinutes: interval,
-          heartbeatUseEmotionApi: nextUseEmotionApi,
-          heartbeatLastError: undefined,
-        });
-        const result = await ActiveMsgClient.enableHeartbeat({
-          char,
-          config: nextConfig,
-          intervalMinutes: interval,
-          userProfile,
-          groups,
-          realtimeConfig,
-          apiConfig,
-        });
-        const cleanupWarning = result.failedOldUuids.length
-          ? `旧心跳有 ${result.failedOldUuids.length} 条没清掉，请稍后再点一次频率。`
-          : undefined;
-        setHeartbeatOn(true);
-        setHeartbeatInterval(interval);
-        setHeartbeatUseEmotionApi(nextUseEmotionApi);
-        onSave((prev) => buildConfig(prev, (list) => list, {
-          heartbeatEnabled: true,
-          heartbeatIntervalMinutes: interval,
-          heartbeatUseEmotionApi: nextUseEmotionApi,
-          heartbeatLastError: cleanupWarning,
-          lastSyncedAt: Date.now(),
-        }));
-        const firstWake = formatTaskTime(result.nextWakeAt);
-        addToast(cleanupWarning
-          ? `心跳已打开，${cleanupWarning}`
-          : `心跳已打开，第一次会在 ${firstWake} 左右醒来。`,
-        cleanupWarning ? 'error' : 'success');
-      } else {
-        const result = await ActiveMsgClient.disableHeartbeat(char.id);
-        if (result.failed.length > 0) {
-          throw new Error(`还有 ${result.failed.length} 条远端心跳没取消成功，请稍后重试。`);
-        }
-        setHeartbeatOn(false);
-        setHeartbeatInterval(interval);
-        onSave((prev) => buildConfig(prev, (list) => list, {
-          heartbeatEnabled: false,
-          heartbeatIntervalMinutes: interval,
-          heartbeatUseEmotionApi: nextUseEmotionApi,
-          heartbeatLastError: undefined,
-          lastSyncedAt: Date.now(),
-        }));
-        addToast('心跳已关闭，这个角色不会再按周期醒来。', 'info');
-      }
-    } catch (error: any) {
-      const message = error?.message || '心跳设置没有保存成功。';
-      onSave((prev) => buildConfig(prev, (list) => list, { heartbeatLastError: message }));
-      addToast(message, 'error');
-    } finally {
-      setHeartbeatBusy(false);
-    }
-  };
-
-  /**
-   * 心跳副 API 是角色已有「情绪 / 意识流」配置的引用，不在这里再抄一套 Key。
-   * 心跳开着时切换要重建首跳，才能把新凭据引用带进整条续排链；关着时只保存偏好。
-   */
-  const handleToggleHeartbeatEmotionApi = () => {
-    if (heartbeatBusy) return;
-    const next = !heartbeatUseEmotionApi;
-    if (next && !emotionHeartbeatApiReady) {
-      addToast('这个角色还没有完整的情绪副 API，请先在情绪 / 意识流设置里保存。', 'info');
-      return;
-    }
-    if (heartbeatOn) {
-      void applyHeartbeat(true, heartbeatInterval, next);
-      return;
-    }
-    setHeartbeatUseEmotionApi(next);
-    onSave((prev) => ({
-      ...(prev ?? { enabled: false }),
-      heartbeatUseEmotionApi: next,
-    }));
-  };
-
-  /**
-   * 热聊策略关着心跳时只记偏好；开着时先原位更新云端控制行，再落本地。这里不重建
-   * 心跳链，否则用户只是换个行为，下一次醒来却被重置成“三分钟后”，会莫名多响一次。
-   */
-  const handleHeartbeatActiveChatPolicy = async (next: ActiveMsg2HeartbeatChatPolicy) => {
-    if (heartbeatBusy || next === heartbeatActiveChatPolicy) return;
-    if (!heartbeatOn) {
-      setHeartbeatActiveChatPolicy(next);
-      onSave((prev) => ({
-        ...(prev ?? { enabled: false }),
-        heartbeatActiveChatPolicy: next,
-      }));
-      return;
-    }
-
-    setHeartbeatBusy(true);
-    try {
-      await ActiveMsgClient.updateHeartbeatActiveChatPolicy(char.id, next);
-      setHeartbeatActiveChatPolicy(next);
-      onSave((prev) => ({
-        ...(prev ?? { enabled: true }),
-        heartbeatActiveChatPolicy: next,
-        heartbeatLastError: undefined,
-        lastSyncedAt: Date.now(),
-      }));
-      addToast(next === 'merge'
-        ? '心跳遇到正在聊天时，会顺着当前话题自然接入。'
-        : '心跳遇到正在聊天时，会省掉这一轮。', 'success');
-    } catch (error: any) {
-      const message = error?.message || '正在聊天时的心跳行为没有保存成功。';
-      onSave((prev) => ({
-        ...(prev ?? { enabled: true }),
-        heartbeatLastError: message,
-      }));
-      addToast(message, 'error');
-    } finally {
-      setHeartbeatBusy(false);
-    }
   };
 
   /**
@@ -534,12 +362,7 @@ const ActiveMsg2SettingsModal: React.FC<ActiveMsg2SettingsModalProps> = ({
             failed: '关闭时远端取消失败，可重试',
             appeared: '关闭主动消息时新出现，未被取消，请单独处理',
           }),
-          {
-            enabled: false,
-            heartbeatEnabled: false,
-            heartbeatLastError: undefined,
-            lastSyncedAt: Date.now(),
-          },
+          { enabled: false, lastSyncedAt: Date.now() },
         ));
         addToast(failed.size
           ? `主动消息 2.0 已关闭，但有 ${failed.size} 个任务远端取消失败，请稍后重开面板重试。`
@@ -680,224 +503,6 @@ const ActiveMsg2SettingsModal: React.FC<ActiveMsg2SettingsModalProps> = ({
             主动消息 2.0 按角色单独开启。打开这个开关，TA 才能在聊天里给你排定时消息，到点由云端发出；你也可以在这里手动建任务。
           </p>
         ) : null}
-
-        <section
-          aria-label="心跳醒来"
-          style={{
-            padding: SP[3],
-            borderRadius: R.bigCard,
-            border: `1px solid ${heartbeatOn ? HUE.rose.soft : F.borderSoft}`,
-            background: heartbeatOn ? HUE.rose.tint : F.surfaceWarm,
-            boxShadow: S.raisedSoft,
-            color: F.textPrimary,
-            transition: `background ${MOTION.card} ${MOTION.ease}, border-color ${MOTION.card} ${MOTION.ease}`,
-          }}
-        >
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <h3 className="font-bold text-[15px]">心跳醒来</h3>
-              <p
-                className="mt-1 text-xs leading-relaxed"
-                style={{ color: heartbeatOn ? HUE.rose.ink : F.textSecondary }}
-              >
-                定时醒来看看你。TA 可以找你、使用工具，也可以安静跳过；网页关掉后仍会继续。
-              </p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={heartbeatOn}
-              aria-label={heartbeatOn ? '关闭心跳醒来' : '打开心跳醒来'}
-              disabled={heartbeatBusy || !enabled}
-              onClick={() => void applyHeartbeat(!heartbeatOn)}
-              style={{
-                width: 48,
-                height: 28,
-                padding: 2,
-                borderRadius: R.pill,
-                border: `1px solid ${heartbeatOn ? HUE.rose.main : F.borderStrong}`,
-                background: heartbeatOn ? HUE.rose.main : F.surfaceSunken,
-                boxShadow: S.sunken,
-                opacity: heartbeatBusy || !enabled ? 0.5 : 1,
-                transition: `all ${MOTION.card} ${MOTION.ease}`,
-              }}
-              className="relative shrink-0 disabled:cursor-not-allowed active:scale-[0.98]"
-            >
-              <span
-                aria-hidden="true"
-                style={{
-                  display: 'block',
-                  width: 22,
-                  height: 22,
-                  borderRadius: R.pill,
-                  background: F.surfaceRaised,
-                  boxShadow: S.raisedSoft,
-                  transform: heartbeatOn ? 'translateX(20px)' : 'translateX(0)',
-                  transition: `transform ${MOTION.card} ${MOTION.ease}`,
-                }}
-              />
-            </button>
-          </div>
-
-          <div className="mt-4">
-            <div className="text-[11px] font-bold mb-2" style={{ color: F.textSecondary }}>
-              醒来频率 · 前后约 {heartbeatJitterWindow} 分钟浮动
-            </div>
-            <div
-              className="grid grid-cols-4 gap-1"
-              style={{
-                padding: SP[0],
-                borderRadius: R.medium,
-                background: F.surfaceSunken,
-                boxShadow: S.sunken,
-              }}
-            >
-              {HEARTBEAT_INTERVAL_OPTIONS.map((minutes) => {
-                const selected = heartbeatInterval === minutes;
-                const label = minutes < 60 ? `${minutes} 分` : `${minutes / 60} 小时`;
-                return (
-                  <button
-                    key={minutes}
-                    type="button"
-                    aria-pressed={selected}
-                    disabled={heartbeatBusy || !enabled}
-                    onClick={() => {
-                      if (heartbeatOn) void applyHeartbeat(true, minutes);
-                      else setHeartbeatInterval(minutes);
-                    }}
-                    className="whitespace-nowrap py-2 text-[11px] font-bold active:scale-[0.98] disabled:cursor-not-allowed"
-                    style={{
-                      borderRadius: R.small,
-                      color: selected ? HUE.rose.ink : F.textSecondary,
-                      background: selected ? F.surfaceRaised : 'transparent',
-                      boxShadow: selected ? S.raisedSoft : 'none',
-                      opacity: heartbeatBusy || !enabled ? 0.55 : 1,
-                      transition: `all ${MOTION.hover} ${MOTION.ease}`,
-                    }}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="mt-3">
-            <div className="text-[11px] font-bold mb-2" style={{ color: F.textSecondary }}>
-              正在聊天时
-            </div>
-            <div
-              className="grid grid-cols-2 gap-1"
-              style={{
-                padding: SP[0],
-                borderRadius: R.medium,
-                background: F.surfaceSunken,
-                boxShadow: S.sunken,
-              }}
-            >
-              {([
-                { id: 'merge', label: '自然融入', desc: '顺着当前话题补一句' },
-                { id: 'skip', label: '跳过本轮', desc: '不调用 API，更省钱' },
-              ] as const).map((option) => {
-                const selected = heartbeatActiveChatPolicy === option.id;
-                return (
-                  <button
-                    key={option.id}
-                    type="button"
-                    aria-pressed={selected}
-                    disabled={heartbeatBusy}
-                    onClick={() => void handleHeartbeatActiveChatPolicy(option.id)}
-                    className="py-2.5 px-2 text-[11px] font-bold active:scale-[0.98] disabled:cursor-not-allowed"
-                    style={{
-                      borderRadius: R.small,
-                      color: selected ? HUE.rose.ink : F.textSecondary,
-                      background: selected ? F.surfaceRaised : 'transparent',
-                      boxShadow: selected ? S.raisedSoft : 'none',
-                      opacity: heartbeatBusy ? 0.55 : 1,
-                      transition: `all ${MOTION.hover} ${MOTION.ease}`,
-                    }}
-                  >
-                    <span className="block">{option.label}</span>
-                    <span
-                      className="block mt-0.5 font-normal leading-tight"
-                      style={{ color: selected ? HUE.rose.ink : F.textTertiary }}
-                    >
-                      {option.desc}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div
-            className="mt-3 flex items-center justify-between gap-3 px-3 py-2.5"
-            style={{
-              borderRadius: R.medium,
-              background: F.surfaceSunken,
-              boxShadow: S.sunken,
-            }}
-          >
-            <div className="min-w-0">
-              <div className="text-[11px] font-bold" style={{ color: F.textSecondary }}>
-                省钱唤醒
-              </div>
-              <div className="mt-0.5 truncate text-[10px]" style={{ color: F.textTertiary }}>
-                {emotionHeartbeatApiReady
-                  ? `使用情绪副 API · ${emotionHeartbeatApi?.model}`
-                  : '需要先保存这个角色的情绪副 API'}
-              </div>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={heartbeatUseEmotionApi}
-              aria-label="心跳使用情绪副 API"
-              disabled={heartbeatBusy || (!heartbeatUseEmotionApi && !emotionHeartbeatApiReady)}
-              onClick={handleToggleHeartbeatEmotionApi}
-              className="relative shrink-0 active:scale-[0.98] disabled:cursor-not-allowed"
-              style={{
-                width: 42,
-                height: 24,
-                padding: 2,
-                borderRadius: R.pill,
-                border: `1px solid ${heartbeatUseEmotionApi ? HUE.rose.main : F.borderStrong}`,
-                background: heartbeatUseEmotionApi ? HUE.rose.main : F.surfaceRaised,
-                opacity: heartbeatBusy || (!heartbeatUseEmotionApi && !emotionHeartbeatApiReady) ? 0.45 : 1,
-                transition: `all ${MOTION.card} ${MOTION.ease}`,
-              }}
-            >
-              <span
-                aria-hidden="true"
-                style={{
-                  display: 'block',
-                  width: 18,
-                  height: 18,
-                  borderRadius: R.pill,
-                  background: F.surfaceRaised,
-                  boxShadow: S.raisedSoft,
-                  transform: heartbeatUseEmotionApi ? 'translateX(18px)' : 'translateX(0)',
-                  transition: `transform ${MOTION.card} ${MOTION.ease}`,
-                }}
-              />
-            </button>
-          </div>
-
-          <p className="mt-3 text-[11px] leading-relaxed" style={{ color: F.textTertiary }}>
-            默认约每 {DEFAULT_HEARTBEAT_INTERVAL_MINUTES / 60} 小时一次，实际时间会自然前后浮动，不会像整点报时。第一次会在打开后几分钟内醒来。需要判断时会调用
-            {heartbeatUseEmotionApi && emotionHeartbeatApiReady ? '情绪副 API' : '这个角色的主动消息 API'}；角色处于日程 / 情绪设定的睡眠时段时一定安静跳过。正在和你热聊时则按上面的选择处理。
-          </p>
-          {!enabled ? (
-            <p className="mt-2 text-[11px] leading-relaxed" style={{ color: STATUS.warning.ink }}>
-              先打开上面的主动消息 2.0，才能让这个角色在云端醒来。
-            </p>
-          ) : null}
-          {saved?.heartbeatLastError ? (
-            <p className="mt-2 text-[11px] leading-relaxed" style={{ color: STATUS.danger.ink }}>
-              {saved.heartbeatLastError}
-            </p>
-          ) : null}
-        </section>
 
         {/* 即时对话按角色单独关，和上面的排程开关互相独立（只排程不即时、只即时不排程
             都行），所以不裹在 enabled 里。全局那道门没开时这里只置灰说明，不代替它。 */}

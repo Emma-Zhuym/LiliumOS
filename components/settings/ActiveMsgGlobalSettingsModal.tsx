@@ -30,10 +30,6 @@ import {
 } from '../../utils/cfProvision';
 import { isAmsgServerVersionAtLeast } from '../../utils/amsgWorkerVersion';
 import { trackEvent } from '../../utils/analytics';
-import {
-  LILIUM_AMSG_SETUP_GUIDE_URL,
-  LILIUM_REPO_URL,
-} from '../../utils/amsgWorkerSource';
 
 // 满血链路吃满这些 worker 特性（amsg-server 2.6.0-next.4+）。探测不到端点（老部署
 // 404 → null）或缺任何一项，就亮「重新部署」提示——worker 跑在用户自己的账号里，
@@ -111,6 +107,9 @@ const REQUIRED_WORKER_FEATURES = [
 // 不比版本的话，旧粘贴部署会被误判为最新，问题全在 worker 侧静默发生。
 const REQUIRED_WORKER_VERSION = '2.6.0-next.21';
 
+/** 装着打包好的 worker 代码的部署仓库：fork 它 → 在 Cloudflare 连上 → 以后点 Sync fork 更新。 */
+const WORKERS_REPO_URL = 'https://github.com/Tosd0/sullyos-workers';
+const SETUP_WALKTHROUGH_URL = 'https://github.com/qegj567-cloud/SullyOS/blob/master/docs/amsg2-setup-walkthrough.md';
 /** 一键部署要的那枚 API Token 在这里建。 */
 const CF_TOKEN_URL = 'https://dash.cloudflare.com/profile/api-tokens';
 
@@ -560,36 +559,12 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
     try {
       const result = await ActiveMsgClient.selfUpdateWorker();
       if (result.ok) {
+        setSelfUpdateHash(result.bundleHash || '');
+        setAttachOpen(false);
+        addToast(result.message, 'success');
         try {
           await ActiveMsgClient.connect();
-
-          // 上传完成后 Cloudflare 边缘节点可能还会短暂返回旧代码，多等几轮再下结论。
-          // 只有 Worker 自报的 bundle version 与 App 完全一致，才允许显示“更新成功”。
-          let verified = await ActiveMsgClient.probeWorkerVersion();
-          for (let attempt = 0; verified.state !== 'current' && attempt < 5; attempt += 1) {
-            await new Promise<void>((resolve) => window.setTimeout(resolve, 1_500));
-            verified = await ActiveMsgClient.probeWorkerVersion();
-          }
-          setWorkerVersion(verified);
           await refresh();
-
-          if (verified.state !== 'current') {
-            setSelfUpdateHash('');
-            setDeployOpen(true);
-            setPasteFallbackOpen(true);
-            addToast(
-              verified.state === 'outdated'
-                ? `更新请求执行了，但后端仍是 ${verified.deployed || '旧版本'}，不是当前 LiliumOS ${verified.expected}。已展开手动修复：只需复制 Worker 代码，到 Cloudflare 的 Edit code 全选覆盖并 Deploy。`
-                : '更新请求执行了，但暂时无法确认后端版本。已展开手动修复入口；若稍后仍不能聊天，复制 Worker 代码到 Cloudflare 的 Edit code 全选覆盖并 Deploy。',
-              'error',
-            );
-            trackEvent('更新后端 Worker', { result: 'version-mismatch' });
-            return;
-          }
-
-          setSelfUpdateHash(result.bundleHash || '');
-          setAttachOpen(false);
-          addToast(result.message, 'success');
         } catch (error: any) {
           addToast(
             `后端已更新，但紧接着的验证没过：${error?.message || '未知原因'}。手动点一下「重新连接并验证」。`,
@@ -1040,7 +1015,7 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
 
               <ol className="text-xs leading-relaxed text-slate-500 space-y-1.5 list-decimal list-outside pl-4">
                 <li>
-                  Fork 后端仓库 <code className="font-mono">LiliumOS</code>
+                  Fork 后端仓库 <code className="font-mono">sullyos-workers</code>
                   （页面右上角 Fork → Create fork）。
                 </li>
                 <li>
@@ -1051,8 +1026,8 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
                   CF 后台 Workers &amp; Pages → <strong>Create application</strong> →
                   <strong> Continue with GitHub</strong>，选中你 fork 的仓库，然后填：
                   <ul className="mt-1 space-y-0.5 list-disc list-outside pl-4">
-                    <li>Build command：<code className="font-mono">sh ../deploy-prepare.sh</code></li>
-                    <li>Advanced settings → Path：<code className="font-mono">/worker/amsg</code></li>
+                    <li>Build command：<code className="font-mono">sh ./deploy-prepare.sh</code></li>
+                    <li>Advanced settings → Path：<code className="font-mono">/amsg</code></li>
                     <li>
                       Advanced settings 里加一个构建变量
                       <code className="font-mono"> D1_DATABASE_ID </code>
@@ -1070,7 +1045,7 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
 
               <div className="grid grid-cols-3 gap-2">
                 <a
-                  href={LILIUM_REPO_URL}
+                  href={WORKERS_REPO_URL}
                   target="_blank"
                   rel="noreferrer"
                   className="py-2.5 rounded-xl text-xs font-bold bg-violet-500 text-white text-center active:scale-95 transition-transform"
@@ -1078,7 +1053,7 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
                   ↗ Fork 仓库
                 </a>
                 <a
-                  href={LILIUM_AMSG_SETUP_GUIDE_URL}
+                  href={SETUP_WALKTHROUGH_URL}
                   target="_blank"
                   rel="noreferrer"
                   className="py-2.5 rounded-xl text-xs font-bold bg-white border border-slate-200 text-slate-600 text-center active:scale-95 transition-transform"
@@ -1154,20 +1129,16 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
                   onClick={() => setPasteFallbackOpen((prev) => !prev)}
                   className="w-full flex items-center justify-between text-left text-[11px] font-bold text-slate-400"
                 >
-                  <span>手动粘贴 / 修复 Worker</span>
+                  <span>没有 GitHub 账号？手动粘贴部署</span>
                   <span>{pasteFallbackOpen ? '收起' : '展开'}</span>
                 </button>
 
                 {pasteFallbackOpen ? (
                   <div className="mt-2 space-y-2">
-                    <p className="text-[11px] leading-relaxed text-slate-500">
-                      <strong>已经有 Worker：</strong>只做第 1 步覆盖代码即可；现有数据库、定时器和密钥都不动。
-                      第 2–4 步只给第一次从空 Worker 安装的人。
-                    </p>
                     <ol className="text-[11px] leading-relaxed text-slate-500 space-y-1.5 list-decimal list-outside pl-4">
                       <li>
-                        点下面「复制 Worker 代码」，进入现有 Worker 的 <strong>Edit code</strong>
-                        全选粘贴覆盖，Deploy。还没有 Worker 才先 Create → Worker 建一个空的。
+                        点下面「复制 Worker 代码」，CF 后台 Create → Worker 建一个空 Worker，
+                        进 <strong>Edit code</strong> 全选粘贴覆盖，Deploy。
                       </li>
                       <li>
                         Settings → Bindings 加一个 <strong>D1 database</strong>，
@@ -1189,8 +1160,8 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
                     </button>
 
                     <p className="text-[11px] leading-relaxed text-slate-400">
-                      旧更新源只需要这样手动修复一次；覆盖成当前 LiliumOS bundle 后，
-                      以后就能继续用上面的「更新 Worker」。从空白安装才需要自己补 D1 绑定和定时器。
+                      这条路每次 Worker 更新都要重新粘一遍，D1 绑定和定时触发器也得自己加，容易漏。
+                      能用 GitHub 的话还是走上面的 fork 流程。
                     </p>
                   </div>
                 ) : null}
@@ -1210,7 +1181,7 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
           {workerOutdated ? (
             <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 text-xs leading-relaxed text-amber-700">
               Worker 上跑的还是旧版代码，缺少新特性（大上下文云端存储、服务端工具循环等）。
-              回你 fork 的 <code className="font-mono">LiliumOS</code> 仓库点一下
+              回你 fork 的 <code className="font-mono">sullyos-workers</code> 仓库点一下
               <strong> Sync fork</strong>，CF 会自动重新部署（当初是手动粘贴部署的话，
               去下方「部署 Worker」里重新复制一次代码粘贴覆盖）。已有数据和任务不受影响。
             </div>

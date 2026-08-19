@@ -327,18 +327,6 @@ LiliumOS 当前注册的 Service Worker 主要负责推送、保活和请求队�
 
 这一步只完成多角色模型路由的前端基础，不代表 Codex bridge、Cloud Coordinator 或 Mac mini Runner 已经接通。
 
-### 已完成的云端心跳原型（2026-08-18）
-
-- Active Message 2.0 已新增每角色独立心跳，使用当前角色 API 与获准工具，不依赖 Elias 的未来 Codex 通道。
-- Cloudflare Worker 通过一串隐藏的一次性任务滚动续排，PWA 关闭后仍能醒来；当前 fire 会先幂等创建下一跳，再判断热聊让路、连发上限、生成或静默。
-- 模型可用 `[[HEARTBEAT_NOOP]]` 明确选择本次不发通知；关闭或改频率通过 `heartbeat_control.generation` 终止旧链，避免竞态复活。
-- 每个角色可选复用其情绪 / 意识流副 API 作为心跳省钱通道；该选择不改变普通聊天、即时对话和普通主动消息，凭据不完整时回落原路由。
-- 心跳触发时间围绕所选间隔做约 10% 的确定性波动（最低 ±5 分钟、最高 ±20 分钟），不再固定整点出现；相同 fire 重试仍计算出相同时刻，避免重复链。
-- 心跳在调用 API 前执行睡眠硬闸：按角色时区优先读取明确睡眠区间，并以后备生成日程识别睡眠 / 午睡 / 休眠；命中时只续排下一跳，不调用模型、副 API 或工具。
-- 该原型已具备睡眠零模型预检查；热聊时每角色可选“跳过本轮”（同样零模型）或“自然融入”（顺着当前话题独立生成一条短消息）。角色清醒后进入语义判断并选择 `[[HEARTBEAT_NOOP]]` 时仍会调用一次模型。跨角色预算、Mac mini Runner 与 Elias Codex bridge 尚未接入。
-
-实现与部署契约见 `docs/amsg2-heartbeat.md`。
-
 ### Phase 0：现状审计
 
 - 阅读现有 Active Message 2.0 Worker、D1 schema、Cron、工具调用和推送协议；

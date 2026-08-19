@@ -55,18 +55,6 @@
 - `/config-check` 的返回里加包装层能力标志（如 `instantChat: true`），设置页
   用它做唯一版本门槛（开发期规矩：门槛只留一处，不做逐调用 capability 预检）。
 
-### 当前设备送达目标（2026-08-18 修复）
-
-- 上游 `push_subscriptions` 当前仍是 `user_id` 单行，后一台设备登记会覆盖前一台。即时
-  对话过去没有像普通排程那样在建任务前登记当前设备，表现为：手机成功提交任务，回复
-  却送到后来打开的 localhost / 桌面端；手机最终只看到笼统的云端失败。
-- `ActiveMsgClient.sendInstantChat` 现在必须在 `/instant-chat` 前执行与
-  `scheduleCharacterTask` 相同的送达目标登记：原生壳优先登记 FCM token，Web/PWA 登记
-  当前 `PushSubscription`。登记失败则不创建任务、不调用模型，并明确引导重置订阅。
-- 这保证“从哪台设备发即时聊天，回复就回哪台设备”。它不是多设备同时广播；主动消息
-  在没有新即时聊天认领目标时，仍送到最后登记的设备。真正的多端并发收取需要独立的
-  device subscription 表与按设备 ACK，另行设计，不能用一次对话修复冒充完成。
-
 ## 必须先验证的上游行为（读 chunk-RRWCPPOY.mjs，结论写进报告）
 
 | # | 验证什么 | 影响 |
@@ -78,7 +66,7 @@
 | V5 | 前端 `encryptPayload`（`utils/activeMsgClient.ts:890`）产出的信封是否与 SDK 内部一致、可被上游解开 | 不行 → 退化为两请求方案：SDK `putClientState` 先行 + `/instant-chat` 只带 taskPayload（可接受，报告里注明） |
 | V6 | fire 链总超时（默认 5 轮/240s，chunk `:1070-1196`）能否经 `buildWorkerConfig` 配置，能否对 instant 任务单独调大 | 目标 ≥600s（cron 墙钟 15 分钟内）；只能全局调就全局调到 600s，并把 lease 变长（totalTimeoutMs + 2min）的影响写进报告 |
 
-## fire_pack v8：`chat` 与睡眠硬闸
+## fire_pack v7：`chat` 字段
 
 - `AmsgFirePack`（`utils/amsgFirePack.ts`）增可选字段：
 
@@ -95,10 +83,8 @@
   }
   ```
 
-- `chat` 字段在 v7 引入；v8 新增必填的 `sleepWindow: { bedtimeMinutes; wakeTimeMinutes } | null`。
-  Worker 用它在心跳调用模型前执行跨午夜睡眠硬闸，并以 `scene.schedule` 的明确睡眠 slot
-  作为后备。开发期规矩仍是**不做旧格式兼容**：v7 包 parse 直接拒，下一轮 dirty-sync
-  会以 v8 重传，无需迁移代码，也不会因缺字段把旧包误判成清醒。
+- `FIRE_PACK_VERSION` 6 → 7。开发期规矩：**不做旧格式兼容**，v6 包 parse 直接拒
+  （现有定时任务的 fire_pack 会在下一轮 dirty-sync 时以 v7 重传，无需迁移代码）。
 - `onBeforeFire`（`index.ts:791`）新增 instant 分支：`metadata.amsgInstantChat`
   为真时——
   - 用 `pack.chat.messages` 组请求消息（不走 `renderFirePack` 模板渲染），
@@ -121,9 +107,7 @@
 - 回程（push metadata）：`amsgEmotionUpdate` / `amsgEmotionDone` / `amsgEmotionError`
   （评估结果 / 熄灯信号 / 脱敏后的失败原因）、`amsgReasoning`（思考链，只挂第一条 push、
   只在即时对话轮）、`amsgToolTrace`（`[{name,count}]`，只数真跑过的调用、只挂末条 push、
-  只在即时对话轮）、`amsgUsage`（末轮 prompt / completion / total token）与
-  `amsgBackendModel`（供应商响应自报模型）。后两者只用于当前设备补写 API 调用记录，
-  不得透传响应原文、供应商私有 usage 字段或凭据。
+  只在即时对话轮）。
 - 超限旁路：`amsgEmotionRef` / `amsgReasoningRef`（值挪进 client_state，键
   `emotion_update:<clientTaskId>` / `reasoning:<clientTaskId>`）。
 
@@ -157,11 +141,6 @@
   别为此改上游。
 - POST `/instant-chat` 任何一步 await 失败 → 客户端收到明确错误 → 界面报
   发送失败可重试。**绝不静默转回本地生成**。
-- 202 后把这一轮的 `baseUrl + model`（不含 API key）随 pending 落本机；末段回复落地时
-  以 task uuid 幂等写入 `设置 → API 调用记录`，标记执行位置为 Cloudflare 云端，并记录
-  usage / 实际后端 / 耗时。终态失败走同一 request id 写失败原因；原因限长并二次遮盖
-  疑似 Bearer/API key。这样浏览器直连测试、Worker 连通测试和 Worker→供应商真实调用
-  三件事可分别核对，不再把“本地日志没有记录”误判成云端从未尝试。
 
 ## 已拍板的行为语义
 

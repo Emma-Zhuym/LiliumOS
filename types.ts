@@ -386,9 +386,6 @@ export interface ActiveMsg2GlobalConfig {
 }
 
 export type ActiveMsg2ExpirePolicy = 'expire' | 'force';
-
-/** 心跳撞上同角色正在聊天时：顺着当前对话补一句，或完全省掉这一轮。 */
-export type ActiveMsg2HeartbeatChatPolicy = 'merge' | 'skip';
 export type ActiveMsg2TaskSource = 'user' | 'character';
 /** scheduled=待触发/循环中；cancelled 仅短暂存在（取消即从清单移除）。到点后的
  *  一次性任务不改 status——「已发送/已作废」由消息历史现场推导，避免 React 外写角色数据。 */
@@ -422,22 +419,6 @@ export interface ActiveMsg2TaskRecord {
 
 export interface ActiveMsg2CharacterConfig {
   enabled: boolean;
-  /**
-   * 周期心跳按角色单独开启。它不是普通任务清单的一项：Worker 用一串隐藏的一次性任务
-   * 自己续排，角色每次醒来可以主动联系，也可以安静跳过。
-   */
-  heartbeatEnabled?: boolean;
-  /** 只接受 amsgHeartbeat.HEARTBEAT_INTERVAL_OPTIONS 里的分钟数；缺省为 60。 */
-  heartbeatIntervalMinutes?: number;
-  /**
-   * 心跳生成优先复用角色「情绪 / 意识流」里保存的副 API。只影响隐藏心跳链；普通排程、
-   * 即时对话与手动聊天仍走各自原来的路由。副 API 不完整时排程端回落到主动消息默认 API。
-   */
-  heartbeatUseEmotionApi?: boolean;
-  /** 正在热聊时如何处理心跳；缺省沿用旧行为，调用模型前跳过这一轮。 */
-  heartbeatActiveChatPolicy?: ActiveMsg2HeartbeatChatPolicy;
-  /** 最近一次开关心跳失败的人读说明；成功后清空。 */
-  heartbeatLastError?: string;
   /**
    * 即时对话按角色单独关。undefined = 跟随全局（全局即时对话开着就默认开）；
    * false = 这个角色的聊天回到本地前台生成。与 enabled（排程开关）互相独立：

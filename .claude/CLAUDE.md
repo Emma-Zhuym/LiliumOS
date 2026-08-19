@@ -182,31 +182,13 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - `utils/safeAreaApps.ts` 必须保留 `AppID.SmartHome`，确保顶栏和内容区遵循安全区约定
 - 真实 Tapo / Levoit 实体字段尚待 Home Assistant 主机验收，不能写成已完成硬件联调
 
-### 22. Active Message 2.0 心跳醒来
-- `utils/amsgHeartbeat.ts` 是浏览器与 Worker 共用的纯协议层；不得引入 DOM、IndexedDB 或 localStorage
-- 心跳是一串隐藏的一次性任务：`worker/amsg/src/index.ts` 每次 fire 必须先幂等续排下一跳，再判断热聊让路、连发上限、生成或 NOOP
-- `heartbeat_control.generation` 是关停与改频率的竞态锁；旧链代次不一致时必须直接结束，不得续排
-- 心跳间隔默认带确定性时间波动（约 10%，最少 ±5 分钟、最多 ±20 分钟）；禁止在 fire 里直接用 `Math.random()`，同一次重试必须得到相同 next time 与 uuid
-- 心跳睡眠闸必须发生在模型、副 API 与工具调用之前：`fire_pack v8.sleepWindow` 的明确跨午夜区间优先，同时可识别当天 `scene.schedule` 的明确睡眠时段；按角色 `tzId` 计算，只拦心跳，不得误伤用户明确排下的普通消息或即时对话
-- 心跳撞上同角色活跃会话时遵守角色级 `heartbeatActiveChatPolicy`：缺省 / 非法值为 `skip`（API 前跳过）；`merge` 才允许继续生成，并必须临时换成“顺着当前话题、尽量一条短消息、无内容 NOOP”的指令。策略写入 `heartbeat_control.activeChatPolicy`，切换时原位更新，不得为此重建心跳链
-- 日常节律、睡眠区间或日程重生成完成后必须再次 `markAmsgStateDirty`；只在修改角色字段时同步会把生成前的旧 schedule 上传到云端
-- `[[HEARTBEAT_NOOP]]` 只表示本次安静，Worker 必须剥掉并 `skip-push`，不得把标记送进聊天或写成失败记录
-- 心跳默认使用角色自己的主动消息 API 路由，也可按角色选择复用 `emotionConfig.api` 作为省钱通道；该选择只影响心跳，不得改写普通聊天、即时对话或普通排程路由
-- 情绪副 API 三件套不完整时必须安全回落；新版 Worker 使用 `credRefs.chat → char:<id>/emotion`，不得把 Key 复制进心跳 metadata 或推送
-- 只有 Elias 的未来 Codex bridge 是专属通道
-- 即时聊天建任务前必须按当前运行端重新登记推送目标：原生端走 FCM、Web/PWA 走当前 PushSubscription；登记失败时不得创建任务或调用模型。云端调用结果以 task uuid 幂等写入本机 API 调用记录，pending 只保存 baseUrl / model，禁止保存 API key
-- 上游推送订阅仍是每用户单行；当前保证“发送即时聊天的设备拿回这一轮回复”，不代表多设备同时广播。真正多端推送需独立 device subscription 与按设备 ACK 设计
-- 心跳不进入普通任务清单，但 `hasActiveAiTask` 必须把它算作需要持续同步 fire_pack 的 AI 任务
-- 发布该功能时前端与 `worker/amsg/worker.bundle.js` 必须成对更新；详细契约见 `docs/amsg2-heartbeat.md`
-
-### 23. 七夕「星月梦境童话」
+### 22. 七夕「星月梦境童话」
 - `components/ValentineEvent.tsx` 必须用 `resolveCharacterApiConfig` 为所选角色解析 API；不得退回直接把全局 `apiConfig` 传给七夕会话
 - 新旅程实际调用 4 次模型 API，活动卡和生成前确认文案必须一致；重看旧记录不得调用模型或重复写入私聊
 - `qixi_event_card` 与角色返回消息以 `qixiRunId` 幂等写入，完整活动内容通过 `utils/qixiChatCard.ts` 进入后续聊天上下文
 - `qixi_2026_dual_layer_v7` 是稳定存储键；内部快照版本升级时不得顺手改键导致旧记录失联
 - 七夕专用召回上限 20 条只通过 `injectMemoryPalace` 的可选参数生效，不得改变普通聊天召回上限
 - 详细契约见 `docs/qixi-special-moment.md`
-
 ## 合并时常见坑（踩过的 bug）
 
 ### PhoneShell.tsx — messageSubView 必须解构

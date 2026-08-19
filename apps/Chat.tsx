@@ -1895,10 +1895,7 @@ const Chat: React.FC = () => {
         setIsScheduleGenerating(true);
         try {
             const result = await generateDailyScheduleForChar(updatedChar, userProfile, apiConfig, true);
-            if (result) {
-                setScheduleData(result);
-                markAmsgStateDirty({ char: updatedChar, userProfile, groups, realtimeConfig });
-            }
+            if (result) setScheduleData(result);
         } catch (e) {
             console.error('[Schedule] Regeneration after style change failed:', e);
         } finally {
@@ -1916,10 +1913,7 @@ const Chat: React.FC = () => {
         setIsScheduleGenerating(true);
         try {
             const result = await generateDailyScheduleForChar(updatedChar, userProfile, apiConfig, true);
-            if (result) {
-                setScheduleData(result);
-                markAmsgStateDirty({ char: updatedChar, userProfile, groups, realtimeConfig });
-            }
+            if (result) setScheduleData(result);
         } catch (e) {
             console.error('[Schedule] Regeneration after density change failed:', e);
         } finally {
@@ -1937,10 +1931,7 @@ const Chat: React.FC = () => {
         setIsScheduleGenerating(true);
         try {
             const result = await generateDailyScheduleForChar(updatedChar, userProfile, apiConfig, true);
-            if (result) {
-                setScheduleData(result);
-                markAmsgStateDirty({ char: updatedChar, userProfile, groups, realtimeConfig });
-            }
+            if (result) setScheduleData(result);
         } catch (e) {
             console.error('[Schedule] Regeneration after daily rhythm change failed:', e);
         } finally {
@@ -1958,10 +1949,7 @@ const Chat: React.FC = () => {
         setIsScheduleGenerating(true);
         try {
             const result = await generateDailyScheduleForChar(updatedChar, userProfile, apiConfig, true);
-            if (result) {
-                setScheduleData(result);
-                markAmsgStateDirty({ char: updatedChar, userProfile, groups, realtimeConfig });
-            }
+            if (result) setScheduleData(result);
         } catch (e) {
             console.error('[Schedule] Regeneration after sleep window change failed:', e);
         } finally {

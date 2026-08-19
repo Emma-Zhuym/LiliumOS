@@ -55,6 +55,7 @@ import { resolveCharTimeZone } from '../utils/timezone';
 import { ActiveMsgStore, exportAmsg2GlobalConfig } from '../utils/activeMsgStore';
 import { charMayHaveCloudState, purgeCharCloudState } from '../utils/amsg2CharCleanup';
 import { markAmsgStateDirty, markAmsgStateDirtyForAll, resumePendingAmsgStateSync, syncAmsgLlmCredentials, syncAmsgToolConfigAndPrompts } from '../utils/amsgStateSync';
+import { cleanupRemovedAmsgHeartbeats } from '../utils/amsgRollbackCleanup';
 import { loadMusicPlaybackSnapshot } from './MusicContext';
 import { setCharNameRegistry } from '../utils/charNameRegistry';
 import { AVATAR_ASSET_PREFIX, resolveAvatarRef } from '../utils/avatarAsset';
@@ -1696,6 +1697,12 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
         } catch (err) {
           console.warn('[AmsgStateSync] 启动补传失败（不影响启动）', err);
         }
+
+        // 心跳功能回滚后，云端可能还留着已经排下的一次性隐藏任务。只清这类旧任务，
+        // 普通主动消息、即时聊天、角色上下文和凭据都不碰；失败则下次启动重试。
+        void cleanupRemovedAmsgHeartbeats(finalChars.map((char) => char.id)).catch((err) => {
+          console.warn('[ActiveMsg2] 心跳回滚清理暂未完成，下次启动重试', err);
+        });
 
       } catch (err) {
         console.error('Data init failed:', err);
