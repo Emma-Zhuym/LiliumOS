@@ -180,7 +180,20 @@ const imageFromPayload = (payload: any): string | undefined => {
   return undefined;
 };
 
-const parseImageResponse = async (response: Response): Promise<string> => {
+const downloadGeneratedImage = async (url: string, fetchImpl: typeof fetch): Promise<string> => {
+  let response: Response;
+  try {
+    response = await fetchImpl(url, { headers: { Accept: 'image/*' } });
+  } catch {
+    throw new Error('接口返回了图片网址，但浏览器无法下载图片；请切换到稳定中转后重试');
+  }
+  if (!response.ok) throw new Error(`下载生成图片失败（HTTP ${response.status}）`);
+  const blob = await response.blob();
+  if (blob.type && !blob.type.startsWith('image/')) throw new Error('生成结果网址没有返回图片');
+  return blobToDataUrl(blob);
+};
+
+const parseImageResponse = async (response: Response, fetchImpl: typeof fetch): Promise<string> => {
   const contentType = (response.headers.get('Content-Type') || '').toLowerCase();
   if (response.ok && contentType.startsWith('image/')) {
     return blobToDataUrl(await response.blob());
@@ -192,6 +205,7 @@ const parseImageResponse = async (response: Response): Promise<string> => {
     throw new ImageApiResponseError(responseMessage(payload, raw.slice(0, 180) || `HTTP ${response.status}`), response.status);
   }
   const image = imageFromPayload(payload);
+  if (/^https?:\/\//i.test(image || '')) return downloadGeneratedImage(image!, fetchImpl);
   if (image) return image;
   throw new Error('生图接口没有返回可用图片');
 };
@@ -231,7 +245,7 @@ const requestAndParseImage = async (input: {
   };
   try {
     response = await input.fetchImpl(input.networkUrl, input.init);
-    const image = await parseImageResponse(response);
+    const image = await parseImageResponse(response, input.fetchImpl);
     recordApiCall({
       url: input.logicalUrl,
       body: logBody,

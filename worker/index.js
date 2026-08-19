@@ -77,6 +77,58 @@ function imageDataUrlToBlob(dataUrl) {
   return { blob: new Blob([bytes], { type: match[1] || 'image/png' }), mimeType: match[1] || 'image/png' };
 }
 
+function findGeneratedImageUrl(payload) {
+  if (!payload) return '';
+  if (typeof payload === 'string') return /^https?:\/\//i.test(payload) ? payload : '';
+  if (Array.isArray(payload)) {
+    for (const item of payload) {
+      const found = findGeneratedImageUrl(item);
+      if (found) return found;
+    }
+    return '';
+  }
+  if (typeof payload !== 'object') return '';
+  for (const key of ['url', 'image_url']) {
+    const value = payload[key];
+    if (typeof value === 'string' && /^https?:\/\//i.test(value)) return value;
+    if (typeof value?.url === 'string' && /^https?:\/\//i.test(value.url)) return value.url;
+  }
+  for (const key of ['data', 'images', 'output', 'content', 'result']) {
+    const found = findGeneratedImageUrl(payload[key]);
+    if (found) return found;
+  }
+  return '';
+}
+
+async function fetchPublicGeneratedImage(sourceUrl) {
+  let current = new URL(sourceUrl);
+  for (let redirects = 0; redirects <= 3; redirects += 1) {
+    if (current.protocol !== 'https:' || isUnsafeFetchTarget(current)) {
+      throw new Error('Generated image URL must be public HTTPS');
+    }
+    const response = await fetch(current.toString(), {
+      method: 'GET',
+      headers: { Accept: 'image/*' },
+      redirect: 'manual',
+    });
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('Location');
+      if (!location || redirects === 3) throw new Error('Generated image redirect was invalid');
+      current = new URL(location, current);
+      continue;
+    }
+    if (!response.ok) throw new Error(`Generated image download failed (HTTP ${response.status})`);
+    const contentType = response.headers.get('Content-Type') || '';
+    if (contentType && !contentType.toLowerCase().startsWith('image/')) {
+      throw new Error('Generated image URL did not return an image');
+    }
+    const contentLength = Number(response.headers.get('Content-Length') || 0);
+    if (contentLength > 25 * 1024 * 1024) throw new Error('Generated image is too large');
+    return response;
+  }
+  throw new Error('Generated image redirected too many times');
+}
+
 // 读 Response body, 累加到 maxBytes 就停 (防超大页面打爆 worker)。
 async function readBodyCapped(res, maxBytes) {
   const reader = (res.body && res.body.getReader) ? res.body.getReader() : null;
@@ -2463,8 +2515,24 @@ export default {
           redirect: 'manual',
         });
         const headers = new Headers(corsHeaders(origin));
-        headers.set('Content-Type', upstream.headers.get('Content-Type') || 'application/json; charset=utf-8');
         headers.set('Cache-Control', 'no-store');
+        const upstreamContentType = upstream.headers.get('Content-Type') || 'application/json; charset=utf-8';
+
+        // OpenAI-compatible relays often return a short-lived CDN URL. Resolve it inside the
+        // Worker so mobile Safari only downloads from this same CORS-safe endpoint.
+        if (mode !== 'models' && upstream.ok && upstreamContentType.toLowerCase().includes('json')) {
+          const payload = await upstream.json();
+          const generatedUrl = findGeneratedImageUrl(payload);
+          if (generatedUrl) {
+            const imageResponse = await fetchPublicGeneratedImage(generatedUrl);
+            headers.set('Content-Type', imageResponse.headers.get('Content-Type') || 'image/png');
+            return new Response(imageResponse.body, { status: 200, headers });
+          }
+          headers.set('Content-Type', upstreamContentType);
+          return new Response(JSON.stringify(payload), { status: upstream.status, headers });
+        }
+
+        headers.set('Content-Type', upstreamContentType);
         return new Response(upstream.body, { status: upstream.status, headers });
       } catch (e) {
         return jsonResponse({ error: 'Image API upstream fetch failed', detail: String(e && e.message || e) }, { status: 502, origin });

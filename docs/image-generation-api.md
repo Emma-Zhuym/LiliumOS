@@ -1,6 +1,6 @@
 # LiliumOS 生图 API 与角色立绘参考
 
-> 状态：自定义直连与主 Worker 中转均已在线出图，角色画风预设和本地 API 调用记录已接入。最后核对：2026-08-18。
+> 状态：自定义直连与主 Worker 中转均已在线出图；角色画风预设、本地 API 调用记录、移动端结果归一化和失败重试已接入。最后核对：2026-08-18。
 
 ## 目标
 
@@ -107,13 +107,15 @@ interface ImageGenerationApiConfig {
 - 立绘读取失败或请求发生网络错误：提示后尝试纯文字生成。
 - 编辑接口返回 400、404、405、415 或 422：视为接口/模型不支持参考图，提示后尝试纯文字生成。
 - 401、403、429 与服务端错误不静默吞掉，直接按生图失败处理。
-- 生图失败时显示错误提示，并落一条“请检查设置里的生图 API”的文字气泡，避免整段回复无声消失。
+- 生图开始时先落一条固定尺寸的 pending 图片消息；成功后在原位置替换为成品，失败后保留原提示词与错误状态，可点按重新生成。
 
 ### 静态前端中转
 
 - `requestMode: direct`：浏览器直接请求自定义 API；对方必须放行当前网页来源、`Authorization` 和 `Content-Type` 的 CORS 预检。
 - `requestMode: proxy`：浏览器请求主 Worker 的 `/image-generation` 或 `/image-generation/models`，由 Worker 服务端访问自定义 API。
 - Worker 只接受公网 HTTPS 地址，只转发 `/models`、`/images/generations` 和 `/images/edits`，拒绝本机及私网目标。
+- 自定义接口若返回临时 CDN URL，Worker 会校验公网 HTTPS、跟随有限次安全重定向并下载图片本体，再以同源图片响应交给前端；不把上游 Key 转发给 CDN。
+- 浏览器直连也会尝试把 URL 结果下载为本地图片数据；若 CDN 不允许跨域读取，会明确提示切换“稳定中转”，不再把不可显示的临时 URL 静默写进聊天。
 - Worker 不持久化 Key、提示词、参考图或结果；Key 仅作为本次上游请求的 `Authorization` 头透传。
 
 身份一致性属于模型能力和提示词共同作用的尽力而为结果，不承诺像素级锁脸。
@@ -128,9 +130,13 @@ interface ImageGenerationApiConfig {
 
 ## 消息与主动消息链
 
+- 当前生图不是发送给聊天模型的 OpenAI `tools` 函数，而是“模型输出照片标签 → 客户端后处理调用生图 API”的指令链；因此设置页测试成功只证明生图接口可用，不代表角色回复已经触发照片指令。
 - `utils/applyAssistantPostProcessing.ts` 统一处理 `[[SEND_PHOTO]]`。
+- 用户本轮明确索要自拍/照片而模型漏掉标签时，客户端会补一个英文照片描述并触发生图；否定请求不会触发。模型输出的单括号 `[SEND_PHOTO: ...]` 以及 ai-virtual-phone 风格的 `[照片: ...]`、`[照片:使用参考图: ...]` 也会归一成同一指令。
 - 角色 `photoStyle` 仍追加到场景提示词，不与 API 供应商绑定。
 - 成功图片消息记录 `imageGenerationProvider`、`imageGenerationModel`、`characterReferenceUsed`、原始 `photoPrompt` 与 `photoStyle`。
+- 图片消息用 `imageGenerationStatus: pending | generated | failed` 表示生命周期；生成结果先转换为本地 `blobref:`，减少移动端内存占用并避免临时 URL、热链限制或 Safari 跨域显示差异。
+- 失败重试沿用该消息保存的原始 `photoPrompt`、`photoStyle` 和当前全局生图配置，更新同一条消息，不额外制造失败文字气泡。
 - `utils/activeMsgRuntime.ts` 把全局生图配置交给同一后处理，因此前台私聊与主动消息采用相同规则。
 
 ## 隐私边界
@@ -150,8 +156,9 @@ interface ImageGenerationApiConfig {
 - `utils/applyAssistantPostProcessing.test.ts`
 - `worker/imageGenerationProxy.test.ts`
 - 最新定向验证覆盖生图协议、调用记录、聊天后处理与画风预设，合计 70 tests passed，其中画风预设 5 tests passed。
+- 移动端结果归一化与可恢复消息补测覆盖 URL 下载、Worker 公网校验、pending/failed UI 和原位状态更新；本轮相关定向验证 61 tests passed。
 - Worker bundle 与 Vite 生产构建通过。
-- `bash scripts/check-em-patches.sh`：74/74。
+- `bash scripts/check-em-patches.sh`：79/79。
 - localhost 页面检查覆盖：免费/自定义切换、直连/中转模式、测试生图、立绘参考、模型列表入口和模型选择弹层。
 - localhost 聊天设置已确认九个画风选项完整显示；自定义浏览器直连与 Worker 中转均完成真实出图。
 
@@ -159,16 +166,27 @@ interface ImageGenerationApiConfig {
 
 - `types.ts`
 - `utils/imageGeneration.ts`
+- `utils/chatGeneratedImage.ts`
 - `utils/applyAssistantPostProcessing.ts`
 - `utils/activeMsgRuntime.ts`
 - `apps/Settings.tsx`
 - `worker/index.js`
 - `components/chat/ChatModals.tsx`
 
-## 外部参考
+## 重要外部参考
+
+以下两个仓库作为后续 AI 小手机与生图演进的重要长期参考，但用途不同：
+
+- [xiaolongbao0709/ai-virtual-phone](https://github.com/xiaolongbao0709/ai-virtual-phone) 是当前生图实现的主要工程参考。本轮采用其 URL 结果下载归一化、本地媒体存储、pending 原位替换和失败重试思路；其长超时与 heartbeat 方案保留为后续远程任务化参考。LiliumOS 仍保留自己的 IndexedDB、Worker 安全边界和 `[[SEND_PHOTO]]` 后处理架构。
+- [shenqingmo3-dotcom/SharkOS](https://github.com/shenqingmo3-dotcom/SharkOS) 是 AI 手机产品形态、上传与视觉理解链路的参考。2026-08-18 审计时它没有真正的 AI 生图管线，其 scene card 是文字场景卡而非照片，因此不能把它当作生图代码来源；以后关注其手机交互、媒体输入和角色体验演进。
+
+具体代码入口：
 
 - [OpenAI Image generation guide](https://developers.openai.com/api/docs/guides/image-generation)
 - [OpenAI Images edit endpoint](https://developers.openai.com/api/reference/resources/images/methods/edit)
 - [Pollinations API documentation](https://github.com/pollinations/pollinations/blob/main/APIDOCS.md)
 - [ai-virtual-phone image generation service](https://github.com/xiaolongbao0709/ai-virtual-phone/blob/main/lib/image-generation-service.ts)
 - [ai-virtual-phone server image route](https://github.com/xiaolongbao0709/ai-virtual-phone/blob/main/app/api/image-generation/route.ts)
+- [ai-virtual-phone generated image retry](https://github.com/xiaolongbao0709/ai-virtual-phone/blob/main/lib/generated-image-retry.ts)
+- [ai-virtual-phone rich message parser](https://github.com/xiaolongbao0709/ai-virtual-phone/blob/main/lib/rich-message-parser.ts)
+- [SharkOS repository](https://github.com/shenqingmo3-dotcom/SharkOS)

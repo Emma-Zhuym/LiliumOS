@@ -110,10 +110,45 @@ describe('generateChatImage', () => {
     }));
   });
 
+  it('downloads a returned image URL before persisting a custom result', async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ url: 'https://cdn.example/result.png' }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(new Response(new Blob(['ABC'], { type: 'image/png' }), {
+        status: 200,
+        headers: { 'Content-Type': 'image/png' },
+      }));
+    const result = await generateChatImage({
+      prompt: 'a lily',
+      config: { provider: 'openai-compatible', baseUrl: 'https://img.example/v1', model: 'image-model', useCharacterReference: false },
+      fetchImpl: fetchImpl as any,
+    });
+
+    expect(fetchImpl.mock.calls.map(call => call[0])).toEqual([
+      'https://img.example/v1/images/generations',
+      'https://cdn.example/result.png',
+    ]);
+    expect(result.url).toMatch(/^data:image\/png;base64,/);
+  });
+
+  it('explains when a direct browser cannot download the returned image URL', async () => {
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ url: 'https://cdn.example/result.png' }] }), { status: 200 }))
+      .mockRejectedValueOnce(new TypeError('Load failed'));
+
+    await expect(generateChatImage({
+      prompt: 'a lily',
+      config: { provider: 'openai-compatible', baseUrl: 'https://img.example/v1', model: 'image-model', useCharacterReference: false },
+      fetchImpl: fetchImpl as any,
+    })).rejects.toThrow('请切换到稳定中转');
+  });
+
   it('falls back to text generation when the model rejects reference images', async () => {
     const fetchImpl = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: 'unsupported image' } }), { status: 400 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ url: 'https://example.com/result.png' }] }), { status: 200 }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ b64_json: 'QUJD' }] }), { status: 200 }));
     const result = await generateChatImage({
       prompt: 'reading',
       char: character({ sprites: { normal: 'data:image/png;base64,QUJD' } }),

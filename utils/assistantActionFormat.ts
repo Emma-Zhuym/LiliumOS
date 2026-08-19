@@ -31,6 +31,20 @@ export const normalizeAssistantActionFormatting = (raw: string): string => {
         (_all, prefix: string, name: string) => `${prefix}[[SEND_EMOJI: ${name.trim()}]]`,
     );
 
+    // 照片：兼容模型漏一层括号，以及 ai-virtual-phone 常用的中文照片标签。
+    content = content.replace(
+        /(^|[^\[])\[\s*SEND_PHOTO\s*[:：]\s*([^\]\r\n]+?)\s*\](?!\])/gim,
+        (_all, prefix: string, prompt: string) => `${prefix}[[SEND_PHOTO: ${prompt.trim()}]]`,
+    );
+    content = content.replace(
+        /\[\[\s*照片\s*[:：]\s*(?:使用参考图\s*[:：]\s*)?([\s\S]*?)\s*\]\]/gim,
+        (_all, prompt: string) => `[[SEND_PHOTO: ${prompt.trim()}]]`,
+    );
+    content = content.replace(
+        /(^|[^\[])\[\s*照片\s*[:：]\s*(?:使用参考图\s*[:：]\s*)?([^\]\r\n]+?)\s*\](?!\])/gim,
+        (_all, prefix: string, prompt: string) => `${prefix}[[SEND_PHOTO: ${prompt.trim()}]]`,
+    );
+
     // 转账：只修明确的 ACTION token；口语版 [转账 520] 仍由 transferFormat 的
     // 容错解析器负责，方向和金额安全校验也仍在那里完成。
     content = content.replace(
@@ -78,4 +92,24 @@ export const normalizeAssistantActionFormatting = (raw: string): string => {
     );
 
     return content;
+};
+
+const EXPLICIT_PHOTO_REQUEST_RE = /(?:发|拍|来|给我|让我看|想看|看看|看一下).{0,10}(?:自拍|照片|相片|你现在的样子|你的样子)|(?:自拍|照片|相片).{0,10}(?:发来|发给我|看看|看一下)/i;
+const NEGATED_PHOTO_REQUEST_RE = /(?:别|不要|不用|不许|不准|禁止).{0,8}(?:发|拍|给).{0,8}(?:自拍|照片|相片)|(?:自拍|照片|相片).{0,8}(?:别发|不要发|不用发)/i;
+
+export const isExplicitPhotoRequest = (text: string): boolean => {
+    const value = String(text || '').replace(/\s+/g, ' ').trim();
+    return !!value && EXPLICIT_PHOTO_REQUEST_RE.test(value) && !NEGATED_PHOTO_REQUEST_RE.test(value);
+};
+
+/** 模型漏掉照片标签时，只对用户本轮的明确索图请求补一次。 */
+export const ensureRequestedPhotoDirective = (assistantContent: string, userContent: string): string => {
+    const normalized = normalizeAssistantActionFormatting(assistantContent);
+    if (/\[\[SEND_PHOTO\s*[:：]/i.test(normalized) || !isExplicitPhotoRequest(userContent)) return normalized;
+    const request = String(userContent || '').replace(/\s+/g, ' ').trim().slice(0, 240);
+    const selfie = /自拍|看看你|看一下你|你的样子|你现在的样子/i.test(request);
+    const fallbackPrompt = selfie
+        ? `candid smartphone selfie of the character, natural expression, authentic casual moment, current surroundings, user request: ${request}`
+        : `candid smartphone photo taken by the character, natural lighting, authentic casual moment, user request: ${request}`;
+    return `${normalized.trim()}\n[[SEND_PHOTO: ${fallbackPrompt}]]`.trim();
 };

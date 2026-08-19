@@ -61,6 +61,7 @@ import { normalizeTranslationLangLabel, isTranslationLangPreset } from '../utils
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
 import { trackEvent, noteMessageSent, presetOrCustom } from '../utils/analytics';
 import { markAmsgStateDirty, markAmsgStateDirtyForAll } from '../utils/amsgStateSync';
+import { generatePersistedChatImage } from '../utils/chatGeneratedImage';
 import { AMSG_INSTANT_CHAT_PENDING_EVENT, AMSG_INSTANT_CHAT_PENDING_LS_KEY, getInstantChatPending } from '../utils/amsgInstantChat';
 import { formatAmsgToolTrace } from '../utils/amsgToolTrace';
 import {
@@ -1382,6 +1383,27 @@ const Chat: React.FC = () => {
         });
         await reloadMessages(visibleCountRef.current);
     }, [char, reloadMessages]);
+
+    const handleRegenerateImage = useCallback(async (msg: Message) => {
+        if (!char || msg.metadata?.imageGenerationStatus === 'pending') return;
+        try {
+            await DB.updateMessageMetadata(msg.id, prev => ({ ...(prev || {}), imageGenerationStatus: 'pending' }));
+            await reloadMessages(visibleCountRef.current);
+            const generated = await generatePersistedChatImage({
+                messageId: msg.id,
+                char,
+                config: apiConfig.imageGeneration,
+                prompt: String(msg.metadata?.photoPrompt || '').trim(),
+                photoStyle: msg.metadata?.photoStyle,
+            });
+            if (generated.warning) addToast(generated.warning, 'info');
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            addToast(`生图失败：${reason}`, 'error');
+        } finally {
+            await reloadMessages(visibleCountRef.current);
+        }
+    }, [char, apiConfig.imageGeneration, addToast, reloadMessages]);
 
     // 用户点「生活记录」代记卡选择确认 / 否决：
     // 否决 → 记录标记 rejected（不再计入注入摘要）+ 回滚银行流水（expense）+
@@ -3603,6 +3625,7 @@ const Chat: React.FC = () => {
                             onMcdCandidate={handleMcdCandidate}
                             onResolveTransfer={handleResolveTransfer}
                             onResolveLifeRecord={handleResolveLifeRecord}
+                            onRegenerateImage={handleRegenerateImage}
                             thinkingChainOptions={thinkingChainOptions}
                            
                         />

@@ -9,6 +9,7 @@ import { VALID_INTERJECTION_TAGS, cleanVoiceMarkupForDisplay } from '../../utils
 import { stripFishCuesForDisplay } from '../../utils/fishAudioTts';
 import { formatStatCount } from '../../utils/videoParser';
 import { resolveBubbleCornerRadii, shouldHideBubbleTail } from '../../utils/bubbleAppearance';
+import { useBlobRefUrl } from '../../utils/blobRef';
 import McdCard from './McdCard';
 import HtmlCard from './HtmlCard';
 import LuckinCard from './LuckinCard';
@@ -50,6 +51,98 @@ const SERIF = '"Noto Serif SC", "Source Han Serif SC", "Songti SC", "STKaiti", "
 const SANS = '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif';
 const MONO = '"JetBrains Mono", "Fira Code", "Cascadia Code", Consolas, "Courier New", monospace';
 const PIXEL = '"Zpix", "Fusion Pixel 12px", "DotGothic16", "Silver", "Courier New", monospace';
+
+const ChatImage = ({
+    content,
+    alt,
+    isAiPhoto,
+    generationStatus,
+    generationError,
+    onRegenerate,
+}: {
+    content: string;
+    alt: string;
+    isAiPhoto: boolean;
+    generationStatus?: 'pending' | 'generated' | 'failed';
+    generationError?: string;
+    onRegenerate?: () => void;
+}) => {
+    const src = useBlobRefUrl(content);
+    const [loadFailed, setLoadFailed] = useState(false);
+    const [retryKey, setRetryKey] = useState(0);
+
+    useEffect(() => setLoadFailed(false), [src]);
+
+    if (generationStatus === 'pending') {
+        return (
+            <div className="w-[220px] max-w-[70vw] h-40 rounded-2xl bg-slate-100 animate-pulse flex items-center justify-center text-xs text-slate-500" aria-label="图片生成中">
+                图片接收中…
+            </div>
+        );
+    }
+
+    if (generationStatus === 'failed') {
+        return (
+            <button
+                type="button"
+                className="w-[220px] max-w-[70vw] h-40 rounded-2xl border border-slate-200 bg-slate-50 text-xs text-slate-500 active:bg-slate-100"
+                onClick={onRegenerate}
+                title={generationError}
+            >
+                图片生成失败 · 重新生成
+            </button>
+        );
+    }
+
+    if (!src) {
+        return isAiPhoto ? (
+            <button
+                type="button"
+                className="w-[220px] max-w-[70vw] h-40 rounded-2xl border border-slate-200 bg-slate-50 text-xs text-slate-500 active:bg-slate-100"
+                onClick={onRegenerate}
+            >
+                图片已丢失 · 重新生成
+            </button>
+        ) : (
+            <div className="px-4 py-6 rounded-2xl bg-slate-100 text-slate-400 text-xs italic text-center min-w-[120px]">[图片已丢失]</div>
+        );
+    }
+
+    if (loadFailed) {
+        return (
+            <button
+                type="button"
+                className="w-[220px] max-w-[70vw] h-40 rounded-2xl border border-slate-200 bg-slate-50 text-xs text-slate-500 active:bg-slate-100"
+                onClick={() => {
+                    setLoadFailed(false);
+                    setRetryKey(value => value + 1);
+                }}
+            >
+                图片加载失败，点按重试
+            </button>
+        );
+    }
+
+    return (
+        <div className="relative w-[220px] max-w-[70vw] min-h-40">
+            <img
+                key={retryKey}
+                src={src}
+                className="w-full h-auto max-h-[320px] object-contain rounded-2xl shadow-sm border border-black/5 block bg-slate-50"
+                alt={alt}
+                loading={isAiPhoto ? 'eager' : 'lazy'}
+                decoding="async"
+                referrerPolicy="no-referrer"
+                onError={() => setLoadFailed(true)}
+            />
+            {isAiPhoto && (
+                <div className="absolute bottom-1.5 right-1.5 bg-black/40 backdrop-blur-sm rounded-full px-1.5 py-0.5 text-[9px] text-white/80 leading-none">
+                    📷
+                </div>
+            )}
+        </div>
+    );
+};
 
 export const THINKING_CHAIN_PRESETS: Record<Exclude<ThinkingChainStyleId, 'custom'>, ThinkingChainStyleSpec> = {
     echo: {
@@ -1415,6 +1508,8 @@ interface MessageItemProps {
     onResolveTransfer?: (m: Message, action: 'accepted' | 'returned') => void;
     /** 用户点「生活记录」卡 → 确认 / 否决（角色代记的记录） */
     onResolveLifeRecord?: (m: Message, action: 'confirmed' | 'rejected') => void;
+    /** AI 图片生成失败后，使用原始提示词重新生成并更新同一条消息。 */
+    onRegenerateImage?: (m: Message) => void;
     /** 思考链卡片视觉与交互 */
     thinkingChainOptions?: {
         styleId?: ThinkingChainStyleId;
@@ -1462,6 +1557,7 @@ avatarShape = 'circle',
     onLuckinCandidate,
     onResolveTransfer,
     onResolveLifeRecord,
+    onRegenerateImage,
     thinkingChainOptions,
 }: MessageItemProps) => {
     const isUser = m.role === 'user';
@@ -3361,22 +3457,23 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
         return commonLayout(
             <div className="relative group">
                 {m.content ? (
-                    <div className="relative">
-                        <img
-                            src={m.content}
-                            className="max-w-[220px] max-h-[320px] rounded-2xl shadow-sm border border-black/5 block"
-                            alt={isAiPhoto ? (m.metadata as any)?.photoPrompt : 'Uploaded'}
-                            loading="lazy"
-                            decoding="async"
-                        />
-                        {isAiPhoto && (
-                            <div className="absolute bottom-1.5 right-1.5 bg-black/40 backdrop-blur-sm rounded-full px-1.5 py-0.5 text-[9px] text-white/80 leading-none">
-                                📷
-                            </div>
-                        )}
-                    </div>
+                    <ChatImage
+                        content={m.content}
+                        alt={isAiPhoto ? (m.metadata as any)?.photoPrompt : 'Uploaded'}
+                        isAiPhoto={isAiPhoto}
+                        generationStatus={(m.metadata as any)?.imageGenerationStatus}
+                        generationError={(m.metadata as any)?.imageGenerationError}
+                        onRegenerate={onRegenerateImage ? () => onRegenerateImage(m) : undefined}
+                    />
                 ) : (
-                    <div className="px-4 py-6 rounded-2xl bg-slate-100 text-slate-400 text-xs italic text-center min-w-[120px]">[图片已丢失]</div>
+                    <ChatImage
+                        content=""
+                        alt={(m.metadata as any)?.photoPrompt || 'Generated image'}
+                        isAiPhoto={isAiPhoto}
+                        generationStatus={(m.metadata as any)?.imageGenerationStatus}
+                        generationError={(m.metadata as any)?.imageGenerationError}
+                        onRegenerate={onRegenerateImage ? () => onRegenerateImage(m) : undefined}
+                    />
                 )}
             </div>
         );

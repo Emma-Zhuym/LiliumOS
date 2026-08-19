@@ -60,6 +60,29 @@ describe('SEND_PHOTO 生图通道', () => {
         expect((image?.metadata as any)?.imageGenerationProvider).toBe('pollinations-free');
         expect((image?.metadata as any)?.characterReferenceUsed).toBe(false);
         expect((image?.metadata as any)?.photoPrompt).toBe('在窗边看书');
+        expect((image?.metadata as any)?.imageGenerationStatus).toBe('generated');
+    }, 10000);
+
+    it('用户明确索要自拍而模型漏标签时仍触发生图', async () => {
+        const charId = `c-photo-fallback-${Date.now()}`;
+        const ctx = makeCtx(charId, [{
+            id: 1,
+            charId,
+            role: 'user',
+            type: 'text',
+            content: '发个自拍给我看看',
+            timestamp: Date.now(),
+        }]);
+        ctx.instantRender = true;
+
+        await applyAssistantPostProcessing('等一下，拍给你', ctx);
+
+        const msgs = await DB.getRecentMessagesByCharId(charId, 20);
+        expect(msgs.some(message => message.role === 'assistant' && message.type === 'text' && message.content.includes('拍给你'))).toBe(true);
+        const image = msgs.find(message => message.role === 'assistant' && message.type === 'image');
+        expect(image?.content).toContain('https://image.pollinations.ai/prompt/');
+        expect((image?.metadata as any)?.photoPrompt).toContain('candid smartphone selfie');
+        expect((image?.metadata as any)?.imageGenerationStatus).toBe('generated');
     }, 10000);
 });
 

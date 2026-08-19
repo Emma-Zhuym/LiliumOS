@@ -48,7 +48,13 @@ describe('/image-generation proxy', () => {
 
   it('uses the singular image field for edits', async () => {
     let form: FormData | undefined;
-    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+      if (String(url) === 'https://cdn.example/result.png') {
+        return new Response(new Blob(['image'], { type: 'image/png' }), {
+          status: 200,
+          headers: { 'Content-Type': 'image/png' },
+        });
+      }
       form = init.body as FormData;
       return new Response(JSON.stringify({ data: [{ url: 'https://cdn.example/result.png' }] }), {
         status: 200,
@@ -64,8 +70,24 @@ describe('/image-generation proxy', () => {
     });
 
     expect(response.status).toBe(200);
+    expect(response.headers.get('Content-Type')).toBe('image/png');
+    expect(await response.text()).toBe('image');
     expect(form?.get('image')).toBeInstanceOf(Blob);
     expect(form?.get('image[]')).toBeNull();
+  });
+
+  it('rejects a private generated-image URL returned by an upstream API', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ data: [{ url: 'https://127.0.0.1/result.png' }] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await callProxy('/image-generation', {
+      baseUrl: 'https://images.example/v1', model: 'm', prompt: 'p',
+    });
+    expect(response.status).toBe(502);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('blocks private or non-HTTPS upstreams before fetch', async () => {

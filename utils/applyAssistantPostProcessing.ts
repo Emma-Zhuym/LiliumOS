@@ -49,9 +49,8 @@ import {
     runXhsDetail,
 } from './agenticTools';
 import { getLocalDateKey } from './localDate';
-import { normalizeAssistantActionFormatting } from './assistantActionFormat';
-import { generateChatImage } from './imageGeneration';
-import { getPhotoStylePrompt } from './photoStylePresets';
+import { ensureRequestedPhotoDirective, normalizeAssistantActionFormatting } from './assistantActionFormat';
+import { generatePersistedChatImage } from './chatGeneratedImage';
 
 // ─── 模块内辅助 ──────────────────────────────────────────────────────────────
 
@@ -691,42 +690,33 @@ export async function applyAssistantPostProcessing(
                 } else if (part.type === 'photo') {
                     // EM: [[SEND_PHOTO: description]] — 走设置中的生图 API；默认仍是免配置免费通道。
                     await new Promise(r => setTimeout(r, Math.random() * 400 + 200));
-                    // 风格预设：per-character photoStyle → 追加到描述末尾
-                    const photoStylePrompt = getPhotoStylePrompt((char as any).photoStyle);
-                    const styleTags = photoStylePrompt ? `, ${photoStylePrompt}` : '';
+                    const imageMessageId = await persistMessage({
+                        charId: char.id,
+                        role: 'assistant',
+                        type: 'image',
+                        content: '',
+                        metadata: {
+                            ...takeMeta(mcdInheritMeta),
+                            aiGenerated: true,
+                            photoPrompt: part.content,
+                            photoStyle: (char as any).photoStyle,
+                            imageGenerationStatus: 'pending',
+                        },
+                    } as any);
+                    setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
                     try {
-                        const generated = await generateChatImage({
-                            prompt: part.content + styleTags,
+                        const generated = await generatePersistedChatImage({
+                            messageId: imageMessageId,
                             char,
                             config: effectiveApi.imageGeneration,
+                            prompt: part.content,
+                            photoStyle: (char as any).photoStyle,
                         });
                         if (generated.warning) addToast(generated.warning, 'info');
-                        await persistMessage({
-                            charId: char.id,
-                            role: 'assistant',
-                            type: 'image',
-                            content: generated.url,
-                            metadata: {
-                                ...takeMeta(mcdInheritMeta),
-                                aiGenerated: true,
-                                photoPrompt: part.content,
-                                photoStyle: (char as any).photoStyle,
-                                imageGenerationProvider: generated.provider,
-                                imageGenerationModel: generated.model,
-                                characterReferenceUsed: generated.referenceUsed,
-                            },
-                        } as any);
                     } catch (error) {
                         const reason = error instanceof Error ? error.message : String(error);
                         console.warn('[Chat] 生图失败', error);
                         addToast(`生图失败：${reason}`, 'error');
-                        await persistMessage({
-                            charId: char.id,
-                            role: 'assistant',
-                            type: 'text',
-                            content: '（图片生成失败，请检查设置里的生图 API）',
-                            metadata: { ...takeMeta(mcdInheritMeta), aiGenerated: true, imageGenerationFailed: true },
-                        } as any);
                     }
                     setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
                 } else {
@@ -2076,6 +2066,8 @@ export async function applyAssistantPostProcessing(
     // - 跑过二轮 (data !== initialData): aiContent 现在是 B; 一轮正文 A 已在 Step 2 开头先行展示, 这里只展示 B。
     // - 有重生指令但没真正发起二轮 (data 不变: 未配置/无结果/无日志/已激活/二轮异常 等): A 已展示, 跳过避免重复。
     // - 没有重生 (普通回复 / instant push): leadInRendered 必为 false, 正常展示本轮唯一回复。
+    const latestUserMessage = [...contextMsgs].reverse().find(message => message.role === 'user');
+    aiContent = ensureRequestedPhotoDirective(aiContent, latestUserMessage?.content || '');
     if (leadInRendered && data === initialData) {
         setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
     } else {

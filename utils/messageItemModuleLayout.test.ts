@@ -93,6 +93,49 @@ describe('MessageItem module layout', () => {
         expect(markup).toContain('https://example.com/char.png');
     });
 
+    it('AI 生成图预留手机端尺寸并立即加载', () => {
+        const markup = renderMessage({
+            id: 4,
+            charId: 'char-1',
+            role: 'assistant',
+            type: 'image',
+            content: 'https://example.com/generated.png',
+            timestamp: 4,
+            metadata: { aiGenerated: true, photoPrompt: '窗边自拍' },
+        });
+        expect(markup).toContain('loading="eager"');
+        expect(markup).toContain('w-[220px]');
+        expect(markup).toContain('min-h-40');
+        expect(markup).toContain('referrerPolicy="no-referrer"');
+    });
+
+    it('普通聊天图片仍可延迟加载', () => {
+        const markup = renderMessage({
+            id: 5,
+            charId: 'char-1',
+            role: 'user',
+            type: 'image',
+            content: 'https://example.com/uploaded.png',
+            timestamp: 5,
+        });
+        expect(markup).toContain('loading="lazy"');
+    });
+
+    it('AI 生图 pending 和 failed 都保留固定图片位置', () => {
+        const pending = renderMessage({
+            id: 6, charId: 'char-1', role: 'assistant', type: 'image', content: '', timestamp: 6,
+            metadata: { aiGenerated: true, imageGenerationStatus: 'pending' },
+        });
+        const failed = renderMessage({
+            id: 7, charId: 'char-1', role: 'assistant', type: 'image', content: '', timestamp: 7,
+            metadata: { aiGenerated: true, imageGenerationStatus: 'failed', imageGenerationError: 'timeout' },
+        });
+        expect(pending).toContain('图片接收中');
+        expect(pending).toContain('w-[220px]');
+        expect(failed).toContain('图片生成失败 · 重新生成');
+        expect(failed).toContain('w-[220px]');
+    });
+
     it('角色回复时引用与短正文独立收缩并一起靠左', () => {
         const markup = renderMessage({
             id: 5,

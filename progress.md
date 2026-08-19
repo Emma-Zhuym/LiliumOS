@@ -19,6 +19,8 @@
 - 自定义生图新增直连/稳定中转模式、设置页测试生图、完整端点 URL 归一化、原始图片与多种 Base64 响应解析；主 Worker 中转解决 GitHub Pages 的 CORS 限制，并限制为公网 HTTPS Images 端点。
 - 聊天照片画风改为统一预设源，提供真实随拍、日系透明水彩、半写实幻想、韩系精绘、清透日漫、电影写真等九项选择；画风参考不复制姿势、固定配色或背景物件。
 - 自定义生图已接入本地 API 调用记录：生成与编辑请求显示模型、状态、耗时、角色、参考立绘和 Worker 中转信息，同时排除 Key 与立绘 Base64；编辑失败后的文字降级会分两笔记录。
+- 手机聊天生图不再直接保存自定义接口返回的临时 URL：浏览器或 Worker 先下载图片本体，再转成本地媒体引用；图片消息支持生成中、失败和原位重试。`ai-virtual-phone` 与 `SharkOS` 已列为后续 AI 手机和生图的重要参考。
+- 修复角色只口头答应“拍给你”却未调用生图：明确索要自拍/照片时即使模型漏掉 `SEND_PHOTO` 也会触发一次，并兼容单括号及 ai-virtual-phone 的中文照片标签；否定请求不触发。
 - 新增「共栖舱」Smart Home App：可统一控制 Home Assistant 灯光、空气净化器和场景，支持亮度/色温、按实体能力显示的 RGB 取色器、设备/场景同步入口、演示模式、REST 连接测试、可选代理及角色 MCP 接入。
 - Smart Home 连接配置已进入完整备份/恢复；适配层、授权请求、服务调用与备份路径已有回归测试。
 - 新 App 已完成桌面与 390px 手机尺寸检查；真实 Tapo Matter 灯泡和 Levoit Core 200S-P 联调等待 Home Assistant 常驻主机就位。
@@ -51,6 +53,7 @@
 - 七夕活动（2026-08-18）：七夕、流式响应、角色 API 与音频镜像相关 12 个测试文件、85 passed；生产构建与 `check-em-patches.sh` 79/79 通过。全量测试 3451 passed / 5 skipped，另有 2 项既有日期测试失败（`lifeRecords` 药盒创建日、`notionDiaryCadence` 跨时区日期），与七夕改动无关且未出现七夕回归。
 - 生图 API（2026-08-17）：`imageGeneration`、API 配置归一化与聊天后处理共 31 tests passed；Worker bundle、生产构建、`check-em-patches.sh` 74/74 与 localhost 手机宽度交互检查通过。全仓类型检查仍被既有错误阻断，本次相关文件未新增报错。
 - 生图兼容与调用记录（2026-08-18）：生图协议、API 日志、聊天后处理与画风预设合计 70 tests passed；生产构建与 `check-em-patches.sh` 74/74 通过。自定义浏览器直连和主 Worker 中转均完成真实出图，localhost 已确认九个画风选项。
+- 手机生图结果归一化（2026-08-18）：URL 下载、Worker 公网校验、pending/failed UI、原位状态更新等 6 个相关测试文件 61 tests passed；生产构建、`git diff --check` 与 `check-em-patches.sh` 79/79 通过。浏览器安全策略阻止自动访问 localhost，本轮未完成交互式页面截图。
 - 角色 API 解绑（2026-08-17）：生产构建通过；角色路由、角色卡隐私与主动消息相关定向测试 208 passed；`check-em-patches.sh` 74/74；全仓类型检查仍被既有的 MemoryPalace 等错误阻断，本次改动文件未新增报错。
 - Smart Home（2026-08-17）：当前相关 3 个测试文件 23 passed；`check-em-patches.sh` 74/74；生产构建通过；桌面与 390px 手机布局通过浏览器检查。此前全量测试 3336 passed / 5 skipped，另有 2 项既有日期测试失败（`lifeRecords` 药盒创建日、`notionDiaryCadence` 跨时区日期），与本次改动无关且单独复跑可复现。
 - `main`（2026-07-29）：`check-em-patches.sh` 74/74；`pnpm vitest run` 123 个测试文件、1250 passed、5 skipped；构建通过。
