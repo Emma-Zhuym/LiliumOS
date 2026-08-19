@@ -243,7 +243,13 @@ const ApiCallLogModal: React.FC<ApiCallLogModalProps> = ({ isOpen, onClose }) =>
                                     <Field label="角色" value={e.charName} />
                                     <Field label="用途" value={e.purpose} />
                                     <Field label="执行位置" value={e.execution === 'cloud' ? 'Cloudflare 云端' : '当前设备'} />
-                                    {!e.ok && <Field label="失败原因" value={e.error} />}
+                                    {!e.ok && (
+                                        <div className="col-span-2">
+                                            {/* 手机没有 hover，title 里的完整错误永远看不到；失败原因必须直接
+                                                展开显示，不能把唯一能定位云端故障的半句话截成省略号。 */}
+                                            <Field label="失败原因" value={e.error} wrap />
+                                        </div>
+                                    )}
                                     <div className="col-span-2">
                                         {/* 模型/实际后端两行不截断（break-all 换行）：截断会把「为什么黄了」的
                                             关键差异（后缀 -c、渠道标签）藏进省略号里，用户看着两行一样却标黄一头雾水 */}
