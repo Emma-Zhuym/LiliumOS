@@ -194,6 +194,8 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - 心跳默认使用角色自己的主动消息 API 路由，也可按角色选择复用 `emotionConfig.api` 作为省钱通道；该选择只影响心跳，不得改写普通聊天、即时对话或普通排程路由
 - 情绪副 API 三件套不完整时必须安全回落；新版 Worker 使用 `credRefs.chat → char:<id>/emotion`，不得把 Key 复制进心跳 metadata 或推送
 - 只有 Elias 的未来 Codex bridge 是专属通道
+- 即时聊天建任务前必须按当前运行端重新登记推送目标：原生端走 FCM、Web/PWA 走当前 PushSubscription；登记失败时不得创建任务或调用模型。云端调用结果以 task uuid 幂等写入本机 API 调用记录，pending 只保存 baseUrl / model，禁止保存 API key
+- 上游推送订阅仍是每用户单行；当前保证“发送即时聊天的设备拿回这一轮回复”，不代表多设备同时广播。真正多端推送需独立 device subscription 与按设备 ACK 设计
 - 心跳不进入普通任务清单，但 `hasActiveAiTask` 必须把它算作需要持续同步 fire_pack 的 AI 任务
 - 发布该功能时前端与 `worker/amsg/worker.bundle.js` 必须成对更新；详细契约见 `docs/amsg2-heartbeat.md`
 

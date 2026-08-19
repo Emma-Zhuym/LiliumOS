@@ -2420,6 +2420,22 @@ export const ActiveMsgClient = {
     const globalConfig = await ensureWorkerReady();
     const client = await initializeClient(globalConfig);
 
+    // 即时对话和普通排程一样，回复最终都要靠「当前设备」登记在 worker 上的推送目标
+    // 送回来。这里过去漏了这一步：桌面端后登记后会覆盖用户级单行订阅，手机虽然能把
+    // 任务交给云端，回复却被送去桌面；手机最后只能看到任务结束、拿不到正文。
+    //
+    // 所以每轮即时聊天在受理前都让发送它的设备重新认领送达目标。原生壳走 FCM token，
+    // Web/PWA 走 PushSubscription，和 scheduleCharacterTask 的登记口径保持一致。
+    // 登记失败就不创建云端任务——否则明知回不来还烧一轮模型调用。
+    try {
+      const nativeToken = readNativePushToken();
+      if (nativeToken) await this.registerNativePushToken(nativeToken);
+      else await this.registerPushSubscription();
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`即时对话没发出去：当前设备的推送地址登记失败（${detail}）。请到「设置 → 主动消息 2.0」重置推送订阅后再试。`);
+    }
+
     const now = Date.now();
     const tzId = resolveCharTimeZone(char) ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
     // 模板只有定时任务那条路才渲染：角色 2.0 关着（云端 fire 不注入排程工具，排不出

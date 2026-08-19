@@ -6741,7 +6741,7 @@ function createSingleUserCloudflareWorker(buildConfig, options = {}) {
 }
 
 // utils/amsgBundleVersion.ts
-var AMSG_BUNDLE_VERSION = "2026-08-15";
+var AMSG_BUNDLE_VERSION = "2026-08-18";
 
 // utils/localDate.ts
 function getLocalDateKey(date = /* @__PURE__ */ new Date()) {
@@ -13170,12 +13170,18 @@ var amsgHooks = {
           const pick = (key) => typeof usage[key] === "number" ? usage[key] : void 0;
           const promptTokens = pick("prompt_tokens");
           const completionTokens = pick("completion_tokens");
-          if (promptTokens !== void 0 || completionTokens !== void 0) {
+          const totalTokens = pick("total_tokens");
+          if (promptTokens !== void 0 || completionTokens !== void 0 || totalTokens !== void 0) {
             lastMeta.amsgUsage = {
               ...promptTokens !== void 0 ? { promptTokens } : {},
-              ...completionTokens !== void 0 ? { completionTokens } : {}
+              ...completionTokens !== void 0 ? { completionTokens } : {},
+              ...totalTokens !== void 0 ? { totalTokens } : {}
             };
           }
+        }
+        const backendModel = ctx.llmResponse?.model;
+        if (typeof backendModel === "string" && backendModel) {
+          lastMeta.amsgBackendModel = backendModel;
         }
         if (stash.emotionEvalPromise) {
           const outcome = await raceEmotionEval(stash.emotionEvalPromise);

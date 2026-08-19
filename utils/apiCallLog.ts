@@ -51,6 +51,10 @@ export interface ApiCallLogEntry extends ApiCallMeta {
     status?: number;
     /** 请求是否成功拿到 JSON */
     ok: boolean;
+    /** 请求实际在哪一侧执行；旧记录缺省即浏览器本地。 */
+    execution?: 'browser' | 'cloud';
+    /** 失败原因的安全摘要；不得包含 API key 或完整响应原文。 */
+    error?: string;
     /** 输入 token（prompt_tokens），来自响应 usage，拿不到则空 */
     promptTokens?: number;
     /** 输出 token（completion_tokens） */
@@ -935,6 +939,9 @@ export function recordApiCall(input: {
     body?: unknown;
     status?: number;
     ok: boolean;
+    execution?: 'browser' | 'cloud';
+    /** 失败原因的安全摘要。调用方负责先去掉凭据与超长原文。 */
+    error?: string;
     response?: unknown;
     /** 响应原始文本（JSON.parse 失败时传入，供 SSE 兜底解析 model / usage） */
     responseText?: string;
@@ -966,6 +973,8 @@ export function recordApiCall(input: {
             backendModel,
             status: input.status,
             ok: input.ok,
+            execution: input.execution,
+            error: input.error,
             promptTokens: usage.prompt,
             completionTokens: usage.completion,
             totalTokens: usage.total,

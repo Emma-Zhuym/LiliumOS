@@ -25,6 +25,7 @@ import { ActiveMsgStore } from './activeMsgStore';
 import { trackEvent } from './analytics';
 import { announceEmotionDone } from './chatGenEvents';
 import { DB } from './db';
+import { recordApiCall } from './apiCallLog';
 import type { AmsgEmotionEvalSpec } from '../worker/amsg/src/emotionEval';
 
 const HEADER = '[AmsgInstantChat]';
@@ -46,6 +47,11 @@ export interface AmsgInstantChatPending {
   acceptedAt: number;
   /** 角色名快照（全局横幅显示用）。必填：唯一写入方恒定带上（角色名为空就是空串）。 */
   charName: string;
+  /**
+   * 这一轮真正交给云端的聊天 API 快照。只存地址和模型，不存 key；回复/失败回来后据此
+   * 补进「设置 → API 调用记录」。旧待收记录没有这一段时照常收尾，只是无法补记。
+   */
+  api?: { baseUrl: string; model: string };
 }
 
 type PendingMap = Record<string, AmsgInstantChatPending>;
@@ -65,6 +71,11 @@ const readPendingMap = (): PendingMap => {
           uuid: record.uuid,
           acceptedAt: record.acceptedAt,
           charName: typeof record.charName === 'string' ? record.charName : '',
+          ...(record.api
+            && typeof record.api.baseUrl === 'string'
+            && typeof record.api.model === 'string'
+            ? { api: { baseUrl: record.api.baseUrl, model: record.api.model } }
+            : {}),
         };
       }
     }
@@ -100,12 +111,85 @@ export const setInstantChatPending = (
   uuid: string,
   acceptedAt = Date.now(),
   charName = '',
+  api?: { baseUrl: string; model: string },
 ): void => {
   const map = readPendingMap();
-  map[charId] = { charId, uuid, acceptedAt, charName };
+  map[charId] = {
+    charId,
+    uuid,
+    acceptedAt,
+    charName,
+    ...(api?.baseUrl && api?.model ? { api: { baseUrl: api.baseUrl, model: api.model } } : {}),
+  };
   writePendingMap(map);
   announcePendingChanged(charId);
 };
+
+const cloudChatUrl = (baseUrl: string): string =>
+  `${baseUrl.replace(/\/+$/, '').replace(/\/chat\/completions$/i, '')}/chat/completions`;
+
+const safeCloudFailure = (reason?: string): string | undefined => {
+  if (!reason) return undefined;
+  // 失败说明来自 worker 的稳定错误翻译；再做一道兜底，避免某个供应商把 bearer/key
+  // 原样塞进 message 后跟着进入本地日志。
+  return reason
+    .replace(/(?:sk-|key-|Bearer\s+)[A-Za-z0-9._~+/=-]{8,}/gi, '[凭据已隐藏]')
+    .slice(0, 500);
+};
+
+const recordInstantChatCloudOutcome = (
+  pending: AmsgInstantChatPending,
+  outcome: {
+    ok: boolean;
+    metadata?: Record<string, unknown> | null;
+    error?: string;
+  },
+): void => {
+  if (!pending.api) return;
+  const usage = outcome.metadata?.amsgUsage as Record<string, unknown> | undefined;
+  const promptTokens = typeof usage?.promptTokens === 'number' ? usage.promptTokens : undefined;
+  const completionTokens = typeof usage?.completionTokens === 'number' ? usage.completionTokens : undefined;
+  const totalTokens = typeof usage?.totalTokens === 'number'
+    ? usage.totalTokens
+    : (promptTokens !== undefined && completionTokens !== undefined
+      ? promptTokens + completionTokens
+      : undefined);
+  const backendModel = typeof outcome.metadata?.amsgBackendModel === 'string'
+    ? outcome.metadata.amsgBackendModel
+    : undefined;
+  recordApiCall({
+    requestId: `amsg-cloud-${pending.uuid}`,
+    url: cloudChatUrl(pending.api.baseUrl),
+    body: { model: pending.api.model },
+    ok: outcome.ok,
+    execution: 'cloud',
+    error: safeCloudFailure(outcome.error),
+    response: outcome.ok ? {
+      ...(backendModel ? { model: backendModel } : {}),
+      ...(promptTokens !== undefined || completionTokens !== undefined || totalTokens !== undefined
+        ? { usage: {
+          ...(promptTokens !== undefined ? { prompt_tokens: promptTokens } : {}),
+          ...(completionTokens !== undefined ? { completion_tokens: completionTokens } : {}),
+          ...(totalTokens !== undefined ? { total_tokens: totalTokens } : {}),
+        } }
+        : {}),
+    } : undefined,
+    durationMs: Math.max(0, Date.now() - pending.acceptedAt),
+    meta: {
+      appId: 'chat',
+      appName: '消息',
+      charId: pending.charId,
+      charName: pending.charName,
+      purpose: '云端即时聊天',
+    },
+  });
+};
+
+/** 最后一段云端回复落地时补一条成功调用记录；requestId 按任务 uuid 幂等。 */
+export const recordInstantChatCloudSuccess = (
+  pending: AmsgInstantChatPending,
+  metadata?: Record<string, unknown> | null,
+): void => recordInstantChatCloudOutcome(pending, { ok: true, metadata });
 
 /** 回复到了（或这一轮判定失败）→ 销账。没有记录时是幂等 no-op。 */
 export const clearInstantChatPending = (charId: string): boolean => {
@@ -359,7 +443,10 @@ export const sendInstantChatTurn = async (params: {
       ...(supersedes ? { supersedesUuid: supersedes.uuid } : {}),
     });
     // 先记待收再释放占位（finally），挡板的两个信号无缝交接，不留「都不认」的空窗。
-    setInstantChatPending(params.char.id, uuid, Date.now(), params.char.name);
+    setInstantChatPending(params.char.id, uuid, Date.now(), params.char.name, {
+      baseUrl: params.api.baseUrl,
+      model: params.api.model,
+    });
     return { ok: true, uuid };
   } catch (error: any) {
     // 只报失败、只有事件名（跟送达端那几条同一条口径）：失败原因里带着 HTTP 状态和
@@ -589,7 +676,9 @@ export const failInstantChatPending = async (
   uuid: string,
   reason?: string,
 ): Promise<void> => {
-  if (getInstantChatPending(charId)?.uuid !== uuid) return;
+  const pending = getInstantChatPending(charId);
+  if (pending?.uuid !== uuid) return;
+  recordInstantChatCloudOutcome(pending, { ok: false, error: reason });
   if (!clearInstantChatPending(charId)) return;
   // 这一轮随 chat 段上云的作废回执跟着作废：没销账 = 还是「未告知」，下一轮会重新
   // 注入。销掉的话角色永远不知道那条任务被作废过，聊天里许下的承诺就这么没了。

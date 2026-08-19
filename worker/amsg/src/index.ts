@@ -2264,12 +2264,20 @@ export const amsgHooks = {
             typeof usage[key] === 'number' ? usage[key] as number : undefined;
           const promptTokens = pick('prompt_tokens');
           const completionTokens = pick('completion_tokens');
-          if (promptTokens !== undefined || completionTokens !== undefined) {
+          const totalTokens = pick('total_tokens');
+          if (promptTokens !== undefined || completionTokens !== undefined || totalTokens !== undefined) {
             lastMeta.amsgUsage = {
               ...(promptTokens !== undefined ? { promptTokens } : {}),
               ...(completionTokens !== undefined ? { completionTokens } : {}),
+              ...(totalTokens !== undefined ? { totalTokens } : {}),
             };
           }
+        }
+        // 供应商响应自报的后端模型名也随末段回来，供本地 API 调用记录判断中转是否换了
+        // 实际后端。只取这一条字符串，不透传响应体或任何请求凭据。
+        const backendModel = (ctx.llmResponse as { model?: unknown } | null)?.model;
+        if (typeof backendModel === 'string' && backendModel) {
+          lastMeta.amsgBackendModel = backendModel;
         }
         if (stash.emotionEvalPromise) {
           const outcome = await raceEmotionEval(stash.emotionEvalPromise);

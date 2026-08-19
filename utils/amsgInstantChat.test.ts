@@ -70,6 +70,7 @@ import {
   getInstantChatPending,
   getStagedInstantChatExpiredNotices,
   isInstantChatReady,
+  recordInstantChatCloudSuccess,
   resolveInstantChatReadiness,
   sendInstantChatTurn,
   setInstantChatPending,
@@ -121,6 +122,9 @@ beforeEach(() => {
     serverToken: '',
     instantChatEnabled: true,
   };
+  // 这些测试关注即时聊天信封/状态机，推送登记本身由 activeMsgClient.test.ts 单独覆盖。
+  // 新契约要求每轮先登记当前设备，因此这里统一给一份成功夹具。
+  vi.spyOn(ActiveMsgClient, 'registerPushSubscription').mockResolvedValue(undefined);
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -161,6 +165,27 @@ describe('POST /instant-chat 的形状', () => {
     // 挂了的话包装层会把整个外壳当成一整份密文，statePayload / taskPayload 就解不出来。
     expect(headers.get('X-Payload-Encrypted')).toBeNull();
     expect(headers.get('X-Encryption-Version')).toBeNull();
+  });
+
+  it('每轮都先登记当前设备，再把即时聊天任务交给云端', async () => {
+    await postOnce([{ role: 'user', content: '在吗' }]);
+    expect(ActiveMsgClient.registerPushSubscription).toHaveBeenCalledTimes(1);
+  });
+
+  it('当前设备登记失败 → 不创建云端任务，避免回复明知送不回来还烧一次模型', async () => {
+    vi.mocked(ActiveMsgClient.registerPushSubscription).mockRejectedValueOnce(new Error('订阅端点失效'));
+    stubFirePackDeps();
+    const calls = mockInstantChatFetch(202, { status: 'accepted', uuid: 'should-not-exist' });
+
+    await expect(ActiveMsgClient.sendInstantChat({
+      char: CHAR,
+      chatMessages: [{ role: 'user', content: '在吗' }],
+      api: API,
+      userProfile: USER,
+      groups: [],
+      realtimeConfig: {} as any,
+    })).rejects.toThrow(/当前设备的推送地址登记失败.*订阅端点失效/);
+    expect(calls.some((call) => String(call.url).includes('/instant-chat'))).toBe(false);
   });
 
   it('任务行型是 auto + none，身份标着 instant', async () => {
@@ -476,6 +501,61 @@ describe('待收记录（「正在输入…」那盏灯的唯一依据）', () =
   it('存储里躺着坏数据时当没有，不能把整条路带崩', () => {
     localStorage.setItem(AMSG_INSTANT_CHAT_PENDING_LS_KEY, '{ 这不是 JSON');
     expect(getInstantChatPending('char-a')).toBeNull();
+  });
+
+  it('API 快照只保存地址和模型，不把 key 落进待收记录', () => {
+    setInstantChatPending('char-api', 'uuid-api', 1_000, '小满', API);
+    const pending = getInstantChatPending('char-api');
+    expect(pending?.api).toEqual({ baseUrl: API.baseUrl, model: API.model });
+    expect(localStorage.getItem(AMSG_INSTANT_CHAT_PENDING_LS_KEY)).not.toContain(API.apiKey);
+  });
+
+  it('云端回复落地 → API 调用记录带云端位置、token 和实际后端', async () => {
+    await DB.clearApiCallLog();
+    setInstantChatPending('char-log-ok', 'uuid-log-ok', Date.now() - 250, '小满', API);
+    const pending = getInstantChatPending('char-log-ok')!;
+    recordInstantChatCloudSuccess(pending, {
+      amsgUsage: { promptTokens: 123, completionTokens: 45, totalTokens: 168 },
+      amsgBackendModel: 'actual-model',
+    });
+
+    await vi.waitFor(async () => {
+      const entry = (await DB.getApiCallLog()).find((row: any) => row.id === 'amsg-cloud-uuid-log-ok');
+      expect(entry).toMatchObject({
+        ok: true,
+        execution: 'cloud',
+        model: API.model,
+        backendModel: 'actual-model',
+        promptTokens: 123,
+        completionTokens: 45,
+        totalTokens: 168,
+        charId: 'char-log-ok',
+        purpose: '云端即时聊天',
+      });
+    });
+  });
+
+  it('云端失败 → API 调用记录落失败原因，并隐藏疑似凭据', async () => {
+    await DB.clearApiCallLog();
+    setInstantChatPending('char-log-fail', 'uuid-log-fail', Date.now() - 250, '小满', API);
+    vi.spyOn(DB, 'saveMessage').mockResolvedValue(undefined as any);
+    await failInstantChatPending(
+      'char-log-fail',
+      'uuid-log-fail',
+      '供应商 401 Bearer secret-token-123456789 拒绝请求',
+    );
+
+    await vi.waitFor(async () => {
+      const entry = (await DB.getApiCallLog()).find((row: any) => row.id === 'amsg-cloud-uuid-log-fail');
+      expect(entry).toMatchObject({
+        ok: false,
+        execution: 'cloud',
+        charId: 'char-log-fail',
+        purpose: '云端即时聊天',
+      });
+      expect(entry.error).toContain('[凭据已隐藏]');
+      expect(entry.error).not.toContain('secret-token-123456789');
+    });
   });
 });
 

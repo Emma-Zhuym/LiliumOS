@@ -2781,18 +2781,20 @@ describe('fire 侧取消 / 改期任务', () => {
     expect(goneOut.reason).toBe('task_gone');
   });
 
-  it('usage 随末条 push 的 amsgUsage 回客户端（只挑两个数，不透传供应商私有字段）', async () => {
+  it('usage 与后端模型随末条 push 回客户端（只挑安全字段，不透传供应商私有字段）', async () => {
     const stash = makeStash({ instant: true });
     const decision = await amsgHooks.onLLMOutput({
       sessionId: 'sess_task_42', taskId: FIRE_TASK_ID, taskUuid: TASK_UUID,
-      llmResponse: {}, llmOutputText: '在的。', contactName: 'Nyah',
+      llmResponse: { model: 'actual-backend-model' }, llmOutputText: '在的。', contactName: 'Nyah',
       metadata: { charId: CHAR_ID, amsgClientTaskId: 'ct-u', amsgMode: 'instant', amsgInstantChat: true },
       scratch: { fire: stash },
       usage: { prompt_tokens: 1234, completion_tokens: 56, total_tokens: 1290, provider_secret_detail: 'x' },
       writeState: vi.fn(async () => ({ upserted: 1, skipped: 0, deleted: 0 })),
     } as any) as any;
     const last = decision.pushPayloads[decision.pushPayloads.length - 1];
-    expect(last.metadata.amsgUsage).toEqual({ promptTokens: 1234, completionTokens: 56 });
+    expect(last.metadata.amsgUsage).toEqual({ promptTokens: 1234, completionTokens: 56, totalTokens: 1290 });
+    expect(last.metadata.amsgBackendModel).toBe('actual-backend-model');
+    expect(JSON.stringify(last.metadata)).not.toContain('provider_secret_detail');
   });
 
   it('取消 / 改期的账随末条 push 的 amsgTaskMutations 回客户端（首条不带）', async () => {
