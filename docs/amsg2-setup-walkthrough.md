@@ -79,9 +79,9 @@ Cloudflare 会替你把仓库、数据库、定时任务一次性建好，你只
 
 ### 点按钮
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Tosd0/sullyos-workers/tree/main/amsg)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Emma-Zhuym/LiliumOS/tree/main/worker/amsg)
 
-<https://deploy.workers.cloudflare.com/?url=https://github.com/Tosd0/sullyos-workers/tree/main/amsg>
+<https://deploy.workers.cloudflare.com/?url=https://github.com/Emma-Zhuym/LiliumOS/tree/main/worker/amsg>
 
 跳过去之后：
 
@@ -106,10 +106,10 @@ Cloudflare 会替你把仓库、数据库、定时任务一次性建好，你只
 
 ## 第一步 · 把后端仓库 fork 一份
 
-1. 打开 <https://github.com/Tosd0/sullyos-workers>
+1. 打开 <https://github.com/Emma-Zhuym/LiliumOS>
 2. 点页面右上角的 **Fork** → 保持默认 → **Create fork**
 
-完成后你的账号下就多了一个同名仓库。以后上游有更新，你回到这个页面点一下 **Sync fork** 就行，Cloudflare 会自动重新部署。
+完成后你的账号下就多了一个同名仓库。以后 LiliumOS 有更新，你回到这个页面点一下 **Sync fork** 就行，Cloudflare 会自动重新部署。
 
 ---
 
@@ -132,20 +132,20 @@ Cloudflare 会替你把仓库、数据库、定时任务一次性建好，你只
 1. Cloudflare 左侧菜单 **Compute** → **Workers & Pages**
 2. 右上角 **Create application**
 3. 选 **Continue with GitHub**（第一次用会跳到 GitHub 让你授权，同意即可）
-4. 在出现的仓库列表里选中第一步 fork 的 **sullyos-workers**，点右下角 **Next**
+4. 在出现的仓库列表里选中第一步 fork 的 **LiliumOS**，点右下角 **Next**
 5. 页面往下滚，进入 **Set up your application**，按下面填：
 
    | 位置 | 填什么 |
    |------|--------|
    | Project name | `sullyos-amsg` |
-   | Build command | `sh ./deploy-prepare.sh` |
+   | Build command | `sh ../deploy-prepare.sh` |
    | Deploy command | 保持默认的 `npx wrangler deploy` |
 
 6. 点下方的 **Advanced settings** 展开，继续填：
 
    | 位置 | 填什么 |
    |------|--------|
-   | Path | `/amsg` |
+   | Path | `/worker/amsg` |
    | API token | 下拉选 **Create new token**，然后在出现的 **API token name** 里随便起个名字（比如 `sullyos-amsg build token`）；它会显示「A new token will be created automatically」 |
    | Variable name | `D1_DATABASE_ID` |
    | Variable value | 粘贴第二步复制的那串 Database ID |
@@ -375,7 +375,7 @@ env.DB (sullyos-amsg)   D1 Database
 **不想加钥匙的话**，按当初的装法手动更新也行：
 
 - 跟着六步装的：打开你 fork 的那个仓库，点 **Sync fork** → **Update branch**，Cloudflare 检测到新提交会自动重新部署
-- 用部署按钮装的：Cloudflare 给你建的是一个独立仓库（不是 fork，所以没有 Sync fork 可点）。先把 <https://github.com/Tosd0/sullyos-workers/raw/main/amsg/worker.bundle.js> 下载下来，再打开你那个仓库 → **Add file** → **Upload files**，把下载的文件拖进去覆盖同名的那个，提交后会自动重新部署。这文件有四十多万字符，网页编辑器打不开，只能整个文件替换
+- 用部署按钮装的：Cloudflare 给你建的是一个独立仓库（不是 fork，所以没有 Sync fork 可点）。先把 <https://github.com/Emma-Zhuym/LiliumOS/raw/main/worker/amsg/worker.bundle.js> 下载下来，再打开你那个仓库 → **Add file** → **Upload files**，把下载的文件拖进去覆盖同名的那个，提交后会自动重新部署。这文件有四十多万字符，网页编辑器打不开，只能整个文件替换
 - 照附录手动贴代码装的：见附录最后一节
 
 > 头一次用「更新后端」时，如果提示这台 Worker 还是旧版本、没有这个功能，先按上面的办法手动更新一次，之后就能在 SullyOS 里点了。
@@ -405,7 +405,7 @@ env.DB (sullyos-amsg)   D1 Database
 
 ### C · 复制后端代码
 
-浏览器打开（不用登录）：<https://github.com/Tosd0/sullyos-workers/blob/main/amsg/worker.bundle.js>
+浏览器打开（不用登录）：<https://github.com/Emma-Zhuym/LiliumOS/blob/main/worker/amsg/worker.bundle.js>
 
 文件上方那排按钮里，**Raw** 右边那个「两个方块叠在一起」的图标就是复制，点它，整份代码就进剪贴板了。
 

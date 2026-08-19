@@ -6741,7 +6741,7 @@ function createSingleUserCloudflareWorker(buildConfig, options = {}) {
 }
 
 // utils/amsgBundleVersion.ts
-var AMSG_BUNDLE_VERSION = "2026-08-18";
+var AMSG_BUNDLE_VERSION = "2026-08-18.2";
 
 // utils/localDate.ts
 function getLocalDateKey(date = /* @__PURE__ */ new Date()) {
@@ -8458,9 +8458,15 @@ var handleInstantChat = async (args) => {
   return json(202, { status: "accepted", uuid });
 };
 
+// utils/amsgWorkerSource.ts
+var LILIUM_REPO_URL = "https://github.com/Emma-Zhuym/LiliumOS";
+var LILIUM_AMSG_SOURCE_URL = `${LILIUM_REPO_URL}/tree/main/worker/amsg`;
+var LILIUM_AMSG_BUNDLE_RAW_URL = "https://raw.githubusercontent.com/Emma-Zhuym/LiliumOS/main/worker/amsg/worker.bundle.js";
+var LILIUM_AMSG_SETUP_GUIDE_URL = `${LILIUM_REPO_URL}/blob/main/docs/amsg2-setup-walkthrough.md`;
+
 // worker/amsg/src/selfUpdate.ts
 var CF_API = "https://api.cloudflare.com/client/v4";
-var BUNDLE_URL = "https://raw.githubusercontent.com/Tosd0/sullyos-workers/main/amsg/worker.bundle.js";
+var SELF_UPDATE_BUNDLE_URL = `${LILIUM_AMSG_BUNDLE_RAW_URL}?version=${encodeURIComponent(AMSG_BUNDLE_VERSION)}`;
 var MAIN_MODULE = "worker.bundle.js";
 var FALLBACK_COMPATIBILITY_DATE = "2026-01-01";
 var FALLBACK_COMPATIBILITY_FLAGS = ["global_fetch_strictly_public"];
@@ -8550,7 +8556,9 @@ async function locateScript(env, token, scriptName) {
 async function fetchLatestBundle() {
   let res;
   try {
-    res = await fetch(BUNDLE_URL, { headers: { "User-Agent": "sullyos-amsg-self-update" } });
+    res = await fetch(SELF_UPDATE_BUNDLE_URL, {
+      headers: { "User-Agent": "liliumos-amsg-self-update" }
+    });
   } catch (err5) {
     return { ok: false, message: `\u53D6\u4E0D\u5230\u6700\u65B0\u4EE3\u7801\uFF1A${err5.message}` };
   }

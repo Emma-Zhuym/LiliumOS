@@ -13,7 +13,7 @@
 每个都是独立的，只部署你要用的那个就行。
 
 > 只部署主动消息（`amsg/`）的话，SullyOS 那边还有一份带截图的完整版：
-> [主动消息 2.0 · 从零开始的部署手册](https://github.com/qegj567-cloud/SullyOS/blob/master/docs/amsg2-setup-walkthrough.md)。
+> [主动消息 2.0 · 从零开始的部署手册](https://github.com/Emma-Zhuym/LiliumOS/blob/main/docs/amsg2-setup-walkthrough.md)。
 
 ---
 

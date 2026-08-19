@@ -14,6 +14,10 @@
 
 import { getProxyWorkerUrl } from './proxyWorker';
 import { generateVapidKeyPair, generateClientToken } from './vapidGen';
+import {
+  LILIUM_AMSG_BUNDLE_RAW_URL,
+  LILIUM_AMSG_WRANGLER_RAW_URL,
+} from './amsgWorkerSource';
 
 /** 部署出来的 Worker / D1 默认叫这个，跟 worker/amsg/wrangler.toml 对齐。 */
 export const AMSG_SCRIPT_NAME = 'sullyos-amsg';
@@ -22,9 +26,8 @@ export const AMSG_D1_NAME = 'sullyos-amsg';
 /** 上传时的模块名，同时是 metadata.main_module，两处必须一致。 */
 const MAIN_MODULE = 'worker.bundle.js';
 
-const BUNDLE_BASE = 'https://raw.githubusercontent.com/Tosd0/sullyos-workers/main/amsg';
-const BUNDLE_URL = `${BUNDLE_BASE}/${MAIN_MODULE}`;
-const WRANGLER_URL = `${BUNDLE_BASE}/wrangler.toml`;
+const BUNDLE_URL = LILIUM_AMSG_BUNDLE_RAW_URL;
+const WRANGLER_URL = LILIUM_AMSG_WRANGLER_RAW_URL;
 
 /**
  * 读不到线上 wrangler.toml 时用的兜底，值抄自 worker/amsg/wrangler.toml。

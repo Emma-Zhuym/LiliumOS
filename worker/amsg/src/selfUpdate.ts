@@ -18,12 +18,17 @@
  */
 
 import { constantTimeEqual } from './instantChat';
+import { AMSG_BUNDLE_VERSION } from '../../../utils/amsgBundleVersion';
+import { LILIUM_AMSG_BUNDLE_RAW_URL } from '../../../utils/amsgWorkerSource';
 
 const CF_API = 'https://api.cloudflare.com/client/v4';
 
-/** 官方成品代码。跟代配脚本、手册附录指的是同一份。 */
-const BUNDLE_URL =
-  'https://raw.githubusercontent.com/Tosd0/sullyos-workers/main/amsg/worker.bundle.js';
+/**
+ * LiliumOS 成品代码。版本参数用来绕开 raw CDN 的短时缓存；旧包重新部署成旧包时，
+ * 前端的版本复核会拒绝把它显示成成功。
+ */
+export const SELF_UPDATE_BUNDLE_URL =
+  `${LILIUM_AMSG_BUNDLE_RAW_URL}?version=${encodeURIComponent(AMSG_BUNDLE_VERSION)}`;
 
 /** 上传时用的模块名，同时也是 metadata.main_module，两处必须一致。 */
 const MAIN_MODULE = 'worker.bundle.js';
@@ -196,7 +201,9 @@ async function fetchLatestBundle(): Promise<
 > {
   let res: Response;
   try {
-    res = await fetch(BUNDLE_URL, { headers: { 'User-Agent': 'sullyos-amsg-self-update' } });
+    res = await fetch(SELF_UPDATE_BUNDLE_URL, {
+      headers: { 'User-Agent': 'liliumos-amsg-self-update' },
+    });
   } catch (err) {
     return { ok: false, message: `取不到最新代码：${(err as Error).message}` };
   }
