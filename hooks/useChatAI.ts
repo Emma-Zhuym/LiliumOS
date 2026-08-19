@@ -29,6 +29,13 @@ import { buildToolResultMessage, normalizeToolCallsForCompat } from '../utils/to
 import { buildChatRequestPayload } from '../utils/chatRequestPayload';
 import { buildTodayHealthSummary } from '../utils/healthContextBuilder';
 import { buildShoppingDeliveryContext } from '../utils/shoppingContextBuilder';
+import {
+    buildLocationChatToolSystemBlock,
+    executeLocationChatTool,
+    isLocationChatToolEnabled,
+    LOCATION_CHAT_TOOL,
+    LOCATION_CHAT_TOOL_NAME,
+} from '../utils/locationChatTool';
 import { ShoppingDB } from '../utils/shoppingDb';
 import { intifaceClient } from '../utils/intifaceClient';
 import { handleIntifaceToolCall, buildIntifaceTool, buildIntifaceSystemPrompt } from './useIntiface';
@@ -901,6 +908,11 @@ export const useChatAI = ({
             const instantChatRoute = instantChatOn && !instantChatVeto && !instantPushConfigured;
             const financeToolTurn = financeLocalRequired
                 || (financeAwareness.hasLedger && !instantChatOn && !instantPushConfigured);
+            // GPS 只能由当前设备在前台授权读取。云端主动心跳以后会有自己的后端位置工具；
+            // 这一版只在实际走本地生成时把按需工具交给角色。
+            const locationToolEnabled = isLocationChatToolEnabled()
+                && !instantChatRoute
+                && !instantPushConfigured;
             // 「即时对话开着、这一轮却没上云」的所有情形都在这一处留痕，三种原因去向不同：
             //   · 点单流程否决：瑞幸/麦当劳是客户端交互式循环（选城市、确认单），云端接不了
             //     手，这一轮留在本地跑是对的；
@@ -1196,6 +1208,12 @@ export const useChatAI = ({
                     content: `${baseReqBody.messages[0].content}\n\n${buildFinanceChatSystemBlock(financeAwareness.pulse)}`,
                 };
             }
+            if (locationToolEnabled && baseReqBody.messages[0]?.role === 'system') {
+                baseReqBody.messages[0] = {
+                    ...baseReqBody.messages[0],
+                    content: `${baseReqBody.messages[0].content}\n\n${buildLocationChatToolSystemBlock()}`,
+                };
+            }
             // 思考过程展示开启时显式向后端请求 extended thinking。
             // 不同代理认不同入口，全都试一遍，代理不识别的会自动忽略：
             //  - 模型名 -thinking 后缀：packycode / anyrouter 等第三方 Claude 中转的主流约定
@@ -1206,7 +1224,7 @@ export const useChatAI = ({
             // ⚠️ 工具模式(瑞幸点单/麦当劳)下绝不带 thinking/reasoning 参数: "thinking + tools" 同发
             //    Gemini 等会直接 400 INVALID_ARGUMENT —— 表现就是"开了思考链的角色一点单就报错,
             //    换个没开思考链的角色就好"。工具循环优先, 思考链这一轮让步。
-            const toolModeActive = payload.flags.luckinChatActive || payload.flags.mcdActive || payload.flags.luckinActive || payload.flags.mcpChatActive || financeToolTurn;
+            const toolModeActive = payload.flags.luckinChatActive || payload.flags.mcdActive || payload.flags.luckinActive || payload.flags.mcpChatActive || financeToolTurn || locationToolEnabled;
             // 主动消息 2.0 的工具本轮会不会注入：thinking 门要先知道这件事（工具在下面才真正
             // 拼进 tools，但参数取舍必须现在就定）。角色级开关关掉的不注入——否则被用户显式
             // 关掉的功能会被角色一次工具调用重新打开。
@@ -1275,6 +1293,10 @@ export const useChatAI = ({
             }
             if (financeToolTurn) {
                 baseReqBody.tools = [...(baseReqBody.tools || []), ...FINANCE_CHAT_TOOLS];
+                if (!baseReqBody.tool_choice) baseReqBody.tool_choice = 'auto';
+            }
+            if (locationToolEnabled) {
+                baseReqBody.tools = [...(baseReqBody.tools || []), LOCATION_CHAT_TOOL];
                 if (!baseReqBody.tool_choice) baseReqBody.tool_choice = 'auto';
             }
             // 主动消息 2.0 本地工具：worker 已配置 + 角色没关掉时注入 schedule/cancel/renew/list，
@@ -1813,7 +1835,7 @@ export const useChatAI = ({
             //       createOrder 被拦截 —— 下单付款必须用户在结账卡上点。
             //     · 通用 MCP: 工具名命中 mcpToolResolve 映射就分发给对应服务器 (utils/mcpClient),
             //       结果只回填循环不落卡片。两类工具可同时在场, 按名字各走各的。
-            if ((payload.flags.luckinChatActive || mcpToolResolve || amsg2ToolsInjected || financeToolTurn) && data.choices?.[0]?.message?.tool_calls?.length) {
+            if ((payload.flags.luckinChatActive || mcpToolResolve || amsg2ToolsInjected || financeToolTurn || locationToolEnabled) && data.choices?.[0]?.message?.tool_calls?.length) {
                 const MAX_LOOPS = 6;
                 let loopMessages = [...baseReqBody.messages];
                 const loc = luckinChatRef?.current;
@@ -1851,6 +1873,17 @@ export const useChatAI = ({
                                 financeResult = { success: false, error: e?.message || String(e) };
                             }
                             loopMessages.push(buildToolResultMessage(tc, JSON.stringify(financeResult)) as any);
+                            continue;
+                        }
+                        if (fname === LOCATION_CHAT_TOOL_NAME) {
+                            setSearchStatus('正在查看你的粗略位置...');
+                            let locationResult: Record<string, unknown>;
+                            try {
+                                locationResult = await executeLocationChatTool();
+                            } catch (e: any) {
+                                locationResult = { success: false, status: 'error', message: e?.message || String(e) };
+                            }
+                            loopMessages.push(buildToolResultMessage(tc, JSON.stringify(locationResult)) as any);
                             continue;
                         }
                         // 通用 MCP 工具: 命中映射直接分发, 不走下面的瑞幸逻辑
@@ -1929,7 +1962,7 @@ export const useChatAI = ({
                     });
                     updateTokenUsage(data, historyMsgCount, `${payload.flags.luckinChatActive ? 'luckin-chat' : financeToolTurn ? 'finance-chat' : 'mcp-chat'}-${it + 1}`);
                 }
-                if (mcpToolResolve || financeToolTurn) setSearchStatus('');
+                if (mcpToolResolve || financeToolTurn || locationToolEnabled) setSearchStatus('');
             }
 
             // 3.6b MCP 掉格式容错（第二层, 对标见面观测协议的两层容错）:

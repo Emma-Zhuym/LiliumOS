@@ -13,6 +13,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import {
   CaretLeft, CaretUp, CaretDown, Plus, Check, GearSix, Buildings,
   MapPin, ChatTeardrop, Crosshair, MagnifyingGlass, ArrowRight,
+  House, Student, Storefront, Trash, ShieldCheck, NavigationArrow, LinkSimple,
 } from '@phosphor-icons/react';
 import { useOS } from '../context/OSContext';
 import { AppID, CharacterProfile, DailySchedule, ScheduleSlot } from '../types';
@@ -21,6 +22,20 @@ import { computeCharStatus, getSlotAvailability, CharAvailability } from '../uti
 import { F, S, R, HUE, STATUS } from '../utils/clayTokens';
 import { safeFetchJson, extractContent, extractJson } from '../utils/safeApi';
 import { MapWorld, MapRegion, MapDB, matchRegionForSlot } from '../utils/mapWorlds';
+import {
+  addLocationZone,
+  defaultZoneName,
+  loadLocationAwareness,
+  LOCATION_MAX_AGE_MS,
+  parseLocationCoordinates,
+  refreshCoarseLocation,
+  removeLocationZone,
+  setLocationAwarenessEnabled,
+  type LocationAwarenessState,
+  type LocationZoneKind,
+} from '../utils/locationService';
+import { getCurrentPositionSmart } from '../utils/geo';
+import RealLocationPicker from '../components/RealLocationPicker';
 
 const P = HUE.purple; // Product Color = 紫
 
@@ -156,6 +171,8 @@ const MapWell: React.FC<{
   regions: MapRegion[];
   char?: CharacterProfile;
   charRegionId?: string;
+  userRegionId?: string;
+  userOutsideLabel?: string;
   status?: CharAvailability;
   cityName?: string;
   outsideLocation?: string;   // 当前时段在地图外的地点（如"烧鸟店"）：角色 pin 挂到画布角落显示"在外面"
@@ -167,7 +184,7 @@ const MapWell: React.FC<{
   onTapRegion?: (id: string) => void;
   className?: string;
   style?: React.CSSProperties;
-}> = ({ regions, char, charRegionId, status, cityName, outsideLocation, atHome, showPanels, highlightRegionId,
+}> = ({ regions, char, charRegionId, userRegionId, userOutsideLabel, status, cityName, outsideLocation, atHome, showPanels, highlightRegionId,
         placingRegionId, onTapMap, onTapRegion, className, style }) => {
   const canvasRef = useRef<HTMLDivElement>(null);
 
@@ -180,6 +197,7 @@ const MapWell: React.FC<{
   }, [onTapMap]);
 
   const charRegion = regions.find(r => r.id === charRegionId);
+  const userRegion = regions.find(r => r.id === userRegionId);
 
   return (
     <div ref={canvasRef} onClick={handleTap}
@@ -242,6 +260,28 @@ const MapWell: React.FC<{
           </div>
         );
       })}
+
+      {/* 用户标记：现实围栏先转成语义地点，再映射到这个角色的虚拟世界。 */}
+      {(userRegion || userOutsideLabel) && (
+        <div className="absolute -translate-x-1/2 -translate-y-1/2 select-none pointer-events-none flex flex-col items-center transition-all duration-500"
+          style={{
+            left: `${userRegion ? userRegion.x + (userRegion.id === charRegionId ? -7 : 0) : 18}%`,
+            top: `${userRegion ? userRegion.y + (userRegion.id === charRegionId ? 6 : 0) : 84}%`,
+            gap: 5,
+            zIndex: 5,
+          }}>
+          <div className="flex items-center justify-center"
+            style={{ width: 42, height: 42, borderRadius: '50%', border: `3px solid ${F.surface}`,
+                     background: HUE.teal.main, boxShadow: `0 5px 13px rgba(33,135,121,.28)` }}>
+            <NavigationArrow size={20} weight="fill" style={{ color: F.surface }} />
+          </div>
+          <span className="whitespace-nowrap" style={{ padding: '3px 10px', borderRadius: R.pill, background: F.surface,
+            fontSize: 11.5, fontWeight: 700, color: userRegion ? HUE.teal.ink : F.textSecondary,
+            boxShadow: '0 3px 10px rgba(70,66,58,.14)' }}>
+            {userRegion ? `你 · ${userRegion.name}` : userOutsideLabel}
+          </span>
+        </div>
+      )}
 
       {/* 角色标记：圆头像 + 状态点 + pin 尾 + 地名 pill。在清单外的地点时挂画布右下角显示"在外面" */}
       {char && (charRegion || outsideLocation || atHome) && (
@@ -448,6 +488,20 @@ const MapScreen: React.FC<{
 
   const statusResult = useMemo(() => computeCharStatus(schedule, undefined, char), [schedule, char]);
   const currentSlot = useMemo(() => getCurrentSlot(schedule), [schedule]);
+  const locationAwareness = loadLocationAwareness();
+  const locationSnapshot = locationAwareness.enabled
+    && locationAwareness.lastSnapshot
+    && Date.now() - locationAwareness.lastSnapshot.updatedAt <= LOCATION_MAX_AGE_MS
+    ? locationAwareness.lastSnapshot
+    : null;
+  const userRegionId = locationSnapshot?.zoneId
+    ? world.locationBindings?.[locationSnapshot.zoneId]
+    : undefined;
+  const userOutsideLabel = !locationSnapshot
+    ? undefined
+    : locationSnapshot.zoneId === null
+      ? '你 · 在外面'
+      : userRegionId ? undefined : `你 · ${locationSnapshot.label}未关联`;
 
   // 三态：匹配到清单地点→站那 / 有 location 但不在清单（烧鸟店等）→"在外面" / 没 location→站默认位
   const { matchedRegion, outsideLocation, atHomeFallback } = useMemo(() => {
@@ -477,6 +531,8 @@ const MapScreen: React.FC<{
         regions={world.regions}
         char={char}
         charRegionId={matchedRegion?.id}
+        userRegionId={userRegionId}
+        userOutsideLabel={userOutsideLabel}
         outsideLocation={outsideLocation}
         atHome={atHomeFallback}
         status={statusResult.status}
@@ -532,6 +588,7 @@ const WorldEditor: React.FC<{
   const [importedLocations, setImportedLocations] = useState<{ name: string; emoji: string; keywords: string[]; description?: string }[]>([]);
   const [importLoading, setImportLoading] = useState(false);
   const [importDone, setImportDone] = useState(false);
+  const locationZones = loadLocationAwareness().zones;
 
   // LLM 从人设 + 聊天记录 + 近期日程里提取地点
   const handleImportLocations = useCallback(async () => {
@@ -665,7 +722,13 @@ const WorldEditor: React.FC<{
   };
 
   const removeRegion = (id: string) => {
-    setW(prev => ({ ...prev, regions: prev.regions.filter(r => r.id !== id) }));
+    setW(prev => ({
+      ...prev,
+      regions: prev.regions.filter(r => r.id !== id),
+      locationBindings: Object.fromEntries(
+        Object.entries(prev.locationBindings || {}).filter(([, regionId]) => regionId !== id),
+      ),
+    }));
     if (placingRegionId === id) setPlacingRegionId(null);
     if (editingRegion === id) setEditingRegion(null);
   };
@@ -923,6 +986,45 @@ const WorldEditor: React.FC<{
           })}
         </div>
 
+        {locationZones.length > 0 && (
+          <section style={{ marginTop: 18 }}>
+            <SectionLabel>现实地点联动</SectionLabel>
+            <div className="overflow-hidden" style={{ borderRadius: R.bigCard, background: F.surface,
+              border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}>
+              {locationZones.map((zone, index) => (
+                <React.Fragment key={zone.id}>
+                  {index > 0 && <div style={{ height: 1, margin: '0 14px', background: F.divider }} />}
+                  <div style={{ padding: '12px 14px' }}>
+                    <div className="flex items-center" style={{ gap: 8 }}>
+                      <NavigationArrow size={16} weight="fill" style={{ color: HUE.teal.main }} />
+                      <span style={{ fontSize: 13, fontWeight: 700, color: F.textPrimary }}>{zone.name}</span>
+                    </div>
+                    <select value={w.locationBindings?.[zone.id] || ''}
+                      onChange={event => {
+                        const regionId = event.target.value;
+                        setW(prev => {
+                          const nextBindings = { ...(prev.locationBindings || {}) };
+                          if (regionId) nextBindings[zone.id] = regionId;
+                          else delete nextBindings[zone.id];
+                          return { ...prev, locationBindings: nextBindings };
+                        });
+                      }}
+                      style={{ ...sunkenInput, width: '100%', height: 40, marginTop: 8, padding: '0 11px', fontSize: 13 }}>
+                      <option value="">不显示在这个世界</option>
+                      {w.regions.map(region => (
+                        <option key={region.id} value={region.id}>{region.glyph} {region.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </React.Fragment>
+              ))}
+            </div>
+            <div style={{ margin: '8px 2px 0', fontSize: 11, lineHeight: 1.55, color: F.textTertiary }}>
+              例如把现实“家”关联到“你们的公寓”。每个角色世界可以有不同对应关系。
+            </div>
+          </section>
+        )}
+
         {/* 删除这个世界 */}
         {!isNew && onDelete && (
           <button onClick={onDelete}
@@ -947,7 +1049,8 @@ const Shelf: React.FC<{
   schedules: Record<string, DailySchedule | null>;
   onOpenWorld: (worldId: string) => void;
   onCreateWorld: (charId: string) => void;
-}> = ({ worlds, characters, schedules, onOpenWorld, onCreateWorld }) => {
+  onOpenMyLocation: () => void;
+}> = ({ worlds, characters, schedules, onOpenWorld, onCreateWorld, onOpenMyLocation }) => {
   const { closeApp } = useOS();
   const charsWithWorld = new Set(worlds.map(w => w.charId));
   const charsWithout = characters.filter(c => !charsWithWorld.has(c.id));
@@ -963,6 +1066,23 @@ const Shelf: React.FC<{
       <div className="flex-1 overflow-y-auto scrollbar-none" style={{ padding: '10px 20px', paddingBottom: 'calc(40px + var(--safe-bottom, 0px))' }}>
         <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-.02em', color: F.textPrimary }}>彼此的世界</div>
         <div style={{ fontSize: 13, color: F.textTertiary, marginTop: 4 }}>你和他们各自的生活 · 每个人有自己的小世界</div>
+
+        <button onClick={onOpenMyLocation}
+          className="w-full flex items-center text-left active:translate-y-[1px] transition-transform"
+          style={{ marginTop: 16, padding: 14, gap: 12, borderRadius: R.bigCard, background: HUE.teal.tint,
+                   border: `1px solid ${HUE.teal.soft}`, boxShadow: S.raisedSoft }}>
+          <span className="flex items-center justify-center shrink-0"
+            style={{ width: 44, height: 44, borderRadius: R.medium, background: HUE.teal.main }}>
+            <NavigationArrow size={21} weight="bold" style={{ color: F.surface }} />
+          </span>
+          <span className="flex-1 min-w-0">
+            <span className="block" style={{ fontSize: 15, fontWeight: 700, color: F.textPrimary }}>我的位置</span>
+            <span className="block truncate" style={{ marginTop: 2, fontSize: 12, color: F.textSecondary }}>
+              家、学校与常去超市的本机围栏
+            </span>
+          </span>
+          <ArrowRight size={18} weight="bold" style={{ color: HUE.teal.ink }} />
+        </button>
 
         {/* 精选角色卡（hero）×每个已建世界 */}
         {worlds.map(world => {
@@ -1058,11 +1178,271 @@ const Shelf: React.FC<{
 };
 
 // ══════════════════════════════════════════════════════════════
+//  My Location — 真实位置只在本机匹配为粗略语义
+// ══════════════════════════════════════════════════════════════
+
+const LOCATION_KIND_META = {
+  home: { label: '家', icon: House },
+  school: { label: '学校', icon: Student },
+  supermarket: { label: '超市', icon: Storefront },
+} satisfies Record<LocationZoneKind, { label: string; icon: React.ComponentType<any> }>;
+
+const MyLocationScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
+  const [state, setState] = useState<LocationAwarenessState>(() => loadLocationAwareness());
+  const [adding, setAdding] = useState(false);
+  const [kind, setKind] = useState<LocationZoneKind>('home');
+  const [name, setName] = useState(defaultZoneName('home'));
+  const [radius, setRadius] = useState(250);
+  // 尚未保存任何范围时，先展示阿拉巴马州全貌；选点后地图会自动拉近。
+  const [latitude, setLatitude] = useState(32.8067);
+  const [longitude, setLongitude] = useState(-86.7911);
+  const [coordinateInput, setCoordinateInput] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (loadLocationAwareness().zones.length === 0) return;
+    refreshCoarseLocation().then(setState).catch(() => {});
+  }, []);
+
+  const runLocationAction = async (action: () => Promise<LocationAwarenessState>) => {
+    setBusy(true);
+    setError('');
+    try {
+      setState(await action());
+      return true;
+    } catch (err: any) {
+      setError(err?.message || '定位失败，请检查浏览器的位置权限');
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const selectKind = (next: LocationZoneKind) => {
+    setKind(next);
+    setName(defaultZoneName(next));
+    const existing = state.zones.find(zone => zone.kind === next);
+    if (existing) {
+      setLatitude(existing.latitude);
+      setLongitude(existing.longitude);
+      setRadius(existing.radiusMeters);
+      setName(existing.name);
+    }
+  };
+
+  const applyCoordinateInput = () => {
+    const parsed = parseLocationCoordinates(coordinateInput);
+    if (!parsed) {
+      setError('没有从这段内容里找到坐标。请粘贴完整地图链接，或输入“纬度, 经度”。');
+      return;
+    }
+    setError('');
+    setLatitude(parsed.latitude);
+    setLongitude(parsed.longitude);
+  };
+
+  const locateSelection = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const position = await getCurrentPositionSmart();
+      setLatitude(position.latitude);
+      setLongitude(position.longitude);
+    } catch (err: any) {
+      setError(err?.message || '定位失败，请检查浏览器的位置权限');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveSelectedZone = () => {
+    setError('');
+    try {
+      setState(addLocationZone(kind, name, radius, { latitude, longitude }));
+      setAdding(false);
+    } catch (err: any) {
+      setError(err?.message || '保存失败，请重新选择地点');
+    }
+  };
+
+  const snapshotText = state.lastSnapshot
+    ? `${state.lastSnapshot.zoneId ? `在${state.lastSnapshot.label}` : '在外面'} · ${new Date(state.lastSnapshot.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} 更新`
+    : '还没有读取当前位置';
+
+  return (
+    <div className="flex flex-col h-full" style={{ background: F.appBg }}>
+      <div className="shrink-0" style={{ paddingTop: 'var(--chrome-top)' }}>
+        <div className="relative flex items-center px-5 py-3">
+          <CircleBtn onClick={onBack}><CaretLeft size={20} weight="bold" style={{ color: F.textSecondary }} /></CircleBtn>
+          <span className="absolute left-0 right-0 flex justify-center text-[16px] font-semibold pointer-events-none"
+            style={{ color: F.textPrimary }}>我的位置</span>
+          <div className="ml-auto">
+            <CircleBtn onClick={() => {
+              if (!adding) selectKind(kind);
+              setAdding(value => !value);
+            }}>
+              <Plus size={20} weight="bold" style={{ color: F.textSecondary }} />
+            </CircleBtn>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto scrollbar-none" style={{ padding: '4px 20px', paddingBottom: 'calc(40px + var(--safe-bottom, 0px))' }}>
+        <section style={{ padding: 16, borderRadius: R.bigCard, background: HUE.teal.tint, border: `1px solid ${HUE.teal.soft}` }}>
+          <div className="flex items-start" style={{ gap: 12 }}>
+            <div className="flex items-center justify-center shrink-0"
+              style={{ width: 44, height: 44, borderRadius: R.medium, background: HUE.teal.main }}>
+              <NavigationArrow size={21} weight="bold" style={{ color: F.surface }} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div style={{ fontSize: 18, fontWeight: 700, color: F.textPrimary }}>{snapshotText}</div>
+              <div style={{ marginTop: 5, fontSize: 12, lineHeight: 1.55, color: F.textSecondary }}>
+                经纬度只留在本机。角色只能看到粗略地点和更新时间。
+              </div>
+            </div>
+          </div>
+          <button onClick={() => runLocationAction(refreshCoarseLocation)} disabled={busy || state.zones.length === 0}
+            className="w-full flex items-center justify-center"
+            style={{ height: 46, marginTop: 14, gap: 8, borderRadius: R.button, border: 0,
+                     background: state.zones.length === 0 ? F.surfaceSunken : F.textPrimary,
+                     color: state.zones.length === 0 ? F.textTertiary : F.surface, fontSize: 14, fontWeight: 700 }}>
+            <Crosshair size={19} weight="bold" />
+            {busy ? '正在定位…' : '更新当前位置'}
+          </button>
+        </section>
+
+        <div className="flex items-center" style={{ margin: '18px 2px 10px' }}>
+          <div className="flex-1">
+            <div style={{ fontSize: 14, fontWeight: 700, color: F.textPrimary }}>允许角色感知</div>
+            <div style={{ marginTop: 2, fontSize: 12, color: F.textTertiary }}>关闭后角色无法调用位置工具</div>
+          </div>
+          <button onClick={() => setState(setLocationAwarenessEnabled(!state.enabled))}
+            aria-label="允许角色感知位置" aria-pressed={state.enabled}
+            style={{ width: 52, height: 30, padding: 3, border: 0, borderRadius: R.pill,
+                     background: state.enabled ? HUE.teal.main : F.surfaceSunken, boxShadow: S.sunken }}>
+            <span className="block transition-transform" style={{ width: 24, height: 24, borderRadius: R.pill,
+              background: F.surfaceRaised, boxShadow: S.raisedSoft, transform: state.enabled ? 'translateX(22px)' : 'translateX(0)' }} />
+          </button>
+        </div>
+
+        {adding && (
+          <section style={{ marginTop: 14, padding: 16, borderRadius: R.bigCard, background: F.surface,
+                            border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: F.textPrimary }}>把这里设为</div>
+            <div className="flex" style={{ marginTop: 12, padding: 4, gap: 4, borderRadius: R.large, background: F.surfaceSunken, boxShadow: S.sunken }}>
+              {(Object.keys(LOCATION_KIND_META) as LocationZoneKind[]).map(option => {
+                const selected = kind === option;
+                return <button key={option} onClick={() => selectKind(option)} className="flex-1"
+                  style={{ height: 38, border: 0, borderRadius: R.medium, background: selected ? F.surfaceRaised : 'transparent',
+                           boxShadow: selected ? S.raisedSoft : 'none', color: selected ? F.textPrimary : F.textTertiary,
+                           fontSize: 13, fontWeight: 600 }}>{LOCATION_KIND_META[option].label}</button>;
+              })}
+            </div>
+            <label className="block" style={{ marginTop: 14, fontSize: 12, color: F.textSecondary }}>地点名称</label>
+            <input value={name} onChange={event => setName(event.target.value)}
+              style={{ width: '100%', height: 44, marginTop: 6, padding: '0 12px', borderRadius: R.input,
+                       border: `1px solid ${F.borderSoft}`, background: F.surfaceSunken, boxShadow: S.sunken,
+                       color: F.textPrimary, fontSize: 14 }} />
+            <div className="flex items-center" style={{ marginTop: 14 }}>
+              <span style={{ fontSize: 12, color: F.textSecondary }}>围栏半径</span>
+              <span className="ml-auto" style={{ fontSize: 13, fontWeight: 700, color: HUE.teal.ink }}>{radius} 米</span>
+            </div>
+            <input type="range" min={50} max={1000} step={50} value={radius}
+              onChange={event => setRadius(Number(event.target.value))}
+              style={{ width: '100%', marginTop: 8, accentColor: HUE.teal.main }} />
+            <div style={{ marginTop: 14, fontSize: 12, color: F.textSecondary }}>在真实地图上点选中心</div>
+            <div className="overflow-hidden" style={{ marginTop: 7, borderRadius: R.smallCard, border: `1px solid ${F.borderSoft}` }}>
+              <RealLocationPicker
+                latitude={latitude}
+                longitude={longitude}
+                radiusMeters={radius}
+                onChange={(nextLatitude, nextLongitude) => {
+                  setLatitude(nextLatitude);
+                  setLongitude(nextLongitude);
+                }}
+              />
+            </div>
+            <div className="flex" style={{ marginTop: 10, gap: 8 }}>
+              <input value={coordinateInput} onChange={event => setCoordinateInput(event.target.value)}
+                placeholder="地图链接或 33.5, -86.8"
+                style={{ flex: 1, minWidth: 0, height: 42, padding: '0 11px', borderRadius: R.input,
+                         border: `1px solid ${F.borderSoft}`, background: F.surfaceSunken, boxShadow: S.sunken,
+                         color: F.textPrimary, fontSize: 12 }} />
+              <button onClick={applyCoordinateInput} aria-label="应用地图链接或坐标"
+                className="flex items-center justify-center shrink-0"
+                style={{ width: 42, height: 42, border: 0, borderRadius: R.button,
+                         background: F.surfaceRaised, boxShadow: S.raisedSoft, color: HUE.teal.ink }}>
+                <LinkSimple size={18} weight="bold" />
+              </button>
+            </div>
+            <button disabled={busy} onClick={locateSelection} className="w-full flex items-center justify-center"
+              style={{ height: 42, marginTop: 9, gap: 7, borderRadius: R.button, border: `1px solid ${F.borderSoft}`,
+                       background: F.surface, color: F.textSecondary, fontSize: 13, fontWeight: 700 }}>
+              <Crosshair size={17} weight="bold" />
+              {busy ? '正在读取位置…' : '把地图移到当前位置'}
+            </button>
+            <button disabled={busy} onClick={saveSelectedZone} className="w-full flex items-center justify-center"
+              style={{ height: 48, marginTop: 9, gap: 8, borderRadius: R.button, border: 0,
+                       background: HUE.teal.main, color: F.surface, fontSize: 14, fontWeight: 700 }}>
+              <MapPin size={19} weight="bold" />
+              保存这个范围
+            </button>
+            {kind !== 'supermarket' && state.zones.some(zone => zone.kind === kind) && (
+              <div style={{ marginTop: 8, fontSize: 11, color: F.textTertiary }}>保存后会替换原来的{LOCATION_KIND_META[kind].label}范围。</div>
+            )}
+          </section>
+        )}
+
+        {error && <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: R.medium, background: STATUS.danger.tint,
+                                color: STATUS.danger.ink, fontSize: 12 }}>{error}</div>}
+
+        <div style={{ margin: '20px 2px 10px', fontSize: 13, fontWeight: 700, color: F.textSecondary }}>已保存范围</div>
+        {state.zones.length === 0 ? (
+          <div className="flex flex-col items-center justify-center" style={{ padding: '34px 16px', gap: 8,
+            borderRadius: R.bigCard, background: F.surfaceSunken, boxShadow: S.sunken }}>
+            <ShieldCheck size={20} weight="bold" style={{ color: F.textTertiary }} />
+            <div style={{ fontSize: 13, color: F.textTertiary }}>点右上角加号，在地图上选择范围</div>
+          </div>
+        ) : (
+          <div className="overflow-hidden" style={{ borderRadius: R.bigCard, background: F.surface,
+            border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}>
+            {state.zones.map((zone, index) => {
+              const meta = LOCATION_KIND_META[zone.kind];
+              const Icon = meta.icon;
+              return <React.Fragment key={zone.id}>
+                {index > 0 && <div style={{ height: 1, margin: '0 16px', background: F.divider }} />}
+                <div className="flex items-center" style={{ minHeight: 68, padding: '10px 12px', gap: 12 }}>
+                  <span className="flex items-center justify-center shrink-0"
+                    style={{ width: 44, height: 44, borderRadius: R.medium, background: HUE.teal.main }}>
+                    <Icon size={20} weight="bold" style={{ color: F.surface }} />
+                  </span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block truncate" style={{ fontSize: 14, fontWeight: 700, color: F.textPrimary }}>{zone.name}</span>
+                    <span className="block" style={{ marginTop: 2, fontSize: 12, color: F.textTertiary }}>{meta.label} · 半径 {zone.radiusMeters} 米</span>
+                  </span>
+                  <CircleBtn onClick={() => {
+                    if (window.confirm(`删除“${zone.name}”这个范围？`)) setState(removeLocationZone(zone.id));
+                  }} style={{ width: 40, height: 40 }}>
+                    <Trash size={18} weight="bold" style={{ color: STATUS.danger.ink }} />
+                  </CircleBtn>
+                </div>
+              </React.Fragment>;
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ══════════════════════════════════════════════════════════════
 //  MapApp — Root
 // ══════════════════════════════════════════════════════════════
 
 type View =
   | { type: 'shelf' }
+  | { type: 'my-location' }
   | { type: 'map'; worldId: string }
   | { type: 'editor'; worldId: string; isNew: boolean }
   | { type: 'create'; charId: string };
@@ -1126,7 +1506,9 @@ export default function MapApp() {
 
   let screen: React.ReactNode;
 
-  if (view.type === 'create') {
+  if (view.type === 'my-location') {
+    screen = <MyLocationScreen onBack={() => setView({ type: 'shelf' })} />;
+  } else if (view.type === 'create') {
     const char = characters.find(c => c.id === view.charId);
     if (!char) { setView({ type: 'shelf' }); return null; }
     const newWorld: MapWorld = {
@@ -1158,7 +1540,8 @@ export default function MapApp() {
   } else {
     screen = <Shelf worlds={worlds} characters={characters} schedules={schedules}
       onOpenWorld={id => setView({ type: 'map', worldId: id })}
-      onCreateWorld={charId => setView({ type: 'create', charId })} />;
+      onCreateWorld={charId => setView({ type: 'create', charId })}
+      onOpenMyLocation={() => setView({ type: 'my-location' })} />;
   }
 
   return (

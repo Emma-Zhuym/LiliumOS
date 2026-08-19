@@ -31,6 +31,8 @@ export interface MapWorld {
   regions: MapRegion[];
   homeRegionId?: string;
   cityName?: string;      // 虚拟城市名，地图页标题
+  /** 现实围栏 zoneId -> 这个角色世界里的虚拟地点 regionId。 */
+  locationBindings?: Record<string, string>;
 }
 
 // Physical name stays for existing installations; migrate it only with a dedicated IndexedDB copy step.

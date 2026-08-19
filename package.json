@@ -41,6 +41,7 @@
     "ag-psd": "^31.0.2",
     "buttplug": "^4.0.2",
     "jszip": "^3.10.1",
+    "leaflet": "^1.9.4",
     "pg": "^8.20.0",
     "pixi.js": "^8.19.0",
     "qrcode": "^1.5.4",
@@ -53,6 +54,7 @@
   "devDependencies": {
     "@capacitor/cli": "^6.0.0",
     "@rei-standard/amsg-server": "2.6.0-next.21",
+    "@types/leaflet": "^1.9.22",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^18.2.43",
     "@types/react-dom": "^18.2.17",

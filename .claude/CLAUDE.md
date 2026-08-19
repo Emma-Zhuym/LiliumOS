@@ -189,6 +189,13 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - `qixi_2026_dual_layer_v7` 是稳定存储键；内部快照版本升级时不得顺手改键导致旧记录失联
 - 七夕专用召回上限 20 条只通过 `injectMemoryPalace` 的可选参数生效，不得改变普通聊天召回上限
 - 详细契约见 `docs/qixi-special-moment.md`
+
+### 23. 位置感知聊天
+- `utils/locationService.ts` — 家/学校/多个常去超市的本机地理围栏、地图链接/坐标解析；未命中统一为`在外面`
+- `components/RealLocationPicker.tsx` / `apps/MapApp.tsx` — OpenStreetMap 选点、范围管理、现实范围到每个角色虚拟地图的绑定与双人标记
+- `utils/locationChatTool.ts` / `hooks/useChatAI.ts` — 角色仅在本地聊天中按需调用粗略位置工具；禁止把经纬度写进提示词或工具结果
+- 精确围栏只存当前浏览器 `localStorage`，不得进入 API 日志、Engram 或完整备份；PWA 后台定位仍未实现
+- 详细契约见 `docs/location-awareness.md`
 ## 合并时常见坑（踩过的 bug）
 
 ### PhoneShell.tsx — messageSubView 必须解构
