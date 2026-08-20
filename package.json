@@ -37,6 +37,7 @@
     "@rei-standard/amsg-instant": "0.11.0-next.4",
     "@rei-standard/amsg-shared": "0.4.0-next.6",
     "@rei-standard/amsg-sw": "2.4.0-next.4",
+    "@rei-standard/blob-store": "0.1.0-next.0",
     "@zip.js/zip.js": "^2.8.43",
     "ag-psd": "^31.0.2",
     "buttplug": "^4.0.2",
