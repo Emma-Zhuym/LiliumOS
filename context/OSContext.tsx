@@ -4277,7 +4277,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               //    （media_only 的 roomItems/backgrounds 提取也依赖已还原成 data:）
               //  · cc_custom_parts：捏人器自定义部件的 src / shadowSrc
               //  · messages：视频通话每轮快照的 metadata.cameraSnapshotRef
-              if ((storeName === 'characters' || storeName === 'cc_custom_parts' || storeName === 'messages') && mode !== 'text_only' && Array.isArray(rawData)) {
+              //  · songs：coverImage（歌曲封面）
+              if ((storeName === 'characters' || storeName === 'cc_custom_parts' || storeName === 'messages' || storeName === 'songs') && mode !== 'text_only' && Array.isArray(rawData)) {
                   for (const c of rawData) await resolveBlobRefsDeep(c);
               }
 
