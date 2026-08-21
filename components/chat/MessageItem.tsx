@@ -2292,8 +2292,8 @@ const timeHint = durationSec <= 240 ? '差不多是一杯咖啡的时间' : '像
                 {/* Cover */}
                 <div className="relative w-full h-28 overflow-hidden">
                     {song.albumPic ? (
-                        <img
-                            src={song.albumPic}
+                        <TokenImg
+                            value={song.albumPic}
                             alt=""
                             className="w-full h-full object-cover"
                             loading="lazy"
