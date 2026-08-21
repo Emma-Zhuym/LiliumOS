@@ -17,7 +17,7 @@ import RoomPlatePanel from '../components/character/RoomPlatePanel';
 import MemoryArchivist from '../components/character/MemoryArchivist';
 import ChibiStudio, { ChibiShelfPanel } from '../components/character/ChibiStudio';
 import TokenImg from '../components/os/TokenImg';
-import { resolveBlobRefsDeep } from '../utils/blobRef';
+import { resolveBlobRefsDeep, migrateDataUrlToRef } from '../utils/blobRef';
 import { characterLaunch } from '../utils/characterLaunch';
 import { safeFetchJson, extractContent } from '../utils/safeApi';
 import { fetchMiniMaxVoices, MiniMaxVoiceItem } from '../utils/minimaxVoice';
@@ -325,7 +325,10 @@ const Character: React.FC = () => {
       // Functional update to prevent stale state issues in simple closures
       setFormData(prev => {
           if (!prev) return null;
-          return { ...prev, [field]: value };
+          const next = { ...prev, [field]: value } as CharacterProfile & { _avatarAssetId?: string };
+          // 旧版 asset: 头像仍可读取；一旦用户换头像，就不能再让旧引用在保存时覆盖新值。
+          if (field === 'avatar') delete next._avatarAssetId;
+          return next;
       });
   };
 
@@ -427,11 +430,12 @@ const Character: React.FC = () => {
           try {
               setIsCompressing(true);
               const processedBase64 = await processImage(file);
-              // 存入 assets 表，角色 JSON 只存短引用，不存大 base64
-              const { saveAvatarAsset } = await import('../utils/avatarAsset');
-              const { ref, resolved } = await saveAvatarAsset(processedBase64);
-              // state 里存 resolved data URL（供即时预览），_avatarAssetId 供存库时还原为 asset:uuid
-              setFormData(prev => prev ? { ...prev, avatar: resolved, _avatarAssetId: ref } as any : prev);
+              // 头像存令牌，二进制单独躺在 blob_assets 里（省掉 base64 那 ~33% 的膨胀）。
+              // 同一张图之前存过就复用它的令牌；转不动时原样还回这条 data URL，图不会丢。
+              handleChange('avatar', await migrateDataUrlToRef(processedBase64));
+              // 清空 URL draft, 否则用户之后再触发 URL input 的 onBlur 会用脏旧 URL
+              // 把刚上传的 data URL 头像盖掉. 不走 effect 监听 avatar 的方案 —— 那会
+              // 在用户正在打 URL 时吃掉 draft.
               setAvatarUrlDraft('');
               addToast('头像上传成功', 'success');
           } catch (error: any) {
