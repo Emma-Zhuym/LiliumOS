@@ -20,6 +20,7 @@ import { XhsMcpClient, extractNotesFromMcpData, normalizeXhsLiteDetail } from '.
 import { extractWebpageContent, detectFirstUrl, detectXhsShortUrl, extractXhsShareTitle, isXhsUrl, extractXhsNoteId, expandShortUrl, type ExtractedWebpage } from '../utils/webpageExtractor';
 import { isVideoShareUrl, parseVideoShareUrl } from '../utils/videoParser';
 import { isDevDebugAvailable } from '../utils/devDebug';
+import { migrateDataUrlToRef } from '../utils/blobRef';
 import { resolveLifeRecordCard } from '../utils/lifeRecords';
 import { resolveEmScribeCard } from '../utils/emScribe'; // [EM: em-scribe]
 import { isMcdConfigured } from '../utils/mcdMcpClient';
@@ -1211,10 +1212,11 @@ const Chat: React.FC = () => {
         const savedUserMsgId = await DB.saveMessage(msgPayload);
 
         if (type === 'image' && imageChatContext) {
+            const galleryUrl = await migrateDataUrlToRef(text);
             await DB.saveGalleryImage({
                 id: `img-${Date.now()}-${Math.random()}`,
                 charId: char.id,
-                url: text,
+                url: galleryUrl,
                 timestamp: Date.now(),
                 sourceMessageId: savedUserMsgId,
                 savedDate: localDateKey,

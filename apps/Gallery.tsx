@@ -11,6 +11,7 @@ import {
     saveGalleryImageContentFavorite,
     syncLegacyGalleryFavorites,
 } from '../utils/contentFavorites';
+import TokenImg from '../components/os/TokenImg';
 
 const Gallery: React.FC = () => {
     const { closeApp, characters, apiConfig, addToast } = useOS();
@@ -333,7 +334,9 @@ CRITICAL: Stay in character. If there's conversation context, your comment shoul
                 <div className="grid grid-cols-3 gap-1">
                     {shownImages.map(img => (
                         <div key={img.id} onClick={() => handleImageClick(img)} className="aspect-square bg-slate-100 relative cursor-pointer overflow-hidden rounded-sm">
-                            <img src={img.url} className="w-full h-full object-cover hover:scale-105 transition-transform duration-300" loading="lazy" />
+                            {/* 相册图存的是 blobref 令牌（见 utils/blobRef.ts），TokenImg 会解析成 objectURL；
+                                旧的 base64 / http 图原样透传，两种都显示得出来 */}
+                            <TokenImg value={img.url} className="w-full h-full object-cover hover:scale-105 transition-transform duration-300" loading="lazy" />
                             <div className="absolute top-1.5 right-1.5 flex items-center gap-1">
                                 {img.favorited && <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#facc15" className="w-4 h-4 drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]"><path fillRule="evenodd" d="M10.788 3.21c.448-1.077 1.976-1.077 2.424 0l2.082 5.006 5.404.434c1.164.093 1.636 1.545.749 2.305l-4.117 3.527 1.257 5.273c.271 1.136-.964 2.033-1.96 1.425L12 18.354 7.373 21.18c-.996.608-2.231-.29-1.96-1.425l1.257-5.273-4.117-3.527c-.887-.76-.415-2.212.749-2.305l5.404-.434 2.082-5.005Z" clipRule="evenodd" /></svg>}
                                 {img.review && <div className="w-2 h-2 bg-primary rounded-full ring-2 ring-white shadow-sm"></div>}
@@ -388,8 +391,8 @@ CRITICAL: Stay in character. If there's conversation context, your comment shoul
 
             {/* Main Image */}
             <div className="flex-1 min-h-0 w-full flex items-center justify-center bg-black relative overflow-hidden">
-                <img
-                    src={selectedImage.url}
+                <TokenImg
+                    value={selectedImage.url}
                     className="max-w-full max-h-full object-contain"
                     alt="Detail"
                 />
