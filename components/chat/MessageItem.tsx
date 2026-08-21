@@ -10,6 +10,7 @@ import { stripFishCuesForDisplay } from '../../utils/fishAudioTts';
 import { formatStatCount } from '../../utils/videoParser';
 import { resolveBubbleCornerRadii, shouldHideBubbleTail } from '../../utils/bubbleAppearance';
 import { useBlobRefUrl } from '../../utils/blobRef';
+import TokenImg from '../os/TokenImg';
 import McdCard from './McdCard';
 import HtmlCard from './HtmlCard';
 import LuckinCard from './LuckinCard';
@@ -1580,6 +1581,9 @@ avatarShape = 'circle',
     const replyReadyRef = useRef(false);
 
     const styleConfig = isUser ? activeTheme.user : activeTheme.ai;
+    // 气泡底纹画在 CSS background-image 上，拿不到 <img> 那层的自动解析，只能在顶层
+    // 无条件解析一次（hook 不能进条件分支）。挂件/头像挂件走 TokenImg，各自组件内解析。
+    const bubbleBgUrl = useBlobRefUrl(styleConfig.backgroundImage);
     const [showVoiceText, setShowVoiceText] = useState(false);
     const [replyOffset, setReplyOffset] = useState(0);
     const [isReplyGestureActive, setIsReplyGestureActive] = useState(false);
@@ -1716,8 +1720,8 @@ avatarShape = 'circle',
                             decoding="async"
                         />
                         {styleConfig.avatarDecoration && (
-                            <img
-                                src={styleConfig.avatarDecoration}
+                            <TokenImg
+                                value={styleConfig.avatarDecoration}
                                 className="absolute pointer-events-none z-10 max-w-none"
                                 style={{
                                     left: `${styleConfig.avatarDecorationX ?? 50}%`,
@@ -3702,11 +3706,11 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
             style={isVoiceOnlyMsg ? undefined : containerStyle}>
 
             {/* Layer 1: Background Image with Independent Opacity */}
-            {!isVoiceOnlyMsg && styleConfig.backgroundImage && (
+            {!isVoiceOnlyMsg && bubbleBgUrl && (
                 <div
                     className="absolute inset-0 bg-cover bg-center pointer-events-none z-0"
                     style={{
-                        backgroundImage: `url(${styleConfig.backgroundImage})`,
+                        backgroundImage: `url(${bubbleBgUrl})`,
                         opacity: styleConfig.backgroundImageOpacity ?? 0.5,
                         borderRadius: 'inherit'
                     }}
@@ -3715,8 +3719,8 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
 
             {/* Layer 2: Decoration Sticker (Custom Position) */}
             {!isVoiceOnlyMsg && styleConfig.decoration && (
-                <img
-                    src={styleConfig.decoration}
+                <TokenImg
+                    value={styleConfig.decoration}
                     className="absolute z-10 w-8 h-8 object-contain drop-shadow-sm pointer-events-none"
                     style={{
                         left: `${styleConfig.decorationX ?? (isUser ? 90 : 10)}%`,
