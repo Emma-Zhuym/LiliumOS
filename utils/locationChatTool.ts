@@ -5,6 +5,7 @@ import {
   refreshCoarseLocation,
   type LocationAwarenessState,
 } from './locationService';
+import type { Message } from '../types';
 
 export const LOCATION_CHAT_TOOL_NAME = 'get_user_coarse_location';
 
@@ -23,6 +24,19 @@ export const LOCATION_CHAT_TOOL = {
 
 export function isLocationChatToolEnabled(state = loadLocationAwareness()): boolean {
   return state.enabled && state.zones.length > 0;
+}
+
+const LOCATION_REQUEST_RE = /(?:我(?:现在)?在(?:哪(?:里|儿)?|什么地方)|看(?:看|一下)?我的位置|查(?:看|一下)?我的位置|查(?:看|一下)?定位|定位我|(?:调用|使用|用|试试|测试)(?:一下)?(?:定位|位置)(?:查询)?工具|我(?:已经)?到家了吗|你知道我在哪(?:里|儿)?吗|猜猜我在哪(?:里|儿)?|where\s+am\s+i|my\s+location|locate\s+me)/i;
+
+function messageText(message: Message): string {
+  if (typeof message.content === 'string') return message.content;
+  try { return JSON.stringify(message.content); } catch { return ''; }
+}
+
+/** 用户明确要求读取本人位置时，这一轮必须留在能访问前台 GPS 的本地聊天路径。 */
+export function shouldPreferLocalLocationTool(messages: Message[]): boolean {
+  const lastUser = [...messages].reverse().find(message => message.role === 'user');
+  return Boolean(lastUser && LOCATION_REQUEST_RE.test(messageText(lastUser)));
 }
 
 export function buildLocationChatToolSystemBlock(): string {

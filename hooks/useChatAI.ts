@@ -35,6 +35,7 @@ import {
     isLocationChatToolEnabled,
     LOCATION_CHAT_TOOL,
     LOCATION_CHAT_TOOL_NAME,
+    shouldPreferLocalLocationTool,
 } from '../utils/locationChatTool';
 import { ShoppingDB } from '../utils/shoppingDb';
 import { intifaceClient } from '../utils/intifaceClient';
@@ -894,10 +895,15 @@ export const useChatAI = ({
             // 判据就一句话：这一轮上云会让角色掉能力，那就别上云。留在本地跑，工具照常用。
             // （地址够得着的服务器不受影响，照常上云，worker 自己跑后台 MCP。）
             const mcpWorkerUnreachable = hasWorkerUnreachableMcpServer(char.id);
+            // 用户明确让角色查本人位置时，必须留在当前设备：云端拿不到前台 GPS，
+            // 若仍走 Instant Chat / Instant Push，模型看到的工具列表里会真的没有定位工具。
+            const locationLocalRequired = isLocationChatToolEnabled()
+                && shouldPreferLocalLocationTool(currentMsgs);
             const instantChatVeto: string | null = luckinChatOn ? 'luckin-chat'
                 : mcdMiniOpen ? 'mcd'
                     : luckinMiniOpen ? 'luckin'
                         : intifaceReady ? 'intiface'
+                            : locationLocalRequired ? 'location-local'
                             : financeLocalRequired ? 'finance-local'
                             : mcpWorkerUnreachable ? 'mcp-worker-unreachable' : null;
             // 带上 char：角色单独关了即时对话（reason char-disabled）时 ready 直接为
@@ -912,7 +918,7 @@ export const useChatAI = ({
             // 这一版只在实际走本地生成时把按需工具交给角色。
             const locationToolEnabled = isLocationChatToolEnabled()
                 && !instantChatRoute
-                && !instantPushConfigured;
+                && (!instantPushConfigured || locationLocalRequired);
             // 「即时对话开着、这一轮却没上云」的所有情形都在这一处留痕，三种原因去向不同：
             //   · 点单流程否决：瑞幸/麦当劳是客户端交互式循环（选城市、确认单），云端接不了
             //     手，这一轮留在本地跑是对的；
@@ -929,6 +935,8 @@ export const useChatAI = ({
                         ? '[AmsgInstantChat] 这一轮没上云（有 MCP 服务器填的是本机/内网地址，worker 够不着），本地生成，工具照常可用'
                         : skipReason === 'finance-local'
                             ? '[AmsgInstantChat] 这一轮没上云（财务工具只读取本机账本），本地生成，账目不会上传到 worker'
+                        : skipReason === 'location-local'
+                            ? '[AmsgInstantChat] 这一轮没上云（用户明确要求读取位置，GPS 只能由当前设备前台访问），本地生成'
                         : instantChatVeto
                             ? `[AmsgInstantChat] 这一轮没上云（${instantChatVeto} 点单流程需要客户端交互），本地生成`
                             : '[AmsgInstantChat] 这一轮没走即时对话（Instant Push 配置仍在，脏配置）：交给 Instant Push，它也不接就落回本地',
@@ -1076,7 +1084,7 @@ export const useChatAI = ({
             // 这一轮的生成在云端跑（两条路互斥，见 instantChatRoute 的算法）。
             // instantPushConfigured 是路由判定处冻结的同一回合终值——这里绝不自己再读
             // 一次，否则可能「按上云模式把评估打包走了，实际却走本地」，情绪底色悄悄停更。
-            const cloudGenRoute = instantPushConfigured || instantChatRoute;
+            const cloudGenRoute = (instantPushConfigured && !locationLocalRequired) || instantChatRoute;
             // 评估跟随全局流式开关（专用情绪 API 自带 stream 字段时以它为准）
             const evalStream: boolean = !!((effectiveApi as any).stream ?? apiConfig.stream ?? false);
             const emotionApi = emotionEvalEnabled
@@ -1368,7 +1376,7 @@ export const useChatAI = ({
             // 表现就是"选了城市也没用 / 角色不下单"。这些模式下跳过 instant push, 用本地 fetch 跑工具循环。
             // 双向互斥后理论上到不了：走到这条 trace 说明两边开关同时亮着（脏配置），当断言告警看。
             const AMSG2_SUPPRESSED_TRACE = 'amsg2-suppressed-by-instant';
-            if (instantPushConfigured && !payload.flags.luckinChatActive && !payload.flags.mcdActive && !payload.flags.luckinActive && !payload.flags.mcpChatActive && !intifaceReady && !financeToolTurn) { // [EM: intiface-gate]
+            if (instantPushConfigured && !locationLocalRequired && !payload.flags.luckinChatActive && !payload.flags.mcdActive && !payload.flags.luckinActive && !payload.flags.mcpChatActive && !intifaceReady && !financeToolTurn) { // [EM: intiface-gate]
                 // 走这条路 = 上面那段 amsg2 的工具、排程现状块都白拼了（instant 发的是原始
                 // fullMessages、请求体不带 tools），下面的活跃会话租约也不会开。三样都是静默
                 // 失效，留一条 trace 让观察窗看得见，别让人对着「功能不响」凭空排查。

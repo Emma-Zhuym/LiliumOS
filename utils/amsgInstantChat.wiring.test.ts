@@ -28,7 +28,7 @@ const instantPushSettingsSrc = read('../components/settings/InstantPushSettingsM
 /** 即时对话分支的判定行（分支起点、也是排序基准）。 */
 const INSTANT_CHAT_BRANCH_HEAD = 'if (instantChatRoute)';
 /** Instant Push 分支的判定行（脏配置时它先接手）。 */
-const INSTANT_PUSH_BRANCH_HEAD = 'if (instantPushConfigured && !payload.flags.luckinChatActive';
+const INSTANT_PUSH_BRANCH_HEAD = 'if (instantPushConfigured && !locationLocalRequired && !payload.flags.luckinChatActive';
 /** 路由判定那一段的起点（一回合只读一次 Instant Push 配置，就是从这行开始）。 */
 const ROUTING_HEAD = 'const instantPushConfigured =';
 
@@ -81,6 +81,14 @@ describe('useChatAI 的分流接缝', () => {
     expect(routing).toMatch(/instantChatVeto \?\? 'instant-push-configured'/);
   });
 
+  it('用户明确查询位置时否决两条云端生成路径，让当前设备提供 GPS 工具', () => {
+    const routing = routingSrc();
+    expect(routing).toContain('shouldPreferLocalLocationTool(currentMsgs)');
+    expect(routing).toContain("'location-local'");
+    expect(chatAiSrc).toContain('instantPushConfigured && !locationLocalRequired');
+    expect(chatAiSrc).toMatch(/cloudGenRoute = \(instantPushConfigured && !locationLocalRequired\) \|\| instantChatRoute/);
+  });
+
   it('全局配置读不出来单独留一条 trace（它不是「用户没开」）', () => {
     // 读失败时 instantChatOn 天然为假，veto 那条 trace 的条件够不到它。不单独留痕的话，
     // 这一轮悄悄退回本地直连生成，用户按完发送锁屏就什么都收不到，观察窗里还查无此事。
@@ -125,7 +133,7 @@ describe('useChatAI 的分流接缝', () => {
     // 三个消费方都吃这一个 const（情绪评估的 cloudGenRoute 也在内，它决定评估在本地跑还是打包上云）。
     expect(chatAiSrc).toContain(INSTANT_PUSH_BRANCH_HEAD);
     expect(chatAiSrc).toContain(INSTANT_CHAT_BRANCH_HEAD);
-    expect(chatAiSrc).toMatch(/const cloudGenRoute = instantPushConfigured \|\| instantChatRoute;/);
+    expect(chatAiSrc).toMatch(/const cloudGenRoute = \(instantPushConfigured && !locationLocalRequired\) \|\| instantChatRoute;/);
   });
 
   it('分支只认 instantChatRoute，不拿原料重算一遍', () => {
@@ -244,9 +252,9 @@ describe('useChatAI 的分流接缝', () => {
   it('情绪评估跟着一起交给云端，不在本地再发一枪', () => {
     expect(branchSrc()).toContain('emotionEval: cloudEmotionEval');
     expect(branchSrc()).not.toContain('fireLocalEmotionEval');
-    // 本地那一枪的开关也得认这条路：cloudGenRoute 把即时对话算进去，
-    // 不然两边会同时跑评估（双扣费，而且后落的那份会盖掉先落的）。
-    expect(chatAiSrc).toMatch(/const cloudGenRoute = instantPushConfigured \|\| instantChatRoute;/);
+    // 本地那一枪的开关也得认这条路：cloudGenRoute 把即时对话算进去；只有用户
+    // 明确查询位置时例外，那一轮要留在能访问 GPS 的当前设备。
+    expect(chatAiSrc).toMatch(/const cloudGenRoute = \(instantPushConfigured && !locationLocalRequired\) \|\| instantChatRoute;/);
     expect(chatAiSrc).toMatch(/const fireLocalEmotionEval = \(emotionEvalEnabled && !cloudGenRoute/);
   });
 
