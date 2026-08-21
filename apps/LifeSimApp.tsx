@@ -25,6 +25,7 @@ import { buildFallbackLifeSimSessionSummary, buildLifeSimSessionSummaryPrompt } 
 import { getLifeSimToneEmoji } from '../utils/lifeSimTone';
 // Offline simulation removed — random events didn't match the theme
 import { extractJson, safeFetchJson } from '../utils/safeApi';
+import TokenImg from '../components/os/TokenImg';
 import { DB } from '../utils/db';
 import { injectMemoryPalace } from '../utils/memoryPalace/pipeline';
 import {
@@ -1137,8 +1138,8 @@ const LifeSimApp: React.FC = () => {
                                         flexShrink: 0,
                                         transition: 'all 0.18s ease',
                                     }}>
-                                    <img
-                                        src={char.avatar}
+                                    <TokenImg
+                                        value={char.avatar}
                                         alt={char.name}
                                         style={{
                                             width: 20,

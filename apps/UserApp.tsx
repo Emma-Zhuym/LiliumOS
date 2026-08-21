@@ -4,6 +4,7 @@ import { useOS } from '../context/OSContext';
 import { processImage } from '../utils/file';
 import LifeRecordPanel from '../components/lifeRecord/LifeRecordPanel';
 import PerCharAvatarPicker from '../components/user/PerCharAvatarPicker';
+import TokenImg from '../components/os/TokenImg';
 
 // [EM-START: hide-life-records] 生活记录（上游"生活统计"）入口开关——EM 用自己的 Health/BankApp，
 // 此页隐藏但代码保留（merge 零成本）。角色代记走 EM 自己的实现（写 Health/Bank），不启用这套。
@@ -76,7 +77,7 @@ const UserApp: React.FC = () => {
                             className="relative w-24 h-24 rounded-full cursor-pointer group mx-auto"
                         >
                             <div className="w-full h-full rounded-full ring-4 ring-white bg-slate-100 overflow-hidden shadow-md">
-                                <img src={userProfile.avatar} className="w-full h-full object-cover group-hover:opacity-80 transition-opacity" />
+                                <TokenImg value={userProfile.avatar} className="w-full h-full object-cover group-hover:opacity-80 transition-opacity" />
                             </div>
                             {/* camera badge */}
                             <div className="absolute bottom-0.5 right-0.5 w-7 h-7 rounded-full bg-primary text-white flex items-center justify-center ring-2 ring-white shadow-sm">

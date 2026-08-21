@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { CaretLeft, House, Lightning, X } from '@phosphor-icons/react';
 import { CharacterProfile, CharacterBuff } from '../../types';
 import type { ContextComposition } from '../../hooks/useChatAI';
+import TokenImg from '../os/TokenImg';
 
 interface TokenBreakdown {
     prompt: number;
@@ -230,7 +231,7 @@ isEmotionEvaluating,
                     )}
 
                     <div onClick={onShowCharsPanel} className="flex-1 min-w-0 flex items-center gap-3 cursor-pointer">
-                        <img src={activeCharacter.avatar} className={`w-10 h-10 object-cover shadow-sm ${avatarShape === 'square' ? 'rounded-sm' : avatarShape === 'circle' ? 'rounded-full' : 'rounded-xl'}`} alt="avatar" />
+                        <TokenImg value={activeCharacter.avatar} className={`w-10 h-10 object-cover shadow-sm ${avatarShape === 'square' ? 'rounded-sm' : avatarShape === 'circle' ? 'rounded-full' : 'rounded-xl'}`} alt="avatar" />
                         <div className="flex-1 min-w-0">
                             <div className={`font-bold ${primaryTextClass}`}>{activeCharacter.name}</div>
                             <div className={`flex items-center gap-2 flex-wrap ${statusRowClass}`}>
