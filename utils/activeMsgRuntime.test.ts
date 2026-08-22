@@ -8,6 +8,8 @@ import {
   OrphanedCharacterError,
   PUSH_SUBSCRIPTION_CHANGED_KV_ID,
   buildSelfLogEntryId,
+  catchUpMissedPushes,
+  resetOutboxCatchUpThrottleForTesting,
   findInboxArtifacts,
   findMissingChunkIndexes,
   findPersistedChunkIndexes,
@@ -30,9 +32,11 @@ import {
 import { MULTIPART_FAILURE_REASON } from '@rei-standard/amsg-shared';
 import {
   AMSG_INSTANT_CHAT_PENDING_LS_KEY,
+  AMSG_OUTBOX_ADOPTED_LS_KEY,
   INSTANT_CHAT_STATUS_CHECK_INTERVAL_MS,
   getInstantChatPending,
   getStagedInstantChatExpiredNotices,
+  listInstantChatPendings,
   setInstantChatPending,
   stageInstantChatExpiredNotices,
 } from './amsgInstantChat';
@@ -2639,4 +2643,106 @@ describe('分片拼不起来时说的那句话（describeMultipartFailure）', (
     expect(text).toContain('没接收完整');
     expect(text).not.toContain('undefined');
   });
+});
+
+// 定时主动消息由云端到点生成，本地没有「正在等待」的状态。推送在路上丢了时，
+// 冷启动和回到前台仍必须主动查云端账本，不能只服务于即时对话。
+describe('上线补收不看有没有在等回复（走真库）', () => {
+  const WORKER_URL = 'https://amsg-catchup.example.workers.dev';
+
+  beforeAll(() => {
+    (globalThis as any).window ??= { dispatchEvent: () => true, addEventListener: () => {} };
+  });
+
+  beforeEach(async () => {
+    localStorage.removeItem(AMSG_INSTANT_CHAT_PENDING_LS_KEY);
+    localStorage.setItem(AMSG_OUTBOX_ADOPTED_LS_KEY, JSON.stringify({ at: Date.now() }));
+    resetOutboxCatchUpThrottleForTesting();
+    await ActiveMsgStore.saveGlobalConfig({ workerUrl: WORKER_URL });
+    vi.spyOn(ActiveMsgClient, 'ackOutboxMessages').mockResolvedValue(undefined);
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await ActiveMsgStore.saveGlobalConfig({ workerUrl: '' });
+  });
+
+  const scheduledEntry = (charId: string, messageId: string) => ({
+    id: 1,
+    messageId,
+    taskUuid: 'uuid-scheduled',
+    sessionId: 'sess-scheduled',
+    messageIndex: 1,
+    totalMessages: 1,
+    createdAt: Date.now(),
+    deliveredAt: Date.now(),
+    push: {
+      messageKind: 'content',
+      messageType: 'scheduled',
+      source: 'scheduled',
+      message: '到点啦，该睡觉了',
+      contactName: '定时角色',
+      messageId,
+      sessionId: 'sess-scheduled',
+      messageIndex: 1,
+      totalMessages: 1,
+      taskUuid: 'uuid-scheduled',
+      timestamp: new Date().toISOString(),
+      metadata: { charId, charName: '定时角色' },
+    },
+  });
+
+  it('一条待收记录都没有，冷启动照样去账本上捞', async () => {
+    const list = vi.spyOn(ActiveMsgClient, 'listOutboxEntries').mockResolvedValue([]);
+    expect(listInstantChatPendings()).toHaveLength(0);
+    await expect(catchUpMissedPushes('startup')).resolves.toBe('drained');
+    expect(list).toHaveBeenCalledTimes(1);
+  }, 20000);
+
+  it('回到前台同样不看待收记录', async () => {
+    const list = vi.spyOn(ActiveMsgClient, 'listOutboxEntries').mockResolvedValue([]);
+    expect(listInstantChatPendings()).toHaveLength(0);
+    await expect(catchUpMissedPushes('foreground')).resolves.toBe('drained');
+    expect(list).toHaveBeenCalledTimes(1);
+  }, 20000);
+
+  it('推送丢掉的定时主动消息能从账本补回聊天流', async () => {
+    const charId = 'char-catchup-scheduled';
+    const messageId = 'msg_task_67@1786434120000_hook_0';
+    await DB.saveCharacter({ id: charId, name: '定时角色' } as any);
+    vi.spyOn(ActiveMsgClient, 'listOutboxEntries')
+      .mockResolvedValue([scheduledEntry(charId, messageId)] as any);
+
+    expect(listInstantChatPendings()).toHaveLength(0);
+    await expect(catchUpMissedPushes('startup')).resolves.toBe('drained');
+
+    const msgs = await DB.getRecentMessagesByCharId(charId, 10);
+    expect(msgs.some((m: any) => String(m.content ?? '').includes('到点啦，该睡觉了'))).toBe(true);
+  }, 20000);
+
+  it('不到节流窗口的第二趟不打网络', async () => {
+    const list = vi.spyOn(ActiveMsgClient, 'listOutboxEntries').mockResolvedValue([]);
+    await expect(catchUpMissedPushes('startup')).resolves.toBe('drained');
+    await expect(catchUpMissedPushes('foreground')).resolves.toBe('throttled');
+    expect(list).toHaveBeenCalledTimes(1);
+  }, 20000);
+
+  it('手动补收不受节流管', async () => {
+    const list = vi.spyOn(ActiveMsgClient, 'listOutboxEntries').mockResolvedValue([]);
+    await expect(catchUpMissedPushes('startup')).resolves.toBe('drained');
+    await expect(catchUpMissedPushes('manual')).resolves.toBe('drained');
+    expect(list).toHaveBeenCalledTimes(2);
+  }, 20000);
+
+  it('没配 Worker 的用户一个请求都不发', async () => {
+    await ActiveMsgStore.saveGlobalConfig({ workerUrl: '' });
+    const list = vi.spyOn(ActiveMsgClient, 'listOutboxEntries').mockResolvedValue([]);
+    await expect(catchUpMissedPushes('startup')).resolves.toBe('worker-unset');
+    expect(list).not.toHaveBeenCalled();
+  }, 20000);
+
+  it('账本读不成只是这趟没读成，不当成账本为空', async () => {
+    vi.spyOn(ActiveMsgClient, 'listOutboxEntries').mockRejectedValue(new Error('worker 500'));
+    await expect(catchUpMissedPushes('startup')).resolves.toBe('failed');
+  }, 20000);
 });

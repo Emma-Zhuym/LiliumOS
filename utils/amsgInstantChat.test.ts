@@ -756,6 +756,36 @@ describe('推送丢了的补收（服务端账本）', () => {
     expect(ackNow).toEqual([messageId]);
   });
 
+  // 线上真实事故的第二半：一条回复在账本上躺了 28 小时，用户隔天开 App 时被自动补收
+  // 按「太旧了」销掉，一个字都没上屏；他后来去点「找回没收到的消息」，看到的是
+  // 「账本上没有漏收的消息——这条链路是通的」。窗口拉到两天能盖住「隔一夜 + 第二天
+  // 想起来」这个最常见的节奏，而超窗的那些必须数出来说给用户听。
+  it('窗口是两天：47 小时的补回来，49 小时的算作「拿不回来了」', async () => {
+    const fresh = 'msg-47h';
+    const stale = 'msg-49h';
+    stubOutbox([
+      entry(fresh, outboxPush(fresh), Date.now() - 47 * 3_600_000),
+      entry(stale, outboxPush(stale), Date.now() - 49 * 3_600_000),
+    ]);
+    const { written, ackNow, staleDropped } = await drainOutbox();
+    expect(written, '47 小时还在窗口内').toBe(1);
+    expect(ackNow, '49 小时的只销账').toEqual([stale]);
+    expect(staleDropped, '超窗的要数出来，界面靠它说话').toBe(1);
+  });
+
+  // staleDropped 只数「本该收到、现在永久拿不回来」的那一档。思维链、工具请求这些
+  // 本来就不进聊天流，销掉不损失任何东西——混进来的话，界面会把「丢了 1 条」说成
+  // 「丢了 3 条」，用户白紧张一场，真出事时也就不信这个数了。
+  it('只数超窗的那一档，不进聊天流的那几类不算「丢了」', async () => {
+    stubOutbox([
+      entry('msg-reasoning', outboxPush('msg-reasoning', { messageKind: 'reasoning' })),
+      entry('msg-tool', outboxPush('msg-tool', { messageKind: 'tool_request' })),
+    ]);
+    const { ackNow, staleDropped } = await drainOutbox();
+    expect(ackNow).toHaveLength(2);
+    expect(staleDropped).toBe(0);
+  });
+
   // 补收回来已经没有意义的那几类：思维链要挂在正文上、工具请求那头的云端早就收工了、
   // 隔了一阵子的报错弹出来只会让人摸不着头脑。但账还是要销，不然每趟都把它们捞回来。
   it.each(['reasoning', 'tool_request', 'error'])('%s 类不进聊天流，当场销账', async (kind) => {
@@ -909,5 +939,19 @@ describe('第一次接上服务端账本', () => {
 
     expect(written).toBe(1);
     expect(storeState.saved.map((m: any) => m.messageId)).toEqual(['m-new']);
+  });
+
+  // 自动路径把存量整批销掉是对的（分不清哪些是真丢的），但用户主动点「找回」时，
+  // 那批存量正是他要找的东西；手动路径因此允许越过首次接管。
+  it('手动补收越过首次接管，存量照样上屏', async () => {
+    stubOutboxOnce([entry('m-missed', 'uuid-missed')]);
+    const ack = vi.spyOn(ActiveMsgClient, 'ackOutboxMessages').mockResolvedValue(undefined);
+
+    const { written } = await drainOutbox({ treatBacklogAsMissed: true });
+
+    expect(written).toBe(1);
+    expect(storeState.saved.map((m: any) => m.messageId)).toEqual(['m-missed']);
+    expect(ack).not.toHaveBeenCalledWith(['m-missed']);
+    expect(localStorage.getItem(AMSG_OUTBOX_ADOPTED_LS_KEY)).toBeTruthy();
   });
 });
