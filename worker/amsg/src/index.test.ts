@@ -306,7 +306,9 @@ describe('onBeforeFire 四道门', () => {
   it('租约过期（超 TTL）不拦', async () => {
     const { ctx } = makeCtx({
       charRows: [
-        { key: AMSG_CHAT_PRESENCE_KEY, value: presenceValue(NOW.getTime() - 120_000) },
+        // 用户最后一次开口挪到热聊窗外：这条测的是「租约过期这道门不拦」，
+        // 让窗口那道闸抢答的话，过了也说明不了租约的事。
+        { key: AMSG_CHAT_PRESENCE_KEY, value: presenceValue(NOW.getTime() - 120_000, { lastUserMessageAt: NOW.getTime() - 30 * 60_000 }) },
         { key: AMSG_FIRE_PACK_KEY, value: firePackValue() },
         { key: AMSG_TOOL_PACK_KEY, value: toolPackValue },
       ],
@@ -315,13 +317,11 @@ describe('onBeforeFire 四道门', () => {
     expect(fired(result).messages).toHaveLength(1);
   });
 
-  it('防穿帮闸：一次性任务在锚点之后有新用户消息 → skip', async () => {
-    const anchor = NOW.getTime() - 3600_000;
+  it('防穿帮闸：到点前十分钟内用户还在聊 → skip', async () => {
     const { ctx } = makeCtx({
-      metadata: { amsgAnchorMs: anchor },
-      // fire_pack 里的 lastUserMessageAt 晚于锚点 = 排程后用户又说话了
+      // 到点（= NOW）前一分钟用户刚说过话，正撞在对话上
       charRows: [
-        { key: AMSG_FIRE_PACK_KEY, value: firePackValue(anchor + 60_000) },
+        { key: AMSG_FIRE_PACK_KEY, value: firePackValue(NOW.getTime() - 60_000) },
         { key: AMSG_TOOL_PACK_KEY, value: toolPackValue },
       ],
     });
@@ -332,29 +332,26 @@ describe('onBeforeFire 四道门', () => {
   // 同样是打脏即发，但传完总要慢一截。只看 fire_pack 的话，用户刚说完话、包还在路上的
   // 那几秒里任务照发，正撞在对话上。
   it('防穿帮闸：presence 记的用户开口时刻比 fire_pack 新 → 用新的那份判，作废', async () => {
-    const anchor = NOW.getTime() - 3600_000;
     const { ctx } = makeCtx({
-      metadata: { amsgAnchorMs: anchor },
       charRows: [
-        // 租约本身已经过期（不吃第一道门），但它记着的「最后一条用户消息」仍然算数
-        { key: AMSG_CHAT_PRESENCE_KEY, value: presenceValue(NOW.getTime() - 120_000, { lastUserMessageAt: anchor + 60_000 }) },
-        { key: AMSG_FIRE_PACK_KEY, value: firePackValue(anchor - 60_000) },
+        // 租约本身已经过期（不吃第一道门），但它记着的「最后一条用户消息」仍然算数：
+        // 落在热聊窗内 → 作废。fire_pack 那份是半小时前的，只看它就会误放行。
+        { key: AMSG_CHAT_PRESENCE_KEY, value: presenceValue(NOW.getTime() - 120_000, { lastUserMessageAt: NOW.getTime() - 60_000 }) },
+        { key: AMSG_FIRE_PACK_KEY, value: firePackValue(NOW.getTime() - 30 * 60_000) },
         { key: AMSG_TOOL_PACK_KEY, value: toolPackValue },
       ],
     });
     await expect(amsgHooks.onBeforeFire(ctx)).resolves.toEqual({ skip: true });
   });
 
-  it('防穿帮闸：presence 是别的角色的 → 不拿来当锚点材料', async () => {
-    const anchor = NOW.getTime() - 3600_000;
+  it('防穿帮闸：presence 是别的角色的 → 不拿来当判定材料', async () => {
     const { ctx } = makeCtx({
-      metadata: { amsgAnchorMs: anchor },
       charRows: [
         {
           key: AMSG_CHAT_PRESENCE_KEY,
-          value: presenceValue(NOW.getTime() - 120_000, { lastUserMessageAt: anchor + 60_000, charId: 'other-char' }),
+          value: presenceValue(NOW.getTime() - 120_000, { lastUserMessageAt: NOW.getTime() - 60_000, charId: 'other-char' }),
         },
-        { key: AMSG_FIRE_PACK_KEY, value: firePackValue(anchor - 60_000) },
+        { key: AMSG_FIRE_PACK_KEY, value: firePackValue(NOW.getTime() - 30 * 60_000) },
         { key: AMSG_TOOL_PACK_KEY, value: toolPackValue },
       ],
     });
@@ -362,12 +359,10 @@ describe('onBeforeFire 四道门', () => {
     expect(fired(result).messages).toHaveLength(1);
   });
 
-  it('防穿帮闸：锚点之后没有新用户消息 → 照发', async () => {
-    const anchor = NOW.getTime() - 3600_000;
+  it('防穿帮闸：到点前十分钟内没人说话 → 照发（半小时前聊过不算）', async () => {
     const { ctx } = makeCtx({
-      metadata: { amsgAnchorMs: anchor },
       charRows: [
-        { key: AMSG_FIRE_PACK_KEY, value: firePackValue(anchor - 60_000) },
+        { key: AMSG_FIRE_PACK_KEY, value: firePackValue(NOW.getTime() - 30 * 60_000) },
         { key: AMSG_TOOL_PACK_KEY, value: toolPackValue },
       ],
     });
@@ -419,11 +414,9 @@ describe('onBeforeFire 四道门', () => {
   });
 
   it('对话已经聊到别处被作废 → 原因写成另一种，两者能分开', async () => {
-    const anchor = NOW.getTime() - 3600_000;
     const { ctx, writeState } = makeCtx({
-      metadata: { amsgAnchorMs: anchor },
       charRows: [
-        { key: AMSG_FIRE_PACK_KEY, value: firePackValue(anchor + 60_000) },
+        { key: AMSG_FIRE_PACK_KEY, value: firePackValue(NOW.getTime() - 60_000) },
         { key: AMSG_TOOL_PACK_KEY, value: toolPackValue },
       ],
     });
@@ -1970,7 +1963,6 @@ describe('自排后续任务', () => {
     selfScheduleSeq: 0,
     cancelledTasks: [],
     charId: CHAR_ID,
-    anchorMs: 1_700_000_000_000,
     tz: { tzId: 'Asia/Shanghai' },
     taskUuid: TASK_UUID,
     taskRowId: '42',
@@ -2077,7 +2069,6 @@ describe('自排后续任务', () => {
     expect(opts.metadata.amsgTaskInstruction).toBeTruthy();
     expect(opts.metadata.amsgClientTaskId).toBeTruthy();
     expect(opts.metadata.amsgExpirePolicy).toBe('expire');
-    expect(opts.metadata.amsgAnchorMs).toBe(1_700_000_000_000);
 
     expect(stash.scheduledTasks).toHaveLength(1);
     expect(stash.selfLog.tasks).toHaveLength(1);
@@ -2356,7 +2347,6 @@ describe('fire 侧取消 / 改期任务', () => {
     cancelledTasks: [],
     renewedTasks: [],
     charId: CHAR_ID,
-    anchorMs: 1_700_000_000_000,
     tz: { tzId: 'Asia/Shanghai' },
     taskUuid: TASK_UUID,
     taskRowId: '42',
@@ -3428,7 +3418,7 @@ describe('onBeforeFire — 即时对话分支', () => {
         }) },
         { key: AMSG_TOOL_PACK_KEY, value: toolPackValue },
       ],
-      metadata: { amsgAnchorMs: anchor, amsgExpirePolicy: 'expire' },
+      metadata: { amsgExpirePolicy: 'expire' },
     });
     const result = fired(await amsgHooks.onBeforeFire(ctx));
     expect(result.messages).toHaveLength(CHAT_MESSAGES.length + 1);
@@ -3888,7 +3878,6 @@ describe('即时对话的云端情绪评估', () => {
     const store = makeStore();
     const { metadata } = await evalFire(store, {
       amsgEmotionEval: EVAL_SPEC,
-      amsgAnchorMs: 1_700_000_000_000,
     });
     expect(metadata).not.toHaveProperty('amsgEmotionEval');
     expect(metadata).toMatchObject({
@@ -3896,7 +3885,6 @@ describe('即时对话的云端情绪评估', () => {
       amsgClientTaskId: CLIENT_TASK_ID,
       amsgMode: 'instant',
       amsgInstantChat: true,
-      amsgAnchorMs: 1_700_000_000_000,
     });
   });
 

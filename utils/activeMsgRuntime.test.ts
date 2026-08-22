@@ -450,7 +450,6 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
         charId,
         amsgExpirePolicy: 'expire',
         amsgClientTaskId: 'client-task-selfsched',
-        amsgAnchorMs: anchorMs,
         // 角色自排那条路径不往 metadata 抄 recurrence，这里刻意留空。
       },
       sentAt: occurrenceMs,
@@ -490,7 +489,6 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
         charId,
         amsgExpirePolicy: 'expire',
         amsgClientTaskId: 'client-task-adopt',
-        amsgAnchorMs: anchorMs,
         amsgSelfScheduled: [{
           taskUuid: 'amsgself-adopt-1',
           clientTaskId: 'client-task-adopt-next',
@@ -544,7 +542,6 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
         charId,
         amsgExpirePolicy: 'expire',
         amsgClientTaskId: 'client-task-trace-swallow',
-        amsgAnchorMs: anchorMs,
       },
       sentAt: occurrenceMs,
     }));
@@ -560,7 +557,6 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
       charId,
       policy: 'expire',
       recurrenceType: 'daily',
-      anchorMs,
       lastUserMessageAt: lastUserAt,
       occurrenceMs,
     });
@@ -595,7 +591,6 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
         charId,
         amsgExpirePolicy: 'expire',
         amsgClientTaskId: 'client-task-overnight',
-        amsgAnchorMs: anchorMs,
       },
       sentAt: occurrenceMs,
     }));
@@ -628,7 +623,6 @@ describe('flushInboxToChat 落库时间戳（走真库）', () => {
         charId,
         amsgExpirePolicy: 'expire',
         amsgClientTaskId: 'client-task-trace-pass',
-        amsgAnchorMs: occurrenceMs - 3_600_000,
       },
       sentAt: occurrenceMs,
     }));
@@ -1622,7 +1616,6 @@ describe('防穿帮闸吞掉消息后撤销云端自述日志（走真库）', (
         charId,
         amsgExpirePolicy: 'expire',
         amsgClientTaskId: 'client-task-swallow',
-        amsgAnchorMs: anchorMs,
       },
     } as any);
 
