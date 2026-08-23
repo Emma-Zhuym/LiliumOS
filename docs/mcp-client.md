@@ -49,6 +49,7 @@ function calling（例如携带 `tools` 就报 401），关闭它后首轮会直
 | 备份导出/导入 | `utils/db.ts`（`mcpLocal` 段）+ `types.ts` `FullBackupData.mcpLocal` |
 | 本地 CORS 代理（支持 `?target=` 通用模式） | `scripts/mcp-proxy.mjs` |
 | 用户自部署 Worker 代理 | `worker/mcp-proxy/` |
+| macOS Apple Events stdio → HTTP 私有桥接 | `server/apple-events-bridge/` |
 
 ## 设计要点（改之前必看）
 
@@ -84,6 +85,12 @@ function calling（例如携带 `tools` 就报 401），关闭它后首轮会直
   但其中可以存角色 ID 或群聊 ID；空/缺省 = 通用，非空只对绑定聊天可见。
   私聊传 `char.id`，群聊传 `group.id`；**ID 缺省时绑定服务器一律不可见**
   （防止无聊天上下文的调用点泄漏专属工具）。
+- **模型声明使用 schema 副本**。标准 JSON Schema 允许数字/布尔 `enum`，但 Gemini
+  function declaration 的 `enum` 只接受字符串；部分 OpenAI 兼容中转会因此整包 400。
+  `normalizeMcpToolSchemaForLLM` 只在发给模型的副本上移除非字符串 enum、保留或推断
+  `integer` / `number` / `boolean` 类型，并把允许值追加到 description。浏览器聊天与
+  amsg worker fire 必须共用这一步；服务器持久化的原始 schema 和 `tools/call` 参数归一化
+  不得被改写。
 
 ## 排查「角色把工具调用输出成文字」
 
@@ -99,6 +106,9 @@ function calling（例如携带 `tools` 就报 401），关闭它后首轮会直
   传输，也不支持本地 stdio 服务器（那种请套 mcp-proxy 或自行起 HTTP 端）。
 - 只用了 MCP 的 tools 能力；resources / prompts / OAuth 授权流未实现
   （静态 Bearer Token 与自定义 Header 均支持；OAuth 登录流仍未实现）。
+- stdio 服务仍不能由浏览器直接连接；macOS Apple Events 是一个明确的私有适配实例，
+  通过 `server/apple-events-bridge/` 转为 Streamable HTTP，再由受鉴权的 HTTPS 入口暴露。
+  它不是通用 stdio 进程管理器。
 - 工具结果回填上限 20000 字符（`formatMcpToolResult`，正常使用等于不截断，
   只防病态超长结果炸上下文；被截断时会标注全文长度）。瑞幸自己的工具仍是 1500。
 

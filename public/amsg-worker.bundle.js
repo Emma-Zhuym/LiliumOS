@@ -8558,6 +8558,34 @@ var withMcpDedupeSuffix = (base, i, maxLen = DEFAULT_MAX_TOOL_NAME_LEN) => {
   const suffix = `_${i}`;
   return base.slice(0, Math.max(0, maxLen - suffix.length)) + suffix;
 };
+var normalizeMcpToolSchemaForLLM = (schema) => {
+  const visit = (value, depth) => {
+    if (depth > 40 || value === null || typeof value !== "object") return value;
+    if (Array.isArray(value)) return value.map((item) => visit(item, depth + 1));
+    const normalized = {};
+    for (const [key, child] of Object.entries(value)) {
+      normalized[key] = visit(child, depth + 1);
+    }
+    const enumValues = Array.isArray(value.enum) ? value.enum : [];
+    if (enumValues.length > 0) {
+      let inferredType = null;
+      if (enumValues.every((item) => typeof item === "string")) inferredType = "string";
+      else if (enumValues.every((item) => typeof item === "number" && Number.isFinite(item))) {
+        inferredType = enumValues.every(Number.isInteger) ? "integer" : "number";
+      } else if (enumValues.every((item) => typeof item === "boolean")) inferredType = "boolean";
+      if (inferredType) normalized.type = inferredType;
+      if (inferredType && inferredType !== "string") {
+        delete normalized.enum;
+        const allowed = enumValues.map((item) => JSON.stringify(item)).join(", ");
+        const suffix = `Allowed values: ${allowed}.`;
+        const description = typeof normalized.description === "string" ? normalized.description.trim() : "";
+        normalized.description = description ? `${description} ${suffix}` : suffix;
+      }
+    }
+    return normalized;
+  };
+  return visit(schema || { type: "object", properties: {} }, 0);
+};
 var serverSlug = (server, maxLen = DEFAULT_MAX_TOOL_NAME_LEN) => sanitizeMcpToolName(server.name, maxLen).slice(0, 20);
 var buildMcpNameMap = (servers, opts = {}) => {
   const maxLen = opts.maxNameLen ?? DEFAULT_MAX_TOOL_NAME_LEN;
@@ -9038,7 +9066,7 @@ var buildMcpFireTools = (resolve) => {
       function: {
         name: `${MCP_FIRE_NAME_PREFIX}${exposed}`,
         description: multiServer ? `[${server.name}] ${desc}`.trim() : desc,
-        parameters: tool.inputSchema || { type: "object", properties: {} }
+        parameters: normalizeMcpToolSchemaForLLM(tool.inputSchema)
       }
     });
   }

@@ -42,8 +42,25 @@ SullyOS 是**纯静态网页**（通常部署在 GitHub Pages），没有自己�
 1. 按该项目的文档在本机跑起来，**确认它监听的是 Streamable HTTP**（很多项目默认 stdio，需要配置切换，常见开关如 `transport: streamable-http` 或环境变量）。
 2. 该项目若默认开 OAuth，找它的关闭开关（通常是 `xxx_REQUIRE_AUTH=false` 之类），本机使用风险可控。
 3. 服务器 URL 填 `http://localhost:端口/mcp`——**只在这台电脑的浏览器里有效**。
-4. 想在手机上也能用 → 加内网穿透（推荐 Cloudflare Tunnel：免费、自带 HTTPS 域名）。穿透后 URL 变成 `https://你的域名/mcp`，全设备可用；但此时端点暴露公网，见第六节安全注意。
+4. 想在手机上也能用 → 加受控 HTTPS 入口。没有自有域名时可用
+   [Tailscale Funnel](https://tailscale.com/docs/features/tailscale-funnel)：免费方案可用，生成稳定的
+   `https://设备名.tailnet.ts.net` 地址；Cloudflare named Tunnel 则通常需要自己控制的域名。
+   两种方式都会让指定服务可从公网访问，必须保留 Bearer Token 与 CORS 白名单，见第六节安全注意。
 5. Windows 用户常见坑：PowerShell 5.1 不认 `&&`（分开执行或用 `;`）；Python 项目读中文文件报 GBK 错，设环境变量 `PYTHONUTF8=1`。
+
+#### macOS 日历与提醒事项实例
+
+仓库提供 [`server/apple-events-bridge/`](../server/apple-events-bridge/README.md)，把 macOS 专用的
+`mcp-server-apple-events` stdio 服务转换为 LiliumOS 已支持的 Streamable HTTP。参考部署使用
+Mac mini + `launchd` 常驻 + Tailscale Funnel，不要求自有域名；凭据只放在 mini 的权限受限文件中。
+
+验收后会发现五个工具，可读写提醒事项，可读取日历列表，并可读取、创建、修改和删除日历事件。
+闹钟、重复规则、事件 URL、结构化地点和忙闲状态仍需在 Calendar.app 里设置。创建、修改、删除前
+角色应先征得用户确认。
+
+若同一 tailnet 内的设备访问 Funnel 域名时持续超时，而关闭 Tailscale 后正常，通常是 MagicDNS
+把公网 Funnel 域名解析成了 `100.x` 私网地址。只在该客户端关闭 **Use Tailscale DNS settings**
+即可，Tailscale 设备互联本身不会断开。
 
 ### 路线 3：自己部署到云上
 
@@ -74,6 +91,10 @@ Access-Control-Expose-Headers: Mcp-Session-Id
 6. 验收：在私聊或已绑定的群聊里让角色用一下工具，界面会短暂显示「正在调用 MCP 工具：xxx」
 
 补充开关「聊天模型支持工具调用」：默认开。若你的聊天模型或 API 中转不支持 function calling（症状：带 tools 参数就报错），关掉它走文字兼容模式；不关也有自动降级，只是多一次试探请求。
+
+Gemini 中转还有一种典型 `400`：标准 JSON Schema 允许数字 `enum`，但 Gemini 的函数声明只接受
+字符串枚举。LiliumOS 会在发给模型前移除数字/布尔枚举、保留原类型并把允许值写进说明；真实
+MCP schema 不会被修改。旧版本遇到这种错误可能仍由文字兼容模式接住，但会多一次失败请求。
 
 ## 四、连不上？CORS 代理二选一
 

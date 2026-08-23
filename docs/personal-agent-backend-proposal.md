@@ -108,6 +108,12 @@ Mac mini 作为私人执行器，负责 Cloudflare Worker 不适合承担的工�
 
 Runner 建议使用独立的 Node/TypeScript 服务并由 `launchd` 开机启动、异常重启。是否使用 Docker 留待原型阶段比较，不预先增加运维负担。
 
+> **2026-08-22 实施注记**：Apple Calendar / Reminders 已作为第一个受限本地桥接落地：
+> Mac mini 上的 stdio MCP 由独立 Node 桥转换为 Streamable HTTP，LaunchAgent 常驻，
+> Tailscale Funnel 只暴露这一项带 Bearer 鉴权和 CORS 白名单的服务。它验证了“Mac 承担
+> 本地权限能力”的方向，但没有实现任务队列、心跳、连续性状态或完整 Agent Runner；
+> 不应据此把 Phase 1/2 标记为完成。
+
 ## 5. 模型与订阅桥
 
 模型调用必须抽象为可替换适配器，不能把后端写死为某一家 API：

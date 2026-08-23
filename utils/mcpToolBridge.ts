@@ -10,7 +10,7 @@
  */
 
 import { getEnabledMcpServers, type McpServerConfig, type McpToolDef } from './mcpClient';
-import { buildMcpNameMap, type FakedMcpCall as FakedMcpCallCore, type McpResolvedToolCore } from './mcpFireCore';
+import { buildMcpNameMap, normalizeMcpToolSchemaForLLM, type FakedMcpCall as FakedMcpCallCore, type McpResolvedToolCore } from './mcpFireCore';
 
 // 结果格式化和正文假调用解析都是纯逻辑，住在 mcpFireCore 里给浏览器和 amsg
 // worker 共用；这里按原名转出来，调用方的引用路径不用动。
@@ -52,7 +52,7 @@ export const buildMcpOpenAITools = (charId?: string): { tools: OpenAIMcpTool[]; 
             function: {
                 name: exposed,
                 description: buildToolDescription(server, tool, servers.length > 1),
-                parameters: tool.inputSchema || { type: 'object', properties: {} },
+                parameters: normalizeMcpToolSchemaForLLM(tool.inputSchema),
             },
         });
     }

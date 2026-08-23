@@ -1,13 +1,17 @@
 # LiliumOS Current Progress
 
-> 发布基线与验收分支并列记录。最后更新：2026-08-18。
+> 发布基线与验收分支并列记录。最后更新：2026-08-22。
 
 ## 快照范围
 
 - 本地发布分支：`main`，已包含 LiliumOS 品牌迁移、角色 API 独立绑定与自定义生图链路。
-- 发布目标为 `origin/main`；每次推送仍需单独批准，本轮生图改动已获明确授权。
+- 发布目标为 `origin/main`；每次推送仍需单独批准，本轮 Apple Events MCP 与兼容修复已获明确授权。
 
 ## 最近完成
+
+- Mac mini 已运行 Apple Events MCP 私有桥接：LaunchAgent 常驻、Bearer Token 文件权限隔离、CORS 白名单和 Tailscale Funnel HTTPS 入口均完成真实验收，无需自有域名。
+- 通用 MCP 已发现 `reminders_tasks`、`reminders_lists`、`reminders_subtasks`、`calendar_events`、`calendar_calendars` 五项工具；角色读取日历已实测，提醒事项和日历事件写入能力可在用户确认后调用。
+- 修复 Gemini 中转拒绝数字/布尔 JSON Schema enum 的 400：前台聊天与 amsg worker 只归一化模型声明副本，保留原始 MCP schema、真实参数校验与文字兼容兜底。
 
 - 按用户决定撤回 Active Message 2.0 心跳实验：主动消息协议、设置 UI、角色字段和 Worker 恢复到心跳前的 `fire_pack v7` 基线，同时保留七夕、生图、Smart Home 与角色独立 API。回滚版启动后只清理云端残留的隐藏心跳任务和控制行，不碰普通主动消息、即时聊天、上下文、凭据或推送订阅。
 - 合入 2026 七夕「星月梦境童话」完整活动：北京时间 8 月 19 日一次性邀请、特别时光永久入口、七个双层场景、记忆鹊桥、生成式重逢与长按约定。
@@ -49,6 +53,8 @@
 
 ## 验证基线
 
+- Apple Events MCP（2026-08-22）：桥接 Node 测试 4 passed；真实公网 Funnel 验证健康检查 200、无 Token 401、带 Token MCP initialize 200、五项工具发现和角色日历读取成功；MCP 前台/worker 定向测试 65 passed，Worker bundle 与生产构建通过。全量 Vitest 为 3450 passed / 5 skipped，另有 2 项与本轮无关的既存日期边界失败（药盒补记日期、Notion 日记频率）。
+
 - 心跳安全回滚（2026-08-18）：回滚清理、心跳前 AMSG、即时聊天与七夕相关 12 个测试文件 536 tests passed；AMSG bundle 已重建，生产构建、`git diff --check` 与 `check-em-patches.sh` 79/79 均通过。
 - 七夕活动（2026-08-18）：七夕、流式响应、角色 API 与音频镜像相关 12 个测试文件、85 passed；生产构建与 `check-em-patches.sh` 79/79 通过。全量测试 3451 passed / 5 skipped，另有 2 项既有日期测试失败（`lifeRecords` 药盒创建日、`notionDiaryCadence` 跨时区日期），与七夕改动无关且未出现七夕回归。
 - 生图 API（2026-08-17）：`imageGeneration`、API 配置归一化与聊天后处理共 31 tests passed；Worker bundle、生产构建、`check-em-patches.sh` 74/74 与 localhost 手机宽度交互检查通过。全仓类型检查仍被既有错误阻断，本次相关文件未新增报错。
@@ -75,6 +81,7 @@
 - Open-Meteo、照片收藏、查手机轮播、Shopping、EM 角色代记、聊天快捷工具栏。
 - 独立生图 API、模型列表选择、角色立绘身份参考与主动消息共用路由。
 - Smart Home「共栖舱」App、Home Assistant REST/MCP 接入、演示模式与备份。
+- Apple Calendar / Reminders 私有 MCP 桥接与 Mac mini 常驻访问。
 - 位置感知聊天：家/学校/常去超市本机围栏、免 Key 真实地图点选、地图链接/坐标导入、现实地点到角色虚拟地图绑定与双人位置标记；角色改为按需调用本地工具，结果不含经纬度。
 
 ### 部分完成
@@ -97,6 +104,7 @@
 - 生图接口与立绘参考契约：`docs/image-generation-api.md`
 - 七夕活动、角色 API 与聊天写回契约：`docs/qixi-special-moment.md`
 - Agent、EM 功能与上游合并规则：`.claude/CLAUDE.md`、`AGENTS.md`
+- 通用 MCP 与 Apple Events 桥接：`docs/mcp-client.md`、`docs/mcp-user-guide.md`、`server/apple-events-bridge/README.md`
 - 功能导航：`CLAUDE.md`
 - 项目与用户可见功能：`README.md`
 

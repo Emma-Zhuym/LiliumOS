@@ -217,6 +217,25 @@ describe('buildMcpOpenAITools', () => {
         expect(buildMcpOpenAITools('char_b').tools[0].function.description).not.toContain('[通用]');
         expect(buildMcpOpenAITools('char_a').tools[0].function.description).toContain('[通用]');
     });
+
+    it('移除 Gemini 不接受的数字 enum，且不修改 MCP 保存的原始 schema', () => {
+        const inputSchema = {
+            type: 'object',
+            properties: {
+                priority: { type: 'integer', enum: [0, 1, 5, 9] },
+                mode: { type: 'string', enum: ['read', 'write'] },
+            },
+        };
+        saveMcpServers([mkServer({ tools: [{ name: 'calendar', inputSchema }] })]);
+
+        const parameters = buildMcpOpenAITools().tools[0].function.parameters;
+        expect(parameters.properties.priority).toEqual({
+            type: 'integer',
+            description: 'Allowed values: 0, 1, 5, 9.',
+        });
+        expect(parameters.properties.mode).toEqual({ type: 'string', enum: ['read', 'write'] });
+        expect(inputSchema.properties.priority).toEqual({ type: 'integer', enum: [0, 1, 5, 9] });
+    });
 });
 
 describe('extractTextFakedMcpCalls（掉格式容错）', () => {

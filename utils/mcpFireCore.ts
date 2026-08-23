@@ -71,6 +71,48 @@ export const withMcpDedupeSuffix = (base: string, i: number, maxLen = DEFAULT_MA
     return base.slice(0, Math.max(0, maxLen - suffix.length)) + suffix;
 };
 
+/**
+ * Gemini's function declaration protobuf only accepts strings in `enum`, while
+ * standard JSON Schema also permits numeric and boolean enum values. Some
+ * OpenAI-compatible Gemini gateways reject the entire tools array instead of
+ * adapting those values. Move non-string enum constraints into the description
+ * on the model-facing copy; the stored schema remains the source of truth.
+ */
+export const normalizeMcpToolSchemaForLLM = (schema: any): any => {
+    const visit = (value: any, depth: number): any => {
+        if (depth > 40 || value === null || typeof value !== 'object') return value;
+        if (Array.isArray(value)) return value.map(item => visit(item, depth + 1));
+
+        const normalized: Record<string, any> = {};
+        for (const [key, child] of Object.entries(value)) {
+            normalized[key] = visit(child, depth + 1);
+        }
+
+        const enumValues = Array.isArray(value.enum) ? value.enum : [];
+        if (enumValues.length > 0) {
+            let inferredType: 'string' | 'integer' | 'number' | 'boolean' | null = null;
+            if (enumValues.every(item => typeof item === 'string')) inferredType = 'string';
+            else if (enumValues.every(item => typeof item === 'number' && Number.isFinite(item))) {
+                inferredType = enumValues.every(Number.isInteger) ? 'integer' : 'number';
+            } else if (enumValues.every(item => typeof item === 'boolean')) inferredType = 'boolean';
+
+            if (inferredType) normalized.type = inferredType;
+            if (inferredType && inferredType !== 'string') {
+                delete normalized.enum;
+                const allowed = enumValues.map(item => JSON.stringify(item)).join(', ');
+                const suffix = `Allowed values: ${allowed}.`;
+                const description = typeof normalized.description === 'string'
+                    ? normalized.description.trim()
+                    : '';
+                normalized.description = description ? `${description} ${suffix}` : suffix;
+            }
+        }
+        return normalized;
+    };
+
+    return visit(schema || { type: 'object', properties: {} }, 0);
+};
+
 const serverSlug = (server: McpFireServer, maxLen = DEFAULT_MAX_TOOL_NAME_LEN): string =>
     sanitizeMcpToolName(server.name, maxLen).slice(0, 20);
 
@@ -784,7 +826,7 @@ export const buildMcpFireTools = <S extends McpFireServer>(
             function: {
                 name: `${MCP_FIRE_NAME_PREFIX}${exposed}`,
                 description: multiServer ? `[${server.name}] ${desc}`.trim() : desc,
-                parameters: tool.inputSchema || { type: 'object', properties: {} },
+                parameters: normalizeMcpToolSchemaForLLM(tool.inputSchema),
             },
         });
     }

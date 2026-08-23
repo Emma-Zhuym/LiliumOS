@@ -196,6 +196,16 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - `utils/locationChatTool.ts` / `hooks/useChatAI.ts` — 角色仅在本地聊天中按需调用粗略位置工具；禁止把经纬度写进提示词或工具结果
 - 精确围栏只存当前浏览器 `localStorage`，不得进入 API 日志、Engram 或完整备份；PWA 后台定位仍未实现
 - 详细契约见 `docs/location-awareness.md`
+
+### 24. Apple Calendar / Reminders 私有 MCP 桥接
+- `server/apple-events-bridge/` — 把 macOS 专用 `mcp-server-apple-events` stdio 传输转换为 LiliumOS 通用客户端支持的 Streamable HTTP；不得另造聊天工具链
+- Mac mini 参考部署只监听 `127.0.0.1:8765`，由 LaunchAgent 常驻，并用 Tailscale Funnel 暴露单个 HTTPS 服务；不得开放家庭路由器端口
+- Bearer Token 只存 mini 的 `~/Library/Application Support/LiliumOS/agent-tools/secrets/` 权限受限文件；严禁写入仓库、plist、日志、文档、Engram 或备份
+- CORS 只允许 localhost 与正式 Pages origin；`Mcp-Session-Id` 必须暴露给浏览器，未带 Token 的 MCP 请求必须返回 401
+- 已验收五项工具：提醒事项任务/列表/子任务、日历事件、日历列表；日历事件可读写，日历集合及闹钟/重复规则等高级字段保持只读
+- `utils/mcpFireCore.ts` 的模型 schema 归一化必须同时供前台和 amsg worker 使用：非字符串 enum 只从模型声明副本移除，原始 MCP schema 与真实调用参数不得改写
+- 该能力依赖 mini 在线且用户已登录；不能写成完整 Agent Backend、主动心跳或 Apple Health 已完成
+- 详细部署与边界见 `server/apple-events-bridge/README.md`、`docs/mcp-client.md`
 ## 合并时常见坑（踩过的 bug）
 
 ### PhoneShell.tsx — messageSubView 必须解构

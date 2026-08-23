@@ -1,6 +1,6 @@
 # LiliumOS Roadmap
 
-> `main` 发布基线仍以已发布版本为准。最后核对：2026-08-18。
+> `main` 发布基线仍以已发布版本为准。最后核对：2026-08-22。
 > 具体实现契约见对应 `docs/` 规格；跨 Agent 交接只记录工作上下文，不替代 Git 和仓库文档。
 
 ## 当前优先级
@@ -58,6 +58,14 @@ LiliumOS「共栖舱」App、Home Assistant REST 适配、演示模式、完整�
 - PDF 支持。
 
 ## 已完成
+
+### 2026-08-22
+
+- Mac mini 部署 `mcp-server-apple-events` 与 LiliumOS 私有 stdio → Streamable HTTP 桥接；由 LaunchAgent 常驻，Bearer Token 留在 mini 的权限受限文件中。
+- 通过 Tailscale Funnel 提供不依赖自有域名的稳定 HTTPS MCP 入口；已验收 CORS、无 Token 401、带 Token 初始化与五项工具发现。
+- 角色已真实读取 Apple Calendar；提醒事项支持读写，日历事件支持读取、创建、修改和删除，日历集合及闹钟/重复规则等高级字段保持只读边界。
+- 通用 MCP 模型声明兼容 Gemini 的数字/布尔枚举限制；浏览器聊天与 amsg worker 共用 schema 副本归一化，保留原始 MCP schema 和文字调用兜底。
+- 当前仍依赖 Mac mini 在线且用户已登录，不代表 Agent Backend、主动心跳或 Apple Health 同步已经完成。
 
 ### 2026-08-18
 
@@ -131,6 +139,7 @@ LiliumOS「共栖舱」App、Home Assistant REST 适配、演示模式、完整�
 - Health 核心 App 与聊天健康摘要。
 - Shopping 投喂站。
 - Smart Home「共栖舱」App、演示模式、Home Assistant REST/MCP 接入与备份。
+- Apple Calendar / Reminders 私有 MCP 桥接、Mac mini 常驻服务与 Tailscale Funnel 入口。
 - Open-Meteo 免 key 天气。
 - 照片收藏与查手机轮播。
 - 独立生图 API、模型列表选择、角色立绘身份参考与 `SEND_PHOTO` 共用路由。

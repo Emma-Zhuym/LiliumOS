@@ -312,6 +312,21 @@ describe('buildMcpFireBlock / buildMcpFireTools', () => {
         expect((tools[0].function as any).parameters.required).toEqual(['city']);
     });
 
+    it('fire tools 同样移除 Gemini 不接受的数字 enum', () => {
+        const schema = {
+            type: 'object',
+            properties: { priority: { type: 'integer', enum: [0, 1, 5, 9] } },
+        };
+        const tools = buildMcpFireTools(buildMcpNameMap([srv({
+            tools: [{ name: 'calendar', inputSchema: schema }],
+        })]));
+
+        expect(tools[0].function.parameters.properties.priority.type).toBe('integer');
+        expect(tools[0].function.parameters.properties.priority.enum).toBeUndefined();
+        expect(tools[0].function.parameters.properties.priority.description).toContain('0, 1, 5, 9');
+        expect(schema.properties.priority).toEqual({ type: 'integer', enum: [0, 1, 5, 9] });
+    });
+
     it('跨服务器时 fire tools 的 description 缀上服务器名', () => {
         const tools = buildMcpFireTools(buildMcpNameMap(twoServers));
         expect(tools.map((t) => t.function.description)).toEqual(['[服务器A] 查天气', '[服务器B] 查新闻']);
