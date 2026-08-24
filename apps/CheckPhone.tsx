@@ -5,6 +5,7 @@ import { CharacterProfile, PhoneEvidence, PhoneCustomApp, PhoneContact, PhoneSim
 import { ContextBuilder } from '../utils/context';
 import Modal from '../components/os/Modal';
 import TokenImg from '../components/os/TokenImg';
+import { useBlobRefUrl } from '../utils/blobRef';
 import { safeResponseJson, extractContent, extractJson } from '../utils/safeApi';
 import { injectMemoryPalace } from '../utils/memoryPalace/pipeline';
 import {
@@ -395,6 +396,10 @@ const CheckPhone: React.FC = () => {
     // Swipe tracking for paging
     const touchStartX = useRef<number | null>(null);
     const touchStartY = useRef<number | null>(null);
+
+    // 桌面底图用的是角色的见面背景，字段里存的是 blobref 令牌（二进制在 IndexedDB）。
+    // 令牌塞不进 CSS url()，先在组件顶层解析成能用的地址；非令牌值原样透传。
+    const dateBackgroundUrl = useBlobRefUrl(targetChar?.dateBackground);
 
     // Derived state for evidence records
     const records = (targetChar?.phoneState?.records || []).map(normalizePhoneEvidence);
@@ -3528,7 +3533,7 @@ ${olderText}
     );
 
     const renderDesktop = () => {
-        const hasBg = !!targetChar?.dateBackground;
+        const hasBg = !!dateBackgroundUrl;
         const totalPages = customApps.length > 0 ? 2 : 1;
 
         const onTouchStart = (e: React.TouchEvent) => {
@@ -3552,7 +3557,7 @@ ${olderText}
                 {/* Warm paper background */}
                 {hasBg && (
                     <div className="absolute inset-0 opacity-10 pointer-events-none"
-                        style={{ backgroundImage: `url(${targetChar!.dateBackground})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
+                        style={{ backgroundImage: `url("${dateBackgroundUrl}")`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
                 )}
 
                 <StatusStrip />
