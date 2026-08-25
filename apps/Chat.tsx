@@ -21,7 +21,8 @@ import { XhsMcpClient, extractNotesFromMcpData, normalizeXhsLiteDetail } from '.
 import { extractWebpageContent, detectFirstUrl, detectXhsShortUrl, extractXhsShareTitle, isXhsUrl, extractXhsNoteId, expandShortUrl, type ExtractedWebpage } from '../utils/webpageExtractor';
 import { isVideoShareUrl, parseVideoShareUrl } from '../utils/videoParser';
 import { isDevDebugAvailable } from '../utils/devDebug';
-import { migrateDataUrlToRef, putImageBlob, useBlobRefUrl } from '../utils/blobRef';
+import { isImageValue, migrateDataUrlToRef, putImageBlob, useBlobRefUrl } from '../utils/blobRef';
+import { buildReplySnapshotContent } from '../utils/applyAssistantPostProcessing';
 import { resolveLifeRecordCard } from '../utils/lifeRecords';
 import { resolveEmScribeCard } from '../utils/emScribe'; // [EM: em-scribe]
 import { isMcdConfigured } from '../utils/mcdMcpClient';
@@ -1196,7 +1197,9 @@ const Chat: React.FC = () => {
         
         const imageChatContext = type === 'image' ? messages.slice(-10).map(m => {
             const sender = m.role === 'user' ? userProfile.name : char.name;
-            return `${sender}: ${m.content.substring(0, 100)}`;
+            const isMedia = m.type === 'image' || m.type === 'emoji' || isImageValue(m.content);
+            const preview = isMedia ? buildReplySnapshotContent(m) : m.content.substring(0, 100);
+            return `${sender}: ${preview}`;
         }) : null;
 
         // 图片 / 表情消息存的是短令牌，图片二进制单独躺在 blob_assets 里，省掉 base64 那 ~33%
@@ -1213,8 +1216,10 @@ const Chat: React.FC = () => {
         
         if (replyTarget) {
             msgPayload.replyTo = {
+                // 引用图片 / 表情时快照存 '[图片]' 之类的占位符，不把令牌原样带进这条消息
+                // （跟角色侧的引用快照同一个函数，口径一致）
                 id: replyTarget.id,
-                content: replyTarget.content,
+                content: buildReplySnapshotContent(replyTarget),
                 name: replyTarget.role === 'user' ? '我' : char.name
             };
             setReplyTarget(null);
@@ -1223,16 +1228,22 @@ const Chat: React.FC = () => {
         const savedUserMsgId = await DB.saveMessage(msgPayload);
 
         if (type === 'image' && imageChatContext) {
-            await DB.saveGalleryImage({
-                id: `img-${Date.now()}-${Math.random()}`,
-                charId: char.id,
-                url: storedContent,
-                timestamp: Date.now(),
-                sourceMessageId: savedUserMsgId,
-                savedDate: localDateKey,
-                chatContext: imageChatContext,
-            });
-            addToast('图片已保存至相册', 'info');
+            // 存相册是发图的附带动作：即使空间不足，也不能让已经清空输入框的消息消失。
+            try {
+                await DB.saveGalleryImage({
+                    id: `img-${Date.now()}-${Math.random()}`,
+                    charId: char.id,
+                    url: storedContent,
+                    timestamp: Date.now(),
+                    sourceMessageId: savedUserMsgId,
+                    savedDate: localDateKey,
+                    chatContext: imageChatContext,
+                });
+                addToast('图片已保存至相册', 'info');
+            } catch (err) {
+                console.warn('[Chat] 图片存相册失败，消息照常发送', err);
+                addToast('图片没能存进相册，消息照常发送', 'error');
+            }
         }
 
         // 小红书链接 → xhs_card。主路径不依赖任何后端：小红书分享文案自带标题（【标题】）
@@ -3887,7 +3898,8 @@ const Chat: React.FC = () => {
                 )}
                 {replyTarget && (
                     <div className="flex items-center justify-between px-4 py-2 bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
-                        <div className="flex items-center gap-2 truncate"><span className="font-bold text-slate-700">正在回复:</span><span className="truncate max-w-[200px]">{replyTarget.content.length > 10 ? replyTarget.content.slice(0, 10) + '...' : replyTarget.content}</span></div>
+                        {/* 引用的是图片 / 表情时这里显示占位符，跟落库的快照同一口径 */}
+                        <div className="flex items-center gap-2 truncate"><span className="font-bold text-slate-700">正在回复:</span><span className="truncate max-w-[200px]">{buildReplySnapshotContent(replyTarget)}</span></div>
                         <button onClick={() => setReplyTarget(null)} className="p-1 text-slate-400 hover:text-slate-600">×</button>
                     </div>
                 )}
