@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { resolveNotionDiaryCadence } from './notionDiaryCadence';
 
-const NOW = new Date('2026-08-04T12:00:00+08:00');
+// 这里测的是“用户本地日历日”，不要把固定的 +08:00 当成运行测试机器的时区。
+const NOW = new Date(2026, 7, 4, 12, 0, 0);
 
 describe('resolveNotionDiaryCadence', () => {
     it('uses successful-write timestamps for the 24h and 48h thresholds', () => {

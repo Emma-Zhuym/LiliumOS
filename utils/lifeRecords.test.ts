@@ -96,7 +96,8 @@ describe('getPeriodIntervals 日历区间', () => {
 describe('isMedPlanDueToday 药盒频率', () => {
     const mkPlan = (overrides?: Partial<MedPlan>): MedPlan => ({
         id: 'p1', name: '维D', time: '08:00', enabled: true,
-        createdAt: new Date('2026-07-01T00:00:00Z').getTime(), ...overrides,
+        // 用本地中午，避免 UTC 午夜在美洲时区落到前一天，导致测试把计划创建日算错。
+        createdAt: new Date(2026, 6, 1, 12, 0, 0).getTime(), ...overrides,
     });
 
     it('默认（无频率字段）= 长期每天，与旧数据兼容', () => {

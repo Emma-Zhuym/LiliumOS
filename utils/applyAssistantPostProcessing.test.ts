@@ -574,4 +574,3 @@ describe('ctx.spokenAt — 日程改动按说出口那一刻判', () => {
         expect(notifyScheduleChangeFailed.mock.calls[0][0]).toContain('没有找到对得上的时段');
     });
 });
-

@@ -283,4 +283,3 @@ describe('applyAssistantScheduleChanges — 按说出口那一刻判，不是按
         expect(stored?.slots[1].activity).toBe('陪你聊天');
     });
 });
-

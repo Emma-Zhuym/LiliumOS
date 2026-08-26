@@ -2058,9 +2058,6 @@ export const resetOutboxCatchUpThrottleForTesting = (): void => { lastOutboxDrai
  * 是哪条本来就已经拿不回来了。
  */
 const notifyOutboxStaleDropped = (count: number): void => {
-  // 跟送达端其它失败共用一个事件名，只多一个写死的代号。条数不进上报——属性只能是
-  // 固定枚举（见 docs/analytics.md），而且这一格要的是「有没有人在丢消息」，不是丢了几条。
-  trackEvent('主动消息送达失败', { kind: '超时丢弃' });
   try {
     window.dispatchEvent(new CustomEvent('active-msg-backfill-stale', { detail: { count } }));
   } catch { /* SSR-safe */ }

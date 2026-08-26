@@ -6815,20 +6815,25 @@ var resolveScheduleSlots = (schedule, now) => {
   }
   return { current: null, next: schedule.slots[0] };
 };
-var buildScheduleInjection = (schedule, evolvedNarrative, now = /* @__PURE__ */ new Date()) => {
+var buildScheduleInjection = (schedule, evolvedNarrative, now = /* @__PURE__ */ new Date(), options = {}) => {
   if (!schedule || !schedule.slots || schedule.slots.length === 0) return "";
   const { current: currentSlot, next: nextSlot } = resolveScheduleSlots(schedule, now);
+  const withClock = options.includeClock !== false;
+  const withTime = (text, startTime) => withClock ? `${text}\uFF08${startTime}\uFF09` : text;
   const isPreDawnCarryOver = !currentSlot && now.getHours() < PRE_DAWN_END_HOUR;
   let slotHeader = "";
   if (currentSlot) {
-    slotHeader = `\u5F53\u524D\u65F6\u6BB5\uFF1A${currentSlot.startTime} \u4F60\u6B63\u5728${currentSlot.activity}`;
+    slotHeader = withClock ? `\u5F53\u524D\u65F6\u6BB5\uFF1A${currentSlot.startTime} \u4F60\u6B63\u5728${currentSlot.activity}` : `\u5F53\u524D\u65F6\u6BB5\uFF1A\u4F60\u6B63\u5728${currentSlot.activity}`;
     if (currentSlot.location) slotHeader += `\uFF08${currentSlot.location}\uFF09`;
-    if (nextSlot) slotHeader += `
-\u4E4B\u540E\u5B89\u6392\uFF1A${nextSlot.startTime} ${nextSlot.activity}`;
+    if (nextSlot) {
+      slotHeader += withClock ? `
+\u4E4B\u540E\u5B89\u6392\uFF1A${nextSlot.startTime} ${nextSlot.activity}` : `
+\u4E4B\u540E\u5B89\u6392\uFF1A${nextSlot.activity}`;
+    }
     slotHeader += "\n";
   } else if (nextSlot) {
-    slotHeader = isPreDawnCarryOver ? `\u591C\u6DF1\u4E86\uFF0C\u4ECA\u5929\u7684\u5B89\u6392\u8FD8\u6CA1\u5F00\u59CB\uFF0C\u6700\u65E9\u7684\u4E00\u4EF6\u662F${nextSlot.activity}\uFF08${nextSlot.startTime}\uFF09
-` : `\u4ECA\u5929\u8FD8\u6CA1\u5F00\u59CB\u6D3B\u52A8\uFF0C\u7A0D\u540E\u5148${nextSlot.activity}\uFF08${nextSlot.startTime}\uFF09
+    slotHeader = isPreDawnCarryOver ? `\u591C\u6DF1\u4E86\uFF0C\u4ECA\u5929\u7684\u5B89\u6392\u8FD8\u6CA1\u5F00\u59CB\uFF0C\u6700\u65E9\u7684\u4E00\u4EF6\u662F${withTime(nextSlot.activity, nextSlot.startTime)}
+` : `\u4ECA\u5929\u8FD8\u6CA1\u5F00\u59CB\u6D3B\u52A8\uFF0C\u7A0D\u540E\u5148${withTime(nextSlot.activity, nextSlot.startTime)}
 `;
   }
   let narrative = "";
@@ -6844,9 +6849,27 @@ var buildScheduleInjection = (schedule, evolvedNarrative, now = /* @__PURE__ */ 
 `;
   const footnote = `
 \uFF08\u4E0D\u662F\u53F0\u8BCD\uFF0C\u4E0D\u7528\u8BF4\u51FA\u53E3\u2014\u2014\u8BA9\u5B83\u5F71\u54CD\u4F60\u7684\u8BED\u6C14\u548C\u60C5\u7EEA\u5C31\u597D\u3002\uFF09`;
-  let out = slotHeader;
+  let out = "";
+  if (options.includeFullDay) {
+    const rows = schedule.slots.map((slot) => {
+      let line = withClock ? `- ${slot.startTime} ${slot.activity}` : `- ${slot.activity}`;
+      if (slot.location) line += `\uFF08${slot.location}\uFF09`;
+      if (slot.description) line += `\uFF1A${slot.description}`;
+      return line;
+    });
+    out += `\u4F60\u4ECA\u5929\u7684\u5B8C\u6574\u65E5\u7A0B\uFF1A
+${rows.join("\n")}
+`;
+  }
+  out += slotHeader;
   if (narrative) {
     out += preamble + narrative + footnote;
+  }
+  const changeTarget = nextSlot ?? currentSlot;
+  if (options.includeChangeInstruction && withClock && changeTarget) {
+    out += `
+\u65E5\u7A0B\u662F\u4F60\u65E9\u4E0A\u7ED9\u81EA\u5DF1\u6392\u7684\u8BA1\u5212\uFF0C\u4E0D\u662F\u5FC5\u987B\u5C65\u884C\u7684\u547D\u4EE4\u3002\u771F\u5B9E\u53D1\u751F\u7684\u4E8B\u8DDF\u5B83\u5BF9\u4E0D\u4E0A\u65F6\uFF08\u6BD4\u5982\u8FD9\u4F1A\u513F\u8868\u4E0A\u5199\u7740\u7761\u89C9\u3001\u4F60\u5374\u9192\u7740\u5728\u8DDF\u5BF9\u65B9\u8BF4\u8BDD\uFF09\uFF0C\u628A\u5B83\u6539\u6210\u4F60\u5B9E\u9645\u5728\u505A\u7684\u4E8B\u5C31\u597D\u3002
+\u9700\u8981\u65F6\u5728\u56DE\u590D\u672B\u5C3E\u5355\u72EC\u8F93\u51FA\uFF1A[[ACTION:CHANGE_SCHEDULE | ${changeTarget.startTime} | \u53BB\u8D85\u5E02]]\uFF08\u65F6\u6BB5\u8981\u539F\u6837\u6284\u4E0A\u9762\u51FA\u73B0\u8FC7\u7684\u90A3\u51E0\u4E2A\uFF1B\u6B63\u5728\u8FDB\u884C\u7684\u8FD9\u4E00\u6761\u548C\u5B83\u4E4B\u540E\u7684\u90FD\u80FD\u6539\uFF0C\u5DF2\u7ECF\u8FC7\u53BB\u7684\u4E0D\u80FD\uFF09\u3002`;
   }
   out += "\n";
   return out;
@@ -7186,17 +7209,10 @@ var DAY_MS2 = 24 * 36e5;
 var recurrencePeriodMs = (recurrenceType) => recurrenceType === "daily" ? DAY_MS2 : recurrenceType === "weekly" ? 7 * DAY_MS2 : null;
 function shouldExpireFire(input) {
   if (input.policy !== "expire") return false;
-  if (input.recurrenceType == null && input.occurrenceMs == null) return false;
+  if (input.occurrenceMs == null) return false;
   const last = input.lastUserMessageAt;
-  if (input.recurrenceType === "daily" || input.recurrenceType === "weekly") {
-    if (last == null) return false;
-    if (input.occurrenceMs == null) return false;
-    return last > input.occurrenceMs - ACTIVE_CHAT_WINDOW_MS && last <= input.nowMs;
-  }
-  const anchor = input.anchorMs;
-  if (anchor == null) return false;
-  if (last == null) return anchor > 0;
-  return last > anchor;
+  if (last == null) return false;
+  return last > input.occurrenceMs - ACTIVE_CHAT_WINDOW_MS && last <= input.occurrenceMs + ACTIVE_CHAT_WINDOW_MS && last <= input.nowMs;
 }
 var DELIVERED_WINDOW_MS = 30 * 6e4;
 
@@ -8090,6 +8106,9 @@ var buildRealtimeWorldBlock = async (args) => {
   return block;
 };
 
+// utils/timeFramingNote.ts
+var TIME_FRAMING_CONVERSATIONAL = "\u65F6\u95F4\u662F\u4F60\u6B64\u523B\u6240\u5904\u7684\u80CC\u666F\uFF1A\u5B83\u4F1A\u6E17\u8FDB\u4F60\u7684\u8BED\u6C14\u3001\u4F60\u7684\u72B6\u6001\u3001\u4F60\u987A\u53E3\u63D0\u8D77\u7684\u4E8B\u3002\u81F3\u4E8E\u8FD9\u6BB5\u8BDD\u804A\u5230\u54EA\u513F\u3001\u8981\u4E0D\u8981\u7EE7\u7EED\uFF0C\u8DDF\u7740\u4F60\u4EEC\u6B63\u5728\u8BF4\u7684\u4E8B\u60C5\u8D70\u2014\u2014\u8BDD\u9898\u81EA\u5DF1\u4F1A\u8D70\u5230\u8BE5\u7ED3\u675F\u7684\u5730\u65B9\u3002\u5BF9\u65B9\u5728\u8FD9\u4E2A\u70B9\u8FD8\u5728\u8DDF\u4F60\u8BF4\u8BDD\uFF0C\u672C\u8EAB\u5C31\u662F ta \u7684\u9009\u62E9\u3002";
+
 // worker/amsg/src/instantChat.ts
 var INSTANT_TOTAL_TIMEOUT_MS = 6e5;
 var AMSG_INSTANT_CHAT_FLAG = "amsgInstantChat";
@@ -8100,6 +8119,11 @@ var buildInstantTimelyBlock = (args) => {
   const head = args.timeAwarenessEnabled ? [
     "\u3010\u6B64\u523B\u7684\u7CFB\u7EDF\u4FE1\u606F\xB7\u4EC5\u4F60\u53EF\u89C1\u3011",
     `\u73B0\u5728\u662F ${formatFireTimeFull(args.nowMs, args.tz)}\u3002`,
+    // 报时后面跟那句语境框定，跟前台聊天引的是同一份常量。这一轮是用户刚按下发送、
+    // 正等着回复，所以「对方还在跟你说话」是真的；少了它，深夜的那行钟就够让角色
+    // 每轮都往「快睡吧、明天见」上收——本地那条路修好了、云端没修的话，同一个角色
+    // 在两条路上的分寸会不一样。
+    TIME_FRAMING_CONVERSATIONAL,
     // buildUserClockHint 自带前导换行，没时差时返回空串。
     buildUserClockHint(args.nowMs, args.tz, { tzId: args.userTzId }, args.targetName)
   ].join("\n") : "\u3010\u6B64\u523B\u7684\u7CFB\u7EDF\u4FE1\u606F\xB7\u4EC5\u4F60\u53EF\u89C1\u3011";
@@ -12427,8 +12451,6 @@ var runFireScheduleTool = async (stash, scheduleTask, args, nowMs) => {
         amsgMode: parsed.mode,
         amsgClientTaskId: clientTaskId,
         amsgExpirePolicy: parsed.expirePolicy,
-        // 防穿帮闸锚点：这条排下去之后，用户再开口就算「对话往前走了」。
-        amsgAnchorMs: stash.anchorMs,
         amsgTaskInstruction: buildTaskInstruction(parsed.mode, parsed.promptHint),
         // 自排标记：到点兜底闸只拦带它的任务（用户面板排的不受连发上限管）。
         amsgSelfScheduled: true
@@ -12452,7 +12474,6 @@ var runFireScheduleTool = async (stash, scheduleTask, args, nowMs) => {
     recurrenceType: remote?.recurrenceType || parsed.recurrence,
     ...parsed.promptHint ? { promptHint: parsed.promptHint } : {},
     expirePolicy: parsed.expirePolicy,
-    anchorLastUserMsgAt: stash.anchorMs,
     source: "character",
     status: "scheduled",
     createdAt: nowMs
@@ -12673,17 +12694,24 @@ var amsgHooks = {
     const presenceLastUserMessageAt = presence?.charId === charId ? presence.lastUserMessageAt : null;
     const expireInput = {
       policy,
-      recurrenceType: ctx.task.recurrenceType,
-      anchorMs: typeof taskMeta.amsgAnchorMs === "number" ? taskMeta.amsgAnchorMs : null,
       lastUserMessageAt: laterOf(pack.lastUserMessageAt ?? null, presenceLastUserMessageAt),
       nowMs: ctx.now.getTime(),
       occurrenceMs
     };
+    const expireTrace = {
+      taskId: ctx.task.id,
+      // 判定本身已经不看任务类型了（一次性和循环同一条规则），但排查时得认得出是哪种。
+      recurrenceType: ctx.task.recurrenceType,
+      ...expireInput,
+      packLastUserMessageAt: pack.lastUserMessageAt ?? null,
+      presenceLastUserMessageAt
+    };
     if (!instant && shouldExpireFire(expireInput)) {
-      console.log("[amsg:expire-skip]", { taskId: ctx.task.id, ...expireInput });
+      console.log("[amsg:expire-skip]", { ...expireTrace, reason: "conversation-moved-on" });
       await recordSkip(ctx, charId, "conversation-moved-on", occurrenceMs);
       return { skip: true };
     }
+    if (!instant) console.log("[amsg:expire-pass]", expireTrace);
     if (!instant && typeof taskMeta.amsgTaskInstruction !== "string") {
       throw fail2("\u4EFB\u52A1 metadata \u7F3A amsgTaskInstruction\uFF08\u65E7\u683C\u5F0F\u4EFB\u52A1\uFF09");
     }
@@ -12744,7 +12772,6 @@ var amsgHooks = {
       plannedSelfSends: plannedSelfSendTasks.length,
       plannedSelfSendUuids: plannedSelfSendTasks.map((t) => t.taskUuid),
       charId,
-      anchorMs: pack.lastUserMessageAt ?? 0,
       tz,
       taskUuid: typeof ctx.task.uuid === "string" ? ctx.task.uuid : null,
       taskRowId: ctx.task.id != null ? String(ctx.task.id) : null,
