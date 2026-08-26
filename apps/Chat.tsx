@@ -39,6 +39,7 @@ import ChromeCssEditor from '../components/chat/ChromeCssEditor';
 import ChatInputArea from '../components/chat/ChatInputArea';
 import IntifaceFloatingBall from '../components/chat/IntifaceFloatingBall';
 import MemoryRepairPortal from '../components/chat/MemoryRepairPortal';
+import FavoritesPortal from '../components/chat/FavoritesPortal';
 import ChatModals from '../components/chat/ChatModals';
 import Modal from '../components/os/Modal';
 import ProactiveSettingsModal from '../components/chat/ProactiveSettingsModal';
@@ -65,6 +66,13 @@ import { generatePersistedChatImage } from '../utils/chatGeneratedImage';
 import { AMSG_INSTANT_CHAT_PENDING_EVENT, AMSG_INSTANT_CHAT_PENDING_LS_KEY, getInstantChatPending } from '../utils/amsgInstantChat';
 import { formatAmsgToolTrace } from '../utils/amsgToolTrace';
 import { formatHours } from '../utils/format';
+import {
+    CONTENT_FAVORITES_CHANGED_EVENT,
+    contentFavoriteIdForMessage,
+    listContentFavorites,
+    removeUserContentFavoriteById,
+    saveMessageContentFavorite,
+} from '../utils/contentFavorites';
 import {
     CONTEXT_RANGE_POLICY_VERSION,
     computeContextRangeSnapshot,
@@ -118,6 +126,8 @@ const Chat: React.FC = () => {
     const [input, setInput] = useState('');
     const [showPanel, setShowPanel] = useState<'none' | 'actions' | 'emojis' | 'chars'>('none');
     const [memoryRepairOpen, setMemoryRepairOpen] = useState(false);
+    const [favoritesOpen, setFavoritesOpen] = useState(false);
+    const [userContentFavoriteIds, setUserContentFavoriteIds] = useState<Set<string>>(new Set());
     
     // Emoji State
     const [emojis, setEmojis] = useState<Emoji[]>([]);
@@ -194,6 +204,21 @@ const Chat: React.FC = () => {
     const [showProactiveModal, setShowProactiveModal] = useState(false);
     const [showActiveMsg2Modal, setShowActiveMsg2Modal] = useState(false);
     const [showThinkingChainModal, setShowThinkingChainModal] = useState(false);
+
+    const refreshUserContentFavorites = useCallback(async () => {
+        const favorites = await listContentFavorites();
+        setUserContentFavoriteIds(new Set(
+            favorites
+                .filter(favorite => favorite.owners.some(owner => owner.kind === 'user'))
+                .map(favorite => favorite.id),
+        ));
+    }, []);
+
+    useEffect(() => {
+        void refreshUserContentFavorites();
+        window.addEventListener(CONTENT_FAVORITES_CHANGED_EVENT, refreshUserContentFavorites);
+        return () => window.removeEventListener(CONTENT_FAVORITES_CHANGED_EVENT, refreshUserContentFavorites);
+    }, [refreshUserContentFavorites]);
 
     // Archive Prompts State
     const [archivePrompts, setArchivePrompts] = useState<{id: string, name: string, content: string}[]>(DEFAULT_ARCHIVE_PROMPTS);
@@ -1167,21 +1192,10 @@ const Chat: React.FC = () => {
 
         if (!customContent) { setInput(''); localStorage.removeItem(draftKey); }
         
-        if (type === 'image') {
-            const recentChat = messages.slice(-10).map(m => {
-                const sender = m.role === 'user' ? userProfile.name : char.name;
-                return `${sender}: ${m.content.substring(0, 100)}`;
-            });
-            await DB.saveGalleryImage({
-                id: `img-${Date.now()}-${Math.random()}`,
-                charId: char.id,
-                url: text,
-                timestamp: Date.now(),
-                savedDate: localDateKey,
-                chatContext: recentChat
-            });
-            addToast('图片已保存至相册', 'info');
-        }
+        const imageChatContext = type === 'image' ? messages.slice(-10).map(m => {
+            const sender = m.role === 'user' ? userProfile.name : char.name;
+            return `${sender}: ${m.content.substring(0, 100)}`;
+        }) : null;
 
         const msgPayload: any = { charId: char.id, role: 'user', type, content: text, metadata };
         
@@ -1195,6 +1209,19 @@ const Chat: React.FC = () => {
         }
 
         const savedUserMsgId = await DB.saveMessage(msgPayload);
+
+        if (type === 'image' && imageChatContext) {
+            await DB.saveGalleryImage({
+                id: `img-${Date.now()}-${Math.random()}`,
+                charId: char.id,
+                url: text,
+                timestamp: Date.now(),
+                sourceMessageId: savedUserMsgId,
+                savedDate: localDateKey,
+                chatContext: imageChatContext,
+            });
+            addToast('图片已保存至相册', 'info');
+        }
 
         // 小红书链接 → xhs_card。主路径不依赖任何后端：小红书分享文案自带标题（【标题】）
         // 和笔记 id/token，直接解析就能建卡，让「没部署小红书 MCP」的用户也能让角色看到分享了哪篇笔记。
@@ -1498,6 +1525,7 @@ const Chat: React.FC = () => {
         }
         switch (type) {
             case 'memory-link': setShowPanel('none'); setMemoryRepairOpen(true); break;
+            case 'favorites': setShowPanel('none'); setFavoritesOpen(true); break;
             case 'transfer': setModalType('transfer'); break;
             case 'poke': handleSendText('[戳一戳]', 'interaction'); break;
             case 'archive': setModalType('archive-settings'); break;
@@ -2670,6 +2698,26 @@ const Chat: React.FC = () => {
         trackEvent('复制一条消息');
     };
 
+    const handleToggleSelectedMessageFavorite = async () => {
+        if (!selectedMessage || !char) return;
+        const favoriteId = contentFavoriteIdForMessage(selectedMessage);
+        const currentlyFavorited = userContentFavoriteIds.has(favoriteId);
+        if (currentlyFavorited) {
+            await removeUserContentFavoriteById(favoriteId);
+        } else {
+            await saveMessageContentFavorite(selectedMessage, char.name);
+        }
+        setUserContentFavoriteIds(previous => {
+            const next = new Set(previous);
+            if (currentlyFavorited) next.delete(favoriteId);
+            else next.add(favoriteId);
+            return next;
+        });
+        addToast(currentlyFavorited ? '已取消我的收藏' : '已加入收藏夹', 'success');
+        setModalType('none');
+        setSelectedMessage(null);
+    };
+
     const handleDeleteEmoji = async () => {
         if (!selectedEmoji) return;
         const emojisToDelete = Array.isArray(selectedEmoji) ? selectedEmoji : [selectedEmoji];
@@ -3293,7 +3341,10 @@ const Chat: React.FC = () => {
                 onClearHistory={handleClearHistory} onArchive={handleFullArchive}
                 onCreatePrompt={createNewPrompt} onEditPrompt={editSelectedPrompt} onSavePrompt={handleSavePrompt} onDeletePrompt={handleDeletePrompt}
                 onSetHistoryStart={handleSetHistoryStart} onRestoreAdaptiveContext={restoreAdaptiveContext} onJumpToMessageInChat={handleJumpToMessageInChat} onEnterSelectionMode={handleEnterSelectionMode}
-                onReplyMessage={handleReplyMessage} onEditMessageStart={() => { if (selectedMessage) { setEditContent(selectedMessage.content); setModalType('edit-message'); } }}
+                onReplyMessage={handleReplyMessage}
+                messageFavorited={!!selectedMessage && userContentFavoriteIds.has(contentFavoriteIdForMessage(selectedMessage))}
+                onToggleMessageFavorite={selectedMessage ? handleToggleSelectedMessageFavorite : undefined}
+                onEditMessageStart={() => { if (selectedMessage) { setEditContent(selectedMessage.content); setModalType('edit-message'); } }}
                 onConfirmEditMessage={confirmEditMessage} onDeleteMessage={handleDeleteMessage} onCopyMessage={handleCopyMessage} onDeleteEmoji={handleDeleteEmoji} onDeleteCategory={handleDeleteCategory}
                 allCharacters={characters} onSaveCategoryVisibility={handleSaveCategoryVisibility}
                 translationEnabled={translationEnabled}
@@ -4132,6 +4183,21 @@ const Chat: React.FC = () => {
                     onClose={() => {
                         setMemoryRepairOpen(false);
                         setShowPanel('none');
+                    }}
+                />
+            )}
+
+            {favoritesOpen && (
+                <FavoritesPortal
+                    onClose={() => setFavoritesOpen(false)}
+                    onJumpToMessage={(charId, messageId) => {
+                        if (charId !== activeCharacterId) {
+                            const targetName = characters.find(character => character.id === charId)?.name || '对应角色';
+                            addToast(`请先切换到 ${targetName} 的聊天，再从收藏夹跳转`, 'info');
+                            return;
+                        }
+                        setFavoritesOpen(false);
+                        void handleJumpToMessageInChat(messageId);
                     }}
                 />
             )}

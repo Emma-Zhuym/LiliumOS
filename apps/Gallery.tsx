@@ -5,6 +5,12 @@ import { DB } from '../utils/db';
 import { GalleryImage, CharacterProfile } from '../types';
 import { safeResponseJson } from '../utils/safeApi';
 import ConfirmDialog from '../components/os/ConfirmDialog';
+import {
+    makeImageContentFavoriteId,
+    removeContentFavoriteOwnerById,
+    saveGalleryImageContentFavorite,
+    syncLegacyGalleryFavorites,
+} from '../utils/contentFavorites';
 
 const Gallery: React.FC = () => {
     const { closeApp, characters, apiConfig, addToast } = useOS();
@@ -38,7 +44,7 @@ const Gallery: React.FC = () => {
 
     useEffect(() => {
         if (activeCharId) {
-            DB.getGalleryImages(activeCharId).then(imgs => {
+            syncLegacyGalleryFavorites().then(() => DB.getGalleryImages(activeCharId)).then(imgs => {
                 setImages(imgs.sort((a, b) => b.timestamp - a.timestamp));
             });
         }
@@ -111,10 +117,18 @@ const Gallery: React.FC = () => {
     // [EM-START: photo-favorites] 收藏/取消收藏（收藏照片会进查手机 widget 轮播）
     const handleToggleFavorite = async () => {
         if (!selectedImage) return;
-        const next = !selectedImage.favorited;
+        const userFavorited = selectedImage.favoriteOrigins
+            ? !!selectedImage.favoriteOrigins.user
+            : !!selectedImage.favorited;
+        const next = !userFavorited;
         try {
-            await DB.updateGalleryImageFavorite(selectedImage.id, next);
-            const updated = { ...selectedImage, favorited: next };
+            const updated = await DB.updateGalleryImageFavorite(selectedImage.id, next, { kind: 'user' });
+            if (next) {
+                const charName = characters.find(character => character.id === updated.charId)?.name || '未知角色';
+                await saveGalleryImageContentFavorite(updated, charName, { kind: 'user', favoritedAt: Date.now() });
+            } else {
+                await removeContentFavoriteOwnerById(makeImageContentFavoriteId(updated.url), { kind: 'user' });
+            }
             setSelectedImage(updated);
             setImages(prev => prev.map(img => img.id === selectedImage.id ? updated : img));
             addToast(next ? '已收藏' : '已取消收藏', 'success');
@@ -344,7 +358,7 @@ CRITICAL: Stay in character. If there's conversation context, your comment shoul
                 <div className="flex items-center gap-2">
                 {/* [EM-START: photo-favorites] 详情页星标钮 */}
                 <button onClick={handleToggleFavorite} className="text-white bg-black/40 backdrop-blur-md p-2 rounded-full pointer-events-auto active:scale-95 transition-transform hover:bg-black/60 border border-white/10">
-                    {selectedImage.favorited ? (
+                    {(selectedImage.favoriteOrigins ? !!selectedImage.favoriteOrigins.user : !!selectedImage.favorited) ? (
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#facc15" className="w-5 h-5"><path fillRule="evenodd" d="M10.788 3.21c.448-1.077 1.976-1.077 2.424 0l2.082 5.006 5.404.434c1.164.093 1.636 1.545.749 2.305l-4.117 3.527 1.257 5.273c.271 1.136-.964 2.033-1.96 1.425L12 18.354 7.373 21.18c-.996.608-2.231-.29-1.96-1.425l1.257-5.273-4.117-3.527c-.887-.76-.415-2.212.749-2.305l5.404-.434 2.082-5.005Z" clipRule="evenodd" /></svg>
                     ) : (
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z" /></svg>
@@ -361,6 +375,14 @@ CRITICAL: Stay in character. If there's conversation context, your comment shoul
             {selectedImage.savedDate && (
                 <div className="absolute left-1/2 -translate-x-1/2 z-50" style={{ top: 'max(4rem, calc(var(--safe-top) + 0.5rem))' }}>
                     <span className="text-[10px] text-white/60 bg-black/40 backdrop-blur-sm px-3 py-1 rounded-full font-mono">{selectedImage.savedDate}</span>
+                </div>
+            )}
+
+            {Object.keys(selectedImage.favoriteOrigins?.characters || {}).length > 0 && (
+                <div className="absolute left-1/2 -translate-x-1/2 z-50" style={{ top: 'max(6rem, calc(var(--safe-top) + 2.5rem))' }}>
+                    <span className="text-[10px] text-amber-100 bg-black/55 backdrop-blur-sm px-3 py-1 rounded-full font-medium">
+                        {Object.values(selectedImage.favoriteOrigins?.characters || {}).map(owner => owner.name).join('、')} 收藏了这张照片
+                    </span>
                 </div>
             )}
 

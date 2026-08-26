@@ -2640,6 +2640,8 @@ export interface CharacterProfile {
       builtinModelUrl?: string;
       /** balanced = 2K 默认纹理，hd = 4K 可选纹理。 */
       builtinQuality?: 'balanced' | 'hd';
+      /** 导入模型的运行纹理档位；默认 balanced(2K)，源模型最多保留到 4K 以便切换。 */
+      textureQuality?: 'balanced' | 'hd';
       /** 内置 Sully 的一次性默认构图迁移版本。 */
       builtinFramingVersion?: 1 | 2;
       /** ZIP 包内 model3.json 的完整相对路径。 */
@@ -2648,7 +2650,7 @@ export interface CharacterProfile {
       fileCount: number;
       importedAt: number;
       /** 运行包已在导入时转为 STORE（免 DEFLATE 解压）的缓存格式。 */
-      runtimePackageEncoding?: 'store-v1';
+      runtimePackageEncoding?: 'store-v1' | 'zip-v1';
       /** 自动动作权限策略版本；2 = 安全动作默认加入 AI 动作库。 */
       actionPolicyVersion?: 2;
       /** 用户校准后的 Live2D 舞台构图；偏移量是相对画布宽高的比例。 */
@@ -2692,6 +2694,12 @@ export interface CharacterProfile {
           params?: Array<{ id: string; value: number }>;
           /** motion3/exp3 文件实际写入的参数；用于高质量模式判断能否安全并行动作。 */
           parameterIds?: string[];
+          /** exp3 参数目标；衣橱会把这些值作为持久底层，避免表情重置顺带清掉服装。 */
+          parameterValues?: Array<{
+              id: string;
+              value: number;
+              blend?: 'Add' | 'Multiply' | 'Overwrite';
+          }>;
           /** VTube Studio 中绑定的原始组合键，例如 F1 / Alt+Q。 */
           hotkey?: string;
           source?: 'model3' | 'vtube' | 'discovered' | 'custom';
@@ -3200,11 +3208,18 @@ export interface GalleryImage {
     charId: string;
     url: string;
     timestamp: number;
+    /** Original chat row when this gallery item came from a message. */
+    sourceMessageId?: number;
     review?: string;
     reviewTimestamp?: number;
     savedDate?: string; // YYYY-MM-DD format
     chatContext?: string[]; // Recent chat messages at time of save
     favorited?: boolean; // [EM: photo-favorites] 收藏标记，undefined 视为 false
+    /** Keep user stars distinct from character-initiated [[FAV_PHOTO]] events. */
+    favoriteOrigins?: {
+        user?: boolean;
+        characters?: Record<string, { name: string; favoritedAt: number }>;
+    };
 }
 
 export interface StickerData {

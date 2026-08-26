@@ -830,23 +830,51 @@ export const DB = {
     });
   },
 
-  deleteMessage: async (id: number): Promise<void> => {
+  getMessageById: async (id: number): Promise<Message | null> => {
     const db = await openDB();
-    const transaction = db.transaction(STORE_MESSAGES, 'readwrite');
-    transaction.objectStore(STORE_MESSAGES).delete(id);
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_MESSAGES, 'readonly');
+      const request = transaction.objectStore(STORE_MESSAGES).get(id);
+      request.onsuccess = () => resolve((request.result as Message | undefined) || null);
+      request.onerror = () => reject(request.error);
+    });
+  },
+
+  findImageMessageByUrl: async (charId: string, url: string): Promise<Message | null> => {
+    const messages = await DB.getMessagesByCharId(charId, true);
+    return messages.find(message => message.type === 'image' && message.content === url) || null;
+  },
+
+  deleteMessage: async (id: number): Promise<void> => {
+    const { preserveContentFavoritesBeforeMessageDeletion } = await import('./contentFavorites');
+    await preserveContentFavoritesBeforeMessageDeletion({ ids: [id] });
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_MESSAGES, 'readwrite');
+      transaction.objectStore(STORE_MESSAGES).delete(id);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error || new Error('deleteMessage aborted'));
+    });
   },
 
   deleteMessages: async (ids: number[]): Promise<void> => {
+      const { preserveContentFavoritesBeforeMessageDeletion } = await import('./contentFavorites');
+      await preserveContentFavoritesBeforeMessageDeletion({ ids });
       const db = await openDB();
       const transaction = db.transaction(STORE_MESSAGES, 'readwrite');
       const store = transaction.objectStore(STORE_MESSAGES);
       ids.forEach(id => store.delete(id));
-      return new Promise((resolve) => {
+      return new Promise((resolve, reject) => {
           transaction.oncomplete = () => resolve();
+          transaction.onerror = () => reject(transaction.error);
+          transaction.onabort = () => reject(transaction.error || new Error('deleteMessages aborted'));
       });
   },
 
   clearMessages: async (charId: string): Promise<void> => {
+    const { preserveContentFavoritesBeforeMessageDeletion } = await import('./contentFavorites');
+    await preserveContentFavoritesBeforeMessageDeletion({ charId });
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const transaction = db.transaction(STORE_MESSAGES, 'readwrite');
@@ -1307,6 +1335,26 @@ export const DB = {
       });
   },
 
+  getGalleryImageById: async (id: string): Promise<GalleryImage | null> => {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+          const transaction = db.transaction(STORE_GALLERY, 'readonly');
+          const request = transaction.objectStore(STORE_GALLERY).get(id);
+          request.onsuccess = () => resolve((request.result as GalleryImage | undefined) || null);
+          request.onerror = () => reject(request.error);
+      });
+  },
+
+  findGalleryImageBySourceMessageId: async (charId: string, sourceMessageId: number): Promise<GalleryImage | null> => {
+      const images = await DB.getGalleryImages(charId);
+      return images.find(image => image.sourceMessageId === sourceMessageId) || null;
+  },
+
+  findGalleryImageByUrl: async (charId: string, url: string): Promise<GalleryImage | null> => {
+      const images = await DB.getGalleryImages(charId);
+      return images.find(image => image.url === url) || null;
+  },
+
   updateGalleryImageReview: async (id: string, review: string): Promise<void> => {
       const db = await openDB();
       const transaction = db.transaction(STORE_GALLERY, 'readwrite');
@@ -1327,7 +1375,11 @@ export const DB = {
   },
 
   // [EM-START: photo-favorites] 收藏标记更新（同 updateGalleryImageReview 模式）
-  updateGalleryImageFavorite: async (id: string, favorited: boolean): Promise<void> => {
+  updateGalleryImageFavorite: async (
+      id: string,
+      favorited: boolean,
+      origin: { kind: 'user' } | { kind: 'character'; charId: string; charName: string; favoritedAt?: number } = { kind: 'user' },
+  ): Promise<GalleryImage> => {
       const db = await openDB();
       const transaction = db.transaction(STORE_GALLERY, 'readwrite');
       const store = transaction.objectStore(STORE_GALLERY);
@@ -1336,9 +1388,27 @@ export const DB = {
           req.onsuccess = () => {
               const data = req.result as GalleryImage;
               if (data) {
-                  data.favorited = favorited;
+                  const legacyUserFavorite = data.favorited && !data.favoriteOrigins;
+                  const favoriteOrigins = {
+                      user: data.favoriteOrigins?.user || legacyUserFavorite || undefined,
+                      characters: { ...(data.favoriteOrigins?.characters || {}) },
+                  };
+                  if (origin.kind === 'user') {
+                      favoriteOrigins.user = favorited || undefined;
+                  } else if (favorited) {
+                      favoriteOrigins.characters[origin.charId] = {
+                          name: origin.charName,
+                          favoritedAt: origin.favoritedAt || Date.now(),
+                      };
+                  } else {
+                      delete favoriteOrigins.characters[origin.charId];
+                  }
+                  data.favoriteOrigins = favoriteOrigins.user || Object.keys(favoriteOrigins.characters).length
+                      ? favoriteOrigins
+                      : undefined;
+                  data.favorited = !!data.favoriteOrigins;
                   store.put(data);
-                  resolve();
+                  resolve(data);
               } else reject(new Error('Image not found'));
           };
           req.onerror = () => reject(req.error);
@@ -1347,9 +1417,16 @@ export const DB = {
   // [EM-END: photo-favorites]
 
   deleteGalleryImage: async (id: string): Promise<void> => {
+      const { preserveContentFavoritesBeforeGalleryDeletion } = await import('./contentFavorites');
+      await preserveContentFavoritesBeforeGalleryDeletion({ ids: [id] });
       const db = await openDB();
-      const transaction = db.transaction(STORE_GALLERY, 'readwrite');
-      transaction.objectStore(STORE_GALLERY).delete(id);
+      return new Promise((resolve, reject) => {
+          const transaction = db.transaction(STORE_GALLERY, 'readwrite');
+          transaction.objectStore(STORE_GALLERY).delete(id);
+          transaction.oncomplete = () => resolve();
+          transaction.onerror = () => reject(transaction.error);
+          transaction.onabort = () => reject(transaction.error || new Error('deleteGalleryImage aborted'));
+      });
   },
 
   // --- XHS Stock Images ---

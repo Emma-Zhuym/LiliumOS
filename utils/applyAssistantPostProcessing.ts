@@ -53,6 +53,7 @@ import { ensureRequestedPhotoDirective, normalizeAssistantActionFormatting } fro
 import { generatePersistedChatImage } from './chatGeneratedImage';
 import { markAmsgStateDirty } from './amsgStateSync';
 import { announceScheduleChanges, applyAssistantScheduleChanges } from './scheduleChange';
+import { saveGalleryImageContentFavorite } from './contentFavorites';
 
 // ─── 模块内辅助 ──────────────────────────────────────────────────────────────
 
@@ -969,8 +970,20 @@ export async function applyAssistantPostProcessing(
             try {
                 const imgs = await DB.getGalleryImages(char.id);
                 const latest = imgs.sort((a, b) => b.timestamp - a.timestamp)[0];
-                if (latest && !latest.favorited) {
-                    await DB.updateGalleryImageFavorite(latest.id, true);
+                if (latest && !latest.favoriteOrigins?.characters?.[char.id]) {
+                    const favoritedAt = Date.now();
+                    const updated = await DB.updateGalleryImageFavorite(latest.id, true, {
+                        kind: 'character',
+                        charId: char.id,
+                        charName: char.name,
+                        favoritedAt,
+                    });
+                    await saveGalleryImageContentFavorite(updated, char.name, {
+                        kind: 'character',
+                        charId: char.id,
+                        charName: char.name,
+                        favoritedAt,
+                    });
                     localStorage.setItem(cooldownKey, String(Date.now()));
                     await DB.saveMessage({
                         charId: char.id,
