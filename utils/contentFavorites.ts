@@ -236,6 +236,70 @@ export const sortContentFavorites = (items: ContentFavorite[]): ContentFavorite[
 );
 
 /**
+ * 一键优化会把原来的 data URL 原地换成 blobref。同一张图的引用没有变，但旧收藏卡的
+ * id 是按 data URL 算的；不迁移的话会出现“图还在，收藏却打不开/再收藏多出一张”。
+ * 这里以明确指向的消息/相册行作为身份锚点，把旧 id 更新到当前存储值，并合并重复卡片。
+ */
+async function reconcileImageFavoriteIdentities(items: ContentFavorite[]): Promise<{ items: ContentFavorite[]; changed: boolean }> {
+    const reconciled: ContentFavorite[] = [];
+    let changed = false;
+
+    for (const item of items) {
+        if (item.kind !== 'image') {
+            reconciled.push(item);
+            continue;
+        }
+
+        const orderedReferences = [...item.references].sort((a, b) => (
+            Number(b.source === 'gallery') - Number(a.source === 'gallery')
+        ));
+        let currentImageValue: string | null = null;
+        for (const reference of orderedReferences) {
+            currentImageValue = await resolveImageReference(reference);
+            if (currentImageValue) break;
+        }
+
+        const canonicalId = currentImageValue ? makeImageContentFavoriteId(currentImageValue) : item.id;
+        const canonical: ImageContentFavorite = currentImageValue ? {
+            ...item,
+            id: canonicalId,
+            fingerprint: imageFingerprint(currentImageValue),
+        } : item;
+        if (canonical.id !== item.id || canonical.fingerprint !== item.fingerprint) changed = true;
+
+        const duplicateIndex = reconciled.findIndex(candidate => candidate.kind === 'image' && candidate.id === canonical.id);
+        if (duplicateIndex < 0) {
+            reconciled.push(canonical);
+            continue;
+        }
+
+        const duplicate = reconciled[duplicateIndex] as ImageContentFavorite;
+        const references = [...duplicate.references, ...canonical.references].filter((reference, index, all) => (
+            all.findIndex(candidate => referenceKey(candidate) === referenceKey(reference)) === index
+        ));
+        const newest = canonical.sourceTimestamp >= duplicate.sourceTimestamp ? canonical : duplicate;
+        reconciled[duplicateIndex] = {
+            ...newest,
+            id: canonical.id,
+            fingerprint: canonical.fingerprint,
+            sourceTimestamp: Math.max(duplicate.sourceTimestamp, canonical.sourceTimestamp),
+            favoritedAt: Math.min(duplicate.favoritedAt, canonical.favoritedAt),
+            owners: mergeOwners(duplicate.owners, canonical.owners),
+            references,
+        };
+        changed = true;
+    }
+
+    return { items: reconciled, changed };
+}
+
+const loadReconciledIndex = async (): Promise<ContentFavorite[]> => {
+    const result = await reconcileImageFavoriteIdentities(await loadIndex());
+    if (result.changed) await saveIndex(result.items);
+    return result.items;
+};
+
+/**
  * Imports the old Gallery boolean into the unified reference index. Old rows did not
  * record provenance, so they stay user-owned; a matching fav_photo system event adds
  * the character owner too. The migration is idempotent and never copies image bodies.
@@ -302,11 +366,11 @@ export const syncLegacyGalleryFavorites = async (): Promise<void> => {
 /** Lists compact favorites metadata; chat snapshots are small, while image bodies stay outside the index. */
 export const listContentFavorites = async (): Promise<ContentFavorite[]> => {
     await syncLegacyGalleryFavorites();
-    return sortContentFavorites(await loadIndex());
+    return withWriteLock(async () => sortContentFavorites(await loadReconciledIndex()));
 };
 
 export const getContentFavoriteById = async (id: string): Promise<ContentFavorite | null> => (
-    (await loadIndex()).find(item => item.id === id) || null
+    withWriteLock(async () => (await loadReconciledIndex()).find(item => item.id === id) || null)
 );
 
 export const saveMessageContentFavorite = async (
@@ -314,7 +378,7 @@ export const saveMessageContentFavorite = async (
     charName: string,
 ): Promise<ContentFavorite> => withWriteLock(async () => {
     const now = Date.now();
-    const current = await loadIndex();
+    const current = await loadReconciledIndex();
     const id = contentFavoriteIdForMessage(message);
     const existing = current.find(item => item.id === id);
 
@@ -381,7 +445,7 @@ export const saveGalleryImageContentFavorite = async (
     owner: ContentFavoriteOwner = { kind: 'user', favoritedAt: Date.now() },
 ): Promise<ImageContentFavorite> => withWriteLock(async () => {
     const now = Date.now();
-    const current = await loadIndex();
+    const current = await loadReconciledIndex();
     const id = makeImageContentFavoriteId(image.url);
     const existing = current.find(item => item.id === id);
     const existingReferences = existing?.kind === 'image' ? existing.references : [];
@@ -419,7 +483,7 @@ export const saveGalleryImageContentFavorite = async (
 });
 
 export const removeContentFavoriteById = async (id: string): Promise<boolean> => withWriteLock(async () => {
-    const current = await loadIndex();
+    const current = await loadReconciledIndex();
     const existing = current.find(item => item.id === id);
     if (!existing) return false;
     await saveIndex(current.filter(item => item.id !== id));
@@ -437,7 +501,7 @@ export const removeContentFavoriteOwnerById = async (
     id: string,
     selector: ContentFavoriteOwnerSelector,
 ): Promise<boolean> => withWriteLock(async () => {
-    const current = await loadIndex();
+    const current = await loadReconciledIndex();
     const existing = current.find(item => item.id === id);
     if (!existing) return false;
     const owners = existing.owners.filter(owner => ownerKey(owner) !== ownerKey(selector));
@@ -507,7 +571,7 @@ const preserveImageFavoritesBeforeDeletion = async (
     source: 'chat' | 'gallery',
     intent: DeletionIntent<number | string>,
 ): Promise<void> => withWriteLock(async () => {
-    const current = await loadIndex();
+    const current = await loadReconciledIndex();
     let changed = false;
     const nextItems: ContentFavorite[] = [];
 
@@ -526,7 +590,7 @@ const preserveImageFavoritesBeforeDeletion = async (
         const surviving: ContentFavoriteReference[] = [];
         for (const reference of candidates) {
             const url = await resolveImageReference(reference);
-            if (url && makeImageContentFavoriteId(url) === item.id) surviving.push(reference);
+            if (url) surviving.push(reference);
         }
 
         if (!surviving.length) {
@@ -592,7 +656,7 @@ export const resolveContentFavorite = async (favorite: ContentFavorite): Promise
     ));
     for (const reference of references) {
         const imageUrl = await resolveImageReference(reference);
-        if (imageUrl && makeImageContentFavoriteId(imageUrl) === favorite.id) {
+        if (imageUrl) {
             return { favorite, imageUrl, reference };
         }
     }

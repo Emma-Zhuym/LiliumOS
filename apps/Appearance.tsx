@@ -42,10 +42,10 @@ const CompanionPortraitPreview: React.FC<{ value?: string; alt: string }> = ({ v
  * 所以换图 / 移除时不能无条件删旧 Blob——衣柜里还留着的话，那套旧衣服就再也切不回去了。
  */
 const isCompanionOutfitKeptInWardrobe = (
-    companionAvatar: { imageWardrobe?: unknown } | undefined,
+    companionAvatar: unknown,
     ref: string,
 ): boolean => {
-    const wardrobe = companionAvatar?.imageWardrobe;
+    const wardrobe = (companionAvatar as { imageWardrobe?: unknown } | undefined)?.imageWardrobe;
     if (!Array.isArray(wardrobe)) return false;
     return wardrobe.some((outfit: any) => outfit?.imageRef === ref || outfit?.id === ref);
 };

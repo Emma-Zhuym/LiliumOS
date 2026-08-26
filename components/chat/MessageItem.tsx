@@ -524,7 +524,7 @@ export const ThinkingChainBlock: React.FC<{
     const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const pointerIdRef = useRef<number | null>(null);
-    const pointerTypeRef = useRef<React.PointerEvent<HTMLDivElement>['pointerType']>('');
+    const pointerTypeRef = useRef<React.PointerEvent<HTMLDivElement>['pointerType'] | ''>('');
     const pointerStartRef = useRef({ x: 0, y: 0 });
     const longPressReadyRef = useRef(false);
     const suppressNextClickRef = useRef(false);
@@ -3472,7 +3472,6 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
                         generationStatus={(m.metadata as any)?.imageGenerationStatus}
                         generationError={(m.metadata as any)?.imageGenerationError}
                         onRegenerate={onRegenerateImage ? () => onRegenerateImage(m) : undefined}
-                        onLoad={() => onMediaLoad?.(m.id)}
                     />
                 ) : (
                     <ChatImage

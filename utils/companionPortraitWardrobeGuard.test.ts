@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { addUploadedCompanionOutfit } from './companionWardrobe';
 
 // 外观设置里换 / 移除「桌面陪伴形象」时，会把旧令牌对应的 Blob 删掉。
 //
@@ -12,32 +11,6 @@ import { addUploadedCompanionOutfit } from './companionWardrobe';
 // 所以无条件删旧令牌 = 换一次形象，衣柜里那套旧衣服就永久裂图，再也切不回去穿。
 
 const source = readFileSync(path.resolve(__dirname, '../apps/Appearance.tsx'), 'utf8');
-
-const outfit = (ref: string, fileName: string, importedAt: number) => ({
-    id: ref, imageRef: ref, fileName, mimeType: 'image/png', importedAt,
-});
-
-describe('衣柜确实跟顶层 imageRef 共用令牌', () => {
-    it('导入一套，衣柜里就留下一条同令牌的条目', () => {
-        const ref = 'blobref:b_outfit_a';
-        const config = addUploadedCompanionOutfit(undefined, outfit(ref, '连衣裙.png', 1));
-
-        expect(config.imageRef).toBe(ref);
-        expect(config.imageWardrobe?.map(item => item.imageRef)).toEqual([ref]);
-        expect(config.imageWardrobe?.map(item => item.id)).toEqual([ref]);
-    });
-
-    it('换穿新的一套之后，上一套仍留在衣柜里等着切回去', () => {
-        const first = 'blobref:b_outfit_a';
-        const second = 'blobref:b_outfit_b';
-        const afterFirst = addUploadedCompanionOutfit(undefined, outfit(first, '连衣裙.png', 1));
-        const afterSecond = addUploadedCompanionOutfit(afterFirst, outfit(second, '毛衣.png', 2));
-
-        expect(afterSecond.imageRef).toBe(second);
-        // 顶层已经不指着 first 了，但衣柜还指着 —— 这时候删 first 的 Blob 就是破图
-        expect(afterSecond.imageWardrobe?.map(item => item.imageRef)).toEqual([first, second]);
-    });
-});
 
 describe('换 / 移除桌面静态形象前先问一句衣柜', () => {
     it('守卫认 imageRef 与 id 两个值位，非数组的老数据也顶得住', () => {

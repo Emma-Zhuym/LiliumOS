@@ -9,6 +9,7 @@ import {
     type ContentFavorite,
     type ResolvedContentFavorite,
 } from '../../utils/contentFavorites';
+import TokenImg from '../os/TokenImg';
 
 type FavoriteTab = 'chat' | 'image';
 
@@ -175,7 +176,7 @@ const FavoritesPortal: React.FC<FavoritesPortalProps> = ({ onClose, onJumpToMess
                             return (
                                 <article key={item.id} className="relative overflow-hidden rounded-2xl border border-slate-900/10 bg-white shadow-sm">
                                     <button type="button" disabled={!imageUrl} onClick={() => imageUrl && setPreviewImage(imageUrl)} className="block aspect-square w-full bg-slate-100 disabled:cursor-default">
-                                        {imageUrl ? <img src={imageUrl} alt="收藏图片" className="h-full w-full object-cover" loading="lazy" /> : <span className="grid h-full place-items-center px-4 text-center text-[11px] leading-5 text-slate-400">{result ? '原图片未随备份恢复' : '正在读取…'}</span>}
+                                        {imageUrl ? <TokenImg value={imageUrl} alt="收藏图片" className="h-full w-full object-cover" loading="lazy" /> : <span className="grid h-full place-items-center px-4 text-center text-[11px] leading-5 text-slate-400">{result ? '原图片未随备份恢复' : '正在读取…'}</span>}
                                     </button>
                                     <div className="p-2.5">
                                         <div className="truncate text-[11px] font-bold text-slate-700">{item.charName}</div>
@@ -197,7 +198,7 @@ const FavoritesPortal: React.FC<FavoritesPortalProps> = ({ onClose, onJumpToMess
             {previewImage && (
                 <div className="fixed inset-0 z-[1010] grid place-items-center bg-black/95 p-4" onClick={() => setPreviewImage(null)}>
                     <button type="button" onClick={() => setPreviewImage(null)} className="absolute right-4 grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white" style={{ top: 'max(1rem,var(--safe-top))' }} aria-label="关闭预览"><X size={20} /></button>
-                    <img src={previewImage} alt="收藏图片预览" className="max-h-full max-w-full object-contain" />
+                    <TokenImg value={previewImage} alt="收藏图片预览" className="max-h-full max-w-full object-contain" />
                 </div>
             )}
         </div>

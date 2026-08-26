@@ -154,6 +154,8 @@ export interface OptimizeResult {
     /** 转换失败、原值保留的字段数（图不丢，只是这张没省下来）。
      *  两种来源：这张图本身转不动，以及转好了但那一行写不回去（配额满） */
     failed: number;
+    /** 失败原因与次数；带处理分区名，便于定位是哪类数据没有完成迁移。 */
+    failureReasons: Record<string, number>;
     /** 合并掉的重复 Blob 份数（同一张图多存的那几份） */
     mergedDuplicates: number;
     /** 合并后能被孤儿清理回收的字节数 */
@@ -177,9 +179,12 @@ export async function optimizeResourceStorage(
     try {
         const result: OptimizeResult = {
             converted: 0, uniqueBlobs: 0, bytesBefore: 0, bytesAfter: 0, failed: 0,
+            failureReasons: {},
             mergedDuplicates: 0, reclaimableBytes: 0, skippedGroups: 0, scanUnavailable: false,
             vectorsCompacted: 0, vectorError: null,
         };
+        // 当前正在处理哪个面（tick 时更新）。失败原因带上它才知道是哪张表出的事。
+        let currentFace = '开始前';
         // 已计过字节数的令牌：canonical 迁移函数产出的令牌经这里补记大小，避免重复计。
         const countedTokens = new Set<string>();
         // 这一行开跑时的记账读数 + 这一行新计过的令牌（tick 时刷新）。
@@ -214,8 +219,10 @@ export async function optimizeResourceStorage(
                     result.bytesAfter += blob.size;
                 }
                 return token;
-            } catch {
+            } catch (e) {
                 result.failed++; // 坏 data: 转不动：原值保留，图不丢
+                const reason = `${currentFace}: ${e instanceof Error ? `${e.name}: ${e.message}` : String(e)}`;
+                result.failureReasons[reason] = (result.failureReasons[reason] ?? 0) + 1;
                 return null;
             }
         };

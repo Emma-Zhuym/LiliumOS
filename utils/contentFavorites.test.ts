@@ -6,12 +6,14 @@ import {
     contentFavoriteIdForMessage,
     favoriteImageAssetId,
     listContentFavorites,
+    makeImageContentFavoriteId,
     removeContentFavoriteById,
     removeContentFavoriteOwnerById,
     resolveContentFavorite,
     saveGalleryImageContentFavorite,
     saveMessageContentFavorite,
 } from './contentFavorites';
+import { migrateDataUrlToRef } from './blobRef';
 
 const CHAR_ID = 'content-favorite-test-char';
 
@@ -146,5 +148,32 @@ describe('content favorites reference index', () => {
             favorited: true,
             favoriteOrigins: { user: undefined },
         });
+    });
+
+    it('reconciles a pre-migration data URL favorite after its source becomes a blobref', async () => {
+        const oldUrl = 'data:image/png;base64,UkVDT05DSUxF';
+        const image: GalleryImage = {
+            id: 'favorite-reconcile-image',
+            charId: CHAR_ID,
+            url: oldUrl,
+            timestamp: 303,
+        };
+        await DB.saveGalleryImage(image);
+        const oldFavorite = await saveGalleryImageContentFavorite(image, 'Sully');
+
+        const token = await migrateDataUrlToRef(oldUrl);
+        expect(token).not.toBe(oldUrl);
+        await DB.saveGalleryImage({ ...image, url: token });
+
+        const items = await listContentFavorites();
+        expect(items).toHaveLength(1);
+        expect(items[0]).toMatchObject({
+            kind: 'image',
+            id: makeImageContentFavoriteId(token),
+            owners: oldFavorite.owners,
+        });
+        expect(items[0].id).not.toBe(oldFavorite.id);
+        const resolved = await resolveContentFavorite(items[0]);
+        expect('imageUrl' in resolved && resolved.imageUrl).toBe(token);
     });
 });
