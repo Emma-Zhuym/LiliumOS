@@ -404,3 +404,27 @@ describe('buildLifeRecordInjection — fire_pack 写绝对日期', () => {
         }
     });
 });
+
+describe('expense amounts in injected context', () => {
+    it('does not expose floating-point tails to the character', async () => {
+        const char = mkChar();
+        for (const transaction of await DB.getAllTransactions()) {
+            await DB.deleteTransaction(transaction.id);
+        }
+        const timestamp = Date.now();
+        for (const [index, amount] of [7.9, 12.9, 11.36, 11.9, 5.8].entries()) {
+            await DB.saveTransaction({
+                id: `tx-test-float-${index}-${Math.random().toString(36).slice(2, 8)}`,
+                amount,
+                category: 'general',
+                note: `浮点测试${index}`,
+                timestamp: timestamp + index,
+                dateStr: lifeToday(),
+            } as any);
+        }
+
+        const text = await buildLifeRecordInjection(char, '小明', { forFirePack: false });
+        expect(text).toContain('合计 49.86');
+        expect(text).not.toMatch(/\d+\.\d{3,}/);
+    });
+});
