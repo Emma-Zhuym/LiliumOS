@@ -119,8 +119,17 @@ export const saveSmartHomeConfig = (config: SmartHomeConfig): void => {
 
 export const exportSmartHomeLocal = (): Record<string, string> | undefined => {
     try {
-        const config = localStorage.getItem(SMART_HOME_CONFIG_KEY);
-        return config ? { [SMART_HOME_CONFIG_KEY]: config } : undefined;
+        const raw = localStorage.getItem(SMART_HOME_CONFIG_KEY);
+        if (!raw) return undefined;
+        const config = JSON.parse(raw) as Partial<SmartHomeConfig>;
+        // 普通备份可以保留地址与实体映射，但不能把家庭控制凭据写进明文压缩包。
+        const sanitized: SmartHomeConfig = {
+            ...DEFAULT_SMART_HOME_CONFIG,
+            ...config,
+            token: '',
+            proxyKey: '',
+        };
+        return { [SMART_HOME_CONFIG_KEY]: JSON.stringify(sanitized) };
     } catch {
         return undefined;
     }
@@ -171,6 +180,24 @@ const requestJson = async <T>(config: SmartHomeConfig, path: string, init?: Requ
     if (response.status === 401) throw new Error('访问令牌无效或权限不足');
     if (!response.ok) throw new Error(`Home Assistant 返回 ${response.status}`);
     return response.json() as Promise<T>;
+};
+
+export const fetchHomeAssistantStates = async (
+    config: SmartHomeConfig,
+    options: { timeoutMs?: number } = {},
+): Promise<HomeAssistantState[]> => {
+    const timeoutMs = options.timeoutMs ?? 8000;
+    const controller = typeof AbortController === 'undefined' ? undefined : new AbortController();
+    const timer = controller && timeoutMs > 0
+        ? globalThis.setTimeout(() => controller.abort(), timeoutMs)
+        : undefined;
+    try {
+        return await requestJson<HomeAssistantState[]>(config, '/api/states', {
+            signal: controller?.signal,
+        });
+    } finally {
+        if (timer !== undefined) globalThis.clearTimeout(timer);
+    }
 };
 
 const asNumber = (value: unknown): number | undefined => {
@@ -349,7 +376,7 @@ export const testHomeAssistantConnection = async (config: SmartHomeConfig): Prom
 };
 
 export const fetchSmartHomeDevices = async (config: SmartHomeConfig): Promise<SmartHomeDevice[]> => {
-    const states = await requestJson<HomeAssistantState[]>(config, '/api/states');
+    const states = await fetchHomeAssistantStates(config);
     const controllableDevices = states
         .map(stateToSmartHomeDevice)
         .filter((device): device is SmartHomeDevice => device !== null)

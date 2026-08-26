@@ -21,19 +21,24 @@ describe('smartHome config', () => {
         expect(buildHomeAssistantMcpUrl('https://ha.example.com/api')).toBe('https://ha.example.com/api/mcp/assist');
     });
 
-    it('round-trips local backup settings', () => {
+    it('backs up non-sensitive settings but strips Home Assistant credentials', () => {
         saveSmartHomeConfig({
             ...DEFAULT_SMART_HOME_CONFIG,
             baseUrl: 'https://ha.example.com/',
             token: 'secret',
+            proxyUrl: 'https://proxy.example.com',
+            proxyKey: 'proxy-secret',
             demoMode: false,
         });
         const backup = exportSmartHomeLocal();
+        expect(JSON.stringify(backup)).not.toContain('secret');
         localStorage.clear();
         importSmartHomeLocal(backup);
         expect(loadSmartHomeConfig()).toMatchObject({
             baseUrl: 'https://ha.example.com',
-            token: 'secret',
+            token: '',
+            proxyUrl: 'https://proxy.example.com',
+            proxyKey: '',
             demoMode: false,
         });
     });

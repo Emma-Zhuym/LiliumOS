@@ -9,6 +9,8 @@ import {
     importMcpLocal,
     getEnabledMcpServers,
     hasWorkerUnreachableMcpServer,
+    shouldActivateMcpForTurn,
+    shouldPreferLocalMcpForTurn,
     isMcpChatAvailable,
     getMcpUseNativeTools,
     setMcpUseNativeTools,
@@ -125,6 +127,30 @@ describe('服务器配置持久化', () => {
         expect(loadMcpServers()).toEqual([]);
         importMcpLocal(dump);
         expect(loadMcpServers().map(s => s.name)).toEqual(['A']);
+    });
+
+    it('备份 Home Assistant MCP 时剥离重复凭据并停用，其他 MCP 配置保持原样', () => {
+        saveMcpServers([
+            mkServer({
+                id: 'ha', name: 'Home Assistant', url: 'https://ha.example.com/api/mcp/assist',
+                token: 'ha-secret', proxyKey: 'ha-proxy-secret',
+                customHeaders: [{ name: 'X-Secret', value: 'ha-header-secret' }],
+            }),
+            mkServer({ id: 'public', name: '公开 MCP', token: 'other-secret' }),
+        ]);
+        const dump = exportMcpLocal();
+        expect(JSON.stringify(dump)).not.toContain('ha-secret');
+        expect(JSON.stringify(dump)).not.toContain('ha-proxy-secret');
+        expect(JSON.stringify(dump)).not.toContain('ha-header-secret');
+
+        localStorage.removeItem('aetheros.mcp.servers');
+        importMcpLocal(dump);
+        const [ha, other] = loadMcpServers();
+        expect(ha).toMatchObject({ id: 'ha', enabled: false });
+        expect(ha).not.toHaveProperty('token');
+        expect(ha).not.toHaveProperty('proxyKey');
+        expect(ha).not.toHaveProperty('customHeaders');
+        expect(other).toMatchObject({ id: 'public', token: 'other-secret', enabled: true });
     });
 
     it('isMcpChatAvailable: 必须启用且已发现工具', () => {
@@ -601,5 +627,89 @@ describe('hasWorkerUnreachableMcpServer', () => {
         saveMcpServers([mkServer({ id: 'srv_bound', url: 'http://localhost:18061/mcp', charIds: ['char_b'] })]);
         expect(hasWorkerUnreachableMcpServer('char_a')).toBe(false);
         expect(hasWorkerUnreachableMcpServer('char_b')).toBe(true);
+    });
+});
+
+describe('shouldPreferLocalMcpForTurn', () => {
+    const haServer = (over: Partial<McpServerConfig> = {}) => mkServer({
+        id: 'srv_ha',
+        name: 'Home Assistant',
+        url: 'http://192.168.64.2/api/mcp/assist',
+        tools: [{ name: 'HassLightSet' }, { name: 'HassTurnOn' }, { name: 'GetLiveContext' }],
+        ...over,
+    });
+    const user = (content: unknown) => ({ role: 'user', content });
+    const assistant = (content: unknown) => ({ role: 'assistant', content });
+
+    it('没有私网服务器时不拦 CF', () => {
+        saveMcpServers([mkServer({ id: 'srv_pub', url: 'https://mcp.example.com/mcp' })]);
+        expect(shouldPreferLocalMcpForTurn([user('把床头灯打开')], 'char_a')).toBe(false);
+        expect(shouldActivateMcpForTurn([user('随便聊聊')], 'char_a')).toBe(true);
+    });
+
+    it('私网 HA：明确的灯光、净化器与场景指令留在本地', () => {
+        saveMcpServers([haServer()]);
+        for (const text of ['把床头灯打开', '开床头灯', '开净化器', '净化器开到三档', '查看一下空气质量', '启动晚安场景']) {
+            expect(shouldPreferLocalMcpForTurn([user(text)], 'char_a'), text).toBe(true);
+        }
+    });
+
+    it('私网 HA：明确查询 Apple Health 指标时启用工具', () => {
+        saveMcpServers([haServer()]);
+        for (const text of ['我今天走了多少步', '看看我昨晚睡了多久', '最近 HRV 趋势怎么样', '查一下静息心率', '我的活动能量达标了吗']) {
+            expect(shouldPreferLocalMcpForTurn([user(text)], 'char_a'), text).toBe(true);
+            expect(shouldActivateMcpForTurn([user(text)], 'char_a'), text).toBe(true);
+        }
+        expect(shouldPreferLocalMcpForTurn([user('我昨晚睡得不太好')], 'char_a')).toBe(false);
+        expect(shouldPreferLocalMcpForTurn([user('我买了一个体重秤')], 'char_a')).toBe(false);
+    });
+
+    it('私网 HA：普通闲聊继续走 CF', () => {
+        saveMcpServers([haServer()]);
+        expect(shouldPreferLocalMcpForTurn([user('你今天过得怎么样')], 'char_a')).toBe(false);
+        expect(shouldActivateMcpForTurn([user('你今天过得怎么样')], 'char_a')).toBe(false);
+        expect(shouldPreferLocalMcpForTurn([user('我今天买了一个很好看的灯泡')], 'char_a')).toBe(false);
+    });
+
+    it('只继承紧邻的一次省略式追问，不让后续闲聊一直粘在本地', () => {
+        saveMcpServers([haServer()]);
+        expect(shouldPreferLocalMcpForTurn([
+            user('把床头灯打开'), assistant('好'), user('再暗一点'),
+        ], 'char_a')).toBe(true);
+        expect(shouldActivateMcpForTurn([
+            user('把床头灯打开'), assistant('好'), user('再暗一点'),
+        ], 'char_a')).toBe(true);
+        expect(shouldPreferLocalMcpForTurn([
+            user('开灯'), assistant('好'), user('蓝色吧'),
+        ], 'char_a')).toBe(true);
+        expect(shouldPreferLocalMcpForTurn([
+            user('开灯'), assistant('好'), user('调到50%'),
+        ], 'char_a')).toBe(true);
+        expect(shouldPreferLocalMcpForTurn([
+            user('把床头灯打开'), assistant('好'), user('你今天怎么样'),
+        ], 'char_a')).toBe(false);
+        expect(shouldPreferLocalMcpForTurn([user('再暗一点')], 'char_a')).toBe(false);
+    });
+
+    it('能从多段消息内容里读取文本', () => {
+        saveMcpServers([haServer()]);
+        expect(shouldPreferLocalMcpForTurn([
+            user([{ type: 'text', text: '把灯换成蓝色' }, { type: 'image_url', image_url: { url: 'x' } }]),
+        ], 'char_a')).toBe(true);
+    });
+
+    it('服务器绑定仍按角色隔离', () => {
+        saveMcpServers([haServer({ charIds: ['char_b'] })]);
+        expect(shouldPreferLocalMcpForTurn([user('开灯')], 'char_a')).toBe(false);
+        expect(shouldPreferLocalMcpForTurn([user('开灯')], 'char_b')).toBe(true);
+    });
+
+    it('未知的私网 MCP 仍保守留在本地，避免语义规则误删其他工具', () => {
+        saveMcpServers([mkServer({
+            id: 'srv_private_generic',
+            name: '我的 NAS 工具',
+            url: 'http://192.168.1.20/mcp',
+        })]);
+        expect(shouldPreferLocalMcpForTurn([user('你今天过得怎么样')], 'char_a')).toBe(true);
     });
 });

@@ -1,6 +1,6 @@
 # LiliumOS Current Progress
 
-> 发布基线与验收分支并列记录。最后更新：2026-08-22。
+> 发布基线与验收分支并列记录。最后更新：2026-08-26。
 
 ## 快照范围
 
@@ -8,6 +8,12 @@
 - 发布目标为 `origin/main`；每次推送仍需单独批准，本轮 Apple Events MCP 与兼容修复已获明确授权。
 
 ## 最近完成
+
+- 当前工作区完成 Apple Health 外部数据链的 LiliumOS 侧实现：从 Jamie Hill 版 Home Assistant HealthSync 实体生成只读快照，按公开契约覆盖 27 项活动、睡眠、心血管、体成分指标和最近 workout；Health App 可手动刷新，角色摘要会与本地手工记录合并，HA 离线时回退缓存。
+- 私网 Home Assistant 的语义门控扩展到健康查询：明确询问 Apple Health / HealthSync 指标时走本地工具，普通闲聊继续使用 Instant Chat；相关适配、路由和前台/worker 回归测试通过。
+- Mac mini 私有 HTTPS 代理现以同一 Tailscale origin 分流 `/api/*` 到 Home Assistant、`/mcp` 到 Apple Events bridge；已验证健康检查、HA 401 边界、Apple MCP 无 Token 401 与带 Token initialize 200，日历/提醒事项原 404 已消除。
+- Smart Home 普通备份默认剥离 HA token、proxyKey 及 HA MCP 里的重复凭据；恢复后 HA MCP 保持停用，须重新填入并测试连接。
+- HealthSync iPhone App 与 HA HACS 集成尚未安装配置，未创建 webhook，真实 Apple Health 手动同步仍待 Emma 确认后执行。
 
 - Mac mini 已运行 Apple Events MCP 私有桥接：LaunchAgent 常驻、Bearer Token 文件权限隔离、CORS 白名单和 Tailscale Funnel HTTPS 入口均完成真实验收，无需自有域名。
 - 通用 MCP 已发现 `reminders_tasks`、`reminders_lists`、`reminders_subtasks`、`calendar_events`、`calendar_calendars` 五项工具；角色读取日历已实测，提醒事项和日历事件写入能力可在用户确认后调用。
@@ -53,6 +59,8 @@
 
 ## 验证基线
 
+- Apple Health / 私有入口（2026-08-26）：`externalHealth`、Smart Home、MCP 路由、聊天 payload、amsg wiring 与旧 iOS 正则守卫共 8 个测试文件、103 tests passed；生产构建通过；`check-em-patches.sh` 79/79。全量为 3464 passed / 5 skipped，仍仅有与本轮无关的 2 项既存日期边界失败（药盒补记日期、Notion 日记频率）。Tailscale HTTPS `/api/*` 与 `/mcp` 完成真实路由验证，HealthSync 真数据验收待安装后进行。
+
 - Apple Events MCP（2026-08-22）：桥接 Node 测试 4 passed；真实公网 Funnel 验证健康检查 200、无 Token 401、带 Token MCP initialize 200、五项工具发现和角色日历读取成功；MCP 前台/worker 定向测试 65 passed，Worker bundle 与生产构建通过。全量 Vitest 为 3450 passed / 5 skipped，另有 2 项与本轮无关的既存日期边界失败（药盒补记日期、Notion 日记频率）。
 
 - 心跳安全回滚（2026-08-18）：回滚清理、心跳前 AMSG、即时聊天与七夕相关 12 个测试文件 536 tests passed；AMSG bundle 已重建，生产构建、`git diff --check` 与 `check-em-patches.sh` 79/79 均通过。
@@ -86,7 +94,7 @@
 
 ### 部分完成
 
-- Health：核心记录、周期、饮食识别、聊天摘要和备份已完成；Apple Health 真导入、Notion 同步和角色周评未完成。
+- Health：核心记录、周期、饮食识别、聊天摘要和备份已完成；HealthSync 外部快照、只读 UI 和角色摘要合并已在当前工作区完成，真实 Apple Health 首次同步、七日趋势、Notion 同步和角色周评未完成。
 - 共读：epub、用户/角色批注已完成；回信支路、高亮和 PDF 未完成。
 - Smart Home：软件接入已完成；真实设备发现、实体映射和角色控制仍待 Home Assistant 主机验收。
 

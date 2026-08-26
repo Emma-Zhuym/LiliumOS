@@ -122,17 +122,103 @@ export const isMcpChatAvailable = (charId?: string): boolean => getEnabledMcpSer
  * 这个聊天里有没有「本地用得上、但 worker 够不着」的服务器（localhost / 私网 / *.local
  * 这类，判据见 amsgToolPack.isWorkerReachableUrl）。
  *
- * 谁在乎：即时对话那一轮的 prompt 是交给 worker 补 MCP 说明的，前端这份整段不注入
- * （chatRequestPayload 的 timelyByWorker 分支）；而上云的清单 collectMcpFireServers
- * 恰好把这类地址过滤掉了。两边都不说 = 角色这一轮彻底不知道自己有工具，设置页却还
- * 显示「已连接」。所以有这种服务器时那一轮别上云，留在本地跑（本地连得上 localhost，
- * 工具照常用），见 useChatAI 的 instantChatVeto。
+ * 这是地址能力层的底层诊断；实际聊天路由不要直接拿它做永久 veto。Home Assistant
+ * 还要经过 shouldPreferLocalMcpForTurn 的当前轮语义门控，普通闲聊才能继续走 worker。
  *
  * 口径跟 isMcpChatAvailable 同源（都走 getEnabledMcpServers）：本地这一轮真会写进
  * prompt 的是哪几台，就拿哪几台来判，别把别的角色绑定的服务器算进来。
  */
 export const hasWorkerUnreachableMcpServer = (charId?: string): boolean =>
     getEnabledMcpServers(charId).some((s) => !isWorkerReachableUrl(s.url));
+
+export interface McpRoutingMessage {
+    role?: string;
+    content?: unknown;
+}
+
+const HOME_ASSISTANT_NAME_RE = /home\s*assistant|homeassistant|智能家居|共栖舱/i;
+const HOME_ASSISTANT_PATH_RE = /\/api\/mcp(?:\/|$)/i;
+const HOME_ASSISTANT_TOOL_RE = /^(?:Hass[A-Z_]|GetLiveContext$)/i;
+
+/**
+ * Home Assistant 的私网地址 CF worker 连不到，但不代表绑定了 HA 的角色每句话都必须
+ * 留在本地。先用服务器身份 + 当前轮语义做一个刻意保守的小门：明确控制/查询设备时
+ * 才在前端跑 MCP；普通闲聊仍可走 Instant Chat。未知的私有 MCP 没有可靠的意图词典，
+ * 继续沿用「始终留本地」的安全口径，避免静默丢工具。
+ */
+const isHomeAssistantServer = (server: McpServerConfig): boolean =>
+    HOME_ASSISTANT_NAME_RE.test(server.name || '')
+    || HOME_ASSISTANT_PATH_RE.test(server.url || '')
+    || (server.tools || []).some((tool) => HOME_ASSISTANT_TOOL_RE.test(tool.name || ''));
+
+const messageContentText = (content: unknown): string => {
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) return content.map((part) => messageContentText(part)).filter(Boolean).join(' ');
+    if (content && typeof content === 'object' && 'text' in content) {
+        return typeof (content as { text?: unknown }).text === 'string'
+            ? (content as { text: string }).text
+            : '';
+    }
+    return '';
+};
+
+const HOME_DEVICE_RE = /(?:灯泡?|照明|台灯|床头灯|夜灯|吊灯|灯带|净化器|空气净化|空气质量|PM\s*(?:2[.．]?5|10)|风扇|风机|风速|风档|home\s*assistant|智能家居|共栖舱|HA\b|\blights?\b|\blamps?\b|air\s*(?:purifier|quality)|\bfans?\b)/i;
+const HOME_OPERATION_RE = /(?:打开|开启|开一下|开到|开着|关掉|关闭|关一下|关着|调(?:整|成|到|高|低|亮|暗)|设置|设为|换成|变成|启动|停止|暂停|继续|查看|看看|查询|多少|状态|亮度|颜色|色温|模式|档位?|有没有|是否|怎么样|怎么了|turn\s+(?:on|off)|switch\s+(?:on|off)|dim|brighten|set|change|status|colour|color|brightness)/i;
+const HOME_SCENE_RE = /(?:(?:回家|离家|晚安|起床|睡眠|专注).{0,5}(?:模式|场景)|(?:启动|打开|开启|切换|设置).{0,8}(?:回家|离家|晚安|起床|睡眠|专注)(?:模式|场景))/i;
+const HOME_SHORT_COMMAND_RE = /(?:(?:开|关)(?:一下|下|个)?(?:床头|台|夜|吊)?灯|(?:开|关)(?:一下|下)?(?:空气)?净化器|lights?\s+(?:on|off))/i;
+const HOME_FOLLOWUP_RE = /(?:再?(?:亮|暗|高|低|强|弱)(?:一|两)?点|(?:把它)?(?:换|调|设|变)(?:成|为|到)?\s*(?:红|橙|黄|绿|青|蓝|紫|粉|白|暖白|冷白)(?:色)?|(?:红|橙|黄|绿|青|蓝|紫|粉|白|暖白|冷白)(?:色)?(?:吧|呢)?|把?它(?:打开|关掉|关闭|调亮|调暗)|再?(?:打开|关掉|关闭|调高|调低)(?:一点)?|(?:调到)?\s*\d{1,3}\s*%|(?:brighter|dimmer|turn\s+it\s+(?:on|off)))/i;
+const HEALTH_DATA_RE = /(?:apple\s*health|healthsync|健康数据|步数|(?:走|行走).{0,5}步|活动能量|锻炼时间|睡眠|睡了|入睡|起床时间|心率|静息心率|HRV|心率变异|血氧|呼吸率|VO2|最大摄氧|体重|体脂|血压|血糖|workout|steps?|sleep|heart\s*rate)/i;
+const HEALTH_QUERY_RE = /(?:查看|看看|查询|查一下|读一下|同步|多少|多久|怎么样|如何|什么情况|趋势|数据|记录|有没有|是否|达标|完成|分析|为什么|偏高|偏低|高不高|低不低|how\s+(?:many|much|long)|show|check|status|trend)/i;
+
+const hasDirectHomeAssistantIntent = (text: string): boolean => {
+    const normalized = text.trim();
+    if (!normalized) return false;
+    return HOME_SCENE_RE.test(normalized)
+        || HOME_SHORT_COMMAND_RE.test(normalized)
+        || (HEALTH_DATA_RE.test(normalized) && HEALTH_QUERY_RE.test(normalized))
+        || (HOME_DEVICE_RE.test(normalized) && HOME_OPERATION_RE.test(normalized));
+};
+
+const hasHomeAssistantTurnIntent = (messages: McpRoutingMessage[]): boolean => {
+    const userTexts = messages
+        .filter((message) => message?.role === 'user')
+        .map((message) => messageContentText(message.content).trim())
+        .filter(Boolean);
+    const latest = userTexts.at(-1) || '';
+    if (hasDirectHomeAssistantIntent(latest)) return true;
+
+    const previous = userTexts.at(-2) || '';
+    return HOME_FOLLOWUP_RE.test(latest) && hasDirectHomeAssistantIntent(previous);
+};
+
+/** 当前轮是否应该把 MCP 工具与工具提示真正交给模型。 */
+export const shouldActivateMcpForTurn = (
+    messages: McpRoutingMessage[],
+    charId?: string,
+): boolean => {
+    const servers = getEnabledMcpServers(charId);
+    if (!servers.length) return false;
+    // 公网 MCP 可由 worker 自己执行；未知私网 MCP 没有可泛化词典，保留旧行为。
+    if (servers.some((server) => isWorkerReachableUrl(server.url) || !isHomeAssistantServer(server))) return true;
+    return hasHomeAssistantTurnIntent(messages);
+};
+
+/**
+ * 当前轮是否真的需要调用 worker 够不着的 MCP。
+ *
+ * HA：明确设备语义才本地；「再暗一点 / 把它关掉」只继承紧邻的上一条用户指令。
+ * 其他私有 MCP：缺少可泛化的语义词典，仍然保守地留在本地。
+ */
+export const shouldPreferLocalMcpForTurn = (
+    messages: McpRoutingMessage[],
+    charId?: string,
+): boolean => {
+    const privateServers = getEnabledMcpServers(charId).filter((server) => !isWorkerReachableUrl(server.url));
+    if (!privateServers.length) return false;
+    if (privateServers.some((server) => !isHomeAssistantServer(server))) return true;
+
+    return hasHomeAssistantTurnIntent(messages);
+};
 
 /**
  * 上云给 amsg worker 用的服务器子集。注意不走 getEnabledMcpServers：
@@ -160,7 +246,19 @@ export function exportMcpLocal(): Record<string, string> | undefined {
         const out: Record<string, string> = {};
         const servers = localStorage.getItem(MCP_SERVERS_KEY);
         const useNativeTools = localStorage.getItem(MCP_USE_NATIVE_TOOLS_KEY);
-        if (servers) out[MCP_SERVERS_KEY] = servers;
+        if (servers) {
+            const parsed = JSON.parse(servers) as unknown;
+            const sanitized = Array.isArray(parsed)
+                ? parsed.map((entry) => {
+                    if (!entry || typeof entry !== 'object' || !isHomeAssistantServer(entry as McpServerConfig)) return entry;
+                    const { token: _token, proxyKey: _proxyKey, customHeaders: _customHeaders, ...safe } = entry as McpServerConfig;
+                    // Smart Home 会把同一枚 HA token 复制进 MCP 配置。两处都必须剥离，
+                    // 并在恢复后停用这台服务器，等待用户重新填凭据并测试连接。
+                    return { ...safe, enabled: false };
+                })
+                : parsed;
+            out[MCP_SERVERS_KEY] = JSON.stringify(sanitized);
+        }
         if (useNativeTools) out[MCP_USE_NATIVE_TOOLS_KEY] = useNativeTools;
         return Object.keys(out).length ? out : undefined;
     } catch { return undefined; }

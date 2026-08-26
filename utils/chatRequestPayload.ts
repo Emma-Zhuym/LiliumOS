@@ -106,6 +106,11 @@ export interface BuildChatPayloadInput {
      * 出现两个钟、两份热搜、两套工具名。
      */
     timelyByWorker?: boolean;
+    /**
+     * 当前轮是否真的启用 MCP。缺省保持旧行为；聊天主路径会传入语义门控结果，避免
+     * 私网 Home Assistant 让无关闲聊也进入工具模式、禁用 thinking。
+     */
+    mcpChatActiveOverride?: boolean;
 }
 
 export interface BuildChatPayloadResult {
@@ -444,8 +449,9 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     //
     // 即时对话路径：MCP 说明由 worker 的 buildMcpFireBlock 独家供给（与凭据同源同拍），
     // 前端这份不注入——两份工具说明两套工具名，模型会两种都写一遍。
-    // mcpChatActive 的取值不受影响：它还要告诉上层「这一轮算不算 MCP 模式」。
-    const mcpChatActive = isMcpChatAvailable(char.id);
+    // timelyByWorker 本身不改变 mcpChatActive；聊天主路径可另传语义门控结果，告诉上层
+    // 这一轮是否真的算 MCP 工具模式。
+    const mcpChatActive = input.mcpChatActiveOverride ?? isMcpChatAvailable(char.id);
     if (mcpChatActive && !input.timelyByWorker) {
         const block = buildMcpSystemBlock(userProfile?.name || '用户', char.id);
         if (block) {

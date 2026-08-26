@@ -461,7 +461,7 @@ const McpServersCard: React.FC<{
                 </div>
             ))}
             <p className="text-[10px] text-violet-700/60 leading-relaxed bg-violet-100/40 rounded-lg px-2 py-1.5">
-                ⚠️ 开启 MCP 工具后聊天会走本地请求（跳过 Instant Push），且本轮思考链会让位给工具调用；涉及真实副作用的工具（发布/下单/删除）角色会先跟你确认。Token、自定义请求头与配置<b>只存本机、不上传</b>；走代理时请求会经过你自己配置的代理。
+                ⚠️ 本机/内网 Home Assistant 只在智能家居控制或健康数据查询等相关轮次走本地请求；普通闲聊仍可走 Instant Chat。工具轮次的思考链会让位给工具调用；涉及真实副作用的工具（发布/下单/删除）角色会先跟你确认。Token、自定义请求头与配置<b>只存本机、不上传</b>；走代理时请求会经过你自己配置的代理。
             </p>
         </div>
     );

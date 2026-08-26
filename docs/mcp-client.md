@@ -70,9 +70,10 @@ function calling（例如携带 `tools` 就报 401），关闭它后首轮会直
 - **暴露名 ≠ 真实工具名**。OpenAI 工具名只许 `[A-Za-z0-9_-]{1,64}`，MCP 工具
   名可能带点号；跨服务器还会重名。`buildMcpOpenAITools()` 返回
   `resolve: Map<暴露名, {server, toolName}>`，执行时必须经它换回真实名。
-- **MCP 模式强制本地 fetch**（跳过 Instant Push）且**本轮禁 thinking**
-  （`toolModeActive`，Gemini 系 "thinking + tools" 同发会 400）——与
-  瑞幸/麦当劳既有约束一致，设置卡片里已向用户说明。
+- **前端执行的 MCP 工具轮次使用本地 fetch**且**本轮禁 thinking**（`toolModeActive`，Gemini 系
+  "thinking + tools" 同发会 400）。私网 Home Assistant 由基础语义门控：明确控制或
+  查询设备、查询 Apple Health 指标，以及紧邻的「再暗一点」这类追问才跳过 Instant Chat；普通闲聊仍可上云。
+  无法可靠分类的其他私网 MCP 继续保守留在本地，避免静默丢工具。
 - **即时对话路径下 MCP 由 amsg worker 云端执行**：主动消息 2.0 的即时对话（与上面的
   Instant Push 是两条互斥的云端路，见 `plans/amsg2-instant-chat-contract.md`）刻意不把
   MCP 排除在外——worker fire 时自己解析 `tool_config`、直连用户配置的 MCP 服务器，

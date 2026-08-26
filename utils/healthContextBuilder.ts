@@ -13,6 +13,7 @@
 import { getAllHealthEvents, WorkoutHealthEvent, PeriodHealthEvent, SleepHealthEvent, DietHealthEvent, WeightHealthEvent } from './healthDb';
 import { calcCycleStatus } from './cycleCalc';
 import { getHealthProfile, calcBMR, calcDeficit } from './healthProfile';
+import { refreshExternalHealthSnapshot } from './externalHealth';
 
 function todayStr(): string {
   const d = new Date();
@@ -25,8 +26,11 @@ function todayStr(): string {
  */
 export async function buildTodayHealthSummary(): Promise<string | null> {
   try {
-    const allEvents = await getAllHealthEvents();
-    if (allEvents.length === 0) return null;
+    const [allEvents, externalHealth] = await Promise.all([
+      getAllHealthEvents(),
+      refreshExternalHealthSnapshot({ maxAgeMs: 5 * 60 * 1000, timeoutMs: 1800 }),
+    ]);
+    if (allEvents.length === 0 && !externalHealth) return null;
 
     const today = todayStr();
     const todayEvents = allEvents.filter(e => e.date === today);
@@ -36,14 +40,16 @@ export async function buildTodayHealthSummary(): Promise<string | null> {
 
     // ── 训练 or 休息 ─────────────────────────────────────────
     const workout = todayEvents.find(e => e.type === 'workout') as WorkoutHealthEvent | undefined;
-    if (workout) {
-      const detail = workout.activities?.length ? workout.activities.join('+')
-        : workout.parts.length > 0 ? workout.parts.join('+') : '';
-      const label = detail ? `训练日（${detail}）` : '训练日';
-      const extra = workout.calories ? `·消耗${workout.calories}kcal` : '';
-      parts.push(label + extra);
-    } else {
-      parts.push('休息日');
+    if (allEvents.length > 0) {
+      if (workout) {
+        const detail = workout.activities?.length ? workout.activities.join('+')
+          : workout.parts.length > 0 ? workout.parts.join('+') : '';
+        const label = detail ? `训练日（${detail}）` : '训练日';
+        const extra = workout.calories ? `·消耗${workout.calories}kcal` : '';
+        parts.push(label + extra);
+      } else {
+        parts.push('休息日');
+      }
     }
 
     // ── 周期状态 ─────────────────────────────────────────────
@@ -95,9 +101,40 @@ export async function buildTodayHealthSummary(): Promise<string | null> {
       }
     }
 
-    if (parts.length === 0) return null;
-
-    const lines: string[] = [`【今日健康】${parts.join('｜')}`];
+    const lines: string[] = [];
+    if (externalHealth) {
+      const externalParts: string[] = [];
+      if (externalHealth.stepsToday !== undefined) externalParts.push(`步数${Math.round(externalHealth.stepsToday)}`);
+      if (externalHealth.activeCaloriesToday !== undefined) externalParts.push(`活动${Math.round(externalHealth.activeCaloriesToday)}kcal`);
+      if (externalHealth.exerciseMinutesToday !== undefined) externalParts.push(`锻炼${Math.round(externalHealth.exerciseMinutesToday)}分钟`);
+      if (externalHealth.sleepHoursLastNight !== undefined) externalParts.push(`昨夜睡${externalHealth.sleepHoursLastNight.toFixed(1).replace(/\.0$/, '')}h`);
+      if (externalHealth.latestHeartRate !== undefined) externalParts.push(`心率${Math.round(externalHealth.latestHeartRate)}`);
+      if (externalHealth.restingHeartRate !== undefined) externalParts.push(`静息心率${Math.round(externalHealth.restingHeartRate)}`);
+      if (externalHealth.hrvMs !== undefined) externalParts.push(`HRV ${Math.round(externalHealth.hrvMs)}ms`);
+      if (externalHealth.bloodPressureSystolic !== undefined && externalHealth.bloodPressureDiastolic !== undefined) {
+        externalParts.push(`血压${Math.round(externalHealth.bloodPressureSystolic)}/${Math.round(externalHealth.bloodPressureDiastolic)}`);
+      }
+      if (externalHealth.bloodOxygenPercent !== undefined) externalParts.push(`血氧${Math.round(externalHealth.bloodOxygenPercent)}%`);
+      if (externalHealth.bodyTemperatureCelsius !== undefined) externalParts.push(`体温${externalHealth.bodyTemperatureCelsius.toFixed(1)}℃`);
+      if (externalHealth.bloodGlucoseMgDl !== undefined) externalParts.push(`血糖${Math.round(externalHealth.bloodGlucoseMgDl)}mg/dL`);
+      if (externalHealth.vo2Max !== undefined) externalParts.push(`VO₂max ${externalHealth.vo2Max.toFixed(1)}`);
+      if (externalHealth.latestWeightKg !== undefined) externalParts.push(`体重${externalHealth.latestWeightKg}kg`);
+      if (externalHealth.bodyFatPercent !== undefined) externalParts.push(`体脂${externalHealth.bodyFatPercent.toFixed(1)}%`);
+      const workoutStartedAt = externalHealth.lastWorkout?.startedAt;
+      if (workoutStartedAt) {
+        const workoutDate = new Date(workoutStartedAt);
+        if (!Number.isNaN(workoutDate.getTime()) && todayStr() === `${workoutDate.getFullYear()}-${String(workoutDate.getMonth() + 1).padStart(2, '0')}-${String(workoutDate.getDate()).padStart(2, '0')}`) {
+          const kind = externalHealth.lastWorkout?.type?.replace(/([a-z])([A-Z])/g, '$1 $2') || '训练';
+          const duration = externalHealth.lastWorkout?.durationMinutes;
+          externalParts.push(`Apple Watch ${kind}${duration !== undefined ? ` ${Math.round(duration)}分钟` : ''}`);
+        }
+      }
+      const fetchedAt = Date.parse(externalHealth.fetchedAt);
+      const stale = Number.isFinite(fetchedAt) && Date.now() - fetchedAt > 6 * 60 * 60 * 1000;
+      if (externalParts.length > 0) lines.push(`【Apple Health${stale ? '·数据可能过期' : ''}】${externalParts.join('｜')}`);
+    }
+    if (parts.length > 0) lines.push(`【今日健康】${parts.join('｜')}`);
+    if (lines.length === 0) return null;
 
     // ── 行为指引（按优先级，只触发最高的一条） ──────────────
     const todayPeriod = todayEvents.find(e => e.type === 'period');

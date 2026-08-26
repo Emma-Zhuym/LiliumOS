@@ -90,6 +90,17 @@ describe('timelyByWorker —— 时效段交给 worker，前端这份不重复�
         expect(withoutMcp.flags.mcpChatActive).toBe(false);
     });
 
+    it('当前轮语义门控为 false 时，不注入 MCP prompt，也不把普通闲聊标成工具模式', async () => {
+        const ordinaryChat = await buildChatRequestPayload({
+            ...baseInput(),
+            mcpChatActiveOverride: false,
+        });
+        const joined = joinMessages(ordinaryChat.fullMessages);
+        expect(ordinaryChat.flags.mcpChatActive).toBe(false);
+        expect(joined).not.toContain('[外部工具已接入');
+        expect(joined).not.toContain('[MCP 工具 ON');
+    });
+
     it('关掉天气热搜时的「今日特殊」节日兜底同样交给 worker', async () => {
         // 天气/热搜关着时，前端只补一条节日行。worker 的 realtimeWorld 里也有节日
         // （跟着角色的时间感知开关走），两边都写就会看到两遍「今天是七夕」。

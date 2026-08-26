@@ -69,14 +69,17 @@ describe('useChatAI 的分流接缝', () => {
     expect(branchSrc()).not.toContain('mcpChatActive');
   });
 
-  it('本机/内网地址的 MCP 服务器否决这一轮上云（上云会让角色掉工具）', () => {
+  it('私网 Home Assistant 只在命中设备语义时否决这一轮上云', () => {
     // 上云那一轮前端不注入 MCP 说明块（chatRequestPayload 的 timelyByWorker 分支），
     // 而上云清单 collectMcpFireServers 恰好把 localhost / 私网地址过滤掉了——两边都不说，
     // 角色这一轮彻底不知道自己有工具，设置页却还显示 MCP 已连接、聊天界面毫无异常。
-    // 判据是「这一轮上云会掉能力就别上云」，所以它得是个 veto、且带 char.id（服务器可绑角色）。
+    // HA 普通闲聊应继续走 CF；设备指令和紧邻追问才留在本地。helper 内部仍按 char.id
+    // 过滤服务器绑定，并对无法识别语义的其他私有 MCP 保持保守策略。
     const routing = routingSrc();
-    expect(routing).toContain('hasWorkerUnreachableMcpServer(char.id)');
-    expect(routing).toContain("'mcp-worker-unreachable'");
+    expect(routing).toContain('shouldPreferLocalMcpForTurn(currentMsgs, char.id)');
+    expect(routing).toContain('shouldActivateMcpForTurn(currentMsgs, char.id)');
+    expect(routing).toContain("'mcp-local-intent'");
+    expect(chatAiSrc).toContain('mcpChatActiveOverride: mcpToolTurn');
     // 否决也要留痕：走的是下面那条统一的 instant-chat-veto trace（reason 带着它）。
     expect(routing).toMatch(/instantChatVeto \?\? 'instant-push-configured'/);
   });

@@ -12,6 +12,12 @@ import { F, S, R, HUE, STATUS, MOTION } from '../utils/clayTokens';
 import { HealthProfile, FitnessGoal, getHealthProfile, saveHealthProfile, calcBMR, calcTDEE, recommendCalories, calcDeficit } from '../utils/healthProfile';
 import { safeFetchJson, extractJson, extractContent } from '../utils/safeApi';
 import { readLiliumOSStorage, writeLiliumOSStorage } from '../utils/liliumosStorage';
+import {
+  loadExternalHealthSnapshot,
+  refreshExternalHealthSnapshot,
+  syncExternalHealthSnapshot,
+  type ExternalHealthSnapshot,
+} from '../utils/externalHealth';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -205,6 +211,12 @@ function fmtDuration(mins: number): string {
   return m > 0 ? `${h}h${m}m` : `${h}h`;
 }
 
+function fmtExternalSyncTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '时间未知';
+  return `${date.getMonth() + 1}月${date.getDate()}日 ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
 // ── Component ──────────────────────────────────────────────────────────────────
 
 const HealthApp: React.FC = () => {
@@ -226,6 +238,8 @@ const HealthApp: React.FC = () => {
   // ── Data ──
   const [allEvents, setAllEvents] = useState<HealthEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [externalHealth, setExternalHealth] = useState<ExternalHealthSnapshot | null>(() => loadExternalHealthSnapshot());
+  const [isSyncingExternalHealth, setIsSyncingExternalHealth] = useState(false);
 
   // ── Record modal ──
   const [recordMode, setRecordMode] = useState<RecordMode | null>(null);
@@ -293,6 +307,13 @@ const HealthApp: React.FC = () => {
     const p = getHealthProfile();
     setProfile(p);
     if (!p) setShowProfileSetup(true); // 第一次打开时弹设置
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    refreshExternalHealthSnapshot({ maxAgeMs: 5 * 60 * 1000, timeoutMs: 2500 })
+      .then(snapshot => { if (active && snapshot) setExternalHealth(snapshot); });
+    return () => { active = false; };
   }, []);
 
   // ── Derived data ──
@@ -579,6 +600,19 @@ const HealthApp: React.FC = () => {
       setPfSleepTarget(profile.sleepMinuteTarget ? profile.sleepMinuteTarget / 60 : 8);
     }
     setShowProfileSetup(true);
+  };
+
+  const handleSyncExternalHealth = async () => {
+    setIsSyncingExternalHealth(true);
+    try {
+      const snapshot = await syncExternalHealthSnapshot();
+      setExternalHealth(snapshot);
+      addToast('Apple Health 数据已从 Home Assistant 更新', 'success');
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : 'Apple Health 同步失败', 'error');
+    } finally {
+      setIsSyncingExternalHealth(false);
+    }
   };
 
   // ── Quick weight save ──
@@ -1270,6 +1304,50 @@ const HealthApp: React.FC = () => {
             </div>
           )}
 
+          {todayViewOffset === 0 && (
+            <div className="mb-3 p-4" style={{ ...clay.cardIndigo }}>
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span style={{ width: 8, height: 8, borderRadius: R.pill, background: HUE.blue.main, flexShrink: 0 }} />
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: HUE.blue.ink }}>Apple Health</span>
+                  </div>
+                  <p className="mt-1" style={{ fontSize: '10px', color: F.textTertiary }}>
+                    {externalHealth ? `Home Assistant · ${fmtExternalSyncTime(externalHealth.updatedAt)}` : '等待 HealthSync 首次同步'}
+                  </p>
+                </div>
+                <button onClick={handleSyncExternalHealth} disabled={isSyncingExternalHealth}
+                  className={`w-9 h-9 flex items-center justify-center disabled:opacity-40 ${clay.pressSmall}`}
+                  style={{ background: F.surfaceRaised, borderRadius: R.pill, boxShadow: S.raisedSoft }}
+                  aria-label="同步 Apple Health">
+                  <ArrowClockwise size={15} weight="bold" style={{ color: HUE.blue.main }}
+                    className={isSyncingExternalHealth ? 'animate-spin' : ''} />
+                </button>
+              </div>
+
+              {externalHealth ? (
+                <div className="grid grid-cols-4 gap-2 mt-3">
+                  {[
+                    { label: '步数', value: externalHealth.stepsToday !== undefined ? Math.round(externalHealth.stepsToday).toLocaleString() : '—' },
+                    { label: '活动', value: externalHealth.activeCaloriesToday !== undefined ? `${Math.round(externalHealth.activeCaloriesToday)}k` : '—' },
+                    { label: '睡眠', value: externalHealth.sleepHoursLastNight !== undefined ? `${externalHealth.sleepHoursLastNight.toFixed(1)}h` : '—' },
+                    { label: 'HRV', value: externalHealth.hrvMs !== undefined ? `${Math.round(externalHealth.hrvMs)}ms` : '—' },
+                  ].map(metric => (
+                    <div key={metric.label} className="text-center py-2"
+                      style={{ background: F.surfaceSunken, borderRadius: R.smallCard, boxShadow: S.sunken }}>
+                      <div style={{ fontSize: '12px', fontWeight: 700, color: F.textPrimary }}>{metric.value}</div>
+                      <div className="mt-0.5" style={{ fontSize: '9px', color: F.textTertiary }}>{metric.label}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-3 px-3 py-2.5" style={{ background: F.surfaceSunken, borderRadius: R.smallCard, boxShadow: S.sunken, fontSize: '11px', color: F.textSecondary }}>
+                  手机完成 HealthSync 测试后，点右侧同步；角色也会读取同一份摘要。
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Weight trend chart */}
           {showWeightTrend && weightHistory.length > 1 && (() => {
             const vals = weightHistory.map(w => w.value);
@@ -1939,10 +2017,10 @@ const HealthApp: React.FC = () => {
 
             <div className="h-px mt-2" style={{ background: F.divider }} />
 
-            <button onClick={() => { addToast('导入功能开发中', 'info'); }}
+            <button onClick={handleSyncExternalHealth} disabled={isSyncingExternalHealth}
               className={`w-full font-medium py-2.5 text-xs ${clay.pressSmall}`}
               style={{ color: F.textSecondary, background: F.surfaceRaised, borderRadius: R.pill, boxShadow: S.raisedSoft }}>
-              导入 Apple Health 数据
+              {isSyncingExternalHealth ? '正在从 Home Assistant 同步…' : '同步 Apple Health 数据'}
             </button>
           </div>
         </div>

@@ -23,7 +23,7 @@ import { MCD_PROPOSE_TOOL, autoFixProposalCodesByName } from '../utils/mcdToolBr
 // 瑞幸: 与麦当劳同构, 只读 LuckinMiniApp 快照注入 + propose_cart_items UI 钩子工具
 import { LUCKIN_PROPOSE_TOOL, autoFixProposalCodesByName as autoFixLuckinProposalCodesByName, fetchOpenAIToolsForLuckin, inferCardKind as inferLuckinCardKind } from '../utils/luckinToolBridge';
 import { callLuckinTool } from '../utils/luckinMcpClient';
-import { callMcpTool, getMcpUseNativeTools, hasWorkerUnreachableMcpServer } from '../utils/mcpClient';
+import { callMcpTool, getMcpUseNativeTools, shouldActivateMcpForTurn, shouldPreferLocalMcpForTurn } from '../utils/mcpClient';
 import { buildMcpOpenAITools, buildMcpRejectedToolsFallbackBody, buildMcpTextFallbackBody, extractTextFakedMcpCalls, formatMcpToolResult, sanitizeMcpLeadInText, shouldRetryMcpWithoutTools, stripTextFakedMcpCalls, type FakedMcpCall } from '../utils/mcpToolBridge';
 import { buildToolResultMessage, normalizeToolCallsForCompat } from '../utils/toolCallCompat';
 import { buildChatRequestPayload } from '../utils/chatRequestPayload';
@@ -889,12 +889,13 @@ export const useChatAI = ({
             const financeLocalRequired = shouldEnableFinanceTools(currentMsgs) || Boolean(financeAwareness.pulse);
             // [EM: intiface-gate] 硬件工具只能在本机执行，连接设备时不能把本轮发往云端。
             const intifaceReady = intifaceClient.connected && intifaceClient.devices.length > 0;
-            // 本机 / 内网的 MCP 服务器（docs/mcp-client.md 教用户填的 http://localhost:18061
-            // 就是这一类）：上云那一轮前端不注入 MCP 说明块，而 worker 从 CF 那头连不上这类
-            // 地址、上云清单里压根没有它——两边都不说，角色这一轮彻底不知道自己有工具。
-            // 判据就一句话：这一轮上云会让角色掉能力，那就别上云。留在本地跑，工具照常用。
-            // （地址够得着的服务器不受影响，照常上云，worker 自己跑后台 MCP。）
-            const mcpWorkerUnreachable = hasWorkerUnreachableMcpServer(char.id);
+            // 私网 Home Assistant 只在这一轮明确聊智能家居时留在本地跑 MCP；普通闲聊
+            // 仍走 Instant Chat。紧邻的「再暗一点」会继承上一条设备指令，但不会长期粘住。
+            // 其他无法可靠识别意图的私有 MCP 仍保守留在本地，避免静默丢工具。
+            const mcpLocalIntent = shouldPreferLocalMcpForTurn(currentMsgs, char.id);
+            // 路由和工具注入共用同一份语义判断：普通 HA 闲聊不只要走 CF，也不能继续
+            // 携带本地工具 prompt / tools 或因此禁用 thinking。
+            const mcpToolTurn = shouldActivateMcpForTurn(currentMsgs, char.id);
             // 用户明确让角色查本人位置时，必须留在当前设备：云端拿不到前台 GPS，
             // 若仍走 Instant Chat / Instant Push，模型看到的工具列表里会真的没有定位工具。
             const locationLocalRequired = isLocationChatToolEnabled()
@@ -905,7 +906,7 @@ export const useChatAI = ({
                         : intifaceReady ? 'intiface'
                             : locationLocalRequired ? 'location-local'
                             : financeLocalRequired ? 'finance-local'
-                            : mcpWorkerUnreachable ? 'mcp-worker-unreachable' : null;
+                            : mcpLocalIntent ? 'mcp-local-intent' : null;
             // 带上 char：角色单独关了即时对话（reason char-disabled）时 ready 直接为
             // false，和「全局没开」同一待遇——下面那条 veto trace 的条件够不到它，
             // 静默走本地。那是用户的主动选择，每条消息刷一遍 warn 就成骚扰了。
@@ -922,7 +923,7 @@ export const useChatAI = ({
             // 「即时对话开着、这一轮却没上云」的所有情形都在这一处留痕，三种原因去向不同：
             //   · 点单流程否决：瑞幸/麦当劳是客户端交互式循环（选城市、确认单），云端接不了
             //     手，这一轮留在本地跑是对的；
-            //   · MCP 地址 worker 够不着：同上，留在本地才有工具（见上面那段）；
+            //   · 私网 MCP 且本轮命中工具意图：留在本地才有工具（见上面那段）；
             //   · IP 配置也还在（脏配置）：这一轮交给下面的 Instant Push 分支，它也不接的话
             //     （比如配了 MCP，在它的排除名单里）就一路落回本地。
             // 几个原因同时成立时报最前面那个——越靠前越具体，也更可能是用户真正想问的。
@@ -931,8 +932,8 @@ export const useChatAI = ({
             if (instantChatOn && !instantChatRoute) {
                 const skipReason = instantChatVeto ?? 'instant-push-configured';
                 console.warn(
-                    skipReason === 'mcp-worker-unreachable'
-                        ? '[AmsgInstantChat] 这一轮没上云（有 MCP 服务器填的是本机/内网地址，worker 够不着），本地生成，工具照常可用'
+                    skipReason === 'mcp-local-intent'
+                        ? '[AmsgInstantChat] 这一轮没上云（命中本机/内网 MCP 的工具意图），本地生成，工具照常可用'
                         : skipReason === 'finance-local'
                             ? '[AmsgInstantChat] 这一轮没上云（财务工具只读取本机账本），本地生成，账目不会上传到 worker'
                         : skipReason === 'location-local'
@@ -1035,6 +1036,7 @@ export const useChatAI = ({
                 healthSummary: freshHealthSummary,
                 shoppingDelivery,
                 timelyByWorker: instantChatRoute,
+                mcpChatActiveOverride: mcpToolTurn,
             }));
             const systemPrompt = payload.systemPrompt;
             const cleanedApiMessages = payload.cleanedApiMessages;

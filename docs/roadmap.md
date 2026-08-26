@@ -14,14 +14,14 @@
 
 ### P1：Health 外部数据链收尾
 
-核心 Health App 已完成：本地 IndexedDB、训练/睡眠/饮食/经期/症状/体重、周期推算、饮食文本/图片识别、角色聊天健康摘要和完整备份。
+核心 Health App 已完成：本地 IndexedDB、训练/睡眠/饮食/经期/症状/体重、周期推算、饮食文本/图片识别、角色聊天健康摘要和完整备份。Home Assistant 外部健康快照适配层、Health 只读卡片和角色摘要合并已在当前工作区完成；真实数据仍须由 iPhone HealthSync 与 HA 集成完成首次手动同步后验收。
 
 仍待完成：
 
-- Apple Health 快捷指令导入的真实解析与增量同步（当前按钮仍提示开发中）。
+- iPhone HealthSync → Home Assistant 的首次手动同步与真实数据验收；旧 Apple Health 快捷指令只保留作应急回退。
 - Notion HealthLog / Daily Routine 同步。
 - Health App 内“让角色说说这周”的周评论入口与缓存。
-- 对按需读取健康详情的触发边界补测试。
+- 七日趋势与更细健康详情的角色按需工具；今日健康查询的本地路由边界已有回归测试。
 
 ### P1：Notion 高级管理 App
 
@@ -32,6 +32,8 @@
 ### P1：Smart Home 真实设备验收
 
 LiliumOS「共栖舱」App、Home Assistant REST 适配、演示模式、完整备份和角色 MCP 接入已完成。
+
+Mac mini 部署、设备、Apple Health、位置与角色工具的完整交接见 `docs/home-assistant-mac-mini-plan.md`。
 
 仍待完成：
 
@@ -58,6 +60,13 @@ LiliumOS「共栖舱」App、Home Assistant REST 适配、演示模式、完整�
 - PDF 支持。
 
 ## 已完成
+
+### 2026-08-26（当前工作区，待真实数据验收）
+
+- 新增 Home Assistant HealthSync 外部快照适配层，按 Jamie Hill 配套集成的公开实体契约覆盖活动、睡眠、心率/血压/体成分等 27 项指标与最近 workout，并在 HA 离线时回退本地缓存。
+- Health App 增加 Apple Health 只读同步区；角色聊天摘要合并客观指标与 LiliumOS 手工记录，健康查询可按语义进入本地 Home Assistant 工具轮次，普通闲聊不受影响。
+- Mac mini 私有 HTTPS 代理在同一 Tailscale 入口复用 `/api/*`（Home Assistant）与 `/mcp`（Apple Calendar / Reminders），修复日历 MCP 的 HTTP 404；两条路由均已真实验证。
+- 尚未安装或配置 iPhone HealthSync / HA HealthSync 集成，也未创建 webhook 或上传健康数据。
 
 ### 2026-08-22
 
