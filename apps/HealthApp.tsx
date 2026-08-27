@@ -13,11 +13,18 @@ import { HealthProfile, FitnessGoal, getHealthProfile, saveHealthProfile, calcBM
 import { safeFetchJson, extractJson, extractContent } from '../utils/safeApi';
 import { readLiliumOSStorage, writeLiliumOSStorage } from '../utils/liliumosStorage';
 import {
+  loadExternalHealthDailySummaries,
   loadExternalHealthSnapshot,
+  refreshExternalHealthDailySummary,
   refreshExternalHealthSnapshot,
-  syncExternalHealthSnapshot,
+  syncExternalHealthDailySummary,
   type ExternalHealthSnapshot,
 } from '../utils/externalHealth';
+import { resolveExerciseCalories } from '../utils/healthEnergy';
+import {
+  buildExternalHealthMetricGroups,
+  countExternalHealthMetrics,
+} from '../utils/externalHealthPresentation';
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -239,7 +246,11 @@ const HealthApp: React.FC = () => {
   const [allEvents, setAllEvents] = useState<HealthEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [externalHealth, setExternalHealth] = useState<ExternalHealthSnapshot | null>(() => loadExternalHealthSnapshot());
+  const [externalHealthByDate, setExternalHealthByDate] = useState<Record<string, ExternalHealthSnapshot>>(
+    () => loadExternalHealthDailySummaries(),
+  );
   const [isSyncingExternalHealth, setIsSyncingExternalHealth] = useState(false);
+  const [showExternalHealthDetails, setShowExternalHealthDetails] = useState(false);
 
   // ── Record modal ──
   const [recordMode, setRecordMode] = useState<RecordMode | null>(null);
@@ -316,21 +327,55 @@ const HealthApp: React.FC = () => {
     return () => { active = false; };
   }, []);
 
+  useEffect(() => {
+    if (!showExternalHealthDetails) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setShowExternalHealthDetails(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showExternalHealthDetails]);
+
   // ── Derived data ──
   const eventMap     = useMemo(() => buildEventMap(allEvents), [allEvents]);
   const periodEvents = useMemo(() => allEvents.filter((e): e is PeriodHealthEvent => e.type === 'period'), [allEvents]);
   const cycleStatus  = useMemo(() => calcCycleStatus(periodEvents), [periodEvents]);
   const ovulationSet = useMemo(() => new Set(cycleStatus.ovulationWindow), [cycleStatus.ovulationWindow]);
-
   // ── Today tab viewed date (arrow navigation) ──
   const viewDay = new Date(today);
   viewDay.setDate(viewDay.getDate() + todayViewOffset);
   const viewDayStr = toDateStr(viewDay.getFullYear(), viewDay.getMonth() + 1, viewDay.getDate());
+  const viewedExternalHealth = externalHealthByDate[viewDayStr]
+    ?? (todayViewOffset === 0 ? externalHealth : null);
+  const externalHealthGroups = useMemo(
+    () => viewedExternalHealth ? buildExternalHealthMetricGroups(viewedExternalHealth) : [],
+    [viewedExternalHealth],
+  );
+  const externalHealthMetricCount = useMemo(
+    () => countExternalHealthMetrics(externalHealthGroups),
+    [externalHealthGroups],
+  );
   const pickerYear = viewDay.getFullYear();
   const pickerMonth = viewDay.getMonth() + 1;
   const pickerFirstDow = new Date(pickerYear, pickerMonth - 1, 1).getDay();
   const pickerDaysInMonth = new Date(pickerYear, pickerMonth, 0).getDate();
   const pickerCells = Array.from({ length: pickerFirstDow }, () => 0).concat(Array.from({ length: pickerDaysInMonth }, (_, i) => i + 1));
+
+  useEffect(() => {
+    if (viewDayStr > todayStr) {
+      setIsSyncingExternalHealth(false);
+      return;
+    }
+    let active = true;
+    setIsSyncingExternalHealth(true);
+    refreshExternalHealthDailySummary(viewDayStr, { timeoutMs: 10_000 })
+      .then((summary) => {
+        if (!active || !summary) return;
+        setExternalHealthByDate(current => ({ ...current, [viewDayStr]: summary }));
+      })
+      .finally(() => { if (active) setIsSyncingExternalHealth(false); });
+    return () => { active = false; };
+  }, [todayStr, viewDayStr]);
 
   // ── Today's events (uses viewed date) ──
   const todayEvents = useMemo(() => eventMap[viewDayStr] || [], [eventMap, viewDayStr]);
@@ -352,7 +397,13 @@ const HealthApp: React.FC = () => {
   const calTarget      = profile?.dailyCalorieTarget ?? (bmr ? calcTDEE(bmr) : 2000);
   const workoutTarget  = profile?.workoutCalorieTarget ?? 500;
   const sleepTarget    = profile?.sleepMinuteTarget ?? 480;
-  const exerciseCal = todayWorkout?.calories ?? 0;
+  // [EM-START: apple-health-active-energy]
+  // HealthSync 的活动能量覆盖全天活动；今天与历史页都使用所选日期的按日汇总。
+  // 两者不相加，避免 Apple Health 已包含训练时重复计算。
+  const externalActiveCalories = viewedExternalHealth?.activeCaloriesToday;
+  const exerciseCal = resolveExerciseCalories(todayWorkout?.calories, externalActiveCalories);
+  const hasExerciseData = externalActiveCalories !== undefined || todayWorkout?.calories !== undefined;
+  // [EM-END: apple-health-active-energy]
   const deficit = calTarget ? calcDeficit(calTarget, exerciseCal, todayDietTotal) : null;
 
   // ── Weight history (last 30 entries) ──
@@ -605,9 +656,14 @@ const HealthApp: React.FC = () => {
   const handleSyncExternalHealth = async () => {
     setIsSyncingExternalHealth(true);
     try {
-      const snapshot = await syncExternalHealthSnapshot();
-      setExternalHealth(snapshot);
-      addToast('Apple Health 数据已从 Home Assistant 更新', 'success');
+      const summary = await syncExternalHealthDailySummary(viewDayStr);
+      setExternalHealthByDate(current => ({ ...current, [viewDayStr]: summary }));
+      addToast(
+        todayViewOffset === 0
+          ? '今天的 Apple Health 汇总已更新'
+          : `${viewDay.getMonth() + 1}月${viewDay.getDate()}日汇总已更新`,
+        'success',
+      );
     } catch (error) {
       addToast(error instanceof Error ? error.message : 'Apple Health 同步失败', 'error');
     } finally {
@@ -1172,10 +1228,10 @@ const HealthApp: React.FC = () => {
               <circle cx="124" cy="124" r="88" fill="none"
                 stroke={CAT_COLORS.workout.active} strokeWidth="16" strokeLinecap="round"
                 filter="url(#arcShadow)"
-                {...ringArc(88, todayWorkout?.calories ? todayWorkout.calories / workoutTarget : 0)}
+                {...ringArc(88, hasExerciseData ? exerciseCal / workoutTarget : 0)}
                 transform="rotate(-90 124 124)" />
-              {todayWorkout?.calories && todayWorkout.calories / workoutTarget > 1 &&
-                overflowArc(88, todayWorkout.calories / workoutTarget - 1, CAT_COLORS.workout.active, CAT_COLORS.workout.shadow)
+              {hasExerciseData && exerciseCal / workoutTarget > 1 &&
+                overflowArc(88, exerciseCal / workoutTarget - 1, CAT_COLORS.workout.active, CAT_COLORS.workout.shadow)
               }
               {/* Diet ring (inner, r=69) — split by macronutrient when available */}
               <circle cx="124" cy="124" r="69" fill="none" stroke={F.surfaceSunken} strokeWidth="20" />
@@ -1244,7 +1300,7 @@ const HealthApp: React.FC = () => {
             </span>
             <span className="flex items-center gap-1.5" style={{ fontSize: '12px', fontWeight: 500, color: CAT_COLORS.workout.fg, background: CAT_COLORS.workout.bg, borderRadius: R.pill, padding: '5px 12px', boxShadow: S.raisedSoft }}>
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: CAT_COLORS.workout.active, flexShrink: 0 }} />
-              练 <b>{todayWorkout ? `${todayWorkout.calories ?? 0}k` : '—'}</b>
+              动 <b>{hasExerciseData ? `${exerciseCal}k` : '—'}</b>
             </span>
             <span className="flex items-center gap-1.5" style={{ fontSize: '12px', fontWeight: 500, color: CAT_COLORS.diet.fg, background: CAT_COLORS.diet.bg, borderRadius: R.pill, padding: '5px 12px', boxShadow: S.raisedSoft }}>
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: CAT_COLORS.diet.active, flexShrink: 0 }} />
@@ -1304,18 +1360,27 @@ const HealthApp: React.FC = () => {
             </div>
           )}
 
-          {todayViewOffset === 0 && (
+          {(
             <div className="mb-3 p-4" style={{ ...clay.cardIndigo }}>
               <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
+                <button
+                  onClick={() => { if (viewedExternalHealth) setShowExternalHealthDetails(true); }}
+                  disabled={!viewedExternalHealth}
+                  className={`min-w-0 flex-1 text-left disabled:cursor-default ${viewedExternalHealth ? clay.pressSmall : ''}`}
+                  aria-label={viewedExternalHealth ? '查看全部 Apple Health 指标' : undefined}>
                   <div className="flex items-center gap-2">
                     <span style={{ width: 8, height: 8, borderRadius: R.pill, background: HUE.blue.main, flexShrink: 0 }} />
-                    <span style={{ fontSize: '13px', fontWeight: 700, color: HUE.blue.ink }}>Apple Health</span>
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: HUE.blue.ink }}>
+                      Apple Health{todayViewOffset === 0 ? '' : ` · ${viewDay.getMonth() + 1}月${viewDay.getDate()}日`}
+                    </span>
+                    {viewedExternalHealth && <CaretRight size={13} weight="bold" style={{ color: HUE.blue.main }} />}
                   </div>
                   <p className="mt-1" style={{ fontSize: '10px', color: F.textTertiary }}>
-                    {externalHealth ? `Home Assistant · ${fmtExternalSyncTime(externalHealth.updatedAt)}` : '等待 HealthSync 首次同步'}
+                    {viewedExternalHealth
+                      ? `${viewedExternalHealth.summaryKind === 'daily' ? '每日汇总' : 'Home Assistant'} · ${fmtExternalSyncTime(viewedExternalHealth.updatedAt)}`
+                      : todayViewOffset === 0 ? '等待 HealthSync 首次同步' : '点右侧从 Home Assistant 读取当日档案'}
                   </p>
-                </div>
+                </button>
                 <button onClick={handleSyncExternalHealth} disabled={isSyncingExternalHealth}
                   className={`w-9 h-9 flex items-center justify-center disabled:opacity-40 ${clay.pressSmall}`}
                   style={{ background: F.surfaceRaised, borderRadius: R.pill, boxShadow: S.raisedSoft }}
@@ -1325,24 +1390,36 @@ const HealthApp: React.FC = () => {
                 </button>
               </div>
 
-              {externalHealth ? (
-                <div className="grid grid-cols-4 gap-2 mt-3">
-                  {[
-                    { label: '步数', value: externalHealth.stepsToday !== undefined ? Math.round(externalHealth.stepsToday).toLocaleString() : '—' },
-                    { label: '活动', value: externalHealth.activeCaloriesToday !== undefined ? `${Math.round(externalHealth.activeCaloriesToday)}k` : '—' },
-                    { label: '睡眠', value: externalHealth.sleepHoursLastNight !== undefined ? `${externalHealth.sleepHoursLastNight.toFixed(1)}h` : '—' },
-                    { label: 'HRV', value: externalHealth.hrvMs !== undefined ? `${Math.round(externalHealth.hrvMs)}ms` : '—' },
-                  ].map(metric => (
-                    <div key={metric.label} className="text-center py-2"
-                      style={{ background: F.surfaceSunken, borderRadius: R.smallCard, boxShadow: S.sunken }}>
-                      <div style={{ fontSize: '12px', fontWeight: 700, color: F.textPrimary }}>{metric.value}</div>
-                      <div className="mt-0.5" style={{ fontSize: '9px', color: F.textTertiary }}>{metric.label}</div>
-                    </div>
-                  ))}
-                </div>
+              {viewedExternalHealth ? (
+                <button
+                  onClick={() => setShowExternalHealthDetails(true)}
+                  className={`w-full mt-3 ${clay.pressSmall}`}
+                  aria-label={`查看全部 ${externalHealthMetricCount} 项 Apple Health 指标`}>
+                  <div className="grid grid-cols-4 gap-2">
+                    {[
+                      { label: '步数', value: viewedExternalHealth.stepsToday !== undefined ? Math.round(viewedExternalHealth.stepsToday).toLocaleString() : '—' },
+                      { label: '活动', value: viewedExternalHealth.activeCaloriesToday !== undefined ? `${Math.round(viewedExternalHealth.activeCaloriesToday)}k` : '—' },
+                      { label: '睡眠', value: viewedExternalHealth.sleepHoursLastNight !== undefined ? `${viewedExternalHealth.sleepHoursLastNight.toFixed(1)}h` : '—' },
+                      { label: 'HRV', value: viewedExternalHealth.hrvMs !== undefined ? `${Math.round(viewedExternalHealth.hrvMs)}ms` : '—' },
+                    ].map(metric => (
+                      <div key={metric.label} className="text-center py-2"
+                        style={{ background: F.surfaceSunken, borderRadius: R.smallCard, boxShadow: S.sunken }}>
+                        <div style={{ fontSize: '12px', fontWeight: 700, color: F.textPrimary }}>{metric.value}</div>
+                        <div className="mt-0.5" style={{ fontSize: '9px', color: F.textTertiary }}>{metric.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center justify-center gap-1.5 mt-2"
+                    style={{ fontSize: '10px', color: HUE.blue.ink }}>
+                    <span>已同步 {externalHealthMetricCount} 项 · 查看全部</span>
+                    <CaretRight size={11} weight="bold" />
+                  </div>
+                </button>
               ) : (
                 <p className="mt-3 px-3 py-2.5" style={{ background: F.surfaceSunken, borderRadius: R.smallCard, boxShadow: S.sunken, fontSize: '11px', color: F.textSecondary }}>
-                  手机完成 HealthSync 测试后，点右侧同步；角色也会读取同一份摘要。
+                  {todayViewOffset === 0
+                    ? '手机完成 HealthSync 测试后，点右侧同步；角色也会读取同一份摘要。'
+                    : '这一天还没有本地汇总，点右侧即可从 HealthSync 永久档案读取。'}
                 </p>
               )}
             </div>
@@ -1527,6 +1604,112 @@ const HealthApp: React.FC = () => {
           )}
         </div>
       )}
+
+      {/* [EM-START: apple-health-detail-sheet] */}
+      {showExternalHealthDetails && viewedExternalHealth && (
+        <div
+          className="absolute inset-0 z-[60] flex items-end justify-center sm:items-center px-0 sm:px-5 backdrop-blur-sm"
+          style={{ background: `${F.textPrimary}26` }}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setShowExternalHealthDetails(false);
+          }}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="apple-health-details-title"
+            className="w-full sm:max-w-md max-h-[88%] sm:max-h-[82%] flex flex-col overflow-hidden rounded-t-[var(--health-detail-radius)] sm:rounded-[var(--health-detail-radius)]"
+            style={{
+              '--health-detail-radius': `${R.sheet}px`,
+              background: F.appBg,
+              boxShadow: S.floating,
+              border: `1px solid ${F.borderSoft}`,
+            } as React.CSSProperties}>
+            <div className="shrink-0 px-5 pt-4 pb-3" style={{ background: F.appBg }}>
+              <div className="mx-auto mb-3 h-1 w-10 sm:hidden" style={{ background: F.borderStrong, borderRadius: R.pill }} />
+              <div className="flex items-start gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span style={{ width: 9, height: 9, borderRadius: R.pill, background: HUE.blue.main, flexShrink: 0 }} />
+                    <h2 id="apple-health-details-title" style={{ fontSize: '17px', fontWeight: 700, color: F.textPrimary }}>
+                      Apple Health
+                    </h2>
+                  </div>
+                  <p className="mt-1" style={{ fontSize: '11px', color: F.textTertiary }}>
+                    {todayViewOffset === 0 ? '今日' : `${viewDay.getMonth() + 1}月${viewDay.getDate()}日`}
+                    {' · '}更新于 {fmtExternalSyncTime(viewedExternalHealth.updatedAt)}
+                  </p>
+                </div>
+                <button
+                  onClick={handleSyncExternalHealth}
+                  disabled={isSyncingExternalHealth}
+                  className={`w-9 h-9 flex items-center justify-center disabled:opacity-40 ${clay.pressSmall}`}
+                  style={{ background: HUE.blue.tint, borderRadius: R.pill, boxShadow: S.raisedSoft }}
+                  aria-label="同步 Apple Health">
+                  <ArrowClockwise
+                    size={15}
+                    weight="bold"
+                    style={{ color: HUE.blue.main }}
+                    className={isSyncingExternalHealth ? 'animate-spin' : ''}
+                  />
+                </button>
+                <button
+                  onClick={() => setShowExternalHealthDetails(false)}
+                  className={`w-9 h-9 flex items-center justify-center ${clay.pressSmall}`}
+                  style={{ background: F.surfaceRaised, borderRadius: R.pill, boxShadow: S.raisedSoft }}
+                  aria-label="关闭 Apple Health 详情">
+                  <X size={15} weight="bold" style={{ color: F.textSecondary }} />
+                </button>
+              </div>
+              <div className="mt-3 px-3 py-2.5 flex items-center justify-between gap-3"
+                style={{ background: HUE.blue.tint, borderRadius: R.smallCard, color: HUE.blue.ink }}>
+                <span style={{ fontSize: '11px' }}>
+                  {viewedExternalHealth.summaryKind === 'daily'
+                    ? '总量求和 · 生命体征取均值 · 身体指标取末次'
+                    : '来自 HealthSync 的最近快照'}
+                </span>
+                <span style={{ fontSize: '12px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                  {externalHealthMetricCount} 项
+                </span>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-5" style={{ paddingBottom: 'calc(1.5rem + var(--safe-bottom))' }}>
+              {externalHealthGroups.map(group => (
+                <section key={group.title} className="mb-4">
+                  <h3 className="mb-2 px-1" style={{ fontSize: '11px', fontWeight: 700, color: F.textTertiary }}>
+                    {group.title}
+                  </h3>
+                  <div style={{ background: F.surfaceRaised, borderRadius: R.bigCard, boxShadow: S.raisedSoft, border: `1px solid ${F.borderSoft}` }}>
+                    {group.metrics.map((metric, index) => (
+                      <div
+                        key={metric.label}
+                        className="flex items-center justify-between gap-4 px-4 py-3"
+                        style={{ borderTop: index === 0 ? 'none' : `1px solid ${F.divider}` }}>
+                        <span style={{ fontSize: '13px', color: F.textSecondary }}>{metric.label}</span>
+                        <span style={{ fontSize: '13px', fontWeight: 700, color: F.textPrimary, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
+                          {metric.value}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ))}
+
+              {externalHealthGroups.length === 0 && (
+                <div className="px-4 py-6 text-center"
+                  style={{ background: F.surfaceSunken, borderRadius: R.bigCard, boxShadow: S.sunken, color: F.textTertiary, fontSize: '12px' }}>
+                  暂时没有可展示的健康指标，请先在手机端同步一次。
+                </div>
+              )}
+
+              <p className="px-1 pb-2" style={{ fontSize: '10px', lineHeight: 1.6, color: F.textTertiary }}>
+                所选日期的活动能量会用于热量缺口；有 Apple Health 数据时不会再叠加手动训练热量。
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* [EM-END: apple-health-detail-sheet] */}
 
       {/* ════════════════════════════════════════════════════
           Record Modal

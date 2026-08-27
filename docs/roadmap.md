@@ -1,6 +1,6 @@
 # LiliumOS Roadmap
 
-> `main` 发布基线仍以已发布版本为准。最后核对：2026-08-22。
+> `main` 发布基线仍以已发布版本为准。最后核对：2026-08-26。
 > 具体实现契约见对应 `docs/` 规格；跨 Agent 交接只记录工作上下文，不替代 Git 和仓库文档。
 
 ## 当前优先级
@@ -8,20 +8,19 @@
 ### P0：文档与上游同步安全
 
 - 上游同步严格执行 `.claude/CLAUDE.md` / `AGENTS.md` 的审批闸门：先只读调研和汇报，再由 Emma 选择，获批后才建验收分支。
-- merge 后运行 `bash scripts/check-em-patches.sh`（当前 74 项）和 `pnpm vitest run`。
+- merge 后运行 `bash scripts/check-em-patches.sh`（当前 79 项）和 `pnpm vitest run`。
 - EM App 数据备份必须持续覆盖 Finance、Health、Shopping、Map 及 Finance 周期规则。
 - 剧情剧场默认保持独立故事线与独立记忆；只有用户显式开启时才镜像进角色正常记忆。
 
-### P1：Health 外部数据链收尾
+### P1：Health 数据体验收尾
 
-核心 Health App 已完成：本地 IndexedDB、训练/睡眠/饮食/经期/症状/体重、周期推算、饮食文本/图片识别、角色聊天健康摘要和完整备份。Home Assistant 外部健康快照适配层、Health 只读卡片和角色摘要合并已在当前工作区完成；真实数据仍须由 iPhone HealthSync 与 HA 集成完成首次手动同步后验收。
+核心 Health App 已完成：本地 IndexedDB、训练/睡眠/饮食/经期/症状/体重、周期推算、饮食文本/图片识别、角色聊天健康摘要和完整备份。iPhone HealthSync → Home Assistant → LiliumOS 的首次真实同步已验收；健康页支持四项摘要、完整分组详情和按日期查看每日汇总，Apple Health 活动能量进入所选日期的热量缺口，角色摘要与界面使用同一数据口径。
 
 仍待完成：
 
-- iPhone HealthSync → Home Assistant 的首次手动同步与真实数据验收；旧 Apple Health 快捷指令只保留作应急回退。
 - Notion HealthLog / Daily Routine 同步。
 - Health App 内“让角色说说这周”的周评论入口与缓存。
-- 七日趋势与更细健康详情的角色按需工具；今日健康查询的本地路由边界已有回归测试。
+- 七日趋势与完整原始历史数据的角色按需工具；Health App 已能按日期读取每日汇总，今日健康查询的本地路由边界已有回归测试。
 
 ### P1：Notion 高级管理 App
 
@@ -61,12 +60,13 @@ Mac mini 部署、设备、Apple Health、位置与角色工具的完整交接�
 
 ## 已完成
 
-### 2026-08-26（当前工作区，待真实数据验收）
+### 2026-08-26（当前工作区，真实数据已验收）
 
 - 新增 Home Assistant HealthSync 外部快照适配层，按 Jamie Hill 配套集成的公开实体契约覆盖活动、睡眠、心率/血压/体成分等 27 项指标与最近 workout，并在 HA 离线时回退本地缓存。
-- Health App 增加 Apple Health 只读同步区；角色聊天摘要合并客观指标与 LiliumOS 手工记录，健康查询可按语义进入本地 Home Assistant 工具轮次，普通闲聊不受影响。
+- 接入 `healthsync.get_readings` 的永久档案：Health App 的同一「今日」页面随日期切换显示昨天及历史日数据；步数/能量等按来源分别求和后取最高来源，心率/HRV/血氧等取日均，体重/VO₂ max/体成分取当日末次，并缓存最近 730 个每日汇总。
+- Health App 增加 Apple Health 只读同步区和完整分组详情；活动能量接入热量缺口和运动环，并在有外部数据时替代而非叠加手动训练热量。角色聊天摘要合并客观指标与 LiliumOS 手工记录，健康查询可按语义进入本地 Home Assistant 工具轮次，普通闲聊不受影响。
 - Mac mini 私有 HTTPS 代理在同一 Tailscale 入口复用 `/api/*`（Home Assistant）与 `/mcp`（Apple Calendar / Reminders），修复日历 MCP 的 HTTP 404；两条路由均已真实验证。
-- 尚未安装或配置 iPhone HealthSync / HA HealthSync 集成，也未创建 webhook 或上传健康数据。
+- iPhone HealthSync、HA HealthSync 集成、webhook 与 Tailscale HTTPS 通道已配置；首次真实 Apple Health 同步已在 Home Assistant 实体和 LiliumOS Health App 完成验收。
 
 ### 2026-08-22
 

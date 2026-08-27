@@ -2,11 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
     DEFAULT_SMART_HOME_CONFIG,
     buildHomeAssistantMcpUrl,
+    callHomeAssistantActionWithResponse,
     exportSmartHomeLocal,
     fetchSmartHomeDevices,
     importSmartHomeLocal,
     loadSmartHomeConfig,
     normalizeHomeAssistantBaseUrl,
+    renderHomeAssistantTemplate,
     saveSmartHomeConfig,
     sendSmartHomeCommand,
     stateToSmartHomeDevice,
@@ -184,6 +186,38 @@ describe('smartHome Home Assistant adapter', () => {
         });
         expect(fetchMock.mock.calls[3][0]).toBe('https://ha.example.com/api/services/switch/turn_off');
         expect(fetchMock.mock.calls[3][1]?.body).toBe(JSON.stringify({ entity_id: 'switch.vital_200s_display' }));
+        fetchMock.mockRestore();
+    });
+
+    it('calls response-only actions and renders templates through the same HA connection', async () => {
+        const fetchMock = vi.spyOn(globalThis, 'fetch')
+            .mockResolvedValueOnce(new Response(JSON.stringify({
+                changed_states: [],
+                service_response: { readings: [{ value: 72 }], count: 1 },
+            }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+            .mockResolvedValueOnce(new Response('healthsync-device-id', {
+                status: 200,
+                headers: { 'Content-Type': 'text/plain' },
+            }));
+
+        await expect(callHomeAssistantActionWithResponse<{ readings: Array<{ value: number }>; count: number }>(
+            config,
+            'healthsync',
+            'get_readings',
+            { device_id: 'healthsync-device-id', metric: 'heartRate' },
+        )).resolves.toEqual({ readings: [{ value: 72 }], count: 1 });
+        await expect(renderHomeAssistantTemplate(
+            config,
+            "{{ device_id('sensor.healthsync_steps_today') }}",
+        )).resolves.toBe('healthsync-device-id');
+
+        expect(fetchMock.mock.calls[0][0]).toBe(
+            'https://ha.example.com/api/services/healthsync/get_readings?return_response',
+        );
+        expect(fetchMock.mock.calls[1][0]).toBe('https://ha.example.com/api/template');
+        expect(fetchMock.mock.calls[1][1]?.body).toBe(JSON.stringify({
+            template: "{{ device_id('sensor.healthsync_steps_today') }}",
+        }));
         fetchMock.mockRestore();
     });
 

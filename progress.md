@@ -9,11 +9,12 @@
 
 ## 最近完成
 
-- 当前工作区完成 Apple Health 外部数据链的 LiliumOS 侧实现：从 Jamie Hill 版 Home Assistant HealthSync 实体生成只读快照，按公开契约覆盖 27 项活动、睡眠、心血管、体成分指标和最近 workout；Health App 可手动刷新，角色摘要会与本地手工记录合并，HA 离线时回退缓存。
+- Apple Health 外部数据链已完成真实验收：Jamie Hill 版 iPhone HealthSync 经 Home Assistant webhook 写入实体，LiliumOS 从同一 HA 连接生成只读快照；健康页四项摘要可进入完整分组详情，并在同一页面随日期切换读取历史日汇总。步数/能量等按来源去重汇总，心率/HRV/血氧等取日均，体重/VO₂ max/体成分取当日末次；HA 保留永久原始档案，LiliumOS 缓存最近 730 个每日汇总并在离线时回退。
+- Apple Health 的“活动能量”已接入健康页热量缺口和运动环；今天和历史日期有外部汇总时均以全天活动能量为准，不与手动训练消耗重复相加，角色今日健康摘要沿用同一计算口径。
 - 私网 Home Assistant 的语义门控扩展到健康查询：明确询问 Apple Health / HealthSync 指标时走本地工具，普通闲聊继续使用 Instant Chat；相关适配、路由和前台/worker 回归测试通过。
 - Mac mini 私有 HTTPS 代理现以同一 Tailscale origin 分流 `/api/*` 到 Home Assistant、`/mcp` 到 Apple Events bridge；已验证健康检查、HA 401 边界、Apple MCP 无 Token 401 与带 Token initialize 200，日历/提醒事项原 404 已消除。
 - Smart Home 普通备份默认剥离 HA token、proxyKey 及 HA MCP 里的重复凭据；恢复后 HA MCP 保持停用，须重新填入并测试连接。
-- HealthSync iPhone App 与 HA HACS 集成尚未安装配置，未创建 webhook，真实 Apple Health 手动同步仍待 Emma 确认后执行。
+- HealthSync iPhone App、HA HACS 集成、webhook 和 Tailscale HTTPS 通道均已配置，首次真实同步已在 Health App 与 Home Assistant 实体页完成验收。
 
 - Mac mini 已运行 Apple Events MCP 私有桥接：LaunchAgent 常驻、Bearer Token 文件权限隔离、CORS 白名单和 Tailscale Funnel HTTPS 入口均完成真实验收，无需自有域名。
 - 通用 MCP 已发现 `reminders_tasks`、`reminders_lists`、`reminders_subtasks`、`calendar_events`、`calendar_calendars` 五项工具；角色读取日历已实测，提醒事项和日历事件写入能力可在用户确认后调用。
@@ -59,7 +60,7 @@
 
 ## 验证基线
 
-- Apple Health / 私有入口（2026-08-26）：`externalHealth`、Smart Home、MCP 路由、聊天 payload、amsg wiring 与旧 iOS 正则守卫共 8 个测试文件、103 tests passed；生产构建通过；`check-em-patches.sh` 79/79。全量为 3464 passed / 5 skipped，仍仅有与本轮无关的 2 项既存日期边界失败（药盒补记日期、Notion 日记频率）。Tailscale HTTPS `/api/*` 与 `/mcp` 完成真实路由验证，HealthSync 真数据验收待安装后进行。
+- Apple Health / 私有入口（2026-08-26）：Tailscale HTTPS `/api/*` 与 `/mcp` 完成真实路由验证；HealthSync 首次真数据同步已验收，健康页可展示完整指标详情、按日期每日汇总并将活动能量用于所选日期的热量缺口。HA action、聚合、缓存、能量来源与详情呈现定向测试 22 passed；全量 Vitest 为 309 个测试文件、3878 passed / 5 skipped；生产构建通过，390×844 手机布局通过浏览器检查，`check-em-patches.sh` 79/79，`git diff --check` 通过。
 
 - Apple Events MCP（2026-08-22）：桥接 Node 测试 4 passed；真实公网 Funnel 验证健康检查 200、无 Token 401、带 Token MCP initialize 200、五项工具发现和角色日历读取成功；MCP 前台/worker 定向测试 65 passed，Worker bundle 与生产构建通过。全量 Vitest 为 3450 passed / 5 skipped，另有 2 项与本轮无关的既存日期边界失败（药盒补记日期、Notion 日记频率）。
 
@@ -94,7 +95,7 @@
 
 ### 部分完成
 
-- Health：核心记录、周期、饮食识别、聊天摘要和备份已完成；HealthSync 外部快照、只读 UI 和角色摘要合并已在当前工作区完成，真实 Apple Health 首次同步、七日趋势、Notion 同步和角色周评未完成。
+- Health：核心记录、周期、饮食识别、聊天摘要、备份、HealthSync 外部快照与按日期每日汇总已完成；真实 Apple Health 首次同步已验收，七日趋势、完整历史角色工具、Notion 同步和角色周评未完成。
 - 共读：epub、用户/角色批注已完成；回信支路、高亮和 PDF 未完成。
 - Smart Home：软件接入已完成；真实设备发现、实体映射和角色控制仍待 Home Assistant 主机验收。
 

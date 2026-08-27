@@ -12,8 +12,9 @@
 
 import { getAllHealthEvents, WorkoutHealthEvent, PeriodHealthEvent, SleepHealthEvent, DietHealthEvent, WeightHealthEvent } from './healthDb';
 import { calcCycleStatus } from './cycleCalc';
-import { getHealthProfile, calcBMR, calcDeficit } from './healthProfile';
+import { getHealthProfile, calcBMR, calcTDEE, calcDeficit } from './healthProfile';
 import { refreshExternalHealthSnapshot } from './externalHealth';
+import { resolveExerciseCalories } from './healthEnergy';
 
 function todayStr(): string {
   const d = new Date();
@@ -93,10 +94,12 @@ export async function buildTodayHealthSummary(): Promise<string | null> {
     const profile = getHealthProfile();
     if (profile) {
       const bmr = calcBMR(profile);
-      const exerciseCal = workout?.calories ?? 0;
+      // [EM: apple-health-active-energy] Apple Health 已含训练活动，不能与手动热量相加。
+      const exerciseCal = resolveExerciseCalories(workout?.calories, externalHealth?.activeCaloriesToday);
       const intakeCal = diets.reduce((s, d) => s + d.calories, 0);
       if (exerciseCal > 0 || intakeCal > 0) {
-        const gap = calcDeficit(bmr, exerciseCal, intakeCal);
+        const target = profile.dailyCalorieTarget ?? calcTDEE(bmr);
+        const gap = calcDeficit(target, exerciseCal, intakeCal);
         parts.push(gap >= 0 ? `热量盈余${gap}kcal` : `热量超出${Math.abs(gap)}kcal`);
       }
     }

@@ -37,6 +37,11 @@ export interface HomeAssistantState {
     last_updated?: string;
 }
 
+export interface HomeAssistantActionResponse<T> {
+    changed_states: HomeAssistantState[];
+    service_response: T;
+}
+
 export interface SmartHomeDevice {
     id: string;
     entityId: string;
@@ -182,6 +187,24 @@ const requestJson = async <T>(config: SmartHomeConfig, path: string, init?: Requ
     return response.json() as Promise<T>;
 };
 
+const requestText = async (config: SmartHomeConfig, path: string, init?: RequestInit): Promise<string> => {
+    const hasBody = init?.body !== undefined;
+    let response: Response;
+    try {
+        response = await fetch(buildTargetUrl(config, path), {
+            ...init,
+            headers: buildHeaders(config, hasBody),
+        });
+    } catch {
+        throw new Error(config.proxyUrl
+            ? '连接失败，请检查 Home Assistant 和代理地址'
+            : '连接失败，可能需要在 Home Assistant 允许跨域，或填写代理地址');
+    }
+    if (response.status === 401) throw new Error('访问令牌无效或权限不足');
+    if (!response.ok) throw new Error(`Home Assistant 返回 ${response.status}`);
+    return response.text();
+};
+
 export const fetchHomeAssistantStates = async (
     config: SmartHomeConfig,
     options: { timeoutMs?: number } = {},
@@ -199,6 +222,59 @@ export const fetchHomeAssistantStates = async (
         if (timer !== undefined) globalThis.clearTimeout(timer);
     }
 };
+
+// [EM-START: home-assistant-response-actions]
+// HealthSync 的历史读取 action 只支持 response-only 调用；统一在这里补
+// return_response，避免健康适配层绕过既有的代理、鉴权和超时约定。
+export const callHomeAssistantActionWithResponse = async <T>(
+    config: SmartHomeConfig,
+    domain: string,
+    service: string,
+    data: Record<string, unknown>,
+    options: { timeoutMs?: number } = {},
+): Promise<T> => {
+    const timeoutMs = options.timeoutMs ?? 8000;
+    const controller = typeof AbortController === 'undefined' ? undefined : new AbortController();
+    const timer = controller && timeoutMs > 0
+        ? globalThis.setTimeout(() => controller.abort(), timeoutMs)
+        : undefined;
+    try {
+        const response = await requestJson<HomeAssistantActionResponse<T>>(
+            config,
+            `/api/services/${encodeURIComponent(domain)}/${encodeURIComponent(service)}?return_response`,
+            {
+                method: 'POST',
+                body: JSON.stringify(data),
+                signal: controller?.signal,
+            },
+        );
+        return response.service_response;
+    } finally {
+        if (timer !== undefined) globalThis.clearTimeout(timer);
+    }
+};
+
+export const renderHomeAssistantTemplate = async (
+    config: SmartHomeConfig,
+    template: string,
+    options: { timeoutMs?: number } = {},
+): Promise<string> => {
+    const timeoutMs = options.timeoutMs ?? 8000;
+    const controller = typeof AbortController === 'undefined' ? undefined : new AbortController();
+    const timer = controller && timeoutMs > 0
+        ? globalThis.setTimeout(() => controller.abort(), timeoutMs)
+        : undefined;
+    try {
+        return (await requestText(config, '/api/template', {
+            method: 'POST',
+            body: JSON.stringify({ template }),
+            signal: controller?.signal,
+        })).trim();
+    } finally {
+        if (timer !== undefined) globalThis.clearTimeout(timer);
+    }
+};
+// [EM-END: home-assistant-response-actions]
 
 const asNumber = (value: unknown): number | undefined => {
     const result = Number(value);

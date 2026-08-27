@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+    aggregateExternalHealthDailySummary,
+    loadExternalHealthDailySummary,
     loadExternalHealthSnapshot,
     parseExternalHealthSnapshot,
     refreshExternalHealthSnapshot,
+    saveExternalHealthDailySummary,
     syncExternalHealthSnapshot,
 } from './externalHealth';
 import { DEFAULT_SMART_HOME_CONFIG, saveSmartHomeConfig, type HomeAssistantState } from './smartHome';
@@ -141,5 +144,61 @@ describe('HealthSync Home Assistant adapter', () => {
 
         expect((await refreshExternalHealthSnapshot({ maxAgeMs: 60_000 }))?.stepsToday).toBe(100);
         expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('builds daily summaries with source-safe totals, averages, latest values and nightly sleep', () => {
+        const summary = aggregateExternalHealthDailySummary('2026-08-25', {
+            steps: [
+                { value: 3000, source: 'iPhone', start_date: '2026-08-25T08:00:00-05:00' },
+                { value: 2500, source: 'iPhone', start_date: '2026-08-25T17:00:00-05:00' },
+                { value: 4200, source: 'Apple Watch', start_date: '2026-08-25T18:00:00-05:00' },
+                { value: 5500, source: 'snapshot', daily_total: true, start_date: '2026-08-25T00:00:00-05:00' },
+            ],
+            activeCalories: [
+                { value: 180, source: 'Apple Watch', start_date: '2026-08-25T10:00:00-05:00' },
+                { value: 220, source: 'Apple Watch', start_date: '2026-08-25T19:00:00-05:00' },
+                { value: 90, source: 'iPhone', start_date: '2026-08-25T14:00:00-05:00' },
+            ],
+            heartRate: [
+                { value: 60, start_date: '2026-08-25T08:00:00-05:00' },
+                { value: 90, start_date: '2026-08-25T12:00:00-05:00' },
+                { value: 99, daily_total: true, start_date: '2026-08-25T20:00:00-05:00' },
+                { value: null, start_date: '2026-08-25T21:00:00-05:00' },
+            ],
+            weight: [
+                { value: 120, unit: 'lb', start_date: '2026-08-25T07:00:00-05:00' },
+                { value: 121, unit: 'lb', start_date: '2026-08-25T20:00:00-05:00' },
+            ],
+            sleep: [
+                {
+                    value: 420, daily_total: true,
+                    start_date: '2026-08-24T23:40:00-05:00', end_date: '2026-08-25T06:40:00-05:00',
+                },
+                { value: 70, daily_total: true, sleep_stage: 'asleepDeep', end_date: '2026-08-25T06:40:00-05:00' },
+                { value: 95, daily_total: true, sleep_stage: 'asleepREM', end_date: '2026-08-25T06:40:00-05:00' },
+            ],
+        }, new Date('2026-08-26T02:00:00Z'));
+
+        expect(summary).toMatchObject({
+            summaryDate: '2026-08-25',
+            summaryKind: 'daily',
+            stepsToday: 5500,
+            activeCaloriesToday: 400,
+            latestHeartRate: 75,
+            latestWeightKg: 54.885,
+            sleepHoursLastNight: 7,
+            sleepDeepMinutes: 70,
+            sleepRemMinutes: 95,
+            sleepStartedAt: '2026-08-24T23:40:00-05:00',
+        });
+    });
+
+    it('keeps date-scoped summaries in the local summary cache', () => {
+        const summary = aggregateExternalHealthDailySummary('2026-08-25', {
+            steps: [{ value: 4321, source: 'Apple Watch', start_date: '2026-08-25T12:00:00-05:00' }],
+        });
+        saveExternalHealthDailySummary(summary);
+        expect(loadExternalHealthDailySummary('2026-08-25')?.stepsToday).toBe(4321);
+        expect(loadExternalHealthDailySummary('2026-08-24')).toBeNull();
     });
 });
