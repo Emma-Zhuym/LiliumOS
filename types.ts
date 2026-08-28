@@ -265,7 +265,7 @@ export interface ImageGenerationApiConfig {
   model?: string;
   /** 静态网页可选经主 Worker 中转以绕过 CORS；旧配置缺省保持浏览器直连。 */
   requestMode?: ImageGenerationRequestMode;
-  /** 自定义接口支持图片输入时，上传角色当前立绘作为身份参考。缺省视为开启。 */
+  /** 自定义接口支持图片输入时，仅在人物/人脸画面上传当前立绘作为身份参考。缺省视为开启。 */
   useCharacterReference?: boolean;
 }
 
@@ -3208,6 +3208,8 @@ export interface GalleryImage {
     timestamp: number;
     /** Original chat row when this gallery item came from a message. */
     sourceMessageId?: number;
+    /** Who sent the source chat image. Older gallery rows may not have this field. */
+    sourceRole?: 'user' | 'assistant';
     review?: string;
     reviewTimestamp?: number;
     savedDate?: string; // YYYY-MM-DD format

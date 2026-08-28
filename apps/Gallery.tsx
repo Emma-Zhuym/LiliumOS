@@ -12,6 +12,7 @@ import {
     syncLegacyGalleryFavorites,
 } from '../utils/contentFavorites';
 import TokenImg from '../components/os/TokenImg';
+import { hideGalleryMessageImages, syncGalleryImagesFromMessages } from '../utils/galleryMessageSync';
 
 const Gallery: React.FC = () => {
     const { closeApp, characters, apiConfig, addToast } = useOS();
@@ -35,6 +36,7 @@ const Gallery: React.FC = () => {
         const loadCounts = async () => {
             const counts: Record<string, number> = {};
             for (const char of characters) {
+                await syncGalleryImagesFromMessages(char.id);
                 const imgs = await DB.getGalleryImages(char.id);
                 counts[char.id] = imgs.length;
             }
@@ -45,7 +47,9 @@ const Gallery: React.FC = () => {
 
     useEffect(() => {
         if (activeCharId) {
-            syncLegacyGalleryFavorites().then(() => DB.getGalleryImages(activeCharId)).then(imgs => {
+            syncLegacyGalleryFavorites()
+                .then(() => syncGalleryImagesFromMessages(activeCharId))
+                .then(() => DB.getGalleryImages(activeCharId)).then(imgs => {
                 setImages(imgs.sort((a, b) => b.timestamp - a.timestamp));
             });
         }
@@ -78,6 +82,7 @@ const Gallery: React.FC = () => {
                 variant: 'danger',
                 onConfirm: async () => {
                     const imgs = await DB.getGalleryImages(charId);
+                    await hideGalleryMessageImages(imgs.map(img => img.sourceMessageId));
                     for (const img of imgs) {
                         await DB.deleteGalleryImage(img.id);
                     }
@@ -105,6 +110,7 @@ const Gallery: React.FC = () => {
             message: '确定要删除这张照片吗？',
             variant: 'danger',
             onConfirm: async () => {
+                await hideGalleryMessageImages([selectedImage.sourceMessageId]);
                 await DB.deleteGalleryImage(selectedImage.id);
                 setImages(prev => prev.filter(img => img.id !== selectedImage.id));
                 setView('grid');
@@ -159,8 +165,11 @@ const Gallery: React.FC = () => {
                 ? `\nThis photo is from ${selectedImage.savedDate}.`
                 : '';
 
+            const photoTask = selectedImage.sourceRole === 'assistant'
+                ? 'This is a photo you sent to the user. Add a brief natural follow-up comment about it.'
+                : 'The user sent you a photo. Comment on it briefly based on your personality.';
             const systemContent = `You are ${char.name}. ${char.systemPrompt || 'You are a helpful assistant.'}
-Task: The user sent you a photo. Comment on it briefly (1-3 sentences) based on your personality.${dateStr}${chatContextStr}
+Task: ${photoTask} Keep it to 1-3 sentences.${dateStr}${chatContextStr}
 Style: Casual, conversational, strictly NO AI-assistant tone. React as if you received this on a chat app.
 CRITICAL: Stay in character. If there's conversation context, your comment should naturally fit that context. Don't say anything that would be bizarre given what you two were just talking about.`;
 

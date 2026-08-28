@@ -8,6 +8,7 @@ import {
   generateChatImage,
   pickCharacterImageReference,
   resolveImageGenerationConfig,
+  shouldUseCharacterImageReference,
 } from './imageGeneration';
 
 vi.mock('./apiCallLog', () => ({ recordApiCall: vi.fn() }));
@@ -50,6 +51,14 @@ describe('image generation configuration', () => {
   it('never treats an emoji avatar or chibi sprite as a facial reference', () => {
     expect(pickCharacterImageReference(character({ avatar: '🌷', sprites: { chibi: 'blobref:chibi' } }))).toBeUndefined();
   });
+
+  it('uses identity references only when the scene actually contains a visible character', () => {
+    expect(shouldUseCharacterImageReference('mirror selfie, the character is looking at the camera')).toBe(true);
+    expect(shouldUseCharacterImageReference('portrait of a man reading by the window, face visible')).toBe(true);
+    expect(shouldUseCharacterImageReference('steaming beef noodle soup on a table, candid phone photo')).toBe(false);
+    expect(shouldUseCharacterImageReference('a woman seen from behind, face not visible')).toBe(false);
+    expect(shouldUseCharacterImageReference('POV shot of one hand holding a coffee cup')).toBe(false);
+  });
 });
 
 describe('generateChatImage', () => {
@@ -65,7 +74,7 @@ describe('generateChatImage', () => {
   it('uploads the active portrait to the edits endpoint when enabled', async () => {
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ data: [{ b64_json: 'QUJD' }] }), { status: 200 }));
     const result = await generateChatImage({
-      prompt: 'reading by a window',
+      prompt: 'portrait of the character reading by a window, face visible',
       char: character({ sprites: { normal: 'data:image/png;base64,QUJD' } }),
       config: { provider: 'openai-compatible', baseUrl: 'https://img.example/v1', apiKey: 'k', model: 'image-model', useCharacterReference: true },
       fetchImpl: fetchImpl as any,
@@ -76,6 +85,8 @@ describe('generateChatImage', () => {
     expect(calls[0][1]?.body).toBeInstanceOf(FormData);
     expect((calls[0][1]?.body as FormData).get('image')).toBeInstanceOf(Blob);
     expect((calls[0][1]?.body as FormData).get('image[]')).toBeNull();
+    expect(String((calls[0][1]?.body as FormData).get('prompt'))).toContain('camera position');
+    expect(String((calls[0][1]?.body as FormData).get('prompt'))).toContain('do not turn the scene into a selfie');
     expect(result).toMatchObject({ referenceUsed: true, url: 'data:image/png;base64,QUJD' });
     expect(recordApiCall).toHaveBeenCalledWith(expect.objectContaining({
       url: 'https://img.example/v1/images/edits',
@@ -84,6 +95,28 @@ describe('generateChatImage', () => {
     }));
     const loggedBody = vi.mocked(recordApiCall).mock.calls.at(-1)?.[0].body as any;
     expect(JSON.stringify(loggedBody)).not.toContain('QUJD');
+  });
+
+  it('keeps food and object photos on text generation even when a character portrait is available', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ data: [{ b64_json: 'QUJD' }] }), { status: 200 }));
+    const result = await generateChatImage({
+      // The combined prompt deliberately contains portrait-style words; only scenePrompt may decide identity use.
+      prompt: 'steaming beef noodle soup on a table, cinematic portrait photography, realistic facial detail',
+      scenePrompt: 'steaming beef noodle soup on a table, candid phone photo',
+      char: character({ sprites: { normal: 'data:image/png;base64,QUJD' } }),
+      config: { provider: 'openai-compatible', baseUrl: 'https://img.example/v1', apiKey: 'k', model: 'image-model', useCharacterReference: true },
+      fetchImpl: fetchImpl as any,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchImpl.mock.calls[0];
+    expect(url).toBe('https://img.example/v1/images/generations');
+    expect(init?.body).toEqual(expect.any(String));
+    const body = JSON.parse(String(init?.body));
+    expect(body.prompt).toContain('Do not add the character, any person, face');
+    expect(body).not.toHaveProperty('referenceImageDataUrl');
+    expect(result.referenceUsed).toBe(false);
+    expect(result.warning).toBeUndefined();
   });
 
   it('uses the configured Worker relay for a static frontend', async () => {
@@ -150,7 +183,7 @@ describe('generateChatImage', () => {
       .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: 'unsupported image' } }), { status: 400 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ b64_json: 'QUJD' }] }), { status: 200 }));
     const result = await generateChatImage({
-      prompt: 'reading',
+      prompt: 'the character reading, face visible',
       char: character({ sprites: { normal: 'data:image/png;base64,QUJD' } }),
       config: { provider: 'openai-compatible', baseUrl: 'https://img.example/v1', model: 'text-only' },
       fetchImpl: fetchImpl as any,

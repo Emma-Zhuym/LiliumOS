@@ -25,6 +25,15 @@ const metric = (
   ? null
   : { label, value: `${rounded(value, digits)}${unit}` };
 
+const positiveMetric = (
+  label: string,
+  value: number | undefined,
+  unit = '',
+  digits = 0,
+): ExternalHealthMetric | null => value !== undefined && value > 0
+  ? metric(label, value, unit, digits)
+  : null;
+
 const compact = <T>(values: Array<T | null>): T[] => values.filter((value): value is T => value !== null);
 
 const distance = (meters: number | undefined): string | undefined => {
@@ -126,9 +135,8 @@ export function buildExternalHealthMetricGroups(
         metric(isDaily ? '末次 VO₂ max' : 'VO₂ max', snapshot.vo2Max, ' ml/kg/min', 1),
         metric(isDaily ? '末次体重' : '体重', snapshot.latestWeightKg, ' kg', 1),
         metric('BMI', snapshot.bodyMassIndex, '', 1),
-        metric('体脂率', snapshot.bodyFatPercent, '%', 1),
-        metric('瘦体重', snapshot.leanBodyMassKg, ' kg', 1),
-        textMetric('身高', height(snapshot.heightMeters)),
+        positiveMetric('体脂率', snapshot.bodyFatPercent, '%', 1),
+        positiveMetric('瘦体重', snapshot.leanBodyMassKg, ' kg', 1),
         textMetric('腰围', height(snapshot.waistCircumferenceMeters)),
       ]),
     },

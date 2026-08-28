@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 
 // 角色关掉「时间感知强化」后，日程块曾经照旧写着「当前时段：22:00 你正在睡觉」——
 // 精确钟点从这条缝里漏了出去，而挡住它正是那个开关存在的意义。
@@ -21,6 +21,15 @@ vi.mock('./dailySchedule', () => ({
 import { ChatPrompts } from './chatPrompts';
 
 const userProfile = { name: '小明' } as any;
+
+beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 19, 0, 15, 0));
+});
+
+afterEach(() => {
+    vi.useRealTimers();
+});
 
 const buildVolatile = async (timeAwarenessEnabled: boolean | undefined) => {
     const char = {

@@ -1070,7 +1070,7 @@ const Settings: React.FC = () => {
       nextImageGeneration.provider === 'pollinations-free'
         ? '已使用内置免费生图'
         : nextImageGeneration.useCharacterReference
-          ? '自定义生图已接入 · 会优先使用角色立绘参考'
+          ? '自定义生图已接入 · 仅人物画面使用角色立绘参考'
           : '自定义生图已接入 · 当前不使用角色立绘参考',
     );
     setTimeout(() => setImageGenerationStatusMsg(''), 2400);
@@ -2897,9 +2897,9 @@ const Settings: React.FC = () => {
                             style={{ borderRadius: R.smallCard, background: F.surfaceWarm, border: `1px solid ${F.borderSoft}` }}
                         >
                             <div className="min-w-0">
-                                <div className="text-xs font-bold" style={{ color: F.textPrimary }}>用角色立绘保持面部特征</div>
+                                <div className="text-xs font-bold" style={{ color: F.textPrimary }}>人物画面用角色立绘保持面部特征</div>
                                 <p className="mt-1 text-[10px] leading-relaxed" style={{ color: F.textTertiary }}>
-                                    优先读取当前皮肤的普通立绘，再用默认立绘或头像；不会拿 Q 版立绘当脸。立绘只会发送给你填写的生图接口。
+                                    仅当描述明确包含角色或可见人脸时上传立绘；饭菜、风景、物件等纯场景不会上传，也不会强行加人。优先读取当前皮肤普通立绘，永不拿 Q 版当脸。
                                 </p>
                             </div>
                             <button

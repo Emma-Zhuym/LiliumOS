@@ -33,6 +33,20 @@ describe('external health presentation', () => {
     expect(buildExternalHealthMetricGroups(baseSnapshot)).toEqual([]);
   });
 
+  it('hides placeholder body fat and keeps static height in the local health profile', () => {
+    const groups = buildExternalHealthMetricGroups({
+      ...baseSnapshot,
+      bodyFatPercent: 0,
+      heightMeters: 1.7,
+      latestWeightKg: 55,
+    });
+
+    const labels = groups.flatMap(group => group.metrics.map(metric => metric.label));
+    expect(labels).toContain('体重');
+    expect(labels).not.toContain('体脂率');
+    expect(labels).not.toContain('身高');
+  });
+
   it('labels daily aggregates as averages and date-scoped totals', () => {
     const groups = buildExternalHealthMetricGroups({
       ...baseSnapshot,

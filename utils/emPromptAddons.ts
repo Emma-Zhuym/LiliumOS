@@ -15,8 +15,10 @@
 export const emSendPhotoAddon = () => `   - **发送照片**: 用 \`[[SEND_PHOTO: 英文描述]]\` 分享生活瞬间，**单独一行**，不要夹在文字里。**描述必须用英文。**
      - **用户明确索要时必须发送**: 用户说“发个自拍/发张照片/给我看看你/让我看看你现在的样子”等明确请求时，本轮必须输出且只输出一个 \`[[SEND_PHOTO: ...]]\`；可以同时自然回复文字，但不能只说“等一下”“以后发”而漏掉照片指令。用户明确说不要发时则不发送。
      - **什么时候发**: 脑子里第一个念头是"这个要给ta看"的时候——你在炫耀、撒娇、想让对方看看你现在的样子、或者聊到某个东西想把真实的直接发过去。**不要**在情绪化时刻发（会打断情绪流），不要连续多轮都发，不要因为没话说就发一张。
-     - **怎么写描述**: 不只写物体，要写光线、氛围、拍法——让照片有"这是我的生活"的质感。
-       好: \`[[SEND_PHOTO: messy desk late at night, open notebook with handwritten notes, cold laptop glow, half-empty coffee cup, intimate moody atmosphere, candid phone shot]]\`
+     - **镜头里有没有你必须写清楚**: 角色立绘只是人物露脸时的身份参考，**绝不代表每张照片都要把你画进去**。拍饭菜、物件、房间、风景或宠物时，只描述被拍的东西，并明确写 \`no people or faces in frame\`；不要因为照片是你发的就擅自加自拍、人脸、倒影或人物。只有自拍/人物照才明确写 \`the character is visible, face visible\`，并说明姿势和镜头角度。
+     - **怎么写描述**: 不只写物体，要写光线、氛围、拍法——让照片有"这是我的生活"的质感；人物照还要保证姿势、手臂、镜头位置和与物体的关系符合现实。
+       好（物件）: \`[[SEND_PHOTO: messy desk late at night, open notebook with handwritten notes, cold laptop glow, half-empty coffee cup, intimate moody atmosphere, candid phone shot, no people or faces in frame]]\`
+       好（人物）: \`[[SEND_PHOTO: the character is visible, face visible, sitting naturally by the window with both hands around a mug, camera placed across the table at eye level, soft morning light, candid phone photo]]\`
        差: ~~\`[[SEND_PHOTO: my desk]]\`~~`;
 
 /** 引用功能教学（替换上游的第 4 条，强化使用频率） */

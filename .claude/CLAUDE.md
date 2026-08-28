@@ -65,7 +65,7 @@ merge 时 `grep -rn "EM-START\|\[EM:" --include="*.ts" --include="*.tsx"` 就能
 ### merge 后必跑自检
 
 ```bash
-bash scripts/check-em-patches.sh   # 当前 79 项锚点检查，红了就是功能被冲掉
+bash scripts/check-em-patches.sh   # 当前 80 项锚点检查，红了就是功能被冲掉
 pnpm vitest run                    # 单元测试
 ```
 
@@ -141,11 +141,12 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - `context/OSContext.tsx` — Finance 账户/分类/交易/设置/周期规则的全量备份与恢复
 - 不得在恢复时只还原基础交易而遗漏 `emFinanceRecurringRules`
 
-### 15. Health 核心 + 备份（外部同步仍未完成）
+### 15. Health 核心、Apple Health + 备份
 - `apps/HealthApp.tsx` / `utils/healthDb.ts` / `utils/cycleCalc.ts` — 训练、睡眠、饮食、经期、症状、体重与周期推算
-- `utils/healthContextBuilder.ts` → `hooks/useChatAI.ts` → `chatRequestPayload.ts` — 每轮聊天重新读取轻量健康摘要
+- `utils/healthContextBuilder.ts` → `hooks/useChatAI.ts` → `chatRequestPayload.ts` — 每轮聊天重新读取轻量健康摘要；Apple Health 常驻只含活动/睡眠和七日极简节律，血氧等生命体征不得重新灌入
+- `utils/externalHealth.ts` / `utils/externalHealthRoleSummary.ts` — HealthSync 当前快照、按日归档缓存与角色极简摘要；原始生命体征只留在 Health/HA 按需查看
 - `context/OSContext.tsx` — Health 事件和个人目标配置随全量备份导出/恢复
-- Apple Health 真导入、Notion 同步和 Health 内角色周评仍是 roadmap 待办，不能写成已完成
+- Apple Health 真导入已验收；Notion 同步、完整历史角色工具和 Health 内角色周评仍是 roadmap 待办
 
 ### 16. Shopping 投喂站 + 备份
 - `apps/ShoppingApp.tsx` — 网购/外卖；整页、店铺目录与折叠店内商品列表都必须可滚动
@@ -292,7 +293,7 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 
 当前优先级和完成记录统一维护在 `docs/roadmap.md`；这里仅保留会影响架构边界的摘要，避免两份清单再次漂移。
 
-1. **Health 外部数据链收尾**：Apple Health 真导入、Notion 同步、角色周评。
+1. **Health 外部数据链收尾**：Notion 同步、完整历史角色工具、角色周评。
 2. **Notion 高级管理 App**：独立 `apps/NotionApp.tsx`，不重写 Settings；整合多库权限、模板和标签。
 3. **位置感知聊天**：`utils/locationService.ts` + Google Places + 显式权限/隐私开关。
 4. **日记系统整理**：独立 `apps/DiaryApp.tsx`，统一交换日记与 Notion 日记。

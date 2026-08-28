@@ -3,6 +3,7 @@ import { migrateDataUrlToRef } from './blobRef';
 import { DB } from './db';
 import { generateChatImage, type GeneratedChatImage } from './imageGeneration';
 import { getPhotoStylePrompt } from './photoStylePresets';
+import { saveChatImageMessageToGallery } from './galleryMessageSync';
 
 export type ChatImageGenerationStatus = 'pending' | 'generated' | 'failed';
 
@@ -28,6 +29,8 @@ export async function generatePersistedChatImage(
     const stylePrompt = getPhotoStylePrompt(input.photoStyle);
     const generated = await generateChatImage({
       prompt: stylePrompt ? `${input.prompt}, ${stylePrompt}` : input.prompt,
+      // 身份参考只看角色写下的原始场景，不能被“电影写真”等画风词误触发。
+      scenePrompt: input.prompt,
       char: input.char,
       config: input.config,
     });
@@ -45,6 +48,12 @@ export async function generatePersistedChatImage(
       imageGenerationModel: generated.model,
       characterReferenceUsed: generated.referenceUsed,
     }));
+    try {
+      const completedMessage = await DB.getMessageById(input.messageId);
+      if (completedMessage) await saveChatImageMessageToGallery(completedMessage);
+    } catch (galleryError) {
+      console.warn('[Chat] 角色照片写入相册失败，聊天图片已保留', galleryError);
+    }
     return generated;
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);

@@ -7,8 +7,9 @@ import { processImage, processImageToBlob } from '../utils/file';
 import { safeResponseJson, extractContent } from '../utils/safeApi';
 import { buildChatFineTuneCss, mergeChatFineTune } from '../utils/chatFineTuneCss';
 import ChatFineTunePanel from '../components/chat/ChatFineTunePanel';
+import ChatSearch from '../components/chat/ChatSearch';
 import TokenImg from '../components/os/TokenImg';
-import { FadersHorizontal } from '@phosphor-icons/react';
+import { FadersHorizontal, MagnifyingGlass } from '@phosphor-icons/react';
 import { generateDailyScheduleForChar, isScheduleFeatureOn } from '../utils/scheduleGenerator';
 import { getDailyScheduleForChar } from '../utils/dailySchedule';
 import { useLocalDateKey } from '../hooks/useLocalDateKey';
@@ -128,6 +129,7 @@ const Chat: React.FC = () => {
     const WINDOW_RADIUS = 25;
     const [input, setInput] = useState('');
     const [showPanel, setShowPanel] = useState<'none' | 'actions' | 'emojis' | 'chars'>('none');
+    const [showChatSearch, setShowChatSearch] = useState(false);
     const [memoryRepairOpen, setMemoryRepairOpen] = useState(false);
     const [favoritesOpen, setFavoritesOpen] = useState(false);
     const [userContentFavoriteIds, setUserContentFavoriteIds] = useState<Set<string>>(new Set());
@@ -1236,6 +1238,7 @@ const Chat: React.FC = () => {
                     url: storedContent,
                     timestamp: Date.now(),
                     sourceMessageId: savedUserMsgId,
+                    sourceRole: 'user',
                     savedDate: localDateKey,
                     chatContext: imageChatContext,
                 });
@@ -2514,7 +2517,7 @@ const Chat: React.FC = () => {
 
     // 跳转到旧消息：加载全量到 messages，再用 windowedFocusMsgId 把 displayMessages
     // 收窄到目标周围 51 条。"回到当前聊天"会把 visibleCount 重置回 30。
-    const handleJumpToMessageInChat = async (messageId: number) => {
+    const handleJumpToMessageInChat = useCallback(async (messageId: number) => {
         if (!activeCharacterId) return;
         setModalType('none');
         const LARGE = 999999;
@@ -2529,7 +2532,7 @@ const Chat: React.FC = () => {
             el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         });
         window.setTimeout(() => setFlashMsgId(null), 2200);
-    };
+    }, [activeCharacterId, reloadMessages]);
 
     const handleBackToCurrent = async () => {
         setWindowedFocusMsgId(null);
@@ -3135,6 +3138,19 @@ const Chat: React.FC = () => {
     const chatAvatarRadiusClass = osTheme.chatAvatarShape === 'square' ? 'rounded-sm' : osTheme.chatAvatarShape === 'rounded' ? 'rounded-xl' : 'rounded-full';
     const chatPendingAvatarClass = `${chatAvatarSizeClass} ${chatAvatarRadiusClass} object-cover`;
 
+    if (showChatSearch) {
+        return (
+            <ChatSearch
+                character={char}
+                onClose={() => setShowChatSearch(false)}
+                onOpenMessage={(message) => {
+                    setShowChatSearch(false);
+                    window.setTimeout(() => void handleJumpToMessageInChat(message.id), 0);
+                }}
+            />
+        );
+    }
+
     return (
         <div
             className={`sully-chat-root ${finalRootClass}`}
@@ -3478,6 +3494,11 @@ const Chat: React.FC = () => {
                 onClose={closeApp}
                 onTriggerAI={handleManualTrigger}
                 onShowCharsPanel={() => setShowPanel('chars')}
+                extraAction={{
+                    label: '搜索聊天记录',
+                    icon: <MagnifyingGlass className="h-5 w-5" weight="bold" />,
+                    onClick: () => setShowChatSearch(true),
+                }}
                 onDeleteBuff={(buffId) => {
                     const currentBuffs = char.activeBuffs || [];
                     const newBuffs = currentBuffs.filter(b => b.id !== buffId);

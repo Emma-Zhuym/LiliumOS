@@ -4,6 +4,7 @@ import { useOS } from '../../context/OSContext';
 import { DB } from '../../utils/db';
 import { CharacterProfile, DailySchedule } from '../../types';
 import { useCharStatus } from '../../hooks/useCharStatus';
+import { F, MOTION, R, S } from '../../utils/clayTokens';
 
 type RowMeta = {
   char: CharacterProfile;
@@ -147,16 +148,19 @@ const ContactsList: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#f1f5f9] overflow-hidden relative font-sans">
-      <div className="bg-white/90 backdrop-blur-xl px-5 flex items-end pb-4 border-b border-slate-200/60 shrink-0 z-30 shadow-sm" style={{ paddingTop: 'var(--chrome-top, var(--safe-top, 0px))', minHeight: '6rem' }}>
-        <div className="flex items-center gap-3 w-full">
-          <button type="button" onClick={handleClose} className="p-2 -ml-2 text-slate-500 hover:bg-slate-100 rounded-full" aria-label="返回">
-            <CaretLeft className="w-5 h-5" weight="bold" />
+    <div className="flex flex-col h-full overflow-hidden relative font-sans" style={{ background: F.appBg }}>
+      <div className="shrink-0" style={{ paddingTop: 'var(--chrome-top)' }}>
+        <div className="relative flex items-center px-5 py-3">
+          <button
+            type="button"
+            onClick={handleClose}
+            className="flex items-center justify-center active:translate-y-[1px] transition-transform"
+            style={{ width: 44, height: 44, borderRadius: R.pill, background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft, transitionDuration: MOTION.tap }}
+            aria-label="返回"
+          >
+            <CaretLeft size={20} weight="bold" style={{ color: F.textSecondary }} />
           </button>
-          <div className="flex-1 min-w-0">
-            <div className="font-bold text-slate-800 text-lg">通讯录</div>
-            <div className="text-[10px] text-slate-400 uppercase tracking-wider">Message</div>
-          </div>
+          <span className="absolute left-0 right-0 flex justify-center text-[16px] font-semibold pointer-events-none" style={{ color: F.textPrimary }}>通讯录</span>
         </div>
       </div>
 

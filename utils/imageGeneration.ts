@@ -32,6 +32,11 @@ export interface GeneratedChatImage {
 
 interface GenerateChatImageInput {
   prompt: string;
+  /**
+   * 未追加画风预设的原始场景描述，仅用于判断画面是否真的需要角色身份参考。
+   * 不传时沿用 prompt，兼容设置页测试和旧调用方。
+   */
+  scenePrompt?: string;
   char?: CharacterProfile;
   config?: ImageGenerationApiConfig;
   seed?: number;
@@ -46,10 +51,39 @@ class ImageApiResponseError extends Error {
 }
 
 const IDENTITY_REFERENCE_PROMPT = [
-  'Use the attached character artwork only as the identity reference.',
+  'The scene prompt explicitly requests a visible person or face. Use the attached character artwork only as that person\'s identity reference.',
   'Preserve the same face shape, eyes, facial proportions, hairline, hair color, and distinctive facial features.',
   'Do not copy the reference pose, expression, clothing, framing, or background unless the scene prompt asks for them.',
+  'Do not paste, collage, float, or enlarge the reference face into the composition, and do not turn the scene into a selfie unless a selfie is explicitly requested.',
+  'Keep anatomy, limbs, perspective, reflections, camera position, and the person\'s physical relationship with nearby objects coherent and plausible.',
 ].join(' ');
+
+const NO_UNREQUESTED_PERSON_PROMPT = [
+  'Composition constraint: Do not add the character, any person, face, portrait, selfie, reflected person, or human figure unless the scene prompt explicitly requests one.',
+  'Keep food, objects, rooms, scenery, pets, and still-life images focused only on the requested subject.',
+  'If the scene explicitly requests a person whose face is hidden or out of frame, keep the face hidden or out of frame.',
+].join(' ');
+
+const HIDDEN_FACE_PATTERN = /(?:\b(?:no|without)\s+(?:any\s+)?(?:people|person|human|character|face|faces)\b|\b(?:back|rear)\s+view\b|\bfrom\s+behind\b|\bface\s+(?:hidden|obscured|covered|out\s+of\s+(?:the\s+)?frame|not\s+visible)\b|\bfaceless\b|\b(?:hand|hands)\s+only\b|\bfirst[-\s]?person\s+(?:view|perspective)\b|\bpov\s+(?:shot|view|perspective)\b|无人|没有人物|不要人物|不含人物|没有人脸|不要人脸|不露脸|背影|背面视角|第一人称视角|仅手部)/i;
+const SELFIE_PATTERN = /(?:\bselfie\b|\bmirror\s+(?:selfie|photo|shot)\b|自拍|镜子自拍|对镜照)/i;
+const VISIBLE_FACE_PATTERN = /(?:\bportrait\b|\bheadshot\b|\bface\b|\bfacial\b|\blooking\s+(?:at|into)\s+(?:the\s+)?camera\b|\beye\s+contact\b|\b(?:full|half)[-\s]?body\b|\bwaist[-\s]?up\b|\bupper[-\s]?body\b|肖像|人像|正脸|侧脸|脸部|面部|看向镜头|全身照|半身照|上半身)/i;
+const HUMAN_SUBJECT_PATTERN = /(?:\b(?:character|woman|man|girl|boy|person|people|couple|human)\b|\b(?:she|he)\s+(?:is|sits?|stands?|lies?|walks?|holds?|wears?|looks?|smiles?|laughs?|reads?|eats?|cooks?|drinks?|takes?|poses?)\b|角色|人物|女生|男生|女人|男人|女孩|男孩|情侣|合照)/i;
+
+/**
+ * 参考图是“身份锚点”而不是每次生图的构图素材。
+ * 默认保守地不上传；只有场景明确要求可见人物/脸时才返回 true。
+ */
+export const shouldUseCharacterImageReference = (scenePrompt: string): boolean => {
+  const prompt = String(scenePrompt || '').trim();
+  if (!prompt) return false;
+  // selfie/对镜照本身就要求可见身份，优先于 POV 等镜头词。
+  if (SELFIE_PATTERN.test(prompt)) return true;
+  if (HIDDEN_FACE_PATTERN.test(prompt)) return false;
+  return VISIBLE_FACE_PATTERN.test(prompt) || HUMAN_SUBJECT_PATTERN.test(prompt);
+};
+
+const applyCompositionGuard = (prompt: string, visibleCharacterRequested: boolean): string =>
+  visibleCharacterRequested ? prompt : `${prompt}\n\n${NO_UNREQUESTED_PERSON_PROMPT}`;
 
 const isUsableImageSource = (value: unknown): value is string => {
   if (typeof value !== 'string') return false;
@@ -359,9 +393,11 @@ const requestViaProxy = async (
 
 export async function generateChatImage(input: GenerateChatImageInput): Promise<GeneratedChatImage> {
   const config = resolveImageGenerationConfig(input.config);
+  const visibleCharacterRequested = shouldUseCharacterImageReference(input.scenePrompt ?? input.prompt);
+  const generationPrompt = applyCompositionGuard(input.prompt, visibleCharacterRequested);
   if (config.provider === 'pollinations-free') {
     return {
-      url: buildPollinationsImageUrl(input.prompt, input.seed),
+      url: buildPollinationsImageUrl(generationPrompt, input.seed),
       provider: config.provider,
       referenceUsed: false,
     };
@@ -369,9 +405,10 @@ export async function generateChatImage(input: GenerateChatImageInput): Promise<
   if (!config.baseUrl || !config.model) throw new Error('请先在设置中填写生图 API 的 URL 和 Model');
 
   const fetchImpl = input.fetchImpl || fetch;
-  const referenceSource = config.useCharacterReference ? pickCharacterImageReference(input.char) : undefined;
+  const shouldAttachReference = config.useCharacterReference && visibleCharacterRequested;
+  const referenceSource = shouldAttachReference ? pickCharacterImageReference(input.char) : undefined;
   let warning: string | undefined;
-  if (config.useCharacterReference && !referenceSource) {
+  if (shouldAttachReference && !referenceSource) {
     warning = '这个角色还没有可用的立绘，已按纯文字生成';
   }
 
@@ -380,8 +417,8 @@ export async function generateChatImage(input: GenerateChatImageInput): Promise<
       const referenceBlob = await toReferenceBlob(referenceSource, fetchImpl);
       const meta = imageCallMeta(input, true, config.requestMode);
       const url = config.requestMode === 'proxy'
-        ? await requestViaProxy(config, input.prompt, referenceBlob, fetchImpl, meta)
-        : await requestEdit(config, input.prompt, referenceBlob, fetchImpl, meta);
+        ? await requestViaProxy(config, generationPrompt, referenceBlob, fetchImpl, meta)
+        : await requestEdit(config, generationPrompt, referenceBlob, fetchImpl, meta);
       return { url, provider: config.provider, model: config.model, referenceUsed: true };
     } catch (error) {
       const canFallback = !(error instanceof ImageApiResponseError)
@@ -395,8 +432,8 @@ export async function generateChatImage(input: GenerateChatImageInput): Promise<
 
   return {
     url: config.requestMode === 'proxy'
-      ? await requestViaProxy(config, input.prompt, undefined, fetchImpl, imageCallMeta(input, false, config.requestMode))
-      : await requestGeneration(config, input.prompt, fetchImpl, imageCallMeta(input, false, config.requestMode)),
+      ? await requestViaProxy(config, generationPrompt, undefined, fetchImpl, imageCallMeta(input, false, config.requestMode))
+      : await requestGeneration(config, generationPrompt, fetchImpl, imageCallMeta(input, false, config.requestMode)),
     provider: config.provider,
     model: config.model,
     referenceUsed: false,

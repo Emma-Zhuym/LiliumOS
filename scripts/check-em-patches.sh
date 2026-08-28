@@ -27,6 +27,9 @@ check() {
 
 echo "── EM 独立文件 ──"
 check "通讯录组件" components/chat/ContactsList.tsx "ContactsList"
+check "单角色聊天记录搜索" components/chat/ChatSearch.tsx "按日期查找"
+check "聊天页搜索入口" apps/Chat.tsx "搜索聊天记录"
+check "双方图片相册同步" utils/galleryMessageSync.ts "syncGalleryImagesFromMessages"
 check "提示词附加包" utils/emPromptAddons.ts "emNotionDiarySection"
 check "Notion 扩展库配置" utils/notionExtraConfig.ts "NotionExtraDatabase"
 check "角色状态核心逻辑" utils/charStatus.ts "availability"
@@ -91,6 +94,7 @@ check "收藏照片处理" utils/applyAssistantPostProcessing.ts "[EM-START: fav
 check "收藏照片教学调用点" utils/chatPrompts.ts "emFavPhotoAddon()"
 check "收藏照片标签兜底剥离" utils/sanitize.ts "[EM: fav-photo-strip]"
 check "生活记录入口隐藏开关" apps/UserApp.tsx "[EM-START: hide-life-records]"
+check "Apple Health 七日极简角色摘要" utils/healthContextBuilder.ts "[EM-START: apple-health-role-summary]"
 
 echo "── 天气 Open-Meteo ──"
 check "openMeteo 独立模块" utils/openMeteo.ts "resolveWeatherCoords"

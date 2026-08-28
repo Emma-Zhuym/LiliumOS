@@ -704,6 +704,35 @@ export const DB = {
     });
   },
 
+  // Gallery reconciliation only needs image rows. Prefer the v62 compound index so opening an
+  // album does not load years of text history just to find a handful of photos.
+  getImageMessagesByCharId: async (charId: string): Promise<Message[]> => {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_MESSAGES, 'readonly');
+      const store = transaction.objectStore(STORE_MESSAGES);
+      if (store.indexNames.contains('charId_type')) {
+        const request = store.index('charId_type').getAll(IDBKeyRange.only([charId, 'image']));
+        request.onsuccess = () => resolve((request.result || []).filter((message: Message) => !message.groupId));
+        request.onerror = () => reject(request.error);
+        return;
+      }
+      const messages: Message[] = [];
+      const cursorRequest = store.index('charId').openCursor(IDBKeyRange.only(charId));
+      cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result;
+        if (!cursor) {
+          resolve(messages);
+          return;
+        }
+        const message = cursor.value as Message;
+        if (!message.groupId && message.type === 'image') messages.push(message);
+        cursor.continue();
+      };
+      cursorRequest.onerror = () => reject(cursorRequest.error);
+    });
+  },
+
   // Same as getRecentMessagesByCharId but also returns the total count (for UI display)
   getRecentMessagesWithCount: async (charId: string, limit: number): Promise<{ messages: Message[], totalCount: number }> => {
     const db = await openDB();

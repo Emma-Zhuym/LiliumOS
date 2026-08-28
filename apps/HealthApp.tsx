@@ -251,6 +251,7 @@ const HealthApp: React.FC = () => {
   );
   const [isSyncingExternalHealth, setIsSyncingExternalHealth] = useState(false);
   const [showExternalHealthDetails, setShowExternalHealthDetails] = useState(false);
+  const [expandedExternalHealthGroups, setExpandedExternalHealthGroups] = useState<Set<string>>(() => new Set());
 
   // ── Record modal ──
   const [recordMode, setRecordMode] = useState<RecordMode | null>(null);
@@ -355,6 +356,12 @@ const HealthApp: React.FC = () => {
     () => countExternalHealthMetrics(externalHealthGroups),
     [externalHealthGroups],
   );
+  const openExternalHealthDetails = () => {
+    if (!viewedExternalHealth) return;
+    setExpandedExternalHealthGroups(new Set());
+    setShowExternalHealthDetails(true);
+  };
+
   const pickerYear = viewDay.getFullYear();
   const pickerMonth = viewDay.getMonth() + 1;
   const pickerFirstDow = new Date(pickerYear, pickerMonth - 1, 1).getDay();
@@ -1364,7 +1371,7 @@ const HealthApp: React.FC = () => {
             <div className="mb-3 p-4" style={{ ...clay.cardIndigo }}>
               <div className="flex items-center justify-between gap-3">
                 <button
-                  onClick={() => { if (viewedExternalHealth) setShowExternalHealthDetails(true); }}
+                  onClick={openExternalHealthDetails}
                   disabled={!viewedExternalHealth}
                   className={`min-w-0 flex-1 text-left disabled:cursor-default ${viewedExternalHealth ? clay.pressSmall : ''}`}
                   aria-label={viewedExternalHealth ? '查看全部 Apple Health 指标' : undefined}>
@@ -1392,7 +1399,7 @@ const HealthApp: React.FC = () => {
 
               {viewedExternalHealth ? (
                 <button
-                  onClick={() => setShowExternalHealthDetails(true)}
+                  onClick={openExternalHealthDetails}
                   className={`w-full mt-3 ${clay.pressSmall}`}
                   aria-label={`查看全部 ${externalHealthMetricCount} 项 Apple Health 指标`}>
                   <div className="grid grid-cols-4 gap-2">
@@ -1418,7 +1425,7 @@ const HealthApp: React.FC = () => {
               ) : (
                 <p className="mt-3 px-3 py-2.5" style={{ background: F.surfaceSunken, borderRadius: R.smallCard, boxShadow: S.sunken, fontSize: '11px', color: F.textSecondary }}>
                   {todayViewOffset === 0
-                    ? '手机完成 HealthSync 测试后，点右侧同步；角色也会读取同一份摘要。'
+                    ? '手机完成 HealthSync 测试后，点右侧同步；角色只读取精简生活节律。'
                     : '这一天还没有本地汇总，点右侧即可从 HealthSync 永久档案读取。'}
                 </p>
               )}
@@ -1642,11 +1649,11 @@ const HealthApp: React.FC = () => {
                 <button
                   onClick={handleSyncExternalHealth}
                   disabled={isSyncingExternalHealth}
-                  className={`w-9 h-9 flex items-center justify-center disabled:opacity-40 ${clay.pressSmall}`}
-                  style={{ background: HUE.blue.tint, borderRadius: R.pill, boxShadow: S.raisedSoft }}
+                  className={`flex items-center justify-center disabled:opacity-40 ${clay.pressSmall}`}
+                  style={{ width: 44, height: 44, background: HUE.blue.tint, borderRadius: R.pill, boxShadow: S.raisedSoft }}
                   aria-label="同步 Apple Health">
                   <ArrowClockwise
-                    size={15}
+                    size={20}
                     weight="bold"
                     style={{ color: HUE.blue.main }}
                     className={isSyncingExternalHealth ? 'animate-spin' : ''}
@@ -1654,10 +1661,10 @@ const HealthApp: React.FC = () => {
                 </button>
                 <button
                   onClick={() => setShowExternalHealthDetails(false)}
-                  className={`w-9 h-9 flex items-center justify-center ${clay.pressSmall}`}
-                  style={{ background: F.surfaceRaised, borderRadius: R.pill, boxShadow: S.raisedSoft }}
+                  className={`flex items-center justify-center ${clay.pressSmall}`}
+                  style={{ width: 44, height: 44, background: F.surfaceRaised, borderRadius: R.pill, boxShadow: S.raisedSoft, border: `1px solid ${F.borderSoft}` }}
                   aria-label="关闭 Apple Health 详情">
-                  <X size={15} weight="bold" style={{ color: F.textSecondary }} />
+                  <X size={20} weight="bold" style={{ color: F.textSecondary }} />
                 </button>
               </div>
               <div className="mt-3 px-3 py-2.5 flex items-center justify-between gap-3"
@@ -1674,26 +1681,55 @@ const HealthApp: React.FC = () => {
             </div>
 
             <div className="flex-1 overflow-y-auto px-5" style={{ paddingBottom: 'calc(1.5rem + var(--safe-bottom))' }}>
-              {externalHealthGroups.map(group => (
-                <section key={group.title} className="mb-4">
-                  <h3 className="mb-2 px-1" style={{ fontSize: '11px', fontWeight: 700, color: F.textTertiary }}>
-                    {group.title}
-                  </h3>
-                  <div style={{ background: F.surfaceRaised, borderRadius: R.bigCard, boxShadow: S.raisedSoft, border: `1px solid ${F.borderSoft}` }}>
-                    {group.metrics.map((metric, index) => (
-                      <div
-                        key={metric.label}
-                        className="flex items-center justify-between gap-4 px-4 py-3"
-                        style={{ borderTop: index === 0 ? 'none' : `1px solid ${F.divider}` }}>
-                        <span style={{ fontSize: '13px', color: F.textSecondary }}>{metric.label}</span>
-                        <span style={{ fontSize: '13px', fontWeight: 700, color: F.textPrimary, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
-                          {metric.value}
+              {externalHealthGroups.map(group => {
+                const isExpanded = expandedExternalHealthGroups.has(group.title);
+                return (
+                  <section key={group.title} className="mb-3"
+                    style={{ background: F.surfaceRaised, borderRadius: R.bigCard, boxShadow: S.raisedSoft, border: `1px solid ${F.borderSoft}`, overflow: 'hidden' }}>
+                    <button
+                      type="button"
+                      className={`w-full flex items-center justify-between gap-4 px-4 py-3 text-left ${clay.pressSmall}`}
+                      aria-expanded={isExpanded}
+                      onClick={() => setExpandedExternalHealthGroups(current => {
+                        const next = new Set(current);
+                        if (next.has(group.title)) next.delete(group.title);
+                        else next.add(group.title);
+                        return next;
+                      })}>
+                      <span style={{ fontSize: '13px', fontWeight: 700, color: F.textPrimary }}>{group.title}</span>
+                      <span className="flex items-center gap-2">
+                        <span style={{ fontSize: '11px', color: F.textTertiary, fontVariantNumeric: 'tabular-nums' }}>
+                          {group.metrics.length} 项
                         </span>
+                        <CaretRight
+                          size={15}
+                          weight="bold"
+                          style={{
+                            color: F.textTertiary,
+                            transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                            transition: `transform ${MOTION.card} ${MOTION.ease}`,
+                          }}
+                        />
+                      </span>
+                    </button>
+                    {isExpanded && (
+                      <div style={{ borderTop: `1px solid ${F.divider}` }}>
+                        {group.metrics.map((metric, index) => (
+                          <div
+                            key={metric.label}
+                            className="flex items-center justify-between gap-4 px-4 py-3"
+                            style={{ borderTop: index === 0 ? 'none' : `1px solid ${F.divider}` }}>
+                            <span style={{ fontSize: '13px', color: F.textSecondary }}>{metric.label}</span>
+                            <span style={{ fontSize: '13px', fontWeight: 700, color: F.textPrimary, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
+                              {metric.value}
+                            </span>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                </section>
-              ))}
+                    )}
+                  </section>
+                );
+              })}
 
               {externalHealthGroups.length === 0 && (
                 <div className="px-4 py-6 text-center"
@@ -1703,7 +1739,7 @@ const HealthApp: React.FC = () => {
               )}
 
               <p className="px-1 pb-2" style={{ fontSize: '10px', lineHeight: 1.6, color: F.textTertiary }}>
-                所选日期的活动能量会用于热量缺口；有 Apple Health 数据时不会再叠加手动训练热量。
+                所选日期的活动能量会用于热量缺口；身高等固定资料以健康档案为准。血氧与其他生命体征仅在这里按需查看，不进入角色常驻摘要。
               </p>
             </div>
           </div>

@@ -13,8 +13,9 @@
 import { getAllHealthEvents, WorkoutHealthEvent, PeriodHealthEvent, SleepHealthEvent, DietHealthEvent, WeightHealthEvent } from './healthDb';
 import { calcCycleStatus } from './cycleCalc';
 import { getHealthProfile, calcBMR, calcTDEE, calcDeficit } from './healthProfile';
-import { refreshExternalHealthSnapshot } from './externalHealth';
+import { loadExternalHealthDailySummaries, refreshExternalHealthSnapshot } from './externalHealth';
 import { resolveExerciseCalories } from './healthEnergy';
+import { buildExternalHealthRoleContext } from './externalHealthRoleSummary';
 
 function todayStr(): string {
   const d = new Date();
@@ -31,7 +32,8 @@ export async function buildTodayHealthSummary(): Promise<string | null> {
       getAllHealthEvents(),
       refreshExternalHealthSnapshot({ maxAgeMs: 5 * 60 * 1000, timeoutMs: 1800 }),
     ]);
-    if (allEvents.length === 0 && !externalHealth) return null;
+    const externalHealthByDate = loadExternalHealthDailySummaries();
+    if (allEvents.length === 0 && !externalHealth && Object.keys(externalHealthByDate).length === 0) return null;
 
     const today = todayStr();
     const todayEvents = allEvents.filter(e => e.date === today);
@@ -104,38 +106,14 @@ export async function buildTodayHealthSummary(): Promise<string | null> {
       }
     }
 
-    const lines: string[] = [];
-    if (externalHealth) {
-      const externalParts: string[] = [];
-      if (externalHealth.stepsToday !== undefined) externalParts.push(`步数${Math.round(externalHealth.stepsToday)}`);
-      if (externalHealth.activeCaloriesToday !== undefined) externalParts.push(`活动${Math.round(externalHealth.activeCaloriesToday)}kcal`);
-      if (externalHealth.exerciseMinutesToday !== undefined) externalParts.push(`锻炼${Math.round(externalHealth.exerciseMinutesToday)}分钟`);
-      if (externalHealth.sleepHoursLastNight !== undefined) externalParts.push(`昨夜睡${externalHealth.sleepHoursLastNight.toFixed(1).replace(/\.0$/, '')}h`);
-      if (externalHealth.latestHeartRate !== undefined) externalParts.push(`心率${Math.round(externalHealth.latestHeartRate)}`);
-      if (externalHealth.restingHeartRate !== undefined) externalParts.push(`静息心率${Math.round(externalHealth.restingHeartRate)}`);
-      if (externalHealth.hrvMs !== undefined) externalParts.push(`HRV ${Math.round(externalHealth.hrvMs)}ms`);
-      if (externalHealth.bloodPressureSystolic !== undefined && externalHealth.bloodPressureDiastolic !== undefined) {
-        externalParts.push(`血压${Math.round(externalHealth.bloodPressureSystolic)}/${Math.round(externalHealth.bloodPressureDiastolic)}`);
-      }
-      if (externalHealth.bloodOxygenPercent !== undefined) externalParts.push(`血氧${Math.round(externalHealth.bloodOxygenPercent)}%`);
-      if (externalHealth.bodyTemperatureCelsius !== undefined) externalParts.push(`体温${externalHealth.bodyTemperatureCelsius.toFixed(1)}℃`);
-      if (externalHealth.bloodGlucoseMgDl !== undefined) externalParts.push(`血糖${Math.round(externalHealth.bloodGlucoseMgDl)}mg/dL`);
-      if (externalHealth.vo2Max !== undefined) externalParts.push(`VO₂max ${externalHealth.vo2Max.toFixed(1)}`);
-      if (externalHealth.latestWeightKg !== undefined) externalParts.push(`体重${externalHealth.latestWeightKg}kg`);
-      if (externalHealth.bodyFatPercent !== undefined) externalParts.push(`体脂${externalHealth.bodyFatPercent.toFixed(1)}%`);
-      const workoutStartedAt = externalHealth.lastWorkout?.startedAt;
-      if (workoutStartedAt) {
-        const workoutDate = new Date(workoutStartedAt);
-        if (!Number.isNaN(workoutDate.getTime()) && todayStr() === `${workoutDate.getFullYear()}-${String(workoutDate.getMonth() + 1).padStart(2, '0')}-${String(workoutDate.getDate()).padStart(2, '0')}`) {
-          const kind = externalHealth.lastWorkout?.type?.replace(/([a-z])([A-Z])/g, '$1 $2') || '训练';
-          const duration = externalHealth.lastWorkout?.durationMinutes;
-          externalParts.push(`Apple Watch ${kind}${duration !== undefined ? ` ${Math.round(duration)}分钟` : ''}`);
-        }
-      }
-      const fetchedAt = Date.parse(externalHealth.fetchedAt);
-      const stale = Number.isFinite(fetchedAt) && Date.now() - fetchedAt > 6 * 60 * 60 * 1000;
-      if (externalParts.length > 0) lines.push(`【Apple Health${stale ? '·数据可能过期' : ''}】${externalParts.join('｜')}`);
-    }
+    // [EM-START: apple-health-role-summary]
+    // 角色只常驻读取活动/睡眠等生活节律，不接收血氧或其他生命体征。
+    // 七日摘要仅使用已经落地的每日汇总，不在每次聊天时轰炸 HA 历史接口。
+    const lines: string[] = buildExternalHealthRoleContext({
+      current: externalHealth,
+      dailyByDate: externalHealthByDate,
+    });
+    // [EM-END: apple-health-role-summary]
     if (parts.length > 0) lines.push(`【今日健康】${parts.join('｜')}`);
     if (lines.length === 0) return null;
 
