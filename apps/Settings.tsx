@@ -210,7 +210,7 @@ const flushMcpToolConfigSync = () => {
  */
 const McpServersCard: React.FC<{
     addToast: (msg: string, type?: any) => void;
-    /** 服务器清单或「兼容模式」开关变了 → 让主动消息那边把新配置重传上云 */
+    /** 服务器清单或「原生 tools」开关变了 → 让主动消息那边把新配置重传上云 */
     onMcpConfigChanged?: () => void;
 }> = ({ addToast, onMcpConfigChanged }) => {
     const { characters, groups } = useOS();
@@ -289,9 +289,9 @@ const McpServersCard: React.FC<{
             </p>
             <div className="flex items-center justify-between gap-3 bg-white/70 border border-violet-100 rounded-xl px-3 py-2.5">
                 <div className="min-w-0">
-                    <div className="text-xs font-bold text-slate-700">聊天模型支持工具调用</div>
+                    <div className="text-xs font-bold text-slate-700">原生 tools 工具调用</div>
                     <p className="text-[10px] text-slate-400 mt-0.5 leading-relaxed">
-                        开启会发送正规 tools；模型或中转不支持时请关闭，直接走文字兼容模式，不再先试探一次。
+                        开启后发送标准 tools，调用更稳定、参数更可靠。只有模型或中转明确不支持 function calling 时才关闭，退回文字兼容模式。
                     </p>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer shrink-0">
@@ -300,7 +300,7 @@ const McpServersCard: React.FC<{
                         setUseNativeToolsState(next);
                         setMcpUseNativeTools(next);
                         onMcpConfigChanged?.();
-                        trackEvent('关闭原生工具调用（退回文字兼容模式）', { state: next ? 'on' : 'off' });
+                        trackEvent('切换原生工具调用', { state: next ? 'on' : 'off' });
                     }} className="sr-only peer" />
                     <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-violet-500"></div>
                 </label>
@@ -4623,12 +4623,14 @@ const Settings: React.FC = () => {
                               <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">数据表 Table ID</label>
                               <input type="text" value={rtFeishuTableId} onChange={e => setRtFeishuTableId(e.target.value)} className="w-full bg-white/80 border border-indigo-200 rounded-xl px-3 py-2 text-sm font-mono" placeholder="tblxxxxxxxx" />
                           </div>
-                          <button onClick={testFeishuApi} className="w-full py-2 bg-indigo-100 text-indigo-600 text-xs font-bold rounded-xl active:scale-95 transition-transform">测试飞书连接</button>
+                          <button onClick={testFeishuApi} className="w-full py-2 bg-indigo-100 text-indigo-600 text-xs font-bold rounded-xl active:scale-95 transition-transform">测试读取连接</button>
                           <p className="text-[10px] text-indigo-500/70 leading-relaxed">
+                              测试不会新增记录，只验证凭据、读取权限和 Table ID；读取成功但写入提示 Forbidden，说明还缺新增记录权限。<br/>
                               1. 在 <a href="https://open.feishu.cn/app" target="_blank" className="underline">飞书开放平台</a> 创建企业自建应用，获取 App ID 和 Secret<br/>
-                              2. 在应用权限中添加「多维表格」相关权限<br/>
-                              3. 创建一个多维表格，添加字段: 标题(文本)、内容(文本)、日期(日期)、心情(文本)、角色(文本)<br/>
-                              4. 从多维表格 URL 中获取 App Token 和 Table ID
+                              2. 开通「查看、评论、编辑和管理多维表格」权限，发布新版本并完成管理员审批<br/>
+                              3. 在目标多维表格的「添加文档应用」中加入该应用，并授予可编辑权限<br/>
+                              4. 添加字段: 标题(文本)、内容(文本)、日期(日期)、心情(文本)、角色(文本)<br/>
+                              5. 从多维表格 URL 中获取 App Token 和 Table ID
                           </p>
                       </div>
                   )}
