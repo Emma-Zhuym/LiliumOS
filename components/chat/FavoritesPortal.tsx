@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CaretLeft, ChatCircleDots, Image, Star, Trash, X } from '@phosphor-icons/react';
+import { CaretLeft, ChatCircleDots, Image, MagnifyingGlass, Star, Trash, X } from '@phosphor-icons/react';
 import {
     CONTENT_FAVORITES_CHANGED_EVENT,
     listContentFavorites,
@@ -10,6 +10,8 @@ import {
     type ResolvedContentFavorite,
 } from '../../utils/contentFavorites';
 import TokenImg from '../os/TokenImg';
+import { normalizeChatSearchText, searchableChatMessageText } from '../../utils/chatMessageSearch';
+import { F, HUE, R, S } from '../../utils/clayTokens';
 
 type FavoriteTab = 'chat' | 'image';
 
@@ -43,6 +45,9 @@ const FavoritesPortal: React.FC<FavoritesPortalProps> = ({ onClose, onJumpToMess
     const [resolved, setResolved] = useState<Record<string, ResolvedContentFavorite>>({});
     const [loading, setLoading] = useState(true);
     const [previewImage, setPreviewImage] = useState<string | null>(null);
+    const [searchOpen, setSearchOpen] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [searchHydrating, setSearchHydrating] = useState(false);
 
     const refresh = useCallback(async () => {
         try {
@@ -60,8 +65,25 @@ const FavoritesPortal: React.FC<FavoritesPortalProps> = ({ onClose, onJumpToMess
 
     const chatItems = useMemo(() => items.filter(item => item.kind === 'chat'), [items]);
     const imageItems = useMemo(() => items.filter(item => item.kind === 'image'), [items]);
-    const visibleItems = tab === 'chat' ? chatItems : imageItems;
+    const normalizedSearchQuery = normalizeChatSearchText(searchQuery);
+    const searchedChatItems = useMemo(() => {
+        if (!normalizedSearchQuery) return chatItems;
+        return chatItems.filter(item => {
+            const result = resolved[item.id];
+            const resolvedMessage = result && 'message' in result ? result.message : null;
+            const message = resolvedMessage || item.snapshot;
+            if (message?.type === 'emoji') return false;
+            const searchableText = normalizeChatSearchText([
+                item.charName,
+                messageTypeLabel(message?.type),
+                searchableChatMessageText(message),
+            ].join('\n'));
+            return searchableText.includes(normalizedSearchQuery);
+        });
+    }, [chatItems, normalizedSearchQuery, resolved]);
+    const visibleItems = tab === 'chat' ? searchedChatItems : imageItems;
     const visibleKey = visibleItems.map(item => item.id).join('|');
+    const searchActive = tab === 'chat' && !!normalizedSearchQuery;
 
     useEffect(() => {
         let cancelled = false;
@@ -75,6 +97,31 @@ const FavoritesPortal: React.FC<FavoritesPortalProps> = ({ onClose, onJumpToMess
         });
         return () => { cancelled = true; };
     }, [tab, visibleKey]);
+
+    useEffect(() => {
+        if (!searchOpen || tab !== 'chat') {
+            setSearchHydrating(false);
+            return;
+        }
+        const unresolvedLegacyItems = chatItems.filter(item => !item.snapshot && !resolved[item.id]);
+        if (!unresolvedLegacyItems.length) {
+            setSearchHydrating(false);
+            return;
+        }
+        let cancelled = false;
+        setSearchHydrating(true);
+        Promise.all(unresolvedLegacyItems.map(resolveContentFavorite)).then(results => {
+            if (cancelled) return;
+            setResolved(previous => {
+                const next = { ...previous };
+                results.forEach(result => { next[result.favorite.id] = result; });
+                return next;
+            });
+        }).finally(() => {
+            if (!cancelled) setSearchHydrating(false);
+        });
+        return () => { cancelled = true; };
+    }, [searchOpen, tab, chatItems, resolved]);
 
     const removeUserFavorite = async (item: ContentFavorite) => {
         await removeUserContentFavoriteById(item.id);
@@ -95,17 +142,41 @@ const FavoritesPortal: React.FC<FavoritesPortalProps> = ({ onClose, onJumpToMess
     };
 
     const content = (
-        <div className="fixed inset-0 z-[1000] flex flex-col bg-[#f7f7fa] text-slate-800">
-            <header className="shrink-0 border-b border-slate-900/10 bg-white/90 backdrop-blur-xl" style={{ paddingTop: 'var(--safe-top)' }}>
-                <div className="flex h-16 items-center gap-3 px-4">
-                    <button type="button" onClick={onClose} className="grid h-10 w-10 place-items-center rounded-full active:bg-slate-100" aria-label="返回">
-                        <CaretLeft size={22} />
+        <div className="fixed inset-0 z-[1000] flex flex-col" style={{ background: F.appBg, color: F.textPrimary }}>
+            <header className="shrink-0 border-b backdrop-blur-xl" style={{ paddingTop: 'var(--chrome-top)', borderColor: F.borderSoft, background: F.surfaceRaised }}>
+                <div className="relative flex items-center px-5 py-3">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="flex items-center justify-center active:translate-y-[1px] transition-transform"
+                        style={{ width: 44, height: 44, borderRadius: R.pill, background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}
+                        aria-label="返回"
+                    >
+                        <CaretLeft size={20} weight="bold" style={{ color: F.textSecondary }} />
                     </button>
-                    <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 text-lg font-bold"><Star size={19} weight="fill" className="text-amber-400" />收藏夹</div>
-                        <p className="text-[10px] text-slate-400">图片只保存引用，同一张不会重复占空间</p>
+                    <span className="pointer-events-none absolute left-0 right-0 flex justify-center text-[16px] font-semibold" style={{ color: F.textPrimary }}>收藏夹</span>
+                    <div className="ml-auto flex gap-2">
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if (tab === 'chat' && searchOpen) {
+                                    setSearchOpen(false);
+                                    setSearchQuery('');
+                                } else {
+                                    setTab('chat');
+                                    setSearchOpen(true);
+                                }
+                            }}
+                            className="flex items-center justify-center active:translate-y-[1px] transition-transform"
+                            style={{ width: 44, height: 44, borderRadius: R.pill, background: searchOpen && tab === 'chat' ? HUE.violet.tint : F.surfaceRaised, border: `1px solid ${searchOpen && tab === 'chat' ? HUE.violet.soft : F.borderSoft}`, boxShadow: S.raisedSoft }}
+                            aria-label={tab === 'chat' && searchOpen ? '关闭收藏搜索' : '搜索聊天收藏'}
+                            aria-pressed={tab === 'chat' && searchOpen}
+                        >
+                            <MagnifyingGlass size={20} weight="bold" style={{ color: searchOpen && tab === 'chat' ? HUE.violet.ink : F.textSecondary }} />
+                        </button>
                     </div>
                 </div>
+                <p className="px-5 pb-2 text-center text-[10px]" style={{ color: F.textTertiary }}>图片只保存引用，同一张不会重复占空间</p>
                 <div className="grid grid-cols-2 px-4">
                     {([
                         { value: 'chat' as const, label: '聊天', count: chatItems.length, icon: <ChatCircleDots size={16} weight="fill" /> },
@@ -114,28 +185,64 @@ const FavoritesPortal: React.FC<FavoritesPortalProps> = ({ onClose, onJumpToMess
                         <button
                             key={item.value}
                             type="button"
-                            onClick={() => setTab(item.value)}
+                            onClick={() => {
+                                setTab(item.value);
+                                if (item.value === 'image') {
+                                    setSearchOpen(false);
+                                    setSearchQuery('');
+                                }
+                            }}
                             className={`flex items-center justify-center gap-1.5 border-b-2 py-3 text-xs font-bold transition-colors ${tab === item.value ? 'border-violet-500 text-violet-600' : 'border-transparent text-slate-400'}`}
                         >
                             {item.icon}{item.label}<span className="text-[9px] opacity-60">{item.count}</span>
                         </button>
                     ))}
                 </div>
+                {tab === 'chat' && searchOpen && (
+                    <div className="px-4 pb-3 pt-2">
+                        <div className="relative">
+                            <MagnifyingGlass size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2" style={{ color: F.textTertiary }} />
+                            <input
+                                autoFocus
+                                type="search"
+                                value={searchQuery}
+                                onChange={event => setSearchQuery(event.target.value)}
+                                placeholder="搜索角色名或聊天收藏内容"
+                                className="h-11 w-full pl-9 pr-10 text-[12px] outline-none"
+                                style={{ borderRadius: R.input, background: F.surfaceSunken, border: `1px solid ${F.borderSoft}`, boxShadow: S.sunken, color: F.textPrimary }}
+                                aria-label="搜索聊天收藏中的关键词"
+                            />
+                            {searchQuery && (
+                                <button type="button" onClick={() => setSearchQuery('')} className="absolute right-1 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center" aria-label="清空收藏搜索">
+                                    <X size={16} weight="bold" style={{ color: F.textSecondary }} />
+                                </button>
+                            )}
+                        </div>
+                        {normalizedSearchQuery && (
+                            <p className="mt-1.5 px-1 text-[10px]" style={{ color: F.textSecondary }}>
+                                {searchHydrating ? '正在补读旧版收藏…' : <>找到 <b style={{ color: HUE.violet.ink }}>{searchedChatItems.length}</b> 条聊天收藏</>}
+                            </p>
+                        )}
+                    </div>
+                )}
             </header>
 
             <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-[max(2rem,var(--safe-bottom))]">
                 {loading ? (
                     <div className="grid h-48 place-items-center text-xs text-slate-400">正在整理收藏…</div>
+                ) : searchActive && searchHydrating && visibleItems.length === 0 ? (
+                    <div className="grid h-64 place-items-center text-xs" style={{ color: F.textTertiary }}>正在补读旧版收藏…</div>
                 ) : visibleItems.length === 0 ? (
                     <div className="flex h-64 flex-col items-center justify-center gap-3 text-slate-300">
-                        <Star size={40} weight="light" />
-                        <p className="text-sm">这里还没有{tab === 'chat' ? '聊天' : '图片'}收藏</p>
+                        {searchActive ? <MagnifyingGlass size={40} weight="light" /> : <Star size={40} weight="light" />}
+                        <p className="text-sm">{searchActive ? `没有找到“${searchQuery.trim()}”` : `这里还没有${tab === 'chat' ? '聊天' : '图片'}收藏`}</p>
                     </div>
                 ) : tab === 'chat' ? (
                     <div>
-                        {chatItems.map(item => {
+                        {searchedChatItems.map(item => {
                             const result = resolved[item.id];
-                            const message = result && 'message' in result ? result.message : null;
+                            const resolvedMessage = result && 'message' in result ? result.message : null;
+                            const message = resolvedMessage || item.snapshot || null;
                             const sourceAvailable = !!(result && 'sourceAvailable' in result && result.sourceAvailable);
                             const userOwned = item.owners.some(owner => owner.kind === 'user');
                             return (
@@ -154,7 +261,7 @@ const FavoritesPortal: React.FC<FavoritesPortalProps> = ({ onClose, onJumpToMess
                                         <p className="mt-2 line-clamp-5 whitespace-pre-wrap break-words text-[14px] leading-6 text-slate-800">
                                             {message?.content || (result ? '旧版收藏没有可恢复的内容' : '正在读取…')}
                                         </p>
-                                        {message && !sourceAvailable && <p className="mt-2 text-[10px] font-bold text-amber-700">原消息已删除 · 收藏副本仍保留</p>}
+                                        {result && message && !sourceAvailable && <p className="mt-2 text-[10px] font-bold text-amber-700">原消息已删除 · 收藏副本仍保留</p>}
                                         {ownerBadges(item)}
                                     </button>
                                     {userOwned && (
