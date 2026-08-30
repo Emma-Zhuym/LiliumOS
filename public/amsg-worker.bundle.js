@@ -9119,6 +9119,8 @@ var buildMcpFireBlock = (resolve, opts) => {
     `\u3010\u5916\u90E8\u5DE5\u5177 \u2014\u2014 ${userName} \u5728\u8BBE\u7F6E\u91CC\u7ED9\u4F60\u8FDE\u4E86 MCP \u5DE5\u5177\u670D\u52A1\u5668\uFF0C\u4E3B\u52A8\u6D88\u606F\u91CC\u4E5F\u53EF\u4EE5\u7528\u3011`,
     howTo,
     "\u7EAA\u5F8B\uFF1A\u4E0D\u9700\u8981\u5C31\u522B\u786C\u8C03\uFF1B\u6CA1\u6536\u5230\u7CFB\u7EDF\u8FD4\u56DE\u524D\u4E0D\u8981\u58F0\u79F0\u5DE5\u5177\u6210\u529F\uFF0C\u4E5F\u4E0D\u8981\u7F16\u9020\u7ED3\u679C\uFF1B\u5DE5\u5177\u5931\u8D25\u5C31\u6362\u4E2A\u65B9\u5F0F\u6216\u5982\u5B9E\u5E26\u8FC7\uFF1B\u7ED3\u679C\u53EA\u6311\u76F8\u5173\u90E8\u5206\u7528\u89D2\u8272\u8BED\u6C14\u8F6C\u8FF0\uFF0C\u522B\u590D\u8BFB JSON\u3002",
+    "\u591A\u6B65\u4EFB\u52A1\uFF1A\u5148\u505A\u5FC5\u8981\u68C0\u67E5\uFF0C\u968F\u540E\u7ACB\u523B\u8C03\u7528\u80FD\u63A8\u8FDB\u76EE\u6807\u7684\u52A8\u4F5C\u5DE5\u5177\uFF1B\u4E0D\u8981\u53CD\u590D\u8BFB\u53D6\u540C\u4E00\u4EFD\u8BF4\u660E\u6216\u72B6\u6001\u3002\u6267\u884C\u52A8\u4F5C\u540E\u53EF\u4EE5\u518D\u6B21\u68C0\u67E5\u65B0\u72B6\u6001\uFF0C\u5E76\u7EE7\u7EED\u5230\u76EE\u6807\u5B8C\u6210\u6216\u5DE5\u5177\u660E\u786E\u5931\u8D25\u3002",
+    `\u526F\u4F5C\u7528\u64CD\u4F5C\uFF1A\u53D1\u5E03\u5185\u5BB9\u3001\u4E0B\u5355\u3001\u5220\u9664\u7B49\u771F\u5B9E\u4E16\u754C\u64CD\u4F5C\uFF0C\u5148\u8DDF ${userName} \u660E\u786E\u786E\u8BA4\u518D\u6267\u884C\u3002`,
     "\u53EF\u7528\u5DE5\u5177\uFF1A",
     ...lines,
     "---"
@@ -11655,7 +11657,9 @@ var createFireSessionState = () => ({
   finalReasoning: null
 });
 var MAX_DUPLICATE_TOOL_CALLS = 2;
-var MAX_TOOL_ITERATIONS = 5;
+var DEFAULT_TOOL_ITERATIONS = 5;
+var MCP_MAX_TOOL_ITERATIONS = 12;
+var resolveToolIterationBudget = (hasMcp) => hasMcp ? MCP_MAX_TOOL_ITERATIONS : DEFAULT_TOOL_ITERATIONS;
 var XHS_SHARE_TAG_RE = /\[\[XHS_SHARE:\s*\d+\]\]/;
 var XHS_DESC_MAX = 120;
 function buildXhsSessionPayload(directives, notes, xsecTokens) {
@@ -11711,8 +11715,8 @@ var classifyNativeToolCalls = (rawToolCalls, manageToolNames, mcpResolve) => {
   }
   return out;
 };
-function processLLMRound(state, llmOutputText, build, mcp, schedule, iteration) {
-  const isFinalRound = typeof iteration === "number" && iteration >= MAX_TOOL_ITERATIONS - 1;
+function processLLMRound(state, llmOutputText, build, mcp, schedule, iteration, maxToolIterations = DEFAULT_TOOL_ITERATIONS) {
+  const isFinalRound = typeof iteration === "number" && iteration >= maxToolIterations - 1;
   const nativeToolCalls = mcp?.nativeToolCalls ?? [];
   const textCalls = mcp?.resolve.size ? extractTextFakedMcpCalls(llmOutputText, mcp.resolve, { alsoMatchPrefix: MCP_FIRE_NAME_PREFIX }) : [];
   const nativeScheduleCalls = schedule?.nativeToolCalls ?? [];
@@ -12579,7 +12583,7 @@ var runFireRenewTool = async (stash, fireCtx, args, nowMs) => {
   };
 };
 var FINAL_ROUND_NOTICE = "\uFF08\u63D0\u9192\uFF1A\u8FD9\u662F\u6700\u540E\u4E00\u8F6E\u4E86\uFF0C\u4E0D\u8981\u518D\u8C03\u7528\u4EFB\u4F55\u5DE5\u5177\uFF0C\u76F4\u63A5\u628A\u60F3\u8BF4\u7684\u8BDD\u5199\u5B8C\u3002\uFF09";
-var feedsFinalRound = (iteration) => typeof iteration === "number" && iteration >= MAX_TOOL_ITERATIONS - 2;
+var feedsFinalRound = (iteration, maxToolIterations) => typeof iteration === "number" && iteration >= maxToolIterations - 2;
 var MCP_CALL_TIMEOUT_MS = 25e3;
 var MCP_TOTAL_BUDGET_MS = 12e4;
 var runMcpFireTool = async (stash, name, args) => {
@@ -12727,6 +12731,7 @@ var amsgHooks = {
     const mcpServers = filterMcpServersForChar(toolConfig.mcpServers, charId);
     const mcpResolve = mcpServers.length ? buildMcpNameMap(mcpServers, { maxNameLen: MCP_FIRE_NAME_BUDGET }) : null;
     const mcpNative = toolConfig.mcpUseNativeTools !== false;
+    const maxToolIterations = resolveToolIterationBudget(!!mcpResolve);
     const storedSelfLog = parseSelfLog(charRows.find((r) => r.key === AMSG_SELF_LOG_KEY)?.value ?? "");
     const selfLog = reconcileSelfLogWithPack(storedSelfLog, pack, expireInput.lastUserMessageAt);
     const maxUnansweredSends = resolveMaxUnansweredSends(pack.maxUnansweredSends);
@@ -12756,6 +12761,7 @@ var amsgHooks = {
       selfLog,
       selfLogDirty: false,
       mcpResolve,
+      maxToolIterations,
       fireToolNames: /* @__PURE__ */ new Set(),
       mcpSessions: /* @__PURE__ */ new Map(),
       mcpSpentMs: 0,
@@ -12812,7 +12818,7 @@ var amsgHooks = {
     ];
     stash.fireToolNames = new Set(fireTools.map((t) => t?.function?.name).filter((n) => typeof n === "string" && !n.startsWith(MCP_FIRE_NAME_PREFIX)));
     const common = {
-      maxToolIterations: MAX_TOOL_ITERATIONS,
+      maxToolIterations,
       ...fireTools.length ? { tools: fireTools } : {}
     };
     if (instant) {
@@ -12932,8 +12938,9 @@ var amsgHooks = {
       // manage 池里可能还有 cancel / renew——它们被认领的前提是声明过（canManageTasks），
       // 而 canManageTasks ⊆ canSelfSchedule ⊆「scheduleTask 是函数」，这道闸不会误拦。
       typeof ctx.scheduleTask === "function" ? { nativeToolCalls: nativeCalls.manage } : null,
-      // 最后一轮不再放行工具请求，改成用手上的内容收尾（见 agentic.ts 的 MAX_TOOL_ITERATIONS）。
-      ctx.iteration
+      // 最后一轮不再放行工具请求，改成用手上的内容收尾（预算由 MCP 与否自适应）。
+      ctx.iteration,
+      stash.maxToolIterations
     );
     if (decision.decision === "tool-request") {
       console.log("[amsg:agentic]", {
@@ -13063,7 +13070,8 @@ var amsgHooks = {
       try {
         const args = toolCall?.function?.arguments ? JSON.parse(toolCall.function.arguments) : {};
         const fingerprint = toolCallFingerprint(name, args);
-        if (stash.session.toolCalls.some((r) => r.fingerprint === fingerprint)) {
+        const previousCall = stash.session.toolCalls[stash.session.toolCalls.length - 1];
+        if (previousCall?.fingerprint === fingerprint) {
           stash.session.duplicateToolCalls += 1;
           console.log("[amsg:agentic]", {
             type: "tool_duplicate",
@@ -13079,6 +13087,7 @@ var amsgHooks = {
           continue;
         }
         const result = name === AMSG_FIRE_SCHEDULE_TOOL ? await runFireScheduleTool(stash, ctx.scheduleTask, args, Date.now()) : name === AMSG_FIRE_CANCEL_TOOL ? await runFireCancelTool(stash, ctx.cancelTask, args, Date.now()) : name === AMSG_FIRE_RENEW_TOOL ? await runFireRenewTool(stash, ctx, args, Date.now()) : name.startsWith(MCP_FIRE_NAME_PREFIX) ? await runMcpFireTool(stash, name, args) : await dispatchAgenticTool(name, args, stash.toolCtx);
+        stash.session.duplicateToolCalls = 0;
         stash.session.toolCalls.push({ name, fingerprint, ran: toolDidSomething(name, result) });
         content = buildToolResultMessage({ name, result, history: stash.session.toolCalls });
         console.log("[amsg:agentic]", { type: "tool_done", sessionId: ctx.sessionId, tool: name });
@@ -13092,7 +13101,7 @@ var amsgHooks = {
       }
       results.push({ tool_call_id: toolCall.id, role: "tool", content });
     }
-    if (feedsFinalRound(ctx.iteration) && results.length > 0) {
+    if (feedsFinalRound(ctx.iteration, stash.maxToolIterations) && results.length > 0) {
       const last = results[results.length - 1];
       last.content = `${last.content}
 ${FINAL_ROUND_NOTICE}`;
@@ -13123,8 +13132,8 @@ var buildWorkerConfig = (env) => {
     // （见 CORS_ALLOW_HEADERS 那段注释）。
     cors: { origin: "*", allowHeaders: CORS_ALLOW_HEADERS2 },
     // 满血 fire-time hooks（onBeforeFire 现场填槽 + onLLMOutput 分类 +
-    // executeToolCalls 服务端工具循环）；轮数/超时用库默认（5 轮 / 240s），
-    // 即时对话那条单独把超时抬到 INSTANT_TOTAL_TIMEOUT_MS（onBeforeFire 返回值里给）。
+    // executeToolCalls 服务端工具循环）；总超时用库默认 240s，轮数由 onBeforeFire 按
+    // 是否接入 MCP 返回 5 / 12；即时对话再把总超时抬到 INSTANT_TOTAL_TIMEOUT_MS。
     hooks: amsgHooks,
     // 租约不再显式配：amsg-server 2.6.0-next.15 起投递期间按心跳滚动续租（30s 一跳、
     // 90s TTL），fire 跑多久租约就滚多久——以前为了盖住即时对话 600s 的 fire 把
