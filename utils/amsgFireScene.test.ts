@@ -223,4 +223,3 @@ describe('renderFireSceneBlock — 主动消息也教改日程', () => {
         expect(out).not.toContain('CHANGE_SCHEDULE');
     });
 });
-
