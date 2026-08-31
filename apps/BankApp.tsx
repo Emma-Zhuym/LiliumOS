@@ -6,7 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Wallet, Receipt, ChartPie, CaretLeft, CaretRight, CaretDown, Plus, Trash, Gear, CreditCard, PiggyBank, Money, Coffee, ChartLine, ArrowsClockwise, type Icon } from '@phosphor-icons/react';
+import { Wallet, Receipt, ChartPie, CaretLeft, CaretRight, CaretDown, Plus, Trash, Gear, CreditCard, PiggyBank, Money, Coffee, ChartLine, ArrowsClockwise, ArrowSquareOut, Clock, Lightbulb, type Icon } from '@phosphor-icons/react';
 import { useOS } from '../context/OSContext';
 import { FinanceDB } from '../utils/financeDb';
 import { DB } from '../utils/db';
@@ -18,7 +18,11 @@ import { FinanceAccount, FinanceCategory, FinanceTransaction, FinanceTxType, Cha
 import { F, S, R, HUE, STATUS, MOTION } from '../utils/clayTokens';
 import { syncSimpleFinIfStale } from '../utils/simplefinSync';
 import { SimpleFinSettingsCard } from '../components/finance/SimpleFinSettingsCard';
-import { announceFinanceReviewChanged } from '../utils/financeReview';
+import {
+  announceFinanceReviewChanged,
+  isAmazonTransaction,
+  reviewStatusForCategory,
+} from '../utils/financeReview';
 import {
   CREDIT_CARD_PAYMENT_CATEGORY_ID,
   findCreditCardPaymentCounterpart,
@@ -1190,10 +1194,19 @@ const TransactionForm: React.FC<{
   const [expandedTopCat, setExpandedTopCat] = useState<string | null>(null);
   const [newCategoryParentId, setNewCategoryParentId] = useState<string | null | undefined>(undefined);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const categorySectionRef = useRef<HTMLDivElement>(null);
 
   const catMap = new Map(categories.map(c => [c.id, c]));
   const selectedCat = catMap.get(categoryId);
   const selectedAcc = accounts.find(a => a.id === accountId);
+  const isAmazon = Boolean(initial && isAmazonTransaction(initial));
+  const isUnrecognized = Boolean(initial && (
+    initial.categoryReviewStatus === 'unrecognized'
+    || (initial.categoryReviewStatus == null && initial.needsCategoryReview === true)
+  ));
+  const showAmazonReview = isAmazon && (
+    isUnrecognized || initial?.categoryReviewStatus === 'snoozed'
+  );
 
   const relevantTopCats = categories.filter(c => {
     if (c.parentId) return false;
@@ -1218,6 +1231,9 @@ const TransactionForm: React.FC<{
   const handleSave = () => {
     const parsed = parseFloat(amount);
     if (!parsed || !accountId) return;
+    const reviewStatus = isSynced
+      ? reviewStatusForCategory(categoryId, categories)
+      : initial?.categoryReviewStatus;
     onSave({
       ...initial,
       id: initial?.id || `tx_${Date.now()}`,
@@ -1233,8 +1249,25 @@ const TransactionForm: React.FC<{
       dateStr,
       toAccountId: txType === 'transfer' ? (toAccountId || undefined) : undefined,
       charComments: initial?.charComments,
-      needsCategoryReview: isSynced ? false : initial?.needsCategoryReview,
+      needsCategoryReview: isSynced ? reviewStatus === 'unrecognized' : initial?.needsCategoryReview,
+      categoryReviewStatus: reviewStatus,
+      categoryReviewedAt: isSynced && reviewStatus !== 'unrecognized' ? Date.now() : initial?.categoryReviewedAt,
+      autoCategoryConfidence: isSynced && reviewStatus !== 'auto' ? undefined : initial?.autoCategoryConfidence,
     });
+  };
+
+  const handleSnooze = () => {
+    if (!initial || !isSynced) return;
+    onSave({
+      ...initial,
+      needsCategoryReview: false,
+      categoryReviewStatus: 'snoozed',
+      categoryReviewedAt: Date.now(),
+    });
+  };
+
+  const showCategoryPicker = () => {
+    categorySectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   const canSave = parseFloat(amount) > 0 && !!accountId;
@@ -1289,7 +1322,64 @@ const TransactionForm: React.FC<{
         {isSynced && (
           <div className="mb-4 px-3 py-2.5 flex items-center gap-2 text-[11px]" style={{ background: STATUS.info.tint, color: STATUS.info.ink, borderRadius: R.medium }}>
             <ArrowsClockwise size={15} weight="bold" className="shrink-0" />
-            金额、账户和日期跟随 SimpleFIN；你可以修改本地分类和备注。
+            <span className="flex-1">
+              金额、账户和日期跟随 SimpleFIN；
+              {initial?.categoryReviewStatus === 'snoozed'
+                ? '这笔已经先放下，想起来时再整理。'
+                : initial?.categoryReviewStatus === 'auto'
+                  ? '分类来自你的商户习惯，仍可随时修改。'
+                  : '选到一级分类就可以完成，二级分类可选。'}
+            </span>
+            {isUnrecognized && !isAmazon && (
+              <button
+                onClick={handleSnooze}
+                className="shrink-0 px-2.5 py-1.5 text-[10px] font-semibold active:translate-y-[1px] transition-transform"
+                style={{ borderRadius: R.medium, background: F.surfaceRaised, color: STATUS.info.ink, boxShadow: S.raisedSoft }}
+              >
+                先放着
+              </button>
+            )}
+          </div>
+        )}
+        {isSynced && showAmazonReview && initial && (
+          <div className="mb-4 px-4 py-4" style={{ background: HUE.amber.tint, borderRadius: R.bigCard }}>
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div>
+                <div className="text-sm font-semibold" style={{ color: HUE.amber.ink }}>Amazon 这笔是什么？</div>
+                <div className="text-[11px] mt-1" style={{ color: F.textSecondary }}>
+                  {initial.dateStr} · {CURRENCY_SYMBOLS[initial.currency] || initial.currency}{initial.amount.toLocaleString()}
+                </div>
+              </div>
+              <span className="px-2 py-1 text-[10px] font-medium" style={{ borderRadius: R.pill, background: STATUS.warning.tint, color: STATUS.warning.ink }}>
+                可以稍后
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                onClick={showCategoryPicker}
+                className="min-h-[56px] px-2 py-2 flex flex-col items-center justify-center gap-1 text-[10px] font-medium active:translate-y-[1px] transition-transform"
+                style={{ borderRadius: R.medium, background: F.surfaceRaised, color: F.textSecondary, boxShadow: S.raisedSoft }}
+              >
+                <Lightbulb size={17} weight="bold" style={{ color: HUE.amber.ink }} />
+                我记得是什么
+              </button>
+              <button
+                onClick={() => window.open('https://www.amazon.com/gp/css/order-history', '_blank', 'noopener,noreferrer')}
+                className="min-h-[56px] px-2 py-2 flex flex-col items-center justify-center gap-1 text-[10px] font-medium active:translate-y-[1px] transition-transform"
+                style={{ borderRadius: R.medium, background: F.surfaceRaised, color: F.textSecondary, boxShadow: S.raisedSoft }}
+              >
+                <ArrowSquareOut size={17} weight="bold" style={{ color: HUE.amber.ink }} />
+                去 Amazon 查
+              </button>
+              <button
+                onClick={handleSnooze}
+                className="min-h-[56px] px-2 py-2 flex flex-col items-center justify-center gap-1 text-[10px] font-medium active:translate-y-[1px] transition-transform"
+                style={{ borderRadius: R.medium, background: F.surfaceRaised, color: F.textSecondary, boxShadow: S.raisedSoft }}
+              >
+                <Clock size={17} weight="bold" style={{ color: HUE.amber.ink }} />
+                先放着
+              </button>
+            </div>
           </div>
         )}
         {/* 类型切换 */}
@@ -1339,7 +1429,7 @@ const TransactionForm: React.FC<{
 
         {/* 分类（转账不需要） */}
         {txType !== 'transfer' && (
-          <div className="p-4 mb-4" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, boxShadow: S.raisedSoft }}>
+          <div ref={categorySectionRef} className="p-4 mb-4 scroll-mt-3" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, boxShadow: S.raisedSoft }}>
             <div className="flex items-center justify-between mb-3">
               <span className="text-xs" style={{ color: F.textTertiary }}>分类</span>
               {selectedCat && (
@@ -2130,9 +2220,19 @@ const TransactionsTab: React.FC<{
                         <div className="text-sm truncate" style={{ color: F.textPrimary }}>{t.note || cat?.name || '未分类'}</div>
                         <div className="flex items-center gap-1.5 text-[11px]" style={{ color: F.textTertiary }}>
                           <span>#{accountDisplayName(acc) || '未知账户'}</span>
-                          {t.needsCategoryReview && (
+                          {(t.categoryReviewStatus === 'unrecognized' || (t.categoryReviewStatus == null && t.needsCategoryReview)) && (
                             <span className="px-1.5 py-0.5 text-[9px] font-medium" style={{ borderRadius: R.pill, color: STATUS.warning.ink, background: STATUS.warning.tint }}>
-                              待确认分类
+                              值得确认
+                            </span>
+                          )}
+                          {t.categoryReviewStatus === 'snoozed' && t.categoryReviewedAt != null && (
+                            <span className="px-1.5 py-0.5 text-[9px] font-medium" style={{ borderRadius: R.pill, color: F.textSecondary, background: F.surfaceSunken }}>
+                              稍后整理
+                            </span>
+                          )}
+                          {t.categoryReviewStatus === 'auto' && (
+                            <span className="px-1.5 py-0.5 text-[9px] font-medium" style={{ borderRadius: R.pill, color: STATUS.success.ink, background: STATUS.success.tint }}>
+                              自动分类 {Math.round((t.autoCategoryConfidence || 0.98) * 100)}%
                             </span>
                           )}
                         </div>

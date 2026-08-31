@@ -3524,6 +3524,13 @@ export interface RecurringRule {
 
 export type FinanceTxType = 'expense' | 'income' | 'refund' | 'transfer';
 
+export type FinanceCategoryReviewStatus =
+    | 'unrecognized'
+    | 'snoozed'
+    | 'coarse'
+    | 'categorized'
+    | 'auto';
+
 export interface FinanceTransaction {
     id: string;
     type: FinanceTxType;
@@ -3549,6 +3556,11 @@ export interface FinanceTransaction {
     sourceUpdatedAt?: number;
     /** New synced transaction awaiting the user's local category confirmation. */
     needsCategoryReview?: boolean;
+    /** Progressive local review state. Older backups may only have needsCategoryReview. */
+    categoryReviewStatus?: FinanceCategoryReviewStatus;
+    categoryReviewedAt?: number;
+    /** Local merchant-learning result; never supplied by SimpleFIN. */
+    autoCategoryConfidence?: number;
 }
 
 export interface Tracker {

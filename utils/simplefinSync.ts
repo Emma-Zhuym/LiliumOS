@@ -1,7 +1,7 @@
 import type { FinanceAccount, FinanceTransaction } from '../types';
 import { HUE } from './clayTokens';
 import { FinanceDB } from './financeDb';
-import { announceFinanceReviewChanged } from './financeReview';
+import { announceFinanceReviewChanged, learnedCategoryForTransaction } from './financeReview';
 import {
   fetchSimpleFinAccounts,
   hasSimpleFinConnection,
@@ -164,9 +164,14 @@ export function normalizeSimpleFinSnapshot(
       if (!Number.isFinite(numericAmount)) continue;
       const existingTransaction = findExistingTransaction(sourceTransaction, id, currentTransactions);
       const eventSeconds = sourceTransaction.transacted_at || sourceTransaction.posted || Math.floor(syncedAt / 1000);
+      const learnedCategory = existingTransaction
+        ? null
+        : learnedCategoryForTransaction(sourceTransaction.description, currentTransactions);
       const needsCategoryReview = existingTransaction
-        ? existingTransaction.needsCategoryReview === true
-        : eventSeconds * 1000 > reviewSince;
+        ? existingTransaction.categoryReviewStatus
+          ? existingTransaction.categoryReviewStatus === 'unrecognized'
+          : existingTransaction.needsCategoryReview === true
+        : !learnedCategory && eventSeconds * 1000 > reviewSince;
       if (!existingTransaction && needsCategoryReview) newTransactionCount += 1;
       transactions.push({
         ...existingTransaction,
@@ -175,7 +180,7 @@ export function normalizeSimpleFinSnapshot(
         amount: Math.abs(numericAmount),
         currency: sourceAccount.currency || existingTransaction?.currency || 'USD',
         accountId: id,
-        categoryId: existingTransaction?.categoryId || 'cat_uncategorized',
+        categoryId: existingTransaction?.categoryId || learnedCategory?.categoryId || 'cat_uncategorized',
         note: existingTransaction?.note || sourceTransaction.description,
         timestamp: eventSeconds * 1000,
         dateStr: dateKeyFromSeconds(eventSeconds),
@@ -188,6 +193,12 @@ export function normalizeSimpleFinSnapshot(
         importedAt: existingTransaction?.importedAt || syncedAt,
         sourceUpdatedAt: syncedAt,
         needsCategoryReview,
+        categoryReviewStatus: existingTransaction?.categoryReviewStatus
+          || (learnedCategory ? 'auto' : needsCategoryReview ? 'unrecognized' : undefined),
+        categoryReviewedAt: existingTransaction?.categoryReviewedAt
+          || (learnedCategory ? syncedAt : undefined),
+        autoCategoryConfidence: existingTransaction?.autoCategoryConfidence
+          ?? learnedCategory?.confidence,
       });
     }
   });

@@ -43,6 +43,7 @@ describe('normalizeSimpleFinSnapshot', () => {
       sourceDescription: 'TARGET 0001',
       sourceCategory: 'Shopping',
       needsCategoryReview: true,
+      categoryReviewStatus: 'unrecognized',
     });
     expect(normalized.newTransactionCount).toBe(1);
   });
@@ -94,6 +95,46 @@ describe('normalizeSimpleFinSnapshot', () => {
     const transactionAt = snapshot.accounts[0].transactions[0].posted * 1000;
     const normalized = normalizeSimpleFinSnapshot(snapshot, [], [], SYNCED_AT, transactionAt + 1);
     expect(normalized.transactions[0].needsCategoryReview).toBe(false);
+    expect(normalized.transactions[0].categoryReviewStatus).toBeUndefined();
+    expect(normalized.newTransactionCount).toBe(0);
+  });
+
+  it('applies a category after three matching merchant confirmations', () => {
+    const wholeFoodsSnapshot = {
+      ...snapshot,
+      accounts: [{
+        ...snapshot.accounts[0],
+        transactions: [{
+          ...snapshot.accounts[0].transactions[0],
+          id: 'whole-foods-new',
+          description: 'WHOLE FOODS MARKET 9999',
+        }],
+      }],
+    };
+    const history: FinanceTransaction[] = [0, 1, 2].map(index => ({
+      id: `whole-foods-${index}`,
+      type: 'expense',
+      amount: 25 + index,
+      currency: 'USD',
+      accountId: 'simplefin:demo:credit-1',
+      categoryId: 'cat_food',
+      note: `WHOLE FOODS MARKET ${1000 + index}`,
+      timestamp: SYNCED_AT - (index + 1) * 24 * 60 * 60 * 1000,
+      dateStr: '2026-08-14',
+      source: 'simplefin',
+      externalId: `whole-foods-${index}`,
+      sourceDescription: `WHOLE FOODS MARKET ${1000 + index}`,
+      needsCategoryReview: false,
+      categoryReviewStatus: 'coarse',
+    }));
+
+    const normalized = normalizeSimpleFinSnapshot(wholeFoodsSnapshot, [], history, SYNCED_AT);
+    expect(normalized.transactions[0]).toMatchObject({
+      categoryId: 'cat_food',
+      needsCategoryReview: false,
+      categoryReviewStatus: 'auto',
+      autoCategoryConfidence: 0.98,
+    });
     expect(normalized.newTransactionCount).toBe(0);
   });
 

@@ -3468,7 +3468,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           const detail = (event as CustomEvent<FinanceReviewChangedDetail>).detail || {};
           void refresh();
           if ((detail.newTransactionCount || 0) > 0 && document.visibilityState === 'visible') {
-              addToast(`银行账本同步了 ${detail.newTransactionCount} 笔新交易，请确认分类`, 'info');
+              addToast(`银行账本有 ${detail.newTransactionCount} 笔新交易值得确认，可以稍后整理`, 'info');
           }
       };
       void refresh();
