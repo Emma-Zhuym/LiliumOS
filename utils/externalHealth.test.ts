@@ -6,6 +6,7 @@ import {
     parseExternalHealthSnapshot,
     refreshExternalHealthSnapshot,
     saveExternalHealthDailySummary,
+    syncExternalHealthDailyRange,
     syncExternalHealthSnapshot,
 } from './externalHealth';
 import { DEFAULT_SMART_HOME_CONFIG, saveSmartHomeConfig, type HomeAssistantState } from './smartHome';
@@ -200,5 +201,44 @@ describe('HealthSync Home Assistant adapter', () => {
         saveExternalHealthDailySummary(summary);
         expect(loadExternalHealthDailySummary('2026-08-25')?.stepsToday).toBe(4321);
         expect(loadExternalHealthDailySummary('2026-08-24')).toBeNull();
+    });
+
+    it('reads a multi-day range once per metric and partitions it into daily caches', async () => {
+        const config = {
+            ...DEFAULT_SMART_HOME_CONFIG,
+            baseUrl: 'https://ha.example.com',
+            token: 'token',
+            demoMode: false,
+        };
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+            const url = String(input);
+            if (url.endsWith('/api/states')) {
+                return new Response(JSON.stringify([
+                    state('sensor.healthsync_steps_today', '9000', 'HealthSync Steps today'),
+                ]), { status: 200, headers: { 'Content-Type': 'application/json' } });
+            }
+            if (url.endsWith('/api/template')) return new Response('device-1', { status: 200 });
+            return new Response(JSON.stringify({
+                service_response: {
+                    readings: [
+                        { value: 1000, source: 'Watch', start_date: '2026-08-24T12:00:00-05:00' },
+                        { value: 2000, source: 'Watch', start_date: '2026-08-25T12:00:00-05:00' },
+                    ],
+                },
+            }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        });
+        saveExternalHealthDailySummary(aggregateExternalHealthDailySummary('2026-08-24', {
+            heartRate: [{ value: 72, start_date: '2026-08-24T09:00:00-05:00' }],
+        }));
+
+        const summaries = await syncExternalHealthDailyRange('2026-08-24', '2026-08-25', config, {
+            metrics: ['steps'],
+        });
+
+        expect(summaries['2026-08-24']?.stepsToday).toBe(1000);
+        expect(summaries['2026-08-25']?.stepsToday).toBe(2000);
+        expect(loadExternalHealthDailySummary('2026-08-24')?.stepsToday).toBe(1000);
+        expect(loadExternalHealthDailySummary('2026-08-24')?.latestHeartRate).toBe(72);
+        expect(fetchMock).toHaveBeenCalledTimes(3);
     });
 });

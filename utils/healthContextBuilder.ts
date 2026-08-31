@@ -13,7 +13,7 @@
 import { getAllHealthEvents, WorkoutHealthEvent, PeriodHealthEvent, SleepHealthEvent, DietHealthEvent, WeightHealthEvent } from './healthDb';
 import { calcCycleStatus } from './cycleCalc';
 import { getHealthProfile, calcBMR, calcTDEE, calcDeficit } from './healthProfile';
-import { loadExternalHealthDailySummaries, refreshExternalHealthSnapshot } from './externalHealth';
+import { loadExternalHealthDailySummaries, loadExternalHealthSnapshotAndRefresh } from './externalHealth';
 import { resolveExerciseCalories } from './healthEnergy';
 import { buildExternalHealthRoleContext } from './externalHealthRoleSummary';
 
@@ -28,10 +28,12 @@ function todayStr(): string {
  */
 export async function buildTodayHealthSummary(): Promise<string | null> {
   try {
-    const [allEvents, externalHealth] = await Promise.all([
-      getAllHealthEvents(),
-      refreshExternalHealthSnapshot({ maxAgeMs: 5 * 60 * 1000, timeoutMs: 1800 }),
-    ]);
+    // 聊天只读上次成功缓存；过期时在后台刷新，绝不为了等 HA/Tailscale 卡住回复。
+    const externalHealth = loadExternalHealthSnapshotAndRefresh({
+      maxAgeMs: 5 * 60 * 1000,
+      timeoutMs: 8000,
+    });
+    const allEvents = await getAllHealthEvents();
     const externalHealthByDate = loadExternalHealthDailySummaries();
     if (allEvents.length === 0 && !externalHealth && Object.keys(externalHealthByDate).length === 0) return null;
 

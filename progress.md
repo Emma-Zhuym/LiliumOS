@@ -1,6 +1,6 @@
 # LiliumOS Current Progress
 
-> 发布基线与验收分支并列记录。最后更新：2026-08-27。
+> 发布基线与验收分支并列记录。最后更新：2026-08-28。
 
 ## 快照范围
 
@@ -8,6 +8,10 @@
 - 发布目标为 `origin/main`；每次推送仍需单独批准，本轮 Apple Events MCP 与兼容修复已获明确授权。
 
 ## 最近完成
+
+- 角色已获得独立的 Apple Health 高层只读工具：按今天、昨天、指定日期或最近七天查询活动、睡眠、心率节律、锻炼、体重/BMI/VO₂ max；访问权限复用 HA MCP 的角色绑定。健康语义当前轮本地执行，普通聊天仍走 Instant Chat / CF，不再把整套智能家居 MCP 当作健康查询工具。
+- 工具只返回回答所需的按日聚合、`data_as_of`、live/cache 来源、覆盖天数和缺失日期；血氧、无来源体脂 0% 与不可信身高不提供给角色。HA 不可达时回退最近成功缓存，明确标出刷新失败，不作医疗诊断。
+- 每轮常驻健康摘要已改为同步读取缓存、后台刷新，去掉原 1.8 秒阻塞超时；后台预期超时不再污染系统错误日志。HealthSync 多日读取改为每项指标查询一次整段日期，局部刷新不会覆盖同日其他缓存类别。
 
 - Message 的单角色私聊页已加入聊天记录搜索，入口与回复触发并列放在聊天顶栏，只检索当前角色；关键词下方只保留“全部 / 日期 / 语音 / 链接 / 卡片”一行入口，普通文字归入全部且不再提供发送方筛选。点击日期在当前页筛选栏下方原地展开月历，选中后收起并在入口显示月/日，有聊天的日期亮起、无聊天的日期变暗。通用卡片范围按实际使用保留 HTML 和小红书，网页分享归入链接，图片不重复进入搜索。
 - 相册现在会同时收录用户上传和角色生成的私聊图片；存量角色生图按消息来源幂等补录，删除墓碑保证用户从相册删掉的图片不会再次出现，角色点评文案也会区分“用户发来”与“角色自己发出”。
@@ -17,7 +21,7 @@
 
 - Apple Health 外部数据链已完成真实验收：Jamie Hill 版 iPhone HealthSync 经 Home Assistant webhook 写入实体，LiliumOS 从同一 HA 连接生成只读快照；健康页四项摘要可进入完整分组详情，并在同一页面随日期切换读取历史日汇总。步数/能量等按来源去重汇总，心率/HRV/血氧等取日均，体重/VO₂ max/体成分取当日末次；HA 保留永久原始档案，LiliumOS 缓存最近 730 个每日汇总并在离线时回退。
 - Apple Health 的“活动能量”已接入健康页热量缺口和运动环；今天和历史日期有外部汇总时均以全天活动能量为准，不与手动训练消耗重复相加，角色今日健康摘要沿用同一计算口径。
-- 私网 Home Assistant 的语义门控扩展到健康查询：明确询问 Apple Health / HealthSync 指标时走本地工具，普通闲聊继续使用 Instant Chat；相关适配、路由和前台/worker 回归测试通过。
+- 私网 Home Assistant 的健康语义门控已从通用家居 MCP 拆成独立 Apple Health 工具；明确询问 HealthSync 指标时走本地只读工具，普通闲聊继续使用 Instant Chat。
 - Mac mini 私有 HTTPS 代理现以同一 Tailscale origin 分流 `/api/*` 到 Home Assistant、`/mcp` 到 Apple Events bridge；已验证健康检查、HA 401 边界、Apple MCP 无 Token 401 与带 Token initialize 200，日历/提醒事项原 404 已消除。
 - Smart Home 普通备份默认剥离 HA token、proxyKey 及 HA MCP 里的重复凭据；恢复后 HA MCP 保持停用，须重新填入并测试连接。
 - HealthSync iPhone App、HA HACS 集成、webhook 和 Tailscale HTTPS 通道均已配置，首次真实同步已在 Health App 与 Home Assistant 实体页完成验收。
@@ -66,6 +70,7 @@
 
 ## 验证基线
 
+- Apple Health 角色按需工具与缓存优先摘要（2026-08-28）：全量 Vitest 314 个测试文件、3901 passed / 5 skipped；生产构建、`check-em-patches.sh` 83/83 与 `git diff --check` 通过。全仓类型检查只报告既有 MemoryPalace、CompanionHome 等错误，本次涉及文件未新增报错。
 - 单角色聊天搜索与双方相册（2026-08-27）：搜索入口从通讯录移至当前角色聊天顶栏；筛选收敛为“全部 / 日期 / 语音 / 链接 / 卡片”单行入口，删除低价值的文字和发送方筛选，月历在搜索页内联展开且有记录日期亮起，群聊不纳入本轮通用搜索；搜索/相册定向测试 10 passed，全量 Vitest 为 313 个测试文件、3894 passed / 5 skipped；生产构建、390×844 手机顶栏/搜索页/月历视觉检查、`git diff --check` 和 `check-em-patches.sh` 83/83 均通过。全仓类型检查只剩既有错误，本次涉及文件未新增报错。
 - Health 角色极简摘要与折叠详情（2026-08-27）：HealthSync/呈现/能量/角色摘要定向测试 17 passed；全量 Vitest 为 310 个测试文件、3884 passed / 5 skipped；生产构建、390×844 手机页面检查、`git diff --check` 与 `check-em-patches.sh` 80/80 通过。
 - 人物参考语义门控（2026-08-27）：生图、画风预设、API 配置归一化、照片后处理与聊天提示词 6 个测试文件 69 passed；生产构建、`git diff --check` 与 `check-em-patches.sh` 79/79 通过。覆盖人物/自拍启用参考、饭菜/物件禁用参考、背影/不露脸/POV 排除、画风人像词不得误触发，以及人物构图的物理一致性提示。
@@ -105,7 +110,7 @@
 
 ### 部分完成
 
-- Health：核心记录、周期、饮食识别、聊天摘要、备份、HealthSync 外部快照、按日期每日汇总与角色七日极简节律已完成；真实 Apple Health 首次同步已验收，独立趋势视图、完整历史角色工具、Notion 同步和角色周评未完成。
+- Health：核心记录、周期、饮食识别、聊天摘要、备份、HealthSync 外部快照、按日期每日汇总、角色七日极简节律与高层按需查询工具已完成；真实 Apple Health 首次同步已验收，独立趋势视图、逐样本原始历史开放、Notion 同步和角色周评未完成。
 - 共读：epub、用户/角色批注已完成；回信支路、高亮和 PDF 未完成。
 - Smart Home：软件接入已完成；真实设备发现、实体映射和角色控制仍待 Home Assistant 主机验收。
 

@@ -8,6 +8,7 @@ import {
     exportMcpLocal,
     importMcpLocal,
     getEnabledMcpServers,
+    hasHomeAssistantMcpAccess,
     hasWorkerUnreachableMcpServer,
     shouldActivateMcpForTurn,
     shouldPreferLocalMcpForTurn,
@@ -654,14 +655,13 @@ describe('shouldPreferLocalMcpForTurn', () => {
         }
     });
 
-    it('私网 HA：明确查询 Apple Health 指标时启用工具', () => {
+    it('私网 HA：Apple Health 交给独立只读工具，不再误开整套家居 MCP', () => {
         saveMcpServers([haServer()]);
         for (const text of ['我今天走了多少步', '看看我昨晚睡了多久', '最近 HRV 趋势怎么样', '查一下静息心率', '我的活动能量达标了吗']) {
-            expect(shouldPreferLocalMcpForTurn([user(text)], 'char_a'), text).toBe(true);
-            expect(shouldActivateMcpForTurn([user(text)], 'char_a'), text).toBe(true);
+            expect(shouldPreferLocalMcpForTurn([user(text)], 'char_a'), text).toBe(false);
+            expect(shouldActivateMcpForTurn([user(text)], 'char_a'), text).toBe(false);
         }
-        expect(shouldPreferLocalMcpForTurn([user('我昨晚睡得不太好')], 'char_a')).toBe(false);
-        expect(shouldPreferLocalMcpForTurn([user('我买了一个体重秤')], 'char_a')).toBe(false);
+        expect(hasHomeAssistantMcpAccess('char_a')).toBe(true);
     });
 
     it('私网 HA：普通闲聊继续走 CF', () => {

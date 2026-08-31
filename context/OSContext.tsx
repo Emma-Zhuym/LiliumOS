@@ -1253,7 +1253,10 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   updateApiRequestCaptureUsage({ captureId: apiRequestCaptureId, ok: false });
                   recordApiCall({ requestId: (config as any)?.__sullyApiCallId, url: urlStr, body: (sendArgs[1] as any)?.body, ok: false, meta: (config as any)?.__sullyMeta || ambientMetaAtStart, durationMs: Date.now() - fetchStartedAt });
               }
-              if (!isAnalyticsRequestUrl(urlStr)) {
+              const failureKind = classifyFetchFailure({ url: urlStr, error: err });
+              const suppressExpectedTimeout = Boolean((config as any)?.__sullySuppressNetworkTimeoutLog)
+                  && (failureKind === 'timeout' || failureKind === 'aborted');
+              if (!isAnalyticsRequestUrl(urlStr) && !suppressExpectedTimeout) {
                   // 光秃秃一句 "Failed to fetch" + 一个 URL 排查不了任何东西（社区里这条卡过好几个人）。
                   // 这里把浏览器肯在 JS 侧交出来的旁证一次性补齐：方法、耗时、在线状态、是否跨域、
                   // Resource Timing 里那条记录，再给一句初判；随后异步做一次 no-cors 连通性复检，
@@ -1279,7 +1282,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   }, ...prev.slice(0, 49)]);
 
                   // 复检走 originalFetch，否则它自己失败会再写一条日志滚雪球。
-                  if (shouldProbeReachability(classifyFetchFailure({ url: urlStr, error: err }))) {
+                  if (shouldProbeReachability(failureKind)) {
                       void (async () => {
                           const verdict = await probeOriginReachability(urlStr, originalFetch);
                           const line = describeReachabilityProbe(verdict, parseTargetUrl(urlStr).host);

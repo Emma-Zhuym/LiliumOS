@@ -28,7 +28,7 @@ const instantPushSettingsSrc = read('../components/settings/InstantPushSettingsM
 /** 即时对话分支的判定行（分支起点、也是排序基准）。 */
 const INSTANT_CHAT_BRANCH_HEAD = 'if (instantChatRoute)';
 /** Instant Push 分支的判定行（脏配置时它先接手）。 */
-const INSTANT_PUSH_BRANCH_HEAD = 'if (instantPushConfigured && !locationLocalRequired && !payload.flags.luckinChatActive';
+const INSTANT_PUSH_BRANCH_HEAD = 'if (instantPushConfigured && !locationLocalRequired && !healthToolTurn && !payload.flags.luckinChatActive';
 /** 路由判定那一段的起点（一回合只读一次 Instant Push 配置，就是从这行开始）。 */
 const ROUTING_HEAD = 'const instantPushConfigured =';
 
@@ -88,8 +88,17 @@ describe('useChatAI 的分流接缝', () => {
     const routing = routingSrc();
     expect(routing).toContain('shouldPreferLocalLocationTool(currentMsgs)');
     expect(routing).toContain("'location-local'");
-    expect(chatAiSrc).toContain('instantPushConfigured && !locationLocalRequired');
-    expect(chatAiSrc).toMatch(/cloudGenRoute = \(instantPushConfigured && !locationLocalRequired\) \|\| instantChatRoute/);
+    expect(chatAiSrc).toContain('instantPushConfigured && !locationLocalRequired && !healthToolTurn');
+    expect(chatAiSrc).toMatch(/cloudGenRoute = \(instantPushConfigured && !locationLocalRequired && !healthToolTurn\) \|\| instantChatRoute/);
+  });
+
+  it('Apple Health 细节只在命中语义时留在本机，并使用独立只读工具', () => {
+    const routing = routingSrc();
+    expect(routing).toContain('isHealthChatToolAvailable(char.id)');
+    expect(routing).toContain('shouldEnableHealthTools(currentMsgs)');
+    expect(routing).toContain("'health-local'");
+    expect(chatAiSrc).toContain('...HEALTH_CHAT_TOOLS');
+    expect(chatAiSrc).toContain('executeHealthChatTool(fname, args, char.id)');
   });
 
   it('全局配置读不出来单独留一条 trace（它不是「用户没开」）', () => {
@@ -136,7 +145,7 @@ describe('useChatAI 的分流接缝', () => {
     // 三个消费方都吃这一个 const（情绪评估的 cloudGenRoute 也在内，它决定评估在本地跑还是打包上云）。
     expect(chatAiSrc).toContain(INSTANT_PUSH_BRANCH_HEAD);
     expect(chatAiSrc).toContain(INSTANT_CHAT_BRANCH_HEAD);
-    expect(chatAiSrc).toMatch(/const cloudGenRoute = \(instantPushConfigured && !locationLocalRequired\) \|\| instantChatRoute;/);
+    expect(chatAiSrc).toMatch(/const cloudGenRoute = \(instantPushConfigured && !locationLocalRequired && !healthToolTurn\) \|\| instantChatRoute;/);
   });
 
   it('分支只认 instantChatRoute，不拿原料重算一遍', () => {
@@ -256,8 +265,8 @@ describe('useChatAI 的分流接缝', () => {
     expect(branchSrc()).toContain('emotionEval: cloudEmotionEval');
     expect(branchSrc()).not.toContain('fireLocalEmotionEval');
     // 本地那一枪的开关也得认这条路：cloudGenRoute 把即时对话算进去；只有用户
-    // 明确查询位置时例外，那一轮要留在能访问 GPS 的当前设备。
-    expect(chatAiSrc).toMatch(/const cloudGenRoute = \(instantPushConfigured && !locationLocalRequired\) \|\| instantChatRoute;/);
+    // 明确查询位置或 Apple Health 时例外，那一轮要留在能访问私密本地数据的当前设备。
+    expect(chatAiSrc).toMatch(/const cloudGenRoute = \(instantPushConfigured && !locationLocalRequired && !healthToolTurn\) \|\| instantChatRoute;/);
     expect(chatAiSrc).toMatch(/const fireLocalEmotionEval = \(emotionEvalEnabled && !cloudGenRoute/);
   });
 

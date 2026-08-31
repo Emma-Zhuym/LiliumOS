@@ -607,7 +607,7 @@ export const aggregateExternalHealthDailySummary = (
     return summary;
 };
 
-const mergeDefinedSummary = (
+export const mergeExternalHealthSnapshots = (
     base: ExternalHealthSnapshot,
     summary: ExternalHealthSnapshot,
 ): ExternalHealthSnapshot => {
@@ -635,6 +635,42 @@ const dateRangeForMetric = (date: string, metric: HealthSyncHistoryMetric): { st
     return { start: start.toISOString(), end: end.toISOString() };
 };
 
+const dateKeysBetween = (startDate: string, endDate: string): string[] => {
+    const start = parseDateKey(startDate);
+    const end = parseDateKey(endDate);
+    start.setHours(12, 0, 0, 0);
+    end.setHours(12, 0, 0, 0);
+    if (start.getTime() > end.getTime()) throw new Error('健康数据开始日期不能晚于结束日期');
+    const dates: string[] = [];
+    const cursor = new Date(start);
+    while (cursor.getTime() <= end.getTime()) {
+        dates.push(localDateKey(cursor));
+        if (dates.length > 31) throw new Error('一次最多查询 31 天健康数据');
+        cursor.setDate(cursor.getDate() + 1);
+    }
+    return dates;
+};
+
+const dateRangeForMetricSpan = (
+    startDate: string,
+    endDate: string,
+    metric: HealthSyncHistoryMetric,
+): { start: string; end: string } => {
+    const first = dateRangeForMetric(startDate, metric);
+    const last = dateRangeForMetric(endDate, metric);
+    return { start: first.start, end: last.end };
+};
+
+const readingDateKey = (metric: HealthSyncHistoryMetric, reading: HealthSyncReading): string | null => {
+    // 睡眠归到醒来的那一天；锻炼和其他指标归到开始记录的那一天。
+    const raw = metric === 'sleep'
+        ? (reading.end_date || reading.start_date)
+        : (reading.start_date || reading.end_date);
+    if (!raw) return null;
+    const parsed = new Date(raw);
+    return Number.isNaN(parsed.getTime()) ? null : localDateKey(parsed);
+};
+
 const resolveHealthSyncDeviceId = async (
     config: SmartHomeConfig,
     states: HomeAssistantState[],
@@ -660,18 +696,36 @@ export const syncExternalHealthDailySummary = async (
     config: SmartHomeConfig = loadSmartHomeConfig(),
     options: { timeoutMs?: number } = {},
 ): Promise<ExternalHealthSnapshot> => {
+    const summaries = await syncExternalHealthDailyRange(date, date, config, options);
+    const summary = summaries[date];
+    if (!summary) throw new Error('HealthSync 在这一天还没有归档数据');
+    return summary;
+};
+
+/**
+ * 一次按指标读取一段日期，避免“七天 × 二十多项指标”把小型 HA 虚拟机压满。
+ * 每项指标只调用一次 healthsync.get_readings，再在浏览器按日期聚合并落入既有每日缓存。
+ */
+export const syncExternalHealthDailyRange = async (
+    startDate: string,
+    endDate: string,
+    config: SmartHomeConfig = loadSmartHomeConfig(),
+    options: { timeoutMs?: number; metrics?: HealthSyncHistoryMetric[] } = {},
+): Promise<Record<string, ExternalHealthSnapshot>> => {
     if (!config.baseUrl || config.demoMode) throw new Error('请先在共栖舱连接真实 Home Assistant');
     const timeoutMs = options.timeoutMs ?? 10_000;
+    const dates = dateKeysBetween(startDate, endDate);
+    const wantedMetrics = [...new Set(options.metrics?.length ? options.metrics : HISTORY_METRICS)];
     const states = await fetchHomeAssistantStates(config, { timeoutMs });
     const deviceId = await resolveHealthSyncDeviceId(config, states, timeoutMs);
     const readingsByMetric: HealthSyncReadingsByMetric = {};
     let successfulActions = 0;
 
-    // 控制并发，避免一次日期切换同时向小型 HA 虚拟机压入二十多条 SQLite 查询。
-    for (let index = 0; index < HISTORY_METRICS.length; index += 6) {
-        const batch = HISTORY_METRICS.slice(index, index + 6);
+    // 控制并发，避免一次工具查询同时向小型 HA 虚拟机压入太多 SQLite 查询。
+    for (let index = 0; index < wantedMetrics.length; index += 6) {
+        const batch = wantedMetrics.slice(index, index + 6);
         const results = await Promise.allSettled(batch.map(async (metric) => {
-            const range = dateRangeForMetric(date, metric);
+            const range = dateRangeForMetricSpan(startDate, endDate, metric);
             const response = await callHomeAssistantActionWithResponse<{ readings?: HealthSyncReading[] }>(
                 config,
                 'healthsync',
@@ -691,13 +745,26 @@ export const syncExternalHealthDailySummary = async (
         throw new Error('HealthSync 历史读取失败，请确认 HACS 集成已更新');
     }
 
-    let summary = aggregateExternalHealthDailySummary(date, readingsByMetric);
-    if (date === localDateKey(new Date())) {
-        const live = parseExternalHealthSnapshot(states);
-        if (live) {
-            saveExternalHealthSnapshot(live);
-            // 当天累计总量以 HealthKit 的权威快照为准；心率等日均值则来自原始档案。
-            summary = mergeDefinedSummary(live, summary);
+    const today = localDateKey(new Date());
+    const live = dates.includes(today) ? parseExternalHealthSnapshot(states) : null;
+    if (live) saveExternalHealthSnapshot(live);
+    const summaries: Record<string, ExternalHealthSnapshot> = {};
+
+    dates.forEach((date) => {
+        const dailyReadings: HealthSyncReadingsByMetric = {};
+        wantedMetrics.forEach((metric) => {
+            const readings = readingsByMetric[metric] ?? [];
+            dailyReadings[metric] = readings.filter(reading => readingDateKey(metric, reading) === date);
+        });
+        let summary = aggregateExternalHealthDailySummary(date, dailyReadings);
+        const cached = loadExternalHealthDailySummary(date);
+        if (cached) {
+            // 按需工具通常只查一两个类别；不要让这次局部刷新抹掉该日其他已缓存指标。
+            summary = mergeExternalHealthSnapshots(cached, summary);
+        }
+        if (date === today && live) {
+            // 当天累计总量以 HealthKit 的权威快照为准；心率等日均值来自原始档案。
+            summary = mergeExternalHealthSnapshots(live, summary);
             const totalFields: Array<keyof ExternalHealthSnapshot> = [
                 'stepsToday', 'activeCaloriesToday', 'exerciseMinutesToday', 'restingEnergyToday',
                 'walkingRunningDistanceMetersToday', 'flightsClimbedToday',
@@ -707,12 +774,13 @@ export const syncExternalHealthDailySummary = async (
                 if (value !== undefined) (summary as unknown as Record<string, unknown>)[field] = value;
             });
         }
-    }
-    if (!hasSnapshotValues(summary)) throw new Error('HealthSync 在这一天还没有归档数据');
-    summary.summaryDate = date;
-    summary.summaryKind = 'daily';
-    saveExternalHealthDailySummary(summary);
-    return summary;
+        if (!hasSnapshotValues(summary)) return;
+        summary.summaryDate = date;
+        summary.summaryKind = 'daily';
+        saveExternalHealthDailySummary(summary);
+        summaries[date] = summary;
+    });
+    return summaries;
 };
 
 export const refreshExternalHealthDailySummary = async (
@@ -736,12 +804,15 @@ export const refreshExternalHealthDailySummary = async (
 
 export const syncExternalHealthSnapshot = async (
     config: SmartHomeConfig = loadSmartHomeConfig(),
-    options: { timeoutMs?: number } = {},
+    options: { timeoutMs?: number; suppressTimeoutLog?: boolean } = {},
 ): Promise<ExternalHealthSnapshot> => {
     if (!config.baseUrl || config.demoMode) {
         throw new Error('请先在共栖舱连接真实 Home Assistant');
     }
-    const states = await fetchHomeAssistantStates(config, { timeoutMs: options.timeoutMs ?? 8000 });
+    const states = await fetchHomeAssistantStates(config, {
+        timeoutMs: options.timeoutMs ?? 8000,
+        suppressTimeoutLog: options.suppressTimeoutLog,
+    });
     const snapshot = parseExternalHealthSnapshot(states);
     if (!snapshot) throw new Error('Home Assistant 里还没有发现 HealthSync 数据');
     saveExternalHealthSnapshot(snapshot);
@@ -751,14 +822,46 @@ export const syncExternalHealthSnapshot = async (
 export const refreshExternalHealthSnapshot = async (options: {
     maxAgeMs?: number;
     timeoutMs?: number;
+    suppressTimeoutLog?: boolean;
 } = {}): Promise<ExternalHealthSnapshot | null> => {
     const cached = loadExternalHealthSnapshot();
     const maxAgeMs = options.maxAgeMs ?? 5 * 60 * 1000;
     const fetchedAt = cached ? Date.parse(cached.fetchedAt) : Number.NaN;
     if (cached && Number.isFinite(fetchedAt) && Date.now() - fetchedAt < maxAgeMs) return cached;
     try {
-        return await syncExternalHealthSnapshot(loadSmartHomeConfig(), { timeoutMs: options.timeoutMs ?? 1800 });
+        return await syncExternalHealthSnapshot(loadSmartHomeConfig(), {
+            timeoutMs: options.timeoutMs ?? 1800,
+            suppressTimeoutLog: options.suppressTimeoutLog,
+        });
     } catch {
         return cached;
     }
+};
+
+let backgroundSnapshotRefresh: Promise<ExternalHealthSnapshot | null> | null = null;
+
+/**
+ * 给聊天常驻摘要用：立即返回缓存，过期时在后台刷新。角色回复不再等待 HA/Tailscale，
+ * 后台超时也不写红色网络错误；真正按需查询工具仍会显示真实失败。
+ */
+export const loadExternalHealthSnapshotAndRefresh = (options: {
+    maxAgeMs?: number;
+    timeoutMs?: number;
+} = {}): ExternalHealthSnapshot | null => {
+    const cached = loadExternalHealthSnapshot();
+    const maxAgeMs = options.maxAgeMs ?? 5 * 60 * 1000;
+    const fetchedAt = cached ? Date.parse(cached.fetchedAt) : Number.NaN;
+    const fresh = cached && Number.isFinite(fetchedAt) && Date.now() - fetchedAt < maxAgeMs;
+    if (!fresh && !backgroundSnapshotRefresh) {
+        const config = loadSmartHomeConfig();
+        if (config.baseUrl && !config.demoMode) {
+            backgroundSnapshotRefresh = syncExternalHealthSnapshot(config, {
+                timeoutMs: options.timeoutMs ?? 8000,
+                suppressTimeoutLog: true,
+            }).catch(() => null).finally(() => {
+                backgroundSnapshotRefresh = null;
+            });
+        }
+    }
+    return cached;
 };
