@@ -1933,7 +1933,7 @@ const TransactionsTab: React.FC<{
   setShowFilters: React.Dispatch<React.SetStateAction<boolean>>;
 }> = ({ transactions, accounts, categories, onRefresh, showFilters, setShowFilters }) => {
   const { characters, apiConfig, userProfile } = useOS();
-  const [timeRange, setTimeRange] = useState<TimeRange>('month');
+  const [timeRange, setTimeRange] = useState<TimeRange>('all');
   const [filterAccountIds, setFilterAccountIds] = useState<Set<string>>(new Set());
   const [filterType, setFilterType] = useState<'all' | 'expense' | 'income'>('all');
   const [editingTx, setEditingTx] = useState<FinanceTransaction | 'new' | null>(null);
