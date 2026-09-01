@@ -71,6 +71,15 @@ describe('finance review badge', () => {
 
     await expect(getFinanceReviewCount()).resolves.toBe(0);
   });
+
+  it('does not count an authorization hold after a posted transaction supersedes it', async () => {
+    const hold = transaction('lyft-hold', 'simplefin', true);
+    hold.excludedFromReporting = true;
+    hold.supersededByExternalId = 'lyft-posted';
+    await FinanceDB.saveTransaction(hold);
+
+    await expect(getFinanceReviewCount()).resolves.toBe(0);
+  });
 });
 
 describe('progressive category review', () => {

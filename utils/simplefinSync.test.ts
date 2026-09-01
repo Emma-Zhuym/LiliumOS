@@ -187,6 +187,123 @@ describe('normalizeSimpleFinSnapshot', () => {
       note: '给猫买的东西',
     });
   });
+
+  it('keeps a Lyft authorization hold for audit but excludes it when the posted ride arrives', () => {
+    const lyftSnapshot = {
+      ...snapshot,
+      accounts: [{
+        ...snapshot.accounts[0],
+        transactions: [
+          {
+            id: 'lyft-hold-754',
+            posted: 0,
+            transacted_at: 1_777_244_400,
+            amount: '-7.54',
+            description: 'LYFT TEMP AUTH HOLD',
+            pending: true,
+          },
+          {
+            id: 'lyft-posted-754',
+            posted: 1_777_330_800,
+            transacted_at: 1_777_244_400,
+            amount: '-7.54',
+            description: 'LYFT *PRIORITY 08-26 LYFT.COM CA',
+          },
+        ],
+      }],
+    };
+
+    const normalized = normalizeSimpleFinSnapshot(lyftSnapshot, [], [], SYNCED_AT);
+    const hold = normalized.transactions.find(transaction => transaction.externalId === 'lyft-hold-754');
+    const posted = normalized.transactions.find(transaction => transaction.externalId === 'lyft-posted-754');
+    expect(hold).toMatchObject({
+      pending: true,
+      excludedFromReporting: true,
+      supersededByExternalId: 'lyft-posted-754',
+      needsCategoryReview: false,
+    });
+    expect(posted).toMatchObject({ pending: false, excludedFromReporting: false });
+    expect(normalized.newTransactionCount).toBe(1);
+  });
+
+  it('repairs an existing hold/posted duplicate without deleting either source record', () => {
+    const accountId = 'simplefin:demo:credit-1';
+    const hold: FinanceTransaction = {
+      id: 'local-lyft-hold',
+      type: 'expense',
+      amount: 7.54,
+      currency: 'USD',
+      accountId,
+      categoryId: 'cat_transport',
+      note: '去学校的 Lyft',
+      timestamp: 1_777_244_400_000,
+      dateStr: '2026-04-25',
+      source: 'simplefin',
+      externalId: 'lyft-hold-754',
+      sourceDescription: 'LYFT TEMP AUTH HOLD',
+      pending: true,
+      needsCategoryReview: false,
+      categoryReviewStatus: 'coarse',
+    };
+    const posted: FinanceTransaction = {
+      ...hold,
+      id: 'local-lyft-posted',
+      categoryId: 'cat_uncategorized',
+      note: 'LYFT *PRIORITY 08-26 LYFT.COM CA',
+      timestamp: 1_777_330_800_000,
+      externalId: 'lyft-posted-754',
+      sourceDescription: 'LYFT *PRIORITY 08-26 LYFT.COM CA',
+      pending: false,
+      needsCategoryReview: true,
+      categoryReviewStatus: 'unrecognized',
+    };
+    const lyftSnapshot = {
+      ...snapshot,
+      accounts: [{
+        ...snapshot.accounts[0],
+        transactions: [{
+          id: 'lyft-posted-754',
+          posted: 1_777_330_800,
+          transacted_at: 1_777_244_400,
+          amount: '-7.54',
+          description: 'LYFT *PRIORITY 08-26 LYFT.COM CA',
+        }],
+      }],
+    };
+
+    const normalized = normalizeSimpleFinSnapshot(lyftSnapshot, [], [hold, posted], SYNCED_AT);
+    const repairedHold = normalized.transactions.find(transaction => transaction.id === hold.id);
+    const repairedPosted = normalized.transactions.find(transaction => transaction.id === posted.id);
+    expect(repairedHold).toMatchObject({
+      excludedFromReporting: true,
+      supersededByExternalId: 'lyft-posted-754',
+      needsCategoryReview: false,
+    });
+    expect(repairedPosted).toMatchObject({
+      categoryId: 'cat_transport',
+      note: '去学校的 Lyft',
+      pending: false,
+      excludedFromReporting: false,
+    });
+  });
+
+  it('leaves equally plausible same-amount holds visible instead of guessing', () => {
+    const postedAt = 1_777_330_800;
+    const ambiguousSnapshot = {
+      ...snapshot,
+      accounts: [{
+        ...snapshot.accounts[0],
+        transactions: [
+          { id: 'hold-a', posted: 0, transacted_at: postedAt - 60, amount: '-7.54', description: 'LYFT TEMP AUTH HOLD', pending: true },
+          { id: 'hold-b', posted: 0, transacted_at: postedAt + 60, amount: '-7.54', description: 'LYFT TEMP AUTH HOLD', pending: true },
+          { id: 'posted', posted: postedAt, transacted_at: postedAt, amount: '-7.54', description: 'LYFT *PRIORITY LYFT.COM CA' },
+        ],
+      }],
+    };
+
+    const normalized = normalizeSimpleFinSnapshot(ambiguousSnapshot, [], [], SYNCED_AT);
+    expect(normalized.transactions.filter(transaction => transaction.excludedFromReporting)).toHaveLength(0);
+  });
 });
 
 describe('SimpleFIN client', () => {

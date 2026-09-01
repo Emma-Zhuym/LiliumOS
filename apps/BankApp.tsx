@@ -26,6 +26,7 @@ import {
 import {
   CREDIT_CARD_PAYMENT_CATEGORY_ID,
   findCreditCardPaymentCounterpart,
+  isFinanceTransactionReportable,
   reportingTransactionType,
   TRANSFER_CATEGORY_ID,
 } from '../utils/financeTransfers';
@@ -102,7 +103,7 @@ const BankApp: React.FC = () => {
     ]);
     setAccounts(accs);
     setCategories(cats);
-    setTransactions(txs);
+    setTransactions(txs.filter(isFinanceTransactionReportable));
     const bals: Record<string, number> = {};
     for (const a of accs) {
       bals[a.id] = await FinanceDB.calcAccountBalance(a);

@@ -35,6 +35,7 @@ export function learnedCategoryForTransaction(
   const reviewed = transactions
     .filter(transaction =>
       transaction.source === 'simplefin'
+      && transaction.excludedFromReporting !== true
       && financeMerchantKey(transaction.sourceDescription || transaction.note) === merchantKey
       && transaction.categoryId !== 'cat_uncategorized'
       && transaction.categoryReviewStatus !== 'auto'
@@ -64,6 +65,7 @@ export function reviewStatusForCategory(
 }
 
 export function isPendingFinanceReview(transaction: FinanceTransaction, now = Date.now()): boolean {
+  if (transaction.excludedFromReporting === true) return false;
   if (transaction.source !== 'simplefin') return false;
   if (now - transaction.timestamp > FINANCE_REVIEW_RECENT_MS) return false;
   if (transaction.categoryReviewStatus != null) return transaction.categoryReviewStatus === 'unrecognized';
@@ -74,7 +76,9 @@ async function migrateRecentUnreviewedTransactions(): Promise<void> {
   const transactions = await FinanceDB.getTransactions();
   const recentCutoff = Date.now() - FINANCE_REVIEW_RECENT_MS;
   const missingState = transactions.filter(transaction =>
-    transaction.source === 'simplefin' && transaction.needsCategoryReview == null,
+    transaction.source === 'simplefin'
+    && transaction.excludedFromReporting !== true
+    && transaction.needsCategoryReview == null,
   );
   if (missingState.length === 0) return;
   await FinanceDB.saveTransactions(missingState.map(transaction => ({

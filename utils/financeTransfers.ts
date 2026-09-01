@@ -3,6 +3,10 @@ import type { FinanceAccount, FinanceCategory, FinanceTransaction, FinanceTxType
 export const TRANSFER_CATEGORY_ID = 'cat_transfer';
 export const CREDIT_CARD_PAYMENT_CATEGORY_ID = 'cat_transfer_credit_payment';
 
+export function isFinanceTransactionReportable(transaction: FinanceTransaction): boolean {
+  return transaction.excludedFromReporting !== true;
+}
+
 export function isTransferCategory(
   categoryId: string,
   categories: ReadonlyMap<string, FinanceCategory>,

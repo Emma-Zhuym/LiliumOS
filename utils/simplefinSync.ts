@@ -38,6 +38,13 @@ const SIMPLEFIN_ACCOUNT_COLORS = [
   HUE.purple.main,
 ];
 
+const AUTHORIZATION_HOLD_PATTERN = /\b(?:pending|temp(?:orary)?\s+auth(?:orization)?|auth(?:orization)?\s+hold|preauth(?:orization)?)\b/i;
+const MERCHANT_NOISE = new Set([
+  'pending', 'temp', 'temporary', 'auth', 'authorization', 'hold', 'preauth', 'preauthorization',
+  'purchase', 'debit', 'credit', 'visa', 'mastercard', 'card', 'pos', 'com', 'ca', 'help',
+]);
+const PENDING_REPLACEMENT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
 const dateKeyFromSeconds = (seconds: number): string => {
   const date = new Date(seconds * 1000);
   const year = date.getFullYear();
@@ -68,6 +75,93 @@ function normalizeDescription(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9\p{L}\p{N}]+/gu, ' ').trim();
 }
 
+function merchantStem(value: string): string {
+  const normalized = normalizeDescription(value).replace(/\bubr\b/g, 'uber');
+  return normalized.split(' ').find(token =>
+    token.length >= 3
+    && !/^\d+$/.test(token)
+    && !MERCHANT_NOISE.has(token)
+  ) || '';
+}
+
+function isIncomingPending(transaction: SimpleFinTransaction): boolean {
+  return Boolean(
+    transaction.pending
+    || transaction.posted === 0
+    || AUTHORIZATION_HOLD_PATTERN.test(transaction.description),
+  );
+}
+
+function isStoredPending(transaction: FinanceTransaction): boolean {
+  return Boolean(
+    transaction.pending
+    || AUTHORIZATION_HOLD_PATTERN.test(transaction.sourceDescription || transaction.note),
+  );
+}
+
+function incomingEventAt(transaction: SimpleFinTransaction): number {
+  return (transaction.transacted_at || transaction.posted || 0) * 1000;
+}
+
+function isPendingReplacement(
+  pendingAmount: number,
+  pendingDescription: string,
+  pendingAt: number,
+  postedAmount: number,
+  postedDescription: string,
+  postedAt: number,
+): boolean {
+  const pendingMerchant = merchantStem(pendingDescription);
+  return Boolean(
+    pendingMerchant
+    && pendingMerchant === merchantStem(postedDescription)
+    && Math.abs(pendingAmount - postedAmount) < 0.005
+    && Math.abs(pendingAt - postedAt) <= PENDING_REPLACEMENT_WINDOW_MS,
+  );
+}
+
+function hasLocalTransactionEdits(transaction: FinanceTransaction | undefined): boolean {
+  return Boolean(transaction && (
+    transaction.categoryId !== 'cat_uncategorized'
+    || (transaction.note && transaction.note !== transaction.sourceDescription)
+  ));
+}
+
+function closestUniqueByTime<T>(candidates: T[], getTime: (candidate: T) => number, targetAt: number): T | undefined {
+  const sorted = [...candidates]
+    .sort((a, b) => Math.abs(getTime(a) - targetAt) - Math.abs(getTime(b) - targetAt));
+  if (sorted.length > 1 && Math.abs(getTime(sorted[0]) - targetAt) === Math.abs(getTime(sorted[1]) - targetAt)) {
+    return undefined;
+  }
+  return sorted[0];
+}
+
+function matchedIncomingAuthorizationHolds(transactions: SimpleFinTransaction[]): Map<string, string> {
+  const matches = new Map<string, string>();
+  const usedPending = new Set<string>();
+  const pending = transactions.filter(isIncomingPending);
+  const posted = transactions.filter(transaction => !isIncomingPending(transaction));
+
+  for (const postedTransaction of posted) {
+    const postedAt = incomingEventAt(postedTransaction);
+    const candidates = pending
+      .filter(transaction => !usedPending.has(transaction.id))
+      .filter(transaction => isPendingReplacement(
+        Math.abs(Number(transaction.amount)),
+        transaction.description,
+        incomingEventAt(transaction),
+        Math.abs(Number(postedTransaction.amount)),
+        postedTransaction.description,
+        postedAt,
+      ));
+    const candidate = closestUniqueByTime(candidates, incomingEventAt, postedAt);
+    if (!candidate) continue;
+    matches.set(candidate.id, postedTransaction.id);
+    usedPending.add(candidate.id);
+  }
+  return matches;
+}
+
 function sourceCategory(transaction: SimpleFinTransaction): string | undefined {
   const category = transaction.extra?.category;
   return typeof category === 'string' && category.trim() ? category.trim() : undefined;
@@ -90,7 +184,7 @@ function findExistingTransaction(
     && transaction.externalId === incoming.id,
   );
   const incomingAmount = Math.abs(Number(incoming.amount));
-  const incomingAt = (incoming.transacted_at || incoming.posted || 0) * 1000;
+  const incomingAt = incomingEventAt(incoming);
   const incomingDescription = normalizeDescription(incoming.description);
   const sameTransaction = (transaction: FinanceTransaction) =>
     transaction.source === 'simplefin'
@@ -102,21 +196,28 @@ function findExistingTransaction(
   // Some providers replace ids when pending transactions post. A stable local fingerprint
   // also keeps user categorization intact when a provider reissues an otherwise identical id.
   const fingerprintMatches = existing.filter(sameTransaction);
-  const pendingMatches = incoming.pending ? [] : existing.filter(transaction =>
+  const pendingCandidates = isIncomingPending(incoming) ? [] : existing.filter(transaction =>
     transaction.source === 'simplefin'
     && transaction.accountId === accountId
-    && transaction.pending === true
-    && Math.abs(transaction.amount - incomingAmount) < 0.005
-    && normalizeDescription(transaction.sourceDescription || transaction.note) === incomingDescription
-    && Math.abs(transaction.timestamp - incomingAt) <= 7 * 24 * 60 * 60 * 1000,
+    && isStoredPending(transaction)
+    && isPendingReplacement(
+      transaction.amount,
+      transaction.sourceDescription || transaction.note,
+      transaction.timestamp,
+      incomingAmount,
+      incoming.description,
+      incomingAt,
+    ),
   );
+  const closestPending = closestUniqueByTime(pendingCandidates, transaction => transaction.timestamp, incomingAt);
+  const pendingMatches = closestPending ? [closestPending] : [];
   const candidates = [...fingerprintMatches, ...pendingMatches];
   const locallyEdited = candidates.find(transaction =>
     transaction.categoryId !== 'cat_uncategorized'
     || Boolean(transaction.note && transaction.note !== transaction.sourceDescription),
   );
-  return locallyEdited
-    || direct
+  return direct
+    || locallyEdited
     || candidates.find(transaction => transaction.pending === true)
     || candidates[0];
 }
@@ -131,6 +232,7 @@ export function normalizeSimpleFinSnapshot(
   const existingAccounts = new Map(currentAccounts.map(account => [account.id, account]));
   const accounts: FinanceAccount[] = [];
   const transactions: FinanceTransaction[] = [];
+  const holdUpdates = new Map<string, FinanceTransaction>();
   let newTransactionCount = 0;
 
   snapshot.accounts.forEach((sourceAccount, index) => {
@@ -159,29 +261,72 @@ export function normalizeSimpleFinSnapshot(
     };
     accounts.push(account);
 
-    for (const sourceTransaction of sourceAccount.transactions || []) {
+    const sourceTransactions = sourceAccount.transactions || [];
+    const incomingHoldMatches = matchedIncomingAuthorizationHolds(sourceTransactions);
+    for (const sourceTransaction of sourceTransactions) {
       const numericAmount = Number(sourceTransaction.amount);
       if (!Number.isFinite(numericAmount)) continue;
+      const incomingPending = isIncomingPending(sourceTransaction);
+      const incomingAt = incomingEventAt(sourceTransaction);
+      const matchingExistingHoldCandidates = incomingPending ? [] : currentTransactions.filter(transaction =>
+        transaction.source === 'simplefin'
+        && transaction.accountId === id
+        && isStoredPending(transaction)
+        && isPendingReplacement(
+          transaction.amount,
+          transaction.sourceDescription || transaction.note,
+          transaction.timestamp,
+          Math.abs(numericAmount),
+          sourceTransaction.description,
+          incomingAt,
+        ),
+      );
+      const closestExistingHold = closestUniqueByTime(
+        matchingExistingHoldCandidates,
+        transaction => transaction.timestamp,
+        incomingAt,
+      );
+      const matchingExistingHolds = closestExistingHold ? [closestExistingHold] : [];
       const existingTransaction = findExistingTransaction(sourceTransaction, id, currentTransactions);
+      const preservedTransaction = hasLocalTransactionEdits(existingTransaction)
+        ? existingTransaction
+        : matchingExistingHolds.find(hasLocalTransactionEdits) || existingTransaction;
+      matchingExistingHolds.forEach(transaction => {
+        if (transaction.id === existingTransaction?.id) return;
+        holdUpdates.set(transaction.id, {
+          ...transaction,
+          pending: true,
+          excludedFromReporting: true,
+          supersededByExternalId: sourceTransaction.id,
+          sourceUpdatedAt: syncedAt,
+          needsCategoryReview: false,
+        });
+      });
       const eventSeconds = sourceTransaction.transacted_at || sourceTransaction.posted || Math.floor(syncedAt / 1000);
+      const supersededByExternalId = incomingHoldMatches.get(sourceTransaction.id);
+      const excludedFromReporting = incomingPending
+        ? Boolean(supersededByExternalId || existingTransaction?.excludedFromReporting)
+        : false;
       const learnedCategory = existingTransaction
         ? null
         : learnedCategoryForTransaction(sourceTransaction.description, currentTransactions);
-      const needsCategoryReview = existingTransaction
-        ? existingTransaction.categoryReviewStatus
-          ? existingTransaction.categoryReviewStatus === 'unrecognized'
-          : existingTransaction.needsCategoryReview === true
-        : !learnedCategory && eventSeconds * 1000 > reviewSince;
+      const needsCategoryReview = excludedFromReporting
+        ? false
+        : preservedTransaction
+          ? preservedTransaction.categoryReviewStatus
+            ? preservedTransaction.categoryReviewStatus === 'unrecognized'
+            : preservedTransaction.needsCategoryReview === true
+          : !learnedCategory && eventSeconds * 1000 > reviewSince;
       if (!existingTransaction && needsCategoryReview) newTransactionCount += 1;
       transactions.push({
-        ...existingTransaction,
+        ...preservedTransaction,
         id: existingTransaction?.id || `simplefin-tx:${sourceAccount.conn_id}:${sourceAccount.id}:${sourceTransaction.id}`,
         type: inferTransactionType(sourceTransaction),
         amount: Math.abs(numericAmount),
-        currency: sourceAccount.currency || existingTransaction?.currency || 'USD',
+        currency: sourceAccount.currency || preservedTransaction?.currency || 'USD',
         accountId: id,
-        categoryId: existingTransaction?.categoryId || learnedCategory?.categoryId || 'cat_uncategorized',
-        note: existingTransaction?.note || sourceTransaction.description,
+        categoryId: preservedTransaction?.categoryId || learnedCategory?.categoryId || 'cat_uncategorized',
+        note: preservedTransaction?.note || sourceTransaction.description,
         timestamp: eventSeconds * 1000,
         dateStr: dateKeyFromSeconds(eventSeconds),
         source: 'simplefin',
@@ -189,21 +334,37 @@ export function normalizeSimpleFinSnapshot(
         externalAccountId: sourceAccount.id,
         sourceDescription: sourceTransaction.description,
         sourceCategory: sourceCategory(sourceTransaction),
-        pending: Boolean(sourceTransaction.pending || sourceTransaction.posted === 0),
+        pending: incomingPending,
+        excludedFromReporting,
+        supersededByExternalId: incomingPending
+          ? supersededByExternalId || existingTransaction?.supersededByExternalId
+          : undefined,
         importedAt: existingTransaction?.importedAt || syncedAt,
         sourceUpdatedAt: syncedAt,
         needsCategoryReview,
-        categoryReviewStatus: existingTransaction?.categoryReviewStatus
+        categoryReviewStatus: preservedTransaction?.categoryReviewStatus
           || (learnedCategory ? 'auto' : needsCategoryReview ? 'unrecognized' : undefined),
-        categoryReviewedAt: existingTransaction?.categoryReviewedAt
+        categoryReviewedAt: preservedTransaction?.categoryReviewedAt
           || (learnedCategory ? syncedAt : undefined),
-        autoCategoryConfidence: existingTransaction?.autoCategoryConfidence
+        autoCategoryConfidence: preservedTransaction?.autoCategoryConfidence
           ?? learnedCategory?.confidence,
       });
     }
   });
 
-  return { accounts, transactions, newTransactionCount };
+  const reconciledTransactions = new Map(transactions.map(transaction => [transaction.id, transaction]));
+  holdUpdates.forEach((update, id) => {
+    const refreshed = reconciledTransactions.get(id);
+    reconciledTransactions.set(id, {
+      ...update,
+      ...refreshed,
+      pending: true,
+      excludedFromReporting: true,
+      supersededByExternalId: update.supersededByExternalId,
+      needsCategoryReview: false,
+    });
+  });
+  return { accounts, transactions: [...reconciledTransactions.values()], newTransactionCount };
 }
 
 export async function getSimpleFinSyncState(): Promise<SimpleFinSyncState> {
@@ -218,7 +379,7 @@ export async function syncSimpleFin(): Promise<SimpleFinSyncResult> {
 
   try {
     const overlapStart = previousState.lastSuccessAt
-      ? Math.floor((previousState.lastSuccessAt - 5 * 24 * 60 * 60 * 1000) / 1000)
+      ? Math.floor((previousState.lastSuccessAt - 14 * 24 * 60 * 60 * 1000) / 1000)
       : Math.floor((attemptedAt - 89 * 24 * 60 * 60 * 1000) / 1000);
     const snapshot = await fetchSimpleFinAccounts({
       startDate: overlapStart,

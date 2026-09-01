@@ -85,6 +85,43 @@ describe('finance chat awareness', () => {
     expect(summary.by_currency).toEqual({});
   });
 
+  it('does not expose superseded authorization holds to characters or spending summaries', async () => {
+    const base: FinanceTransaction = {
+      id: 'lyft-posted',
+      type: 'expense',
+      amount: 7.54,
+      currency: 'USD',
+      accountId: 'card',
+      categoryId: 'cat_uncategorized',
+      note: 'LYFT *PRIORITY',
+      timestamp: Date.now() - 60_000,
+      dateStr: '2026-08-26',
+      source: 'simplefin',
+      sourceDescription: 'LYFT *PRIORITY',
+      pending: false,
+    };
+    await FinanceDB.saveTransactions([
+      base,
+      {
+        ...base,
+        id: 'lyft-hold',
+        note: 'LYFT TEMP AUTH HOLD',
+        sourceDescription: 'LYFT TEMP AUTH HOLD',
+        pending: true,
+        excludedFromReporting: true,
+        supersededByExternalId: 'lyft-posted-provider-id',
+      },
+    ]);
+
+    const awareness = await getFinanceAwareness('char-hold');
+    expect(awareness.pulse).toContain('新增 1 笔记录');
+    expect(awareness.pulse).not.toContain('TEMP AUTH HOLD');
+
+    const recent = await executeFinanceChatTool('finance_get_recent_transactions') as any;
+    expect(recent.count).toBe(1);
+    expect(recent.transactions[0].merchant).toBe('LYFT *PRIORITY');
+  });
+
   it('lets the character browse the user ledger without waiting for a finance topic', () => {
     const block = buildFinanceChatSystemBlock('用户个人账本新增 1 笔记录。');
     expect(block).toContain('用户的个人账本');

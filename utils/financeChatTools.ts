@@ -2,7 +2,7 @@ import type { FinanceAccount, FinanceCategory, FinanceTransaction, Message } fro
 import { FinanceDB } from './financeDb';
 import { getLocalDateKey } from './localDate';
 import { getSimpleFinSyncState } from './simplefinSync';
-import { reportingTransactionType } from './financeTransfers';
+import { isFinanceTransactionReportable, reportingTransactionType } from './financeTransfers';
 
 export const FINANCE_CHAT_TOOLS = [
   {
@@ -101,7 +101,7 @@ export async function getFinanceAwareness(charId: string): Promise<FinanceAwaren
   ]);
   const categoryMap = new Map(categories.map(category => [category.id, category]));
   const transactions = allTransactions
-    .filter(transaction => transaction.timestamp <= Date.now() + 5 * 60 * 1000)
+    .filter(transaction => isFinanceTransactionReportable(transaction) && transaction.timestamp <= Date.now() + 5 * 60 * 1000)
     .sort((a, b) => b.timestamp - a.timestamp);
   if (transactions.length === 0) return { hasLedger: false, pulse: null };
 
@@ -214,7 +214,7 @@ async function loadFinanceData() {
   return {
     accounts,
     categories,
-    transactions,
+    transactions: transactions.filter(isFinanceTransactionReportable),
     syncState,
     accountMap: new Map(accounts.map(account => [account.id, account])),
     categoryMap: new Map(categories.map(category => [category.id, category])),

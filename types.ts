@@ -3552,6 +3552,10 @@ export interface FinanceTransaction {
     sourceDescription?: string;
     sourceCategory?: string;
     pending?: boolean;
+    /** Provider authorization hold retained for audit but hidden from ledger/reporting surfaces. */
+    excludedFromReporting?: boolean;
+    /** Posted provider transaction that replaced this authorization hold. */
+    supersededByExternalId?: string;
     importedAt?: number;
     sourceUpdatedAt?: number;
     /** New synced transaction awaiting the user's local category confirmation. */
