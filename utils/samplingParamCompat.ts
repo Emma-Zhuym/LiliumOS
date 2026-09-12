@@ -8,7 +8,7 @@
  * 已知会因此 400 的模型：
  *   - Claude：Opus 4.7 / 4.8（及以上）、Sonnet 5（及以上）、Fable 5 / Mythos 5
  *   - OpenAI：gpt-5 系
- *   （o1/o3/o4 等推理模型也只接受默认 temperature，靠下面第 2 层兜底覆盖）
+ *   （未知模型的参数错误保留给用户检查，不自动再次请求）
  *
  * 关键点：OpenRouter 会把 `anthropic/claude-opus-4.8` 路由到 Azure / Anthropic，
  * 这些 provider 同样拒收 temperature，所以「换 API / 换 OR」都没用——根因是**模型本身
@@ -16,8 +16,8 @@
  *
  * 兼容策略（在 fetch 统一出口做，覆盖全部 /chat/completions 调用点）：
  *   1) 发送前：识别到会废弃采样参数的模型，主动摘掉 temperature/top_p/top_k；
- *   2) 收到 400 且报文点名采样参数「deprecated / not supported」时，摘掉后重试一次。
- * 第 2 层是兜底：即便模型名没被第 1 层清单覆盖，也能自愈。
+ *   2) 对接受温度的 Claude 模型钳制到兼容范围；参数错误仅用于诊断。
+ * 不对模型请求自动重试，避免请求已处理却回执失败时重复计费。
  */
 
 const SAMPLING_KEYS = ['temperature', 'top_p', 'top_k'] as const;
@@ -55,6 +55,20 @@ export function stripSamplingParams(body: Record<string, any>): boolean {
         }
     }
     return changed;
+}
+
+/**
+ * Claude 的 temperature 合法范围是 0..1。官方 OpenAI 兼容层会自动封顶，但不少
+ * 第三方 /chat/completions 中转直接转发到 Messages API，1.1 之类的剧情预设会因此 400。
+ */
+export function clampClaudeTemperature(body: Record<string, any>): boolean {
+    if (!body || typeof body !== 'object') return false;
+    const model = typeof body.model === 'string' ? body.model.toLowerCase() : '';
+    if (!/claude|anthropic/.test(model)) return false;
+    const temperature = Number(body.temperature);
+    if (!Number.isFinite(temperature) || temperature <= 1) return false;
+    body.temperature = 1;
+    return true;
 }
 
 /**

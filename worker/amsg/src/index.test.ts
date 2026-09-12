@@ -1574,12 +1574,13 @@ describe('runMcpFireTool', () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it('握手 + tools/call 直连 server.url，带 Bearer，结果 ok', async () => {
-    const seen: Array<{ url: string; body: any; auth: string | null }> = [];
+    const seen: Array<{ url: string; body: any; auth: string | null; protocol: string | null }> = [];
     vi.stubGlobal('fetch', vi.fn(async (input: any, init: any) => {
       const body = JSON.parse(init.body);
-      seen.push({ url: String(input), body, auth: new Headers(init.headers).get('Authorization') });
+      const headers = new Headers(init.headers);
+      seen.push({ url: String(input), body, auth: headers.get('Authorization'), protocol: headers.get('MCP-Protocol-Version') });
       if (body.method === 'initialize') {
-        return rpcOk(body.id, { protocolVersion: '2024-11-05', capabilities: {}, serverInfo: { name: 'p', version: '1' } });
+        return rpcOk(body.id, { protocolVersion: '2025-03-26', capabilities: {}, serverInfo: { name: 'p', version: '1' } });
       }
       if (String(body.method).startsWith('notifications/')) return new Response(null, { status: 202 });
       return rpcOk(body.id, { content: [{ type: 'text', text: '暗号 MARKER-123' }] });
@@ -1592,6 +1593,7 @@ describe('runMcpFireTool', () => {
     expect(seen.every((s) => s.url.startsWith('https://probe.example.com/mcp'))).toBe(true);
     expect(seen.every((s) => s.auth === 'Bearer tok-1')).toBe(true);
     expect(seen.map((s) => s.body.method)).toEqual(['initialize', 'notifications/initialized', 'tools/call']);
+    expect(seen.slice(1).every(request => request.protocol === '2025-03-26')).toBe(true);
   });
 
   // 会话挂在单次 fire 的 stash 上；一次 fire 最多五轮，每轮都重握手就是白烧往返。
@@ -1601,7 +1603,7 @@ describe('runMcpFireTool', () => {
       const body = JSON.parse(init.body);
       if (body.method === 'initialize') {
         handshakes++;
-        return rpcOk(body.id, { protocolVersion: '2024-11-05', capabilities: {}, serverInfo: { name: 'p', version: '1' } });
+        return rpcOk(body.id, { protocolVersion: '2025-03-26', capabilities: {}, serverInfo: { name: 'p', version: '1' } });
       }
       if (String(body.method).startsWith('notifications/')) return new Response(null, { status: 202 });
       return rpcOk(body.id, { content: [{ type: 'text', text: 'x' }] });
@@ -1647,7 +1649,7 @@ describe('runMcpFireTool', () => {
     vi.stubGlobal('fetch', vi.fn(async (_: any, init: any) => {
       const body = JSON.parse(init.body);
       if (body.method === 'initialize') {
-        return rpcOk(body.id, { protocolVersion: '2024-11-05', capabilities: {}, serverInfo: { name: 'p', version: '1' } });
+        return rpcOk(body.id, { protocolVersion: '2025-03-26', capabilities: {}, serverInfo: { name: 'p', version: '1' } });
       }
       if (String(body.method).startsWith('notifications/')) return new Response(null, { status: 202 });
       clock += 700;

@@ -16,7 +16,7 @@ import { resolveBlobRefsInRequestBody } from './apiBlobRefs';
 
 const log = makeDebugLogger('api', 'SafeAPI');
 
-function isChatCompletionUrl(url: string): boolean {
+export function isChatCompletionUrl(url: string): boolean {
     return url.includes('/chat/completions');
 }
 
@@ -425,8 +425,9 @@ async function readBodyWithStreaming(
         }
         if (mode === 'sse') consumeLines();
         if (sawTerminalEvent) {
-            // Some OpenAI-compatible proxies send [DONE]/finish_reason but keep
-            // the socket alive. The completion is whole, so stop waiting here.
+            // A few OpenAI-compatible Claude proxies send [DONE]/finish_reason but
+            // keep the HTTP socket alive. The completion is already whole; waiting
+            // for reader.done would leave the Qixi loader spinning forever.
             try { await reader.cancel(); } catch { /* completion is already assembled */ }
             break;
         }
@@ -447,8 +448,10 @@ async function readBodyWithStreaming(
 }
 
 /**
- * Fetch with automatic retry for transient errors.
- * Retries on: 429, 500, 502, 503, 504 and network failures.
+ * Fetch with automatic retry for transient errors on non-billable endpoints.
+ * Chat completions never retry automatically: a timeout/network error does not
+ * prove the upstream generation stopped, so retrying can charge the user twice.
+ * Other endpoints retry on: 429, 500, 502, 503, 504 and network failures.
  * Returns the parsed JSON data directly.
  *
  * `timeoutMs`：每次尝试的硬超时。如果调用方没在 options.signal 里自带 AbortController，
@@ -468,6 +471,9 @@ export async function safeFetchJson(
     const retryableStatuses = new Set([429, 500, 502, 503, 504]);
     let lastError: Error | null = null;
     const urlStr = String(url);
+    const automaticRetryLimit = isChatCompletionUrl(urlStr)
+        ? 0
+        : Math.max(0, Math.floor(Number(maxRetries) || 0));
     let lastStatus: number | undefined;
 
     // 显式 meta 挂到 RequestInit 给全局 fetch 兜底；同时快照环境标签，避免长响应期间
@@ -483,7 +489,7 @@ export async function safeFetchJson(
         ? metaOptions
         : { ...metaOptions, body: resolvedBody as BodyInit };
 
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    for (let attempt = 0; attempt <= automaticRetryLimit; attempt++) {
         // 全局 fetch 拦截器和这里的“已解析响应兜底”共享 ID。前者覆盖裸 fetch，
         // 后者不依赖 Response.clone()，避免部分 iOS/WebView 克隆流不结束时漏记。
         const requestId = `api-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -513,9 +519,9 @@ export async function safeFetchJson(
 
             if (!response.ok) {
                 // For retryable status codes, retry before giving up
-                if (retryableStatuses.has(response.status) && attempt < maxRetries) {
+                if (retryableStatuses.has(response.status) && attempt < automaticRetryLimit) {
                     const delay = Math.pow(2, attempt) * 1000; // 1s, 2s
-                    log.warn('HTTP retry', { status: response.status, attempt: attempt + 1, maxRetries, delay });
+                    log.warn('HTTP retry', { status: response.status, attempt: attempt + 1, maxRetries: automaticRetryLimit, delay });
                     await new Promise(r => setTimeout(r, delay));
                     continue;
                 }
@@ -568,15 +574,15 @@ export async function safeFetchJson(
             const isAbort = e?.name === 'AbortError' || /aborted|timeout/i.test(e?.message || '');
 
             // Network errors (fetch itself failed) are retryable
-            if ((e?.name === 'TypeError' || isAbort) && attempt < maxRetries) {
+            if ((e?.name === 'TypeError' || isAbort) && attempt < automaticRetryLimit) {
                 const delay = Math.pow(2, attempt) * 1000;
-                log.warn(isAbort ? 'Timeout/Abort retry' : 'Network error retry', { attempt: attempt + 1, maxRetries, delay, message: e?.message });
+                log.warn(isAbort ? 'Timeout/Abort retry' : 'Network error retry', { attempt: attempt + 1, maxRetries: automaticRetryLimit, delay, message: e?.message });
                 await new Promise(r => setTimeout(r, delay));
                 continue;
             }
 
             // For HTML/parse errors on non-ok responses during retry, continue
-            if (attempt < maxRetries && e?.message?.includes('API返回了HTML')) {
+            if (attempt < automaticRetryLimit && e?.message?.includes('API返回了HTML')) {
                 const delay = Math.pow(2, attempt) * 1000;
                 log.warn('HTML response retry', { attempt: attempt + 1, maxRetries, delay });
                 await new Promise(r => setTimeout(r, delay));
@@ -757,7 +763,26 @@ function repairTruncatedJson(text: string): string | null {
     return repaired;
 }
 
-export function extractJson(raw: string): any | null {
+/** Repair formatting outside strings; preserve apostrophes and literal `, }` in prose. */
+function repairJsonPresentation(text: string): string {
+    let result = '';
+    let inString = false;
+    let escaped = false;
+    for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (escaped) { result += ch; escaped = false; continue; }
+        if (inString && ch === '\\') { result += ch; escaped = true; continue; }
+        if (ch === '"') inString = !inString;
+        if (inString && ch.charCodeAt(0) < 32) {
+            result += JSON.stringify(ch).slice(1, -1);
+        } else if (!inString && ch === ',' && /^[\s]*[}\]]/.test(text.slice(i + 1))) {
+            continue;
+        } else result += ch;
+    }
+    return result;
+}
+
+export function extractJson(raw: string, options: { allowTruncated?: boolean; silent?: boolean } = {}): any | null {
     if (!raw) return null;
 
     // 1. Strip markdown code fences
@@ -785,6 +810,7 @@ export function extractJson(raw: string): any | null {
 
     // 4. Try parsing the extracted substring
     try { return JSON.parse(jsonStr); } catch {}
+    try { return JSON.parse(repairJsonPresentation(jsonStr)); } catch {}
 
     // 5. Fix common AI formatting issues and retry
     let fixed = jsonStr
@@ -803,6 +829,7 @@ export function extractJson(raw: string): any | null {
     // — the inner " breaks JSON parsing because they're not \-escaped.
     const innerQuoteFixed = escapeUnescapedInnerQuotes(jsonStr);
     if (innerQuoteFixed && innerQuoteFixed !== jsonStr) {
+        try { return JSON.parse(repairJsonPresentation(innerQuoteFixed)); } catch {}
         try { return JSON.parse(innerQuoteFixed); } catch {}
         try {
             return JSON.parse(innerQuoteFixed
@@ -814,7 +841,7 @@ export function extractJson(raw: string): any | null {
     // 7. Try to repair truncated JSON (LLM hit max_tokens)
     // Find the first { and attempt to close any open strings/brackets
     const firstBrace = text.indexOf('{');
-    if (firstBrace >= 0) {
+    if (firstBrace >= 0 && options.allowTruncated !== false) {
         let truncated = text.slice(firstBrace);
         const repaired = repairTruncatedJson(truncated);
         if (repaired) {
@@ -860,6 +887,6 @@ export function extractJson(raw: string): any | null {
         } catch {}
     }
 
-    console.error('[extractJson] All attempts failed. Raw:', raw.slice(0, 300));
+    if (!options.silent) console.error('[extractJson] All attempts failed. Raw:', raw.slice(0, 300));
     return null;
 }

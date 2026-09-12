@@ -50,6 +50,7 @@ beforeEach(() => {
 
 afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
 });
 
@@ -94,10 +95,11 @@ describe('buildMcpRequestHeaders', () => {
                 { name: 'XBY-APIKEY', value: 'secret-xby' },
                 { name: 'Authorization', value: 'Custom auth' },
             ],
-        }, 'session-1');
+        }, 'session-1', '2025-11-25');
         expect(headers.get('XBY-APIKEY')).toBe('secret-xby');
         expect(headers.get('Authorization')).toBe('Bearer bearer-token');
         expect(headers.get('Mcp-Session-Id')).toBe('session-1');
+        expect(headers.get('MCP-Protocol-Version')).toBe('2025-11-25');
         expect(headers.get('X-Proxy-Key')).toBe('proxy-secret');
         expect(headers.get('X-MCP-Forward-Headers')).toBe('XBY-APIKEY,Authorization');
     });
@@ -283,14 +285,65 @@ describe('MCP 多步任务策略', () => {
         expect(MCP_CHAT_MAX_STALLED_ROUNDS).toBe(2);
     });
 
-    it('提示模型从检查推进到动作，但真实副作用仍必须另行确认', () => {
+    it('沿用本轮明确授权，未明确请求的副作用仍要求确认', () => {
         saveMcpServers([mkServer({ name: '游戏盒' })]);
         const block = buildMcpSystemBlock('条条');
         expect(block).toContain('随后立刻调用能推进目标的动作工具');
         expect(block).toContain('不要反复读取同一份说明或状态');
-        expect(block).toContain('先跟 条条 确认一句再动手');
-        expect(block).not.toContain('视为已经确认');
-        expect(MCP_TAIL_REMINDER).toContain('有副作用的操作先确认再执行');
+        expect(block).toContain('条条 本轮已经明确要求执行，即视为已经确认');
+        expect(block).toContain('没有明确要求时才先确认一句再动手');
+        expect(MCP_TAIL_REMINDER).toContain('用户本轮已明确要求的操作视为已确认，否则副作用操作先确认');
+    });
+
+    it('文字兼容提示允许按结果继续下一步，但要求每次只输出一个调用', () => {
+        const body = buildMcpRejectedToolsFallbackBody({
+            messages: [{ role: 'user', content: '继续玩游戏' }],
+            tools: [{ type: 'function', function: {
+                name: 'play_game',
+                description: '执行游戏动作',
+                parameters: { type: 'object', properties: { action: { type: 'string' } } },
+            } }],
+            tool_choice: 'auto',
+        });
+        const prompt = body.messages.at(-1).content;
+        expect(prompt).toContain('每一步如果需要工具，只输出一行');
+        expect(prompt).toContain('选择下一步真正能推进目标的工具');
+        expect(prompt).toContain('不要反复读取同一份说明或状态');
+    });
+});
+
+describe('MCP 高风险工具保护', () => {
+    it('服务端明确标注为 destructive 的工具会自动确认，用户拒绝后不发请求', async () => {
+        const server = mkServer({
+            tools: [{
+                name: 'delete_note',
+                title: '删除笔记',
+                inputSchema: { type: 'object', properties: {} },
+                annotations: { destructiveHint: true },
+            }],
+        });
+        vi.stubGlobal('window', { confirm: vi.fn().mockReturnValue(false) });
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+        const result = await callMcpTool(server, 'delete_note', { id: 'n1' });
+        expect(result.success).toBe(false);
+        expect(fetchSpy).not.toHaveBeenCalled();
+    });
+});
+
+describe('MCP 多步任务策略', () => {
+    it('工具轮次使用 12 轮硬上限，并在连续两轮没有新结果时提前收口', () => {
+        expect(MCP_CHAT_MAX_TOOL_LOOPS).toBe(12);
+        expect(MCP_CHAT_MAX_STALLED_ROUNDS).toBe(2);
+    });
+
+    it('提示模型从检查推进到动作，并把用户本轮明确要求视为已确认', () => {
+        saveMcpServers([mkServer({ name: '游戏盒' })]);
+        const block = buildMcpSystemBlock('条条');
+        expect(block).toContain('随后立刻调用能推进目标的动作工具');
+        expect(block).toContain('不要反复读取同一份说明或状态');
+        expect(block).toContain('本轮已经明确要求执行，即视为已经确认');
+        expect(MCP_TAIL_REMINDER).toContain('本轮已明确要求的操作视为已确认');
     });
 
     it('文字兼容提示允许按结果继续下一步，但要求每次只输出一个调用', () => {
@@ -627,6 +680,22 @@ describe('collectMcpFireServers', () => {
         expect(isMcpChatAvailable('char_a')).toBe(true);
         expect(collectMcpFireServers()).toEqual([]);
         expect(hasWorkerUnreachableMcpServer('char_a')).toBe(true);
+    });
+
+    it('无人值守后台不带 destructive 工具', () => {
+        saveMcpServers([
+            mkServer({
+                id: 'guarded',
+                tools: [
+                    { name: 'read_note', annotations: { readOnlyHint: true } },
+                    { name: 'delete_note', annotations: { destructiveHint: true } },
+                ],
+            }),
+        ]);
+
+        const out = collectMcpFireServers();
+        expect(out.map(server => server.id)).toEqual(['guarded']);
+        expect(out[0].tools?.map(tool => tool.name)).toEqual(['read_note']);
     });
 
     it('其余 worker 够不着的地址一并挡掉（链路本地 / 占位地址 / 局域网域名 / IPv6 ULA）', () => {

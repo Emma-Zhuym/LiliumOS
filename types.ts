@@ -1,4 +1,4 @@
-
+import type { VoiceFavoriteIndex } from './utils/voiceFavorites'; // [EM: text-voice-favorites]
 export enum AppID {
   Launcher = 'launcher',
   Settings = 'settings',
@@ -4131,6 +4131,7 @@ export interface FullBackupData {
     emojiCategories?: EmojiCategory[]; 
     savedJournalStickers?: {name: string, url: string}[]; 
     assets?: { id: string, data: string }[];
+    voiceFavoritesIndex?: VoiceFavoriteIndex; // [EM: text-voice-favorites] 纯文字收藏补丁，不替换整个素材表。
     galleryImages?: GalleryImage[];
     userProfile?: UserProfile;
     diaries?: DiaryEntry[];

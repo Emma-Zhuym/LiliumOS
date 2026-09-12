@@ -20,6 +20,7 @@ import { exportSmartHomeLocal, importSmartHomeLocal } from './smartHome';
 import { exportAmsg2GlobalConfig, importAmsg2GlobalConfig } from './activeMsgStore';
 import { exportWorldHomeLocal, importWorldHomeLocal } from './worldHome/localBackup';
 import { exportDesktopSkinLocal, importDesktopSkinLocal } from './desktopSkinBackup';
+import { VOICE_FAVORITES_INDEX_ASSET_ID, validateVoiceFavoriteIndex } from './voiceFavorites'; // [EM: text-voice-favorites]
 
 const DB_NAME = 'AetherOS_Data';
 // v67：两条并行线各自用掉了 v65/v66（A线: blob_assets + 生活记录；B线: room_plates 门牌 + digest_reports 消化日志），
@@ -3228,6 +3229,11 @@ export const DB = {
           }) => void;
       } = {}
   ): Promise<void> => {
+      // [EM-START: text-voice-favorites]
+      if (data.voiceFavoritesIndex !== undefined) {
+          data.voiceFavoritesIndex = validateVoiceFavoriteIndex(data.voiceFavoritesIndex);
+      }
+      // [EM-END: text-voice-favorites]
       const db = await openDB();
       
       const availableStores = [
@@ -3296,6 +3302,7 @@ export const DB = {
           data.savedEmojis !== undefined,
           data.emojiCategories !== undefined,
           data.assets !== undefined,
+          data.voiceFavoritesIndex !== undefined, // [EM: text-voice-favorites]
           data.savedJournalStickers !== undefined,
           data.galleryImages !== undefined,
           data.diaries !== undefined,
@@ -3535,6 +3542,12 @@ export const DB = {
           await clearAndAdd(STORE_ASSETS, data.assets || [], '系统资源', true);
           data.assets = undefined as any;
       }, data.assets?.length || 0);
+      // [EM-START: text-voice-favorites]
+      await runSection('文字语音收藏', data.voiceFavoritesIndex !== undefined, async () => {
+          await mergeStore(STORE_ASSETS, [{ id: VOICE_FAVORITES_INDEX_ASSET_ID, data: data.voiceFavoritesIndex }], '文字语音收藏', false);
+          data.voiceFavoritesIndex = undefined;
+      }, data.voiceFavoritesIndex?.items.length || 0);
+      // [EM-END: text-voice-favorites]
       await runSection('日记贴纸', data.savedJournalStickers !== undefined, async () => {
           await mergeStore(STORE_JOURNAL_STICKERS, data.savedJournalStickers, '日记贴纸', true);
           data.savedJournalStickers = undefined as any;
