@@ -55,7 +55,13 @@ import { normalizeApiBaseUrl, normalizeApiCredential, normalizeApiModel } from '
 import { describeImageWithVisionApi, VISION_API_TEST_IMAGE_DATA_URL, visionApiConfigFromPreset } from '../utils/visionApi';
 import { readLiliumOSStorage, writeLiliumOSStorage } from '../utils/liliumosStorage';
 import { buildImageModelsUrl, generateChatImage, resolveImageGenerationConfig } from '../utils/imageGeneration';
-import { F, HUE, R, S, SP } from '../utils/clayTokens';
+import { F, HUE, R, S, SP, STATUS } from '../utils/clayTokens';
+// [EM-START: github-backup-status]
+import { shouldUseGithubProxy } from '../utils/githubClient';
+import CloudBackupRestoreList, { type CloudBackupListState } from '../components/settings/CloudBackupRestoreList';
+import GithubBackupRoute from '../components/settings/GithubBackupRoute';
+import ClayDialog from '../components/os/ClayDialog';
+// [EM-END: github-backup-status]
 
 const MOTION_ENABLED_KEY = 'liliumos_motion_enabled';
 const LEGACY_MOTION_ENABLED_KEYS = ['sullyem_motion_enabled'];
@@ -566,6 +572,12 @@ const Settings: React.FC = () => {
   const [showCloudRestoreModal, setShowCloudRestoreModal] = useState(false);
   const [showCommunityMigration, setShowCommunityMigration] = useState(false);
   const [cloudBackupFiles, setCloudBackupFiles] = useState<import('../types').CloudBackupFile[]>([]);
+  // [EM-START: github-backup-status]
+  const [cloudBackupListState, setCloudBackupListState] = useState<CloudBackupListState>('idle');
+  const [cloudBackupListError, setCloudBackupListError] = useState('');
+  const cloudBackupListVersion = useRef(0);
+  useEffect(() => () => { cloudBackupListVersion.current++; }, []);
+  // [EM-END: github-backup-status]
   const [cloudTestResult, setCloudTestResult] = useState<string>('');
   const [cloudTesting, setCloudTesting] = useState(false);
   const [avatarModelInventory, setAvatarModelInventory] = useState<AvatarModelBackupInventory | null>(null);
@@ -585,9 +597,10 @@ const Settings: React.FC = () => {
   // GitHub local state
   const [ghToken, setGhToken] = useState(cloudBackupConfig.githubToken || '');
   const [ghRepo, setGhRepo] = useState(cloudBackupConfig.githubRepo || 'sully-backup');
-  // Default proxy ON — most users in mainland China can't reach github.com
-  // directly. Only flip to false if the user has explicitly opted out before.
-  const [ghUseProxy, setGhUseProxy] = useState(cloudBackupConfig.githubUseProxy !== false);
+  const [ghUseProxy, setGhUseProxy] = useState(() => shouldUseGithubProxy(cloudBackupConfig));
+  useEffect(() => {
+      setGhUseProxy(shouldUseGithubProxy(cloudBackupConfig));
+  }, [cloudBackupConfig.githubUseProxy, cloudBackupConfig.githubProxyConsentVersion]);
   const [ghShowAdvanced, setGhShowAdvanced] = useState(false);
   const [ghTesting, setGhTesting] = useState(false);
   const [ghTestResult, setGhTestResult] = useState<string>('');
@@ -1645,19 +1658,31 @@ const Settings: React.FC = () => {
   };
 
   const handleOpenCloudRestore = async () => {
+      const version = ++cloudBackupListVersion.current; // [EM: github-backup-status]
       setShowCloudRestoreModal(true);
       setCloudBackupFiles([]);
+      setCloudBackupListState('loading');
+      setCloudBackupListError('');
       try {
           const files = await listCloudBackups();
+          if (version !== cloudBackupListVersion.current) return; // [EM: github-backup-status]
           setCloudBackupFiles(files);
+          setCloudBackupListState('ready');
           trackEvent('加载云端备份列表', { provider: cloudBackupConfig.provider === 'github' ? 'github' : 'webdav', result: '成功' });
-      } catch {
+      } catch (error) {
+          if (version !== cloudBackupListVersion.current) return; // [EM: github-backup-status]
+          setCloudBackupListState('error');
+          setCloudBackupListError(error instanceof Error ? error.message : '获取云端备份列表失败');
           trackEvent('加载云端备份列表', { provider: cloudBackupConfig.provider === 'github' ? 'github' : 'webdav', result: '失败' });
           addToast('获取云端备份列表失败', 'error');
       }
   };
 
   const handleCloudRestore = async (file: import('../types').CloudBackupFile) => {
+      if (file.status === 'incomplete') {
+          addToast(file.statusMessage || '这个备份上传未完成，暂时不能恢复', 'error');
+          return;
+      }
       setShowCloudRestoreModal(false);
       try {
           await cloudRestoreFromWebDAV(file);
@@ -1689,6 +1714,7 @@ const Settings: React.FC = () => {
               githubToken: ghToken.trim(),
               githubRepo: ghRepo.trim() || 'sully-backup',
               githubUseProxy: ghUseProxy,
+              githubProxyConsentVersion: ghUseProxy ? 1 : undefined,
           });
           setGhTestResult(result.ok ? `✓ ${result.message}` : `✗ ${result.message}`);
           // 失败时只报卡在哪一步：token 校验没过 → 没有 login，仓库准备没过 → 有 login
@@ -1703,6 +1729,7 @@ const Settings: React.FC = () => {
                   githubOwner: result.login,
                   githubRepo: ghRepo.trim() || 'sully-backup',
                   githubUseProxy: ghUseProxy,
+                  githubProxyConsentVersion: ghUseProxy ? 1 : undefined,
               });
           }
       } catch (e: any) {
@@ -1711,6 +1738,14 @@ const Settings: React.FC = () => {
       }
       setGhTesting(false);
   };
+
+  // [EM-START: github-backup-status]
+  const handleGithubProxyToggle = (enabled: boolean) => {
+      setGhUseProxy(enabled);
+      updateCloudBackupConfig({ githubUseProxy: enabled, githubProxyConsentVersion: enabled ? 1 : undefined });
+      addToast(enabled ? '已开启 GitHub 中转，下次备份生效' : '已切换为直连 GitHub，下次备份生效', 'info');
+  };
+  // [EM-END: github-backup-status]
 
   const handleDisableCloud = () => {
       trackEvent('关闭云端备份', { provider: cloudBackupConfig.provider === 'github' ? 'github' : 'webdav' });
@@ -2234,25 +2269,26 @@ const Settings: React.FC = () => {
                 <div className="space-y-3 py-2">
                     <p className="text-[11px] text-slate-400 leading-relaxed text-center">
                         把备份上传到你自己的云端，换设备、丢手机都不怕。<br/>
-                        国内推荐 <b>GitHub</b>（不用梯子，2GB/份）。
+                        <b>GitHub</b> 支持分片上传，默认直接连接；需要时可手动选择中转。
                     </p>
                     <div className="grid grid-cols-2 gap-2">
                         <button
                             onClick={() => { trackEvent('连接云端备份服务商', { provider: 'github' }); setShowGithubModal(true); }}
-                            className="py-3 px-2 bg-gradient-to-br from-slate-800 to-slate-900 text-white rounded-xl text-xs font-bold shadow-sm active:scale-95 transition-all flex flex-col items-center gap-1.5 relative"
+                            className="relative flex flex-col items-center gap-1.5 px-2 py-3 text-xs font-semibold"
+                            style={{ background: F.surface, color: F.textPrimary, borderRadius: R.button, boxShadow: S.raisedSoft, border: `1px solid ${F.borderSoft}` }}
                         >
-                            <span className="absolute top-1 right-1.5 text-[8px] bg-amber-300 text-slate-800 px-1.5 py-0.5 rounded-full font-bold">推荐</span>
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.203 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0022 12.017C22 6.484 17.522 2 12 2z" /></svg>
                             <span>GitHub</span>
-                            <span className="text-[9px] text-slate-300 font-normal">不用梯子 · 2GB</span>
+                            <span className="text-xs font-normal" style={{ color: F.textTertiary }}>32 MB 分片</span>
                         </button>
                         <button
                             onClick={() => { trackEvent('连接云端备份服务商', { provider: 'webdav' }); setShowCloudModal(true); }}
-                            className="py-3 px-2 bg-gradient-to-br from-sky-500 to-blue-600 text-white rounded-xl text-xs font-bold shadow-sm active:scale-95 transition-all flex flex-col items-center gap-1.5"
+                            className="flex flex-col items-center gap-1.5 px-2 py-3 text-xs font-semibold"
+                            style={{ background: F.surface, color: F.textPrimary, borderRadius: R.button, boxShadow: S.raisedSoft, border: `1px solid ${F.borderSoft}` }}
                         >
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15a4.5 4.5 0 004.5 4.5H18a3.75 3.75 0 001.332-7.257 3 3 0 00-3.758-3.848 5.25 5.25 0 00-10.233 2.33A4.502 4.502 0 002.25 15z" /></svg>
                             <span>WebDAV</span>
-                            <span className="text-[9px] text-sky-100 font-normal">日本/NAS · 需梯子</span>
+                            <span className="text-xs font-normal" style={{ color: F.textTertiary }}>网盘 / NAS</span>
                         </button>
                     </div>
                 </div>
@@ -2300,7 +2336,7 @@ const Settings: React.FC = () => {
                                 className="w-full py-2 bg-gradient-to-r from-slate-800 to-slate-900 text-white rounded-xl text-[11px] font-bold shadow-sm active:scale-95 transition-all flex items-center justify-center gap-2"
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-3.5 h-3.5"><path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.203 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0022 12.017C22 6.484 17.522 2 12 2z" /></svg>
-                                <span>{cloudBackupConfig.githubToken ? '切换到 GitHub' : '试试 GitHub 备份（不用梯子 · 2GB/份）'}</span>
+                                <span>{cloudBackupConfig.githubToken ? '切换到 GitHub' : '试试 GitHub 分片备份'}</span>
                             </button>
                             <p className="text-[10px] text-slate-400 text-center">
                                 你 WebDAV 上的旧备份不会被动，可随时切回。
@@ -2351,7 +2387,7 @@ const Settings: React.FC = () => {
             )}
 
             <p className="text-[10px] text-slate-400 px-1 mt-3 leading-relaxed">
-                数据存储在你自己的账号下，我们不保存任何凭据到服务器。
+                备份保存在你自己的账号下；若使用中转，凭据和备份会经过配置的中转服务。
             </p>
         </SettingsSection>
 
@@ -3939,20 +3975,29 @@ const Settings: React.FC = () => {
 
       {/* GitHub Backup Modal — minimum-input flow: paste a token, we figure
           out owner via /user and auto-create a private 'sully-backup' repo. */}
-      <Modal isOpen={showGithubModal} title="GitHub 备份" onClose={() => setShowGithubModal(false)}>
+      <ClayDialog isOpen={showGithubModal} title="GitHub 备份" onClose={() => setShowGithubModal(false)} footer={
+                  <button
+                  onClick={handleTestGithub}
+                  disabled={ghTesting || !ghToken.trim()}
+                  className="h-12 w-full text-xs font-semibold disabled:opacity-40"
+                  style={{ background: F.textPrimary, color: F.surfaceRaised, borderRadius: R.button, boxShadow: S.raisedSoft }}
+              >
+                  {ghTesting ? '连接中...' : '③ 测试并连接'}
+              </button>
+              }>
           <div className="space-y-4 p-1">
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
-                  <p className="text-[11px] text-slate-700 leading-relaxed">
-                      <b>三步搞定，不用梯子：</b><br/>
+              <div className="p-3" style={{ background: F.surfaceSunken, borderRadius: R.input, boxShadow: S.sunken }}>
+                  <p className="text-xs leading-relaxed" style={{ color: F.textSecondary }}>
+                      <b>三步连接：</b><br/>
                       ① 点下面按钮跳到 GitHub 创建 Token<br/>
                       ② 复制 token，回来粘到下面框里<br/>
-                      ③ 点 <b>测试并连接</b> — 我们会自动帮你建好私有仓库 <code className="bg-white px-1 rounded">{ghRepo || 'sully-backup'}</code>
+                      ③ 点 <b>测试并连接</b>，自动建立私有仓库 <code>{ghRepo || 'sully-backup'}</code>
                   </p>
               </div>
 
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
-                  <p className="text-[10px] text-amber-800 leading-relaxed">
-                      <b>⚠️ 在 GitHub 那一页只改一处:</b><br/>
+              <div className="p-3" style={{ background: F.surfaceWarm, borderRadius: R.input }}>
+                  <p className="text-xs leading-relaxed" style={{ color: F.textSecondary }}>
+                      <b>在 GitHub 那一页：</b><br/>
                       把 <b>Expiration</b>(有效期)下拉框 <b>从 90天 改成 No expiration</b>（永不过期）。
                       不改的话 90 天后 token 过期，备份会突然 401。<br/>
                       其它都别动 —— Note 已经填好「Sully 备份」，<b>repo</b> 权限已经勾上了，
@@ -3964,50 +4009,49 @@ const Settings: React.FC = () => {
                   href="https://github.com/settings/tokens/new?scopes=repo&description=Sully%20%E5%A4%87%E4%BB%BD"
                   target="_blank" rel="noopener noreferrer"
                   onClick={() => trackEvent('跳去 GitHub 创建 Token')}
-                  className="block w-full py-3 bg-gradient-to-br from-slate-800 to-slate-900 text-white rounded-xl text-xs font-bold text-center shadow-sm active:scale-95 transition-all"
+                  className="flex min-h-11 w-full items-center justify-center text-xs font-semibold"
+                  style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, color: F.textPrimary, borderRadius: R.button, boxShadow: S.raisedSoft }}
               >
                   ① 去 GitHub 创建 Token ↗
               </a>
 
               <div>
-                  <label className="text-[11px] text-slate-500 font-medium mb-1 block">② Personal Access Token</label>
+                  <label htmlFor="github-backup-token" className="mb-1 block text-xs font-medium" style={{ color: F.textSecondary }}>② Personal Access Token</label>
                   <input
                       type="password"
+                      id="github-backup-token"
                       value={ghToken}
                       onChange={(e) => setGhToken(e.target.value)}
                       placeholder="ghp_xxxxxxxxxxxxxxxxxxxx"
-                      className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 font-mono focus:border-slate-500 focus:ring-1 focus:ring-slate-300 outline-none"
+                      className="w-full px-3 py-3 text-xs font-mono outline-none focus:outline focus:outline-1"
+                      style={{ background: F.surfaceSunken, color: F.textPrimary, borderRadius: R.input, boxShadow: S.sunken, outlineColor: F.accent }}
                   />
-                  <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
-                      Token 只存在你本机，永远不会发到我们服务器。
+                  <p className="mt-1 text-xs leading-relaxed" style={{ color: F.textTertiary }}>
+                      默认直接把 Token 交给 GitHub 验证；如果开启下面的中转，Token 和备份内容也会经过所选中转服务。
                   </p>
               </div>
 
-              <button
-                  onClick={handleTestGithub}
-                  disabled={ghTesting || !ghToken.trim()}
-                  className="w-full py-3 bg-gradient-to-r from-emerald-500 to-green-600 text-white rounded-xl text-xs font-bold shadow-sm active:scale-95 transition-all disabled:opacity-40"
-              >
-                  {ghTesting ? '连接中...' : '③ 测试并连接'}
-              </button>
+              {/* [EM-START: github-backup-status] */}
+              <GithubBackupRoute enabled={ghUseProxy} workerUrl={getProxyWorkerUrl()} disabled={ghTesting} onChange={handleGithubProxyToggle} />
+              {/* [EM-END: github-backup-status] */}
               {ghTestResult && (
-                  <p className={`text-[11px] text-center font-medium ${ghTestResult.startsWith('✓') ? 'text-green-600' : 'text-red-500'}`}>
+                  <p role="status" className="text-center text-xs font-medium" style={{ color: ghTestResult.startsWith('✓') ? STATUS.success.ink : STATUS.danger.ink }}>
                       {ghTestResult}
                   </p>
               )}
               {ghTestResult.startsWith('✓') && cloudBackupConfig.githubOwner && (
-                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 space-y-1.5">
-                      <p className="text-[11px] text-emerald-800 font-medium">
-                          🎉 备份会上传到这里:
+                  <div className="space-y-1.5 p-3" style={{ background: F.surfaceSunken, borderRadius: R.input, color: F.textSecondary, boxShadow: S.sunken }}>
+                      <p className="text-xs font-medium">
+                          备份会上传到这里：
                       </p>
                       <a
                           href={`https://github.com/${cloudBackupConfig.githubOwner}/${cloudBackupConfig.githubRepo || 'sully-backup'}/releases`}
                           target="_blank" rel="noopener noreferrer"
-                          className="block text-[10px] text-emerald-700 font-mono break-all underline hover:text-emerald-900"
+                          className="block break-all text-xs font-mono underline"
                       >
                           github.com/{cloudBackupConfig.githubOwner}/{cloudBackupConfig.githubRepo || 'sully-backup'}/releases ↗
                       </a>
-                      <p className="text-[10px] text-emerald-700 leading-relaxed">
+                      <p className="text-xs leading-relaxed">
                           每次备份会创建一个新的 release（带时间戳）。想看 / 删除旧备份就去这个网址。
                       </p>
                   </div>
@@ -4015,78 +4059,48 @@ const Settings: React.FC = () => {
 
               <button
                   onClick={() => { if (!ghShowAdvanced) trackEvent('展开 GitHub 高级选项'); setGhShowAdvanced(v => !v); }}
-                  className="w-full text-[10px] text-slate-400 underline-offset-2 hover:underline"
+                  className="min-h-11 w-full text-xs underline-offset-2 hover:underline"
+                  style={{ color: F.textSecondary }}
               >
                   {ghShowAdvanced ? '收起高级选项 ▲' : '高级选项 ▼'}
               </button>
               {ghShowAdvanced && (
-                  <div className="space-y-3 bg-slate-50 rounded-xl p-3">
+                  <div className="space-y-3 p-3" style={{ background: F.surfaceWarm, borderRadius: R.input }}>
                       <div>
-                          <label className="text-[11px] text-slate-500 font-medium mb-1 block">备份仓库名</label>
+                          <label htmlFor="github-backup-repo" className="mb-1 block text-xs font-medium" style={{ color: F.textSecondary }}>备份仓库名</label>
                           <input
                               type="text"
+                              id="github-backup-repo"
                               value={ghRepo}
                               onChange={(e) => setGhRepo(e.target.value)}
                               placeholder="sully-backup"
-                              className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 font-mono focus:border-slate-500 outline-none"
+                              className="w-full px-3 py-3 text-xs font-mono outline-none focus:outline focus:outline-1"
+                              style={{ background: F.surfaceSunken, color: F.textPrimary, borderRadius: R.input, boxShadow: S.sunken, outlineColor: F.accent }}
                           />
-                          <p className="text-[10px] text-slate-400 mt-1">不存在会自动创建为私有仓库。</p>
+                          <p className="mt-1 text-xs" style={{ color: F.textTertiary }}>不存在会自动创建为私有仓库。</p>
                       </div>
-                      <label className="flex items-center gap-2 text-[11px] text-slate-600 cursor-pointer">
-                          <input
-                              type="checkbox"
-                              checked={ghUseProxy}
-                              onChange={(e) => setGhUseProxy(e.target.checked)}
-                              className="rounded"
-                          />
-                          <span>走 Cloudflare 代理（默认开，国内必需；能直连 GitHub 的可关掉提速）</span>
-                      </label>
-                      <p className="text-[10px] text-slate-400 leading-relaxed pl-5">
-                          大于 80MB 的备份会自动切成多片上传，所以勾着也能传 1GB+ 的完整备份，恢复时自动拼回来。能直连 github.com 的可以关掉提速。
-                      </p>
                   </div>
               )}
 
-              <div className="grid grid-cols-2 gap-3 pt-2">
-                  <button onClick={() => setShowGithubModal(false)} className="py-2.5 bg-slate-100 rounded-xl text-xs font-bold text-slate-500">关闭</button>
-                  {cloudBackupConfig.enabled && cloudBackupConfig.provider === 'github' ? (
-                      <button onClick={handleDisableCloud} className="py-2.5 bg-red-50 text-red-500 rounded-xl text-xs font-bold">断开 GitHub</button>
-                  ) : (
-                      <button
-                          onClick={() => setShowGithubModal(false)}
-                          disabled={!cloudBackupConfig.enabled || cloudBackupConfig.provider !== 'github'}
-                          className="py-2.5 bg-slate-800 text-white rounded-xl text-xs font-bold disabled:opacity-30"
-                      >
-                          完成
-                      </button>
-                  )}
-              </div>
-          </div>
-      </Modal>
-
-      {/* Cloud Restore Modal */}
-      <Modal isOpen={showCloudRestoreModal} title="从云端恢复" onClose={() => setShowCloudRestoreModal(false)}>
-          <div className="space-y-2 p-1">
-              {cloudBackupFiles.length === 0 ? (
-                  <div className="text-center py-8"><p className="text-[11px] text-slate-400">正在加载云端备份列表...</p></div>
-              ) : (
-                  <>
-                      <p className="text-[10px] text-slate-400 mb-2">选择要恢复的备份文件:</p>
-                      <div className="max-h-[50vh] overflow-y-auto space-y-2">
-                          {cloudBackupFiles.map((file, i) => (
-                              <button key={i} onClick={() => handleCloudRestore(file)} className="w-full p-3 bg-white border border-slate-200 rounded-xl text-left hover:bg-sky-50 hover:border-sky-200 transition-colors active:scale-[0.98]">
-                                  <p className="text-[11px] text-slate-700 font-medium truncate">{file.name}</p>
-                                  <div className="flex items-center gap-3 mt-1">
-                                      <span className="text-[10px] text-slate-400">{file.lastModified ? new Date(file.lastModified).toLocaleString('zh-CN') : '未知时间'}</span>
-                                      <span className="text-[10px] text-slate-400">{file.size > 0 ? `${(file.size / 1024 / 1024).toFixed(1)} MB` : ''}</span>
-                                  </div>
-                              </button>
-                          ))}
-                      </div>
-                  </>
+              {cloudBackupConfig.enabled && cloudBackupConfig.provider === 'github' && (
+                  <button onClick={handleDisableCloud} className="min-h-11 w-full text-xs font-semibold" style={{ background: F.surface, color: F.textSecondary, borderRadius: R.button, boxShadow: S.raisedSoft }}>断开 GitHub</button>
               )}
           </div>
-      </Modal>
+      </ClayDialog>
+
+      {/* [EM-START: cloud-backup-status-clay] */}
+      <ClayDialog isOpen={showCloudRestoreModal} title="从云端恢复" onClose={() => { cloudBackupListVersion.current++; setShowCloudRestoreModal(false); }}>
+          <CloudBackupRestoreList
+              state={cloudBackupListState}
+              error={cloudBackupListError}
+              files={cloudBackupFiles}
+              onRetry={() => void handleOpenCloudRestore()}
+              onRestore={(file) => void handleCloudRestore(file)}
+              githubReleasesUrl={cloudBackupConfig.provider === 'github' && cloudBackupConfig.githubOwner
+                  ? `https://github.com/${encodeURIComponent(cloudBackupConfig.githubOwner)}/${encodeURIComponent(cloudBackupConfig.githubRepo || 'sully-backup')}/releases` : undefined}
+          />
+      </ClayDialog>
+      {/* [EM-END: cloud-backup-status-clay] */}
 
       {/* 模型选择 Modal */}
       <Modal isOpen={showModelModal} title="选择模型" onClose={() => setShowModelModal(false)}>

@@ -4321,6 +4321,7 @@ export interface CloudBackupConfig {
     githubOwner?: string;
     githubRepo?: string;
     githubUseProxy?: boolean;   // route through Cloudflare Worker (for GFW)
+    githubProxyConsentVersion?: number; // explicit consent required before routing backup credentials through a proxy
 
     lastBackupTime?: number;    // timestamp
     lastBackupSize?: number;    // bytes
@@ -4331,6 +4332,9 @@ export interface CloudBackupFile {
     size: number;
     lastModified: string;       // ISO date string
     href: string;               // WebDAV: remote path. GitHub: 'releaseId:assetId'
+    status?: 'ready' | 'incomplete';
+    statusMessage?: string;
+    partSizes?: number[];
 }
 
 // --- GUIDEBOOK (攻略本) APP TYPES ---
