@@ -2,6 +2,17 @@
 
 Emma（阿萌）的 SullyOS 个人 fork。基于上游 [SullyOS](https://github.com/qegj567-cloud/SullyOS) 添加个人功能。
 
+## MacBook / Mac mini 代码同步
+
+Emma 会在 MacBook 和 Mac mini 上交替修改 LiliumOS。日常开发以自己的 `origin` 仓库作为代码交接点（2026-09-12 用户明确要求）。
+
+1. 开工前检查当前分支、远端跟踪关系和未提交改动；确认目标分支后先 `git pull --ff-only`，读完远端新增改动再开始编辑。
+2. 若有未提交改动、分支分叉或冲突，先保留现场并说明情况；不得自动丢弃改动、覆盖文件、stash、reset 或强推。需要取舍的冲突交给 Emma 决定。
+3. 完成已授权改动并通过相应验证后，检查 diff，只提交本次任务的文件，再 push 到 `origin` 的对应分支；普通开发的 commit / push 已获得此项长期授权，无需每次重复询问。
+4. 推送前再次检查远端是否前进。若推送被拒绝，先取回并检查另一台电脑的改动，解决并重新验证后再推送；不得使用 force push。
+5. 收尾说明当前分支、提交号、pull / push 结果及未提交内容。未推送的代码不能称为已经跨电脑同步；换电脑后仍需先 pull，避免两台同时修改同一分支。
+6. 本约定仅适用于自己的 `origin` 日常协作；SullyOS 上游同步、验收分支推进 `main` 和相应 push 仍遵循下方独立审批闸门。
+
 ## Engram 跨 Agent 交接
 
 本机通过 Piia Engram MCP 在 Claude Code 与 Codex 之间共享经过审核的工作记忆。
