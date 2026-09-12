@@ -1,0 +1,23 @@
+// @vitest-environment jsdom
+import { beforeEach, afterEach, expect, it, vi } from "vitest";
+import React,{act} from 'react';
+import {createRoot,type Root} from 'react-dom/client';
+const st=vi.hoisted(()=>({config:{userId:'review',workerUrl:'https://a.example',serverToken:'test-only',initializedAt:1},get:vi.fn(),set:vi.fn(),save:vi.fn()}));
+vi.mock('./activeMsgClient',()=>({ActiveMsgClient:{getGlobalConfig:async()=>st.config,getPushStatus:async()=>({hasSubscription:false}),getCapabilities:async()=>null,probeWorkerVersion:async()=>null,probeInstantChatSupport:async()=>false,getCronTriggerState:st.get,setCronTriggerEnabled:st.set},fetchWorkerDiagnostics:async()=>null,readAmsgFailKind:()=>null,requestNotificationPermissionFromGesture:vi.fn()}));
+vi.mock('./activeMsgStore',()=>({ActiveMsgStore:{saveGlobalConfig:st.save},maskActiveMsgUserId:()=>'<test-only>'}));
+vi.mock('./amsgStateSync',()=>({cancelAllRemoteAmsgTasks:vi.fn(),isWorkerUrlCleared:(a:string,b:string)=>!!a&&!b,wipeAmsgCloudData:vi.fn()}));
+vi.mock('./instantPushClient',()=>({buildCloudflareDashboardUrl:()=>'',isInstantConfigReady:()=>false,loadInstantConfig:()=>({}),saveInstantConfig:vi.fn()}));
+vi.mock('./vapidGen',()=>({generateClientToken:()=>'<test-only>'}));
+vi.mock('./pushVapid',()=>({loadPushVapid:()=>null,savePushVapid:vi.fn()}));
+vi.mock('./cfProvision',()=>({attachUpdateCapability:vi.fn(),provisionAmsgBackend:vi.fn(),waitForWorkerReady:vi.fn()}));
+vi.mock('./analytics',()=>({trackEvent:vi.fn()}));
+import Parent from '../components/settings/ActiveMsgGlobalSettingsModal';
+let root:Root,container:HTMLDivElement;const toast=vi.fn(),close=vi.fn();
+const render=async(open=true)=>act(async()=>root.render(React.createElement(Parent,{isOpen:open,onClose:close,addToast:toast,realtimeConfig:{} as any})));
+const button=(text:string)=>Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(x=>x.textContent===text)!;
+const edit=async(value:string)=>{const input=document.querySelector<HTMLInputElement>('input[placeholder="https://amsg.你的账号.workers.dev"]')!;await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(input,value);input.dispatchEvent(new Event('input',{bubbles:true}));});};
+beforeEach(()=>{vi.resetAllMocks();vi.useFakeTimers();vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);vi.stubGlobal('fetch',vi.fn(async()=>{throw new Error('network forbidden')}));st.config={userId:'review',workerUrl:'https://a.example',serverToken:'test-only',initializedAt:1};st.get.mockResolvedValue({supported:true,enabled:true});st.set.mockResolvedValue({ok:true,message:'已暂停'});st.save.mockImplementation(async(patch:any)=>{st.config={...st.config,...patch}});container=document.createElement('div');document.body.appendChild(container);root=createRoot(container)});
+afterEach(()=>{act(()=>root.unmount());container.remove();vi.useRealTimers();vi.unstubAllGlobals()});
+it('real parent disables unsaved target and re-reads only after save completes',async()=>{await render();expect(button('暂停后台任务').disabled).toBe(false);const before=st.get.mock.calls.length;let finish!:()=>void;st.save.mockImplementationOnce(()=>new Promise<void>(r=>{finish=r}));await edit('https://b.example');expect(button('暂停后台任务').disabled).toBe(true);await act(async()=>vi.advanceTimersByTime(1000));expect(st.get).toHaveBeenCalledTimes(before);expect(button('暂停后台任务').disabled).toBe(true);await act(async()=>finish());expect(st.get).toHaveBeenCalledTimes(before+1);expect(button('暂停后台任务').disabled).toBe(false);});
+it('initial no-change autosave must not unlock an in-flight pause',async()=>{let finish!: (x:any)=>void;st.set.mockImplementationOnce(()=>new Promise(r=>{finish=r}));await render();act(()=>button('暂停后台任务').click());act(()=>button('确认暂停').click());expect(st.set).toHaveBeenCalledTimes(1);await act(async()=>vi.advanceTimersByTime(1000));const pause=button('暂停后台任务');expect(pause?.disabled??true).toBe(true);await act(async()=>finish({ok:true,message:'已暂停'}));expect(container.textContent).toContain('定时触发已暂停');});
+it('closing real parent ignores pending mutation toast',async()=>{let finish!: (x:any)=>void;st.set.mockImplementationOnce(()=>new Promise(r=>{finish=r}));await render();act(()=>button('暂停后台任务').click());act(()=>button('确认暂停').click());await render(false);await act(async()=>finish({ok:true,message:'已暂停'}));expect(toast).not.toHaveBeenCalled();expect(container.textContent).toBe('');});

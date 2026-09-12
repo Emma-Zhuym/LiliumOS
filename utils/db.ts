@@ -5,7 +5,7 @@ import {
     CharacterProfile, ChatTheme, Message, UserProfile,
     Task, Anniversary, DiaryEntry, RoomTodo, RoomNote, DailySchedule,
     GalleryImage, FullBackupData, GroupProfile, SocialPost, StudyCourse, GameSession, Worldbook, NovelBook, Emoji, EmojiCategory,
-    BankTransaction, SavingsGoal, BankFullState, DollhouseState, XhsStockImage, XhsActivityRecord, SongSheet, QuizSession, GuidebookSession,
+    BankTransaction, SavingsGoal, BankFullState, DollhouseState, XhsStockImage, XhsActivityRecord, XhsOwnedPost, SongSheet, QuizSession, GuidebookSession,
     LifeSimState, HandbookEntry, Tracker, TrackerEntry, HotNewsSnapshot,
     LifeRecord, MedPlan, LifeRecordSettings, CharacterGroup, AgendaItem,
     VRWorldNovel, VRNovelAnnotation, CustomCreatorPart, VRMusicRoomState, VRGuestbookState, VRScript, VRStagedPlay, VRLetter,
@@ -28,7 +28,8 @@ const DB_NAME = 'AetherOS_Data';
 // v68：character_groups 角色分组（神经链接"文件夹"，见 types.ts CharacterGroup）。
 // v69：见面·剧情条目与糯米机原生预设。正文继续复用 messages 表，避免再造会话存储。
 // v70：剧场面具箱（原创人物面具）；角色面具仍只存 characterId，不复制神经链接资料。
-const DB_VERSION = 70;
+// [EM: upstream-db71-compat] 仅保留 v71 归属表与备份兼容，角色主页/发帖玩法暂缓。
+const DB_VERSION = 71;
 
 const STORE_CHARACTERS = 'characters';
 const STORE_CHAR_GROUPS = 'character_groups'; // 角色分组定义（角色通过 groupId 指向；与群聊 groups 无关）
@@ -57,6 +58,7 @@ const STORE_BANK_TX = 'bank_transactions';
 const STORE_BANK_DATA = 'bank_data';
 const STORE_XHS_STOCK = 'xhs_stock';
 const STORE_XHS_ACTIVITIES = 'xhs_activities';
+const STORE_XHS_OWNED_POSTS = 'xhs_owned_posts';
 const STORE_SONGS = 'songs';
 const STORE_QUIZZES = 'quizzes';
 const STORE_GUIDEBOOK = 'guidebook';
@@ -324,6 +326,12 @@ export const openDB = (): Promise<IDBDatabase> => {
           xhsActStore.createIndex('characterId', 'characterId', { unique: false });
       }
 
+      if (!db.objectStoreNames.contains(STORE_XHS_OWNED_POSTS)) {
+          const ownedPostStore = db.createObjectStore(STORE_XHS_OWNED_POSTS, { keyPath: 'id' });
+          ownedPostStore.createIndex('characterId', 'characterId', { unique: false });
+          ownedPostStore.createIndex('noteId', 'noteId', { unique: false });
+      }
+
       createStore(STORE_SONGS, { keyPath: 'id' });
       createStore(STORE_QUIZZES, { keyPath: 'id' });
       createStore(STORE_GUIDEBOOK, { keyPath: 'id' });
@@ -507,6 +515,15 @@ export const DB = {
           req.onerror = () => reject(req.error);
           req.onblocked = () => console.warn('Delete blocked');
       });
+  },
+
+  getCharacter: async (id: string): Promise<CharacterProfile | undefined> => {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const request = db.transaction(STORE_CHARACTERS, 'readonly').objectStore(STORE_CHARACTERS).get(id);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
   },
 
   getAllCharacters: async (): Promise<CharacterProfile[]> => {
@@ -735,7 +752,7 @@ export const DB = {
   },
 
   // Same as getRecentMessagesByCharId but also returns the total count (for UI display)
-  getRecentMessagesWithCount: async (charId: string, limit: number): Promise<{ messages: Message[], totalCount: number }> => {
+  getRecentMessagesWithCount: async (charId: string, limit: number, accept?: (message: Message) => boolean): Promise<{ messages: Message[], totalCount: number }> => {
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const transaction = db.transaction(STORE_MESSAGES, 'readonly');
@@ -751,7 +768,7 @@ export const DB = {
               const cursor = cursorReq.result;
               if (cursor && collected.length < limit) {
                   const m = cursor.value as Message;
-                  if (!m.groupId) collected.push(m);
+                  if (!m.groupId && (!accept || accept(m))) collected.push(m);
                   cursor.continue();
               } else {
                   resolve({ messages: collected.reverse(), totalCount });
@@ -771,17 +788,17 @@ export const DB = {
       const store = transaction.objectStore(STORE_MESSAGES);
       const index = store.index('charId');
       const collected: Message[] = [];
-      const cursorReq = index.openCursor(IDBKeyRange.only(charId));
+      const cursorReq = index.openCursor(IDBKeyRange.only(charId), 'prev');
       cursorReq.onsuccess = () => {
           const cursor = cursorReq.result;
-          if (cursor) {
+          if (cursor && Number(cursor.primaryKey) >= fromId) {
               const m = cursor.value as Message;
               if (!m.groupId && m.id >= fromId) {
                   collected.push(m);
               }
               cursor.continue();
           } else {
-              resolve({ messages: collected, totalCount: collected.length });
+              resolve({ messages: collected.reverse(), totalCount: collected.length });
           }
       };
       cursorReq.onerror = () => reject(cursorReq.error);
@@ -797,7 +814,8 @@ export const DB = {
         const timestamp = typeof msg.timestamp === 'number' ? msg.timestamp : Date.now();
         const { timestamp: _ignored, ...payload } = msg;
         const request = store.add({ ...payload, timestamp });
-        request.onsuccess = () => {
+        // request 成功后事务仍可能回滚。主动消息通知和定时任务销账都必须等提交。
+        transaction.oncomplete = () => {
             const newId = request.result as number;
             // 水位线自愈：新消息的自增 id 必然大于既有一切消息 id，也就必然大于水位线
             // （水位线本身是某条旧消息的 id）。出现 newId ≤ 水位线，只有一种可能——
@@ -815,6 +833,40 @@ export const DB = {
             resolve(newId);
         };
         request.onerror = () => reject(request.error);
+        transaction.onerror = () => reject(transaction.error || new Error('消息未能保存'));
+        transaction.onabort = () => reject(transaction.error || new Error('消息未能保存'));
+    });
+  },
+
+  saveMessageOnce: async (deliveryId: string, msg: Omit<Message, 'id' | 'timestamp'> & { timestamp?: number }): Promise<number> => {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_MESSAGES, 'readwrite');
+      const store = tx.objectStore(STORE_MESSAGES);
+      let savedId = 0;
+      let inserted = false;
+      const cursorRequest = store.index('charId').openCursor(IDBKeyRange.only(msg.charId), 'prev');
+      cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result;
+        if (cursor) {
+          if (cursor.value.metadata?.deliveryId === deliveryId) { savedId = cursor.value.id; return; }
+          cursor.continue(); return;
+        }
+        const request = store.add({ ...msg, timestamp: msg.timestamp ?? Date.now(), metadata: { ...msg.metadata, deliveryId } });
+        request.onsuccess = () => { savedId = request.result as number; inserted = true; };
+      };
+      tx.oncomplete = () => {
+        if (inserted) {
+          try {
+            for (const key of [`mp_lastMsgId_${msg.charId}`, ...(msg.groupId ? [`mp_lastMsgId_group_${msg.groupId}`] : [])]) {
+              if (parseInt(localStorage.getItem(key) || '0', 10) >= savedId) localStorage.removeItem(key);
+            }
+          } catch { /* message was committed even if browser preferences are unavailable */ }
+        }
+        resolve(savedId);
+      };
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('消息未能保存'));
     });
   },
 
@@ -875,8 +927,25 @@ export const DB = {
   },
 
   findImageMessageByUrl: async (charId: string, url: string): Promise<Message | null> => {
-    const messages = await DB.getMessagesByCharId(charId, true);
-    return messages.find(message => message.type === 'image' && message.content === url) || null;
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_MESSAGES, 'readonly');
+      const request = transaction.objectStore(STORE_MESSAGES).index('charId').openCursor(IDBKeyRange.only(charId));
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) {
+          resolve(null);
+          return;
+        }
+        const message = cursor.value as Message;
+        if (!message.groupId && message.type === 'image' && message.content === url) {
+          resolve(message);
+          return;
+        }
+        cursor.continue();
+      };
+      request.onerror = () => reject(request.error);
+    });
   },
 
   deleteMessage: async (id: number): Promise<void> => {
@@ -1487,14 +1556,48 @@ export const DB = {
       });
   },
 
-  findGalleryImageBySourceMessageId: async (charId: string, sourceMessageId: number): Promise<GalleryImage | null> => {
-      const images = await DB.getGalleryImages(charId);
-      return images.find(image => image.sourceMessageId === sourceMessageId) || null;
+  findGalleryImageBySourceMessageId: async (charId: string, messageId: number): Promise<GalleryImage | null> => {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+          const transaction = db.transaction(STORE_GALLERY, 'readonly');
+          const request = transaction.objectStore(STORE_GALLERY).index('charId').openCursor(IDBKeyRange.only(charId));
+          request.onsuccess = () => {
+              const cursor = request.result;
+              if (!cursor) {
+                  resolve(null);
+                  return;
+              }
+              const image = cursor.value as GalleryImage;
+              if (image.sourceMessageId === messageId) {
+                  resolve(image);
+                  return;
+              }
+              cursor.continue();
+          };
+          request.onerror = () => reject(request.error);
+      });
   },
 
   findGalleryImageByUrl: async (charId: string, url: string): Promise<GalleryImage | null> => {
-      const images = await DB.getGalleryImages(charId);
-      return images.find(image => image.url === url) || null;
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+          const transaction = db.transaction(STORE_GALLERY, 'readonly');
+          const request = transaction.objectStore(STORE_GALLERY).index('charId').openCursor(IDBKeyRange.only(charId));
+          request.onsuccess = () => {
+              const cursor = request.result;
+              if (!cursor) {
+                  resolve(null);
+                  return;
+              }
+              const image = cursor.value as GalleryImage;
+              if (image.url === url) {
+                  resolve(image);
+                  return;
+              }
+              cursor.continue();
+          };
+          request.onerror = () => reject(request.error);
+      });
   },
 
   updateGalleryImageReview: async (id: string, review: string): Promise<void> => {
@@ -1663,10 +1766,53 @@ export const DB = {
       }
   },
 
+  saveXhsOwnedPost: async (post: XhsOwnedPost): Promise<void> => {
+      const db = await openDB();
+      if (!db.objectStoreNames.contains(STORE_XHS_OWNED_POSTS)) throw new Error('帖子归属存储不可用');
+      return new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE_XHS_OWNED_POSTS, 'readwrite');
+          tx.objectStore(STORE_XHS_OWNED_POSTS).put(post);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error || new Error('保存角色小红书帖子失败'));
+          tx.onabort = () => reject(tx.error || new Error('保存角色小红书帖子被中止'));
+      });
+  },
+
+  getXhsOwnedPosts: async (characterId: string): Promise<XhsOwnedPost[]> => {
+      const db = await openDB();
+      if (!db.objectStoreNames.contains(STORE_XHS_OWNED_POSTS)) return [];
+      return new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE_XHS_OWNED_POSTS, 'readonly');
+          const request = tx.objectStore(STORE_XHS_OWNED_POSTS).index('characterId').getAll(IDBKeyRange.only(characterId));
+          request.onsuccess = () => {
+              const posts = (request.result || []) as XhsOwnedPost[];
+              posts.sort((a, b) => b.publishedAt - a.publishedAt);
+              resolve(posts);
+          };
+          request.onerror = () => reject(request.error || tx.error);
+      });
+  },
+
+  getAllXhsOwnedPosts: async (): Promise<XhsOwnedPost[]> => {
+      const db = await openDB();
+      if (!db.objectStoreNames.contains(STORE_XHS_OWNED_POSTS)) return [];
+      return new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE_XHS_OWNED_POSTS, 'readonly');
+          const request = tx.objectStore(STORE_XHS_OWNED_POSTS).getAll();
+          request.onsuccess = () => resolve((request.result || []) as XhsOwnedPost[]);
+          request.onerror = () => reject(request.error || tx.error);
+      });
+  },
+
   saveScheduledMessage: async (msg: ScheduledMessage): Promise<void> => {
       const db = await openDB();
-      const transaction = db.transaction(STORE_SCHEDULED, 'readwrite');
-      transaction.objectStore(STORE_SCHEDULED).put(msg);
+      return new Promise((resolve, reject) => {
+          const transaction = db.transaction(STORE_SCHEDULED, 'readwrite');
+          transaction.objectStore(STORE_SCHEDULED).put(msg);
+          transaction.oncomplete = () => resolve();
+          transaction.onerror = () => reject(transaction.error || new Error('定时消息未能保存'));
+          transaction.onabort = () => reject(transaction.error || new Error('定时消息未能保存'));
+      });
   },
 
   getDueScheduledMessages: async (charId: string): Promise<ScheduledMessage[]> => {
@@ -1688,8 +1834,13 @@ export const DB = {
 
   deleteScheduledMessage: async (id: string): Promise<void> => {
       const db = await openDB();
-      const transaction = db.transaction(STORE_SCHEDULED, 'readwrite');
-      transaction.objectStore(STORE_SCHEDULED).delete(id);
+      return new Promise((resolve, reject) => {
+          const transaction = db.transaction(STORE_SCHEDULED, 'readwrite');
+          transaction.objectStore(STORE_SCHEDULED).delete(id);
+          transaction.oncomplete = () => resolve();
+          transaction.onerror = () => reject(transaction.error || new Error('定时消息未能删除'));
+          transaction.onabort = () => reject(transaction.error || new Error('定时消息未能删除'));
+      });
   },
 
   saveUserProfile: async (profile: UserProfile): Promise<void> => {
@@ -2358,8 +2509,12 @@ export const DB = {
 
   saveVRNovel: async (novel: VRWorldNovel): Promise<void> => {
       const db = await openDB();
-      const transaction = db.transaction(STORE_VR_NOVELS, 'readwrite');
-      transaction.objectStore(STORE_VR_NOVELS).put(novel);
+      return new Promise((resolve, reject) => {
+          const transaction = db.transaction(STORE_VR_NOVELS, 'readwrite');
+          transaction.objectStore(STORE_VR_NOVELS).put(novel);
+          transaction.oncomplete = () => resolve();
+          transaction.onerror = transaction.onabort = () => reject(transaction.error || new Error('书籍保存失败'));
+      });
   },
 
   deleteVRNovel: async (id: string): Promise<void> => {
@@ -3108,7 +3263,7 @@ export const DB = {
           });
       };
 
-      const [characters, characterGroups, messages, themes, emojis, emojiCategories, assets, galleryImages, userProfiles, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels, bankTx, bankData, xhsActivities, xhsStockImages, songs, quizzes, guidebookSessions, scheduledMessages, lifeSimStates, handbooks, trackers, trackerEntries, hotNewsSnapshots, vrNovels, vrAnnotations, customCreatorParts, vrMusic, vrGuestbook, vrScripts, vrStagedPlays, vrPresets, vrLetters, vrSettings, worlds, worldEpisodes, lifeRecords, medPlans, lifeRecordSettings] = await Promise.all([
+      const [characters, characterGroups, messages, themes, emojis, emojiCategories, assets, galleryImages, userProfiles, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels, bankTx, bankData, xhsActivities, xhsOwnedPosts, xhsStockImages, songs, quizzes, guidebookSessions, scheduledMessages, lifeSimStates, handbooks, trackers, trackerEntries, hotNewsSnapshots, vrNovels, vrAnnotations, customCreatorParts, vrMusic, vrGuestbook, vrScripts, vrStagedPlays, vrPresets, vrLetters, vrSettings, worlds, worldEpisodes, lifeRecords, medPlans, lifeRecordSettings] = await Promise.all([
           getAllFromStore(STORE_CHARACTERS),
           getAllFromStore(STORE_CHAR_GROUPS),
           getAllFromStore(STORE_MESSAGES),
@@ -3136,6 +3291,7 @@ export const DB = {
           getAllFromStore(STORE_BANK_TX),
           getAllFromStore(STORE_BANK_DATA),
           getAllFromStore(STORE_XHS_ACTIVITIES),
+          getAllFromStore(STORE_XHS_OWNED_POSTS),
           getAllFromStore(STORE_XHS_STOCK),
           getAllFromStore(STORE_SONGS),
           getAllFromStore(STORE_QUIZZES),
@@ -3178,6 +3334,7 @@ export const DB = {
           bankDollhouse: dollhouseRecord?.data || undefined,
           bankTransactions: bankTx,
           xhsActivities,
+          xhsOwnedPosts,
           xhsStockImages,
           songs,
           quizSessions: quizzes,
@@ -3242,7 +3399,7 @@ export const DB = {
           STORE_TASKS, STORE_ANNIVERSARIES, STORE_ROOM_TODOS, STORE_ROOM_NOTES,
           STORE_GROUPS, STORE_JOURNAL_STICKERS, STORE_SOCIAL_POSTS, STORE_COURSES, STORE_GAMES, STORE_WORLDBOOKS, STORE_STORY_THEATERS, STORE_STORY_THEATER_PRESETS, STORE_STORY_THEATER_MASKS, STORE_NOVELS, STORE_SONGS,
           STORE_BANK_TX, STORE_BANK_DATA,
-          STORE_XHS_ACTIVITIES, STORE_XHS_STOCK,
+          STORE_XHS_ACTIVITIES, STORE_XHS_OWNED_POSTS, STORE_XHS_STOCK,
           STORE_QUIZZES,
           STORE_GUIDEBOOK,
           STORE_SCHEDULED,
@@ -3326,6 +3483,7 @@ export const DB = {
           data.lifeSimState !== undefined,
           data.bankTransactions !== undefined,
           data.xhsActivities !== undefined,
+          data.xhsOwnedPosts !== undefined,
           data.xhsStockImages !== undefined,
           data.memoryNodes !== undefined,
           data.memoryVectors !== undefined,
@@ -3739,6 +3897,22 @@ export const DB = {
           await clearAndAdd(STORE_XHS_ACTIVITIES, data.xhsActivities, '小红书活动', false);
           data.xhsActivities = undefined as any;
       }, data.xhsActivities?.length || 0);
+      await runSection('帖子归属兼容数据', data.xhsOwnedPosts !== undefined, async () => {
+          // [EM-START: upstream-db71-compat] Clear + replacement commit together; failed imports retain the prior table.
+          await new Promise<void>((resolve, reject) => {
+              const tx = db.transaction(STORE_XHS_OWNED_POSTS, 'readwrite');
+              tx.oncomplete = () => resolve();
+              tx.onerror = tx.onabort = () => reject(tx.error || new Error('帖子归属兼容数据未能恢复'));
+              try {
+                  if (!Array.isArray(data.xhsOwnedPosts)) throw new Error('帖子归属兼容数据不是有效列表');
+                  const store = tx.objectStore(STORE_XHS_OWNED_POSTS);
+                  store.clear();
+                  for (const post of data.xhsOwnedPosts) store.put(post);
+              } catch (error) { tx.abort(); reject(error); }
+          });
+          // [EM-END: upstream-db71-compat]
+          data.xhsOwnedPosts = undefined;
+      }, data.xhsOwnedPosts?.length || 0);
       await runSection('小红书图库', data.xhsStockImages !== undefined, async () => {
           await clearAndAdd(STORE_XHS_STOCK, data.xhsStockImages, '小红书图库', true);
           data.xhsStockImages = undefined as any;

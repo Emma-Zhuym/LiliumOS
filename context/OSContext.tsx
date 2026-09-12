@@ -3896,7 +3896,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               'user_profile', 'diaries', 'tasks', 'anniversaries', 'room_todos',
               'room_notes', 'groups', 'journal_stickers', 'social_posts', 'courses', 'games', 'worldbooks', 'story_theaters', 'story_theater_presets', 'story_theater_masks', 'novels', 'songs',
               'bank_transactions', 'bank_data',
-              'xhs_activities', 'xhs_stock',
+              'xhs_activities', 'xhs_owned_posts', 'xhs_stock',
               'quizzes', 'guidebook', 'scheduled_messages', 'life_sim',
               'handbook', 'trackers', 'tracker_entries', 'hotnews_snapshots',
               'memory_nodes', 'memory_vectors', 'memory_links', 'topic_boxes', 'anticipations', 'event_boxes',
@@ -4286,6 +4286,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               songs: 'songs',
               bank_transactions: 'bankTransactions',
               xhs_activities: 'xhsActivities',
+              xhs_owned_posts: 'xhsOwnedPosts',
               xhs_stock: 'xhsStockImages',
               quizzes: 'quizSessions',
               guidebook: 'guidebookSessions',
@@ -4514,6 +4515,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                       break;
                   }
                   case 'xhs_activities': backupData.xhsActivities = processedData; break;
+                  case 'xhs_owned_posts': backupData.xhsOwnedPosts = processedData; break;
                   case 'xhs_stock': backupData.xhsStockImages = processedData; break;
                   case 'quizzes': backupData.quizSessions = processedData; break;
                   case 'guidebook': backupData.guidebookSessions = processedData; break;

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Modal from '../os/Modal';
+import AmsgCronControl from './AmsgCronControl'; // [EM: amsg-cron-control]
 import { ActiveMsg2GlobalConfig, RealtimeConfig } from '../../types';
 import {
   ActiveMsgClient, ActiveMsg2PushStatus, fetchWorkerDiagnostics, readAmsgFailKind,
@@ -109,7 +110,7 @@ const REQUIRED_WORKER_FEATURES = [
 //            server 侧没有行为变化，单升这一档不解决任何问题；这批真正要用户去点
 //            一次「更新 Worker」的是通知策略本身，见 utils/amsgBundleVersion.ts。
 // 不比版本的话，旧粘贴部署会被误判为最新，问题全在 worker 侧静默发生。
-const REQUIRED_WORKER_VERSION = '2.6.0-next.23';
+const REQUIRED_WORKER_VERSION = '2.6.0-next.27';
 
 /** 装着打包好的 worker 代码的部署仓库：fork 它 → 在 Cloudflare 连上 → 以后点 Sync fork 更新。 */
 const WORKERS_REPO_URL = 'https://github.com/Tosd0/sullyos-workers';
@@ -155,6 +156,8 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
   onOpenVapid,
 }) => {
   const [config, setConfig] = useState<ActiveMsg2GlobalConfig | null>(null);
+  // [EM: amsg-cron-control] Cron actions use saved connection details, never a half-edited form.
+  const [cronConnection, setCronConnection] = useState<{ workerUrl: string; serverToken: string; revision: number } | null>(null);
   const [loading, setLoading] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [deployOpen, setDeployOpen] = useState(false);
@@ -277,6 +280,7 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
     const nextPushStatus = await ActiveMsgClient.getPushStatus();
     savedWorkerUrlRef.current = nextConfig.workerUrl || '';
     setConfig(nextConfig);
+    setCronConnection(previous => previous?.workerUrl === (nextConfig.workerUrl || '') && previous.serverToken === (nextConfig.serverToken || '') ? previous : { workerUrl: nextConfig.workerUrl || '', serverToken: nextConfig.serverToken || '', revision: (previous?.revision || 0) + 1 });
     setPushStatus(nextPushStatus);
     setInstantOn(isInstantConfigReady());
     void probeWorkerCaps(Boolean(nextConfig.workerUrl?.trim()));
@@ -368,6 +372,7 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
       masterKey: config.masterKey,
     });
     savedWorkerUrlRef.current = config.workerUrl || '';
+    setCronConnection(previous => previous?.workerUrl === (config.workerUrl || '') && previous.serverToken === (config.serverToken || '') ? previous : { workerUrl: config.workerUrl || '', serverToken: config.serverToken || '', revision: (previous?.revision || 0) + 1 });
   };
 
   useEffect(() => {
@@ -1357,6 +1362,15 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
                 </p>
               ) : null}
 
+              {/* [EM-START: amsg-cron-control] */}
+              <AmsgCronControl
+                refreshKey={`${cronConnection?.revision || 0}:${selfUpdateHash}`}
+                disabled={loading || provisioning || !cronConnection || config.workerUrl.trim() !== cronConnection.workerUrl.trim() || (config.serverToken || '').trim() !== cronConnection.serverToken.trim()}
+                onNeedsCredentials={() => setAttachOpen(true)}
+                onBusyChange={setLoading}
+                notify={addToast}
+              />
+              {/* [EM-END: amsg-cron-control] */}
               {attachOpen ? (
                 <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3 space-y-2.5">
                   <p className="text-[11px] font-bold text-slate-600">给这台后端补一把更新用的钥匙</p>

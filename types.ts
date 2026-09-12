@@ -388,6 +388,10 @@ export interface ActiveMsg2GlobalConfig {
    * 一份凭据，也不要拿新写法去撞一台还不认识它的 Worker。握手时会探一次。
    */
   llmCredentialsSupported?: boolean;
+  /** Worker 明确声明支持 value:null 删除状态行。未知/旧版按 false 处理。 */
+  clientStateDeleteSupported?: boolean;
+  /** 已完成一次旧旁路空壳清理的角色；不包含消息原文清理。 */
+  sidechannelShellsSweptCharIds?: string[];
   updatedAt?: number;
 }
 
@@ -4199,6 +4203,7 @@ export interface FullBackupData {
     }[];
 
     xhsActivities?: XhsActivityRecord[];
+    xhsOwnedPosts?: XhsOwnedPost[];
     xhsStockImages?: XhsStockImage[];
 
     // Study Room settings
@@ -4396,6 +4401,7 @@ export interface XhsActivityRecord {
     timestamp: number;
     actionType: XhsActionType;
     content: {
+        noteId?: string;
         title?: string;
         body?: string;
         tags?: string[];
@@ -4408,6 +4414,23 @@ export interface XhsActivityRecord {
     thinking: string;  // Character's internal monologue / reasoning
     result: 'success' | 'failed' | 'skipped';
     resultMessage?: string;
+}
+
+// [EM: upstream-db71-compat] 持久备份兼容类型；不启用角色主页。
+export interface XhsOwnedPost {
+    id: string; // `${characterId}:${noteId}`
+    characterId: string;
+    noteId: string;
+    title: string;
+    body: string;
+    tags?: string[];
+    publishedAt: number;
+    updatedAt: number;
+    xsecToken?: string;
+    likes?: number;
+    collects?: number;
+    commentCount?: number;
+    shareCount?: number;
 }
 
 export interface XhsFreeRoamSession {
