@@ -1,3 +1,4 @@
+import { mergeInboxDelivery } from './inboxDelivery';
 import {
   ActiveMsg2GlobalConfig,
   ActiveMsg2InboxMessage,
@@ -222,9 +223,12 @@ export const ActiveMsgStore = {
     const db = await openDB();
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(STORE_INBOX, 'readwrite');
-      tx.objectStore(STORE_INBOX).put(message);
+      const store = tx.objectStore(STORE_INBOX);
+      const previous = store.get(message.messageId);
+      previous.onsuccess = () => store.put(mergeInboxDelivery(message, previous.result));
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('Inbox delivery aborted'));
     });
   },
 

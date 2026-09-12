@@ -63,7 +63,7 @@ vi.mock('./activeMsgStore', () => ({
     },
     saveGlobalConfig: vi.fn().mockResolvedValue(undefined),
     listInboxMessages: async () => storeState.inbox,
-    saveInboxMessage: async (message: any) => { storeState.saved.push(message); },
+    saveInboxMessage: async (message: any) => { storeState.saved.push(mergeInboxDelivery(message, storeState.inbox.find(row => row.messageId === message.messageId))); },
     markExpiredNoticesNotified: async (charId: string, ids: string[]) => {
       storeState.markedNotices.push({ charId, ids });
     },
@@ -71,6 +71,7 @@ vi.mock('./activeMsgStore', () => ({
 }));
 
 import { ActiveMsgClient } from './activeMsgClient';
+import { mergeInboxDelivery } from './inboxDelivery';
 import {
   AMSG_INSTANT_CHAT_PENDING_LS_KEY,
   AMSG_INSTANT_CHAT_STAGED_NOTICES_LS_KEY,
@@ -910,6 +911,32 @@ describe('推送丢了的补收（服务端账本）', () => {
     expect(saved.sentAt).toBe(1_700_000_000_000);
   });
 
+  // Service Worker 直送和账本补收写的是同一批消息、同一个主键，补收落库就是整条覆盖。
+  // 要是连「到达时间」也覆盖成现在，这条在收件箱里躺了多久就永远查不出来了（一律显示
+  // 刚到），而「送达时用户在不在场」正是拿它判的——判错的后果是：明明用户离开时就到了、
+  // 系统通知早已完整念过一遍的消息，回来还要一条条重演打字。
+  it('SW 已经送到、还没被消费的那条，补收只换内容不改它到达的时刻', async () => {
+    const messageId = 'msg_task_7@1700000000000_hook_0';
+    const swReceivedAt = Date.now() - 30_000;   // SW 半分钟前就把它存进收件箱了
+    storeState.inbox = [{ messageId, receivedAt: swReceivedAt }] as any;
+    stubOutbox([entry(messageId, outboxPush(messageId))]);
+
+    await drainOutbox();
+
+    expect(storeState.saved[0].receivedAt, '第一次落到这台设备的时刻不该被抹掉').toBe(swReceivedAt);
+  });
+
+  it('本地压根没有过的那条，到达时刻才记成现在', async () => {
+    const messageId = 'msg_task_7@1700000000000_hook_1';
+    const before = Date.now();
+    storeState.inbox = [];
+    stubOutbox([entry(messageId, outboxPush(messageId))]);
+
+    await drainOutbox();
+
+    expect(storeState.saved[0].receivedAt).toBeGreaterThanOrEqual(before);
+  });
+
   // 账本是这一版才开始销账的，头一次拉会把历史积压一次性倒出来。不掐时效的话，那些
   // 早就落过库的老消息会因为超出近史去重的查询窗口而重新上屏。
   it('超过时效窗口的条目不进聊天流，当场销账', async () => {
@@ -1032,7 +1059,7 @@ describe('推送丢了的补收（服务端账本）', () => {
       expect(ackNow).toEqual([]);
     });
 
-    // 回归守卫：这条路刻意跳过了聊天那 24 小时的时效窗（结果晚到本来就是常态），可跳过
+    // 回归守卫：这条路刻意跳过了聊天那两天的时效窗（结果晚到本来就是常态），可跳过
     // 之后没换上任何上限。账本留 28 天——重装 PWA 的用户第一次接上账本会把一个月前的结果
     // 一次性拉回来。这里不替各种产物定规矩，但账本上记的时间必须原样交出去，认领它的
     // 那一方才判得了「陈到不能用了没有」。
@@ -1215,8 +1242,9 @@ describe('第一次接上服务端账本', () => {
     expect(storeState.saved.map((m: any) => m.messageId)).toEqual(['m-new']);
   });
 
-  // 自动路径把存量整批销掉是对的（分不清哪些是真丢的），但用户主动点「找回」时，
-  // 那批存量正是他要找的东西；手动路径因此允许越过首次接管。
+  // 自动路径把存量整批销掉是对的（分不清哪些是真丢的），但对「我确实少收了消息」的
+  // 用户来说，那批存量恰恰就是他要找的东西——销了就再也拿不回来了。所以手动补收
+  // 这条路要能越过接管：用户自己知道自己丢了，这个判断他做得了。
   it('手动补收越过首次接管，存量照样上屏', async () => {
     stubOutboxOnce([entry('m-missed', 'uuid-missed')]);
     const ack = vi.spyOn(ActiveMsgClient, 'ackOutboxMessages').mockResolvedValue(undefined);
@@ -1225,7 +1253,9 @@ describe('第一次接上服务端账本', () => {
 
     expect(written).toBe(1);
     expect(storeState.saved.map((m: any) => m.messageId)).toEqual(['m-missed']);
+    // 没被当存量销掉：销账要等落库走完那一步（backfill 里 written 的那条不进 ackNow）。
     expect(ack).not.toHaveBeenCalledWith(['m-missed']);
+    // 手动补过一次就算接上了，后面回到自动路径，别下次又把新条目当存量销掉。
     expect(localStorage.getItem(AMSG_OUTBOX_ADOPTED_LS_KEY)).toBeTruthy();
   });
 });

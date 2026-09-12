@@ -1,0 +1,11 @@
+// @vitest-environment node
+import { beforeEach, afterEach, expect, it, vi } from "vitest";
+import {probeSwChannel} from './swChannelProbe';
+let listener:((event:any)=>void)|undefined,port:any,send:any,remove:any;
+beforeEach(()=>{vi.useFakeTimers();listener=undefined;remove=vi.fn();send=vi.fn();port=null;vi.stubGlobal('MessageChannel',class{port1={onmessage:null as any,close:vi.fn()};port2={close:vi.fn()};constructor(){port=this}});vi.stubGlobal('navigator',{serviceWorker:{controller:{postMessage:send},getRegistration:vi.fn(),addEventListener:(_t:string,fn:any)=>{listener=fn},removeEventListener:remove}})});
+afterEach(()=>{vi.useRealTimers();vi.unstubAllGlobals()});
+const reply=(kind:'clients'|'port',nonce?:string)=>{const actual=nonce??send.mock.calls[0][0].nonce;if(kind==='clients')listener?.({data:{type:'sw-channel-probe-ack',nonce:actual}});else port.port1.onmessage?.({data:{type:'sw-channel-probe-port-ack',nonce:actual}})};
+it.each([['clients','port'],['port','clients']] as const)('settles both acknowledgements in either order %s then %s',async(a,b)=>{const p=probeSwChannel(3000);await vi.advanceTimersByTimeAsync(5);reply(a);await vi.advanceTimersByTimeAsync(5);reply(b);expect(await p).toMatchObject({portAck:true,clientsAck:true,waitedMs:10});expect(remove).toHaveBeenCalledTimes(1);expect(port.port1.close).toHaveBeenCalledTimes(1);expect(vi.getTimerCount()).toBe(0)});
+it('ignores wrong nonce and records only port when clients times out',async()=>{const p=probeSwChannel(3000);reply('clients','wrong');reply('port');await vi.advanceTimersByTimeAsync(3000);expect(await p).toMatchObject({portAck:true,clientsAck:false,waitedMs:3000});expect(remove).toHaveBeenCalledTimes(1)});
+it('synchronous send failure closes ports and resolves without the full timeout',async()=>{send.mockImplementation(()=>{throw new Error('worker disappeared')});expect(await probeSwChannel(3000)).toMatchObject({portAck:false,clientsAck:false,waitedMs:0});expect(vi.getTimerCount()).toBe(0);expect(port.port1.close).toHaveBeenCalledTimes(1)});
+it('an unsupported environment does not claim to have waited 3 seconds',async()=>{vi.stubGlobal('navigator',{});expect(await probeSwChannel(3000)).toMatchObject({portAck:false,clientsAck:false,waitedMs:0})});

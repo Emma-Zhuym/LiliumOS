@@ -755,12 +755,13 @@ const backfillOutboxEntries = async (
   let staleDropped = 0;
   // 超龄行核对本地聊天记录时用的近史缓存，一趟补收内每个角色只查一次。
   const persistedIdsByChar = new Map<string, Set<string>>();
+  // First delivery time/visibility is preserved atomically by saveInboxMessage.
 
   for (const entry of entries) {
     const push = entry.push || {};
     const kind = typeof push.messageKind === 'string' ? push.messageKind : 'content';
     if (kind === 'result') {
-      // 聊天那道 24 小时的时效窗刻意不套在结果上：结果晚到本来就是常态（正是为此才上云的），
+      // 聊天那道两天的时效窗刻意不套在结果上：结果晚到本来就是常态（正是为此才上云的），
       // 隔一天回来照样该落地，跟「隔一天才弹出来的报错」不是一回事。
       // 但「多晚算太晚」得有人管——账本留 28 天，换设备 / 重装 PWA 的用户第一次接上账本
       // 会把老结果一次性拉回来。这里不替各种产物定规矩，只把账本上记的时间原样交给认领
@@ -827,7 +828,16 @@ const backfillOutboxEntries = async (
  * 跟冲刷返回的落库名单对一次——写进收件箱不等于上了屏。
  */
 export const drainOutbox = async (
-  options?: { treatBacklogAsMissed?: boolean },
+  options?: {
+    /**
+     * 头一趟也把存量当「我丢了的消息」补收（默认 false = 走 adoptOutboxBacklog 整批销账）。
+     *
+     * 只给用户手点的那次补收用：自动路径分不清存量里哪些是真丢的、哪些是当时收到了只是
+     * 客户端还不会销账，倒出来就是重放；而用户是察觉到「消息没来」才去点那个按钮的，
+     * 这个判断他自己做得了。按补收处理之后照样记下接管标记，后面回到自动路径。
+     */
+    treatBacklogAsMissed?: boolean;
+  },
 ): Promise<OutboxDrainResult> => {
   const entries = await ActiveMsgClient.listOutboxEntries();
   if (!hasAdoptedOutbox()) {

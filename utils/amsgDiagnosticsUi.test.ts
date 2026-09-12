@@ -1,0 +1,23 @@
+// @vitest-environment jsdom
+import { beforeEach, afterEach, expect, it, vi } from "vitest";
+import React,{act} from 'react';
+import {createRoot,type Root} from 'react-dom/client';
+const st=vi.hoisted(()=>({page:[] as any[],sw:vi.fn(),full:vi.fn(),share:vi.fn(),clip:vi.fn(),enabled:true,listener:null as any}));
+vi.mock('../context/OSContext',()=>({useOS:()=>({characters:[]})}));
+vi.mock('./instantTraceLog',()=>({readAllInstantTraces:()=>st.page,readRecentInstantTraces:()=>st.page.slice(0,5),readSwTraces:st.sw,formatFullTraceLog:st.full}));
+vi.mock('./shareExport',()=>({shareOrDownloadBlob:st.share}));
+vi.mock('./devDebug',()=>({isDevDebugAvailable:()=>true,readDevDebugFlags:()=>({amsg2Panel:st.enabled}),subscribeDevDebugAvailability:()=>()=>{},subscribeDevDebugFlags:(fn:any)=>{st.listener=fn;return()=>{st.listener=null}},writeDevDebugFlags:(flags:any)=>{st.enabled=flags.amsg2Panel;st.listener?.(flags);return flags}}));
+import Panel from '../components/Amsg2DebugPanel';
+let root:Root,container:HTMLDivElement;
+const button=(text:string)=>Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(x=>x.textContent?.startsWith(text))!;
+const render=()=>act(async()=>root.render(React.createElement(Panel)));
+const close=()=>act(()=>document.querySelector<HTMLButtonElement>('[aria-label="关闭 amsg2 调试面板"]')!.click());
+const reopen=()=>act(async()=>{st.enabled=true;st.listener?.({amsg2Panel:true})});
+beforeEach(()=>{vi.resetAllMocks();vi.useFakeTimers();vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);vi.stubGlobal('fetch',vi.fn(async()=>{throw new Error('no network')}));Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:st.clip}});st.enabled=true;st.page=[];st.sw.mockResolvedValue([{event:'sw-only'}]);st.full.mockResolvedValue('{"count":1,"pageCount":0,"swCount":1}');st.share.mockResolvedValue('downloaded');st.clip.mockResolvedValue(undefined);container=document.createElement('div');document.body.appendChild(container);root=createRoot(container)});
+afterEach(()=>{act(()=>root.unmount());container.remove();vi.useRealTimers();vi.unstubAllGlobals()});
+it('SW-only logs keep copy and export available',async()=>{await render();expect(button('复制全部 (1)').disabled).toBe(false);await act(async()=>button('复制全部').click());expect(st.clip).toHaveBeenCalledWith('{"count":1,"pageCount":0,"swCount":1}');expect(document.querySelector('[role="status"]')?.textContent).toBe('已复制')});
+it('failed export releases controls and does not claim success',async()=>{st.share.mockRejectedValue(new Error('permission denied'));await render();await act(async()=>button('导出文件').click());expect(document.querySelector('[role="status"]')?.textContent).toContain('失败');expect(button('导出文件').disabled).toBe(false)});
+it('cancelled export is not shown as saved',async()=>{st.share.mockResolvedValue('cancelled');await render();await act(async()=>button('导出文件').click());expect(document.querySelector('[role="status"]')).toBeNull();expect(button('导出文件').disabled).toBe(false)});
+it('closing before async log collection completes cancels the later share action',async()=>{let finish!:(x:string)=>void;st.full.mockImplementationOnce(()=>new Promise(r=>{finish=r}));await render();act(()=>button('导出文件').click());expect(button('导出文件').disabled).toBe(true);close();await act(async()=>finish('{"count":1}'));expect(st.share).not.toHaveBeenCalled()});
+it('old clipboard completion cannot write status into a reopened panel',async()=>{let finish!:()=>void;st.clip.mockImplementationOnce(()=>new Promise<void>(r=>{finish=r}));await render();await act(async()=>button('复制全部').click());close();await reopen();await act(async()=>finish());expect(document.querySelector('[role="status"]')).toBeNull()});
+it('a previous clear-status timer cannot erase newer export status early',async()=>{await render();await act(async()=>button('复制全部').click());await act(async()=>vi.advanceTimersByTime(500));await act(async()=>button('导出文件').click());await act(async()=>vi.advanceTimersByTime(1000));expect(document.querySelector('[role="status"]')?.textContent).toBe('已交给保存或分享窗口')});

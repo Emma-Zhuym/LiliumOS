@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CornersIn, CornersOut, X } from '@phosphor-icons/react';
 import { useOS } from '../context/OSContext';
@@ -11,10 +11,14 @@ import {
     type Amsg2PanelPosition,
 } from '../utils/amsg2DebugView';
 import {
-    formatInstantTraceLog,
+    formatFullTraceLog,
+    readSwTraces,
     readAllInstantTraces,
     readRecentInstantTraces,
 } from '../utils/instantTraceLog';
+import { shareOrDownloadBlob } from '../utils/shareExport';
+import { summarizeChannelHealth, type SwChannelHealth } from '../utils/swChannelProbe';
+import { F, R, S, STATUS } from '../utils/clayTokens';
 import {
     describeExpirePolicy,
     describeRecurrence,
@@ -162,7 +166,17 @@ const Amsg2DebugPanel: React.FC = () => {
     // 缓冲里一共攒了多少条（列表只显示得下最近几条）。导出按钮报的是这个数，
     // 用户才知道自己交出去的是全部现场、不是屏幕上这几行。
     const [traceTotal, setTraceTotal] = useState(0);
-    const [traceExport, setTraceExport] = useState<'idle' | 'copied' | 'failed'>('idle');
+    const [traceExport, setTraceExport] = useState<'idle' | 'copied' | 'downloaded' | 'failed'>('idle');
+    const [traceBusy, setTraceBusy] = useState(false);
+    const [health, setHealth] = useState<SwChannelHealth | null>(null);
+    const exportVersion = useRef(0), exportLocked = useRef(false);
+    const exportTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const invalidateExport = useCallback(() => {
+        exportVersion.current++;
+        exportLocked.current = false;
+        if (exportTimer.current !== null) clearTimeout(exportTimer.current);
+        exportTimer.current = null;
+    }, []);
     const [nowMs, setNowMs] = useState(() => Date.now());
     // null = 还没拖过，用默认的右上角；拖过之后记实际坐标。不持久化，关掉重开回默认。
     const [position, setPosition] = useState<Amsg2PanelPosition | null>(null);
@@ -173,16 +187,25 @@ const Amsg2DebugPanel: React.FC = () => {
     useEffect(() => subscribeDevDebugFlags((flags) => setEnabled(flags.amsg2Panel)), []);
 
     const active = available && enabled;
+    useEffect(() => {
+        setTraceBusy(false); setTraceExport('idle');
+        return invalidateExport;
+    }, [active, invalidateExport]);
 
     useEffect(() => {
         if (!active) return;
-        const readTraces = () => {
-            setTraces(readRecentInstantTraces(TRACE_SHOWN));
-            setTraceTotal(readAllInstantTraces().length);
+        let closed = false;
+        const readTraces = async () => {
+            const all = readAllInstantTraces();
+            const sw = await readSwTraces();
+            if (closed) return;
+            setTraces(all.slice(0, TRACE_SHOWN));
+            setTraceTotal(all.length + sw.length);
+            setHealth(summarizeChannelHealth(all));
         };
-        readTraces();
-        const timer = window.setInterval(readTraces, TRACE_RELOAD_MS);
-        return () => window.clearInterval(timer);
+        void readTraces();
+        const timer = window.setInterval(() => void readTraces(), TRACE_RELOAD_MS);
+        return () => { closed = true; window.clearInterval(timer); };
     }, [active]);
 
     useEffect(() => {
@@ -222,29 +245,40 @@ const Amsg2DebugPanel: React.FC = () => {
     }, [active]);
 
     const close = () => {
+        invalidateExport();
         setFullscreen(false);
         setPosition(null);
         setEnabled(writeDevDebugFlags({ ...readDevDebugFlags(), amsg2Panel: false }).amsg2Panel);
     };
 
-    /**
-     * 把整个 trace 缓冲复制到剪贴板。
-     *
-     * 只做复制、不做下载：这个按钮的使用场景就是「用户在手机上，隔着屏幕把现场发过来」，
-     * 而 iOS 装成 PWA 之后 blob 下载基本是死的，复制到聊天框才是真能走通的那条路。
-     * 复制失败（没给权限 / 不是安全上下文）就把按钮改成「复制失败」，别假装成功——
-     * 用户会以为已经拿到了，然后粘出来一片空白。
-     */
-    const exportTraces = async () => {
-        const text = formatInstantTraceLog();
-        if (!text) return;
+    // Both exports contain the same page + SW evidence. No remote upload occurs here.
+    const exportTraces = async (download = false) => {
+        if (!active || exportLocked.current) return;
+        if (exportTimer.current !== null) clearTimeout(exportTimer.current);
+        exportTimer.current = null;
+        const version = ++exportVersion.current;
+        const current = () => version === exportVersion.current;
+        exportLocked.current = true;
+        setTraceBusy(true); setTraceExport('idle');
         try {
-            await navigator.clipboard.writeText(text);
-            setTraceExport('copied');
-        } catch {
-            setTraceExport('failed');
-        }
-        window.setTimeout(() => setTraceExport('idle'), 1500);
+            const text = await formatFullTraceLog();
+            if (!current() || !text) return;
+            if (download) {
+                const result = await shareOrDownloadBlob({
+                    blob: new Blob([text], { type: 'application/json' }),
+                    fileName: `liliumos_amsg_trace_${new Date().toISOString().replace(/[:.]/g, '-')}.json`,
+                    shareTitle: 'LiliumOS 消息诊断',
+                });
+                if (!current() || result === 'cancelled') return;
+                setTraceExport('downloaded');
+            } else {
+                await navigator.clipboard.writeText(text);
+                if (!current()) return;
+                setTraceExport('copied');
+            }
+        } catch { if (current()) setTraceExport('failed'); }
+        finally { if (current()) { exportLocked.current = false; setTraceBusy(false); } }
+        if (current()) exportTimer.current = setTimeout(() => { if (current()) setTraceExport('idle'); exportTimer.current = null; }, 1500);
     };
 
     // 全屏时四边都钉死了，没有可拖的余地。
@@ -372,32 +406,24 @@ const Amsg2DebugPanel: React.FC = () => {
                         display: 'flex',
                         alignItems: 'baseline',
                         justifyContent: 'space-between',
+                        flexWrap: 'wrap',
                         gap: 8,
                     }}
                 >
-                    <span>
+                    <span style={{ flexBasis: '100%' }}>
                         <b>trace</b>
                         <span style={{ color: C.dim, fontSize: 11 }}> 最近 {TRACE_SHOWN} 条 · 无条件记录</span>
                     </span>
-                    {/* 下面列表只显示得下几行，缓冲里其实攒着两百条。远端排障要的是「一小时前
-                        那会儿发生了什么」，全靠这个按钮把它们交出来。 */}
-                    <button
-                        type="button"
-                        onClick={exportTraces}
-                        disabled={traceTotal === 0}
-                        style={{
-                            color: traceExport === 'failed' ? C.red : C.dim,
-                            fontSize: 11,
-                            cursor: traceTotal === 0 ? 'default' : 'pointer',
-                            whiteSpace: 'nowrap',
-                            flexShrink: 0,
-                        }}
-                    >
-                        {traceExport === 'copied' ? '已复制'
-                            : traceExport === 'failed' ? '复制失败'
-                                : traceTotal === 0 ? '暂无' : `复制全部 (${traceTotal})`}
-                    </button>
+                    <div className="flex w-full flex-wrap gap-2">
+                        <button type="button" disabled={traceBusy || traceTotal === 0} onClick={() => void exportTraces()} className="min-h-11 px-3 text-xs disabled:opacity-50" style={{ background: F.surface, color: F.textPrimary, borderRadius: R.button, boxShadow: S.raisedSoft }}>复制全部 ({traceTotal})</button>
+                        <button type="button" disabled={traceBusy || traceTotal === 0} onClick={() => void exportTraces(true)} className="min-h-11 px-3 text-xs disabled:opacity-50" style={{ background: F.surface, color: F.textPrimary, borderRadius: R.button, boxShadow: S.raisedSoft }}>导出文件</button>
+                    </div>
                 </div>
+                {traceExport !== 'idle' && <p role="status" style={{ color: traceExport === 'failed' ? STATUS.warning.main : C.dim }}>{traceExport === 'failed' ? '导出失败，请重试' : traceExport === 'copied' ? '已复制' : '已交给保存或分享窗口'}</p>}
+                {health && health.status !== 'idle' && <div className="my-2 p-3 text-xs leading-5" style={{ background: F.surface, color: F.textSecondary, borderRadius: R.smallCard, boxShadow: S.raisedSoft }}>
+                    {health.lastSwMessageAt ? `记录中最近收到后台回信：${hhmmss(new Date(health.lastSwMessageAt).getTime())}` : '近期记录尚未收到后台实时回信；本地巡查和云端补收仍会尝试取回消息。'}
+                    {health.flushByTrigger.length > 0 && <p>取回来源：{health.flushByTrigger.map(item => `${item.trigger} × ${item.count}`).join(' · ')}</p>}
+                </div>}
                 {traces.length === 0 ? (
                     <div style={{ color: C.dim, fontSize: 11 }}>（暂无）</div>
                 ) : (

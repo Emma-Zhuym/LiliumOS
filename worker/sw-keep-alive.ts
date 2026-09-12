@@ -1,7 +1,8 @@
 /// <reference lib="WebWorker" />
-/**
- * Service Worker：proactive 定时 + keepalive + ActiveMsg 2.0 推送
- */
+/** Service Worker: proactive timers, keepalive and ActiveMsg push. */
+
+import { appendSwTraceEntry as appendSwTrace } from '../utils/swTraceStore';
+import { mergeInboxDelivery } from '../utils/inboxDelivery';
 
 import { installReiSW } from '@rei-standard/amsg-sw';
 
@@ -71,13 +72,15 @@ import { installReiSW } from '@rei-standard/amsg-sw';
  *            并往 ActiveMsg 库 kv store 写「订阅已变化」标记（主线程据此把新订阅逐条
  *            写回已排程的远端任务，见 utils/activeMsgRuntime.ts）。onupgradeneeded 补建
  *            kv store（SW-first 安装时主线程 schema 还没建过）。
- *  - 1.16.1: content push 落 inbox 时记录是否存在可见页面；后台通知点进应用后直接
- *            回填正文，不再把通知里已经展示过的完整回复按打字节奏二次慢放。
  *  - 1.17.0: 升级 amsg-sw，通知的 silent 认 'when-visible' 这一档：静不静音改由 SW 按
  *            收到推送那一刻的窗口可见性算，用户看着页面时安静、切后台照常响铃震动。
  *            老 SW 把这个字符串当真值，会一律静音。
+ *  - 1.18.0: SW 侧 trace 落到独立的 ActiveMsgSwTrace 库（原来只写 console.log，远端用户
+ *            手上等于没有），并把 notifyClients 记细：找到几个页面、各自可见性、
+ *            postMessage 成没成。排「推送到了、通知也弹了、界面半天不动」这类故障时，
+ *            SW 到底有没有喊到页面是第一个要回答的问题。
  */
-const SW_VERSION = '1.17.0';
+const SW_VERSION = '1.18.0';
 
 const PING_INTERVAL = 15_000;
 const MAX_MANUAL_ALIVE_MS = 5 * 60_000;
@@ -120,14 +123,18 @@ function summarizeAmsgPayload(payload: any): Record<string, any> {
 }
 
 function traceSw(event: string, payload?: any, extra: Record<string, any> = {}) {
+  const entry = {
+    ts: new Date().toISOString(),
+    event,
+    swVersion: SW_VERSION,
+    ...(payload !== undefined ? summarizeAmsgPayload(payload) : {}),
+    ...extra,
+  };
   try {
-    console.log('[InstantTrace:SW]', {
-      ts: new Date().toISOString(),
-      event,
-      ...(payload !== undefined ? summarizeAmsgPayload(payload) : {}),
-      ...extra,
-    });
+    console.log('[InstantTrace:SW]', entry);
   } catch { /* ignore */ }
+  // 不 await：trace 是旁路，写库慢了 / 挂了都不能拖住推送处理本身。
+  void appendSwTrace(entry).catch(() => { /* trace 写不进去就算了 */ });
 }
 
 installReiSW(sw, {
@@ -198,17 +205,64 @@ function stopKeepAlive() {
   refreshKeepAlive();
 }
 
+/**
+ * 页面地址里只留路径，不带查询串和 hash——排障要认的是「这是哪个页面」，
+ * 而查询串/hash 上可能挂着不该进日志的东西。
+ */
+function tracePathOf(url: string): string {
+  try {
+    return new URL(url).pathname;
+  } catch {
+    return '?';
+  }
+}
+
+/**
+ * 把消息喊给所有打开着的页面。
+ *
+ * 这里的 trace 记得比别处细，因为「推送到了、通知也弹了，页面却毫无反应」这类故障
+ * 全卡在这一步，而它三种坏法长得一模一样（都是页面那边什么都没发生）：
+ *   1. matchAll 压根没找到页面 → count 为 0
+ *   2. 找到了但 postMessage 抛错 → posted 少于 count，failures 里有原因
+ *   3. 都成了，是页面自己没处理 → 这里全绿，页面侧却没有对应的收到记录
+ * 不把这三样分开记，就只能靠猜。
+ */
 async function notifyClients(data: Record<string, any>) {
-  const clients = await sw.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  let clients: readonly Client[] = [];
+  let matchError: string | undefined;
+  try {
+    clients = await sw.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  } catch (e) {
+    matchError = e instanceof Error ? e.name : String(e);
+  }
+
+  let posted = 0;
+  const failures: string[] = [];
+  for (const client of clients) {
+    try {
+      client.postMessage(data);
+      posted += 1;
+    } catch (e) {
+      failures.push(e instanceof Error ? e.name : String(e));
+    }
+  }
+
   traceSw('notify-clients', undefined, {
     type: data.type,
     charId: data.charId,
     sessionId: data.sessionId,
     count: clients.length,
+    posted,
+    targets: clients.map((client) => ({
+      path: tracePathOf(client.url),
+      visibility: (client as WindowClient).visibilityState,
+      focused: (client as WindowClient).focused,
+      // 冻结的页面收得下 postMessage，但要等解冻才会处理——只有部分浏览器报这个字段。
+      frozen: (client as any).frozen,
+    })),
+    ...(failures.length > 0 ? { failures } : {}),
+    ...(matchError ? { matchError } : {}),
   });
-  for (const client of clients) {
-    client.postMessage(data);
-  }
 }
 
 function fireProactiveTrigger(charId: string) {
@@ -254,6 +308,7 @@ function syncProactive(configs: Array<{ charId: string; intervalMs: number }>) {
 
 function readPushPayload(event: PushEvent): any | null {
   if (!event.data) return null;
+
   try {
     return event.data.json();
   } catch {
@@ -425,7 +480,7 @@ async function saveContentToInbox(payload: any) {
   }
 
   await withInboxTx(ACTIVE_MSG_INBOX_STORE, 'readwrite', (store) => {
-    store.put({
+    const delivery = {
       messageId,
       charId,
       charName,
@@ -453,7 +508,9 @@ async function saveContentToInbox(payload: any) {
       sentAt,
       receivedAt: Date.now(),
       receivedWhileVisible,
-    });
+    };
+    const previous = store.get(messageId);
+    previous.onsuccess = () => store.put(mergeInboxDelivery(delivery, previous.result));
   });
   traceSw('inbox-content-saved', payload, { bodyChars: body.length });
 
@@ -775,6 +832,20 @@ sw.addEventListener('message', (event: ExtendableMessageEvent) => {
       // BuildBadge 通过 MessageChannel + port 协议查询；不响应时 BuildBadge 显示 sw@?
       event.ports[0]?.postMessage({ version: SW_VERSION });
       break;
+    case 'SW_CHANNEL_PROBE': {
+      // 页面主动探一次「SW 还能不能喊到我」。两条路各回一次，为的是把故障分开：
+      //   - port 这条是「谁问谁答」，页面把回信地址一起递过来（BuildBadge 查版本走它）；
+      //   - clients 这条要 SW 自己去把页面找出来，**推送通知页面走的正是它**。
+      // 只有后者不通，说明 SW 活得好好的、只是找不到页面——这两种坏法在用户那儿
+      // 长得一模一样（界面就是不动），不分开测就只能靠猜。
+      const nonce = event.data?.nonce;
+      traceSw('channel-probe-received', undefined, { nonce });
+      event.ports[0]?.postMessage({ type: 'sw-channel-probe-port-ack', nonce, swVersion: SW_VERSION });
+      // 故意复用 notifyClients：探测必须跟真实推送走同一条路才作数，
+      // 顺带还留下一条 notify-clients 记录（找到几个页面、各自什么状态）。
+      event.waitUntil(notifyClients({ type: 'sw-channel-probe-ack', nonce, swVersion: SW_VERSION }));
+      break;
+    }
     case 'keepalive-start':
       startKeepAlive();
       break;

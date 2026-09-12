@@ -574,3 +574,31 @@ describe('ctx.spokenAt — 日程改动按说出口那一刻判', () => {
         expect(notifyScheduleChangeFailed.mock.calls[0][0]).toContain('没有找到对得上的时段');
     });
 });
+
+describe('visible category sticker recovery', () => {
+    it('resolves a unique category-qualified name while preserving exact names with a colon', async () => {
+        const charId = 'em-sticker-category';
+        const ctx = makeCtx(charId, [], [
+            { id: 'cat-wave', name: 'wave', categoryId: 'cats', url: 'https://example.test/cat' },
+            { id: 'dog-wave', name: 'wave', categoryId: 'dogs', url: 'https://example.test/dog' },
+            { id: 'literal', name: 'Cats: literal', url: 'https://example.test/literal' },
+        ]);
+        ctx.instantRender = true; ctx.skipSecondPassLLM = true;
+        ctx.categories = [{ id: 'cats', name: 'Cats' }, { id: 'dogs', name: 'Dogs' }] as any;
+        await applyAssistantPostProcessing('[[SEND_EMOJI: Cats: wave]]\n[[SEND_EMOJI: Cats: literal]]', ctx);
+        expect((await DB.getMessagesByCharId(charId)).filter(row => row.type === 'emoji').map(row => row.content)).toEqual(['https://example.test/cat', 'https://example.test/literal']);
+    });
+    it('keeps ambiguous category matches as visible text instead of choosing another sticker', async () => {
+        const charId = 'em-sticker-ambiguous';
+        const ctx = makeCtx(charId, [], [
+            { id: 'a', name: 'wave', categoryId: 'a', url: 'https://example.test/a' },
+            { id: 'b', name: 'wave', categoryId: 'b', url: 'https://example.test/b' },
+        ]);
+        ctx.instantRender = true; ctx.skipSecondPassLLM = true;
+        ctx.categories = [{ id: 'a', name: 'Cats' }, { id: 'b', name: 'Cats' }] as any;
+        await applyAssistantPostProcessing('[[SEND_EMOJI: Cats: wave]]', ctx);
+        const rows = await DB.getMessagesByCharId(charId);
+        expect(rows.some(row => row.type === 'emoji')).toBe(false);
+        expect(rows.map(row => row.content).join('')).toContain('Cats: wave');
+    });
+});

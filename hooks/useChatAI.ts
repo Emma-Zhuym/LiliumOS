@@ -2212,6 +2212,7 @@ export const useChatAI = ({
                 char,
                 userProfile,
                 emojis,
+                categories,
                 realtimeConfig,
                 contextMsgs,
                 fullMessages,
