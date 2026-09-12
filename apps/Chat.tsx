@@ -48,6 +48,10 @@ import IntifaceFloatingBall from '../components/chat/IntifaceFloatingBall';
 import InstantChatRouteNotice from '../components/chat/InstantChatRouteNotice';
 import MemoryRepairPortal from '../components/chat/MemoryRepairPortal';
 import FavoritesPortal from '../components/chat/FavoritesPortal';
+// [EM-START: text-voice-favorites]
+import { VOICE_FAVORITES_CHANGED_EVENT, getVoiceFavorite, listVoiceFavorites, removeVoiceFavorite, saveVoiceFavorite } from '../utils/voiceFavorites';
+import { buildChatVoiceFavoriteSnapshot, readExistingVoiceFavoriteAudio } from '../utils/voiceFavoriteSnapshot';
+// [EM-END: text-voice-favorites]
 import ChatModals from '../components/chat/ChatModals';
 import Modal from '../components/os/Modal';
 import ProactiveSettingsModal from '../components/chat/ProactiveSettingsModal';
@@ -147,6 +151,22 @@ const Chat: React.FC = () => {
     const [memoryRepairOpen, setMemoryRepairOpen] = useState(false);
     const [favoritesOpen, setFavoritesOpen] = useState(false);
     const [userContentFavoriteIds, setUserContentFavoriteIds] = useState<Set<string>>(new Set());
+    // [EM-START: text-voice-favorites]
+    const [voiceFavoriteKeys, setVoiceFavoriteKeys] = useState<Set<string>>(new Set());
+    const voiceFavoriteBusy = useRef(false);
+    useEffect(() => {
+        let active = true;
+        const refresh = async () => {
+            try {
+                const items = await listVoiceFavorites();
+                if (active) setVoiceFavoriteKeys(new Set(items.filter(item => item.source === 'chat').map(item => item.sourceKey)));
+            } catch (error) { console.warn('[Chat] Voice favorite index unavailable', error); }
+        };
+        void refresh();
+        window.addEventListener(VOICE_FAVORITES_CHANGED_EVENT, refresh);
+        return () => { active = false; window.removeEventListener(VOICE_FAVORITES_CHANGED_EVENT, refresh); };
+    }, []);
+    // [EM-END: text-voice-favorites]
     
     // Emoji State
     const [emojis, setEmojis] = useState<Emoji[]>([]);
@@ -2767,6 +2787,31 @@ const Chat: React.FC = () => {
         trackEvent('复制一条消息');
     };
 
+    // [EM-START: text-voice-favorites]
+    const handleToggleVoiceFavorite = async (msg: Message) => {
+        if (!char || voiceFavoriteBusy.current) return;
+        voiceFavoriteBusy.current = true;
+        setModalType('none');
+        const sourceKey = `${msg.charId}:${msg.id}`;
+        try {
+            if (await getVoiceFavorite('chat', sourceKey)) {
+                await removeVoiceFavorite('chat', sourceKey);
+                addToast('已取消语音收藏', 'info');
+                return;
+            }
+            const stored = await DB.getAssetRaw(voiceAssetKey(msg.id)) as StoredVoice | null;
+            const existing = { ...stored, ...voiceDataMap[msg.id] };
+            const snapshot = buildChatVoiceFavoriteSnapshot(msg, { id: msg.charId, name: char.name }, userProfile.name, existing);
+            if (!snapshot) { addToast('这条消息没有可收藏的语音内容', 'info'); return; }
+            const blob = await readExistingVoiceFavoriteAudio(existing);
+            await saveVoiceFavorite({ ...snapshot, blob });
+            addToast(blob ? '语音和文字已收藏' : '文字语音已收藏', 'success');
+        } catch (error) {
+            addToast(error instanceof Error ? error.message : '语音收藏失败，请重试', 'error');
+        } finally { voiceFavoriteBusy.current = false; }
+    };
+    // [EM-END: text-voice-favorites]
+
     const handleToggleSelectedMessageFavorite = async () => {
         if (!selectedMessage || !char) return;
         const favoriteId = contentFavoriteIdForMessage(selectedMessage);
@@ -3470,6 +3515,9 @@ const Chat: React.FC = () => {
                 chatVoiceLang={char.chatVoiceLang || ''}
                 onSetChatVoiceLang={(lang: string) => updateCharacter(char.id, { chatVoiceLang: lang })}
                 voiceAvailable={characterHasVoice(char, apiConfig)}
+                voiceCollectable={!!selectedMessage && !!buildChatVoiceFavoriteSnapshot(selectedMessage, char, userProfile.name, voiceDataMap[selectedMessage.id])}
+                voiceFavorited={!!selectedMessage && voiceFavoriteKeys.has(`${selectedMessage.charId}:${selectedMessage.id}`)}
+                onToggleVoiceFavorite={selectedMessage ? () => void handleToggleVoiceFavorite(selectedMessage) : undefined}
                 onGenerateVoice={selectedMessage ? () => handleManualTts(selectedMessage) : undefined}
                 voiceDownloadable={!!(selectedMessage?.id && voiceDataMap[selectedMessage.id])}
                 onDownloadVoice={selectedMessage ? () => handleDownloadVoice(selectedMessage) : undefined}

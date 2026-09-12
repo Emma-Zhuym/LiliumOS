@@ -1,6 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Microphone, SpeakerHigh, SpeakerSlash, PhoneDisconnect, Translate, Gear, Clock, CaretLeft, CaretRight, Phone, VideoCamera, VideoCameraSlash, Cube, FolderOpen, FileZip, Moon, Sun, Check } from '@phosphor-icons/react';
 import { useOS } from '../context/OSContext';
+// [EM-START: text-voice-favorites]
+import { useVoiceFavoriteMenu } from '../hooks/useVoiceFavoriteMenu';
+import { useVoiceFavoriteGesture } from '../hooks/useVoiceFavoriteGesture';
+import VoiceFavoriteActionSheet from '../components/voice/VoiceFavoriteActionSheet';
+// [EM-END: text-voice-favorites]
 import { extractContent, safeFetchJson } from '../utils/safeApi';
 import { minimaxFetch } from '../utils/minimaxEndpoint';
 import { resolveMiniMaxApiKey } from '../utils/minimaxApiKey';
@@ -493,6 +498,8 @@ const CallApp: React.FC = () => {
   const { closeApp, openApp, characters, activeCharacterId, addToast, apiConfig, userProfile, customThemes, suspendCall, suspendedCall, clearSuspendedCall, updateCharacter, characterGroups, groups, realtimeConfig, memoryPalaceConfig } = useOS();
 
   const [viewMode, setViewMode] = useState<ViewMode>('role-select');
+  const voiceFavoriteMenu = useVoiceFavoriteMenu(addToast); // [EM: text-voice-favorites]
+  const bindVoiceFavorite = useVoiceFavoriteGesture(); // [EM: text-voice-favorites]
   const [selectedCharId, setSelectedCharId] = useState<string>(activeCharacterId || characters[0]?.id || '');
   const ROLES_PER_PAGE = 6;
   const [roleGroupId, setRoleGroupId] = useState<string>(GROUP_FILTER_ALL); // 选人页的分组筛选
@@ -790,6 +797,17 @@ const CallApp: React.FC = () => {
   // VRM 模型的自定义表情名（加载时由画布回传），喂给基础版主模型或高质量导演。
   const vrmExpressionsRef = useRef<string[]>([]);
   const selectedChar = useMemo(() => characters.find(c => c.id === selectedCharId) || null, [characters, selectedCharId]);
+  // [EM-START: text-voice-favorites]
+  const openCallVoiceFavorite = (bubble: CallBubble, charId = selectedChar?.id || '', charName = selectedChar?.name || '未知角色') => {
+    if (bubble.role !== 'assistant' || !charId) return;
+    const parsed = extractVoiceTag(bubble.text);
+    const originalText = stripCallTextFormatting(parsed.display).trim() || cleanVoiceMarkupForDisplay(parsed.voiceText) || stripCallTextFormatting(bubble.text).trim();
+    const spokenText = stripFishMarkupForDisplay(cleanVoiceMarkupForDisplay(parsed.voiceText));
+    void voiceFavoriteMenu.open({ snapshot: { source: 'call', sourceKey: `${charId}:${bubble.dbId || bubble.id}`, charId, charName,
+      sourceTimestamp: bubble.timestamp, originalText, spokenText: spokenText !== originalText ? spokenText : undefined, speakerRole: 'assistant', speakerName: charName },
+      audio: { url: bubble.audioUrl } });
+  };
+  // [EM-END: text-voice-favorites]
   // 通话与普通聊天共用主动消息的云端快照。每个落库点都打脏，微任务会把同一轮
   // 的多次调用合并；这样用户通话后立刻关 App，也不会让角色漏掉刚发生的内容。
   const markCallTurnDirty = () => {
@@ -2467,6 +2485,8 @@ ${sentencePlan}`;
       onContinue={pendingVRoidImport.projectFile ? undefined : () => { void confirmVRoidImport(); }}
     />
   ) : null;
+  const voiceFavoriteSheet = <VoiceFavoriteActionSheet open={!!voiceFavoriteMenu.target} favorited={voiceFavoriteMenu.favorited} busy={voiceFavoriteMenu.busy}
+    title="通话语音" preview={voiceFavoriteMenu.target?.snapshot.originalText} onToggle={() => void voiceFavoriteMenu.toggle()} onClose={voiceFavoriteMenu.close} />;
   if (viewMode === 'role-select') {
     const groupChars = filterCharactersByGroup(characters, characterGroups, roleGroupId);
     const totalPages = Math.max(1, Math.ceil(groupChars.length / ROLES_PER_PAGE));
@@ -2833,7 +2853,8 @@ ${sentencePlan}`;
         </div>
         <div className="mt-4 flex-1 overflow-y-auto space-y-2.5">
           {recordDetail.transcript.map(item => (
-            <div key={item.id} className={`rounded-2xl px-3.5 py-2.5 border border-white/10 backdrop-blur-md ${item.role === 'user' ? 'bg-white/[0.07] ml-6' : 'bg-white/[0.03] mr-6'}`}>
+            <div key={item.id} {...(item.role === 'assistant' ? bindVoiceFavorite(() => openCallVoiceFavorite(item, recordDetail.characterId, recordDetail.characterName)) : {})}
+              className={`rounded-2xl px-3.5 py-2.5 border border-white/10 backdrop-blur-md ${item.role === 'user' ? 'bg-white/[0.07] ml-6' : 'bg-white/[0.03] mr-6'}`}>
               <div className="text-[10px] text-white/45">{item.role === 'user' ? '你' : recordDetail.characterName} · {item.time}</div>
               {item.role === 'user' && <CallSnapshotImage imageRef={item.cameraSnapshotRef} expired={item.cameraSnapshotExpired} />}
               <div className="text-sm mt-1 leading-relaxed">{(() => {
@@ -2856,6 +2877,7 @@ ${sentencePlan}`;
           className="keep-white w-full py-3 rounded-2xl mt-4 font-medium text-white transition active:scale-[0.98]"
           style={{ backgroundColor: accentColor }}
         >再打一通</button>
+        {voiceFavoriteSheet}
       </div>
     );
   }
@@ -3160,16 +3182,17 @@ ${sentencePlan}`;
           return (
           <div
             key={bubble.id}
-            onContextMenu={(e) => {
+            {...(bubble.role === 'assistant' ? bindVoiceFavorite(() => openCallVoiceFavorite(bubble)) : {
+            onContextMenu: (e: React.MouseEvent) => {
               e.preventDefault();
               startEditBubble(bubble);
-            }}
-            onTouchStart={(e) => {
+            },
+            onTouchStart: (e: React.TouchEvent) => {
               if (bubble.role !== 'user') return;
               callTouchStartPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
               longPressTimerRef.current = window.setTimeout(() => startEditBubble(bubble), 450);
-            }}
-            onTouchMove={(e) => {
+            },
+            onTouchMove: (e: React.TouchEvent) => {
               if (!longPressTimerRef.current) return;
               const dx = Math.abs(e.touches[0].clientX - callTouchStartPos.current.x);
               const dy = Math.abs(e.touches[0].clientY - callTouchStartPos.current.y);
@@ -3177,10 +3200,11 @@ ${sentencePlan}`;
                 window.clearTimeout(longPressTimerRef.current);
                 longPressTimerRef.current = null;
               }
-            }}
-            onTouchEnd={() => {
+            },
+            onTouchEnd: () => {
               if (longPressTimerRef.current) { window.clearTimeout(longPressTimerRef.current); longPressTimerRef.current = null; }
-            }}
+            },
+            })}
             style={{ opacity }}
             className={`px-1 py-1 ${bubble.role === 'user' ? 'text-right' : ''}`}
           >
@@ -3418,6 +3442,7 @@ ${sentencePlan}`;
           </div>
         </div>
       )}
+      {voiceFavoriteSheet}
       {editingBubble && (
         <div className="absolute inset-0 bg-black/60 flex items-end z-50">
           <div className={`w-full border-t border-white/10 p-5 space-y-3 ${lightTheme ? 'bg-[#f6f4fc]' : 'bg-[#120c22]'}`}>

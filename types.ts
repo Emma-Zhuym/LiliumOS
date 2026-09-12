@@ -2039,6 +2039,7 @@ export interface SongSheet {
 // --- DATE APP TYPES ---
 export interface DialogueItem {
     text: string;
+    sourceLineIndex?: number; // [EM: text-voice-favorites] 保留空行计数，GAL 与阅读模式共用同一句的身份。
     /** 立绘情绪 key（[happy]/[sad]/…）—— 只驱动立绘表情，不再直接当语音情绪。 */
     emotion?: string;
     /** 语音情绪，来自独立标记 [v:xxx]，跟立绘分开。仅取合法 MiniMax emotion，否则 undefined。 */
@@ -2106,6 +2107,8 @@ export interface DateState {
     dialogueQueue: DialogueItem[];
     dialogueBatch: DialogueItem[];
     currentText: string;
+    voiceBatchMessageId?: number; // [EM: text-voice-favorites] 恢复旧批次时不误认更新的相同台词。
+    voiceBatchStartedAt?: number; // [EM: text-voice-favorites] 无旧来源 ID 时按原批次时间限制候选。
     /** @deprecated 旧版恢复快照会复制背景图，可能是超大 base64；新版恢复优先读角色上的 dateBackground。 */
     bgImage?: string;
     /** @deprecated 旧版恢复快照会复制立绘图，可能是超大 base64；新版恢复优先读 currentSpriteKey。 */

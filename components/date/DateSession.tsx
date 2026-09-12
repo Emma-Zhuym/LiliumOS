@@ -16,6 +16,12 @@ import { cleanTextForTtsFish } from '../../utils/fishAudioTts';
 import { planNovelLoadMore } from '../../utils/dateSessionHistory';
 import { getPendingReplyText } from '../../utils/pendingReply';
 import { MEETING_CONTINUE_DISPLAY_TEXT } from '../../utils/meetingContinue';
+// [EM-START: text-voice-favorites]
+import { useVoiceFavoriteMenu, type VoiceFavoriteTarget } from '../../hooks/useVoiceFavoriteMenu';
+import { useVoiceFavoriteGesture } from '../../hooks/useVoiceFavoriteGesture';
+import VoiceFavoriteActionSheet from '../voice/VoiceFavoriteActionSheet';
+import { resolveCurrentDateVoiceLine } from '../../utils/dateVoiceSource';
+// [EM-END: text-voice-favorites]
 
 // 语音情绪标记 [v:xxx]：跟立绘情绪 [emotion] 分开的独立通道。立绘的 happy 是
 // 夸张的表情、语音的 happy 是音色情绪，两者强度/语义差异大，不能一概而论。
@@ -70,11 +76,11 @@ const extractDialogueText = (text: string): string => {
 
 const parseDialogue = (fullText: string, initialEmotion: string = 'normal'): DialogueItem[] => {
     if (!fullText) return [];
-    const lines = fullText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    const lines = fullText.split('\n').map(l => l.trim());
     const results: DialogueItem[] = [];
     let currentEmotion = initialEmotion;
 
-    for (const rawLine of lines) {
+    for (const [sourceLineIndex, rawLine] of lines.entries()) {
         if (isContextNoise(rawLine)) continue;
         // 先把独立的语音情绪标记 [v:xxx] 抽出来（跟立绘情绪互不影响），再解析立绘标签
         const { voiceEmotion, rest } = extractVoiceEmotionTag(rawLine);
@@ -94,7 +100,7 @@ const parseDialogue = (fullText: string, initialEmotion: string = 'normal'): Dia
             }
         }
         if (content) {
-            results.push({ text: content, emotion: currentEmotion, voiceEmotion });
+            results.push({ text: content, emotion: currentEmotion, voiceEmotion, sourceLineIndex });
         }
     }
     return results;
@@ -202,6 +208,7 @@ const DateSession: React.FC<DateSessionProps> = ({
     const [galVoiceLoading, setGalVoiceLoading] = useState(false);
     const [showVoiceLangPicker, setShowVoiceLangPicker] = useState(false);
     const voiceCacheRef = useRef<Record<string, string>>({});
+    const voiceSnapshotCacheRef = useRef<Record<string, { url: string; spokenText: string; lang?: string }>>({}); // [EM: text-voice-favorites]
     const [novelVoiceLoading, setNovelVoiceLoading] = useState<Set<string>>(new Set());
     const [novelPlayingId, setNovelPlayingId] = useState<string | null>(null);
     const [novelVisibleCount, setNovelVisibleCount] = useState(NOVEL_MESSAGE_WINDOW_SIZE);
@@ -239,11 +246,13 @@ const DateSession: React.FC<DateSessionProps> = ({
                     if (translated) ttsText = translated;
                 } catch { /* use original */ }
             }
-            return await synthesizeSpeech(ttsText, char, apiConfig, {
+            const url = await synthesizeSpeech(ttsText, char, apiConfig, {
                 languageBoost: voiceLang || undefined,
                 groupId: apiConfig.minimaxGroupId || undefined,
                 emotion,
             });
+            if (url) voiceSnapshotCacheRef.current[text] = { url, spokenText: cleanTextForDisplay(ttsText), lang: voiceLang || undefined }; // [EM: text-voice-favorites]
+            return url;
         } catch (err: any) {
             console.warn('Date TTS failed:', err?.message);
             return null;
@@ -347,9 +356,50 @@ const DateSession: React.FC<DateSessionProps> = ({
         setNovelPlayingId(lineKey);
     };
 
+    // [EM-START: text-voice-favorites]
+    const voiceFavoriteMenu = useVoiceFavoriteMenu(addToast);
+    const bindVoiceFavorite = useVoiceFavoriteGesture();
+    const voiceBatchMessageIdRef = useRef(initialState?.voiceBatchMessageId);
+    const voiceBatchStartedAtRef = useRef(initialState?.voiceBatchStartedAt || initialState?.timestamp || Date.now());
+    const dateVoiceTarget = (sourceKey: string, originalText: string, sourceTimestamp: number): VoiceFavoriteTarget => {
+        const existing = voiceSnapshotCacheRef.current[originalText];
+        return {
+            snapshot: { source: 'date', sourceKey, originalText, sourceTimestamp, charId: char.id, charName: char.name,
+                speakerRole: 'assistant', speakerName: char.name, spokenText: existing?.spokenText !== originalText ? existing?.spokenText : undefined, language: existing?.lang },
+            audio: existing || { url: voiceCacheRef.current[originalText] },
+        };
+    };
+    const resolveDateVoiceBatchMessage = () => {
+        if (!dialogueBatch.length) return null;
+        for (let index = messages.length - 1; index >= 0; index--) {
+            const message = messages[index];
+            if (message.role !== 'assistant' || message.metadata?.isOpening) continue;
+            if (voiceBatchMessageIdRef.current !== undefined ? message.id !== voiceBatchMessageIdRef.current : message.timestamp > voiceBatchStartedAtRef.current) continue;
+            const { rest } = extractObservation(message.content || '', { lenient: observeEnabled, custom: char.dateObserve?.custom });
+            const parsed = parseDialogue(rest);
+            if (parsed.length === dialogueBatch.length && parsed.every((line, i) => line.text === dialogueBatch[i].text)) return { message, parsed };
+        }
+        return null;
+    };
+    const currentDateVoiceTarget = (): VoiceFavoriteTarget | null => {
+        if (!isDialogueLine(currentText)) return null;
+        const text = extractDialogueText(currentText);
+        // Use the position in the complete current batch: repeated dialogue such
+        // as two separate “嗯” lines must not point to the last matching line.
+        const currentIndex = dialogueBatch.length - dialogueQueue.length - 1;
+        if (currentIndex < 0 || dialogueBatch[currentIndex]?.text !== currentText) return null;
+        const source = resolveDateVoiceBatchMessage();
+        if (!source) return null;
+        const lineIndex = resolveCurrentDateVoiceLine(source.parsed, dialogueBatch, dialogueQueue.length, currentText);
+        if (lineIndex !== null) return dateVoiceTarget(`${char.id}:${source.message.id}-${lineIndex}`, text, source.message.timestamp);
+        return null;
+    };
+    // [EM-END: text-voice-favorites]
+
     // Back Handler
     useEffect(() => {
         const unregister = registerBackHandler(() => {
+            if (voiceFavoriteMenu.target) { voiceFavoriteMenu.close(); return true; }
             if (showSettings) {
                 setShowSettings(false);
                 return true;
@@ -367,7 +417,7 @@ const DateSession: React.FC<DateSessionProps> = ({
             return true;
         });
         return unregister;
-    }, [showSettings, showMenu, showExitModal, registerBackHandler]);
+    }, [showSettings, showMenu, showExitModal, registerBackHandler, voiceFavoriteMenu.target, voiceFavoriteMenu.close]);
 
     const dateEmotionKeys = [...REQUIRED_EMOTIONS_SET, ...(char.customDateSprites || [])];
 
@@ -551,6 +601,8 @@ const DateSession: React.FC<DateSessionProps> = ({
         const { rest } = extractObservation(lastAssistantContent, { lenient: observeEnabled, custom: char.dateObserve?.custom });
         const items = parseDialogue(rest, 'normal');
         if (items.length === 0) return;
+        voiceBatchMessageIdRef.current = [...messages].reverse().find(message => message.role === 'assistant')?.id;
+        voiceBatchStartedAtRef.current = Date.now();
         setDialogueBatch(items);
         processNextDialogue(items[0], items.slice(1));
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -608,6 +660,8 @@ addToast('重播对话', 'info');
             const { observation: obs, rest } = extractObservation(aiContent, { lenient: observeEnabled, custom: char.dateObserve?.custom });
             if (hasObservation(obs)) setObservation(obs);
             const items = parseDialogue(rest, 'normal');
+            voiceBatchMessageIdRef.current = undefined;
+            voiceBatchStartedAtRef.current = Date.now();
             setDialogueBatch(items);
             setDialogueQueue(items);
             if (items.length > 0) {
@@ -635,6 +689,8 @@ addToast('重播对话', 'info');
             const { observation: obs, rest } = extractObservation(aiContent, { lenient: observeEnabled, custom: char.dateObserve?.custom });
             if (hasObservation(obs)) setObservation(obs);
             const items = parseDialogue(rest, 'normal');
+            voiceBatchMessageIdRef.current = undefined;
+            voiceBatchStartedAtRef.current = Date.now();
             setDialogueBatch(items);
             setDialogueQueue(items);
             if (items.length > 0) processNextDialogue(items[0], items.slice(1));
@@ -651,6 +707,8 @@ addToast('重播对话', 'info');
         dialogueQueue,
         dialogueBatch,
         currentText,
+        voiceBatchMessageId: voiceBatchMessageIdRef.current ?? resolveDateVoiceBatchMessage()?.message.id,
+        voiceBatchStartedAt: voiceBatchStartedAtRef.current,
         // Keep recovery snapshots light: don't duplicate base64 background/sprite data here.
         // TODO(date-assets): migrate CharacterProfile dateBackground/sprites/dateSkinSets themselves
         // into the IndexedDB assets store and keep stable asset refs on the character.
@@ -1015,7 +1073,8 @@ addToast('重播对话', 'info');
                                                 const lineKey = `${msg.id}-${idx}`;
                                                 const isOpeningMsg = msg.metadata?.isOpening === true;
                                                 return (
-                                                    <div key={idx} className="flex items-start gap-1 mb-4 last:mb-0">
+                                                    <div key={idx} className="flex items-start gap-1 mb-4 last:mb-0"
+                                                        {...(!isBatchSelectMode && lineIsDialogue && !isOpeningMsg ? bindVoiceFavorite(() => void voiceFavoriteMenu.open(dateVoiceTarget(`${char.id}:${lineKey}`, extractDialogueText(line), msg.timestamp))) : {})}>
                                                         <p className={`flex-1 whitespace-pre-wrap font-serif text-[18px] text-justify leading-loose tracking-wide pl-4 ${char.dateLightReading ? 'text-stone-700 border-l-2 border-stone-200' : 'text-slate-200 drop-shadow-md border-l-2 border-white/10'}`}>{cleanLine}</p>
                                                         {/* Voice button: only for dialogue lines, not opening */}
                                                         {voiceEnabled && lineIsDialogue && !isOpeningMsg && (
@@ -1056,7 +1115,8 @@ addToast('重播对话', 'info');
                     </div>
                     {!isTyping && (
                         <div className="absolute inset-x-0 bottom-8 z-30 flex justify-center">
-                            <div className="w-[90%] max-w-lg bg-black/60 backdrop-blur-xl rounded-2xl border border-white/10 p-6 min-h-[140px] shadow-2xl animate-slide-up hover:bg-black/70 cursor-pointer">
+                            <div className="w-[90%] max-w-lg bg-black/60 backdrop-blur-xl rounded-2xl border border-white/10 p-6 min-h-[140px] shadow-2xl animate-slide-up hover:bg-black/70 cursor-pointer"
+                                {...(!isTextAnimating && !isShowingOpening && isDialogueLine(currentText) ? bindVoiceFavorite(() => void voiceFavoriteMenu.open(currentDateVoiceTarget())) : {})}>
                                 <div className="absolute -top-3 left-6 flex items-center gap-2">
                                     <div className="bg-white/90 text-black px-4 py-1 rounded-sm text-xs font-bold tracking-widest uppercase shadow-[0_4px_10px_rgba(0,0,0,0.3)] transform -skew-x-12">{char.name}</div>
                                     {/* Voice play button next to name */}
@@ -1115,6 +1175,12 @@ addToast('重播对话', 'info');
             </div>
 
             {/* Settings Overlay */}
+            <VoiceFavoriteActionSheet open={!!voiceFavoriteMenu.target} favorited={voiceFavoriteMenu.favorited} busy={voiceFavoriteMenu.busy}
+                title="见面语音" preview={voiceFavoriteMenu.target?.snapshot.originalText} onToggle={() => void voiceFavoriteMenu.toggle()} onClose={voiceFavoriteMenu.close}
+                onMessageOptions={messages.some(message => voiceFavoriteMenu.target?.snapshot.sourceKey.startsWith(`${char.id}:${message.id}-`)) ? () => {
+                    const message = messages.find(message => voiceFavoriteMenu.target?.snapshot.sourceKey.startsWith(`${char.id}:${message.id}-`));
+                    if (message) { voiceFavoriteMenu.close(); setSelectedMessage(message); setModalType('options'); }
+                } : undefined} />
             {showSettings && (
                 <div className="absolute inset-0 z-[200] animate-slide-up bg-white">
                     <DateSettings char={char} onBack={() => setShowSettings(false)} />

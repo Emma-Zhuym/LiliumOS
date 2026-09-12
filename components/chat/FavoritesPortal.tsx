@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CaretLeft, ChatCircleDots, Image, MagnifyingGlass, Star, Trash, X } from '@phosphor-icons/react';
+import { CaretLeft, ChatCircleDots, Image, MagnifyingGlass, Star, Trash, Waveform, X } from '@phosphor-icons/react';
+import VoiceFavoritesList from './VoiceFavoritesList'; // [EM: text-voice-favorites]
 import {
     CONTENT_FAVORITES_CHANGED_EVENT,
     listContentFavorites,
@@ -13,7 +14,7 @@ import TokenImg from '../os/TokenImg';
 import { normalizeChatSearchText, searchableChatMessageText } from '../../utils/chatMessageSearch';
 import { F, HUE, R, S } from '../../utils/clayTokens';
 
-type FavoriteTab = 'chat' | 'image';
+type FavoriteTab = 'chat' | 'image' | 'voice'; // [EM: text-voice-favorites]
 
 interface FavoritesPortalProps {
     onClose: () => void;
@@ -81,7 +82,7 @@ const FavoritesPortal: React.FC<FavoritesPortalProps> = ({ onClose, onJumpToMess
             return searchableText.includes(normalizedSearchQuery);
         });
     }, [chatItems, normalizedSearchQuery, resolved]);
-    const visibleItems = tab === 'chat' ? searchedChatItems : imageItems;
+    const visibleItems = tab === 'chat' ? searchedChatItems : tab === 'image' ? imageItems : [];
     const visibleKey = visibleItems.map(item => item.id).join('|');
     const searchActive = tab === 'chat' && !!normalizedSearchQuery;
 
@@ -159,28 +160,29 @@ const FavoritesPortal: React.FC<FavoritesPortalProps> = ({ onClose, onJumpToMess
                         <button
                             type="button"
                             onClick={() => {
-                                if (tab === 'chat' && searchOpen) {
+                                if (tab !== 'image' && searchOpen) {
                                     setSearchOpen(false);
                                     setSearchQuery('');
                                 } else {
-                                    setTab('chat');
+                                    if (tab === 'image') setTab('chat');
                                     setSearchOpen(true);
                                 }
                             }}
                             className="flex items-center justify-center active:translate-y-[1px] transition-transform"
-                            style={{ width: 44, height: 44, borderRadius: R.pill, background: searchOpen && tab === 'chat' ? HUE.violet.tint : F.surfaceRaised, border: `1px solid ${searchOpen && tab === 'chat' ? HUE.violet.soft : F.borderSoft}`, boxShadow: S.raisedSoft }}
-                            aria-label={tab === 'chat' && searchOpen ? '关闭收藏搜索' : '搜索聊天收藏'}
-                            aria-pressed={tab === 'chat' && searchOpen}
+                            style={{ width: 44, height: 44, borderRadius: R.pill, background: searchOpen && tab !== 'image' ? HUE.violet.tint : F.surfaceRaised, border: `1px solid ${searchOpen && tab !== 'image' ? HUE.violet.soft : F.borderSoft}`, boxShadow: S.raisedSoft }}
+                            aria-label={tab !== 'image' && searchOpen ? '关闭收藏搜索' : tab === 'voice' ? '搜索语音收藏' : '搜索聊天收藏'}
+                            aria-pressed={tab !== 'image' && searchOpen}
                         >
-                            <MagnifyingGlass size={20} weight="bold" style={{ color: searchOpen && tab === 'chat' ? HUE.violet.ink : F.textSecondary }} />
+                            <MagnifyingGlass size={20} weight="bold" style={{ color: searchOpen && tab !== 'image' ? HUE.violet.ink : F.textSecondary }} />
                         </button>
                     </div>
                 </div>
-                <p className="px-5 pb-2 text-center text-[10px]" style={{ color: F.textTertiary }}>图片只保存引用，同一张不会重复占空间</p>
-                <div className="grid grid-cols-2 px-4">
+                <p className="px-5 pb-2 text-center text-[10px]" style={{ color: F.textTertiary }}>{tab === 'voice' ? '语音文字独立保留，有现成音频时一同收藏' : '图片只保存引用，同一张不会重复占空间'}</p>
+                <div className="mx-4 mb-3 grid grid-cols-3 gap-1 p-1" style={{ background: F.surfaceSunken, borderRadius: R.large, boxShadow: S.sunken }}>
                     {([
-                        { value: 'chat' as const, label: '聊天', count: chatItems.length, icon: <ChatCircleDots size={16} weight="fill" /> },
-                        { value: 'image' as const, label: '图片', count: imageItems.length, icon: <Image size={16} weight="fill" /> },
+                        { value: 'chat' as const, label: '聊天', count: chatItems.length, icon: <ChatCircleDots size={16} weight="bold" /> },
+                        { value: 'voice' as const, label: '语音', count: undefined, icon: <Waveform size={16} weight="bold" /> },
+                        { value: 'image' as const, label: '图片', count: imageItems.length, icon: <Image size={16} weight="bold" /> },
                     ]).map(item => (
                         <button
                             key={item.value}
@@ -192,13 +194,15 @@ const FavoritesPortal: React.FC<FavoritesPortalProps> = ({ onClose, onJumpToMess
                                     setSearchQuery('');
                                 }
                             }}
-                            className={`flex items-center justify-center gap-1.5 border-b-2 py-3 text-xs font-bold transition-colors ${tab === item.value ? 'border-violet-500 text-violet-600' : 'border-transparent text-slate-400'}`}
+                            aria-pressed={tab === item.value}
+                            className="flex min-h-11 items-center justify-center gap-1.5 text-xs font-semibold"
+                            style={{ borderRadius: R.medium, background: tab === item.value ? F.surfaceRaised : 'transparent', color: tab === item.value ? HUE.violet.ink : F.textTertiary, boxShadow: tab === item.value ? S.raisedSoft : 'none' }}
                         >
                             {item.icon}{item.label}<span className="text-[9px] opacity-60">{item.count}</span>
                         </button>
                     ))}
                 </div>
-                {tab === 'chat' && searchOpen && (
+                {tab !== 'image' && searchOpen && (
                     <div className="px-4 pb-3 pt-2">
                         <div className="relative">
                             <MagnifyingGlass size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2" style={{ color: F.textTertiary }} />
@@ -207,10 +211,10 @@ const FavoritesPortal: React.FC<FavoritesPortalProps> = ({ onClose, onJumpToMess
                                 type="search"
                                 value={searchQuery}
                                 onChange={event => setSearchQuery(event.target.value)}
-                                placeholder="搜索角色名或聊天收藏内容"
+                                placeholder={tab === 'voice' ? '搜索说话者、语音文字或字幕' : '搜索角色名或聊天收藏内容'}
                                 className="h-11 w-full pl-9 pr-10 text-[12px] outline-none"
                                 style={{ borderRadius: R.input, background: F.surfaceSunken, border: `1px solid ${F.borderSoft}`, boxShadow: S.sunken, color: F.textPrimary }}
-                                aria-label="搜索聊天收藏中的关键词"
+                                aria-label={tab === 'voice' ? '搜索语音收藏中的关键词' : '搜索聊天收藏中的关键词'}
                             />
                             {searchQuery && (
                                 <button type="button" onClick={() => setSearchQuery('')} className="absolute right-1 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center" aria-label="清空收藏搜索">
@@ -218,7 +222,7 @@ const FavoritesPortal: React.FC<FavoritesPortalProps> = ({ onClose, onJumpToMess
                                 </button>
                             )}
                         </div>
-                        {normalizedSearchQuery && (
+                        {tab === 'chat' && normalizedSearchQuery && (
                             <p className="mt-1.5 px-1 text-[10px]" style={{ color: F.textSecondary }}>
                                 {searchHydrating ? '正在补读旧版收藏…' : <>找到 <b style={{ color: HUE.violet.ink }}>{searchedChatItems.length}</b> 条聊天收藏</>}
                             </p>
@@ -228,7 +232,7 @@ const FavoritesPortal: React.FC<FavoritesPortalProps> = ({ onClose, onJumpToMess
             </header>
 
             <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-[max(2rem,var(--safe-bottom))]">
-                {loading ? (
+                {tab === 'voice' ? <VoiceFavoritesList query={searchQuery} /> : loading ? (
                     <div className="grid h-48 place-items-center text-xs text-slate-400">正在整理收藏…</div>
                 ) : searchActive && searchHydrating && visibleItems.length === 0 ? (
                     <div className="grid h-64 place-items-center text-xs" style={{ color: F.textTertiary }}>正在补读旧版收藏…</div>

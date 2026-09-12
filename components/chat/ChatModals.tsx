@@ -7,7 +7,7 @@ import TokenImg from '../os/TokenImg';
 import { CharacterProfile, Message, EmojiCategory, DailySchedule, ScheduleSlot, ApiPreset, APIConfig } from '../../types';
 import ScheduleCard from '../schedule/ScheduleCard';
 import EmotionSettingsPanel from './EmotionSettingsPanel';
-import { F, HUE } from '../../utils/clayTokens';
+import { F, HUE, R, S } from '../../utils/clayTokens';
 import { formatSleepTimelineTime, SLEEP_TIMELINE_END, SLEEP_TIMELINE_START } from '../../utils/scheduleTime';
 import { isTranslationLangPreset, normalizeTranslationLangLabel, TRANSLATION_LANG_MAX_LENGTH, TRANSLATION_LANG_PRESETS } from '../../utils/translationLang';
 import type { ContextRangeMode, ContextRangeSnapshot } from '../../utils/chatContextRange';
@@ -122,6 +122,11 @@ interface ChatModalsProps {
     // Voice generation from long-press
     onGenerateVoice?: () => void;
     voiceAvailable?: boolean; // true if char has voiceProfile configured
+    // [EM-START: text-voice-favorites]
+    voiceCollectable?: boolean;
+    voiceFavorited?: boolean;
+    onToggleVoiceFavorite?: () => void;
+    // [EM-END: text-voice-favorites]
     onDownloadVoice?: () => void;
     voiceDownloadable?: boolean; // true if the selected message already has generated voice
     // Schedule
@@ -271,7 +276,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
     htmlModeEnabled, onToggleHtmlMode, htmlModeCustomPrompt, setHtmlModeCustomPrompt,
     photoStyle, onSetPhotoStyle,
     chatVoiceEnabled, onToggleChatVoice, chatVoiceAutoPlay, onToggleChatVoiceAutoPlay, chatVoiceLang, onSetChatVoiceLang,
-    onGenerateVoice, voiceAvailable, onDownloadVoice, voiceDownloadable,
+    onGenerateVoice, voiceAvailable, onDownloadVoice, voiceDownloadable, voiceCollectable, voiceFavorited, onToggleVoiceFavorite,
     scheduleData, isScheduleGenerating, onScheduleEdit, onScheduleDelete, onScheduleReroll, onScheduleCoverChange,
     onScheduleStyleChange, dailyRhythm = '', onDailyRhythmChange, sleepWindow, onSleepWindowChange, scheduleSlotCount = 8, onScheduleSlotCountChange, onPlayTheater,
     isScheduleFeatureEnabled, onToggleScheduleFeature,
@@ -1000,6 +1005,13 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                             复制文字
                         </button>
                     )}
+                    {/* [EM-START: text-voice-favorites] */}
+                    {voiceCollectable && onToggleVoiceFavorite && (
+                        <button type="button" onClick={onToggleVoiceFavorite} className="min-h-12 w-full px-4 text-sm font-medium" style={{ background: F.surface, color: HUE.violet.ink, border: `1px solid ${F.borderSoft}`, borderRadius: R.button, boxShadow: S.raisedSoft }}>
+                            {voiceFavorited ? '取消语音收藏' : '收藏语音'}
+                        </button>
+                    )}
+                    {/* [EM-END: text-voice-favorites] */}
                     {voiceAvailable && selectedMessage?.role === 'assistant' && selectedMessage?.type === 'text' && onGenerateVoice && (
                         <button onClick={() => { onGenerateVoice(); setModalType('none'); }} className="w-full py-3 bg-emerald-50 text-emerald-600 font-medium rounded-2xl active:bg-emerald-100 transition-colors flex items-center justify-center gap-2">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 0 1 0 12.728M16.463 8.288a5.25 5.25 0 0 1 0 7.424M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z" /></svg>
