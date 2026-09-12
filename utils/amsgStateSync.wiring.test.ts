@@ -56,7 +56,8 @@ describe('打脏入口接线（保存后调 markAmsgStateDirty）', () => {
 describe('LLM 凭据行的重传接线', () => {
   it('设置页保存聊天 API：重传凭据行 + 存量内联任务照旧补刷（两条并存）', () => {
     const src = read('../apps/Settings.tsx');
-    const fn = sliceBetween(src, 'const handleSaveApi', 'const handleSaveOtherApis');
+    expect(sliceBetween(src, 'const handleSaveApi', 'const handleSaveVisionApi')).toContain('commitApiConfig(nextConfig)');
+    const fn = sliceBetween(src, 'const refreshSavedApiCredentials', 'const applyPreset');
     expect(fn).toContain('syncAmsgLlmCredentials(');
     expect(fn, '存量内联任务还靠它续命，不能顺手退役')
       .toContain('ActiveMsgClient.refreshApiCredentialsForPendingTasks(');

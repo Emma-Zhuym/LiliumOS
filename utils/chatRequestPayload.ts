@@ -120,6 +120,8 @@ export interface BuildChatPayloadResult {
     cleanedApiMessages: Array<{ role: string; content: any }>;
     /** [system, ...cleanedApiMessages, 末尾 bilingual reminder?] —— 主 API 直接发这个 */
     fullMessages: Array<{ role: string; content: any }>;
+    /** 易变尾段的位置，供每轮排程块插在它前面；开发合并/跳过时为 -1。 */
+    volatileTailIndex: number;
     /** 调试用：bilingual / mcd 是否实际注入 */
     flags: {
         bilingualActive: boolean;
@@ -267,6 +269,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
             systemPrompt: '',
             cleanedApiMessages,
             fullMessages: [...cleanedApiMessages],
+            volatileTailIndex: -1,
             flags: {
                 bilingualActive: false,
                 mcdActive: false,
@@ -497,6 +500,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         systemPrompt: systemPrompt + volatileTail,
         cleanedApiMessages: messagesWithWorldbookDepth,
         fullMessages: finalMessages,
+        volatileTailIndex: finalMessages === fullMessages ? 1 + messagesWithWorldbookDepth.length : -1,
         flags: { bilingualActive, mcdActive, luckinActive, luckinChatActive, mcpChatActive, htmlActive, thinkingActive, promptBuildSkipped: false },
         // [EM-START: context-breakdown-return] merge 后确认这段还在，Token 面板靠它
         // 三段式适配：systemPrompt=stable（双语注入载体），volatileTail 归入"系统附加"由 useChatAI 端算总长

@@ -1,11 +1,12 @@
 import { loadChatInputPreferences, saveChatInputPreferences } from '../utils/chatInputPreferences';
+import { getCheckPhoneApi, setCheckPhoneApi } from '../utils/checkPhoneApi';
 
 import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
 import { APIConfig, AppID, OSTheme, VirtualTime, CharacterProfile, CharacterGroup, ChatTheme, Toast, FullBackupData, UserProfile, ApiPreset, GroupProfile, SystemLog, Worldbook, NovelBook, SongSheet, Message, RealtimeConfig, AppearancePreset, CloudBackupConfig, CloudBackupFile } from '../types';
 import { DB } from '../utils/db';
 import type { AvatarTouchRecord } from '../utils/avatarTouch';
 import { clampClaudeTemperature, modelRejectsSamplingParams, stripSamplingParams } from '../utils/samplingParamCompat';
-import { buildMalformedImageDiagnostics, extractImagesInPlace, deepCloneForExport, parseImageDataUrlForBackup, type BackupObjectPath, type MalformedBackupImageDiagnostic } from '../utils/backupExport';
+import { buildMalformedImageDiagnostics, stripBackupImages, extractImagesInPlace, deepCloneForExport, parseImageDataUrlForBackup, type BackupObjectPath, type MalformedBackupImageDiagnostic } from '../utils/backupExport';
 import { isBlobRef, getBlobForRef, restoreBlobRef, migrateDataUrlToRef, migrateAppearancePresetBlobRefs, migrateChatThemeBlobRefs, resolveBlobRefsDeep, resolveRefToDataUrl, BLOBREF_PREFIX, deleteBlobRefIfUnreferenced } from '../utils/blobRef';
 import { resolveBlobRefsInRequestBody } from '../utils/apiBlobRefs';
 import { collectBlobRefs, writeBlobsToZip, readBlobsIndex, restoreBlobsFromZip } from '../utils/backupBlobs';
@@ -3762,31 +3763,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               ? undefined
               : (s: string) => collectBlobRefs(s, referencedBlobTokens);
 
-          // Strip Base64 Images (Recursive) - Used for Text Only Mode
-          const stripBase64 = (obj: any): any => {
-              if (typeof obj === 'string') {
-                  // text_only 模式剥掉所有图片：data:image 与 blobref 令牌（令牌无二进制随行，
-                  // 恢复端认不得，等同一张丢失的图）都清空。
-                  if (obj.startsWith('data:image') || obj.startsWith(BLOBREF_PREFIX)) return '';
-                  return obj;
-              }
-              if (Array.isArray(obj)) {
-                  return obj.map(item => stripBase64(item));
-              }
-              if (obj !== null && typeof obj === 'object') {
-                  const newObj: any = {};
-                  for (const key in obj) {
-                      if (Object.prototype.hasOwnProperty.call(obj, key)) {
-                          newObj[key] = stripBase64(obj[key]);
-                      }
-                  }
-                  return newObj;
-              }
-              return obj;
-          };
-
           const stripTextOnlyMedia = (obj: any): any => {
-              const stripped = stripBase64(obj);
+              const stripped = stripBackupImages(obj);
               const markExpiredCallSnapshots = (value: any): void => {
                   if (Array.isArray(value)) {
                       value.forEach(markExpiredCallSnapshots);
@@ -3934,7 +3912,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
           // theme / customIcons / appearancePresets 直接引用运行态 React state。只有
           // media/full 会走 processObject 原地改，必须先深拷贝，否则会把正在用的系统主题改坏；
-          // text_only 走 stripBase64（返回新树、不改原对象），直接用引用即可，省掉一次
+          // text_only 走 stripBackupImages（返回新树、不改原对象），直接用引用即可，省掉一次
           // 可能多达数 MB（壁纸 base64）的克隆。
           const cloneForInPlace = <T,>(v: T): T => (mode === 'text_only' ? v : deepCloneForExport(v));
 
@@ -3942,6 +3920,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               timestamp: Date.now(),
               version: 3,
               apiConfig: (mode === 'text_only' || mode === 'full') ? apiConfig : undefined,
+              checkPhoneApi: (mode === 'text_only' || mode === 'full') ? getCheckPhoneApi() : undefined,
               apiPresets: (mode === 'text_only' || mode === 'full') ? apiPresets : undefined,
               availableModels: (mode === 'text_only' || mode === 'full') ? availableModels : undefined,
               realtimeConfig: (mode === 'text_only' || mode === 'full') ? realtimeConfig : undefined,
@@ -4207,19 +4186,19 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               markVoiceFavoriteAudioOmitted([{ id: VOICE_FAVORITES_INDEX_ASSET_ID, data: voiceIndex }]);
               backupData.voiceFavoritesIndex = voiceIndex;
               // [EM-END: text-voice-favorites]
-              if (backupData.socialAppData?.userProfile) backupData.socialAppData.userProfile = stripBase64(backupData.socialAppData.userProfile);
-              if (backupData.socialAppData?.userBg) backupData.socialAppData.userBg = stripBase64(backupData.socialAppData.userBg);
-              if (backupData.roomCustomAssets) backupData.roomCustomAssets = stripBase64(backupData.roomCustomAssets);
-              if (backupData.customIcons) backupData.customIcons = stripBase64(backupData.customIcons);
-              if (backupData.appearancePresets) backupData.appearancePresets = stripBase64(backupData.appearancePresets);
+              if (backupData.socialAppData?.userProfile) backupData.socialAppData.userProfile = stripBackupImages(backupData.socialAppData.userProfile);
+              if (backupData.socialAppData?.userBg) backupData.socialAppData.userBg = stripBackupImages(backupData.socialAppData.userBg);
+              if (backupData.roomCustomAssets) backupData.roomCustomAssets = stripBackupImages(backupData.roomCustomAssets);
+              if (backupData.customIcons) backupData.customIcons = stripBackupImages(backupData.customIcons);
+              if (backupData.appearancePresets) backupData.appearancePresets = stripBackupImages(backupData.appearancePresets);
               if (backupData.theme) {
                   // Save preset decoration content before stripping (SVGs start with data:image and would be stripped)
                   const savedPresetDecos = backupData.theme.desktopDecorations
                       ?.filter(d => d.type === 'preset')
                       .map(d => ({ id: d.id, content: d.content }));
-                  const strippedTheme = stripBase64(backupData.theme) as OSTheme;
+                  const strippedTheme = stripBackupImages(backupData.theme) as OSTheme;
                   // text_only 不带图片：内存里的壁纸是 blob: objectURL（会话临时，恢复端认不得），
-                  // blobref 令牌 stripBase64 已清空——这里补清 blob: 避免导出一个死链接壁纸。
+                  // blobref 令牌 stripBackupImages 已清空——这里补清 blob: 避免导出一个死链接壁纸。
                   if (strippedTheme.wallpaper && strippedTheme.wallpaper.startsWith('blob:')) strippedTheme.wallpaper = '';
                   backupData.theme = strippedTheme;
                   // Restore preset SVGs and remove image decorations (they have no data in text mode)
@@ -4920,9 +4899,11 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               await updateTheme(data.theme);
           }
           if (data.apiConfig) updateApiConfig(data.apiConfig);
+          if (data.checkPhoneApi !== undefined) setCheckPhoneApi(data.checkPhoneApi ?? null);
           if (data.availableModels) saveModels(data.availableModels);
           if (data.apiPresets) savePresets(data.apiPresets);
           if (data.realtimeConfig) updateRealtimeConfig(data.realtimeConfig); // 恢复实时感知配置
+          if (data.memoryPalaceConfig) updateMemoryPalaceConfig(data.memoryPalaceConfig);
           if (data.memoryPalaceFlags) { try { Object.entries(data.memoryPalaceFlags).forEach(([k, v]) => localStorage.setItem(k, v)); } catch {} }
 
           if (data.customIcons !== undefined || data.appearancePresets !== undefined) {

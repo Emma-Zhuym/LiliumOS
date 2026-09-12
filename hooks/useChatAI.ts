@@ -57,7 +57,7 @@ import { ActiveMsgStore } from '../utils/activeMsgStore';
 import { markAmsgStateDirty, startAmsgChatPresence, stopAmsgChatPresence } from '../utils/amsgStateSync';
 import { getLastRealUserMessageAt } from '../utils/amsg2ExpireGuard';
 import { getPendingTasks, hasActiveAiTask, isAmsg2EnabledForChar } from '../utils/amsg2Tasks';
-import { buildAmsg2NoticesText, buildAmsg2TaskContextText, collectAmsg2TaskContext } from '../utils/amsg2TaskContext';
+import { buildAmsg2NoticesText, buildAmsg2TaskContextText, collectAmsg2TaskContext, insertAmsg2TaskContextBlock } from '../utils/amsg2TaskContext';
 import { resolveCharTimeZone } from '../utils/timezone';
 import { resolveCharacterApiConfig } from '../utils/characterApi';
 import { announceInstantChatRoute, getInstantChatPending, resolveInstantChatReadiness, sendInstantChatTurn, stageInstantChatExpiredNotices } from '../utils/amsgInstantChat';
@@ -1347,7 +1347,7 @@ export const useChatAI = ({
             }
 
             /**
-             * 把排程现状块贴到 messages 末尾，每次发请求都按「此刻」的任务清单现算。
+             * 把排程现状块插到易变尾段前，每次发请求都按「此刻」的任务清单现算。
              *
              * 不写死进 baseReqBody.messages、也不进 loopMessages，是因为工具循环里角色会
              * 边聊边排：写死的话第二轮起看到的是**排程前**那份空清单，跟工具刚回的「已创建」
@@ -1366,7 +1366,8 @@ export const useChatAI = ({
                     userProfile.name,
                 );
                 // 常驻简介让这一块总是非空：没任务时角色也得知道自己随时能排。
-                return [...messages, { role: 'system', content: text }];
+                const block = { role: 'system', content: text };
+                return insertAmsg2TaskContextBlock(messages, block, payload.volatileTailIndex);
             };
 
             // [EM: intiface] 硬件已连接时注入本地 control_toy 工具。

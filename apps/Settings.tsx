@@ -1,5 +1,7 @@
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import { configFromPreset, findActivePresetId, type PresetSwitchPatch } from '../utils/apiPresetSwitch';
+import type { APIConfig } from '../types';
 import { useOS } from '../context/OSContext';
 import { useIntiface } from '../hooks/useIntiface';
 import { Capacitor } from '@capacitor/core';
@@ -19,7 +21,7 @@ import { getProxyWorkerUrl, setProxyWorkerUrl, DEFAULT_PROXY_WORKER } from '../u
 import { VOICE_ACTING_GUIDE } from '../utils/minimaxTts';
 import { FISH_VOICE_ACTING_GUIDE } from '../utils/fishAudioTts';
 import { DATE_VOICE_GUIDE } from '../utils/datePrompts';
-import { Sun, Newspaper, NotePencil, Notebook, Book, ForkKnife, Coffee, PersonSimpleRun, PlugsConnected, ImageSquare } from '@phosphor-icons/react'; // [EM: PersonSimpleRun]
+import { Sun, Newspaper, NotePencil, Notebook, Book, ForkKnife, Coffee, PersonSimpleRun, PlugsConnected, ImageSquare, PencilSimple, X } from '@phosphor-icons/react'; // [EM: PersonSimpleRun]
 import { requestMotionPermission, startMotionListening, stopMotionListening, isMotionListening } from '../utils/deviceMotion'; // [EM: device-motion]
 import { loadMcpServers, saveMcpServers, createMcpServer, testMcpConnection, resetMcpSession, getMcpUseNativeTools, setMcpUseNativeTools, type McpServerConfig } from '../utils/mcpClient';
 import { loadPushConfig, savePushConfig, registerScheduleOnWorker, startHeartbeat, stopHeartbeat, isPushConfigAvailable, ensureSubscribed, sendTestPush, getPushDiagnostics, resetSubscription, deepResetSubscription, type PushDiagnostics } from '../utils/proactivePushConfig';
@@ -548,8 +550,13 @@ const Settings: React.FC = () => {
   const [isLoadingVisionModels, setIsLoadingVisionModels] = useState(false);
   const [isLoadingImageModels, setIsLoadingImageModels] = useState(false);
   const [newPresetName, setNewPresetName] = useState('');
-  const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
-  const [selectedPresetName, setSelectedPresetName] = useState('');
+  const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
+  const [editPresetName, setEditPresetName] = useState('');
+  const [editPresetUrl, setEditPresetUrl] = useState('');
+  const [editPresetKey, setEditPresetKey] = useState('');
+  const [editPresetModel, setEditPresetModel] = useState('');
+  const [editPresetStream, setEditPresetStream] = useState(false);
+  const [editPresetTemperature, setEditPresetTemperature] = useState(0.85);
   const [holdingDeletePresetId, setHoldingDeletePresetId] = useState<string | null>(null);
   const presetDeleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
@@ -896,17 +903,23 @@ const Settings: React.FC = () => {
   }, []);
   useEffect(() => { void refreshAvatarModelInventory(); }, [refreshAvatarModelInventory]);
 
-  // Auto-save draft configs locally to prevent loss during typing
+  // 独立表单只跟随自己的已保存字段；保存识图或生图时保留主 API 草稿。
   useEffect(() => {
       setLocalUrl(apiConfig.baseUrl);
       setLocalKey(apiConfig.apiKey);
       setLocalModel(String(apiConfig.model || ''));
       setLocalStream(apiConfig.stream === true);
       setLocalTemperature(typeof apiConfig.temperature === 'number' ? apiConfig.temperature : 0.85);
+  }, [apiConfig.baseUrl, apiConfig.apiKey, apiConfig.model, apiConfig.stream, apiConfig.temperature]);
+  useEffect(() => {
       setLocalVisionEnabled(apiConfig.visionApi?.enabled === true);
+  }, [apiConfig.visionApi?.enabled]);
+  useEffect(() => {
       setLocalVisionUrl(apiConfig.visionApi?.baseUrl || '');
       setLocalVisionKey(apiConfig.visionApi?.apiKey || '');
       setLocalVisionModel(apiConfig.visionApi?.model || '');
+  }, [apiConfig.visionApi?.baseUrl, apiConfig.visionApi?.apiKey, apiConfig.visionApi?.model]);
+  useEffect(() => {
       const imageGeneration = resolveImageGenerationConfig(apiConfig.imageGeneration);
       setLocalImageProvider(imageGeneration.provider);
       setLocalImageUrl(imageGeneration.baseUrl);
@@ -914,6 +927,10 @@ const Settings: React.FC = () => {
       setLocalImageModel(imageGeneration.model);
       setLocalImageRequestMode(imageGeneration.requestMode);
       setLocalUseCharacterReference(imageGeneration.useCharacterReference);
+  }, [apiConfig.imageGeneration?.provider, apiConfig.imageGeneration?.baseUrl,
+      apiConfig.imageGeneration?.apiKey, apiConfig.imageGeneration?.model,
+      apiConfig.imageGeneration?.requestMode, apiConfig.imageGeneration?.useCharacterReference]);
+  useEffect(() => {
       setLocalMiniMaxKey(apiConfig.minimaxApiKey || '');
       setLocalMiniMaxGroupId(apiConfig.minimaxGroupId || '');
       setLocalMiniMaxRegion(apiConfig.minimaxRegion === 'overseas' ? 'overseas' : 'domestic');
@@ -924,24 +941,109 @@ const Settings: React.FC = () => {
       setLocalVoicePromptMinimax(apiConfig.voicePrompts?.minimax || '');
       setLocalVoicePromptFish(apiConfig.voicePrompts?.fishaudio || '');
       setLocalVoicePromptDate(apiConfig.voicePrompts?.dateVoice || '');
-  }, [apiConfig]);
+  }, [apiConfig.minimaxApiKey, apiConfig.minimaxGroupId, apiConfig.minimaxRegion,
+      apiConfig.aceStepApiKey, apiConfig.ttsProvider, apiConfig.fishAudioApiKey,
+      apiConfig.fishAudioModel, apiConfig.voicePrompts?.minimax,
+      apiConfig.voicePrompts?.fishaudio, apiConfig.voicePrompts?.dateVoice]);
 
-  const selectedApiPreset = useMemo(
-      () => apiPresets.find(preset => preset.id === selectedPresetId) || null,
-      [apiPresets, selectedPresetId],
+  // 当前生效的是哪条预设 —— 按已保存的配置反查，不额外记状态。
+  // 这样刷新、手改 URL、导入备份之后，界面上的「使用中」永远等于请求真的会发去哪。
+  const activePresetId = useMemo(
+      () => findActivePresetId(apiPresets, apiConfig),
+      [apiPresets, apiConfig.baseUrl, apiConfig.apiKey, apiConfig.model],
   );
 
-  const loadPreset = (preset: typeof apiPresets[0]) => {
-      setSelectedPresetId(preset.id);
-      setSelectedPresetName(preset.name);
-      setLocalUrl(normalizeApiBaseUrl(preset.config.baseUrl));
-      setLocalKey(normalizeApiCredential(preset.config.apiKey));
-      setLocalModel(normalizeApiModel(preset.config.model));
-      setLocalStream(preset.config.stream === true);
-      setLocalTemperature(typeof preset.config.temperature === 'number' ? preset.config.temperature : 0.85);
-      // MiniMax / AceStep settings are NOT overwritten by presets — typically one user
-      // has only one MiniMax / Replicate account regardless of which LLM preset they use.
-      addToast(`已载入预设：${preset.name}；点「保存配置」后才会切换生效`, 'info');
+  /**
+   * 把一份配置真正切过去。保存按钮和点预设走的是同一条路——除了写进全局配置，
+   * 还要把已排程的主动消息凭据一起换掉，否则聊天换了、后台任务还拿旧 Key 打请求。
+   */
+  const refreshSavedApiCredentials = (savedConfig: APIConfig) => {
+    // 支持凭据表的 Worker 上，任务只带引用，换 Key 只要覆盖云端那几行——不用逐条改任务。
+    // 老 Worker 上这句是 no-op，凭据靠下面那条逐条补刷的老路续命。
+    syncAmsgLlmCredentials(savedConfig);
+    // 已排程的主动消息 2.0 AI 任务里冻结的是排程那一刻的凭据——换 Key / 换模型后
+    // 不重传的话，到点全拿旧凭据打请求（旧 Key 一吊销就是连环 401）。best-effort：
+    // 保存本身不等它，失败只提示；没配 2.0 / 没有 pending AI 任务时它是 no-op。
+    // 存量的内联任务还靠它，所以走引用那条路的用户这里照跑（带 credRefs 的任务
+    // 到点只认引用，这一份补刷落在它们身上是无害的空转）。
+    void ActiveMsgClient.refreshApiCredentialsForPendingTasks(savedConfig)
+      .then((result) => {
+        if (result.status === 'partial') {
+          addToast(`API 已保存，但有 ${result.failed} 条已排程的主动消息没换上新凭据，稍后再保存一次可重试。`, 'error');
+        }
+      })
+      .catch((error) => {
+        console.warn('[Settings] 刷新已排程任务的 API 凭据失败', error);
+        addToast('API 已保存，但已排程的主动消息凭据刷新失败，稍后再保存一次可重试。', 'error');
+      });
+  };
+
+  const commitApiConfig = (patch: PresetSwitchPatch | Partial<APIConfig>) => {
+    updateApiConfig(patch);
+    refreshSavedApiCredentials({ ...apiConfig, ...patch });
+  };
+
+  /**
+   * 点预设 = 直接切过去并生效，没有「载入了但还没保存」的中间状态。
+   * 上面的输入框由 apiConfig 同步 effect 自己跟上，不在这里手动塞。
+   * MiniMax / AceStep 那些不归预设管：一个人通常只有一个语音账号，换 LLM 不该动它。
+   */
+  const applyPreset = (preset: typeof apiPresets[0]) => {
+      // 已经在用这条也照切：「使用中」只看 URL/Key/Model 三件套，温度、流式可能被手调过，
+      // 再点一下的语义就是「整套回到这条预设存的样子」。
+      const patch = configFromPreset(preset);
+      setLocalUrl(patch.baseUrl); setLocalKey(patch.apiKey); setLocalModel(patch.model);
+      setLocalStream(patch.stream ?? (apiConfig.stream === true));
+      setLocalTemperature(patch.temperature ?? (typeof apiConfig.temperature === 'number' ? apiConfig.temperature : 0.85));
+      commitApiConfig(patch);
+      addToast(`已切换到「${preset.name}」，立即生效`, 'success');
+  };
+
+  const openEditPreset = (preset: typeof apiPresets[0]) => {
+      cancelPresetDeleteHold();
+      const isActive = activePresetId === preset.id;
+      setEditingPresetId(preset.id);
+      setEditPresetName(preset.name);
+      setEditPresetUrl(preset.config.baseUrl || '');
+      setEditPresetKey(preset.config.apiKey || '');
+      setEditPresetModel(preset.config.model || '');
+      // 当前正在使用的预设要接住主表单里刚改的高级设置：用户点铅笔再点保存即可写回，
+      // 不必猜还要额外按一次「用当前配置填入」。非当前/老预设则读取自身，缺字段才回退。
+      setEditPresetStream(
+          isActive ? localStream : (typeof preset.config.stream === 'boolean' ? preset.config.stream : localStream),
+      );
+      setEditPresetTemperature(
+          isActive
+              ? localTemperature
+              : (typeof preset.config.temperature === 'number' ? preset.config.temperature : localTemperature),
+      );
+  };
+
+  const handleUpdatePreset = () => {
+      const preset = apiPresets.find(item => item.id === editingPresetId);
+      if (!preset) return;
+      const name = editPresetName.trim();
+      if (!name) {
+          addToast('预设名称不能为空', 'error');
+          return;
+      }
+      const nextConfig = {
+          ...preset.config,
+          baseUrl: normalizeApiBaseUrl(editPresetUrl),
+          apiKey: normalizeApiCredential(editPresetKey),
+          model: normalizeApiModel(editPresetModel),
+          stream: editPresetStream,
+          temperature: editPresetTemperature,
+      };
+      // 「正在用的就是这条」要在改之前问，改完值就对不上了
+      const wasActive = activePresetId === preset.id;
+      updateApiPreset(preset.id, name, nextConfig);
+      // 改的正好是当前生效那条 → 生效配置跟着走，否则界面写着新 Key、请求还在用旧的
+      if (wasActive) commitApiConfig(configFromPreset({ ...preset, name, config: nextConfig }));
+      // 独立绑定这条预设的角色也有后台任务；普通 API 保持原值，角色从新预设读取凭据。
+      else refreshSavedApiCredentials(apiConfig);
+      setEditingPresetId(null);
+      addToast(wasActive ? `「${name}」已更新，当前配置同步生效` : `「${name}」已更新`, 'success');
   };
 
   const cancelPresetDeleteHold = useCallback(() => {
@@ -959,10 +1061,7 @@ const Settings: React.FC = () => {
   const deleteApiPreset = (id: string, name: string) => {
       cancelPresetDeleteHold();
       removeApiPreset(id);
-      if (selectedPresetId === id) {
-          setSelectedPresetId(null);
-          setSelectedPresetName('');
-      }
+      setEditingPresetId(current => (current === id ? null : current));
       addToast(`已删除预设: ${name}`, 'success');
   };
 
@@ -973,10 +1072,7 @@ const Settings: React.FC = () => {
           presetDeleteTimerRef.current = null;
           setHoldingDeletePresetId(null);
           removeApiPreset(id);
-          if (selectedPresetId === id) {
-              setSelectedPresetId(null);
-              setSelectedPresetName('');
-          }
+          setEditingPresetId(current => (current === id ? null : current));
           addToast(`已删除预设: ${name}`, 'success');
       }, 700);
   };
@@ -999,11 +1095,6 @@ const Settings: React.FC = () => {
   };
 
   const handleSaveApi = () => {
-    const presetName = selectedPresetName.trim();
-    if (selectedApiPreset && !presetName) {
-      addToast('预设名称不能为空', 'error');
-      return;
-    }
     const nextConfig = {
       apiKey: normalizeApiCredential(localKey),
       baseUrl: normalizeApiBaseUrl(localUrl),
@@ -1014,38 +1105,14 @@ const Settings: React.FC = () => {
     setLocalKey(nextConfig.apiKey);
     setLocalUrl(nextConfig.baseUrl);
     setLocalModel(nextConfig.model);
-    updateApiConfig(nextConfig);
-    if (selectedApiPreset) {
-      updateApiPreset(selectedApiPreset.id, presetName, {
-        ...selectedApiPreset.config,
-        ...nextConfig,
-      });
-    }
-    setStatusMsg(selectedApiPreset ? '配置和预设已保存' : '配置已保存');
+    commitApiConfig(nextConfig);
+    setStatusMsg('配置已保存');
     setTimeout(() => setStatusMsg(''), 2000);
-    // 支持凭据表的 Worker 上，任务只带引用，换 Key 只要覆盖云端那几行——不用逐条改任务。
-    // 老 Worker 上这句是 no-op，凭据靠下面那条逐条补刷的老路续命。
-    syncAmsgLlmCredentials({ ...apiConfig, ...nextConfig });
-    // 已排程的主动消息 2.0 AI 任务里冻结的是排程那一刻的凭据——换 Key / 换模型后
-    // 不重传的话，到点全拿旧凭据打请求（旧 Key 一吊销就是连环 401）。best-effort：
-    // 保存本身不等它，失败只提示；没配 2.0 / 没有 pending AI 任务时它是 no-op。
-    // 存量的内联任务还靠它，所以走引用那条路的用户这里照跑（带 credRefs 的任务
-    // 到点只认引用，这一份补刷落在它们身上是无害的空转）。
-    void ActiveMsgClient.refreshApiCredentialsForPendingTasks({ ...apiConfig, ...nextConfig })
-      .then((result) => {
-        if (result.status === 'partial') {
-          addToast(`API 已保存，但有 ${result.failed} 条已排程的主动消息没换上新凭据，稍后再保存一次可重试。`, 'error');
-        }
-      })
-      .catch((error) => {
-        console.warn('[Settings] 刷新已排程任务的 API 凭据失败', error);
-        addToast('API 已保存，但已排程的主动消息凭据刷新失败，稍后再保存一次可重试。', 'error');
-      });
   };
 
-  const handleSaveVisionApi = () => {
+  const handleSaveVisionApi = (enabled = localVisionEnabled) => {
     const nextVisionApi = {
-      enabled: localVisionEnabled,
+      enabled,
       baseUrl: normalizeApiBaseUrl(localVisionUrl),
       apiKey: normalizeApiCredential(localVisionKey),
       model: normalizeApiModel(localVisionModel),
@@ -1060,6 +1127,21 @@ const Settings: React.FC = () => {
     updateApiConfig({ visionApi: nextVisionApi });
     setVisionStatusMsg(nextVisionApi.enabled ? '识图 API 已接入' : '已关闭，沿用原有识图方式');
     setTimeout(() => setVisionStatusMsg(''), 2200);
+  };
+
+  const handleToggleVisionApi = () => {
+    if (localVisionEnabled) {
+      setLocalVisionEnabled(false);
+      updateApiConfig({ visionApi: {
+        baseUrl: '', apiKey: '', model: '', ...apiConfig.visionApi, enabled: false,
+      } });
+      setVisionStatusMsg('已关闭，沿用原有识图方式');
+    } else if (normalizeApiBaseUrl(localVisionUrl) && normalizeApiCredential(localVisionKey) && normalizeApiModel(localVisionModel)) {
+      setLocalVisionEnabled(true);
+      handleSaveVisionApi(true);
+    } else {
+      setVisionStatusMsg('请先填写 URL、Key 和 Model，再开启识图');
+    }
   };
 
   const handleSaveImageGenerationApi = () => {
@@ -2407,71 +2489,46 @@ const Settings: React.FC = () => {
                 </button>
             }
         >
-            {/* Presets List */}
             {apiPresets.length > 0 && (
-                <div className="mb-4">
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 block pl-1">我的预设 (Presets)</label>
-                    <div className="flex gap-2 flex-wrap">
-                        {apiPresets.map(preset => (
-                            <div key={preset.id} className={`flex items-center rounded-lg pl-3 pr-1 py-1 shadow-sm border transition-colors ${
-                                selectedPresetId === preset.id
-                                    ? 'bg-primary/5 border-primary/30'
-                                    : 'bg-white border-slate-200'
-                            }`}>
-                                <button type="button" onClick={() => loadPreset(preset)}
-                                    className={`text-xs font-medium cursor-pointer mr-2 transition-colors ${
-                                        selectedPresetId === preset.id ? 'text-primary' : 'text-slate-600 hover:text-primary'
-                                    }`}>
-                                    {preset.name}
-                                </button>
-                                <button
-                                    type="button"
-                                    aria-label={`长按或双击删除预设 ${preset.name}`}
-                                    title="长按或双击删除"
-                                    onPointerDown={(event) => { event.stopPropagation(); beginPresetDeleteHold(preset.id, preset.name); }}
-                                    onPointerUp={cancelPresetDeleteHold}
-                                    onPointerCancel={cancelPresetDeleteHold}
-                                    onPointerLeave={cancelPresetDeleteHold}
-                                    onDoubleClick={(event) => { event.stopPropagation(); deleteApiPreset(preset.id, preset.name); }}
-                                    onContextMenu={(event) => event.preventDefault()}
-                                    className={`p-1 rounded-full transition-colors select-none touch-none ${
-                                        holdingDeletePresetId === preset.id
-                                            ? 'bg-red-100 text-red-500 scale-110'
-                                            : 'text-slate-300 hover:bg-red-50 hover:text-red-400'
-                                    }`}>
-                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3"><path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" /></svg>
-                                </button>
-                            </div>
-                        ))}
-                    </div>
-                    <p className="text-[9px] text-slate-300 mt-1.5 pl-1">点名称加载并编辑；长按或双击 × 才会删除。</p>
-                </div>
-            )}
-            
-            <div className="space-y-4">
-                {selectedApiPreset && (
-                    <div className="rounded-xl border border-primary/20 bg-primary/5 p-3">
-                        <div className="flex items-center justify-between gap-2 mb-1.5">
-                            <label className="text-[10px] font-bold text-primary uppercase tracking-widest">正在编辑预设</label>
-                            <button
-                                type="button"
-                                onClick={() => { setSelectedPresetId(null); setSelectedPresetName(''); }}
-                                className="text-[9px] text-slate-400 hover:text-slate-600 transition-colors"
-                            >
-                                仅作为当前配置
+                <div className="mb-4 space-y-2">
+                    <p className="text-xs px-1" style={{ color: F.textSecondary }}>我的预设</p>
+                    {apiPresets.map(preset => (
+                        <div key={preset.id} className="flex items-center gap-1 p-1" style={{
+                            borderRadius: R.smallCard, background: F.surface, boxShadow: S.raisedSoft,
+                        }}>
+                            <button type="button" onClick={() => applyPreset(preset)}
+                                aria-pressed={activePresetId === preset.id} title={`切换到 ${preset.name}`}
+                                className="min-h-11 min-w-0 flex-1 px-3 py-2 text-left text-sm break-words"
+                                style={{ borderRadius: R.button, color: activePresetId === preset.id ? HUE.green.ink : F.textPrimary,
+                                    background: activePresetId === preset.id ? HUE.green.tint : 'transparent' }}>
+                                {preset.name}
+                                {activePresetId === preset.id && <span className="ml-2 text-xs">使用中</span>}
+                            </button>
+                            <button type="button" aria-label={`编辑预设 ${preset.name}`}
+                                onClick={() => openEditPreset(preset)}
+                                className="h-11 w-11 shrink-0 flex items-center justify-center active:scale-95"
+                                style={{ borderRadius: R.pill, background: F.surfaceRaised, boxShadow: S.raisedSoft, color: F.textSecondary }}>
+                                <PencilSimple size={20} weight="bold" />
+                            </button>
+                            <button type="button" aria-label={`长按或双击删除预设 ${preset.name}`} title="长按或双击删除"
+                                onPointerDown={() => beginPresetDeleteHold(preset.id, preset.name)}
+                                onPointerUp={cancelPresetDeleteHold} onPointerCancel={cancelPresetDeleteHold}
+                                onPointerLeave={cancelPresetDeleteHold} onDoubleClick={() => deleteApiPreset(preset.id, preset.name)}
+                                onContextMenu={event => event.preventDefault()}
+                                className="h-11 w-11 shrink-0 flex items-center justify-center select-none touch-none active:scale-95"
+                                style={{ borderRadius: R.pill, boxShadow: S.raisedSoft,
+                                    background: holdingDeletePresetId === preset.id ? STATUS.danger.tint : F.surfaceRaised,
+                                    color: holdingDeletePresetId === preset.id ? STATUS.danger.ink : F.textTertiary }}>
+                                <X size={20} weight="bold" />
                             </button>
                         </div>
-                        <input
-                            type="text"
-                            value={selectedPresetName}
-                            onChange={(event) => setSelectedPresetName(event.target.value)}
-                            placeholder="预设名称"
-                            className="w-full bg-white/80 border border-primary/15 rounded-xl px-3 py-2 text-sm font-medium text-slate-700 focus:bg-white transition-all"
-                        />
-                        <p className="text-[9px] text-slate-400 mt-1.5 leading-relaxed">可直接修改名称及下方 URL、Key、Model；保存配置时会覆盖这个预设，不会新建。</p>
-                    </div>
-                )}
-
+                    ))}
+                    <p className="text-xs px-1 leading-relaxed" style={{ color: F.textSecondary }}>
+                        点名称立即切换；铅笔编辑预设；长按或双击 × 删除。
+                    </p>
+                </div>
+            )}
+            <div className="space-y-4">
                 <div className="group">
                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block pl-1">URL</label>
                     <input type="text" value={localUrl} onChange={(e) => setLocalUrl(e.target.value)} placeholder="https://..." className="w-full bg-white/50 border border-slate-200/60 rounded-xl px-4 py-2.5 text-sm font-mono focus:bg-white transition-all" />
@@ -2554,8 +2611,11 @@ const Settings: React.FC = () => {
                 </div>
 
                 <button onClick={handleSaveApi} className="w-full py-3 rounded-2xl font-bold text-white shadow-lg shadow-primary/20 bg-primary active:scale-95 transition-all mt-2">
-                    {statusMsg || (selectedApiPreset ? `保存配置并更新「${selectedPresetName.trim() || selectedApiPreset.name}」` : '保存配置')}
+                    {statusMsg || '保存配置'}
                 </button>
+                {apiPresets.length > 0 && <p className="text-xs px-1 leading-relaxed" style={{ color: F.textSecondary }}>
+                    保存只更新当前配置。要修改预设，请点它的铅笔。
+                </p>}
 
                 <button
                     onClick={async () => {
@@ -2642,7 +2702,7 @@ const Settings: React.FC = () => {
                             type="button"
                             role="switch"
                             aria-checked={localVisionEnabled}
-                            onClick={() => setLocalVisionEnabled(value => !value)}
+                            onClick={handleToggleVisionApi}
                             className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${localVisionEnabled ? 'bg-violet-500' : 'bg-slate-200'}`}
                         >
                             <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${localVisionEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
@@ -2684,14 +2744,13 @@ const Settings: React.FC = () => {
                     )}
                 </div>
 
-                <div className={`space-y-3 transition-opacity ${localVisionEnabled ? 'opacity-100' : 'opacity-50'}`}>
+                <div className="space-y-3">
                     <div>
                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block pl-1">URL</label>
                         <input
                             type="text"
                             value={localVisionUrl}
                             onChange={event => { setLocalVisionUrl(event.target.value); setSelectedVisionPresetId(null); setVisionTestResult(null); }}
-                            disabled={!localVisionEnabled}
                             placeholder="https://.../v1"
                             className="w-full bg-white/60 border border-slate-200/60 rounded-xl px-4 py-2.5 text-sm font-mono focus:bg-white transition-all disabled:cursor-not-allowed"
                         />
@@ -2702,7 +2761,6 @@ const Settings: React.FC = () => {
                             type="password"
                             value={localVisionKey}
                             onChange={event => { setLocalVisionKey(event.target.value); setSelectedVisionPresetId(null); setVisionTestResult(null); }}
-                            disabled={!localVisionEnabled}
                             placeholder="sk-..."
                             className="w-full bg-white/60 border border-slate-200/60 rounded-xl px-4 py-2.5 text-sm font-mono focus:bg-white transition-all disabled:cursor-not-allowed"
                         />
@@ -2713,7 +2771,7 @@ const Settings: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={fetchVisionModels}
-                                disabled={!localVisionEnabled || isLoadingVisionModels}
+                                disabled={isLoadingVisionModels}
                                 className="text-[10px] text-violet-600 font-bold disabled:text-slate-300"
                             >
                                 {isLoadingVisionModels ? 'Fetching...' : '刷新模型列表'}
@@ -2722,7 +2780,6 @@ const Settings: React.FC = () => {
                         <button
                             type="button"
                             onClick={() => setShowVisionModelModal(true)}
-                            disabled={!localVisionEnabled}
                             title={localVisionModel || '选择或手动输入模型'}
                             className="w-full bg-white/60 border border-slate-200/60 rounded-xl px-4 py-3 text-sm text-slate-700 flex justify-between items-center gap-2 active:bg-white transition-all shadow-sm disabled:cursor-not-allowed"
                         >
@@ -2745,7 +2802,7 @@ const Settings: React.FC = () => {
                     </button>
                     <button
                         type="button"
-                        onClick={handleSaveVisionApi}
+                        onClick={() => handleSaveVisionApi()}
                         disabled={isLoadingVisionModels || testingVisionApi}
                         className="py-3 rounded-2xl font-bold text-white shadow-lg shadow-violet-500/20 bg-violet-500 active:scale-95 transition-all disabled:opacity-50"
                     >
@@ -4373,6 +4430,57 @@ const Settings: React.FC = () => {
               <input value={newPresetName} onChange={e => setNewPresetName(e.target.value)} className="w-full bg-slate-100 rounded-xl px-4 py-3 text-sm focus:outline-primary" autoFocus placeholder="Name..." />
           </div>
       </Modal>
+
+      <ClayDialog isOpen={!!editingPresetId} title="编辑预设" onClose={() => setEditingPresetId(null)}
+          footer={<button type="button" onClick={handleUpdatePreset} className="w-full min-h-11 px-4 py-3 font-semibold active:scale-[0.98]"
+              style={{ borderRadius: R.button, background: HUE.green.soft, color: HUE.green.ink, boxShadow: S.raisedSoft }}>保存预设</button>}>
+          <div className="space-y-4" style={{ color: F.textPrimary }}>
+              {[
+                  { label: '名称', value: editPresetName, set: setEditPresetName, type: 'text', placeholder: '预设名称' },
+                  { label: 'URL', value: editPresetUrl, set: setEditPresetUrl, type: 'text', placeholder: 'https://...' },
+                  { label: 'Key', value: editPresetKey, set: setEditPresetKey, type: 'password', placeholder: 'API Key' },
+                  { label: 'Model', value: editPresetModel, set: setEditPresetModel, type: 'text', placeholder: '模型名称' },
+              ].map(field => <label key={field.label} className="block space-y-2 text-xs">
+                  <span style={{ color: F.textSecondary }}>{field.label}</span>
+                  <input aria-label={`预设${field.label}`} type={field.type} value={field.value}
+                      onChange={event => field.set(event.target.value)} placeholder={field.placeholder}
+                      autoComplete="off" className="w-full min-h-11 px-3 py-2 text-sm outline-none"
+                      style={{ borderRadius: R.input, background: F.surfaceSunken, boxShadow: S.sunken, color: F.textPrimary }} />
+              </label>)}
+              <div className="space-y-4 p-4" style={{ background: F.surfaceSunken, boxShadow: S.sunken, borderRadius: R.smallCard }}>
+                  <div className="flex items-center justify-between gap-3">
+                      <span className="text-sm">流式输出</span>
+                      <button type="button" role="switch" aria-label="预设流式输出" aria-checked={editPresetStream}
+                          onClick={() => setEditPresetStream(value => !value)} className="h-11 w-14 flex items-center justify-center">
+                          <span className="relative block h-7 w-12" style={{ borderRadius: R.pill, boxShadow: S.sunken, background: editPresetStream ? HUE.green.soft : F.surfaceSunken }}>
+                              <span className="absolute top-1 h-5 w-5 transition-transform" style={{ left: 4, borderRadius: R.pill,
+                                  transform: editPresetStream ? 'translateX(20px)' : 'translateX(0)', background: F.surfaceRaised, boxShadow: S.raisedSoft }} />
+                          </span>
+                      </button>
+                  </div>
+                  <label className="block space-y-2 text-sm" htmlFor="edit-preset-temperature">
+                      <span className="flex justify-between">温度 <span>{editPresetTemperature.toFixed(2)}</span></span>
+                      <input id="edit-preset-temperature" type="range" min="0" max="2" step="0.05"
+                          value={editPresetTemperature} onChange={event => setEditPresetTemperature(parseFloat(event.target.value))}
+                          className="w-full h-11" style={{ accentColor: HUE.green.main }} />
+                  </label>
+              </div>
+              <button type="button" onClick={() => {
+                  setEditPresetUrl(localUrl); setEditPresetKey(localKey); setEditPresetModel(localModel);
+                  setEditPresetStream(localStream); setEditPresetTemperature(localTemperature);
+                  addToast('已填入当前配置', 'info');
+              }} className="w-full min-h-11 px-4 py-3 text-sm font-semibold active:scale-[0.98]"
+                  style={{ borderRadius: R.button, background: F.surfaceRaised, boxShadow: S.raisedSoft, color: F.textSecondary }}>
+                  用当前完整配置填入
+              </button>
+              <p className="text-xs leading-relaxed" style={{ color: F.textSecondary }}>
+                  {editingPresetId && activePresetId === editingPresetId
+                      ? '这条正在使用中，保存后当前配置会一起更新。'
+                      : '保存到这条预设。需要使用时，再点预设名称切换。'}
+              </p>
+          </div>
+      </ClayDialog>
+
 
       {/* 强制导出 Modal */}
       <Modal isOpen={showExportModal} title="备份下载" onClose={() => { revokeDownloadUrl(); setShowExportModal(false); }} footer={

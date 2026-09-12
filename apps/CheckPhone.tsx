@@ -1,3 +1,4 @@
+import { loadCharacterContextMessages } from '../utils/chatContextRange';
 import React, { useState, useEffect, useRef } from 'react';
 import { useOS } from '../context/OSContext';
 import { DB } from '../utils/db';
@@ -11,7 +12,7 @@ import { injectMemoryPalace } from '../utils/memoryPalace/pipeline';
 import {
     runRealConversation, runNpcConversation, upsertContact, matchRealChar,
     clampAffinity, normName, flipTranscript, parseTranscript, serializeTurns, appendLearned,
-    topicText, summarizeConversation,
+    topicText, summarizeConversation, applyRealConversationToPhoneState, mergePhoneScanResults,
 } from '../utils/relationshipChat';
 import PersonaSim, { LifeLog, generatePersonaScript } from './PersonaSim';
 import { usePersonaSim, personaSimStore } from '../utils/personaSimStore';
@@ -299,6 +300,24 @@ const CheckPhone: React.FC = () => {
     const [activeAppId, setActiveAppId] = useState<string>('home');
     const [targetChar, setTargetChar] = useState<CharacterProfile | null>(null);
     const [isLoading, setIsLoading] = useState(false);
+    const generationBusy = useRef(false);
+    const conversationCommitBusy = useRef(false);
+    const canEditConversationPreferences = () => {
+        if (!conversationCommitBusy.current) return true;
+        addToast('正在保存对话，请稍后调整', 'info');
+        return false;
+    };
+    const charactersRef = useRef(characters);
+    charactersRef.current = characters;
+    const setPhoneLoading = (loading: boolean) => {
+        generationBusy.current = loading;
+        setIsLoading(loading);
+    };
+    const canEditConversation = () => {
+        if (!generationBusy.current) return true;
+        addToast('对话正在生成，请结束后再删除、清空或改绑', 'info');
+        return false;
+    };
     const [page, setPage] = useState(0); // 0 = home, 1 = custom apps
     const [selectPage, setSelectPage] = useState(0); // Target Device 选人界面的翻页（每页 6 人）
     const [selectGroupId, setSelectGroupId] = useState(GROUP_FILTER_ALL); // 选人界面的分组筛选
@@ -584,6 +603,7 @@ const CheckPhone: React.FC = () => {
 
     // 切换「查手机内容是否同步到私聊」（默认开）
     const toggleSendToChat = () => {
+        if (!canEditConversationPreferences()) return;
         if (!targetChar) return;
         const next = !(targetChar.phoneState?.sendToChat !== false);
         updateCharacter(targetChar.id, {
@@ -622,6 +642,7 @@ const CheckPhone: React.FC = () => {
     });
 
     const handleDeleteRecord = async (record: PhoneEvidence) => {
+        if (!canEditConversation()) return;
         if (!targetChar) return;
 
         const newRecords = (targetChar.phoneState?.records || []).filter(r => r.id !== record.id);
@@ -647,6 +668,7 @@ const CheckPhone: React.FC = () => {
 
     // 一键清空 Messages 归档里的全部聊天记录（含其在角色私聊里落的卡片）
     const handleClearAllChats = async () => {
+        if (!canEditConversation()) return;
         if (!targetChar) return;
         const all = targetChar.phoneState?.records || [];
         const chats = all.filter(r => r.type === 'chat');
@@ -664,6 +686,7 @@ const CheckPhone: React.FC = () => {
     // 把 Messages 归档里的一条聊天记录「转移/绑定」到人际关系系统。
     // 标题命中神经链接里的真实角色 → 绑成 real，并把这段对话镜像进对方手机（双方同步）。
     const handleBindRecordToRelationship = async (record: PhoneEvidence) => {
+        if (!canEditConversation()) return;
         if (!targetChar) return;
         const pureName = (record.title || '').replace(/[（(].*?[）)]/g, '').trim() || record.title || '';
         if (!pureName || isUserName(pureName)) { addToast('无法绑定该记录', 'error'); return; }
@@ -745,11 +768,12 @@ const CheckPhone: React.FC = () => {
             addToast('配置错误', 'error');
             return;
         }
-        setIsLoading(true);
+        if (generationBusy.current) return;
+        setPhoneLoading(true);
 
         try {
             await injectMemoryPalace(targetChar);
-            const msgs = await DB.getMessagesByCharId(targetChar.id);
+            const msgs = await loadCharacterContextMessages(targetChar);
             const lastMsg = msgs[msgs.length - 1];
 
             // 「距离上次联系多久」交给 buildCoreContext 统一注入（受时间感知开关管控、口径与聊天/见面一致）
@@ -758,11 +782,7 @@ const CheckPhone: React.FC = () => {
                 { lastInteractionTs: lastMsg?.timestamp },
             );
 
-            // 聊天/通讯录类按 chatapp 的上下文设置（默认 500）取，其它 App 维持轻量 50 条
-            const recentWindow = (type === 'chat' || type === 'contacts')
-                ? (targetChar.contextLimit && targetChar.contextLimit > 0 ? targetChar.contextLimit : 500)
-                : 50;
-            const recentMsgs = msgs.slice(-recentWindow).map(m => {
+            const recentMsgs = msgs.map(m => {
                 const roleName = m.role === 'user' ? userProfile.name : targetChar.name;
                 const content = m.type === 'text' ? m.content : `[${m.type}]`;
                 return `${roleName}: ${content}`;
@@ -902,6 +922,7 @@ ${realCharRule}
 
             // 人际关系：累积本轮甄别出的联系人（chat / contacts 两种生成都会喂这里）
             let contactsAcc: PhoneContact[] = [...(targetChar.phoneState?.contacts || [])];
+            const touchedContacts = new Set<string>();
             const isContactBearing = type === 'chat' || type === 'contacts';
 
             if (Array.isArray(json)) {
@@ -943,6 +964,7 @@ ${realCharRule}
                             lastInteraction: Date.now(),
                         });
                         contactId = contactsAcc.find(c => (linkedId && c.linkedCharId === linkedId) || normName(c.name) === normName(contactName))?.id;
+                        if (contactId) touchedContacts.add(contactId);
                     }
 
                     // contacts 模式只建联系人，不落聊天卡片/记录
@@ -958,15 +980,13 @@ ${realCharRule}
                         const cardContent = type === 'chat'
                             ? `[你手机的聊天软件] 你和「${recordTitle}」的对话：${recordDetail.replace(/\n/g, ' ')}`
                             : `[你手机的${logPrefix}] ${recordTitle}${recordValue ? ` · ${recordValue}` : ''} — ${recordDetail}`;
-                        await DB.saveMessage({
+                        savedMsgId = await DB.saveMessage({
                             charId: targetChar.id,
                             role: 'assistant',
                             type: 'phone_card',
                             content: cardContent,
                             metadata: { phoneCard: { app: logPrefix, kind: type, title: recordTitle, detail: recordDetail, value: recordValue || undefined } },
                         } as any);
-                        const currentMsgs = await DB.getMessagesByCharId(targetChar.id);
-                        savedMsgId = currentMsgs[currentMsgs.length - 1]?.id;
                     }
 
                     newRecordsToAdd.push({
@@ -987,11 +1007,10 @@ ${realCharRule}
             // 基于最新状态合并：生成是异步的，期间若有演出落库 simLogs，
             // 用过期的 targetChar 快照覆盖会把 simLogs 等字段抹掉。
             updateCharacter(targetChar.id, (cur) => ({
-                phoneState: {
-                    ...cur.phoneState,
-                    records: [...(cur.phoneState?.records || []), ...newRecordsToAdd],
-                    ...(isContactBearing ? { contacts: contactsAcc } : {}),
-                }
+                phoneState: isContactBearing
+                    ? mergePhoneScanResults(cur.phoneState, myContacts,
+                        contactsAcc.filter(contact => touchedContacts.has(contact.id)), newRecordsToAdd)
+                    : { ...cur.phoneState, records: [...(cur.phoneState?.records || []), ...newRecordsToAdd] },
             }));
 
             if (type === 'contacts') {
@@ -1004,7 +1023,7 @@ ${realCharRule}
             console.error(e);
             addToast('解析失败，请重试', 'error');
         } finally {
-            setIsLoading(false);
+            setPhoneLoading(false);
         }
     };
 
@@ -1032,12 +1051,12 @@ ${realCharRule}
     // 组 context：跟 handleGenerate 一致（含记忆宫殿 + 时间感知 + 最近聊天），让偷看到的 AI 记录贴合真实近况
     const buildAiContext = async (char: CharacterProfile) => {
         await injectMemoryPalace(char);
-        const msgs = await DB.getMessagesByCharId(char.id);
+        const msgs = await loadCharacterContextMessages(char);
         const lastMsg = msgs[msgs.length - 1];
         const context = ContextBuilder.buildCoreContext(
             char, userProfile, true, undefined, undefined, { lastInteractionTs: lastMsg?.timestamp },
         );
-        const recentMsgs = msgs.slice(-50).map(m => {
+        const recentMsgs = msgs.map(m => {
             const roleName = m.role === 'user' ? userProfile.name : char.name;
             return `${roleName}: ${m.type === 'text' ? m.content : `[${m.type}]`}`;
         }).join('\n');
@@ -1047,7 +1066,8 @@ ${realCharRule}
     // 生成：偷看机主在某个 AI 服务里的使用记录
     const handleGenerateAiAgent = async (service: AiServiceKind) => {
         if (!targetChar || !effectiveApiConfig.apiKey) { addToast('配置错误', 'error'); return; }
-        setIsLoading(true);
+        if (generationBusy.current) return;
+        setPhoneLoading(true);
         try {
             const { context, recentMsgs } = await buildAiContext(targetChar);
             const userName = userProfile?.name || '用户';
@@ -1177,7 +1197,7 @@ ${AI_VENDOR_LORE}
             console.error(e);
             addToast('生成失败，请重试', 'error');
         } finally {
-            setIsLoading(false);
+            setPhoneLoading(false);
         }
     };
 
@@ -1450,7 +1470,8 @@ ${olderText}
     // 用指定的卡开一局：生成一段以这张卡为对手的酒馆剧情（卡片本身不新增、不顶掉）
     const handlePlayCard = async (card: TavernCard) => {
         if (!targetChar || !effectiveApiConfig.apiKey) { addToast('配置错误', 'error'); return; }
-        setIsLoading(true);
+        if (generationBusy.current) return;
+        setPhoneLoading(true);
         try {
             const { context, recentMsgs } = await buildAiContext(targetChar);
             const task = `你（${charName}）在玩"酒馆"AI 角色扮演（沉浸式长剧情、像和 AI 合写小说）。这次的对手是你的角色卡「${card.name}」${card.kind === 'world' ? '（大型世界卡）' : ''}：
@@ -1482,7 +1503,7 @@ ${olderText}
             setActiveAppId('ai_session');
         } catch (e) {
             console.error(e); addToast('生成失败', 'error');
-        } finally { setIsLoading(false); }
+        } finally { setPhoneLoading(false); }
     };
 
     // ============================================================
@@ -1515,6 +1536,7 @@ ${olderText}
     };
 
     const handleSetContactStatus = (contact: PhoneContact, status: PhoneContact['status']) => {
+        if (!canEditConversationPreferences()) return;
         mutateContacts(cs => cs.map(c => c.id === contact.id ? { ...c, status } : c));
         // 用户手动删/拉黑 → 落一张可解析的「关系变动」卡片：聊天里渲染成卡片，
         // content 又带进角色上下文，让 TA 察觉是用户干的。
@@ -1544,6 +1566,7 @@ ${olderText}
 
     // 用户手动调好感（拖动滑块）：只改这台手机对该联系人的好感，不动对方、不触发自动加删友
     const handleSetAffinity = (contact: PhoneContact, value: number) => {
+        if (!canEditConversationPreferences()) return;
         mutateContacts(cs => cs.map(c => c.id === contact.id ? { ...c, affinity: clampAffinity(value) } : c));
     };
 
@@ -1568,6 +1591,7 @@ ${olderText}
     // 彻底移除联系人：连同 TA 的聊天记录 + 私聊里的 phone_card 一起清；
     // 真人联系人（哪怕之前甄别/绑定错了）也把对方手机里的镜像联系人和记录一并删掉。
     const handleRemoveContact = async (contact: PhoneContact) => {
+        if (!canEditConversation()) return;
         if (!targetChar) return;
         const isChatWith = (r: PhoneEvidence, cId: string | undefined, nm: string) =>
             r.type === 'chat' && (r.contactId === cId || normName(r.title) === normName(nm));
@@ -1609,6 +1633,7 @@ ${olderText}
     const exitContactSelect = () => { setContactSelectMode(false); setSelectedContactIds([]); };
     // 批量「清空对话」：保留联系人，只把这几段聊天删掉重来（不满这轮生成时用）
     const handleBatchClearConversations = async () => {
+        if (!canEditConversation()) return;
         const ids = [...selectedContactIds];
         const targets = (targetChar?.phoneState?.contacts || []).filter(c => ids.includes(c.id));
         exitContactSelect();
@@ -1622,6 +1647,7 @@ ${olderText}
         contact: PhoneContact,
         target: { kind: 'npc' } | { kind: 'real'; charId: string },
     ) => {
+        if (!canEditConversation()) return;
         if (!targetChar) return;
         const isChatWith = (r: PhoneEvidence, cId: string | undefined, nm: string) =>
             r.type === 'chat' && (r.contactId === cId || normName(r.title) === normName(nm));
@@ -1730,52 +1756,40 @@ ${olderText}
         owner: CharacterProfile, partnerName: string, partnerCharId: string,
         detail: string, delta: number, partnerNote?: string, learnedNew?: string, seedIdentity?: string,
     ) => {
-        // 对方在我方通讯录里是否已存在——决定是否要「先建联系人」并给个起始备注名
-        const hadContact = (owner.phoneState?.contacts || []).some(
-            c => c.linkedCharId === partnerCharId || normName(c.name) === normName(partnerName),
-        );
-        // upsert 指向对方的真实联系人（不存在则在这里先建好，名字/头像/备注名都补上，再挂消息）
-        let contacts = upsertContact(owner.phoneState?.contacts || [], {
-            name: partnerName, kind: 'real', linkedCharId: partnerCharId, lastInteraction: Date.now(),
-            note: partnerNote,
-            // 仅新建时给个起始备注名（多数关系标签是对称的：网友↔网友、前任↔前任），已有则不动
-            identity: hadContact ? undefined : seedIdentity,
-        });
-        const cid = contacts.find(c => c.linkedCharId === partnerCharId || normName(c.name) === normName(partnerName))?.id;
-        // 好感增减 + 自动加删友 + 累积「了解」
-        let broadcast = '';
-        contacts = contacts.map(c => {
-            if (c.id !== cid) return c;
-            const newAff = clampAffinity(c.affinity + delta);
-            let status = c.status;
-            if (newAff <= -60 && c.status === 'friend') { status = 'deleted'; broadcast = `（我把 ${c.name} 删了，懒得再联系。）`; }
-            else if (newAff >= 60 && c.status !== 'friend' && c.status !== 'blocked') { status = 'friend'; broadcast = `（我又把 ${c.name} 加回来了。）`; }
-            const learned = learnedNew ? appendLearned(c.learned, learnedNew) : c.learned;
-            return { ...c, affinity: newAff, status, learned, lastInteraction: Date.now() };
-        });
-        // chat 记录（按联系人 upsert）
-        const recs = owner.phoneState?.records || [];
-        const existing = recs.find(r => r.type === 'chat' && (r.contactId === cid || (!r.contactId && normName(r.title) === normName(partnerName))));
-        const ownerSendToChat = owner.phoneState?.sendToChat !== false;
-        let msgId: number | undefined;
-        if (ownerSendToChat) {
-            // 续写时先删掉这段对话上一张卡，私聊里只留一张最新完整的（不再 AB / ABC 堆叠）
-            if (existing?.systemMessageId) await DB.deleteMessage(existing.systemMessageId);
-            msgId = await DB.saveMessage({
-                charId: owner.id, role: 'assistant', type: 'phone_card',
-                content: `[你手机的聊天软件] 你和「${partnerName}」的对话：${detail.replace(/\n/g, ' ')}`,
-                metadata: { phoneCard: { app: '聊天软件', kind: 'chat', title: partnerName, detail } },
-            } as any);
+        conversationCommitBusy.current = true;
+        try {
+            const latestOwner = charactersRef.current.find(char => char.id === owner.id);
+            if (!latestOwner) throw new Error('角色已不存在，无法保存这段对话');
+            const timestamp = Date.now();
+            const result = {
+                partnerName, partnerCharId, detail, delta, partnerNote, learnedNew, seedIdentity,
+                timestamp, recordId: `rec-${timestamp}-${Math.random()}`,
+            };
+            const contact = latestOwner.phoneState?.contacts?.find(c => c.linkedCharId === partnerCharId || normName(c.name) === normName(partnerName));
+            const existing = latestOwner.phoneState?.records?.find(r => r.type === 'chat'
+                && ((contact && r.contactId === contact.id) || (!r.contactId && normName(r.title) === normName(partnerName))));
+            const ownerSendToChat = latestOwner.phoneState?.sendToChat !== false;
+            let msgId: number | undefined;
+            if (ownerSendToChat) {
+                // 续写时先删掉这段对话上一张卡，私聊里只留一张最新完整的（不再 AB / ABC 堆叠）
+                msgId = await DB.saveMessage({
+                    charId: owner.id, role: 'assistant', type: 'phone_card',
+                    content: `[你手机的聊天软件] 你和「${partnerName}」的对话：${detail.replace(/\n/g, ' ')}`,
+                    metadata: { phoneCard: { app: '聊天软件', kind: 'chat', title: partnerName, detail } },
+                } as any);
+                if (existing?.systemMessageId) await DB.deleteMessage(existing.systemMessageId);
+            }
+            // 自动加删友播报：进机主与用户的私聊（同样受 sendToChat 控制）
+            const { broadcast } = applyRealConversationToPhoneState(latestOwner.phoneState, result);
+            if (broadcast && ownerSendToChat) {
+                await DB.saveMessage({ charId: owner.id, role: 'assistant', type: 'text', content: broadcast } as any);
+            }
+            updateCharacter(owner.id, (cur) => ({
+                phoneState: applyRealConversationToPhoneState(cur.phoneState, { ...result, systemMessageId: msgId }).phoneState,
+            }));
+        } finally {
+            conversationCommitBusy.current = false;
         }
-        const now = Date.now();
-        const nextRecs = existing
-            ? recs.map(r => r.id === existing.id ? { ...r, detail, timestamp: now, contactId: cid, systemMessageId: msgId ?? r.systemMessageId } : r)
-            : [...recs, { id: `rec-${now}-${Math.random()}`, type: 'chat', title: partnerName, detail, timestamp: now, contactId: cid, systemMessageId: msgId }];
-        // 自动加删友播报：进机主与用户的私聊（同样受 sendToChat 控制）
-        if (broadcast && ownerSendToChat) {
-            await DB.saveMessage({ charId: owner.id, role: 'assistant', type: 'text', content: broadcast } as any);
-        }
-        updateCharacter(owner.id, (cur) => ({ phoneState: { ...cur.phoneState, contacts, records: nextRecs } }));
     };
 
     // 聊满 100 条触发总结：把待归档的每 100 条原文，A/B 各自第一人称浓缩成一条话题盒记忆，推进水位线。
@@ -1824,7 +1838,8 @@ ${olderText}
         if (!targetChar || !effectiveApiConfig.apiKey) { addToast('请先配置 API', 'error'); return; }
         const b = characters.find(c => c.id === contact.linkedCharId);
         if (!b) { addToast('该联系人未绑定真实角色', 'error'); return; }
-        setIsLoading(true);
+        if (generationBusy.current) return;
+        setPhoneLoading(true);
         try {
             const existing = (targetChar.phoneState?.records || []).find(r => r.type === 'chat' && (r.contactId === contact.id || normName(r.title) === normName(contact.name)));
             const bToA = (b.phoneState?.contacts || []).find(c => c.linkedCharId === targetChar.id || normName(c.name) === normName(targetChar.name));
@@ -1857,14 +1872,15 @@ ${olderText}
             console.error(e);
             addToast('真实对话生成失败', 'error');
         } finally {
-            setIsLoading(false);
+            setPhoneLoading(false);
         }
     };
 
     // 与虚构 NPC 的对话（机主脑补，单 LLM，纯虚构、不镜像）
     const handleNpcConversation = async (contact: PhoneContact) => {
         if (!targetChar || !effectiveApiConfig.apiKey) { addToast('请先配置 API', 'error'); return; }
-        setIsLoading(true);
+        if (generationBusy.current) return;
+        setPhoneLoading(true);
         try {
             const existing = (targetChar.phoneState?.records || []).find(r => r.type === 'chat' && (r.contactId === contact.id || normName(r.title) === normName(contact.name)));
             const { detail, learnedNew } = await runNpcConversation({
@@ -1902,13 +1918,14 @@ ${olderText}
             console.error(e);
             addToast('对话生成失败', 'error');
         } finally {
-            setIsLoading(false);
+            setPhoneLoading(false);
         }
     };
 
     // 清空某联系人的这段对话（生成错位/不满意时一键抹掉重来）。
     // 真人联系人连对方手机里的镜像记录一起清，保持两边一致。
     const handleClearContactConversation = async (contact: PhoneContact, silent = false) => {
+        if (!canEditConversation()) return;
         if (!targetChar) return;
         const isChatWith = (r: PhoneEvidence, cId: string | undefined, nm: string) =>
             r.type === 'chat' && (r.contactId === cId || normName(r.title) === normName(nm));
@@ -1943,6 +1960,7 @@ ${olderText}
 
     // 把「编辑后的 A 视角脚本」落库：刷新机主侧记录/卡片 + 真人镜像 + 同步 archivedThru；全删空则移除记录。
     const saveEditedConversation = async (c: PhoneContact, newDetail: string, newArchived: number) => {
+        if (!canEditConversation()) return;
         if (!targetChar) return;
         const isChatWith = (r: PhoneEvidence, cId: string | undefined, nm: string) =>
             r.type === 'chat' && (r.contactId === cId || normName(r.title) === normName(nm));
@@ -2000,6 +2018,7 @@ ${olderText}
     const exitMsgSelect = () => { setMsgSelectMode(false); setSelectedMsgIdx([]); };
     // 删掉聊天里选中的几条气泡（按完整脚本的下标），重排回脚本落库
     const handleDeleteSelectedMessages = async () => {
+        if (!canEditConversation()) return;
         if (!targetChar || !selectedContact || !selectedMsgIdx.length) { exitMsgSelect(); return; }
         const c = selectedContact;
         const rec = (targetChar.phoneState?.records || []).find(r => r.type === 'chat' && (r.contactId === c.id || normName(r.title) === normName(c.name)));
@@ -3068,7 +3087,7 @@ ${olderText}
                         <div className="flex gap-2">
                             <button onClick={exitMsgSelect}
                                 className="px-5 py-3 rounded-2xl text-[13px] font-semibold text-white/75 bg-white/[0.06] border border-white/[0.08] active:scale-[0.99] transition">取消</button>
-                            <button disabled={!selectedMsgIdx.length}
+                            <button disabled={isLoading || !selectedMsgIdx.length}
                                 onClick={() => askConfirm({
                                     title: `删除选中的 ${selectedMsgIdx.length} 条消息？`,
                                     desc: c.kind === 'real' && c.linkedCharId ? '这几条会从两边手机里一并删除。' : '从这段对话里删掉这几条。',

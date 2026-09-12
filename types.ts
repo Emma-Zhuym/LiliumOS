@@ -4109,6 +4109,7 @@ export interface LifeSimState {
 }
 
 export interface FullBackupData {
+    checkPhoneApi?: APIConfig | null;
     chatInputPreferences?: ChatInputPreferences;
     timestamp: number;
     version: number;
