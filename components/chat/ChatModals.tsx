@@ -1,3 +1,5 @@
+import ChatInputSettings from './ChatInputSettings';
+import type { ChatInputPreferences } from '../../utils/chatInputPreferences';
 
 import React, { useEffect, useRef, useState } from 'react';
 import Modal from '../os/Modal';
@@ -23,6 +25,8 @@ interface ChatModalsProps {
     setTransferNote: (v: string) => void;
     emojiImportText: string;
     setEmojiImportText: (v: string) => void;
+    settingsInputPreferences: ChatInputPreferences;
+    setSettingsInputPreferences: (value: ChatInputPreferences) => void;
     settingsContextLimit: number;
     setSettingsContextLimit: (v: number) => void;
     settingsContextRangeMode: ContextRangeMode;
@@ -246,6 +250,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
     emojiImportText, setEmojiImportText,
     settingsContextLimit, setSettingsContextLimit,
     settingsContextRangeMode, setSettingsContextRangeMode,
+    settingsInputPreferences, setSettingsInputPreferences,
     settingsHideSysLogs, setSettingsHideSysLogs,
     preserveContext, setPreserveContext,
     editContent, setEditContent,
@@ -426,6 +431,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                 footer={<button onClick={onSaveSettings} className="w-full py-3 bg-primary text-white font-bold rounded-2xl">保存设置</button>}
             >
                 <div className="space-y-6">
+                     <ChatInputSettings value={settingsInputPreferences} onChange={setSettingsInputPreferences} />
                      <div>
                          <label className="text-xs font-bold text-slate-400 uppercase mb-2 block">聊天背景</label>
                          <div onClick={() => bgInputRef.current?.click()} className="h-24 bg-slate-100 rounded-xl border-2 border-dashed border-slate-200 flex items-center justify-center cursor-pointer hover:border-primary/50 overflow-hidden relative">

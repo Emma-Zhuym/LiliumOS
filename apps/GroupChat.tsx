@@ -30,6 +30,9 @@ import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } fr
 import { UsersThree, Money, GearSix, Image as ImageIcon, ArrowsClockwise, PaintBrush, BellSimpleRinging, Code, Question } from '@phosphor-icons/react';
 import ChatHeaderShell from '../components/chat/ChatHeaderShell';
 import ChatInputArea from '../components/chat/ChatInputArea';
+import ChatInputSettings from '../components/chat/ChatInputSettings';
+import { loadChatInputPreferences, saveChatInputPreferences, CHAT_INPUT_PREFERENCES_CHANGED_EVENT } from '../utils/chatInputPreferences';
+import { useChatAutoReply } from '../hooks/useChatAutoReply';
 import TokenImg from '../components/os/TokenImg';
 import { useBlobRefUrl, isBlobRef, getBlobForRef, migrateDataUrlToRef } from '../utils/blobRef';
 import { buildReplySnapshotContent } from '../utils/applyAssistantPostProcessing';
@@ -488,6 +491,15 @@ const GroupChat: React.FC = () => {
     const MESSAGE_PAGE_SIZE = 50;
     const [visibleCount, setVisibleCount] = useState(MESSAGE_PAGE_SIZE);
     const [input, setInput] = useState('');
+    const [isInputFocused, setIsInputFocused] = useState(false);
+    const [inputPreferences, setInputPreferences] = useState(loadChatInputPreferences);
+    const [settingsInputPreferences, setSettingsInputPreferences] = useState(loadChatInputPreferences);
+    useEffect(() => {
+        const reload = () => setInputPreferences(loadChatInputPreferences());
+        window.addEventListener(CHAT_INPUT_PREFERENCES_CHANGED_EVENT, reload);
+        window.addEventListener('storage', reload);
+        return () => { window.removeEventListener(CHAT_INPUT_PREFERENCES_CHANGED_EVENT, reload); window.removeEventListener('storage', reload); };
+    }, []);
     const [isTyping, setIsTyping] = useState(false);
     const [mcpStatus, setMcpStatus] = useState('');
     /** 群公共话题盒整理状态——非空时显示顶部胶囊状态条 */
@@ -753,6 +765,7 @@ const GroupChat: React.FC = () => {
     };
 
     const handleReroll = async () => {
+        autoReply.cancel();
         if (!canReroll) return;
         
         const lastMsg = messages[messages.length - 1];
@@ -792,6 +805,8 @@ const GroupChat: React.FC = () => {
     };
 
     const handleUpdateGroupInfo = async () => {
+        saveChatInputPreferences(settingsInputPreferences);
+        setInputPreferences(settingsInputPreferences);
         if (!activeGroup) return;
         const updates = {
             name: tempGroupName || activeGroup.name,
@@ -895,6 +910,8 @@ const GroupChat: React.FC = () => {
     const handleSendMessage = async (content: string, type: MessageType = 'text', metadata?: any) => {
         if (!activeGroup) return;
         if (type === 'text' && !content.trim()) return;
+        const finish = autoReply.beginSend(activeGroup.id);
+        try {
         // 借用户"发送"手势解锁音频上下文（移动端自动播放策略），稍后 AI 回复时提示音才响得了
         unlockWhiteboxAudio();
         
@@ -925,23 +942,24 @@ const GroupChat: React.FC = () => {
         markGroupMembersDirty(activeGroup.members);
 
         // Close panels
-        if (type !== 'text') {
+        if (type !== 'text' && !inputPreferences.autoReply) {
             setShowPanel('none');
         }
-        setInput('');
-
-        // NOTE: No auto-trigger. User must click lightning button.
+        if (type === 'text') setInput(current => current === content ? '' : current);
+        finish(['text', 'image', 'emoji'].includes(type));
+        } catch (error) { finish(false); throw error; }
     };
 
     const handleImageFile = async (file: File) => {
+        const finishImage = autoReply.beginSend(activeGroup?.id || null);
         try {
             const base64 = await processImage(file, { maxWidth: 600, quality: 0.7, forceJpeg: true });
             // 群聊图消息存令牌，二进制单独躺在 blob_assets 里（省掉 base64 那 ~33% 的膨胀）。
             // 同一张图之前存过就复用它的令牌；转不动时原样还回这条 data URL，图不会丢。
-            handleSendMessage(await migrateDataUrlToRef(base64), 'image');
+            await handleSendMessage(await migrateDataUrlToRef(base64), 'image');
         } catch (err) {
             addToast('图片发送失败', 'error');
-        }
+        } finally { finishImage(false); }
     };
 
     const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1095,6 +1113,7 @@ const GroupChat: React.FC = () => {
     };
 
     const openGroupSettings = () => {
+        setSettingsInputPreferences(loadChatInputPreferences());
         setTempGroupName(activeGroup?.name || '');
         setTempPrivateContextCap(activeGroup?.privateContextCap ?? 80);
         setTempMemberTimelineCap(activeGroup?.memberTimelineCap ?? DEFAULT_MEMBER_TIMELINE_CAP);
@@ -1589,6 +1608,7 @@ ${memberTimeline || '(暂无互动记录)'}
 
     // 触发入口：按群设置分发到导演/轮询；生成中再点 = 停止
     const triggerGroupAI = async (_msgs?: Message[]) => {
+        autoReply.cancel();
         unlockWhiteboxAudio();
         if (isTyping) {
             abortRef.current?.abort();
@@ -1606,6 +1626,14 @@ ${memberTimeline || '(暂无互动记录)'}
         }
     };
 
+    const autoReply = useChatAutoReply({
+        enabled: inputPreferences.autoReply,
+        conversationId: activeGroup?.id || null,
+        active: view === 'chat' && !!activeGroup,
+        blocked: isInputFocused || !!input.trim() || showPanel !== 'none' || modalType !== 'none' || selectionMode || isSummarizing,
+        generating: isTyping,
+        onGenerate: () => { void triggerGroupAI(); },
+    });
     // --- Renderers ---
 
     if (view === 'list') {
@@ -1797,6 +1825,7 @@ ${memberTimeline || '(暂无互动记录)'}
                 triggerIcon={isTyping ? 'stop' : 'lightning'}
                 onClose={() => setView('list')}
                 onTriggerAI={() => triggerGroupAI(messages)}
+                hideTrigger={inputPreferences.sendButtonGenerates && !isTyping}
                 onShowCharsPanel={openGroupSettings}
                 hideBuffs
                 headerStyle={osTheme.chatHeaderStyle}
@@ -1809,7 +1838,7 @@ ${memberTimeline || '(暂无互动记录)'}
             />
 
             {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto overflow-x-hidden pt-6 pb-6 no-scrollbar" ref={scrollRef}>
+            <div className="flex-1 overflow-y-auto overflow-x-hidden pt-6 pb-6 no-scrollbar" ref={scrollRef} onClick={() => { if (inputPreferences.autoReply) setShowPanel('none'); }}>
                 {collapsedCount > 0 && activeGroup && (
                     <div className="flex justify-center mb-6">
                         <button onClick={async () => {
@@ -1897,6 +1926,16 @@ ${memberTimeline || '(暂无互动记录)'}
                 showPanel={showPanel}
                 setShowPanel={setShowPanel}
                 onSend={() => handleSendMessage(input)}
+                onGenerate={() => { void triggerGroupAI(); }}
+                sendButtonGenerates={inputPreferences.sendButtonGenerates}
+                enterToSend={inputPreferences.enterToSend}
+                autoReplyEnabled={inputPreferences.autoReply}
+                autoReplySeconds={autoReply.seconds}
+                onCancelAutoReply={autoReply.cancel}
+                onInputFocusChange={setIsInputFocused}
+                emojiSuggestionsEnabled={inputPreferences.emojiSuggestions}
+                suggestionEmojis={emojis}
+                activeCharacterId={activeGroup?.id}
                 onDeleteSelected={deleteSelectedMessages}
                 selectedCount={selectedMsgIds.size}
                 emojis={filteredEmojis}
@@ -1989,6 +2028,7 @@ ${memberTimeline || '(暂无互动记录)'}
             {/* Group Settings Modal */}
             <Modal isOpen={modalType === 'settings'} title="群组设置" onClose={() => setModalType('none')} footer={<button onClick={handleUpdateGroupInfo} className="w-full py-3 bg-violet-500 text-white font-bold rounded-2xl shadow-lg shadow-violet-200">保存修改</button>}>
                 <div className="space-y-6">
+                    <ChatInputSettings value={settingsInputPreferences} onChange={setSettingsInputPreferences} scope="group" />
                     {/* Header Info */}
                     <div className="flex justify-center">
                         <div onClick={() => groupAvatarInputRef.current?.click()} className="w-24 h-24 rounded-3xl bg-slate-100 border-2 border-dashed border-slate-300 flex items-center justify-center cursor-pointer overflow-hidden relative group hover:border-violet-400">

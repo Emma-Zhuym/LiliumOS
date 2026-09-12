@@ -1,3 +1,4 @@
+import type { ChatInputPreferences } from './utils/chatInputPreferences';
 import type { VoiceFavoriteIndex } from './utils/voiceFavorites'; // [EM: text-voice-favorites]
 export enum AppID {
   Launcher = 'launcher',
@@ -4101,6 +4102,7 @@ export interface LifeSimState {
 }
 
 export interface FullBackupData {
+    chatInputPreferences?: ChatInputPreferences;
     timestamp: number;
     version: number;
     theme?: OSTheme;

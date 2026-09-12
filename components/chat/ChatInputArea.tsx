@@ -1,5 +1,5 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { ShareNetwork, Trash, Plus, Smiley, PaperPlaneTilt, Money, BookOpenText, GearSix, Image, Lock, ArrowsClockwise, ChatCircleDots, CalendarBlank, ForkKnife, Coffee, Code, Brain, PencilSimple, BellSimpleRinging, NotePencil, GameController, Microphone, Waveform, Sparkle, CaretDown, FadersHorizontal, LinkSimple, MagicWand, Alarm, Star } from '@phosphor-icons/react'; // [EM: icons NotePencil/GameController/Microphone/Waveform]
+import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
+import { ShareNetwork, Trash, Plus, Smiley, PaperPlaneTilt, Lightning, X, Money, BookOpenText, GearSix, Image, Lock, ArrowsClockwise, ChatCircleDots, CalendarBlank, ForkKnife, Coffee, Code, Brain, PencilSimple, BellSimpleRinging, NotePencil, GameController, Microphone, Waveform, Sparkle, CaretDown, FadersHorizontal, LinkSimple, MagicWand, Alarm, Star } from '@phosphor-icons/react'; // [EM: icons NotePencil/GameController/Microphone/Waveform]
 import { intifaceClient } from '../../utils/intifaceClient'; // [EM: intiface]
 import { CharacterProfile, ChatTheme, EmojiCategory, Emoji, ApiPreset } from '../../types';
 import { PRESET_THEMES } from './ChatConstants';
@@ -7,6 +7,8 @@ import TokenImg from '../os/TokenImg';
 import { AcnhActionTile } from '../os/acnhIcons';
 import { isIOSStandaloneWebApp } from '../../utils/iosStandalone';
 import { trackEvent } from '../../utils/analytics';
+import { F, S, R, HUE } from '../../utils/clayTokens'; // [EM: input-preferences-clay]
+import { findEmojiSuggestions } from '../../utils/emojiSuggestions';
 
 const EMOJI_PAGE_SIZE = 40;
 
@@ -18,10 +20,22 @@ interface ChatInputAreaProps {
     showPanel: 'none' | 'actions' | 'emojis' | 'chars';
     setShowPanel: (v: 'none' | 'actions' | 'emojis' | 'chars') => void;
     onSend: () => void;
+    /** 私聊可把底部发送按钮切换为手动生成入口；其他复用方保持原行为。 */
+    sendButtonGenerates?: boolean;
+    enterToSend?: boolean;
+    onGenerate?: () => void;
+    autoReplyEnabled?: boolean;
+    autoReplySeconds?: number | null;
+    onCancelAutoReply?: () => void;
+    onInputFocusChange?: (focused: boolean) => void;
+    onAuxiliaryPanelChange?: (open: boolean) => void; // [EM: chat-quick-toolbar-auto-reply]
     onDeleteSelected: () => void;
     onForwardSelected?: () => void;
     selectedCount: number;
     emojis: Emoji[];
+    emojiSuggestionsEnabled?: boolean;
+    /** Visible library across all categories, independent of the open emoji tab. */
+    suggestionEmojis?: Emoji[];
     /** 以下会话切换/主题 props 仅私聊使用；群聊等复用方不传（'chars' 面板不会被打开） */
     characters?: CharacterProfile[];
     activeCharacterId?: string;
@@ -78,7 +92,10 @@ interface ChatInputAreaProps {
 const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     input, setInput, isTyping, selectionMode,
     showPanel, setShowPanel, onSend, onDeleteSelected, onForwardSelected, selectedCount,
+    sendButtonGenerates = false, enterToSend = true, onGenerate,
+    autoReplyEnabled = false, autoReplySeconds = null, onCancelAutoReply, onInputFocusChange, onAuxiliaryPanelChange,
     emojis, characters = [], activeCharacterId = '', onCharSelect = () => {},
+    emojiSuggestionsEnabled = false, suggestionEmojis = emojis,
     unreadMessages = {},
     customThemes = [], onUpdateTheme = () => {}, onRemoveTheme = () => {}, activeThemeId = '',
     actionsContent,
@@ -105,6 +122,44 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
 }) => {
     const chatImageInputRef = useRef<HTMLInputElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const sendButtonRef = useRef<HTMLButtonElement>(null);
+    const suggestionsRef = useRef<HTMLDivElement>(null);
+    const [isInputFocused, setIsInputFocused] = useState(false);
+    const [isComposing, setIsComposing] = useState(false);
+    const [dismissedSuggestionInput, setDismissedSuggestionInput] = useState<string | null>(null);
+    const suggestedEmojis = useMemo(() => emojiSuggestionsEnabled && !isComposing && !selectionMode
+        && showPanel === 'none' && dismissedSuggestionInput !== input
+        ? findEmojiSuggestions(suggestionEmojis, input) : [],
+    [emojiSuggestionsEnabled, isComposing, selectionMode, showPanel, dismissedSuggestionInput, suggestionEmojis, input]);
+
+    useEffect(() => {
+        setDismissedSuggestionInput(null);
+    }, [input, activeCharacterId]);
+    const canSwitchToGenerate = sendButtonGenerates && !!onGenerate;
+    const canEndEditing = canSwitchToGenerate || autoReplyEnabled;
+    const isGenerateButton = canSwitchToGenerate && !isInputFocused;
+    const primaryButtonDisabled = isGenerateButton ? isTyping : !input.trim();
+
+    useEffect(() => {
+        onInputFocusChange?.(isInputFocused);
+    }, [isInputFocused, onInputFocusChange]);
+
+    useEffect(() => {
+        setIsInputFocused(!!textareaRef.current && document.activeElement === textareaRef.current);
+    }, [selectionMode, activeCharacterId]);
+
+    useEffect(() => {
+        if (!canEndEditing || !isInputFocused) return;
+        // 移动浏览器点非可聚焦区域不一定失焦，明确让「点聊天空白处」结束编辑。
+        const blurOnOutsidePointer = (event: PointerEvent) => {
+            const target = event.target;
+            if (!(target instanceof Node)) return;
+            if (textareaRef.current?.contains(target) || sendButtonRef.current?.contains(target) || suggestionsRef.current?.contains(target)) return;
+            textareaRef.current?.blur();
+        };
+        document.addEventListener('pointerdown', blurOnOutsidePointer, true);
+        return () => document.removeEventListener('pointerdown', blurOnOutsidePointer, true);
+    }, [canEndEditing, isInputFocused]);
     const [actionsPage, setActionsPage] = useState<0 | 1 | 2>(0);
     // 气泡样式面板：搜索 + 两步确认删除（防止 hover 小 × 误删）
     const [bubbleSearch, setBubbleSearch] = useState('');
@@ -114,6 +169,13 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     const [emojiSelectionMode, setEmojiSelectionMode] = useState(false);
     const [selectedEmojis, setSelectedEmojis] = useState<any[]>([]);
     const [showApiPresets, setShowApiPresets] = useState(false);
+    // [EM-START: chat-quick-toolbar-auto-reply]
+    useEffect(() => { setShowApiPresets(false); }, [activeCharacterId]);
+    useEffect(() => {
+        onAuxiliaryPanelChange?.(quickToolbarEnabled && showApiPresets && !selectionMode);
+        return () => onAuxiliaryPanelChange?.(false);
+    }, [quickToolbarEnabled, showApiPresets, selectionMode, onAuxiliaryPanelChange]);
+    // [EM-END: chat-quick-toolbar-auto-reply]
     // 分组太多时横向拖不动：提供「展开全部分组」网格总览
     const [showCategoryOverview, setShowCategoryOverview] = useState(false);
     // 手动分页避免旧版/第三方 WebView 不触发 IntersectionObserver，永远卡在「加载中」。
@@ -135,7 +197,12 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     const useIOSStandaloneInputFix = isIOSStandaloneWebApp();
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
+        // 候选词确认不能当发送；229 兼容部分输入法在确认时漏报 isComposing。
+        if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+        if (e.key === 'Escape' && canEndEditing) {
+            textareaRef.current?.blur();
+        }
+        if (enterToSend && e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             onSend();
         }
@@ -271,8 +338,8 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
         if (type === 'emoji') {
             if (emojiSelectionMode) {
                 setSelectedEmojis(prev => {
-                    const exists = prev.find(e => e.url === item.url);
-                    if (exists) return prev.filter(e => e.url !== item.url);
+                    const exists = prev.find(e => e.name === item.name);
+                    if (exists) return prev.filter(e => e.name !== item.name);
                     return [...prev, item];
                 });
             } else {
@@ -284,6 +351,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     };
 
     const handleInputFocus = () => {
+        setIsInputFocused(true);
         if (!useIOSStandaloneInputFix) return;
         setShowPanel('none');
         const textarea = textareaRef.current;
@@ -315,7 +383,8 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
 
     React.useEffect(() => {
         if (emojiSelectionMode) {
-            setSelectedEmojis(prev => prev.filter(se => emojis.some(e => e.url === se.url)));
+            const names = new Set(emojis.map(e => e.name));
+            setSelectedEmojis(prev => prev.filter(se => names.has(se.name)));
         }
     }, [emojis]);
 
@@ -438,7 +507,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
           ? 'text-slate-400'
           : 'text-slate-400';
 
-    const selectedEmojiUrls = emojiSelectionMode ? new Set(selectedEmojis.map(se => se.url)) : new Set();
+    const selectedEmojiNames = emojiSelectionMode ? new Set(selectedEmojis.map(se => se.name)) : new Set();
     // [EM-START: chat-role-api-current]
     // “当前”严格按角色保存的 preset id 判断，不再拿 URL/模型反猜全局 API。
     const currentApiPreset = activeApiPresetId
@@ -460,6 +529,38 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
         {emojiSelectionMode && (
             <div className={`fixed inset-0 z-[-1] ${isPixelStyle ? 'bg-[#eadfce]/70 backdrop-blur-[2px]' : isDiscordStyle ? 'bg-slate-950/70 backdrop-blur-[2px]' : 'bg-white/60 backdrop-blur-[2px]'}`} />
         )}
+        {/* 辅助提示保持在输入栏外，避免改变社区 CSS 的 > div:first-child / nth-child 目标。 */}
+            {suggestedEmojis.length > 0 && (
+                <div ref={suggestionsRef} role="region" aria-label="表情包联想"
+                    className="sully-chat-emoji-suggestions sully-emoji-suggestions shrink-0 relative z-40 px-4 pb-2 pt-2" style={{ background: F.appBg, color: F.textSecondary }}>
+                    <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px]">表情联想 · 点击发送</span>
+                        <button type="button" aria-label="收起表情联想" onClick={() => setDismissedSuggestionInput(input)}
+                            className="flex h-11 w-11 items-center justify-center" style={{ borderRadius: R.pill, background: F.surface, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}><X size={18} weight="bold" /></button>
+                    </div>
+                    <div className="flex gap-2 overflow-x-auto overscroll-x-contain pb-1">
+                        {suggestedEmojis.map(emoji => (
+                            <button key={emoji.name} type="button" aria-label={`发送表情：${emoji.name}`} title={emoji.name}
+                                onMouseDown={event => event.preventDefault()}
+                                onClick={() => {
+                                    setDismissedSuggestionInput(input);
+                                    onPanelAction('send-emoji', emoji);
+                                    textareaRef.current?.focus({ preventScroll: true });
+                                }}
+                                className="flex w-16 shrink-0 flex-col items-center gap-1 p-1 active:scale-95" style={{ borderRadius: R.smallCard, background: F.surface, boxShadow: S.raisedSoft }}>
+                                <TokenImg value={emoji.url} alt={emoji.name} decoding="async" className="h-12 w-12 object-contain" />
+                                <span className="w-full truncate text-center text-[10px]">{emoji.name}</span>
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
+            {autoReplySeconds !== null && !selectionMode && (
+                <div className="sully-chat-auto-reply shrink-0 relative z-40 flex min-h-10 items-center justify-center gap-1 px-4 text-xs" style={{ background: F.appBg, color: F.textSecondary }}>
+                    <span role="status">即将回复 · {autoReplySeconds} 秒</span>
+                    <button type="button" onClick={onCancelAutoReply} className="min-h-11 px-3 font-bold" style={{ color: HUE.indigo.ink }} aria-label="取消自动回复">取消</button>
+                </div>
+            )}
         <div className={`sully-chat-inputbar ${shellClass} pb-safe shrink-0 z-40 relative`}>
             <input type="file" ref={chatImageInputRef} className="hidden" accept="image/*" onChange={(e) => handleImageChange(e, 'chat')} />
             
@@ -485,15 +586,15 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                 </div>
             ) : (
                 <>
-                <div className={`${quickToolbarEnabled ? 'mx-auto w-full max-w-[560px] px-4 pt-3 pb-2' : 'p-3 px-4'} flex gap-3 items-end relative`}>
+                <div className={`sully-chat-composer ${quickToolbarEnabled ? 'mx-auto w-full max-w-[560px] px-4 pt-3 pb-2' : 'p-3 px-4'} flex gap-3 items-end relative`}>
                     {!quickToolbarEnabled && (
-                    <button onClick={() => setShowPanel(showPanel === 'actions' ? 'none' : 'actions')} className={actionButtonClass}>
+                    <button aria-label="聊天功能" aria-expanded={showPanel === 'actions'} onClick={() => setShowPanel(showPanel === 'actions' ? 'none' : 'actions')} className={`sully-chat-actions-button ${actionButtonClass}`}>
                         <span style={{ display: 'inline-flex', transition: 'transform 300ms cubic-bezier(0.34, 1.56, 0.64, 1)', transform: showPanel === 'actions' ? 'rotate(45deg)' : 'rotate(0deg)' }}>
                             <Plus className="w-6 h-6" weight="bold" />
                         </span>
                     </button>
                     )}
-                    <div className={`flex-1 min-w-0 flex items-center px-1 transition-all relative ${useIOSStandaloneInputFix ? 'overflow-visible' : 'overflow-hidden'} ${inputWrapClass} ${isPixelStyle ? 'focus-within:bg-[#fff7ed]' : isDiscordStyle ? 'focus-within:bg-slate-800 focus-within:border-white/20' : 'border border-transparent focus-within:bg-white focus-within:border-primary/30'}`}>
+                    <div className={`sully-chat-input-wrap flex-1 min-w-0 flex items-center px-1 transition-all relative ${useIOSStandaloneInputFix ? 'overflow-visible' : 'overflow-hidden'} ${inputWrapClass} ${isPixelStyle ? 'focus-within:bg-[#fff7ed]' : isDiscordStyle ? 'focus-within:bg-slate-800 focus-within:border-white/20' : 'border border-transparent focus-within:bg-white focus-within:border-primary/30'}`}>
                         <textarea
                             ref={textareaRef}
                             rows={1}
@@ -501,11 +602,14 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                             onChange={(e) => setInput(e.target.value)}
                             onKeyDown={handleKeyDown}
                             onFocus={handleInputFocus}
+                            onBlur={() => setIsInputFocused(false)}
+                            onCompositionStart={() => setIsComposing(true)}
+                            onCompositionEnd={() => setIsComposing(false)}
                             inputMode="text"
-                            enterKeyHint="send"
+                            enterKeyHint={enterToSend ? 'send' : 'enter'}
                             autoCorrect="on"
                             autoCapitalize="sentences"
-                            className={`flex-1 min-w-0 bg-transparent px-4 py-3 ${useIOSStandaloneInputFix ? 'text-[16px]' : 'text-[15px]'} resize-none max-h-24 no-scrollbar ${isDiscordStyle ? 'text-white placeholder:text-slate-500' : isPixelStyle ? 'text-[#6a4c35] placeholder:text-[#9b8677]' : ''}`}
+                            className={`sully-chat-textarea flex-1 min-w-0 bg-transparent px-4 py-3 ${useIOSStandaloneInputFix ? 'text-[16px]' : 'text-[15px]'} resize-none max-h-24 no-scrollbar ${isDiscordStyle ? 'text-white placeholder:text-slate-500' : isPixelStyle ? 'text-[#6a4c35] placeholder:text-[#9b8677]' : ''}`}
                             placeholder="Message..."
                             style={{ height: 'auto' }}
                         />
@@ -533,11 +637,23 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                     {/* [EM-END: voice-send-button] */}
 
                     <button
-                        onClick={onSend}
-                        disabled={!input.trim()}
-                        className={`${sendButtonClass} ${input.trim() ? '' : 'opacity-45 shadow-none'}`}
+                        ref={sendButtonRef}
+                        type="button"
+                        onPointerDown={e => {
+                            // 保留点下时的发送模式与光标，避免 blur 先于 click 把这一下变成生成。
+                            if (canEndEditing && isInputFocused && e.button === 0) e.preventDefault();
+                        }}
+                        onClick={isGenerateButton ? onGenerate : onSend}
+                        disabled={primaryButtonDisabled}
+                        aria-label={isGenerateButton ? (isTyping ? '正在生成回复' : '生成回复') : '发送文字'}
+                        title={isGenerateButton ? (isTyping ? '正在生成回复' : '让对方回复已发送的消息') : '发送文字'}
+                        className={`sully-chat-send-button ${sendButtonClass} ${primaryButtonDisabled ? 'opacity-45 shadow-none' : ''}`}
                     >
-                        {sendButtonStyle === 'pill' ? <span>发送</span> : <PaperPlaneTilt className="w-5 h-5" weight="fill" />}
+                        {sendButtonStyle === 'pill'
+                            ? <span>{isGenerateButton ? (isTyping ? '生成中' : '生成') : '发送'}</span>
+                            : isGenerateButton
+                                ? <Lightning className={`w-5 h-5 ${isTyping ? 'animate-pulse' : ''}`} weight="fill" />
+                                : <PaperPlaneTilt className="w-5 h-5" weight="fill" />}
                     </button>
 
                     {emojiSelectionMode && (
@@ -723,7 +839,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                             'bg-white/60 backdrop-blur-[2px]'
                                         }`}
                                     >
-                                        <button 
+                                        <button
                                             onClick={(e) => { e.stopPropagation(); setEmojiSelectionMode(false); }} 
                                             className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors shadow-sm ${
                                                 isPixelStyle ? 'bg-[#c99872] text-[#fff7ed] hover:bg-[#b07d57]' :
@@ -741,6 +857,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                     <div className="flex h-10 shrink-0 items-center pl-1 pr-3">
                                         <button
                                             onClick={(e) => { e.stopPropagation(); setEmojiSelectionMode(true); }}
+                                            aria-label="批量管理表情"
                                             className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors shadow-sm ${
                                                 isPixelStyle ? 'bg-[#c99872] text-[#fff7ed] hover:bg-[#b07d57]' :
                                                 isDiscordStyle ? 'bg-slate-700 text-slate-300 hover:bg-slate-600' :
@@ -758,13 +875,14 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                     已用自定义 CSS（.sully-chat-panel button img 定宽 !important）的用户不受影响。 */}
                                 <div className="grid grid-cols-5 gap-2">
                                     {emojiSelectionMode ? (
-                                        <button 
+                                        <button
                                             onClick={() => {
                                                 if (selectedEmojis.length > 0) {
                                                     onPanelAction('delete-emoji-req', selectedEmojis);
                                                 }
                                             }} 
                                             disabled={selectedEmojis.length === 0}
+                                            aria-label="删除选中的表情"
                                             className={`${emojiImportTileClass} !bg-red-50 !border-red-400 !text-red-500 ${selectedEmojis.length === 0 ? 'opacity-40 cursor-not-allowed' : 'active:scale-95'}`}
                                         >
                                             <Trash className="w-8 h-8" weight="fill" />
@@ -773,14 +891,14 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                         <button onClick={() => onPanelAction('emoji-import')} className={emojiImportTileClass}>+</button>
                                     )}
                                     {visibleEmojis.map((e) => {
-                                        const isSelected = selectedEmojiUrls.has(e.url);
+                                        const isSelected = selectedEmojiNames.has(e.name);
                                         return (
                                         <button
-                                            // key 必须用 url 而不是索引：索引 key 会让 React 复用 <img> 节点、
-                                            // 切分组时只换 src——旧分组的位图在新图解码完成前一直挂在格子上
-                                            // （表现为"新分组显示旧分组的图"）。按 url 重建节点则空白等加载，不串图。
-                                            key={e.url}
+                                            // name 是表情库主键；不同表情可共用 URL / 去重后的 Blob 令牌。
+                                            // 用图片地址当记录 key 会冲突，切分组/翻页时残留、复制旧格子。
+                                            key={e.name}
                                             onClick={(ev) => handleItemClick(ev, e, 'emoji')}
+                                            aria-pressed={emojiSelectionMode ? isSelected : undefined}
                                             // Long press handlers for Emojis
                                             onTouchStart={(ev) => handleTouchStart(e, 'emoji', ev)}
                                             onTouchMove={handleTouchMove}
@@ -793,7 +911,8 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                             className={`${emojiTileClass} ${isSelected ? '!border-blue-500' : ''}`}
                                         >
                                             <div className="aspect-square w-full">
-                                                <TokenImg value={e.url} loading="lazy" decoding="async" className="sully-emoji-thumb w-full h-full object-contain pointer-events-none" />
+                                                {/* 换图仍重建 img，避免新图解码前残留旧位图；分页和懒加载照旧。 */}
+                                                <TokenImg key={e.url} value={e.url} loading="lazy" decoding="async" className="sully-emoji-thumb w-full h-full object-contain pointer-events-none" />
                                             </div>
                                             <span className={`text-[9px] truncate w-full text-center mt-0.5 leading-tight pointer-events-none ${emojiLabelClass}`}>{e.name}</span>
                                             {isSelected && <div className="absolute inset-0 bg-blue-500/20 rounded-2xl pointer-events-none border-2 border-blue-500" />}
@@ -846,6 +965,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                             onClickCapture={handleActionsClickCapture}
                         >
                           <div className={`p-6 grid grid-cols-4 gap-8 ${actionsPage === 0 ? '' : 'hidden'}`}>
+
                             {/* 见面：直接跳到该角色的见面模式（等同于进见面 App 并点击该角色） */}
                             <button onClick={() => onPanelAction('meetup')} className={`flex flex-col items-center gap-2 active:scale-95 transition-transform ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}>
                                 <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border ${isDiscordStyle ? 'bg-slate-800 text-violet-300 border-violet-400/20' : 'bg-violet-50 text-violet-500 border-violet-100'}`}>

@@ -1,3 +1,4 @@
+import { AppID } from '../types';
 import React, { useState, useEffect, useRef, useLayoutEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useOS } from '../context/OSContext';
@@ -41,6 +42,8 @@ import ChatHeader from '../components/chat/ChatHeaderShell';
 import CharacterEntryTransition from '../components/chat/CharacterEntryTransition';
 import ChromeCssEditor from '../components/chat/ChromeCssEditor';
 import ChatInputArea from '../components/chat/ChatInputArea';
+import { loadChatInputPreferences, saveChatInputPreferences, CHAT_INPUT_PREFERENCES_CHANGED_EVENT } from '../utils/chatInputPreferences';
+import { useChatAutoReply } from '../hooks/useChatAutoReply';
 import IntifaceFloatingBall from '../components/chat/IntifaceFloatingBall';
 import InstantChatRouteNotice from '../components/chat/InstantChatRouteNotice';
 import MemoryRepairPortal from '../components/chat/MemoryRepairPortal';
@@ -100,7 +103,7 @@ type InstantToolUiStatus = {
 };
 
 const Chat: React.FC = () => {
-    const { characters, activeCharacterId, setActiveCharacterId, updateCharacter, apiConfig, apiPresets, addApiPreset, closeApp, customThemes, removeCustomTheme, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar, setMessageSubView } = useOS(); // [EM: message-sub-view-destructure]
+    const { activeApp, characters, activeCharacterId, setActiveCharacterId, updateCharacter, apiConfig, apiPresets, addApiPreset, closeApp, customThemes, removeCustomTheme, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar, setMessageSubView } = useOS(); // [EM: message-sub-view-destructure]
     const isProactiveComposing = !!(activeCharacterId && proactiveComposingChars[activeCharacterId]);
     const localDateKey = useLocalDateKey();
 
@@ -129,6 +132,16 @@ const Chat: React.FC = () => {
     const [showEntry, setShowEntry] = useState(false);
     const WINDOW_RADIUS = 25;
     const [input, setInput] = useState('');
+    const [isInputFocused, setIsInputFocused] = useState(false);
+    const [isInputAuxiliaryPanelOpen, setIsInputAuxiliaryPanelOpen] = useState(false); // [EM: chat-quick-toolbar-auto-reply]
+    const [inputPreferences, setInputPreferences] = useState(loadChatInputPreferences);
+    const [settingsInputPreferences, setSettingsInputPreferences] = useState(loadChatInputPreferences);
+    useEffect(() => {
+        const reload = () => setInputPreferences(loadChatInputPreferences());
+        window.addEventListener(CHAT_INPUT_PREFERENCES_CHANGED_EVENT, reload);
+        window.addEventListener('storage', reload);
+        return () => { window.removeEventListener(CHAT_INPUT_PREFERENCES_CHANGED_EVENT, reload); window.removeEventListener('storage', reload); };
+    }, []);
     const [showPanel, setShowPanel] = useState<'none' | 'actions' | 'emojis' | 'chars'>('none');
     const [showChatSearch, setShowChatSearch] = useState(false);
     const [memoryRepairOpen, setMemoryRepairOpen] = useState(false);
@@ -403,6 +416,7 @@ const Chat: React.FC = () => {
         prevCharStatusRef.current = charStatusInfo.status;
         if (prev === 'offline' && charStatusInfo.status !== 'offline' && hasOfflinePendingRef.current) {
             hasOfflinePendingRef.current = false;
+            autoReply.cancel(); // [EM: offline-auto-reply] 已有延迟回复接管，取消新的倒计时。
             // 清掉临时的 offline_hint 消息，触发 AI 回复
             setMessages(ms => ms.filter(m => m.metadata?.kind !== 'offline_hint'));
             triggerAI(messages);
@@ -419,6 +433,7 @@ const Chat: React.FC = () => {
             addToast('请先在「设置 → 实时感知」里启用 Notion，并填写 API Key 与日记数据库 ID', 'info'); return;
         }
         try {
+            autoReply.cancel(); // [EM: notion-diary-quick] 手动请求在异步准备前接管，避免倒计时抢先生成。
             setShowPanel('none');
             console.log('📝 [NotionNudge] 发送写日记请求', { notionEnabled: rc?.notionEnabled, hasApiKey: !!rc?.notionApiKey, hasDbId: !!rc?.notionDatabaseId });
             await DB.saveMessage({ charId: char.id, role: 'user', type: 'interaction', content: '📝', metadata: { kind: 'notion_diary_nudge' } });
@@ -1021,6 +1036,7 @@ const Chat: React.FC = () => {
     // 切换全自动模式后，隐藏着的 Chat 组件仍带着旧拉杆状态。
     useEffect(() => {
         if (modalType !== 'chat-settings' || !char) return;
+        setSettingsInputPreferences(loadChatInputPreferences());
         setSettingsContextLimit(char.contextLimit || 500);
         setSettingsContextRangeMode(resolveContextRangeMode(char));
         setSettingsHideSysLogs(char.hideSystemLogs || false);
@@ -1155,7 +1171,7 @@ const Chat: React.FC = () => {
 
     // --- Actions ---
 
-    const handleSendText = async (customContent?: string, customType?: MessageType, metadata?: any) => {
+    const sendText = async (customContent?: string, customType?: MessageType, metadata?: any) => {
         if (!char || (!input.trim() && !customContent)) return;
         // 只累加内存里的计数，这里不发任何请求；页面切走时才按区间报一次。见 utils/analytics.ts
         noteMessageSent();
@@ -1383,7 +1399,7 @@ const Chat: React.FC = () => {
         }
 
         await reloadMessages(visibleCountRef.current);
-        setShowPanel('none');
+        if (!inputPreferences.autoReply) setShowPanel('none');
 
         // [EM-START: offline-send-gate] 角色 offline 时发消息 → 插入系统提示，不触发 AI，标记待回复
         if (charStatusInfo.status === 'offline' && type === 'text') {
@@ -1411,13 +1427,25 @@ const Chat: React.FC = () => {
         // autoTriggerOnSend gate：instant ready 也只在用户显式开启"发送后自动触发"时才自动回复，
         // 否则保留手动 ⚡（避免"启用 instant = 自动回复"的反直觉强绑定）。
         const instantCfg = loadInstantConfig();
-        if (type === 'text' && isInstantConfigReady(instantCfg) && instantCfg.autoTriggerOnSend) {
+        if (!inputPreferences.autoReply && type === 'text' && isInstantConfigReady(instantCfg) && instantCfg.autoTriggerOnSend) {
             // 上一轮还在跑时直接跳过：triggerAI 内部会因 isTyping=true 静默 reject，
             // 提前 guard 避免点亮"准备中"指示灯后没人来清，UI 灯被卡住。
             if (isTyping) return;
             // 标记"准备中"三个点：拼接+发送期间显示，SSE POST 入队 (onInstantPosted) 后清除。
             setInstantSendingActive(true);
             triggerAI(messages, undefined, () => setInstantSendingActive(false));
+        }
+        return true;
+    };
+
+    const handleSendText = async (customContent?: string, customType?: MessageType, metadata?: any) => {
+        const finish = autoReply.beginSend(char?.id || null);
+        try {
+            const sent = await sendText(customContent, customType, metadata);
+            finish(sent === true && (!customType || ['text', 'image', 'emoji'].includes(customType)));
+        } catch (error) {
+            finish(false);
+            throw error;
         }
     };
 
@@ -1489,6 +1517,7 @@ const Chat: React.FC = () => {
     // 三个点（从写入 DB 到 SSE POST 入队之间），由 onInstantPosted 清除 ——
     // 与 autoTriggerOnSend 自动路径的指示器行为一致。本地模式无此指示器，直接 triggerAI。
     const handleManualTrigger = () => {
+        autoReply.cancel();
         // 同上：上一轮还在跑时 triggerAI 会静默 reject，提前挡掉避免指示灯卡死。
         if (isTyping) return;
         if (!isInstantConfigReady()) { triggerAI(messages); return; }
@@ -1499,6 +1528,7 @@ const Chat: React.FC = () => {
     };
 
     const handleReroll = async () => {
+        autoReply.cancel();
         if (isTyping || messages.length === 0) return;
 
         const lastMsg = messages[messages.length - 1];
@@ -1528,12 +1558,16 @@ const Chat: React.FC = () => {
     };
 
     const handleImageSelect = async (file: File) => {
+        const finishImage = autoReply.beginSend(char?.id || null);
         try {
             const base64 = await processImage(file, { maxWidth: 600, quality: 0.6, forceJpeg: true });
-            setShowPanel('none');
+            if (!inputPreferences.autoReply) setShowPanel('none');
             await handleSendText(base64, 'image');
         } catch (err: any) {
             addToast(err.message || '图片处理失败', 'error');
+        } finally {
+            // 是否真正发出由 handleSendText 标记；这里仅解除图片处理期间的暂停。
+            finishImage(false);
         }
     };
 
@@ -2207,6 +2241,8 @@ const Chat: React.FC = () => {
     };
 
     const saveSettings = async () => {
+        saveChatInputPreferences(settingsInputPreferences);
+        setInputPreferences(settingsInputPreferences);
         const canUseAdaptiveRange = !!(char.autoArchiveEnabled || char.contextFollowsMemoryPalaceHwm);
         const nextMode: ContextRangeMode = canUseAdaptiveRange
             ? settingsContextRangeMode
@@ -3044,6 +3080,8 @@ const Chat: React.FC = () => {
         return new Set(categories.filter(c => !visible.has(c.id)).map(c => c.id));
     }, [categories, visibleCategories]);
 
+    const suggestionEmojis = useMemo(() => emojis.filter(e => !e.categoryId || !hiddenCategoryIds.has(e.categoryId)), [emojis, hiddenCategoryIds]);
+
     // Memoize filtered emojis for ChatInputArea
     const filteredEmojis = useMemo(() => emojis.filter(e => {
         // Exclude emojis from hidden categories
@@ -3053,16 +3091,27 @@ const Chat: React.FC = () => {
     }), [emojis, activeCategory, hiddenCategoryIds]);
 
     // Memoize ChatInputArea callbacks
-    const handleSendCallback = useCallback(() => handleSendText(), [char, input, replyTarget, charStatusInfo.status]);
+    const handleSendCallback = useCallback(() => handleSendText(), [char, input, replyTarget, charStatusInfo.status, inputPreferences]);
     // [EM-START: voice-send-callbacks]
     const handleVoiceSend = useCallback((text: string, durationMs: number) => {
         handleSendText(text, 'text', { voice: true, durationMs });
-    }, [char, replyTarget]);
+    }, [char, replyTarget, charStatusInfo.status, inputPreferences]);
     // [EM-END: voice-send-callbacks]
     const handleCharSelectCallback = useCallback((id: string) => { setActiveCharacterId(id); setShowPanel('none'); }, []);
     // 角色自定义聊天背景：字段值可能是 blobref 令牌（二进制在 IndexedDB），这里解析成能直接
     // 喂进 CSS url() 的地址；data: / http(s) 之类的非令牌值渲染期原样透传。
     // hook 必须在下面的空态早退之前调用，所以用可选链读 char。
+    const autoReply = useChatAutoReply({
+        enabled: inputPreferences.autoReply,
+        conversationId: activeCharacterId || null,
+        active: activeApp === AppID.Chat && !!char,
+        blocked: isInputFocused || isInputAuxiliaryPanelOpen || !!input.trim() || showPanel !== 'none' || modalType !== 'none'
+            || selectionMode || isSummarizing || memoryRepairOpen || favoritesOpen
+            || fineTunePanelOpen || showProactiveModal || showThinkingChainModal
+            || mcdAppOpen || luckinAppOpen || showForwardModal || showChatSearch || charStatusInfo.status === 'offline',
+        generating: isTyping || instantChatPending || isProactiveComposing,
+        onGenerate: handleManualTrigger,
+    });
     const resolvedChatBackground = useBlobRefUrl(char?.chatBackground);
     // 兜底：正常情况下 OSContext 启动时一定会保底一个角色，char 不该为空。
     // 但若 init 期间某个 store 读取失败（数据其实还在 IndexedDB 里），characters 可能暂时为空，
@@ -3368,6 +3417,7 @@ const Chat: React.FC = () => {
                 transferAmt={transferAmt} setTransferAmt={setTransferAmt}
                 transferNote={transferNote} setTransferNote={setTransferNote}
                 emojiImportText={emojiImportText} setEmojiImportText={setEmojiImportText}
+                settingsInputPreferences={settingsInputPreferences} setSettingsInputPreferences={setSettingsInputPreferences}
                 settingsContextLimit={settingsContextLimit} setSettingsContextLimit={setSettingsContextLimit}
                 settingsContextRangeMode={settingsContextRangeMode} setSettingsContextRangeMode={setSettingsContextRangeMode}
                 settingsHideSysLogs={settingsHideSysLogs} setSettingsHideSysLogs={setSettingsHideSysLogs}
@@ -3494,6 +3544,7 @@ const Chat: React.FC = () => {
                 tokenBreakdown={tokenBreakdown}
                 onClose={closeApp}
                 onTriggerAI={handleManualTrigger}
+                hideTrigger={inputPreferences.sendButtonGenerates}
                 onShowCharsPanel={() => setShowPanel('chars')}
                 extraAction={{
                     label: '搜索聊天记录',
@@ -3641,7 +3692,7 @@ const Chat: React.FC = () => {
                 );
             })()}
 
-            <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden pt-6 pb-6 no-scrollbar" style={{ backgroundImage: activeTheme.type === 'custom' && activeTheme.user.backgroundImage ? 'none' : undefined }}>
+            <div ref={scrollRef} onClick={() => { if (inputPreferences.autoReply) setShowPanel('none'); }} className="flex-1 overflow-y-auto overflow-x-hidden pt-6 pb-6 no-scrollbar" style={{ backgroundImage: activeTheme.type === 'custom' && activeTheme.user.backgroundImage ? 'none' : undefined }}>
                 {windowedFocusMsgId !== null && (
                     <div className="sticky top-0 z-20 flex justify-center pb-2 pointer-events-none">
                         <button onClick={handleBackToCurrent} className="pointer-events-auto px-4 py-2 bg-primary text-white rounded-full text-xs font-bold shadow-lg active:scale-95 transition-transform flex items-center gap-1.5">
@@ -3936,6 +3987,16 @@ const Chat: React.FC = () => {
                     isTyping={isTyping} selectionMode={selectionMode}
                     showPanel={showPanel} setShowPanel={setShowPanel}
                     onSend={handleSendCallback}
+                    onGenerate={handleManualTrigger}
+                    sendButtonGenerates={inputPreferences.sendButtonGenerates}
+                    enterToSend={inputPreferences.enterToSend}
+                    autoReplyEnabled={inputPreferences.autoReply}
+                    autoReplySeconds={autoReply.seconds}
+                    onCancelAutoReply={autoReply.cancel}
+                    onInputFocusChange={setIsInputFocused}
+                    onAuxiliaryPanelChange={setIsInputAuxiliaryPanelOpen}
+                    emojiSuggestionsEnabled={inputPreferences.emojiSuggestions}
+                    suggestionEmojis={suggestionEmojis}
                     onDeleteSelected={handleBatchDelete}
                     onForwardSelected={handleForwardSelected}
                     selectedCount={selectedMsgIds.size + Array.from(selectedThinkingMsgIds).filter(id => !selectedMsgIds.has(id)).length}

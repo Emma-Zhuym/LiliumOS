@@ -1,3 +1,4 @@
+import { loadChatInputPreferences, saveChatInputPreferences } from '../utils/chatInputPreferences';
 
 import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
 import { APIConfig, AppID, OSTheme, VirtualTime, CharacterProfile, CharacterGroup, ChatTheme, Toast, FullBackupData, UserProfile, ApiPreset, GroupProfile, SystemLog, Worldbook, NovelBook, SongSheet, Message, RealtimeConfig, AppearancePreset, CloudBackupConfig, CloudBackupFile } from '../types';
@@ -4057,6 +4058,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               })() : undefined,
               bm25Mode: (mode === 'text_only' || mode === 'full') ? (localStorage.getItem('bm25_mode') || undefined) : undefined,
               lastActiveCharId: (mode === 'text_only' || mode === 'full') ? (localStorage.getItem('os_last_active_char_id') || undefined) : undefined,
+              chatInputPreferences: (mode === 'text_only' || mode === 'full') ? loadChatInputPreferences() : undefined,
               storyTheaterAppearance: (mode === 'text_only' || mode === 'full') ? exportStoryTheaterAppearanceSetting() : undefined,
               eventNotifFlags: (mode === 'text_only' || mode === 'full') ? (() => {
                   const flags: Record<string, string> = {};
@@ -5020,6 +5022,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           }
           if (typeof data.bm25Mode === 'string') localStorage.setItem('bm25_mode', data.bm25Mode);
           if (typeof data.lastActiveCharId === 'string') localStorage.setItem('os_last_active_char_id', data.lastActiveCharId);
+          if (data.chatInputPreferences !== undefined) saveChatInputPreferences(data.chatInputPreferences);
           restoreStoryTheaterAppearanceSetting(data.storyTheaterAppearance);
           if (data.dreamCollection && typeof data.dreamCollection === 'object') localStorage.setItem('os_dream_collection', JSON.stringify(data.dreamCollection));
           if (typeof data.gotchiAccentHue === 'string' && /^\d+$/.test(data.gotchiAccentHue)) localStorage.setItem('tama_accent_hue', data.gotchiAccentHue);
