@@ -19,6 +19,7 @@ export type KitchenUnit =
 export type KitchenStorageZone = 'staging' | 'fridge' | 'freezer' | 'pantry';
 export type KitchenEventType = 'ADD' | 'CONSUME' | 'DISCARD' | 'ADJUST' | 'UNDO';
 export type KitchenTrackingMode = 'count' | 'divisible';
+export type KitchenFridgePlacement = 'shelf' | 'door-upper' | 'door-lower';
 
 export interface KitchenFood {
   id: string;
@@ -35,6 +36,7 @@ export interface KitchenLot {
   quantity: number;
   unit: KitchenUnit;
   storageZone: KitchenStorageZone;
+  fridgePlacement?: KitchenFridgePlacement;
   packageState: 'sealed' | 'opened';
   foodState: 'raw' | 'prepared' | 'leftover';
   trackingMode?: KitchenTrackingMode;
@@ -529,6 +531,19 @@ async function discardCurrentContainer(input: Omit<ChangeKitchenPortionInput, 'f
   }
 }
 
+async function moveLot(lotId: string, placement: KitchenFridgePlacement): Promise<void> {
+  if (!['shelf', 'door-upper', 'door-lower'].includes(placement)) throw new Error('请选择有效的摆放位置');
+  const db = await openKitchenDB();
+  try {
+    const transaction = db.transaction(STORE_LOTS, 'readwrite');
+    const store = transaction.objectStore(STORE_LOTS);
+    const lot = await requestValue(store.get(lotId)) as KitchenLot | undefined;
+    if (!lot || lot.quantity <= 0 || lot.storageZone !== 'fridge') throw new Error('只能移动现有的冷藏食材');
+    store.put({ ...lot, fridgePlacement: placement, updatedAt: Date.now() });
+    await transactionDone(transaction);
+  } finally { db.close(); }
+}
+
 async function updateLotDetails(input: UpdateKitchenLotDetailsInput): Promise<KitchenLot> {
   const name = input.name.trim().replace(/\s+/g, ' ');
   if (!name) throw new Error('请填写食材名称');
@@ -696,6 +711,7 @@ export const KitchenDB = {
   setPortionRemaining,
   discardCurrentContainer,
   updateLotDetails,
+  moveLot,
   undoLatest,
   getFoods: () => getAll<KitchenFood>(STORE_FOODS),
   getLots: () => getAll<KitchenLot>(STORE_LOTS),

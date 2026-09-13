@@ -3,13 +3,15 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { F, HUE, R, S, SP } from '../../utils/clayTokens';
-import type { KitchenFood, KitchenLot } from '../../utils/kitchenDb';
+import type { KitchenFood, KitchenLot, KitchenFridgePlacement } from '../../utils/kitchenDb';
 import { fridgePage } from '../../utils/kitchenSceneLayout';
 
 interface Props {
   lots: KitchenLot[];
   foods: KitchenFood[];
   onOpenLot: (id: string) => void;
+  busy?: boolean;
+  onMoveLot: (id: string, placement: KitchenFridgePlacement) => Promise<void>;
 }
 
 function disposeObjects(objects: THREE.Object3D[]) {
@@ -29,25 +31,36 @@ function disposeObjects(objects: THREE.Object3D[]) {
   textures.forEach(value => value.dispose());
 }
 
-const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot }) => {
+const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot, busy }) => {
   const [requestedPage, setPage] = useState(0);
-  const [open, setOpen] = useState(false);
+  const [doorsOpen, setDoorsOpen] = useState({ fridge: false, freezer: false });
   const [drawersOpen, setDrawersOpen] = useState(false);
-  const [zone, setZone] = useState<'fridge' | 'freezer'>('fridge');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [markers, setMarkers] = useState<{ lotId: string; x: number; y: number }[]>([]);
   const host = useRef<HTMLDivElement>(null);
-  const controller = useRef<{ setOpen: (value: boolean) => void; setDrawers: (value: boolean) => void }>();
-  const openRef = useRef(open);
+  const selectionPanel = useRef<HTMLDivElement>(null);
+  const controller = useRef<{ setOpen: (value: typeof doorsOpen) => void; setDrawers: (value: boolean) => void }>();
+  const openRef = useRef(doorsOpen);
   const drawersRef = useRef(drawersOpen);
   drawersRef.current = drawersOpen;
-  const onOpenRef = useRef(onOpenLot);
-  onOpenRef.current = onOpenLot;
-  openRef.current = open;
-  const page = useMemo(() => fridgePage(lots, foods, requestedPage, zone), [lots, foods, requestedPage, zone]);
+  openRef.current = doorsOpen;
+  const page = useMemo(() => {
+    const cold = fridgePage(lots, foods, requestedPage);
+    const frozen = fridgePage(lots, foods, requestedPage, 'freezer');
+    const pageCount = Math.max(cold.pageCount, frozen.pageCount);
+    return { entries: [...frozen.entries, ...cold.entries], total: cold.total + frozen.total,
+      pageCount, page: Math.min(requestedPage, pageCount - 1) };
+  }, [lots, foods, requestedPage]);
+  const selected = page.entries.find(entry => entry.lot.id === selectedId);
+  const isOpen = (zone: string) => zone === 'freezer' ? doorsOpen.freezer : doorsOpen.fridge;
+  const toggleDoor = (zone: 'fridge' | 'freezer') => setDoorsOpen(value => ({ ...value, [zone]: !value[zone] }));
+  useEffect(() => {
+    if (selectedId) selectionPanel.current?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
+  }, [selectedId]);
 
-  useEffect(() => { controller.current?.setOpen(open); }, [open]);
-  useEffect(() => { controller.current?.setDrawers(open && drawersOpen); }, [open, drawersOpen]);
+  useEffect(() => { controller.current?.setOpen(doorsOpen); }, [doorsOpen]);
+  useEffect(() => { controller.current?.setDrawers(doorsOpen.fridge && drawersOpen); }, [doorsOpen.fridge, drawersOpen]);
 
   useEffect(() => {
     const element = host.current;
@@ -58,8 +71,10 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot }) => {
     let door: THREE.Object3D | undefined;
     let freezerDoor: THREE.Object3D | undefined;
     let drawers: THREE.Object3D[] = [];
-    let drawerTarget = openRef.current && drawersRef.current ? 0.3 : 0;
-    let targetAngle = openRef.current ? -Math.PI * 0.62 : 0;
+    let drawerTarget = openRef.current.fridge && drawersRef.current ? 0.3 : 0;
+    let targetAngle = openRef.current.fridge ? -Math.PI * 0.62 : 0;
+    let freezerAngle = openRef.current.freezer ? -Math.PI * 0.62 : 0;
+    const foodSlots: { id: string; object: THREE.Group }[] = [];
     let inView = true;
     let renderer: THREE.WebGLRenderer;
     setStatus('loading');
@@ -106,20 +121,28 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot }) => {
         const difference = targetAngle - door.rotation.y;
         door.rotation.y = reducedMotion.matches || Math.abs(difference) < 0.002
           ? targetAngle : door.rotation.y + difference * 0.16;
-        if (freezerDoor) freezerDoor.rotation.y = door.rotation.y;
+      }
+      if (freezerDoor) {
+        const delta = freezerAngle - freezerDoor.rotation.y;
+        freezerDoor.rotation.y = reducedMotion.matches || Math.abs(delta) < 0.002 ? freezerAngle : freezerDoor.rotation.y + delta * 0.16;
       }
       for (const drawer of drawers) {
         const delta = drawerTarget - drawer.position.z;
         drawer.position.z = reducedMotion.matches || Math.abs(delta) < 0.002 ? drawerTarget : drawer.position.z + delta * 0.16;
       }
       renderer.render(scene, camera);
-      if ((door && door.rotation.y !== targetAngle) || drawers.some(drawer => drawer.position.z !== drawerTarget)) frame = requestAnimationFrame(draw);
+      setMarkers(foodSlots.map(slot => {
+        const point = slot.object.localToWorld(new THREE.Vector3(0, 0.29, 0)).project(camera);
+        return { lotId: slot.id, x: (point.x + 1) * element.clientWidth / 2, y: (1 - point.y) * element.clientHeight / 2 };
+      }));
+      if ((door && door.rotation.y !== targetAngle) || (freezerDoor && freezerDoor.rotation.y !== freezerAngle)
+        || drawers.some(drawer => drawer.position.z !== drawerTarget)) frame = requestAnimationFrame(draw);
     };
     const invalidate = () => {
       if (!disposed && !frame && !failed) frame = requestAnimationFrame(draw);
     };
     controller.current = {
-      setOpen: value => { targetAngle = value ? -Math.PI * 0.62 : 0; invalidate(); },
+      setOpen: value => { targetAngle = value.fridge ? -Math.PI * 0.62 : 0; freezerAngle = value.freezer ? -Math.PI * 0.62 : 0; invalidate(); },
       setDrawers: value => { drawerTarget = value ? 0.3 : 0; invalidate(); },
     };
     const resize = () => {
@@ -133,12 +156,6 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot }) => {
       camera.bottom = -halfHeight;
       camera.updateProjectionMatrix();
       camera.updateMatrixWorld();
-      setMarkers(page.entries.map(entry => {
-        const point = new THREE.Vector3(...entry.position);
-        point.y += 0.29;
-        point.project(camera);
-        return { lotId: entry.lot.id, x: (point.x + 1) * width / 2, y: (1 - point.y) * height / 2 };
-      }));
       invalidate();
     };
     const resizeObserver = new ResizeObserver(resize);
@@ -165,9 +182,10 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot }) => {
       if (!hit) return;
       let object: THREE.Object3D | null = hit.object;
       while (object) {
-        if (object.userData.lotId && openRef.current) { onOpenRef.current(object.userData.lotId); return; }
-        if (object.name === 'DoorPivot' || object.name === 'FreezerDoorPivot') { setOpen(value => !value); return; }
-        if (object.name.startsWith('Crisper') && openRef.current) { setDrawersOpen(value => !value); return; }
+        if (object.userData.lotId && openRef.current[object.userData.zone as 'fridge' | 'freezer']) { setSelectedId(object.userData.lotId); return; }
+        if (object.name === 'DoorPivot') { toggleDoor('fridge'); return; }
+        if (object.name === 'FreezerDoorPivot') { toggleDoor('freezer'); return; }
+        if (object.name.startsWith('Crisper') && openRef.current.fridge) { setDrawersOpen(value => !value); return; }
         object = object.parent;
       }
     };
@@ -192,7 +210,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot }) => {
       drawers = ['CrisperLeft', 'CrisperRight'].map(name => fridge.getObjectByName(name)).filter((object): object is THREE.Object3D => !!object);
       drawers.forEach(drawer => { drawer.position.z = drawerTarget; });
       door.rotation.y = targetAngle;
-      freezerDoor.rotation.y = targetAngle;
+      freezerDoor.rotation.y = freezerAngle;
       scene.add(fridge);
       page.entries.forEach((entry, index) => {
         const result = results[index + 1];
@@ -201,7 +219,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot }) => {
           object = result.value;
           const bounds = new THREE.Box3().setFromObject(object);
           const size = bounds.getSize(new THREE.Vector3());
-          const scale = Math.min(0.27 / size.x, 0.31 / size.y, 0.3 / size.z);
+          const scale = Math.min(0.27 / size.x, 0.31 / size.y, (entry.placement === 'shelf' ? 0.3 : 0.12) / size.z);
           object.scale.multiplyScalar(scale);
           const center = bounds.getCenter(new THREE.Vector3());
           object.position.set(-center.x * scale, -bounds.min.y * scale, -center.z * scale);
@@ -213,9 +231,12 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot }) => {
         }
         const slot = new THREE.Group();
         slot.userData.lotId = entry.lot.id;
+        slot.userData.zone = entry.lot.storageZone;
         slot.position.set(...entry.position);
         slot.add(object);
-        scene.add(slot);
+        if (entry.placement !== 'shelf') door!.add(slot);
+        else scene.add(slot);
+        foodSlots.push({ id: entry.lot.id, object: slot });
       });
       setStatus('ready');
       resize();
@@ -247,28 +268,25 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot }) => {
   return (
     <section aria-label="冰箱可视化" style={{ marginBottom: SP[3], padding: SP[2], borderRadius: R.bigCard, background: HUE.green.tint }}>
       <div className="flex items-center justify-between" style={{ gap: SP[2] }}>
-        <span style={{ fontSize: 14, fontWeight: 600 }}>{zone === 'fridge' ? '冷藏室' : '冷冻室'} · {page.total} 条库存</span>
-        <button type="button" style={buttonStyle} disabled={status !== 'ready'} aria-pressed={open}
-          onClick={() => setOpen(value => !value)}>{open ? '关上冰箱' : '打开冰箱'}</button>
+        <span style={{ fontSize: 14, fontWeight: 600 }}>冰箱 · {page.total} 条库存</span>
+        <span style={{ fontSize: 12, color: F.textSecondary }}>点哪扇门，就开哪一层</span>
       </div>
-      <div role="group" aria-label="冰箱分区" className="flex" style={{ gap: SP[0], padding: SP[0], marginTop: SP[2], borderRadius: R.large, background: F.surfaceSunken, boxShadow: S.sunken }}>
-        {(['fridge', 'freezer'] as const).map(value => <button key={value} type="button" aria-pressed={zone === value}
-          onClick={() => { setZone(value); setPage(0); }} className="flex-1" style={{ minHeight: 44, fontSize: 13, borderRadius: R.medium,
-            background: zone === value ? F.surfaceRaised : 'transparent', color: zone === value ? HUE.green.ink : F.textSecondary,
-            boxShadow: zone === value ? S.raisedSoft : undefined }}>{value === 'fridge' ? '下层冷藏' : '上层冷冻'}</button>)}
-      </div>
+      {(['fridge', 'freezer'] as const).map(value => <button key={value} type="button" disabled={status !== 'ready'}
+        className="sr-only focus:not-sr-only" aria-pressed={doorsOpen[value]} style={buttonStyle}
+        onClick={() => toggleDoor(value)}>{doorsOpen[value] ? '关闭' : '打开'}{value === 'fridge' ? '冷藏门' : '冷冻门'}</button>)}
       <div className="relative" style={{ height: 420 }}>
         <div ref={host} className="absolute inset-0" />
         {status !== 'ready' && <div role="status" className="absolute inset-0 flex items-center justify-center text-center"
           style={{ padding: SP[3], color: F.textSecondary, fontSize: 13 }}>
           {status === 'loading' ? '正在整理冰箱…' : '冰箱画面暂时打不开，可以继续使用下面的食材列表。切回列表后重试。'}
         </div>}
-        {status === 'ready' && open && page.entries.map((entry, index) => {
+        {status === 'ready' && page.entries.map((entry, index) => {
+          if (!isOpen(entry.lot.storageZone)) return null;
           const marker = markers.find(item => item.lotId === entry.lot.id);
           if (!marker) return null;
           return <button key={entry.lot.id} type="button"
-            aria-label={`查看${entry.name}详情`}
-            onClick={() => onOpenLot(entry.lot.id)}
+            aria-label={`选中${entry.name}`}
+            onClick={() => setSelectedId(entry.lot.id)}
             className="absolute flex items-center justify-center"
             style={{ left: marker.x - 22, top: marker.y - 22, width: 44, height: 44 }}>
             <span style={{ background: F.surfaceRaised, color: HUE.green.ink, borderRadius: R.pill,
@@ -276,16 +294,29 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot }) => {
           </button>;
         })}
       </div>
-      {status === 'ready' && open && <button type="button" aria-pressed={drawersOpen} style={{ ...buttonStyle, marginBottom: SP[2] }}
+      {status === 'ready' && doorsOpen.fridge && <button type="button" aria-pressed={drawersOpen} style={{ ...buttonStyle, marginBottom: SP[2] }}
         onClick={() => setDrawersOpen(value => !value)}>{drawersOpen ? '推回保鲜抽屉' : '拉开保鲜抽屉'}</button>}
       <p style={{ color: F.textSecondary, fontSize: 12, marginBottom: SP[2] }}>
-        {page.total === 0 ? `这个分区还没有食材，在添加或详情里把收纳位置设为${zone === 'fridge' ? '冷藏' : '冷冻'}。` : '只展示所选分区；每个模型代表一条库存，点食材查看详情。'}
+        {page.total === 0 ? '冰箱里还没有食材，可以先添加冷藏或冷冻库存。' : '点食材可以查看详情或移动；门内置物架随冷藏门一起开合。'}
       </p>
+      {selected && <div ref={selectionPanel} aria-label="选中食材" style={{ padding: SP[2], marginBottom: SP[2], borderRadius: R.medium, background: F.surfaceSunken, boxShadow: S.sunken }}>
+        <strong style={{ fontSize: 14 }}>{selected.name}</strong>
+        <button type="button" style={{ ...buttonStyle, marginLeft: SP[2] }} onClick={() => onOpenLot(selected.lot.id)}>查看详情</button>
+        {selected.lot.storageZone === 'fridge' && <>
+          <p style={{ fontSize: 12, marginTop: SP[2], marginBottom: SP[1], color: F.textSecondary }}>放到哪里？</p>
+          <div className="flex" style={{ gap: SP[1] }}>
+            {([{ value: 'shelf', label: '冷藏层板' }, { value: 'door-upper', label: '门内上层' }, { value: 'door-lower', label: '门内下层' }] as const).map(option =>
+              <button type="button" key={option.value} disabled={busy || selected.placement === option.value}
+                className="flex-1 disabled:opacity-40" style={buttonStyle}
+                onClick={() => { void onMoveLot(selected.lot.id, option.value); }}>{option.label}</button>)}
+          </div>
+        </>}
+      </div>}
       <div className="grid grid-cols-3" style={{ gap: SP[1] }}>
         {page.entries.map((entry, index) => <button key={entry.lot.id} type="button" style={buttonStyle}
-          className="min-w-0 text-left" onClick={() => onOpenLot(entry.lot.id)}>
+          className="min-w-0 text-left" onClick={() => { setSelectedId(entry.lot.id); setDoorsOpen(value => ({ ...value, [entry.lot.storageZone]: true })); }}>
           <span className="block truncate">{index + 1}. {entry.name}</span>
-          <span style={{ color: F.textSecondary, fontSize: 11 }}>查看余量与资料</span>
+          <span style={{ color: F.textSecondary, fontSize: 11 }}>{entry.lot.storageZone === 'freezer' ? '冷冻层板' : entry.placement === 'shelf' ? '冷藏层板' : entry.placement === 'door-upper' ? '门内上层' : '门内下层'}</span>
         </button>)}
       </div>
       {page.pageCount > 1 && <div className="flex items-center justify-between" style={{ marginTop: SP[2] }}>

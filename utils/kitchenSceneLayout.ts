@@ -1,4 +1,4 @@
-import type { KitchenFood, KitchenLot } from './kitchenDb';
+import type { KitchenFood, KitchenLot, KitchenFridgePlacement } from './kitchenDb';
 
 export const FRIDGE_PAGE_SIZE = 9;
 export type KitchenModelKey = 'egg' | 'carton' | 'meat-raw' | 'bag';
@@ -18,16 +18,24 @@ export function fridgeLots(lots: KitchenLot[], zone: 'fridge' | 'freezer' = 'fri
 
 export function fridgePage(lots: KitchenLot[], foods: KitchenFood[], requestedPage: number, zone: 'fridge' | 'freezer' = 'fridge') {
   const available = fridgeLots(lots, zone);
-  const pageSize = zone === 'freezer' ? 3 : FRIDGE_PAGE_SIZE;
-  const pageCount = Math.max(1, Math.ceil(available.length / pageSize));
+  const groups: { placement: KitchenFridgePlacement; items: KitchenLot[]; capacity: number }[] = zone === 'freezer'
+    ? [{ placement: 'shelf', items: available, capacity: 3 }]
+    : (['shelf', 'door-upper', 'door-lower'] as const).map(placement => ({
+      placement,
+      items: available.filter(lot => (lot.fridgePlacement === 'door-upper' || lot.fridgePlacement === 'door-lower' ? lot.fridgePlacement : 'shelf') === placement),
+      capacity: placement === 'shelf' ? FRIDGE_PAGE_SIZE : 2,
+    }));
+  const pageCount = Math.max(1, ...groups.map(group => Math.ceil(group.items.length / group.capacity)));
   const page = Math.max(0, Math.min(Math.floor(requestedPage), pageCount - 1));
   const names = new Map(foods.map(food => [food.id, food.name]));
-  const entries = available.slice(page * pageSize, (page + 1) * pageSize).map((lot, index) => {
+  const entries = groups.flatMap(group => group.items.slice(page * group.capacity, (page + 1) * group.capacity).map((lot, index) => {
     const name = names.get(lot.foodId) ?? '未命名食物';
     return {
-      lot, name, model: kitchenModelFor(name),
-      position: [(index % 3 - 1) * 0.36, zone === 'freezer' ? 1.8525 : [1.3, 0.93, 0.56][Math.floor(index / 3)], 0.12] as [number, number, number],
+      lot, name, model: kitchenModelFor(name), placement: group.placement,
+      position: (group.placement === 'shelf'
+        ? [(index % 3 - 1) * 0.36, zone === 'freezer' ? 1.8525 : [1.3, 0.93, 0.56][Math.floor(index / 3)], 0.12]
+        : [0.38 + index * 0.48, group.placement === 'door-upper' ? 0.954 : 0.434, -0.105]) as [number, number, number],
     };
-  });
+  }));
   return { entries, page, pageCount, total: available.length };
 }

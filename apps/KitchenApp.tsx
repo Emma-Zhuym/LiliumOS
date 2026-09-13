@@ -467,7 +467,9 @@ const KitchenApp: React.FC = () => {
           ))}
         </div>
         {showFridge && !loading && <Suspense fallback={<p role="status">正在打开冰箱视图…</p>}>
-          <KitchenFridgeScene lots={lots} foods={foods} onOpenLot={id => { closeEditors(); setDetailLotId(id); }} />
+          <KitchenFridgeScene lots={lots} foods={foods} busy={busy}
+            onMoveLot={(id, placement) => run(async () => { await KitchenDB.moveLot(id, placement); setNotice('摆放位置已保存'); })}
+            onOpenLot={id => { closeEditors(); setDetailLotId(id); }} />
         </Suspense>}
         {showAdd && (
           <section

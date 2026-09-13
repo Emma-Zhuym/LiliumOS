@@ -10,6 +10,20 @@ const lot = (index: number, extra: Partial<KitchenLot> = {}): KitchenLot => ({
 });
 
 describe('fridge inventory projection', () => {
+  it('assigns non-overlapping local door slots and pages overflow without losing lots', () => {
+    const lots = Array.from({ length: 6 }, (_, i) => lot(i, { fridgePlacement: i < 3 ? 'door-upper' : 'door-lower' }));
+    lots.push(lot(8));
+    const first = fridgePage(lots, [], 0);
+    const second = fridgePage(lots, [], 1);
+    expect(first.pageCount).toBe(2);
+    expect(first.entries).toHaveLength(5);
+    expect(second.entries).toHaveLength(2);
+    const entries = [...first.entries, ...second.entries];
+    expect(new Set(entries.map(entry => entry.lot.id)).size).toBe(7);
+    expect(new Set(first.entries.map(entry => `${entry.placement}:${entry.position.join(',')}`)).size).toBe(5);
+    expect(first.entries.find(entry => entry.placement === 'door-upper')?.position).toEqual([0.38, 0.954, -0.105]);
+    expect(first.entries.find(entry => entry.placement === 'door-lower')?.position[1]).toBe(0.434);
+  });
   it('pages twenty lots without dropping or duplicating inventory', () => {
     const lots = Array.from({ length: 20 }, (_, i) => lot(i));
     const pages = [0, 1, 2].map(index => fridgePage(lots, [], index));
