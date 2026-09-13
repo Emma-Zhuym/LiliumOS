@@ -22,6 +22,12 @@ import {
   type KitchenTrackingMode,
   type KitchenUnit,
 } from '../utils/kitchenDb';
+import {
+  formatPackageAmount,
+  formatPortionFraction,
+  formatPortionInput,
+  parsePortionInput,
+} from '../utils/kitchenQuantity';
 
 const KITCHEN = HUE.green;
 
@@ -76,46 +82,14 @@ const makeOperationId = (prefix: string): string => {
 const formatQuantity = (quantity: number, unit: KitchenUnit): string =>
   `${Number.isInteger(quantity) ? quantity : Number(quantity.toFixed(2))} ${UNIT_LABELS[unit]}`;
 
-const KNOWN_FRACTIONS = [
-  { label: '7/8', value: 7 / 8 },
-  { label: '3/4', value: 3 / 4 },
-  { label: '2/3', value: 2 / 3 },
-  { label: '1/2', value: 1 / 2 },
-  { label: '1/3', value: 1 / 3 },
-  { label: '1/4', value: 1 / 4 },
-  { label: '1/8', value: 1 / 8 },
-];
-
-const formatFraction = (value: number): string => {
-  const known = [
-    ...KNOWN_FRACTIONS,
-    { label: '满', value: 1 },
-  ].find(item => Math.abs(item.value - value) < 0.005);
-  return known?.label ?? `${Math.round(value * 100)}%`;
-};
-
-const parseFraction = (raw: string): number | null => {
-  const value = raw.trim();
-  if (!value) return null;
-  if (value.endsWith('%')) {
-    const percent = Number(value.slice(0, -1));
-    return Number.isFinite(percent) ? percent / 100 : null;
-  }
-  const fraction = value.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/);
-  if (fraction) {
-    const denominator = Number(fraction[2]);
-    return denominator > 0 ? Number(fraction[1]) / denominator : null;
-  }
-  const decimal = Number(value);
-  return Number.isFinite(decimal) ? decimal : null;
-};
-
 const describeLotStock = (lot: KitchenLot): string => {
   if (lot.trackingMode !== 'divisible') return `剩 ${formatQuantity(lot.quantity, lot.unit)}`;
   const remaining = lot.openContainerRemaining;
   if (remaining === undefined) return `剩 ${formatQuantity(lot.quantity, lot.unit)} · 未开封`;
   const sealedCount = Math.max(0, lot.quantity - 1);
-  const opened = `开封的约剩 ${formatFraction(remaining)} ${UNIT_LABELS[lot.unit]}`;
+  const measuredAmount = formatPackageAmount(lot.packageSize, remaining);
+  const measuredDetail = measuredAmount ? `（约 ${measuredAmount}）` : '';
+  const opened = `开封的约剩 ${formatPortionFraction(remaining)} ${UNIT_LABELS[lot.unit]}${measuredDetail}`;
   return sealedCount > 0 ? `${sealedCount} ${UNIT_LABELS[lot.unit]}未开封 · ${opened}` : opened;
 };
 
@@ -123,7 +97,7 @@ const formatEventAmount = (event: KitchenEvent): string => {
   const delta = event.contentDelta ?? event.quantityDelta;
   const prefix = delta > 0 ? '+' : '';
   const absolute = Math.abs(delta);
-  if (absolute > 0 && absolute < 1) return `${prefix}${delta < 0 ? '-' : ''}${formatFraction(absolute)} ${UNIT_LABELS[event.unit]}`;
+  if (absolute > 0 && absolute < 1) return `${prefix}${delta < 0 ? '-' : ''}${formatPortionFraction(absolute)} ${UNIT_LABELS[event.unit]}`;
   return `${prefix}${formatQuantity(delta, event.unit)}`;
 };
 
@@ -329,34 +303,46 @@ const KitchenApp: React.FC = () => {
     setNotice('已经记下丢弃');
   });
 
-  const savePortion = (lot: KitchenLot, fraction: number, mode: 'consume' | 'remaining') => run(async () => {
+  const savePortion = (
+    lot: KitchenLot,
+    fraction: number,
+    mode: 'consume' | 'remaining',
+    inputLabel = formatPortionFraction(fraction),
+    inputKind: 'ratio' | 'measurement' = 'ratio',
+  ) => run(async () => {
+    const displayLabel = inputKind === 'ratio' ? `${inputLabel} ${UNIT_LABELS[lot.unit]}` : inputLabel;
     if (mode === 'consume') {
       await KitchenDB.consumePortion({
         lotId: lot.id,
         fraction,
         operationId: makeOperationId('consume-portion'),
-        note: `估计用了 ${formatFraction(fraction)} 包装`,
+        note: `估计用了 ${displayLabel}`,
       });
-      setNotice(`已经记下用了约 ${formatFraction(fraction)} ${UNIT_LABELS[lot.unit]}`);
+      setNotice(`已经记下用了约 ${displayLabel}`);
     } else {
       await KitchenDB.setPortionRemaining({
         lotId: lot.id,
         fraction,
         operationId: makeOperationId('adjust-portion'),
+        note: fraction === 0 ? '当前包装已经用完' : `手动核对为约剩 ${displayLabel}`,
       });
-      setNotice(fraction === 0 ? '已经记下当前包装用完' : `余量已核对为约 ${formatFraction(fraction)}`);
+      setNotice(fraction === 0 ? '已经记下当前包装用完' : `余量已核对为约 ${displayLabel}`);
     }
     setPortionEditor(null);
     setCustomPortion('');
   });
 
   const saveCustomPortion = (lot: KitchenLot, mode: 'consume' | 'remaining') => {
-    const fraction = parseFraction(customPortion);
-    if (fraction === null || fraction < 0 || fraction > 1 || (mode === 'consume' && fraction === 0)) {
-      setNotice(mode === 'consume' ? '请填写 0 到 1 之间的用量，例如 1/3 或 20%' : '请填写 0 到 1 之间的余量，例如 2/3 或 60%');
+    const result = parsePortionInput(customPortion, lot.packageSize);
+    if (!result.ok) {
+      setNotice(result.error);
       return;
     }
-    void savePortion(lot, fraction, mode);
+    if (mode === 'consume' && result.value.fraction === 0) {
+      setNotice('本次用量要大于 0，例如 1/3、20% 或 250 ml');
+      return;
+    }
+    void savePortion(lot, result.value.fraction, mode, result.value.display, result.value.kind);
   };
 
   const saveAdjustment = (lot: KitchenLot) => run(async () => {
@@ -504,7 +490,7 @@ const KitchenApp: React.FC = () => {
               <Field
                 value={packageSize}
                 onChange={event => setPackageSize(event.target.value)}
-                placeholder="包装规格（可不填），例如 30 oz / 1.1 lb"
+                placeholder="包装规格（可不填），例如 1 L、30 fl oz 或 1.1 lb"
               />
               <SelectField value={zone} onChange={event => setZone(event.target.value as KitchenStorageZone)}>
                 {(Object.keys(ZONE_LABELS) as KitchenStorageZone[]).map(item => <option key={item} value={item}>{ZONE_LABELS[item]}</option>)}
@@ -662,7 +648,7 @@ const KitchenApp: React.FC = () => {
                             onClick={() => {
                               if (isDivisible) {
                                 setPortionEditor({ lotId: lot.id, mode: 'remaining' });
-                                setCustomPortion(lot.openContainerRemaining === undefined ? '1' : formatFraction(lot.openContainerRemaining));
+                                setCustomPortion(lot.openContainerRemaining === undefined ? '1' : formatPortionInput(lot.openContainerRemaining));
                               } else {
                                 setAdjustingLotId(lot.id);
                                 setAdjustedQuantity(String(lot.quantity));
@@ -701,7 +687,7 @@ const KitchenApp: React.FC = () => {
                               <Field
                                 value={customPortion}
                                 onChange={event => setCustomPortion(event.target.value)}
-                                placeholder={activePortionEditor.mode === 'consume' ? '例如 1/3、2/5 或 20%' : '例如 2/3、2/5 或 60%'}
+                                placeholder={activePortionEditor.mode === 'consume' ? '例如 1/3、20% 或 250 ml' : '例如 2/5、60% 或 700 ml'}
                                 aria-label={activePortionEditor.mode === 'consume' ? '自定义本次用量' : '自定义剩余量'}
                               />
                               <button
