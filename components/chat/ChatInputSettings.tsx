@@ -16,11 +16,6 @@ const ChatInputSettings: React.FC<ChatInputSettingsProps> = ({ value, onChange, 
             <p className="mb-2 text-xs" style={{ color: F.textTertiary }}>以下输入习惯对当前设备的私聊和群聊生效</p>
             {([
                 {
-                    key: 'sendButtonGenerates',
-                    label: '发送按钮代替生成按钮',
-                    help: '开启后，不用够右上角的闪电了。输入框里有光标时，右下角发文字；点一下聊天空白处，右下角就变成闪电，让对方回复已发送的消息。只收起键盘可能还留着光标，点一下空白处就好。没发出的草稿会保留。',
-                },
-                {
                     key: 'enterToSend',
                     label: '回车发送文字',
                     help: '勾选时，按回车发送文字，Shift + 回车换行；不勾选时，回车只换行，点发送按钮发出文字。输入法选字时按回车不会误发。',

@@ -92,7 +92,7 @@ interface ChatInputAreaProps {
 const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     input, setInput, isTyping, selectionMode,
     showPanel, setShowPanel, onSend, onDeleteSelected, onForwardSelected, selectedCount,
-    sendButtonGenerates = false, enterToSend = true, onGenerate,
+    sendButtonGenerates = true, enterToSend = true, onGenerate, // [EM: permanent-composer-generation]
     autoReplyEnabled = false, autoReplySeconds = null, onCancelAutoReply, onInputFocusChange, onAuxiliaryPanelChange,
     emojis, characters = [], activeCharacterId = '', onCharSelect = () => {},
     emojiSuggestionsEnabled = false, suggestionEmojis = emojis,

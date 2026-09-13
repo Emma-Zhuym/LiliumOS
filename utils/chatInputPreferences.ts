@@ -1,6 +1,7 @@
 /** 当前设备上的私聊与群聊共用的输入习惯。 */
 export interface ChatInputPreferences {
-    sendButtonGenerates: boolean;
+    /** 固定交互；保留字段兼容旧备份，不再作为用户开关。 */
+    sendButtonGenerates: true;
     enterToSend: boolean;
     autoReply: boolean;
     emojiSuggestions: boolean;
@@ -11,17 +12,17 @@ export const CHAT_INPUT_PREFERENCES_CHANGED_EVENT = 'lilium:chat-input-preferenc
 export const CHAT_INPUT_PREFERENCES_KEY = 'sully-chat-input-preferences-v1';
 
 export const DEFAULT_CHAT_INPUT_PREFERENCES: ChatInputPreferences = {
-    sendButtonGenerates: false,
+    sendButtonGenerates: true,
     enterToSend: true,
     autoReply: false,
     emojiSuggestions: false,
 };
 
-/** 导入与读取共用：只接收已知布尔字段；新增功能对旧存档默认关闭。 */
+/** 导入与读取共用；旧存档的按钮开关统一迁移为当前固定交互。 */
 export const normalizeChatInputPreferences = (value: unknown): ChatInputPreferences => {
     const saved = value && typeof value === 'object' ? value as Partial<ChatInputPreferences> : {};
     return {
-        sendButtonGenerates: saved.sendButtonGenerates === true,
+        sendButtonGenerates: true,
         enterToSend: saved.enterToSend !== false,
         autoReply: saved.autoReply === true,
         emojiSuggestions: saved.emojiSuggestions === true,

@@ -51,6 +51,7 @@ describe('shared chat composer behavior', () => {
 
     it('leaves Enter as a newline when disabled', () => {
         const textarea = renderComposer({ enterToSend: false });
+        act(() => textarea.focus());
         const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
         act(() => textarea.dispatchEvent(event));
         expect(event.defaultPrevented).toBe(false);
