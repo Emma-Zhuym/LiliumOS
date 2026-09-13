@@ -15,6 +15,7 @@ export interface ChatFavoriteSnapshot {
     content: string;
     timestamp: number;
     replyTo?: Message['replyTo'];
+    metadata?: Message['metadata'];
 }
 
 export type ContentFavoriteOwner =
@@ -38,7 +39,7 @@ interface ContentFavoriteBase {
 export interface ChatContentFavorite extends ContentFavoriteBase {
     kind: 'chat';
     messageId: number;
-    /** 文字/卡片的轻量收藏副本；不包含 metadata，更不用于图片消息。 */
+    /** 文字/卡片及展示元数据的收藏副本；图片仍使用原有引用。 */
     snapshot?: ChatFavoriteSnapshot;
 }
 
@@ -126,6 +127,7 @@ const sanitizeSnapshot = (value: unknown): ChatFavoriteSnapshot | undefined => {
         content: snapshot.content,
         timestamp: normalizeTimestamp(snapshot.timestamp, Date.now()),
         replyTo: snapshot.replyTo && typeof snapshot.replyTo === 'object' ? snapshot.replyTo : undefined,
+        metadata: snapshot.metadata && typeof snapshot.metadata === 'object' ? snapshot.metadata : undefined,
     };
 };
 
@@ -373,6 +375,12 @@ export const getContentFavoriteById = async (id: string): Promise<ContentFavorit
     withWriteLock(async () => (await loadReconciledIndex()).find(item => item.id === id) || null)
 );
 
+export const snapshotChatFavoriteMessage = (message: Message): ChatFavoriteSnapshot => ({
+    role: message.role, type: message.type, content: message.content, timestamp: message.timestamp,
+    replyTo: message.replyTo ? structuredClone(message.replyTo) : undefined,
+    metadata: message.metadata ? structuredClone(message.metadata) : undefined,
+});
+
 export const saveMessageContentFavorite = async (
     message: Message,
     charName: string,
@@ -423,13 +431,7 @@ export const saveMessageContentFavorite = async (
             sourceTimestamp: normalizeTimestamp(message.timestamp, now),
             favoritedAt: existing?.favoritedAt || now,
             owners: mergeOwners(existing?.owners || [], [{ kind: 'user', favoritedAt: now }]),
-            snapshot: {
-                role: message.role,
-                type: message.type,
-                content: message.content,
-                timestamp: message.timestamp,
-                replyTo: message.replyTo,
-            },
+            snapshot: snapshotChatFavoriteMessage(message),
         };
     }
 
@@ -641,10 +643,11 @@ export const resolveContentFavorite = async (favorite: ContentFavorite): Promise
             content: favorite.snapshot.content,
             timestamp: favorite.snapshot.timestamp,
             replyTo: favorite.snapshot.replyTo,
+            metadata: favorite.snapshot.metadata || sourceMessage?.metadata,
         } : null;
         return {
             favorite,
-            message: sourceMessage || snapshotMessage,
+            message: snapshotMessage || sourceMessage,
             sourceAvailable: !!sourceMessage,
         };
     }

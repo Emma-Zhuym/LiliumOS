@@ -1,4 +1,4 @@
-# 本轮 Engram 交接摘要（待审核，尚未写入 Engram）
+# 上游同步 Engram 交接摘要（已确认写入）
 
 LiliumOS 在 `merge-upstream-2026-09-12` 完成已批准的选择性上游同步，实现提交 `d29fd36b` 已推送，分支本地与远端一致。main/origin main 保持 `b61078f6`，推进或推送 main 仍须独立批准。跨 Mac 工作按对应分支 pull/push；本次先提交保存大量改动，再拉取（已是最新）和推送。
 
@@ -8,4 +8,4 @@ LiliumOS 在 `merge-upstream-2026-09-12` 完成已批准的选择性上游同步
 
 已阅读并应用 APP_CONVENTIONS v0.2。浏览器查看异格组合/随机、通话默认值、书库/接入、聊天六组设置和清理预览；异格最终手机布局已确认。本地数据库与模拟模型验证保存回滚、重试零额外请求、50 轮封存和备份往返。未请求真实模型/TTS/外部 MCP、未清理用户数据、未上传真实备份、未更新线上 Worker或部署。真机、生成质量和真实推送待体验；完整跨窗口消息处理不保证 exactly-once。
 
-事实来源为 Git、`docs/upstream-sync-2026-09-12.md`、`progress.md`。下一步是 Emma 体验验收分支；main 的发布批准和本条 Engram strict 审核分别确认。
+事实来源为 Git、`docs/upstream-sync-2026-09-12.md`、`progress.md`。Emma 后续已明确回复「写入」，Engram wrap_up_session 返回 success=true；main 的发布仍需独立批准。

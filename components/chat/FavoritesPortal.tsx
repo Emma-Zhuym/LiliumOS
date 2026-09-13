@@ -1,321 +1,100 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CaretLeft, ChatCircleDots, Image, MagnifyingGlass, Star, Trash, Waveform, X } from '@phosphor-icons/react';
-import VoiceFavoritesList from './VoiceFavoritesList'; // [EM: text-voice-favorites]
-import {
-    CONTENT_FAVORITES_CHANGED_EVENT,
-    listContentFavorites,
-    removeUserContentFavoriteById,
-    resolveContentFavorite,
-    type ContentFavorite,
-    type ResolvedContentFavorite,
-} from '../../utils/contentFavorites';
+import { CaretLeft, CaretRight, MagnifyingGlass, Star, Trash, X } from '@phosphor-icons/react';
+import { CONTENT_FAVORITES_CHANGED_EVENT, listContentFavorites, resolveContentFavorite } from '../../utils/contentFavorites';
+import { VOICE_FAVORITES_CHANGED_EVENT, listVoiceFavorites, voiceFavoriteSourceLabel } from '../../utils/voiceFavorites';
+import { mergeMessageFavorites, removeMessageFavoriteEntry, type MessageFavoriteEntry } from '../../utils/messageFavorites';
 import TokenImg from '../os/TokenImg';
+import FavoriteMessageBody from './FavoriteMessageBody';
 import { normalizeChatSearchText, searchableChatMessageText } from '../../utils/chatMessageSearch';
-import { F, HUE, R, S } from '../../utils/clayTokens';
+import { F, HUE, R, S, STATUS } from '../../utils/clayTokens';
 
-type FavoriteTab = 'chat' | 'image' | 'voice'; // [EM: text-voice-favorites]
-
-interface FavoritesPortalProps {
-    onClose: () => void;
-    onJumpToMessage?: (charId: string, messageId: number) => void;
-}
-
-const timeFormatter = new Intl.DateTimeFormat('zh-CN', {
-    year: 'numeric',
-    month: 'numeric',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-});
-
-const messageTypeLabel = (type?: string): string => ({
-    text: '文字',
-    emoji: '表情',
-    transfer: '转账',
-    social_card: '动态',
-    xhs_card: '小红书',
-    music_card: '音乐',
-    webpage_card: '网页',
-    life_card: '生活记录',
-}[type || ''] || '消息');
+type FavoriteTab = 'all' | MessageFavoriteEntry['kind'];
+interface FavoritesPortalProps { onClose: () => void; onJumpToMessage?: (charId: string, messageId: number) => void; }
+const tabs = [{ value: 'all', label: '全部' }, { value: 'text', label: '文字' }, { value: 'image', label: '图片' }, { value: 'voice', label: '语音' }, { value: 'html', label: '卡片' }] as const;
+const timeFormatter = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+const roundButton = { width: 44, height: 44, borderRadius: R.pill, background: F.surface, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft, color: F.textSecondary };
+const PAGE_SIZE = 20;
 
 const FavoritesPortal: React.FC<FavoritesPortalProps> = ({ onClose, onJumpToMessage }) => {
-    const [tab, setTab] = useState<FavoriteTab>('chat');
-    const [items, setItems] = useState<ContentFavorite[]>([]);
-    const [resolved, setResolved] = useState<Record<string, ResolvedContentFavorite>>({});
+    const [tab, setTab] = useState<FavoriteTab>('all');
+    const [items, setItems] = useState<MessageFavoriteEntry[]>([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState('');
+    const [busy, setBusy] = useState(false);
+    const busyRef = useRef(false);
+    const revision = useRef(0);
     const [previewImage, setPreviewImage] = useState<string | null>(null);
     const [searchOpen, setSearchOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
-    const [searchHydrating, setSearchHydrating] = useState(false);
-
+    const [source, setSource] = useState('all');
+    const [page, setPage] = useState(0);
     const refresh = useCallback(async () => {
+        const version = ++revision.current;
         try {
-            setItems(await listContentFavorites());
-        } finally {
-            setLoading(false);
-        }
+            const [contents, voices] = await Promise.all([listContentFavorites(), listVoiceFavorites()]);
+            const resolved = await Promise.all(contents.map(resolveContentFavorite));
+            if (version !== revision.current) return;
+            setItems(mergeMessageFavorites(contents, voices, Object.fromEntries(resolved.map(item => [item.favorite.id, item]))));
+            setError('');
+        } catch (cause) { if (version === revision.current) setError(cause instanceof Error ? cause.message : '收藏读取失败，请重试'); }
+        finally { if (version === revision.current) setLoading(false); }
     }, []);
-
     useEffect(() => {
         void refresh();
         window.addEventListener(CONTENT_FAVORITES_CHANGED_EVENT, refresh);
-        return () => window.removeEventListener(CONTENT_FAVORITES_CHANGED_EVENT, refresh);
+        window.addEventListener(VOICE_FAVORITES_CHANGED_EVENT, refresh);
+        return () => { revision.current++; window.removeEventListener(CONTENT_FAVORITES_CHANGED_EVENT, refresh); window.removeEventListener(VOICE_FAVORITES_CHANGED_EVENT, refresh); };
     }, [refresh]);
-
-    const chatItems = useMemo(() => items.filter(item => item.kind === 'chat'), [items]);
-    const imageItems = useMemo(() => items.filter(item => item.kind === 'image'), [items]);
-    const normalizedSearchQuery = normalizeChatSearchText(searchQuery);
-    const searchedChatItems = useMemo(() => {
-        if (!normalizedSearchQuery) return chatItems;
-        return chatItems.filter(item => {
-            const result = resolved[item.id];
-            const resolvedMessage = result && 'message' in result ? result.message : null;
-            const message = resolvedMessage || item.snapshot;
-            if (message?.type === 'emoji') return false;
-            const searchableText = normalizeChatSearchText([
-                item.charName,
-                messageTypeLabel(message?.type),
-                searchableChatMessageText(message),
-            ].join('\n'));
-            return searchableText.includes(normalizedSearchQuery);
-        });
-    }, [chatItems, normalizedSearchQuery, resolved]);
-    const visibleItems = tab === 'chat' ? searchedChatItems : tab === 'image' ? imageItems : [];
-    const visibleKey = visibleItems.map(item => item.id).join('|');
-    const searchActive = tab === 'chat' && !!normalizedSearchQuery;
-
-    useEffect(() => {
-        let cancelled = false;
-        Promise.all(visibleItems.map(resolveContentFavorite)).then(results => {
-            if (cancelled) return;
-            setResolved(previous => {
-                const next = { ...previous };
-                results.forEach(result => { next[result.favorite.id] = result; });
-                return next;
-            });
-        });
-        return () => { cancelled = true; };
-    }, [tab, visibleKey]);
-
-    useEffect(() => {
-        if (!searchOpen || tab !== 'chat') {
-            setSearchHydrating(false);
-            return;
-        }
-        const unresolvedLegacyItems = chatItems.filter(item => !item.snapshot && !resolved[item.id]);
-        if (!unresolvedLegacyItems.length) {
-            setSearchHydrating(false);
-            return;
-        }
-        let cancelled = false;
-        setSearchHydrating(true);
-        Promise.all(unresolvedLegacyItems.map(resolveContentFavorite)).then(results => {
-            if (cancelled) return;
-            setResolved(previous => {
-                const next = { ...previous };
-                results.forEach(result => { next[result.favorite.id] = result; });
-                return next;
-            });
-        }).finally(() => {
-            if (!cancelled) setSearchHydrating(false);
-        });
-        return () => { cancelled = true; };
-    }, [searchOpen, tab, chatItems, resolved]);
-
-    const removeUserFavorite = async (item: ContentFavorite) => {
-        await removeUserContentFavoriteById(item.id);
-        await refresh();
+    const normalizedQuery = normalizeChatSearchText(searchQuery);
+    const visible = useMemo(() => items.filter(item => {
+        if (tab !== 'all' && item.kind !== tab) return false;
+        if (tab === 'voice' && source !== 'all' && (item.voice?.source || 'chat') !== source) return false;
+        return !normalizedQuery || normalizeChatSearchText([item.charName, item.voice?.speakerName, searchableChatMessageText(item.message), item.voice?.originalText, item.voice?.spokenText, item.voice?.translation].join('\n')).includes(normalizedQuery);
+    }), [items, tab, source, normalizedQuery]);
+    const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+    useEffect(() => setPage(0), [tab, source, normalizedQuery]);
+    useEffect(() => setPage(current => Math.min(current, pageCount - 1)), [pageCount]);
+    const remove = async (entry: MessageFavoriteEntry) => {
+        if (busyRef.current) return;
+        busyRef.current = true; setBusy(true);
+        try { await removeMessageFavoriteEntry(entry); await refresh(); }
+        catch (cause) { setError(cause instanceof Error ? cause.message : '取消收藏失败，请重试'); }
+        finally { busyRef.current = false; setBusy(false); }
     };
-
-    const ownerBadges = (item: ContentFavorite) => {
-        const userOwned = item.owners.some(owner => owner.kind === 'user');
-        const characterOwners = item.owners.filter(owner => owner.kind === 'character');
-        return (
-            <div className="mt-2 flex flex-wrap gap-1">
-                {userOwned && <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[9px] font-bold text-violet-700">你收藏</span>}
-                {characterOwners.map(owner => owner.kind === 'character' && (
-                    <span key={owner.charId} className="rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-bold text-amber-700">{owner.charName} 收藏</span>
-                ))}
+    return createPortal(<div className="fixed inset-0 z-[1000] flex flex-col" style={{ background: F.appBg, color: F.textPrimary }}>
+        <header className="shrink-0 px-4 pb-3" style={{ paddingTop: 'var(--chrome-top)' }}>
+            <div className="relative flex items-center justify-between pb-3">
+                <button type="button" onClick={onClose} className="grid place-items-center" style={roundButton} aria-label="返回"><CaretLeft size={20} weight="bold" /></button>
+                <h1 className="pointer-events-none absolute left-1/2 -translate-x-1/2 text-base font-semibold">收藏夹</h1>
+                <button type="button" onClick={() => { setSearchOpen(value => !value); setSearchQuery(''); }} className="grid place-items-center" style={roundButton} aria-label={searchOpen ? '关闭收藏搜索' : '搜索收藏'} aria-pressed={searchOpen}><MagnifyingGlass size={20} weight="bold" /></button>
             </div>
-        );
-    };
-
-    const content = (
-        <div className="fixed inset-0 z-[1000] flex flex-col" style={{ background: F.appBg, color: F.textPrimary }}>
-            <header className="shrink-0 border-b backdrop-blur-xl" style={{ paddingTop: 'var(--chrome-top)', borderColor: F.borderSoft, background: F.surfaceRaised }}>
-                <div className="relative flex items-center px-5 py-3">
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        className="flex items-center justify-center active:translate-y-[1px] transition-transform"
-                        style={{ width: 44, height: 44, borderRadius: R.pill, background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}
-                        aria-label="返回"
-                    >
-                        <CaretLeft size={20} weight="bold" style={{ color: F.textSecondary }} />
-                    </button>
-                    <span className="pointer-events-none absolute left-0 right-0 flex justify-center text-[16px] font-semibold" style={{ color: F.textPrimary }}>收藏夹</span>
-                    <div className="ml-auto flex gap-2">
-                        <button
-                            type="button"
-                            onClick={() => {
-                                if (tab !== 'image' && searchOpen) {
-                                    setSearchOpen(false);
-                                    setSearchQuery('');
-                                } else {
-                                    if (tab === 'image') setTab('chat');
-                                    setSearchOpen(true);
-                                }
-                            }}
-                            className="flex items-center justify-center active:translate-y-[1px] transition-transform"
-                            style={{ width: 44, height: 44, borderRadius: R.pill, background: searchOpen && tab !== 'image' ? HUE.violet.tint : F.surfaceRaised, border: `1px solid ${searchOpen && tab !== 'image' ? HUE.violet.soft : F.borderSoft}`, boxShadow: S.raisedSoft }}
-                            aria-label={tab !== 'image' && searchOpen ? '关闭收藏搜索' : tab === 'voice' ? '搜索语音收藏' : '搜索聊天收藏'}
-                            aria-pressed={tab !== 'image' && searchOpen}
-                        >
-                            <MagnifyingGlass size={20} weight="bold" style={{ color: searchOpen && tab !== 'image' ? HUE.violet.ink : F.textSecondary }} />
-                        </button>
-                    </div>
-                </div>
-                <p className="px-5 pb-2 text-center text-[10px]" style={{ color: F.textTertiary }}>{tab === 'voice' ? '语音文字独立保留，有现成音频时一同收藏' : '图片只保存引用，同一张不会重复占空间'}</p>
-                <div className="mx-4 mb-3 grid grid-cols-3 gap-1 p-1" style={{ background: F.surfaceSunken, borderRadius: R.large, boxShadow: S.sunken }}>
-                    {([
-                        { value: 'chat' as const, label: '聊天', count: chatItems.length, icon: <ChatCircleDots size={16} weight="bold" /> },
-                        { value: 'voice' as const, label: '语音', count: undefined, icon: <Waveform size={16} weight="bold" /> },
-                        { value: 'image' as const, label: '图片', count: imageItems.length, icon: <Image size={16} weight="bold" /> },
-                    ]).map(item => (
-                        <button
-                            key={item.value}
-                            type="button"
-                            onClick={() => {
-                                setTab(item.value);
-                                if (item.value === 'image') {
-                                    setSearchOpen(false);
-                                    setSearchQuery('');
-                                }
-                            }}
-                            aria-pressed={tab === item.value}
-                            className="flex min-h-11 items-center justify-center gap-1.5 text-xs font-semibold"
-                            style={{ borderRadius: R.medium, background: tab === item.value ? F.surfaceRaised : 'transparent', color: tab === item.value ? HUE.violet.ink : F.textTertiary, boxShadow: tab === item.value ? S.raisedSoft : 'none' }}
-                        >
-                            {item.icon}{item.label}<span className="text-[9px] opacity-60">{item.count}</span>
-                        </button>
-                    ))}
-                </div>
-                {tab !== 'image' && searchOpen && (
-                    <div className="px-4 pb-3 pt-2">
-                        <div className="relative">
-                            <MagnifyingGlass size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2" style={{ color: F.textTertiary }} />
-                            <input
-                                autoFocus
-                                type="search"
-                                value={searchQuery}
-                                onChange={event => setSearchQuery(event.target.value)}
-                                placeholder={tab === 'voice' ? '搜索说话者、语音文字或字幕' : '搜索角色名或聊天收藏内容'}
-                                className="h-11 w-full pl-9 pr-10 text-[12px] outline-none"
-                                style={{ borderRadius: R.input, background: F.surfaceSunken, border: `1px solid ${F.borderSoft}`, boxShadow: S.sunken, color: F.textPrimary }}
-                                aria-label={tab === 'voice' ? '搜索语音收藏中的关键词' : '搜索聊天收藏中的关键词'}
-                            />
-                            {searchQuery && (
-                                <button type="button" onClick={() => setSearchQuery('')} className="absolute right-1 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center" aria-label="清空收藏搜索">
-                                    <X size={16} weight="bold" style={{ color: F.textSecondary }} />
-                                </button>
-                            )}
+            <div className="grid grid-cols-5 gap-1 p-1" style={{ background: F.surfaceSunken, borderRadius: R.large, boxShadow: S.sunken }}>
+                {tabs.map(option => <button key={option.value} type="button" onClick={() => setTab(option.value)} aria-pressed={tab === option.value} className="min-h-11 text-xs font-semibold" style={{ borderRadius: R.button, background: tab === option.value ? F.surface : 'transparent', color: tab === option.value ? F.textPrimary : F.textTertiary, boxShadow: tab === option.value ? S.raisedSoft : undefined }}>{option.label}</button>)}
+            </div>
+            {tab === 'voice' && <div className="mt-3 grid grid-cols-4 gap-1 p-1" style={{ background: F.surfaceSunken, borderRadius: R.large, boxShadow: S.sunken }}>{[{ id: 'all', name: '全部来源' }, { id: 'chat', name: '聊天' }, { id: 'call', name: '通话' }, { id: 'date', name: '见面' }].map(option => <button key={option.id} onClick={() => setSource(option.id)} aria-pressed={source === option.id} className="min-h-11 text-xs" style={{ borderRadius: R.button, background: source === option.id ? F.surface : 'transparent', boxShadow: source === option.id ? S.raisedSoft : undefined }}>{option.name}</button>)}</div>}
+            {searchOpen && <input autoFocus type="search" aria-label="搜索收藏中的关键词" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} placeholder="搜索角色、消息或语音文字" className="mt-3 min-h-11 w-full px-3 text-sm outline-none" style={{ background: F.surfaceSunken, color: F.textPrimary, borderRadius: R.input, boxShadow: S.sunken }} />}
+            <p className="pt-3 text-center text-xs" style={{ color: F.textTertiary }}>{normalizedQuery ? '找到' : '共'} {visible.length} 条 · 收藏保留消息原样</p>
+        </header>
+        <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-[max(2rem,var(--safe-bottom))]">
+            {error && <div role="alert" className="mb-3 p-4 text-sm" style={{ background: STATUS.warning.tint, color: STATUS.warning.ink, borderRadius: R.smallCard }}>{error}<button onClick={() => void refresh()} className="ml-2 min-h-11 underline">重新读取</button></div>}
+            {loading ? <p role="status" className="py-10 text-center text-sm">正在整理收藏…</p> : !visible.length ? <div className="flex min-h-40 flex-col items-center justify-center gap-3 p-5" style={{ background: F.surfaceSunken, color: F.textTertiary, borderRadius: R.bigCard, boxShadow: S.sunken }}><Star size={18} /><p className="text-sm">{normalizedQuery ? '没有找到匹配的收藏' : '这里还没有收藏'}</p></div> : <div className="px-3" style={{ background: F.surface, borderRadius: R.bigCard, boxShadow: S.raisedSoft }}>
+                {visible.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((entry, index) => {
+                    const userOwned = !!entry.voice || entry.content?.owners.some(owner => owner.kind === 'user');
+                    return <article key={entry.id} className="min-w-0 py-4" style={{ borderTop: index ? `1px solid ${F.divider}` : undefined }}>
+                        <div className="flex items-center gap-2"><div className="min-w-0 flex-1"><p className="text-sm font-semibold">{entry.voice?.speakerName || entry.charName}{entry.voice?.speakerRole === 'user' ? ' · 你' : ''}</p><p className="mt-1 text-xs" style={{ color: F.textTertiary }}>{timeFormatter.format(entry.timestamp)} · {entry.voice ? voiceFavoriteSourceLabel(entry.voice.source) : tabs.find(item => item.value === entry.kind)?.label}</p></div>
+                            {userOwned && <button type="button" disabled={busy} onClick={() => void remove(entry)} className="grid shrink-0 place-items-center disabled:opacity-40" style={roundButton} aria-label="取消收藏"><Trash size={18} /></button>}
                         </div>
-                        {tab === 'chat' && normalizedSearchQuery && (
-                            <p className="mt-1.5 px-1 text-[10px]" style={{ color: F.textSecondary }}>
-                                {searchHydrating ? '正在补读旧版收藏…' : <>找到 <b style={{ color: HUE.violet.ink }}>{searchedChatItems.length}</b> 条聊天收藏</>}
-                            </p>
-                        )}
-                    </div>
-                )}
-            </header>
-
-            <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-[max(2rem,var(--safe-bottom))]">
-                {tab === 'voice' ? <VoiceFavoritesList query={searchQuery} /> : loading ? (
-                    <div className="grid h-48 place-items-center text-xs text-slate-400">正在整理收藏…</div>
-                ) : searchActive && searchHydrating && visibleItems.length === 0 ? (
-                    <div className="grid h-64 place-items-center text-xs" style={{ color: F.textTertiary }}>正在补读旧版收藏…</div>
-                ) : visibleItems.length === 0 ? (
-                    <div className="flex h-64 flex-col items-center justify-center gap-3 text-slate-300">
-                        {searchActive ? <MagnifyingGlass size={40} weight="light" /> : <Star size={40} weight="light" />}
-                        <p className="text-sm">{searchActive ? `没有找到“${searchQuery.trim()}”` : `这里还没有${tab === 'chat' ? '聊天' : '图片'}收藏`}</p>
-                    </div>
-                ) : tab === 'chat' ? (
-                    <div>
-                        {searchedChatItems.map(item => {
-                            const result = resolved[item.id];
-                            const resolvedMessage = result && 'message' in result ? result.message : null;
-                            const message = resolvedMessage || item.snapshot || null;
-                            const sourceAvailable = !!(result && 'sourceAvailable' in result && result.sourceAvailable);
-                            const userOwned = item.owners.some(owner => owner.kind === 'user');
-                            return (
-                                <article key={item.id} className="flex gap-3 border-b border-slate-900/10 py-4">
-                                    <button
-                                        type="button"
-                                        disabled={!sourceAvailable || !onJumpToMessage}
-                                        onClick={() => sourceAvailable && onJumpToMessage?.(item.charId, item.messageId)}
-                                        className="min-w-0 flex-1 text-left disabled:cursor-default"
-                                    >
-                                        <div className="flex items-center gap-2 text-[10px] text-slate-400">
-                                            <span className="font-bold text-slate-700">{item.charName}</span>
-                                            <span className="rounded bg-violet-100 px-1.5 py-0.5 text-violet-700">{messageTypeLabel(message?.type)}</span>
-                                            <time>{timeFormatter.format(new Date(item.sourceTimestamp))}</time>
-                                        </div>
-                                        <p className="mt-2 line-clamp-5 whitespace-pre-wrap break-words text-[14px] leading-6 text-slate-800">
-                                            {message?.content || (result ? '旧版收藏没有可恢复的内容' : '正在读取…')}
-                                        </p>
-                                        {result && message && !sourceAvailable && <p className="mt-2 text-[10px] font-bold text-amber-700">原消息已删除 · 收藏副本仍保留</p>}
-                                        {ownerBadges(item)}
-                                    </button>
-                                    {userOwned && (
-                                        <button type="button" onClick={() => void removeUserFavorite(item)} className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-slate-400 active:bg-rose-50 active:text-rose-500" aria-label="取消我的收藏">
-                                            <Trash size={16} />
-                                        </button>
-                                    )}
-                                </article>
-                            );
-                        })}
-                    </div>
-                ) : (
-                    <div className="grid grid-cols-2 gap-2 py-3 sm:grid-cols-3">
-                        {imageItems.map(item => {
-                            const result = resolved[item.id];
-                            const imageUrl = result && 'imageUrl' in result ? result.imageUrl : null;
-                            const reference = result && 'reference' in result ? result.reference : null;
-                            const userOwned = item.owners.some(owner => owner.kind === 'user');
-                            return (
-                                <article key={item.id} className="relative overflow-hidden rounded-2xl border border-slate-900/10 bg-white shadow-sm">
-                                    <button type="button" disabled={!imageUrl} onClick={() => imageUrl && setPreviewImage(imageUrl)} className="block aspect-square w-full bg-slate-100 disabled:cursor-default">
-                                        {imageUrl ? <TokenImg value={imageUrl} alt="收藏图片" className="h-full w-full object-cover" loading="lazy" /> : <span className="grid h-full place-items-center px-4 text-center text-[11px] leading-5 text-slate-400">{result ? '原图片未随备份恢复' : '正在读取…'}</span>}
-                                    </button>
-                                    <div className="p-2.5">
-                                        <div className="truncate text-[11px] font-bold text-slate-700">{item.charName}</div>
-                                        <div className="mt-0.5 text-[9px] text-slate-400">{timeFormatter.format(new Date(item.sourceTimestamp))} · {reference?.source === 'gallery' ? '相册' : reference?.source === 'chat' ? '聊天' : '收藏保留'}</div>
-                                        {ownerBadges(item)}
-                                    </div>
-                                    {userOwned && (
-                                        <button type="button" onClick={() => void removeUserFavorite(item)} className="absolute right-2 top-2 grid h-8 w-8 place-items-center rounded-full bg-black/55 text-white backdrop-blur active:bg-rose-500" aria-label="取消我的收藏">
-                                            <Trash size={14} />
-                                        </button>
-                                    )}
-                                </article>
-                            );
-                        })}
-                    </div>
-                )}
-            </main>
-
-            {previewImage && (
-                <div className="fixed inset-0 z-[1010] grid place-items-center bg-black/95 p-4" onClick={() => setPreviewImage(null)}>
-                    <button type="button" onClick={() => setPreviewImage(null)} className="absolute right-4 grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white" style={{ top: 'max(1rem,var(--safe-top))' }} aria-label="关闭预览"><X size={20} /></button>
-                    <TokenImg value={previewImage} alt="收藏图片预览" className="max-h-full max-w-full object-contain" />
-                </div>
-            )}
-        </div>
-    );
-
-    return createPortal(content, document.body);
+                        {entry.kind === 'image' ? entry.imageUrl ? <button type="button" onClick={() => setPreviewImage(entry.imageUrl!)} className="mt-3 block w-full" aria-label="查看收藏图片"><TokenImg value={entry.imageUrl} alt="收藏图片" className="mx-auto max-h-96 max-w-full object-contain" /></button> : <p className="py-5 text-sm" style={{ color: F.textTertiary }}>原图片未随备份恢复</p> : <FavoriteMessageBody entry={entry} />}
+                        {entry.content?.owners.filter(owner => owner.kind === 'character').map(owner => owner.kind === 'character' && <span key={owner.charId} className="mr-2 text-xs" style={{ color: HUE.violet.ink }}>{owner.charName} 收藏</span>)}
+                        {entry.sourceAvailable && entry.message && onJumpToMessage && <button type="button" onClick={() => onJumpToMessage(entry.charId, entry.message!.id)} className="min-h-11 text-xs" style={{ color: F.textSecondary }}>定位原消息</button>}
+                        {entry.content?.kind === 'chat' && !entry.sourceAvailable && entry.message && <p className="text-xs" style={{ color: F.textTertiary }}>原消息已删除 · 收藏副本仍保留</p>}
+                    </article>;
+                })}
+            </div>}
+            {pageCount > 1 && <div className="flex items-center justify-center gap-4 pt-4"><button aria-label="上一页收藏" disabled={!page} onClick={() => setPage(page - 1)} className="grid place-items-center disabled:opacity-40" style={roundButton}><CaretLeft size={20} /></button><span className="text-xs">{page + 1}/{pageCount}</span><button aria-label="下一页收藏" disabled={page >= pageCount - 1} onClick={() => setPage(page + 1)} className="grid place-items-center disabled:opacity-40" style={roundButton}><CaretRight size={20} /></button></div>}
+        </main>
+        {previewImage && <div className="fixed inset-0 z-[1010] grid place-items-center p-4" style={{ background: F.appBg }} onClick={() => setPreviewImage(null)}><button type="button" onClick={() => setPreviewImage(null)} className="absolute right-4 grid place-items-center" style={{ ...roundButton, top: 'var(--chrome-top)' }} aria-label="关闭预览"><X size={20} /></button><TokenImg value={previewImage} alt="收藏图片预览" className="max-h-full max-w-full object-contain" /></div>}
+    </div>, document.body);
 };
-
 export default FavoritesPortal;

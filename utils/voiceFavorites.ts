@@ -1,4 +1,5 @@
 import { DB, openDB } from './db';
+import type { ChatFavoriteSnapshot } from './contentFavorites';
 
 export const VOICE_FAVORITES_INDEX_ASSET_ID = 'voice_favorites_index_v1';
 export const VOICE_FAVORITE_AUDIO_PREFIX = 'voice_favorite_audio_';
@@ -24,6 +25,8 @@ export interface VoiceFavorite {
     audioState: VoiceFavoriteAudioState;
     speakerRole?: 'user' | 'assistant';
     speakerName?: string;
+    /** Chat 收藏保留原始排版和语音标记；通话/见面及旧收藏可没有此字段。 */
+    messageSnapshot?: ChatFavoriteSnapshot;
     // [EM-END: text-voice-favorites]
 }
 
@@ -84,6 +87,8 @@ const sanitizeFavorite = (value: unknown): VoiceFavorite | null => {
         audioState: item.audioState === 'none' || item.audioState === 'omitted' ? item.audioState : 'stored',
         speakerRole: item.speakerRole === 'user' ? 'user' : 'assistant',
         speakerName: typeof item.speakerName === 'string' ? item.speakerName : undefined,
+        messageSnapshot: item.messageSnapshot && typeof item.messageSnapshot.content === 'string'
+            && typeof item.messageSnapshot.type === 'string' ? item.messageSnapshot : undefined,
         // [EM-END: text-voice-favorites]
     };
 };
@@ -189,6 +194,7 @@ export const saveVoiceFavorite = async (input: SaveVoiceFavoriteInput): Promise<
         audioState: blob ? 'stored' : existing?.audioState || 'none',
         speakerRole: input.speakerRole || existing?.speakerRole || 'assistant',
         speakerName: input.speakerName || existing?.speakerName,
+        messageSnapshot: input.messageSnapshot || existing?.messageSnapshot,
         // [EM-END: text-voice-favorites]
     };
 

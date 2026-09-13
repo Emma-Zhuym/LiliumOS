@@ -3849,6 +3849,8 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
                                 </div>
                                 {/* Text toggle button — always available so user can read the text */}
                                 <div
+                                    role="button" tabIndex={0} aria-label={showVoiceText ? '收起文字' : '转文字'} aria-expanded={showVoiceText}
+                                    onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); setShowVoiceText(value => !value); } }}
                                     className={`shrink-0 ml-0.5 w-5 h-5 flex items-center justify-center rounded-lg transition-all ${showVoiceText ? 'ring-1 ring-current/20' : ''}`}
                                     style={{
                                         color: vbText || 'rgba(100,116,139,0.7)',
@@ -3942,7 +3944,9 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
                                 </div>
                                 {(voiceTagText || displayContent) ? (
                                     <div
-                                        className={`shrink-0 ml-0.5 w-5 h-5 flex items-center justify-center rounded-lg transition-all ${showVoiceText ? 'ring-1 ring-current/20' : ''}`}
+                                        role="button" tabIndex={0} aria-label={showVoiceText ? '收起文字' : '转文字'} aria-expanded={showVoiceText}
+                                    onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); setShowVoiceText(value => !value); } }}
+                                    className={`shrink-0 ml-0.5 w-5 h-5 flex items-center justify-center rounded-lg transition-all ${showVoiceText ? 'ring-1 ring-current/20' : ''}`}
                                         style={{
                                             color: vbText || 'rgba(100,116,139,0.7)',
                                             backgroundColor: showVoiceText ? 'rgba(0,0,0,0.08)' : 'rgba(0,0,0,0.04)',
