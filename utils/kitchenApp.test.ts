@@ -28,6 +28,12 @@ const fill = async (input: HTMLInputElement, value: string) => {
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
 };
+const choose = async (select: HTMLSelectElement, value: string) => {
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(select, value);
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+};
 
 beforeEach(async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -81,5 +87,25 @@ describe('compact kitchen inventory', () => {
     expect((await KitchenDB.getLots()).filter(lot => lot.quantity === 0)).toHaveLength(1);
     await waitForRows(20, () => button('撤销最近操作').click());
     expect(rows()[0].textContent).toBe(selectedName);
+  });
+
+  it('opens a lot detail page and saves its package specification and location', async () => {
+    await act(async () => rows()[0].click());
+    await act(async () => button('详情与编辑').click());
+    expect(container.textContent).toContain('食材详情');
+    expect(container.textContent).toContain('这条库存的记录');
+
+    await fill(container.querySelector('[aria-label="包装规格"]')!, '946 ml');
+    await choose(container.querySelector('[aria-label="收纳位置"]')!, 'pantry');
+    await act(async () => button('保存修改').click());
+    await act(async () => {
+      await vi.waitFor(async () => {
+        expect((await KitchenDB.getLots()).some(lot => lot.packageSize === '946 ml' && lot.storageZone === 'pantry')).toBe(true);
+      });
+    });
+    expect(container.textContent).toContain('食材资料已更新');
+
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="返回食材列表"]')!.click());
+    expect(rows()).toHaveLength(20);
   });
 });

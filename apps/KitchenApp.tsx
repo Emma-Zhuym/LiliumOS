@@ -6,6 +6,7 @@ import {
   CaretRight,
   ForkKnife,
   Package,
+  PencilSimple,
   Plus,
   Scales,
   Snowflake,
@@ -13,6 +14,7 @@ import {
   X,
 } from '@phosphor-icons/react';
 import { useOS } from '../context/OSContext';
+import KitchenLotDetail from '../components/kitchen/KitchenLotDetail';
 import { F, HUE, MOTION, R, S, SP } from '../utils/clayTokens';
 import {
   KitchenDB,
@@ -23,6 +25,7 @@ import {
   type KitchenStorageZone,
   type KitchenTrackingMode,
   type KitchenUnit,
+  type UpdateKitchenLotDetailsInput,
 } from '../utils/kitchenDb';
 import {
   formatPackageAmount,
@@ -217,6 +220,7 @@ const KitchenApp: React.FC = () => {
   const [search, setSearch] = useState('');
   const [zoneFilter, setZoneFilter] = useState<KitchenStorageZone | 'all'>('all');
   const [expandedLotId, setExpandedLotId] = useState<string | null>(null);
+  const [detailLotId, setDetailLotId] = useState<string | null>(null);
   const busyRef = useRef(false);
   const [busy, setBusy] = useState(false);
 
@@ -391,11 +395,37 @@ const KitchenApp: React.FC = () => {
     setNotice(result ? '已经撤销最近一次操作' : '暂时没有可以撤销的操作');
   });
 
+  const saveLotDetails = (input: UpdateKitchenLotDetailsInput) => run(async () => {
+    await KitchenDB.updateLotDetails(input);
+    setNotice('食材资料已更新');
+  });
+
   const zoneCounts = useMemo(() => {
     const result: Record<KitchenStorageZone, number> = { staging: 0, fridge: 0, freezer: 0, pantry: 0 };
     for (const lot of activeLots) result[lot.storageZone] += 1;
     return result;
   }, [activeLots]);
+
+  const detailLot = detailLotId ? lots.find(lot => lot.id === detailLotId) ?? null : null;
+  const detailFood = detailLot ? foodById.get(detailLot.foodId) ?? null : null;
+
+  if (detailLot && detailFood) {
+    return (
+      <KitchenLotDetail
+        lot={detailLot}
+        food={detailFood}
+        events={events}
+        siblingLotCount={lots.filter(lot => lot.foodId === detailLot.foodId).length}
+        busy={busy}
+        notice={notice}
+        unitLabels={UNIT_LABELS}
+        zoneLabels={ZONE_LABELS}
+        editableUnits={STORAGE_UNIT_OPTIONS}
+        onBack={() => { closeEditors(); setDetailLotId(null); }}
+        onSave={input => { void saveLotDetails(input); }}
+      />
+    );
+  }
 
   return (
     <div className="h-full min-h-0 flex flex-col" style={{ background: F.appBg, color: F.textPrimary }}>
@@ -627,6 +657,15 @@ const KitchenApp: React.FC = () => {
                       <div id={`kitchen-actions-${lot.id}`} style={{ padding: `0 ${SP[3]}px ${SP[3]}px` }}>
                         <div style={{ color: F.textSecondary, fontSize: 12, lineHeight: '18px', overflowWrap: 'anywhere' }}>
                           {describeLotStock(lot)}{lot.packageSize ? ` · 每${UNIT_LABELS[lot.unit]} ${lot.packageSize}` : ''}
+                        </div>
+                        <div className="flex" style={{ gap: SP[2], marginTop: SP[2] }}>
+                          <ActionButton
+                            onClick={() => { closeEditors(); setDetailLotId(lot.id); }}
+                            disabled={busy}
+                            icon={<PencilSimple size={18} />}
+                          >
+                            详情与编辑
+                          </ActionButton>
                         </div>
                         {isAdjusting && !isDivisible ? (
                           <div className="flex items-center" style={{ gap: SP[2], marginTop: SP[3] }}>

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { KITCHEN_DB_NAME, KitchenDB, hasKitchenEventChange } from './kitchenDb';
+import { formatPackageAmount } from './kitchenQuantity';
 
 const deleteKitchenDB = () => new Promise<void>((resolve, reject) => {
   const request = indexedDB.deleteDatabase(KITCHEN_DB_NAME);
@@ -184,6 +185,38 @@ describe('KitchenDB inventory ledger', () => {
 
     expect(added.lot.unit).toBe('large_bottle');
     expect(added.lot.packageSize).toBe('30 oz');
+  });
+
+  it('updates one lot metadata while preserving the open-package ratio and event ledger', async () => {
+    const first = await KitchenDB.addLot({
+      name: '鲜奶', quantity: 1, unit: 'large_bottle', storageZone: 'fridge',
+      trackingMode: 'divisible', packageSize: '1 L', operationId: 'add-first-milk',
+    });
+    await KitchenDB.addLot({
+      name: '鲜奶', quantity: 1, unit: 'large_bottle', storageZone: 'fridge', operationId: 'add-second-milk',
+    });
+    await KitchenDB.setPortionRemaining({
+      lotId: first.lot.id, fraction: 0.7, operationId: 'milk-still-seventy-percent',
+    });
+
+    const updated = await KitchenDB.updateLotDetails({
+      lotId: first.lot.id,
+      name: '全脂鲜奶',
+      unit: 'small_bottle',
+      packageSize: '946 ml',
+      storageZone: 'freezer',
+      purchasedAt: '2026-09-12',
+      expiresAt: '2026-09-18',
+    });
+
+    expect(updated.unit).toBe('small_bottle');
+    expect(updated.storageZone).toBe('freezer');
+    expect(updated.openContainerRemaining).toBeCloseTo(0.7);
+    expect(formatPackageAmount(updated.packageSize, updated.openContainerRemaining!)).toBe('662.2 ml');
+    expect(updated.purchasedAt).toBe('2026-09-12');
+    expect(updated.expiresAt).toBe('2026-09-18');
+    expect((await KitchenDB.getFoods())[0]).toMatchObject({ name: '全脂鲜奶', defaultUnit: 'large_bottle' });
+    expect((await KitchenDB.getEvents())).toHaveLength(3);
   });
 
   it('tracks and undoes a partial container consumption', async () => {

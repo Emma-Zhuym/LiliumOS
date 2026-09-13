@@ -95,6 +95,20 @@ export interface ChangeKitchenPortionInput {
   note?: string;
 }
 
+/**
+ * Metadata edits deliberately do not create ledger events: they correct how a
+ * batch is described, while quantity changes remain the only undoable events.
+ */
+export interface UpdateKitchenLotDetailsInput {
+  lotId: string;
+  name: string;
+  unit: KitchenUnit;
+  storageZone: KitchenStorageZone;
+  packageSize?: string;
+  purchasedAt?: string;
+  expiresAt?: string;
+}
+
 export interface KitchenOperationResult {
   lot: KitchenLot;
   event: KitchenEvent;
@@ -515,6 +529,68 @@ async function discardCurrentContainer(input: Omit<ChangeKitchenPortionInput, 'f
   }
 }
 
+async function updateLotDetails(input: UpdateKitchenLotDetailsInput): Promise<KitchenLot> {
+  const name = input.name.trim().replace(/\s+/g, ' ');
+  if (!name) throw new Error('请填写食材名称');
+
+  const packageSize = input.packageSize?.trim() || undefined;
+  const purchasedAt = input.purchasedAt || undefined;
+  const expiresAt = input.expiresAt || undefined;
+  const db = await openKitchenDB();
+  try {
+    const transaction = db.transaction([STORE_FOODS, STORE_LOTS], 'readwrite');
+    const foods = transaction.objectStore(STORE_FOODS);
+    const lots = transaction.objectStore(STORE_LOTS);
+    const currentLot = await requestValue(lots.get(input.lotId)) as KitchenLot | undefined;
+    if (!currentLot) throw new Error('这条库存已经不存在');
+    const currentFood = await requestValue(foods.get(currentLot.foodId)) as KitchenFood | undefined;
+    if (!currentFood) throw new Error('这条库存对应的食材不存在');
+
+    const normalizedName = normalizeName(name);
+    const sameName = normalizedName === currentFood.normalizedName;
+    if (!sameName) {
+      const existingFood = await requestValue(foods.index('normalizedName').get(normalizedName)) as KitchenFood | undefined;
+      if (existingFood && existingFood.id !== currentFood.id) {
+        throw new Error('已经有同名食材，请换个名称或继续使用原来的食材');
+      }
+    }
+
+    const lotUnchanged = currentLot.unit === input.unit
+      && currentLot.storageZone === input.storageZone
+      && currentLot.packageSize === packageSize
+      && currentLot.purchasedAt === purchasedAt
+      && currentLot.expiresAt === expiresAt;
+    if (sameName && lotUnchanged) {
+      await transactionDone(transaction);
+      return currentLot;
+    }
+
+    const now = Date.now();
+    const lot: KitchenLot = {
+      ...currentLot,
+      unit: input.unit,
+      storageZone: input.storageZone,
+      packageSize,
+      purchasedAt,
+      expiresAt,
+      updatedAt: now,
+    };
+    lots.put(lot);
+    if (!sameName) {
+      foods.put({
+        ...currentFood,
+        name,
+        normalizedName,
+        updatedAt: now,
+      });
+    }
+    await transactionDone(transaction);
+    return lot;
+  } finally {
+    db.close();
+  }
+}
+
 async function undoLatest(operationId = makeId('op')): Promise<KitchenOperationResult | null> {
   const db = await openKitchenDB();
   try {
@@ -619,6 +695,7 @@ export const KitchenDB = {
   consumePortion,
   setPortionRemaining,
   discardCurrentContainer,
+  updateLotDetails,
   undoLatest,
   getFoods: () => getAll<KitchenFood>(STORE_FOODS),
   getLots: () => getAll<KitchenLot>(STORE_LOTS),
