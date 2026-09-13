@@ -4156,6 +4156,24 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               })(),
               // [EM-END: health-backup-export]
 
+              // [EM-START: kitchen-backup-export] Lilian Kitchen 本地库存与事件账本
+              ...await (async () => {
+                  if (mode !== 'text_only' && mode !== 'full') return {};
+                  try {
+                      const { KitchenDB } = await import('../utils/kitchenDb');
+                      const kitchen = await KitchenDB.exportAll();
+                      return {
+                          emKitchenFoods: kitchen.foods,
+                          emKitchenLots: kitchen.lots,
+                          emKitchenEvents: kitchen.events,
+                      };
+                  } catch (error) {
+                      console.warn('EM KitchenDB backup failed:', error);
+                      return {};
+                  }
+              })(),
+              // [EM-END: kitchen-backup-export]
+
               // [EM-START: shopping-backup-export] LiliumOS 购物系统（legacy IndexedDB: SullyEM_Shopping）
               ...await (async () => {
                   if (mode !== 'text_only' && mode !== 'full') return {};
@@ -5112,6 +5130,23 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               } catch (e) { console.warn('EM HealthDB restore failed:', e); }
           }
           // [EM-END: health-backup-restore]
+
+          // [EM-START: kitchen-backup-restore] Lilian Kitchen 本地库存与事件账本
+          if (
+              data.emKitchenFoods !== undefined
+              || data.emKitchenLots !== undefined
+              || data.emKitchenEvents !== undefined
+          ) {
+              try {
+                  const { KitchenDB } = await import('../utils/kitchenDb');
+                  await KitchenDB.importAll({
+                      foods: data.emKitchenFoods,
+                      lots: data.emKitchenLots,
+                      events: data.emKitchenEvents,
+                  });
+              } catch (e) { console.warn('EM KitchenDB restore failed:', e); }
+          }
+          // [EM-END: kitchen-backup-restore]
 
           // [EM-START: shopping-backup-restore] LiliumOS 购物系统（legacy IndexedDB: SullyEM_Shopping）
           if (

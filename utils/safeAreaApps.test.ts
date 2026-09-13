@@ -15,6 +15,7 @@ const SELF_HANDLED: AppID[] = [
     AppID.SpecialMoments,
     AppID.Health, AppID.Shopping, AppID.Map, // [EM: self-safe-area-apps] EM Apps 同样自理安全区
     AppID.SmartHome,
+    AppID.Kitchen, // [EM: kitchen-app]
 ];
 
 describe('shellHandlesSafeArea', () => {

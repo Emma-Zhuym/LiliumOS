@@ -43,6 +43,7 @@ export enum AppID {
   WorldHome = 'world_home', // 家园 — 同世界观多角色共同生活的大世界（观测驱动演绎，每角色独立 LLM 调用 + NPC 世界引擎）
   Shopping = 'shopping', // EM: 投喂站 — 角色扮演购物模块（网购+外卖）
   SmartHome = 'smart_home', // EM: 共栖舱 — Home Assistant 统一设备控制
+  Kitchen = 'kitchen', // [EM: kitchen-app] Lilian Kitchen — 现实食品库存与小厨房
 }
 
 export interface SystemLog {
@@ -4340,6 +4341,9 @@ export interface FullBackupData {
     emShoppingOrders?: any[];
     emShoppingSettings?: { key: string; value: unknown }[];
     emMapWorlds?: any[];
+    emKitchenFoods?: any[];
+    emKitchenLots?: any[];
+    emKitchenEvents?: any[];
     // [EM-END: finance-backup-types]
     gotchiAccentHue?: string;  // 桌面电子宠物主题主色调偏好（tama_accent_hue，账号级 localStorage）
 }
