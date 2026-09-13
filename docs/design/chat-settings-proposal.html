@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>聊天设置 · 静态方案</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#ECE8E1;color:#2E2A28;font:15px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}main{max-width:960px;margin:40px auto;display:grid;grid-template-columns:390px 1fr;gap:48px;padding:0 20px;align-items:start}.phone{background:#F7F6F2;border-radius:28px;overflow:hidden;box-shadow:0 8px 18px rgba(70,66,58,.10),0 20px 40px rgba(70,66,58,.10)}.status{padding:16px 24px 8px;display:flex;justify-content:space-between;font-size:12px;font-weight:600}.header{height:64px;display:grid;grid-template-columns:44px 1fr 44px;align-items:center;padding:0 16px;gap:8px}.title{text-align:center;font-size:16px;font-weight:600}.circle{width:44px;height:44px;border-radius:999px;display:grid;place-items:center;background:#FFFEFC;box-shadow:0 2px 6px rgba(70,66,58,.06),0 8px 20px rgba(70,66,58,.06)}svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.content{padding:12px 16px 24px}.card{background:#FFFEFC;border-radius:20px;padding:0 16px;box-shadow:0 2px 6px rgba(70,66,58,.06),0 8px 20px rgba(70,66,58,.06)}.row{min-height:64px;display:flex;align-items:center;gap:12px}.row+.row{border-top:1px solid #EEE8E0}.row>div{flex:1}.arrow{color:#9E9891;width:16px;flex-shrink:0}.sub{font-size:12px;color:#9E9891;margin-top:2px}.value{font-size:13px;color:#6E665F;margin-left:auto}.identity{padding:20px 0;gap:16px}.avatar{width:64px;height:64px;border-radius:999px;background:#F0E8FF;color:#5E3CB8;display:grid;place-items:center;flex:none!important;font-family:Georgia,serif;font-size:30px}.identity strong{font-size:20px;font-weight:600}.section{font-size:12px;color:#9E9891;font-weight:500;margin:24px 12px 8px}.search{margin-top:16px}.search-icon{color:#5E3CB8}.danger{color:#8F2443}.home{width:112px;height:4px;border-radius:999px;background:#2E2A28;margin:0 auto 12px}aside{padding-top:20px}h1{font-size:28px;line-height:1.35;margin:12px 0;font-weight:600}p{color:#6E665F;margin:12px 0 24px}.eyebrow{font-size:12px;color:#5E3CB8;letter-spacing:1px}.note{margin:28px 0}.note h2{font-size:16px;margin:0 0 8px}.note p{font-size:14px;margin:0}.mini{background:#F7F6F2;border-radius:24px;padding:16px;box-shadow:0 2px 6px rgba(70,66,58,.06),0 8px 20px rgba(70,66,58,.06);margin:24px 0}.chat-head{display:flex;align-items:center;gap:12px}.chat-head .avatar{width:40px;height:40px;font-size:22px}.chat-head .circle{margin-left:auto;font-size:24px;line-height:1}.bubble{background:#FFFEFC;border-radius:16px;padding:12px 16px;margin:24px 0 8px;font-size:14px;max-width:250px}.tools{display:grid;grid-template-columns:repeat(4,1fr);gap:16px 8px;margin-top:12px;font-size:11px;text-align:center;color:#6E665F}.tile{width:44px;height:44px;background:#F0E8FF;color:#5E3CB8;border-radius:14px;display:grid;place-items:center;margin:0 auto 6px;font-size:18px}.muted{font-size:12px;color:#9E9891}.divider{height:1px;background:#E8E1D8;margin:20px 0}.private{padding:12px 16px;background:#ECE8E1;border-radius:14px;box-shadow:inset 2px 2px 5px rgba(70,66,58,.10),inset -2px -2px 5px rgba(255,255,255,.8);margin:12px 0}.tag{font-size:11px;background:#F0E8FF;color:#5E3CB8;padding:4px 8px;border-radius:999px}@media(max-width:760px){main{grid-template-columns:minmax(0,390px);justify-content:center;margin:20px auto;gap:16px;padding:0 12px}aside{padding:12px}.phone{width:100%}}
+</style>
+<svg style="display:none" aria-hidden="true"><symbol id="chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol><symbol id="back" viewBox="0 0 24 24"><path d="m14 5-7 7 7 7"/></symbol><symbol id="search" viewBox="0 0 24 24"><circle cx="10" cy="10" r="6.5"/><path d="m15 15 5 5"/></symbol></svg>
+<main>
+<section class="phone" aria-label="聊天设置页面效果稿">
+ <div class="status"><span>19:57</span><span>••• &nbsp; Wi-Fi &nbsp; ▰</span></div>
+ <header class="header"><span class="circle"><svg><use href="#back"/></svg></span><span class="title">聊天设置</span><span></span></header>
+ <div class="content">
+  <div class="card">
+   <div class="row identity"><div class="avatar">S</div><div><strong>小苏</strong><div class="sub">原名：Sully</div><div class="sub">神经链接 · 设定</div></div><svg class="arrow"><use href="#chevron"/></svg></div>
+   <div class="row"><div>设置备注</div><span class="value">小苏</span><svg class="arrow"><use href="#chevron"/></svg></div>
+  </div>
+  <div class="card search"><div class="row"><svg class="search-icon"><use href="#search"/></svg><div>查找聊天记录</div><svg class="arrow"><use href="#chevron"/></svg></div></div>
+  <h2 class="section">聊天方式</h2>
+  <div class="card">
+   <div class="row"><div>输入与回复<div class="sub">发送方式、回复触发、表情联想</div></div><svg class="arrow"><use href="#chevron"/></svg></div>
+   <div class="row"><div>主动与定时消息<div class="sub">主动消息、定时消息、主动消息 2.0</div></div><svg class="arrow"><use href="#chevron"/></svg></div>
+   <div class="row"><div>语言与语音<div class="sub">翻译、语音显示与相关偏好</div></div><svg class="arrow"><use href="#chevron"/></svg></div>
+  </div>
+  <h2 class="section">记忆与能力</h2>
+  <div class="card">
+   <div class="row"><div>上下文与记忆<div class="sub">原文读取范围、语境与归档设置</div></div><svg class="arrow"><use href="#chevron"/></svg></div>
+   <div class="row"><div>扩展能力<div class="sub">HTML 模式、小红书、麦当劳等</div></div><svg class="arrow"><use href="#chevron"/></svg></div>
+  </div>
+  <h2 class="section">聊天外观</h2>
+  <div class="card">
+   <div class="row"><div>背景与聊天装扮<div class="sub">背景、气泡、字体与细节微调</div></div><svg class="arrow"><use href="#chevron"/></svg></div>
+   <div class="row"><div>白框自定义</div><svg class="arrow"><use href="#chevron"/></svg></div>
+   <div class="row"><div>思考与系统消息<div class="sub">思考展示、系统日志显示</div></div><svg class="arrow"><use href="#chevron"/></svg></div>
+  </div>
+  <h2 class="section">聊天记录</h2>
+  <div class="card"><div class="row"><div class="danger">管理与清理记录</div><svg class="arrow"><use href="#chevron"/></svg></div></div>
+ </div><div class="home"></div>
+</section>
+<aside>
+ <span class="eyebrow">LILIUMOS · 页面方案 01</span>
+ <h1>聊天留给聊天。<br>设置有自己的位置。</h1>
+ <p>参考分组列表的排版，延续现有暖白 Clay 外观。左侧展示页面完整内容；接入后标题固定，下方内容滚动。</p>
+ <span class="tag">静态效果稿 · 尚未接入功能</span>
+ <div class="mini">
+  <div class="chat-head"><svg><use href="#back"/></svg><div class="avatar">S</div><strong>小苏</strong><span class="circle">···</span></div>
+  <div class="bubble">今天也有好多话想和你说。</div>
+  <div class="muted">聊天顶部示意 · 头像进入角色设定，三个点进入聊天设置</div>
+ </div>
+ <div class="note"><h2>底栏收成两页</h2><p>第一页保留见面、转账、戳一戳、记忆归档、相册、重新生成、日程/情绪。原“设置”移到右上角。</p></div>
+ <div class="mini">
+  <div class="muted">第二页 · 你留下的五个入口</div>
+  <div class="tools"><div><span class="tile">N</span>写 Notion</div><div><span class="tile">☆</span>收藏夹</div><div><span class="tile">♪</span>提示音</div><div><span class="tile">⌁</span>连接设备</div><div><span class="tile">∞</span>记忆链接</div></div>
+ </div>
+ <div class="note"><h2>备注只给自己看</h2><p>联系人列表和聊天标题显示“小苏”；角色原名仍是 Sully。没有备注时显示原名。</p><div class="private">小苏</div><p class="muted">备注编辑示意。备注独立保存，不放入发给 AI 的人设、历史或提示词中；这里的姓名仅为示例。</p></div>
+ <div class="divider"></div>
+ <div class="note"><h2>入口归整，功能保留</h2><p>每行再进入对应设置。收藏夹继续保留消息原样：文字排版、图片、可展开文字的美化语音条、HTML 卡片。</p></div>
+</aside>
+</main>
+</html>
