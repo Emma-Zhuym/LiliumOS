@@ -146,13 +146,7 @@ export function mergePhoneScanResults(
             ids.set(incoming.id, incoming.id);
             continue;
         }
-        const merged = { ...incoming, id: live.id, name: live.name, createdAt: live.createdAt };
-        for (const key of new Set([...Object.keys(before || {}), ...Object.keys(live)])) {
-            if (!before || JSON.stringify((live as any)[key]) !== JSON.stringify((before as any)[key])) {
-                (merged as any)[key] = (live as any)[key];
-            }
-        }
-        contacts = contacts.map(contact => contact.id === live.id ? merged : contact);
+        // [EM: fixed-phone-contacts] Scanning may discover people, never rewrite existing profiles.
         ids.set(incoming.id, live.id);
     }
     const nextRecords = records.filter(record => !record.contactId || ids.get(record.contactId) !== null)
@@ -167,7 +161,7 @@ export function applyRealConversationToPhoneState(
     result: {
         partnerName: string; partnerCharId: string; detail: string; delta: number;
         partnerNote?: string; learnedNew?: string; seedIdentity?: string;
-        timestamp: number; recordId: string; systemMessageId?: number;
+        timestamp: number; recordId: string; systemMessageId?: number; topicStart?: number;
     },
 ): { phoneState: NonNullable<CharacterProfile['phoneState']>; broadcast: string } {
     const matchesPartner = (c: PhoneContact) => c.linkedCharId === result.partnerCharId
@@ -201,6 +195,7 @@ export function applyRealConversationToPhoneState(
     const record: PhoneEvidence = {
         ...(existing || { id: result.recordId, type: 'chat', title: result.partnerName }),
         detail: result.detail, timestamp: result.timestamp, contactId,
+        topicStart: result.topicStart ?? existing?.topicStart,
         systemMessageId: result.systemMessageId ?? existing?.systemMessageId,
     };
     return {
@@ -377,6 +372,8 @@ interface RunRealConversationParams {
     rounds?: number;
     /** 续写时已有的 A 视角脚本（"我"=A） */
     existingDetail?: string;
+    newTopic?: boolean;
+    previousTopic?: string;
     aNote?: string;
     bNote?: string;
     /** A 目前对 B 已有的「了解」（印象，未必属实） */
@@ -448,6 +445,7 @@ export async function runRealConversation(
     for (let i = 0; i < rounds; i++) {
         // ---- A 发 ----
         const aPrompt = `${ctxA}
+${phoneTopicInstruction(p.newTopic, p.previousTopic)}
 
 ### [你和用户「${user.name}」的私聊背景（仅供参考，不是这场对话）]
 ${recentA}
@@ -488,7 +486,7 @@ ${labeled() || '（还没开始，由你起头）'}
 - 既然是你主动开口，就**贯彻你的目的、保持前后一致**：别莫名其妙地自我矛盾，别明明是自己找上门却突然卑微讨好、低声下气或反过来阴阳怪气。该硬气就硬气，该客气就客气，但都要合乎你的人设与动机。
 - 始终保持「${a.name}」的人设、语气、说话习惯，**别 OOC**。
 - 依据你们的真实关系（见上方备注）和好感度自然地聊；**不要凭空制造敌意、阴阳怪气、攻击或狗血冲突**——除非你的人设、备注或明显的负好感确实如此。好感为正或中性时就正常、友好地交流。
-- 紧扣已有对话的话题往下接，别跳戏、别把对方当成别人。
+- ${p.newTopic ? '开启不同于上次的新话题，只围绕本轮新发生的消息交流。' : '紧扣当前话题往下接，别跳戏。'}别把对方当成别人。
 
 任务：以「${a.name}」的身份，发给「${b.name}」接下来的消息（3-6 句、可连发几条，IM 风格，信息量够）。
 只输出消息正文，不要加「${a.name}:」之类前缀，不要解释、不要旁白。
@@ -507,6 +505,7 @@ ${labeled() || '（还没开始，由你起头）'}
 
         // ---- B 回 ----
         const bPrompt = `${ctxB}
+${phoneTopicInstruction(p.newTopic, p.previousTopic)}
 
 ### [你和用户「${user.name}」的私聊背景（仅供参考，不是这场对话）]
 ${recentB}
@@ -594,6 +593,8 @@ interface RunNpcConversationParams {
     learned?: string;
     rounds?: number;
     existingDetail?: string;
+    newTopic?: boolean;
+    previousTopic?: string;
 }
 
 /**
@@ -619,6 +620,7 @@ export async function runNpcConversation(
         : '';
 
     const prompt = `${ctxHost}
+${phoneTopicInstruction(p.newTopic, p.previousTopic)}
 
 ### [人际关系 · 与虚构联系人的聊天]
 你是「${p.host.name}」。你正在用手机和「${p.npcName}」私聊。
@@ -641,7 +643,7 @@ ${p.learned}` : ''
 - 你（${p.host.name}）是一个**完整、独立的人格**。你发起或推进这段对话一定**事出有因**——动机可以是好奇/打听身份/有事相求/水聊/试探/报备/不满等任意贴合情境的一种或几种，带着它去说、前后一致；既然是你开口，就贯彻目的，别莫名其妙地自我矛盾、卑微讨好或反过来阴阳怪气。
 - 始终保持「${p.host.name}」的人设；对方的性格也要前后一致。
 - 依据上方备注/身份设定的关系自然地聊；**不要凭空制造敌意、阴阳怪气或狗血冲突**，除非备注/身份/人设确实如此。
-- 紧扣已有对话往下接，别跳戏、别认错人。
+- ${p.newTopic ? '另起新话题，不接着旧话题回答。' : '紧扣当前对话往下接，别跳戏。'}别认错人。
 
 ${p.existingDetail ? `已经聊了：\n"""\n${p.existingDetail}\n"""\n请接着往下聊。${turnHint}` : '现在开始这段对话。'}
 
@@ -671,3 +673,22 @@ ${p.existingDetail ? `已经聊了：\n"""\n${p.existingDetail}\n"""\n请接着�
     const detail = serializeTurns([...exTurns, ...newTurns]);
     return { detail, learnedNew };
 }
+
+// [EM-START: phone-topic-boundary]
+/** Preserve the complete readable history, but only continue the current topic. */
+export function phoneConversationContext(record: PhoneEvidence | undefined, newTopic: boolean, archivedThru = 0) {
+    const turns = parseTranscript(record?.detail || '');
+    const topicStart = Math.min(record?.topicStart ?? 0, turns.length);
+    const start = newTopic ? turns.length : Math.min(turns.length, Math.max(topicStart, archivedThru));
+    return {
+        prefix: serializeTurns(turns.slice(0, start)),
+        existingDetail: newTopic ? undefined : serializeTurns(turns.slice(start)),
+        previousTopic: newTopic ? serializeTurns(turns.slice(topicStart)).slice(-1200) : undefined,
+        topicStart: newTopic ? turns.length : topicStart,
+    };
+}
+export function phoneTopicInstruction(newTopic?: boolean, previousTopic?: string): string {
+    if (!newTopic) return '【继续偷看】延续当前对话正在聊的话题。更早的话题和记忆只作为关系背景。';
+    return `【短信刷新：新话题】现在是 ${new Date().toLocaleString('zh-CN')}。上次话题已经结束，从今天的生活、近况或新的事情自然开场。保持人物、关系和已知事实一致，但不要回答旧消息、复述旧话题，或继续旧约定的同一个情节。本轮已有新消息时，围绕本轮消息回复。\n上次内容只用于避免重复，不是待续对话：\n${previousTopic || '（无旧话题）'}`;
+}
+// [EM-END: phone-topic-boundary]

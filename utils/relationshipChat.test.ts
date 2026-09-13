@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normName, matchRealChar, clampAffinity, upsertContact, flipTranscript, parseTranscript, serializeTurns, appendLearned, topicText } from './relationshipChat';
+import { phoneConversationContext, normName, matchRealChar, clampAffinity, upsertContact, flipTranscript, parseTranscript, serializeTurns, appendLearned, topicText } from './relationshipChat';
 import type { PhoneContact } from '../types';
 
 describe('relationshipChat · 纯函数', () => {
@@ -148,5 +148,25 @@ describe('relationshipChat · 纯函数', () => {
         const afterCleared = upsertContact(cleared, { name: '阿哲', identity: '同事' });
         expect(afterCleared[0].identity).toBeUndefined();
         expect(afterCleared[0].identityManual).toBe(true);
+    });
+});
+
+// [EM: phone-topic-boundary] Preserve history while separating refresh and continuation.
+describe('短信话题范围', () => {
+    const record = { id: 'chat', type: 'chat' as const, title: '乙', timestamp: 1,
+        detail: '我: 旧话题\n对方: 旧回答\n我: 今天下雨\n对方: 带伞了吗', topicStart: 2 };
+    it('短信刷新保留原文，但不把旧对话作为待续消息', () => {
+        const next = phoneConversationContext(record, true);
+        expect(next.prefix).toBe(record.detail);
+        expect(next.existingDetail).toBeUndefined();
+        expect(next.previousTopic).toBe('我: 今天下雨\n对方: 带伞了吗');
+        expect(next.topicStart).toBe(4);
+    });
+    it('继续偷看只延续当前话题，并遵守已归档范围', () => {
+        expect(phoneConversationContext(record, false).existingDetail).toBe('我: 今天下雨\n对方: 带伞了吗');
+        const archived = phoneConversationContext(record, false, 3);
+        expect(archived.existingDetail).toBe('对方: 带伞了吗');
+        expect(archived.prefix + '\n' + archived.existingDetail).toBe(record.detail);
+        expect(archived.topicStart).toBe(2);
     });
 });

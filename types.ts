@@ -936,6 +936,7 @@ export interface PhoneEvidence {
     value?: string;
     /** 人际关系系统：本条记录归属的联系人（phoneState.contacts 里的 id） */
     contactId?: string;
+    topicStart?: number; // [EM: phone-topic-boundary] 当前话题在完整对话中的气泡起点
 }
 
 /**

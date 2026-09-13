@@ -12,7 +12,7 @@ import { injectMemoryPalace } from '../utils/memoryPalace/pipeline';
 import {
     runRealConversation, runNpcConversation, upsertContact, matchRealChar,
     clampAffinity, normName, flipTranscript, parseTranscript, serializeTurns, appendLearned,
-    topicText, summarizeConversation, applyRealConversationToPhoneState, mergePhoneScanResults,
+    phoneConversationContext, topicText, summarizeConversation, applyRealConversationToPhoneState, mergePhoneScanResults,
 } from '../utils/relationshipChat';
 import PersonaSim, { LifeLog, generatePersonaScript } from './PersonaSim';
 import { usePersonaSim, personaSimStore } from '../utils/personaSimStore';
@@ -340,6 +340,7 @@ const CheckPhone: React.FC = () => {
 
     // 人际关系系统 State
     const [selectedContact, setSelectedContact] = useState<PhoneContact | null>(null);
+    const [contactBackAppId, setContactBackAppId] = useState<'chat' | 'contacts'>('contacts');
     const [identityDraft, setIdentityDraft] = useState('');
     const [editingIdentity, setEditingIdentity] = useState(false);
     const [noteDraft, setNoteDraft] = useState('');
@@ -863,10 +864,11 @@ ${pinnedSection}
 格式JSON数组: [{ "title": "真实角色填原名/虚构填名字", "kind": "real|npc", "linkedName": "若 real 填真实角色原名否则留空", "identity": "机主对 TA 的称呼/关系备注", "affinity": 30, "detail": "对方: 最近怎么样？\\n我: 还活着。\\n对方: 那就好。" }, ...]`;
                     logPrefix = "聊天软件";
                 } else if (type === 'contacts') {
-                    promptInstruction = `扫描并生成**你（${targetChar.name}）自己**手机通讯录里的 4-6 个**联系人**（你自己的社交圈，第一人称，不是用户的人脉；不要对话，只要联系人本身）。
+                    promptInstruction = `扫描并生成**你（${targetChar.name}）自己**手机通讯录里的${myContacts.length ? ' 0-2 个新' : ' 4-6 个'}**联系人**（你自己的社交圈，第一人称，不是用户的人脉；不要对话，只要联系人本身）。
 
 ${realCharRule}
 
+已有联系人（固定保留，禁止重新生成或改写他们）：${myContacts.map(c => c.name).join('、') || '暂无'}。只补充合理的新联系人，没有新人就返回 []。
 每个联系人给出：姓名、关系备注(identity)、机主对 TA 的好感度(-100~100)、一句机主视角的备注(detail)。真实角色要符合上面的设定与已知关系，别瞎安。
 格式JSON数组: [{ "title": "真实角色填原名/虚构填名字", "kind": "real|npc", "linkedName": "若 real 填真实角色原名否则留空", "identity": "机主对 TA 的称呼/关系，如 学长/前任/彼方网友", "affinity": 20, "detail": "一句备注，比如：在彼方认识的，聊得来；或：欠我一顿饭，最近老已读不回。" }, ...]`;
                     logPrefix = "通讯录";
@@ -961,7 +963,7 @@ ${realCharRule}
                             avatar: linkedId ? realChar?.avatar : undefined,
                             affinity: typeof item.affinity === 'number' ? item.affinity : undefined,
                             note: type === 'contacts' ? recordDetail : undefined,
-                            lastInteraction: Date.now(),
+                            lastInteraction: type === 'contacts' ? undefined : Date.now(),
                         });
                         contactId = contactsAcc.find(c => (linkedId && c.linkedCharId === linkedId) || normName(c.name) === normName(contactName))?.id;
                         if (contactId) touchedContacts.add(contactId);
@@ -1014,7 +1016,7 @@ ${realCharRule}
             }));
 
             if (type === 'contacts') {
-                addToast(`已扫描 ${contactsAcc.length} 位联系人`, 'success');
+                addToast(`已补充 ${contactsAcc.filter(c => !myContacts.some(old => old.id === c.id)).length} 位新联系人，原联系人保留`, 'success');
             } else {
                 addToast(`已刷新 ${newRecordsToAdd.length} 条数据`, 'success');
             }
@@ -1027,7 +1029,7 @@ ${realCharRule}
         }
     };
 
-    // 注：旧的「续写聊天 / 拱火」(handleContinueChat) 已移除 —— Messages 现在是只读归档，
+    // [EM: active-sms-refresh] 短信刷新开启新话题，对话内继续偷看沿用联系人生成链路。
     // 新的来往一律走「人际关系」(真人双向对话 / NPC 脑补)。
 
     // ============================================================
@@ -1754,7 +1756,7 @@ ${olderText}
     // 给某个机主侧落一段真实对话：更新好感/状态 + 写 chat 记录 + （机主开了同步才）镜像进私聊 + 自动加删友播报
     const commitConversationSide = async (
         owner: CharacterProfile, partnerName: string, partnerCharId: string,
-        detail: string, delta: number, partnerNote?: string, learnedNew?: string, seedIdentity?: string,
+        detail: string, delta: number, partnerNote?: string, learnedNew?: string, seedIdentity?: string, topicStart?: number,
     ) => {
         conversationCommitBusy.current = true;
         try {
@@ -1762,7 +1764,7 @@ ${olderText}
             if (!latestOwner) throw new Error('角色已不存在，无法保存这段对话');
             const timestamp = Date.now();
             const result = {
-                partnerName, partnerCharId, detail, delta, partnerNote, learnedNew, seedIdentity,
+                partnerName, partnerCharId, detail, delta, partnerNote, learnedNew, seedIdentity, topicStart,
                 timestamp, recordId: `rec-${timestamp}-${Math.random()}`,
             };
             const contact = latestOwner.phoneState?.contacts?.find(c => c.linkedCharId === partnerCharId || normName(c.name) === normName(partnerName));
@@ -1834,7 +1836,7 @@ ${olderText}
     };
 
     // P1：真角色双向对话（A 发 B 回，双 LLM，镜像到 B）
-    const handleRealConversation = async (contact: PhoneContact) => {
+    const handleRealConversation = async (contact: PhoneContact, newTopic = false) => {
         if (!targetChar || !effectiveApiConfig.apiKey) { addToast('请先配置 API', 'error'); return; }
         const b = characters.find(c => c.id === contact.linkedCharId);
         if (!b) { addToast('该联系人未绑定真实角色', 'error'); return; }
@@ -1844,14 +1846,11 @@ ${olderText}
             const existing = (targetChar.phoneState?.records || []).find(r => r.type === 'chat' && (r.contactId === contact.id || normName(r.title) === normName(contact.name)));
             const bToA = (b.phoneState?.contacts || []).find(c => c.linkedCharId === targetChar.id || normName(c.name) === normName(targetChar.name));
             // 上下文压缩：归档过的原文(0~archivedThru)不再进上下文，只喂「话题盒总结 + 近段原文」。
-            const aAllLines = parseTranscript(existing?.detail || '');
-            const aArchived = Math.min(contact.archivedThru ?? 0, aAllLines.length);
-            const archivedALines = aAllLines.slice(0, aArchived);            // 留着给用户看的原文
-            const recentDetail = serializeTurns(aAllLines.slice(aArchived));  // 喂上下文的近段
+            const topic = phoneConversationContext(existing, newTopic, contact.archivedThru);
             const result = await runRealConversation({
                 a: targetChar, b, user: userProfile, api: effectiveApiConfig as any,
                 affinityA: contact.affinity, affinityB: bToA?.affinity ?? 0,
-                existingDetail: recentDetail,
+                existingDetail: topic.existingDetail, newTopic, previousTopic: topic.previousTopic,
                 // bNote = A 对 B 的备注（喂给 A）；aNote = B 对 A 的备注（喂给 B）。别接反。
                 aNote: bToA?.note, bNote: contact.note,
                 bLearned: contact.learned, aLearned: bToA?.learned,
@@ -1859,12 +1858,12 @@ ${olderText}
             });
             if (!result.aDetail.trim()) { addToast('对方没有回应…', 'error'); return; }
             // 把归档段拼回去，存「完整原文」给用户看（上下文用的是压缩版，互不影响）
-            const aFull = serializeTurns([...archivedALines, ...parseTranscript(result.aDetail)]);
+            const aFull = [topic.prefix, result.aDetail].filter(Boolean).join('\n');
             const bFull = flipTranscript(aFull);
             // A 学到的写进 A 对 B 的了解；B 学到的写进 B 对 A 的了解。
             // 若对方通讯录里还没有自己，commitConversationSide 会先建好联系人（带名字+起始备注名）再挂消息。
-            await commitConversationSide(targetChar, contact.name, b.id, aFull, result.aDelta, contact.note, result.aLearnedNew, contact.identity);
-            await commitConversationSide(b, targetChar.name, targetChar.id, bFull, result.bDelta, bToA?.note, result.bLearnedNew, contact.identity);
+            await commitConversationSide(targetChar, contact.name, b.id, aFull, result.aDelta, contact.note, result.aLearnedNew, contact.identity, topic.topicStart);
+            await commitConversationSide(b, targetChar.name, targetChar.id, bFull, result.bDelta, bToA?.note, result.bLearnedNew, contact.identity, topic.topicStart);
             // 聊满 100 条 → 各自第一人称总结归档进话题盒
             await maybeArchiveConversation(contact, b, aFull);
             addToast(`${targetChar.name} 和 ${b.name} 聊了一会儿`, 'success');
@@ -1877,36 +1876,38 @@ ${olderText}
     };
 
     // 与虚构 NPC 的对话（机主脑补，单 LLM，纯虚构、不镜像）
-    const handleNpcConversation = async (contact: PhoneContact) => {
+    const handleNpcConversation = async (contact: PhoneContact, newTopic = false) => {
         if (!targetChar || !effectiveApiConfig.apiKey) { addToast('请先配置 API', 'error'); return; }
         if (generationBusy.current) return;
         setPhoneLoading(true);
         try {
             const existing = (targetChar.phoneState?.records || []).find(r => r.type === 'chat' && (r.contactId === contact.id || normName(r.title) === normName(contact.name)));
-            const { detail, learnedNew } = await runNpcConversation({
+            const topic = phoneConversationContext(existing, newTopic);
+            const { detail: generatedDetail, learnedNew } = await runNpcConversation({
                 host: targetChar, user: userProfile, api: effectiveApiConfig as any,
                 npcName: contact.name, identity: contact.identity, note: contact.note,
-                learned: contact.learned, rounds: 4, existingDetail: existing?.detail,
+                learned: contact.learned, rounds: 4, existingDetail: topic.existingDetail, newTopic, previousTopic: topic.previousTopic,
             });
-            if (!detail.trim()) { addToast('对方没有回应', 'error'); return; }
+            if (!generatedDetail.trim()) { addToast('对方没有回应', 'error'); return; }
+            const detail = [topic.prefix, generatedDetail].filter(Boolean).join('\n');
             const now = Date.now();
             // 同步到私聊：和真人对话一致，落一张 phone_card（受 sendToChat 控制）。
             // 续写时先删掉上一张卡片再发新的，避免同一段对话越堆越多。
             const pushToChat = targetChar.phoneState?.sendToChat !== false;
             let msgId: number | undefined;
             if (pushToChat) {
-                if (existing?.systemMessageId) await DB.deleteMessage(existing.systemMessageId);
                 msgId = await DB.saveMessage({
                     charId: targetChar.id, role: 'assistant', type: 'phone_card',
                     content: `[你手机的聊天软件] 你和「${contact.name}」的对话：${detail.replace(/\n/g, ' ')}`,
                     metadata: { phoneCard: { app: '聊天软件', kind: 'chat', title: contact.name, detail } },
                 } as any);
+                if (existing?.systemMessageId) await DB.deleteMessage(existing.systemMessageId);
             }
             updateCharacter(targetChar.id, (cur) => {
                 const recs = cur.phoneState?.records || [];
                 const next = existing
-                    ? recs.map(r => r.id === existing.id ? { ...r, detail, timestamp: now, systemMessageId: msgId ?? r.systemMessageId } : r)
-                    : [...recs, { id: `rec-${now}-${Math.random()}`, type: 'chat', title: contact.name, detail, timestamp: now, contactId: contact.id, systemMessageId: msgId }];
+                    ? recs.map(r => r.id === existing.id ? { ...r, detail, topicStart: topic.topicStart, timestamp: now, systemMessageId: msgId ?? r.systemMessageId } : r)
+                    : [...recs, { id: `rec-${now}-${Math.random()}`, type: 'chat', title: contact.name, detail, topicStart: topic.topicStart, timestamp: now, contactId: contact.id, systemMessageId: msgId }];
                 // 把这次脑补出来的新设定累积进该 NPC 的「了解」，保持下次一致
                 const contactsNext = learnedNew
                     ? (cur.phoneState?.contacts || []).map(c => c.id === contact.id ? { ...c, learned: appendLearned(c.learned, learnedNew) } : c)
@@ -1921,6 +1922,20 @@ ${olderText}
             setPhoneLoading(false);
         }
     };
+
+    // [EM-START: active-sms-refresh]
+    const handleRefreshSms = async () => {
+        if (generationBusy.current) return;
+        if (!effectiveApiConfig.apiKey) { addToast('请先配置 API', 'error'); return; }
+        const available = contacts.filter(c => c.status === 'friend' && !isUserName(c.name));
+        if (!available.length) { addToast('先在联系人里添加或补充联系人，再刷新短信', 'info'); setActiveAppId('contacts'); return; }
+        const chosen = [...available].sort(() => Math.random() - 0.5).slice(0, 3);
+        for (const contact of chosen) {
+            if (contact.kind === 'real') await handleRealConversation(contact, true);
+            else await handleNpcConversation(contact, true);
+        }
+    };
+    // [EM-END: active-sms-refresh]
 
     // 清空某联系人的这段对话（生成错位/不满意时一键抹掉重来）。
     // 真人联系人连对方手机里的镜像记录一起清，保持两边一致。
@@ -1959,7 +1974,7 @@ ${olderText}
     };
 
     // 把「编辑后的 A 视角脚本」落库：刷新机主侧记录/卡片 + 真人镜像 + 同步 archivedThru；全删空则移除记录。
-    const saveEditedConversation = async (c: PhoneContact, newDetail: string, newArchived: number) => {
+    const saveEditedConversation = async (c: PhoneContact, newDetail: string, newArchived: number, newTopicStart: number) => {
         if (!canEditConversation()) return;
         if (!targetChar) return;
         const isChatWith = (r: PhoneEvidence, cId: string | undefined, nm: string) =>
@@ -1980,7 +1995,7 @@ ${olderText}
             phoneState: {
                 ...cur.phoneState,
                 records: has
-                    ? (cur.phoneState?.records || []).map(r => isChatWith(r, c.id, c.name) ? { ...r, detail: newDetail, timestamp: Date.now(), systemMessageId: msgId } : r)
+                    ? (cur.phoneState?.records || []).map(r => isChatWith(r, c.id, c.name) ? { ...r, detail: newDetail, topicStart: newTopicStart, timestamp: Date.now(), systemMessageId: msgId } : r)
                     : (cur.phoneState?.records || []).filter(r => !isChatWith(r, c.id, c.name)),
                 contacts: (cur.phoneState?.contacts || []).map(x => x.id === c.id ? { ...x, archivedThru: newArchived } : x),
             },
@@ -2006,7 +2021,7 @@ ${olderText}
                     phoneState: {
                         ...cur.phoneState,
                         records: bHas
-                            ? (cur.phoneState?.records || []).map(r => isChatWith(r, bContact?.id, targetChar.name) ? { ...r, detail: bDetail, timestamp: Date.now(), systemMessageId: bMsgId } : r)
+                            ? (cur.phoneState?.records || []).map(r => isChatWith(r, bContact?.id, targetChar.name) ? { ...r, detail: bDetail, topicStart: newTopicStart, timestamp: Date.now(), systemMessageId: bMsgId } : r)
                             : (cur.phoneState?.records || []).filter(r => !isChatWith(r, bContact?.id, targetChar.name)),
                         contacts: (cur.phoneState?.contacts || []).map(x => (bContact && x.id === bContact.id) ? { ...x, archivedThru: newArchived } : x),
                     },
@@ -2029,7 +2044,8 @@ ${olderText}
         const keep = turns.filter((_, i) => !sel.has(i));
         const newDetail = serializeTurns(keep);
         const newArchived = Math.max(0, (c.archivedThru ?? 0) - deletedInArchived);
-        await saveEditedConversation(c, newDetail, newArchived);
+        const newTopicStart = Math.max(0, (rec.topicStart ?? 0) - [...sel].filter(i => i < (rec.topicStart ?? 0)).length);
+        await saveEditedConversation(c, newDetail, newArchived, newTopicStart);
         addToast(`已删除 ${sel.size} 条`, 'success');
         exitMsgSelect();
     };
@@ -2174,7 +2190,7 @@ ${olderText}
         const list = records.filter(r => r.type === 'chat').sort((a, b) => b.timestamp - a.timestamp);
         return (
             <SubAppShell>
-                <TermHeader title="Messages" sub="已归档 · 只读" accent={accent} onBack={() => setActiveAppId('home')}
+                <TermHeader title="短信" sub="刷新开启新话题" accent={accent} onBack={() => setActiveAppId('home')}
                     right={list.length > 0 ? (
                         <button onClick={() => askConfirm({
                             title: '清空全部聊天记录？', desc: `将删除这台手机里归档的全部 ${list.length} 段聊天记录，且无法恢复。`,
@@ -2184,17 +2200,17 @@ ${olderText}
                 {/* 归档说明：旧的 Messages 模式已不再更新，新的对话走「人际关系」 */}
                 <div className="px-4 pt-1 pb-2 shrink-0">
                     <div className="rounded-xl px-3 py-2 bg-white/[0.04] border border-white/[0.07] text-[11px] text-white/55 leading-relaxed">
-                        这是旧版聊天归档，已停止更新。新的来往请在「联系人」里发起；可把某段记录绑定过去。
+                        刷新会从现有联系人中选最多 3 人开启新话题；进入对话点“继续偷看”延续当前话题。旧聊天仍然保留。
                     </div>
                 </div>
                 <div className="flex-1 overflow-y-auto px-4 pt-1 space-y-2.5 no-scrollbar pb-28 overscroll-contain">
-                    {list.length === 0 && <EmptyState text="归档里没有聊天记录" />}
+                    {list.length === 0 && <EmptyState text="还没有短信，刷新看看新的来往" />}
                     {list.map(r => {
                         const segs = parseTranscript(r.detail);
                         const last = segs.length ? segs[segs.length - 1].text : '...';
                         const av = contactOfRecord(r) ? contactAvatar(contactOfRecord(r)!) : undefined;
                         return (
-                            <div key={r.id} onClick={() => { setSelectedChatRecord(r); setTranscriptExpanded(false); setActiveAppId('chat_detail'); }}
+                            <div key={r.id} onClick={() => { const contact = contactOfRecord(r); if (contact && records.find(item => item.type === 'chat' && (item.contactId === contact.id || normName(item.title) === normName(contact.name)))?.id === r.id) { setContactBackAppId('chat'); setSelectedContact(contact); setShowProfile(false); setEditingIdentity(false); setEditingNote(false); setAffinityDraft(null); exitMsgSelect(); setConvExpanded(false); setActiveAppId('contact_detail'); } else { setSelectedChatRecord(r); setTranscriptExpanded(false); setActiveAppId('chat_detail'); } }}
                                 className="group relative flex items-center gap-3.5 rounded-2xl p-3.5 bg-white/[0.035] border border-white/[0.06] active:scale-[0.99] transition cursor-pointer animate-fade-in">
                                 {av ? (
                                     <TokenImg value={av} alt="" className="w-12 h-12 rounded-2xl object-cover shrink-0" />
@@ -2220,6 +2236,7 @@ ${olderText}
                         );
                     })}
                 </div>
+                <RefreshFab onClick={handleRefreshSms} label="刷新短信 · 新话题" accent={accent} loading={isLoading} />
             </SubAppShell>
         );
     };
@@ -2600,12 +2617,12 @@ ${olderText}
                     <button onClick={openChat}
                         className="w-full flex items-center gap-2 mt-1.5 px-3 py-1.5 text-white/35 active:text-white/60 transition">
                         <ChatCircleDots size={13} weight="light" className="shrink-0" />
-                        <span className="text-[10.5px] flex-1 text-left">旧版聊天归档{chatRecords.length ? ` · ${chatRecords.length}` : ''}</span>
+                        <span className="text-[10.5px] flex-1 text-left">短信{chatRecords.length ? ` · ${chatRecords.length}` : ''}</span>
                         <CaretRight size={11} weight="bold" className="shrink-0" />
                     </button>
                 </div>
                 <div className="flex-1 overflow-y-auto px-4 pt-2 space-y-2.5 no-scrollbar pb-28 overscroll-contain">
-                    {list.length === 0 && <EmptyState text="还没有联系人 · 扫描通讯录看看" />}
+                    {list.length === 0 && <EmptyState text="还没有联系人 · 在下面生成通讯录" />}
                     {list.map(c => {
                         const badge = kindBadge(c);
                         const dimmed = c.status === 'deleted' || c.status === 'blocked';
@@ -2617,7 +2634,7 @@ ${olderText}
                                 onClick={() => {
                                     if (lpFired.current) { lpFired.current = false; return; }
                                     if (contactSelectMode) { toggleContactSelect(c.id); return; }
-                                    setSelectedContact(c); setIdentityDraft(c.identity || ''); setEditingIdentity(false); setNoteDraft(c.note || ''); setEditingNote(false); setConvExpanded(false); setAffinityDraft(null); setShowProfile(false); exitMsgSelect(); setActiveAppId('contact_detail');
+                                    setContactBackAppId('contacts'); setSelectedContact(c); setIdentityDraft(c.identity || ''); setEditingIdentity(false); setNoteDraft(c.note || ''); setEditingNote(false); setConvExpanded(false); setAffinityDraft(null); setShowProfile(false); exitMsgSelect(); setActiveAppId('contact_detail');
                                 }}
                                 className={`group relative flex items-center gap-3 rounded-2xl p-3.5 border active:scale-[0.99] transition cursor-pointer animate-fade-in select-none ${selected ? 'bg-pink-500/10 border-pink-400/40' : 'bg-white/[0.035] border-white/[0.06]'} ${dimmed && !selected ? 'opacity-45' : ''}`}>
                                 {contactSelectMode && (
@@ -2667,7 +2684,7 @@ ${olderText}
                         </button>
                     </div>
                 ) : (
-                    <RefreshFab onClick={() => handleGenerate('contacts')} label="扫描通讯录" accent={accent} loading={isLoading} />
+                    <RefreshFab onClick={() => handleGenerate('contacts')} label={contacts.length ? "补充新联系人" : "生成联系人"} accent={accent} loading={isLoading} />
                 )}
             </SubAppShell>
         );
@@ -3017,7 +3034,7 @@ ${olderText}
                 <div className="shrink-0 z-20">
                     <StatusStrip dark />
                     <div className="h-14 flex items-center gap-2 px-3">
-                        <button onClick={() => { if (msgSelectMode) exitMsgSelect(); else setActiveAppId('contacts'); }} className="w-9 h-9 -ml-0.5 rounded-full flex items-center justify-center text-white/80 bg-white/[0.05] border border-white/[0.08] active:scale-90 transition shrink-0">
+                        <button onClick={() => { if (msgSelectMode) exitMsgSelect(); else setActiveAppId(contactBackAppId); }} className="w-9 h-9 -ml-0.5 rounded-full flex items-center justify-center text-white/80 bg-white/[0.05] border border-white/[0.08] active:scale-90 transition shrink-0">
                             <CaretLeft size={18} weight="bold" />
                         </button>
                         <button onClick={() => setShowProfile(true)} className="flex items-center gap-2.5 flex-1 min-w-0 active:opacity-70 transition">
@@ -3101,12 +3118,12 @@ ${olderText}
                         <button onClick={() => handleRealConversation(c)} disabled={isLoading}
                             className="w-full py-3 rounded-2xl text-[13px] font-semibold text-white active:scale-[0.99] transition flex items-center justify-center gap-2"
                             style={{ background: `linear-gradient(135deg, ${accent}, ${accent}bb)` }}>
-                            <PaperPlaneTilt size={16} weight="fill" /> {rec ? '继续真实对话（双方同步）' : '发起真实对话（A 发 B 回）'}
+                            <PaperPlaneTilt size={16} weight="fill" /> {rec ? '继续偷看（双方同步）' : '偷看对话（双方同步）'}
                         </button>
                     ) : (
                         <button onClick={() => handleNpcConversation(c)} disabled={isLoading}
                             className="w-full py-3 rounded-2xl text-[13px] font-semibold text-white/90 bg-white/[0.06] border border-white/[0.08] active:scale-[0.99] transition flex items-center justify-center gap-2">
-                            <ChatCircleDots size={16} weight="fill" /> {rec ? '偷看后续对话' : '偷看对话'}
+                            <ChatCircleDots size={16} weight="fill" /> {rec ? '继续偷看' : '偷看对话'}
                         </button>
                     )}
                 </div>

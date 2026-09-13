@@ -8,7 +8,7 @@ import type { CharacterProfile } from '../types';
 
 const result = {
     partnerName: '乙', partnerCharId: 'b', detail: '我: 晚上见。\n对方: 好呀。', delta: 5,
-    learnedNew: '喜欢下雨天', timestamp: 1700000000000, recordId: 'a-to-b',
+    learnedNew: '喜欢下雨天', topicStart: 1, timestamp: 1700000000000, recordId: 'a-to-b',
 };
 
 describe('查手机对话保存与备份', () => {
@@ -87,7 +87,7 @@ describe('phone scan merges against live contacts', () => {
         const current = { ...old, sendToChat: false, contacts: [live, unrelated] };
         const record = { ...old.records[0], id: 'new-record' };
         const next = mergePhoneScanResults(current, baseline, [generated], [record]);
-        expect(next.contacts).toEqual([{ ...live, lastInteraction: 999 }, unrelated]);
+        expect(next.contacts).toEqual([live, unrelated]);
         expect(next.records).toEqual([...old.records, record]);
         expect(next.sendToChat).toBe(false);
         expect(baseline[0].note).toBeUndefined();
