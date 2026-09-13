@@ -30,6 +30,14 @@ describe('fridge inventory projection', () => {
     const item = lot(1, { trackingMode: 'divisible', openContainerRemaining: 0.01 });
     expect(fridgePage([item], [], 0).entries[0].lot).toEqual(item);
   });
+  it('places only frozen inventory on the upper freezer shelf, three per page', () => {
+    const lots = [lot(0), ...Array.from({ length: 4 }, (_, i) => lot(i + 1, { storageZone: 'freezer' }))];
+    const first = fridgePage(lots, [], 0, 'freezer');
+    expect(first).toMatchObject({ total: 4, pageCount: 2 });
+    expect(first.entries).toHaveLength(3);
+    expect(first.entries.every(entry => entry.position[1] === 1.8525 && entry.lot.storageZone === 'freezer')).toBe(true);
+    expect(fridgePage(lots, [], 1, 'freezer').entries).toHaveLength(1);
+  });
   it('maps display models conservatively and falls back for unknown food', () => {
     expect(kitchenModelFor('鸡蛋')).toBe('egg');
     expect(kitchenModelFor('全脂牛奶')).toBe('carton');
@@ -59,7 +67,16 @@ describe('shipped kitchen model contract', () => {
   it('keeps a separate door pivot and shelves at the inventory slot heights', () => {
     const nodes = readModel('fridge').nodes;
     const pivot = nodes.find((node: { name: string }) => node.name === 'DoorPivot');
-    expect(pivot.children).toHaveLength(1);
-    for (const top of [0.3, 0.76, 1.22]) expect(nodes.some((node: { name: string }) => node.name === `Shelf-${top}`)).toBe(true);
+    expect(pivot.children.length).toBeGreaterThan(1);
+    for (const name of ['FreezerDoorPivot', 'CrisperLeft', 'CrisperRight']) expect(nodes.some((node: { name: string }) => node.name === name)).toBe(true);
+    for (const top of [0.56, 0.93, 1.3]) expect(nodes.some((node: { name: string }) => node.name === `Shelf-${top}`)).toBe(true);
+    const model = readModel('fridge');
+    expect(model.materials.find((material: { name: string }) => material.name === 'Clear crisper plastic').alphaMode).toBe('BLEND');
+    for (const name of ['Satin enamel', 'Brushed aluminium']) {
+      const material = model.materials.find((item: { name: string }) => item.name === name);
+      const image = model.images[model.textures[material.normalTexture.index].source];
+      expect(image.mimeType).toBe('image/png');
+      expect(model.bufferViews[image.bufferView].byteLength).toBeGreaterThan(0);
+    }
   });
 });
