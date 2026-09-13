@@ -128,4 +128,84 @@ describe('KitchenDB inventory ledger', () => {
     expect(added.lot.unit).toBe('large_bottle');
     expect(added.lot.packageSize).toBe('30 oz');
   });
+
+  it('tracks and undoes a partial container consumption', async () => {
+    const added = await KitchenDB.addLot({
+      name: '牛奶',
+      quantity: 1,
+      unit: 'large_bottle',
+      storageZone: 'fridge',
+      trackingMode: 'divisible',
+      packageSize: '30 oz',
+      operationId: 'add-divisible-milk',
+    });
+
+    const consumed = await KitchenDB.consumePortion({
+      lotId: added.lot.id,
+      fraction: 1 / 3,
+      operationId: 'drink-third-milk',
+    });
+    expect(consumed.lot.quantity).toBe(1);
+    expect(consumed.lot.packageState).toBe('opened');
+    expect(consumed.lot.openContainerRemaining).toBeCloseTo(2 / 3);
+    expect(consumed.event.quantityDelta).toBe(0);
+    expect(consumed.event.contentDelta).toBeCloseTo(-1 / 3);
+
+    const undone = await KitchenDB.undoLatest('undo-milk-third');
+    expect(undone?.event.relatedOperationId).toBe('drink-third-milk');
+    expect(undone?.lot.quantity).toBe(1);
+    expect(undone?.lot.openContainerRemaining).toBeUndefined();
+    expect(undone?.lot.packageState).toBe('sealed');
+  });
+
+  it('uses up the opened fraction before moving to the next container', async () => {
+    const added = await KitchenDB.addLot({
+      name: '牛肉',
+      quantity: 2,
+      unit: 'tray',
+      storageZone: 'freezer',
+      trackingMode: 'divisible',
+      operationId: 'add-beef-boxes',
+    });
+    await KitchenDB.setPortionRemaining({
+      lotId: added.lot.id,
+      fraction: 1 / 3,
+      operationId: 'count-beef-third',
+    });
+
+    const consumed = await KitchenDB.consumePortion({
+      lotId: added.lot.id,
+      fraction: 1 / 3,
+      operationId: 'finish-beef-third',
+    });
+
+    expect(consumed.lot.quantity).toBe(1);
+    expect(consumed.lot.openContainerRemaining).toBeUndefined();
+    expect(consumed.lot.packageState).toBe('sealed');
+  });
+
+  it('discards only the current opened container remainder', async () => {
+    const added = await KitchenDB.addLot({
+      name: '果汁',
+      quantity: 2,
+      unit: 'small_bottle',
+      storageZone: 'fridge',
+      trackingMode: 'divisible',
+      operationId: 'add-juice',
+    });
+    await KitchenDB.setPortionRemaining({
+      lotId: added.lot.id,
+      fraction: 1 / 4,
+      operationId: 'count-juice-quarter',
+    });
+
+    const discarded = await KitchenDB.discardCurrentContainer({
+      lotId: added.lot.id,
+      operationId: 'discard-open-juice',
+    });
+
+    expect(discarded.lot.quantity).toBe(1);
+    expect(discarded.lot.openContainerRemaining).toBeUndefined();
+    expect(discarded.event.contentDelta).toBeCloseTo(-1 / 4);
+  });
 });

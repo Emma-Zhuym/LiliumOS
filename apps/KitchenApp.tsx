@@ -19,6 +19,7 @@ import {
   type KitchenFood,
   type KitchenLot,
   type KitchenStorageZone,
+  type KitchenTrackingMode,
   type KitchenUnit,
 } from '../utils/kitchenDb';
 
@@ -29,6 +30,7 @@ const UNIT_LABELS: Record<KitchenUnit, string> = {
   pack: '包',
   bag: '袋',
   box: '盒',
+  tray: '盘',
   can: '罐',
   large_bottle: '大瓶',
   small_bottle: '小瓶',
@@ -42,6 +44,7 @@ const STORAGE_UNIT_OPTIONS: KitchenUnit[] = [
   'pack',
   'bag',
   'box',
+  'tray',
   'can',
   'large_bottle',
   'small_bottle',
@@ -72,6 +75,57 @@ const makeOperationId = (prefix: string): string => {
 
 const formatQuantity = (quantity: number, unit: KitchenUnit): string =>
   `${Number.isInteger(quantity) ? quantity : Number(quantity.toFixed(2))} ${UNIT_LABELS[unit]}`;
+
+const KNOWN_FRACTIONS = [
+  { label: '7/8', value: 7 / 8 },
+  { label: '3/4', value: 3 / 4 },
+  { label: '2/3', value: 2 / 3 },
+  { label: '1/2', value: 1 / 2 },
+  { label: '1/3', value: 1 / 3 },
+  { label: '1/4', value: 1 / 4 },
+  { label: '1/8', value: 1 / 8 },
+];
+
+const formatFraction = (value: number): string => {
+  const known = [
+    ...KNOWN_FRACTIONS,
+    { label: '满', value: 1 },
+  ].find(item => Math.abs(item.value - value) < 0.005);
+  return known?.label ?? `${Math.round(value * 100)}%`;
+};
+
+const parseFraction = (raw: string): number | null => {
+  const value = raw.trim();
+  if (!value) return null;
+  if (value.endsWith('%')) {
+    const percent = Number(value.slice(0, -1));
+    return Number.isFinite(percent) ? percent / 100 : null;
+  }
+  const fraction = value.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/);
+  if (fraction) {
+    const denominator = Number(fraction[2]);
+    return denominator > 0 ? Number(fraction[1]) / denominator : null;
+  }
+  const decimal = Number(value);
+  return Number.isFinite(decimal) ? decimal : null;
+};
+
+const describeLotStock = (lot: KitchenLot): string => {
+  if (lot.trackingMode !== 'divisible') return `剩 ${formatQuantity(lot.quantity, lot.unit)}`;
+  const remaining = lot.openContainerRemaining;
+  if (remaining === undefined) return `剩 ${formatQuantity(lot.quantity, lot.unit)} · 未开封`;
+  const sealedCount = Math.max(0, lot.quantity - 1);
+  const opened = `开封的约剩 ${formatFraction(remaining)} ${UNIT_LABELS[lot.unit]}`;
+  return sealedCount > 0 ? `${sealedCount} ${UNIT_LABELS[lot.unit]}未开封 · ${opened}` : opened;
+};
+
+const formatEventAmount = (event: KitchenEvent): string => {
+  const delta = event.contentDelta ?? event.quantityDelta;
+  const prefix = delta > 0 ? '+' : '';
+  const absolute = Math.abs(delta);
+  if (absolute > 0 && absolute < 1) return `${prefix}${delta < 0 ? '-' : ''}${formatFraction(absolute)} ${UNIT_LABELS[event.unit]}`;
+  return `${prefix}${formatQuantity(delta, event.unit)}`;
+};
 
 const quickAmount = (lot: KitchenLot): number => {
   const normal = lot.unit === 'gram' || lot.unit === 'milliliter' ? 50 : 1;
@@ -177,9 +231,12 @@ const KitchenApp: React.FC = () => {
   const [quantity, setQuantity] = useState('');
   const [unit, setUnit] = useState<KitchenUnit>('piece');
   const [zone, setZone] = useState<KitchenStorageZone>('staging');
+  const [trackingMode, setTrackingMode] = useState<KitchenTrackingMode>('count');
   const [packageSize, setPackageSize] = useState('');
   const [adjustingLotId, setAdjustingLotId] = useState<string | null>(null);
   const [adjustedQuantity, setAdjustedQuantity] = useState('');
+  const [portionEditor, setPortionEditor] = useState<{ lotId: string; mode: 'consume' | 'remaining' } | null>(null);
+  const [customPortion, setCustomPortion] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
   const busyRef = useRef(false);
   const [busy, setBusy] = useState(false);
@@ -230,11 +287,13 @@ const KitchenApp: React.FC = () => {
       quantity: parsedQuantity,
       unit,
       storageZone: zone,
+      trackingMode,
       packageSize,
       operationId: makeOperationId('add'),
     });
     setName('');
     setQuantity('');
+    setTrackingMode('count');
     setPackageSize('');
     setShowAdd(false);
     setNotice('已经放进小厨房');
@@ -250,6 +309,55 @@ const KitchenApp: React.FC = () => {
     });
     setNotice(type === 'CONSUME' ? `已经记下吃掉 ${formatQuantity(amount, lot.unit)}` : `已经记下丢弃 ${formatQuantity(amount, lot.unit)}`);
   });
+
+  const discard = (lot: KitchenLot) => run(async () => {
+    if (lot.trackingMode === 'divisible') {
+      await KitchenDB.discardCurrentContainer({
+        lotId: lot.id,
+        operationId: makeOperationId('discard-container'),
+        note: lot.openContainerRemaining === undefined ? '丢弃一件未开封包装' : '丢弃当前开封包装',
+      });
+    } else {
+      const amount = quickAmount(lot);
+      await KitchenDB.changeLot({
+        type: 'DISCARD',
+        lotId: lot.id,
+        amount,
+        operationId: makeOperationId('discard'),
+      });
+    }
+    setNotice('已经记下丢弃');
+  });
+
+  const savePortion = (lot: KitchenLot, fraction: number, mode: 'consume' | 'remaining') => run(async () => {
+    if (mode === 'consume') {
+      await KitchenDB.consumePortion({
+        lotId: lot.id,
+        fraction,
+        operationId: makeOperationId('consume-portion'),
+        note: `估计用了 ${formatFraction(fraction)} 包装`,
+      });
+      setNotice(`已经记下用了约 ${formatFraction(fraction)} ${UNIT_LABELS[lot.unit]}`);
+    } else {
+      await KitchenDB.setPortionRemaining({
+        lotId: lot.id,
+        fraction,
+        operationId: makeOperationId('adjust-portion'),
+      });
+      setNotice(fraction === 0 ? '已经记下当前包装用完' : `余量已核对为约 ${formatFraction(fraction)}`);
+    }
+    setPortionEditor(null);
+    setCustomPortion('');
+  });
+
+  const saveCustomPortion = (lot: KitchenLot, mode: 'consume' | 'remaining') => {
+    const fraction = parseFraction(customPortion);
+    if (fraction === null || fraction < 0 || fraction > 1 || (mode === 'consume' && fraction === 0)) {
+      setNotice(mode === 'consume' ? '请填写 0 到 1 之间的用量，例如 1/3 或 20%' : '请填写 0 到 1 之间的余量，例如 2/3 或 60%');
+      return;
+    }
+    void savePortion(lot, fraction, mode);
+  };
 
   const saveAdjustment = (lot: KitchenLot) => run(async () => {
     await KitchenDB.changeLot({
@@ -365,6 +473,34 @@ const KitchenApp: React.FC = () => {
                   {STORAGE_UNIT_OPTIONS.map(item => <option key={item} value={item}>{UNIT_LABELS[item]}</option>)}
                 </SelectField>
               </div>
+              <div className="grid grid-cols-2" style={{ gap: SP[2] }}>
+                {([
+                  { value: 'count' as const, label: '整件计数', hint: '鸡蛋、泡面' },
+                  { value: 'divisible' as const, label: '可以分着吃', hint: '牛奶、牛肉' },
+                ]).map(option => {
+                  const selected = trackingMode === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => setTrackingMode(option.value)}
+                      style={{
+                        minHeight: 52,
+                        padding: `${SP[1]}px ${SP[2]}px`,
+                        borderRadius: R.input,
+                        border: `1px solid ${selected ? KITCHEN.main : F.borderSoft}`,
+                        background: selected ? KITCHEN.main : F.surfaceRaised,
+                        color: selected ? F.surfaceRaised : F.textSecondary,
+                        boxShadow: selected ? S.raisedSoft : S.sunken,
+                      }}
+                    >
+                      <span className="block" style={{ fontSize: 13, fontWeight: 600 }}>{option.label}</span>
+                      <span className="block" style={{ marginTop: SP[0], fontSize: 11, opacity: 0.8 }}>{option.hint}</span>
+                    </button>
+                  );
+                })}
+              </div>
               <Field
                 value={packageSize}
                 onChange={event => setPackageSize(event.target.value)}
@@ -415,7 +551,7 @@ const KitchenApp: React.FC = () => {
             <button
               type="button"
               onClick={undo}
-              disabled={busy || events.every(event => event.type === 'UNDO' || !!event.undoneAt || event.quantityDelta === 0)}
+              disabled={busy || events.every(event => event.type === 'UNDO' || !!event.undoneAt || (event.contentDelta ?? event.quantityDelta) === 0)}
               className="flex items-center disabled:opacity-40"
               style={{ gap: SP[1], color: KITCHEN.ink, fontSize: 13, fontWeight: 600 }}
             >
@@ -447,6 +583,8 @@ const KitchenApp: React.FC = () => {
                 const food = foodById.get(lot.foodId);
                 const amount = quickAmount(lot);
                 const isAdjusting = adjustingLotId === lot.id;
+                const activePortionEditor = portionEditor?.lotId === lot.id ? portionEditor : null;
+                const isDivisible = lot.trackingMode === 'divisible';
                 return (
                   <article
                     key={lot.id}
@@ -469,13 +607,13 @@ const KitchenApp: React.FC = () => {
                       <div className="min-w-0 flex-1">
                         <div className="truncate" style={{ fontSize: 15, lineHeight: '23px', fontWeight: 600 }}>{food?.name ?? '未命名食物'}</div>
                         <div style={{ marginTop: SP[0], color: F.textSecondary, fontSize: 13 }}>
-                          {ZONE_LABELS[lot.storageZone]} · 剩 {formatQuantity(lot.quantity, lot.unit)}
+                          {ZONE_LABELS[lot.storageZone]} · {describeLotStock(lot)}
                           {lot.packageSize ? ` · 每${UNIT_LABELS[lot.unit]} ${lot.packageSize}` : ''}
                         </div>
                       </div>
                     </div>
 
-                    {isAdjusting ? (
+                    {isAdjusting && !isDivisible ? (
                       <div className="flex items-center" style={{ gap: SP[2], marginTop: SP[3] }}>
                         <Field
                           value={adjustedQuantity}
@@ -500,24 +638,106 @@ const KitchenApp: React.FC = () => {
                         </IconButton>
                       </div>
                     ) : (
-                      <div className="flex" style={{ gap: SP[2], marginTop: SP[3] }}>
-                        <ActionButton onClick={() => changeQuantity(lot, 'CONSUME')} disabled={busy} icon={<ForkKnife size={18} />}>
-                          吃掉 {formatQuantity(amount, lot.unit)}
-                        </ActionButton>
-                        <ActionButton onClick={() => changeQuantity(lot, 'DISCARD')} disabled={busy} icon={<Trash size={18} />}>
-                          丢弃
-                        </ActionButton>
-                        <IconButton
-                          label="核对库存"
-                          onClick={() => {
-                            setAdjustingLotId(lot.id);
-                            setAdjustedQuantity(String(lot.quantity));
-                          }}
-                          disabled={busy}
-                        >
-                          <Scales size={20} color={F.textSecondary} />
-                        </IconButton>
-                      </div>
+                      <>
+                        <div className="flex" style={{ gap: SP[2], marginTop: SP[3] }}>
+                          <ActionButton
+                            onClick={() => {
+                              if (isDivisible) {
+                                setPortionEditor({ lotId: lot.id, mode: 'consume' });
+                                setCustomPortion('');
+                              } else {
+                                void changeQuantity(lot, 'CONSUME');
+                              }
+                            }}
+                            disabled={busy}
+                            icon={<ForkKnife size={18} />}
+                          >
+                            {isDivisible ? '吃了一些' : `吃掉 ${formatQuantity(amount, lot.unit)}`}
+                          </ActionButton>
+                          <ActionButton onClick={() => discard(lot)} disabled={busy} icon={<Trash size={18} />}>
+                            丢弃
+                          </ActionButton>
+                          <IconButton
+                            label={isDivisible ? '核对余量' : '核对库存'}
+                            onClick={() => {
+                              if (isDivisible) {
+                                setPortionEditor({ lotId: lot.id, mode: 'remaining' });
+                                setCustomPortion(lot.openContainerRemaining === undefined ? '1' : formatFraction(lot.openContainerRemaining));
+                              } else {
+                                setAdjustingLotId(lot.id);
+                                setAdjustedQuantity(String(lot.quantity));
+                              }
+                            }}
+                            disabled={busy}
+                          >
+                            <Scales size={20} color={F.textSecondary} />
+                          </IconButton>
+                        </div>
+
+                        {activePortionEditor && (
+                          <div
+                            style={{
+                              marginTop: SP[3],
+                              padding: SP[3],
+                              borderRadius: R.medium,
+                              background: F.surfaceSunken,
+                              boxShadow: S.sunken,
+                            }}
+                          >
+                            <div className="flex items-center justify-between" style={{ gap: SP[2] }}>
+                              <strong style={{ fontSize: 13 }}>
+                                {activePortionEditor.mode === 'consume' ? '这次大约用了多少？' : '现在大约还剩多少？'}
+                              </strong>
+                              <button
+                                type="button"
+                                aria-label="关闭余量编辑"
+                                onClick={() => setPortionEditor(null)}
+                                style={{ color: F.textSecondary }}
+                              >
+                                <X size={18} />
+                              </button>
+                            </div>
+                            <div className="flex items-center" style={{ gap: SP[2], marginTop: SP[2] }}>
+                              <Field
+                                value={customPortion}
+                                onChange={event => setCustomPortion(event.target.value)}
+                                placeholder={activePortionEditor.mode === 'consume' ? '例如 1/3、2/5 或 20%' : '例如 2/3、2/5 或 60%'}
+                                aria-label={activePortionEditor.mode === 'consume' ? '自定义本次用量' : '自定义剩余量'}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => saveCustomPortion(lot, activePortionEditor.mode)}
+                                disabled={busy}
+                                className="shrink-0 font-semibold disabled:opacity-50"
+                                style={{ height: 44, padding: `0 ${SP[3]}px`, borderRadius: R.button, background: KITCHEN.main, color: F.surfaceRaised }}
+                              >
+                                保存
+                              </button>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => savePortion(
+                                lot,
+                                activePortionEditor.mode === 'consume' ? lot.openContainerRemaining ?? 1 : 0,
+                                activePortionEditor.mode,
+                              )}
+                              disabled={busy}
+                              className="w-full font-semibold disabled:opacity-50"
+                              style={{
+                                minHeight: 44,
+                                marginTop: SP[2],
+                                borderRadius: R.button,
+                                background: KITCHEN.main,
+                                color: F.surfaceRaised,
+                                boxShadow: S.raisedSoft,
+                                fontSize: 13,
+                              }}
+                            >
+                              已经用完
+                            </button>
+                          </div>
+                        )}
+                      </>
                     )}
                   </article>
                 );
@@ -549,8 +769,8 @@ const KitchenApp: React.FC = () => {
                   }}
                 >
                   <span style={{ flex: 1, fontSize: 13, color: F.textSecondary }}>{EVENT_LABELS[event.type]}</span>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: event.quantityDelta >= 0 ? KITCHEN.ink : F.textSecondary }}>
-                    {event.quantityDelta > 0 ? '+' : ''}{formatQuantity(event.quantityDelta, event.unit)}
+                  <span style={{ fontSize: 13, fontWeight: 600, color: (event.contentDelta ?? event.quantityDelta) >= 0 ? KITCHEN.ink : F.textSecondary }}>
+                    {formatEventAmount(event)}
                   </span>
                 </div>
               ))}

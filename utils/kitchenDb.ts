@@ -9,6 +9,7 @@ export type KitchenUnit =
   | 'pack'
   | 'bag'
   | 'box'
+  | 'tray'
   | 'can'
   | 'large_bottle'
   | 'small_bottle'
@@ -17,6 +18,7 @@ export type KitchenUnit =
   | 'milliliter';
 export type KitchenStorageZone = 'staging' | 'fridge' | 'freezer' | 'pantry';
 export type KitchenEventType = 'ADD' | 'CONSUME' | 'DISCARD' | 'ADJUST' | 'UNDO';
+export type KitchenTrackingMode = 'count' | 'divisible';
 
 export interface KitchenFood {
   id: string;
@@ -35,6 +37,8 @@ export interface KitchenLot {
   storageZone: KitchenStorageZone;
   packageState: 'sealed' | 'opened';
   foodState: 'raw' | 'prepared' | 'leftover';
+  trackingMode?: KitchenTrackingMode;
+  openContainerRemaining?: number;
   packageSize?: string;
   purchasedAt?: string;
   expiresAt?: string;
@@ -51,6 +55,9 @@ export interface KitchenEvent {
   quantityDelta: number;
   quantityBefore: number;
   quantityAfter: number;
+  contentDelta?: number;
+  openContainerRemainingBefore?: number;
+  openContainerRemainingAfter?: number;
   unit: KitchenUnit;
   occurredAt: number;
   note?: string;
@@ -69,6 +76,7 @@ export interface AddKitchenLotInput {
   quantity: number;
   unit: KitchenUnit;
   storageZone: KitchenStorageZone;
+  trackingMode?: KitchenTrackingMode;
   packageSize?: string;
   purchasedAt?: string;
   expiresAt?: string;
@@ -78,6 +86,13 @@ export interface AddKitchenLotInput {
 export type ChangeKitchenLotInput =
   | { type: 'CONSUME' | 'DISCARD'; lotId: string; amount: number; operationId?: string; note?: string }
   | { type: 'ADJUST'; lotId: string; quantity: number; operationId?: string; note?: string };
+
+export interface ChangeKitchenPortionInput {
+  lotId: string;
+  fraction: number;
+  operationId?: string;
+  note?: string;
+}
 
 export interface KitchenOperationResult {
   lot: KitchenLot;
@@ -169,6 +184,16 @@ function assertPositiveNumber(value: number, label: string): void {
   if (!Number.isFinite(value) || value <= 0) throw new Error(`${label}必须大于 0`);
 }
 
+function totalContainerContent(lot: KitchenLot): number {
+  if (lot.trackingMode !== 'divisible' || lot.openContainerRemaining === undefined) return lot.quantity;
+  return Math.max(0, lot.quantity - 1) + lot.openContainerRemaining;
+}
+
+function sameOptionalNumber(left: number | undefined, right: number | undefined): boolean {
+  if (left === undefined || right === undefined) return left === right;
+  return Math.abs(left - right) < 0.000001;
+}
+
 function nextOccurredAt(allEvents: KitchenEvent[]): number {
   let latest = 0;
   for (const event of allEvents) latest = Math.max(latest, event.occurredAt);
@@ -217,6 +242,7 @@ async function addLot(input: AddKitchenLotInput): Promise<KitchenOperationResult
       storageZone: input.storageZone,
       packageState: 'sealed',
       foodState: 'raw',
+      trackingMode: input.trackingMode ?? 'count',
       packageSize: input.packageSize?.trim() || undefined,
       purchasedAt: input.purchasedAt,
       expiresAt: input.expiresAt,
@@ -232,6 +258,7 @@ async function addLot(input: AddKitchenLotInput): Promise<KitchenOperationResult
       quantityDelta: input.quantity,
       quantityBefore: 0,
       quantityAfter: input.quantity,
+      contentDelta: input.quantity,
       unit: input.unit,
       occurredAt: now,
     };
@@ -271,7 +298,13 @@ async function changeLot(input: ChangeKitchenLotInput): Promise<KitchenOperation
     }
 
     const now = nextOccurredAt(await requestValue(events.getAll()) as KitchenEvent[]);
-    const lot = { ...current, quantity: nextQuantity, updatedAt: now };
+    const nextOpenContainerRemaining = nextQuantity === 0 ? undefined : current.openContainerRemaining;
+    const lot = {
+      ...current,
+      quantity: nextQuantity,
+      openContainerRemaining: nextOpenContainerRemaining,
+      updatedAt: now,
+    };
     const event: KitchenEvent = {
       id: makeId('event'),
       operationId,
@@ -281,6 +314,182 @@ async function changeLot(input: ChangeKitchenLotInput): Promise<KitchenOperation
       quantityDelta: nextQuantity - current.quantity,
       quantityBefore: current.quantity,
       quantityAfter: nextQuantity,
+      contentDelta: totalContainerContent(lot) - totalContainerContent(current),
+      openContainerRemainingBefore: current.openContainerRemaining,
+      openContainerRemainingAfter: nextOpenContainerRemaining,
+      unit: current.unit,
+      occurredAt: now,
+      note: input.note,
+    };
+    lots.put(lot);
+    events.add(event);
+    await transactionDone(transaction);
+    return { lot, event, replayed: false };
+  } finally {
+    db.close();
+  }
+}
+
+async function consumePortion(input: ChangeKitchenPortionInput): Promise<KitchenOperationResult> {
+  assertPositiveNumber(input.fraction, '本次用量');
+  const operationId = input.operationId ?? makeId('op');
+  const db = await openKitchenDB();
+  try {
+    const transaction = db.transaction([STORE_LOTS, STORE_EVENTS], 'readwrite');
+    const lots = transaction.objectStore(STORE_LOTS);
+    const events = transaction.objectStore(STORE_EVENTS);
+    const existing = await findExistingOperation(events, lots, operationId);
+    if (existing) {
+      await transactionDone(transaction);
+      return existing;
+    }
+
+    const current = await requestValue(lots.get(input.lotId)) as KitchenLot | undefined;
+    if (!current) throw new Error('这批食物已经不存在');
+    if (current.trackingMode !== 'divisible') throw new Error('这种食物按整件计数');
+
+    const contentBefore = totalContainerContent(current);
+    if (input.fraction > contentBefore + 0.000001) throw new Error('本次用量不能超过当前余量');
+    const contentAfter = Math.max(0, contentBefore - input.fraction);
+    const quantityAfter = Math.ceil(contentAfter - 0.000001);
+    const fractionalPart = contentAfter - Math.floor(contentAfter);
+    const openContainerRemainingAfter = quantityAfter === 0 || fractionalPart < 0.000001
+      ? undefined
+      : fractionalPart;
+    const now = nextOccurredAt(await requestValue(events.getAll()) as KitchenEvent[]);
+    const lot: KitchenLot = {
+      ...current,
+      quantity: quantityAfter,
+      packageState: openContainerRemainingAfter === undefined ? 'sealed' : 'opened',
+      openContainerRemaining: openContainerRemainingAfter,
+      updatedAt: now,
+    };
+    const event: KitchenEvent = {
+      id: makeId('event'),
+      operationId,
+      type: 'CONSUME',
+      lotId: current.id,
+      foodId: current.foodId,
+      quantityDelta: quantityAfter - current.quantity,
+      quantityBefore: current.quantity,
+      quantityAfter,
+      contentDelta: -input.fraction,
+      openContainerRemainingBefore: current.openContainerRemaining,
+      openContainerRemainingAfter,
+      unit: current.unit,
+      occurredAt: now,
+      note: input.note,
+    };
+    lots.put(lot);
+    events.add(event);
+    await transactionDone(transaction);
+    return { lot, event, replayed: false };
+  } finally {
+    db.close();
+  }
+}
+
+async function setPortionRemaining(input: ChangeKitchenPortionInput): Promise<KitchenOperationResult> {
+  if (!Number.isFinite(input.fraction) || input.fraction < 0 || input.fraction > 1) {
+    throw new Error('剩余比例必须在 0 到 1 之间');
+  }
+  const operationId = input.operationId ?? makeId('op');
+  const db = await openKitchenDB();
+  try {
+    const transaction = db.transaction([STORE_LOTS, STORE_EVENTS], 'readwrite');
+    const lots = transaction.objectStore(STORE_LOTS);
+    const events = transaction.objectStore(STORE_EVENTS);
+    const existing = await findExistingOperation(events, lots, operationId);
+    if (existing) {
+      await transactionDone(transaction);
+      return existing;
+    }
+
+    const current = await requestValue(lots.get(input.lotId)) as KitchenLot | undefined;
+    if (!current) throw new Error('这批食物已经不存在');
+    if (current.trackingMode !== 'divisible') throw new Error('这种食物按整件计数');
+    if (current.quantity <= 0) throw new Error('这批食物已经用完');
+
+    const contentBefore = totalContainerContent(current);
+    const quantityAfter = input.fraction === 0 ? current.quantity - 1 : current.quantity;
+    const openContainerRemainingAfter = input.fraction <= 0 || input.fraction >= 1
+      ? undefined
+      : input.fraction;
+    const contentAfter = Math.max(0, quantityAfter - (openContainerRemainingAfter === undefined ? 0 : 1))
+      + (openContainerRemainingAfter ?? 0);
+    const now = nextOccurredAt(await requestValue(events.getAll()) as KitchenEvent[]);
+    const lot: KitchenLot = {
+      ...current,
+      quantity: quantityAfter,
+      packageState: openContainerRemainingAfter === undefined ? 'sealed' : 'opened',
+      openContainerRemaining: openContainerRemainingAfter,
+      updatedAt: now,
+    };
+    const event: KitchenEvent = {
+      id: makeId('event'),
+      operationId,
+      type: 'ADJUST',
+      lotId: current.id,
+      foodId: current.foodId,
+      quantityDelta: quantityAfter - current.quantity,
+      quantityBefore: current.quantity,
+      quantityAfter,
+      contentDelta: contentAfter - contentBefore,
+      openContainerRemainingBefore: current.openContainerRemaining,
+      openContainerRemainingAfter,
+      unit: current.unit,
+      occurredAt: now,
+      note: input.note ?? '手动核对开封包装余量',
+    };
+    lots.put(lot);
+    events.add(event);
+    await transactionDone(transaction);
+    return { lot, event, replayed: false };
+  } finally {
+    db.close();
+  }
+}
+
+async function discardCurrentContainer(input: Omit<ChangeKitchenPortionInput, 'fraction'>): Promise<KitchenOperationResult> {
+  const operationId = input.operationId ?? makeId('op');
+  const db = await openKitchenDB();
+  try {
+    const transaction = db.transaction([STORE_LOTS, STORE_EVENTS], 'readwrite');
+    const lots = transaction.objectStore(STORE_LOTS);
+    const events = transaction.objectStore(STORE_EVENTS);
+    const existing = await findExistingOperation(events, lots, operationId);
+    if (existing) {
+      await transactionDone(transaction);
+      return existing;
+    }
+
+    const current = await requestValue(lots.get(input.lotId)) as KitchenLot | undefined;
+    if (!current) throw new Error('这批食物已经不存在');
+    if (current.trackingMode !== 'divisible') throw new Error('这种食物按整件计数');
+    if (current.quantity <= 0) throw new Error('这批食物已经用完');
+
+    const discardedContent = current.openContainerRemaining ?? 1;
+    const quantityAfter = current.quantity - 1;
+    const now = nextOccurredAt(await requestValue(events.getAll()) as KitchenEvent[]);
+    const lot: KitchenLot = {
+      ...current,
+      quantity: quantityAfter,
+      packageState: 'sealed',
+      openContainerRemaining: undefined,
+      updatedAt: now,
+    };
+    const event: KitchenEvent = {
+      id: makeId('event'),
+      operationId,
+      type: 'DISCARD',
+      lotId: current.id,
+      foodId: current.foodId,
+      quantityDelta: -1,
+      quantityBefore: current.quantity,
+      quantityAfter,
+      contentDelta: -discardedContent,
+      openContainerRemainingBefore: current.openContainerRemaining,
+      openContainerRemainingAfter: undefined,
       unit: current.unit,
       occurredAt: now,
       note: input.note,
@@ -308,7 +517,7 @@ async function undoLatest(operationId = makeId('op')): Promise<KitchenOperationR
 
     const allEvents = await requestValue(events.getAll()) as KitchenEvent[];
     const target = allEvents
-      .filter(event => event.type !== 'UNDO' && !event.undoneAt && event.quantityDelta !== 0)
+      .filter(event => event.type !== 'UNDO' && !event.undoneAt && (event.contentDelta ?? event.quantityDelta) !== 0)
       .sort((a, b) => b.occurredAt - a.occurredAt || b.id.localeCompare(a.id))[0];
     if (!target) {
       await transactionDone(transaction);
@@ -320,9 +529,21 @@ async function undoLatest(operationId = makeId('op')): Promise<KitchenOperationR
     if (current.quantity !== target.quantityAfter) {
       throw new Error('无法撤销：这批食物之后已经发生了变化');
     }
+    const tracksOpenContainer = target.contentDelta !== undefined
+      || target.openContainerRemainingBefore !== undefined
+      || target.openContainerRemainingAfter !== undefined;
+    if (tracksOpenContainer && !sameOptionalNumber(current.openContainerRemaining, target.openContainerRemainingAfter)) {
+      throw new Error('无法撤销：这批食物的开封余量已经发生了变化');
+    }
 
     const now = nextOccurredAt(allEvents);
-    const lot = { ...current, quantity: target.quantityBefore, updatedAt: now };
+    const lot = {
+      ...current,
+      quantity: target.quantityBefore,
+      packageState: target.openContainerRemainingBefore === undefined ? 'sealed' as const : 'opened' as const,
+      openContainerRemaining: target.openContainerRemainingBefore,
+      updatedAt: now,
+    };
     const undoneTarget = { ...target, undoneAt: now };
     const event: KitchenEvent = {
       id: makeId('event'),
@@ -333,6 +554,9 @@ async function undoLatest(operationId = makeId('op')): Promise<KitchenOperationR
       quantityDelta: target.quantityBefore - target.quantityAfter,
       quantityBefore: target.quantityAfter,
       quantityAfter: target.quantityBefore,
+      contentDelta: -(target.contentDelta ?? target.quantityDelta),
+      openContainerRemainingBefore: target.openContainerRemainingAfter,
+      openContainerRemainingAfter: target.openContainerRemainingBefore,
       unit: target.unit,
       occurredAt: now,
       relatedOperationId: target.operationId,
@@ -380,6 +604,9 @@ async function importAll(data: Partial<KitchenBackup>): Promise<void> {
 export const KitchenDB = {
   addLot,
   changeLot,
+  consumePortion,
+  setPortionRemaining,
+  discardCurrentContainer,
   undoLatest,
   getFoods: () => getAll<KitchenFood>(STORE_FOODS),
   getLots: () => getAll<KitchenLot>(STORE_LOTS),
