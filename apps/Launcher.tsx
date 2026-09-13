@@ -16,6 +16,7 @@ import { getDailyScheduleForChar } from '../utils/dailySchedule';
 import { useLocalDateKey } from '../hooks/useLocalDateKey';
 import { resolveCharTimeZone } from '../utils/timezone';
 import { paginateLauncherApps } from '../utils/launcherPagination';
+import { useContactRemark } from '../utils/contactRemarks'; // [EM: desktop-contact-remark]
 
 const CompanionHome = React.lazy(() => import('../components/os/CompanionHome'));
 
@@ -127,6 +128,7 @@ const CharacterWidget = React.memo(({
     paper?: boolean,
 }) => {
     const { theme } = useOS();
+    const contactRemark = useContactRemark(char?.id || ''); // [EM: desktop-contact-remark]
     const acnh = theme.skin === 'animalcrossing'; // 动森彩蛋：会"说话"的村民卡
     // 卡片底的虚化头像画在 CSS background-image 上，吃不到 TokenImg 的解析，这里自己解析一次。
     const avatarUrl = useBlobRefUrl(char?.avatar);
@@ -156,7 +158,7 @@ const CharacterWidget = React.memo(({
                         <div className="relative rounded-2xl px-3.5 py-2.5"
                             style={{ background: '#FFFBF2', border: '2px solid #ece0c8', boxShadow: '0 4px 12px -5px rgba(120,90,40,0.25)' }}>
                             <div className="flex items-center gap-1.5 mb-0.5">
-                                <span className="text-[13px] font-extrabold truncate" style={{ color: '#725d42' }}>{char?.name || 'Resident'}</span>
+                                <span className="text-[13px] font-extrabold truncate" style={{ color: '#725d42' }}>{contactRemark || char?.name || 'Resident'}</span>
                                 <span className="text-[11px] leading-none">{unreadCount > 0 ? '💬' : '🍃'}</span>
                             </div>
                             <div className="text-[11px] leading-snug line-clamp-2" style={{ color: '#9f8b68' }}>{lastMessage}</div>
@@ -223,7 +225,7 @@ const CharacterWidget = React.memo(({
                      <div className="flex-1 min-w-0 flex flex-col justify-center gap-1" style={{ color: contentColor }}>
                          <div className="flex items-center gap-1.5">
                              <h3 className={`text-[15px] font-bold tracking-wide truncate ${paper ? '' : 'drop-shadow-md'}`}>
-                                 {char?.name || 'NO SIGNAL'}
+                                 {contactRemark || char?.name || 'NO SIGNAL'}
                              </h3>
                              {unreadCount > 0 ? (
                                  <div className="px-1.5 py-px rounded-full text-[8px] font-bold uppercase tracking-[0.15em]"
