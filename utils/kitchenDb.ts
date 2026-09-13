@@ -4,7 +4,17 @@
  * 页面、未来的 3D 场景和角色查询都只能通过这里修改库存，避免出现多套扣减规则。
  */
 
-export type KitchenUnit = 'piece' | 'pack' | 'gram' | 'milliliter' | 'portion';
+export type KitchenUnit =
+  | 'piece'
+  | 'pack'
+  | 'bag'
+  | 'box'
+  | 'can'
+  | 'large_bottle'
+  | 'small_bottle'
+  | 'portion'
+  | 'gram'
+  | 'milliliter';
 export type KitchenStorageZone = 'staging' | 'fridge' | 'freezer' | 'pantry';
 export type KitchenEventType = 'ADD' | 'CONSUME' | 'DISCARD' | 'ADJUST' | 'UNDO';
 
@@ -25,6 +35,7 @@ export interface KitchenLot {
   storageZone: KitchenStorageZone;
   packageState: 'sealed' | 'opened';
   foodState: 'raw' | 'prepared' | 'leftover';
+  packageSize?: string;
   purchasedAt?: string;
   expiresAt?: string;
   createdAt: number;
@@ -58,6 +69,7 @@ export interface AddKitchenLotInput {
   quantity: number;
   unit: KitchenUnit;
   storageZone: KitchenStorageZone;
+  packageSize?: string;
   purchasedAt?: string;
   expiresAt?: string;
   operationId?: string;
@@ -205,6 +217,7 @@ async function addLot(input: AddKitchenLotInput): Promise<KitchenOperationResult
       storageZone: input.storageZone,
       packageState: 'sealed',
       foodState: 'raw',
+      packageSize: input.packageSize?.trim() || undefined,
       purchasedAt: input.purchasedAt,
       expiresAt: input.expiresAt,
       createdAt: now,

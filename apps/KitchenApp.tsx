@@ -27,10 +27,26 @@ const KITCHEN = HUE.green;
 const UNIT_LABELS: Record<KitchenUnit, string> = {
   piece: '个',
   pack: '包',
+  bag: '袋',
+  box: '盒',
+  can: '罐',
+  large_bottle: '大瓶',
+  small_bottle: '小瓶',
+  portion: '份',
   gram: '克',
   milliliter: '毫升',
-  portion: '份',
 };
+
+const STORAGE_UNIT_OPTIONS: KitchenUnit[] = [
+  'piece',
+  'pack',
+  'bag',
+  'box',
+  'can',
+  'large_bottle',
+  'small_bottle',
+  'portion',
+];
 
 const ZONE_LABELS: Record<KitchenStorageZone, string> = {
   staging: '待收纳',
@@ -161,6 +177,7 @@ const KitchenApp: React.FC = () => {
   const [quantity, setQuantity] = useState('');
   const [unit, setUnit] = useState<KitchenUnit>('piece');
   const [zone, setZone] = useState<KitchenStorageZone>('staging');
+  const [packageSize, setPackageSize] = useState('');
   const [adjustingLotId, setAdjustingLotId] = useState<string | null>(null);
   const [adjustedQuantity, setAdjustedQuantity] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
@@ -213,10 +230,12 @@ const KitchenApp: React.FC = () => {
       quantity: parsedQuantity,
       unit,
       storageZone: zone,
+      packageSize,
       operationId: makeOperationId('add'),
     });
     setName('');
     setQuantity('');
+    setPackageSize('');
     setShowAdd(false);
     setNotice('已经放进小厨房');
   });
@@ -343,9 +362,14 @@ const KitchenApp: React.FC = () => {
               <div className="grid grid-cols-2" style={{ gap: SP[2] }}>
                 <Field value={quantity} onChange={event => setQuantity(event.target.value)} placeholder="数量" type="number" min="0" step="any" inputMode="decimal" />
                 <SelectField value={unit} onChange={event => setUnit(event.target.value as KitchenUnit)}>
-                  {(Object.keys(UNIT_LABELS) as KitchenUnit[]).map(item => <option key={item} value={item}>{UNIT_LABELS[item]}</option>)}
+                  {STORAGE_UNIT_OPTIONS.map(item => <option key={item} value={item}>{UNIT_LABELS[item]}</option>)}
                 </SelectField>
               </div>
+              <Field
+                value={packageSize}
+                onChange={event => setPackageSize(event.target.value)}
+                placeholder="包装规格（可不填），例如 30 oz / 1.1 lb"
+              />
               <SelectField value={zone} onChange={event => setZone(event.target.value as KitchenStorageZone)}>
                 {(Object.keys(ZONE_LABELS) as KitchenStorageZone[]).map(item => <option key={item} value={item}>{ZONE_LABELS[item]}</option>)}
               </SelectField>
@@ -446,6 +470,7 @@ const KitchenApp: React.FC = () => {
                         <div className="truncate" style={{ fontSize: 15, lineHeight: '23px', fontWeight: 600 }}>{food?.name ?? '未命名食物'}</div>
                         <div style={{ marginTop: SP[0], color: F.textSecondary, fontSize: 13 }}>
                           {ZONE_LABELS[lot.storageZone]} · 剩 {formatQuantity(lot.quantity, lot.unit)}
+                          {lot.packageSize ? ` · 每${UNIT_LABELS[lot.unit]} ${lot.packageSize}` : ''}
                         </div>
                       </div>
                     </div>

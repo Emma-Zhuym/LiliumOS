@@ -114,4 +114,18 @@ describe('KitchenDB inventory ledger', () => {
     expect((await KitchenDB.getLots()).map(lot => lot.quantity).sort((a, b) => a - b)).toEqual([6, 12]);
     expect(await KitchenDB.getEvents()).toHaveLength(2);
   });
+
+  it('stores household container units with an optional package size', async () => {
+    const added = await KitchenDB.addLot({
+      name: '橄榄油',
+      quantity: 2,
+      unit: 'large_bottle',
+      storageZone: 'pantry',
+      packageSize: ' 30 oz ',
+      operationId: 'add-oil',
+    });
+
+    expect(added.lot.unit).toBe('large_bottle');
+    expect(added.lot.packageSize).toBe('30 oz');
+  });
 });
