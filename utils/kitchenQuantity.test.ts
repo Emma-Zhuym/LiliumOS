@@ -7,6 +7,15 @@ import {
 } from './kitchenQuantity';
 
 describe('kitchen quantity input', () => {
+  it.each(['%', ' % ', 'abc%', '/%', ''])('rejects incomplete input %s', input => {
+    expect(parsePortionInput(input).ok).toBe(false);
+  });
+
+  it.each([1 / 12, 0.333333, 0.9999999, 1e-7])('preserves the edit value %s exactly', value => {
+    const result = parsePortionInput(formatPortionInput(value));
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.fraction).toBe(value);
+  });
   it.each([
     ['2/5', 0.4],
     ['20%', 0.2],

@@ -91,7 +91,9 @@ const parseRatio = (raw: string): number | null => {
   if (!value) return null;
 
   if (value.endsWith('%')) {
-    const percent = Number(value.slice(0, -1).trim());
+    const number = value.slice(0, -1).trim();
+    if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(number)) return null;
+    const percent = Number(number);
     return Number.isFinite(percent) ? percent / 100 : null;
   }
 
@@ -135,10 +137,10 @@ export const formatPortionFraction = (value: number): string => {
 };
 
 export const formatPortionInput = (value: number): string => {
-  const known = KNOWN_FRACTIONS.find(item => Math.abs(item.value - value) < 0.000001);
+  const known = KNOWN_FRACTIONS.find(item => item.value === value);
   if (known) return known.label;
   if (value === 1) return '1';
-  return String(Number(value.toPrecision(12)));
+  return String(value);
 };
 
 export const parsePortionInput = (raw: string, packageSize?: string): PortionParseResult => {

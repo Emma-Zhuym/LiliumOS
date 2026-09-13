@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { KITCHEN_DB_NAME, KitchenDB } from './kitchenDb';
+import { KITCHEN_DB_NAME, KitchenDB, hasKitchenEventChange } from './kitchenDb';
 
 const deleteKitchenDB = () => new Promise<void>((resolve, reject) => {
   const request = indexedDB.deleteDatabase(KITCHEN_DB_NAME);
@@ -13,6 +13,63 @@ beforeEach(async () => {
 });
 
 describe('KitchenDB inventory ledger', () => {
+  it.each([0.5, 1, 2])('clears all %s packages and restores them on undo', async quantity => {
+    const added = await KitchenDB.addLot({
+      name: '牛奶', quantity, unit: 'large_bottle', storageZone: 'fridge', trackingMode: 'divisible',
+    });
+    if (quantity >= 1) await KitchenDB.setPortionRemaining({ lotId: added.lot.id, fraction: 0.7 });
+    const before = (await KitchenDB.getLots())[0];
+    const input = { type: 'FINISH' as const, lotId: added.lot.id, operationId: 'finish-all' };
+    const finished = await KitchenDB.changeLot(input);
+    expect(finished.lot.quantity).toBe(0);
+    expect(finished.lot.openContainerRemaining).toBeUndefined();
+    expect(finished.event.type).toBe('CONSUME');
+    expect(finished.event.contentDelta).toBeCloseTo(-(quantity >= 1 ? quantity - 1 + 0.7 : quantity));
+    expect((await KitchenDB.changeLot(input)).replayed).toBe(true);
+    const undone = await KitchenDB.undoLatest();
+    expect(undone?.lot.quantity).toBe(before.quantity);
+    expect(undone?.lot.openContainerRemaining).toBe(before.openContainerRemaining);
+    expect(undone?.lot.packageState).toBe(before.packageState);
+  });
+
+  it.each([0.5, 2])('setting zero remaining clears %s packages without negative stock', async quantity => {
+    const added = await KitchenDB.addLot({
+      name: '牛肉', quantity, unit: 'tray', storageZone: 'fridge', trackingMode: 'divisible',
+    });
+    const result = await KitchenDB.setPortionRemaining({ lotId: added.lot.id, fraction: 0 });
+    expect(result.lot.quantity).toBe(0);
+    expect((await KitchenDB.undoLatest())?.lot.quantity).toBe(quantity);
+  });
+
+  it('keeps unchanged estimates intact and skips them on undo', async () => {
+    const added = await KitchenDB.addLot({
+      name: '牛奶', quantity: 1, unit: 'large_bottle', storageZone: 'fridge', trackingMode: 'divisible',
+    });
+    const adjusted = await KitchenDB.setPortionRemaining({
+      lotId: added.lot.id, fraction: 1 / 12, operationId: 'real-change',
+    });
+    const saved = await KitchenDB.setPortionRemaining({ lotId: added.lot.id, fraction: 0.0833333333333 });
+    expect(saved.lot.openContainerRemaining).toBe(1 / 12);
+    expect(saved.lot.updatedAt).toBe(adjusted.lot.updatedAt);
+    expect(saved.event.contentDelta).toBe(0);
+    expect(hasKitchenEventChange(saved.event)).toBe(false);
+    // Previously stored round-off events must be skipped too.
+    const backup = await KitchenDB.exportAll();
+    const oldEvent = backup.events.find(event => event.id === saved.event.id)!;
+    oldEvent.contentDelta = -3.3e-14;
+    await KitchenDB.importAll(backup);
+    expect((await KitchenDB.undoLatest())?.event.relatedOperationId).toBe('real-change');
+  });
+
+  it('does not make a fractional package negative when discarded', async () => {
+    const added = await KitchenDB.addLot({
+      name: '牛肉', quantity: 0.5, unit: 'tray', storageZone: 'fridge', trackingMode: 'divisible',
+    });
+    const discarded = await KitchenDB.discardCurrentContainer({ lotId: added.lot.id });
+    expect(discarded.lot.quantity).toBe(0);
+    expect(discarded.event.quantityDelta).toBe(-0.5);
+    expect(discarded.event.contentDelta).toBe(-0.5);
+  });
   it('adds, consumes and undoes one lot while keeping the event history', async () => {
     const added = await KitchenDB.addLot({
       name: '鸡蛋',
