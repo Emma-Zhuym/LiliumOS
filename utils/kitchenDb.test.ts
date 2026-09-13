@@ -78,6 +78,24 @@ describe('KitchenDB inventory ledger', () => {
     expect((await KitchenDB.getEvents()).map(event => event.type)).toEqual(['ADD', 'DISCARD', 'ADJUST']);
   });
 
+  it('skips zero-change records when undoing the latest operation', async () => {
+    const added = await KitchenDB.addLot({
+      name: '苹果', quantity: 2, unit: 'piece', storageZone: 'fridge', operationId: 'add-apples',
+    });
+    await KitchenDB.changeLot({
+      type: 'CONSUME', lotId: added.lot.id, amount: 1, operationId: 'eat-apple',
+    });
+    await KitchenDB.changeLot({
+      type: 'ADJUST', lotId: added.lot.id, quantity: 1, operationId: 'count-same-apple',
+    });
+
+    const undone = await KitchenDB.undoLatest('undo-past-zero-change');
+
+    expect(undone?.event.relatedOperationId).toBe('eat-apple');
+    expect(undone?.event.quantityDelta).toBe(1);
+    expect((await KitchenDB.getLots())[0].quantity).toBe(2);
+  });
+
   it('exports and restores all kitchen records', async () => {
     await KitchenDB.addLot({
       name: '鸡蛋', quantity: 6, unit: 'piece', storageZone: 'fridge', operationId: 'backup-eggs',

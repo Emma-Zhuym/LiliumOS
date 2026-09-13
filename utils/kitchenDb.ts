@@ -295,7 +295,7 @@ async function undoLatest(operationId = makeId('op')): Promise<KitchenOperationR
 
     const allEvents = await requestValue(events.getAll()) as KitchenEvent[];
     const target = allEvents
-      .filter(event => event.type !== 'UNDO' && !event.undoneAt)
+      .filter(event => event.type !== 'UNDO' && !event.undoneAt && event.quantityDelta !== 0)
       .sort((a, b) => b.occurredAt - a.occurredAt || b.id.localeCompare(a.id))[0];
     if (!target) {
       await transactionDone(transaction);

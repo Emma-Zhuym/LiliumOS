@@ -391,7 +391,7 @@ const KitchenApp: React.FC = () => {
             <button
               type="button"
               onClick={undo}
-              disabled={busy || events.every(event => event.type === 'UNDO' || !!event.undoneAt)}
+              disabled={busy || events.every(event => event.type === 'UNDO' || !!event.undoneAt || event.quantityDelta === 0)}
               className="flex items-center disabled:opacity-40"
               style={{ gap: SP[1], color: KITCHEN.ink, fontSize: 13, fontWeight: 600 }}
             >
