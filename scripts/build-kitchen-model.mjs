@@ -1,7 +1,7 @@
 // Original LiliumOS refrigerator; rebuild with node scripts/build-kitchen-model.mjs.
 import fs from 'node:fs/promises';
 import zlib from 'node:zlib';
-import { Group, Mesh, MeshPhysicalMaterial, MeshStandardMaterial } from 'three';
+import { Group, Mesh, MeshPhysicalMaterial, MeshStandardMaterial, SphereGeometry, TorusGeometry } from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { transform } from 'esbuild';
@@ -39,9 +39,9 @@ for (let i = 0; i < 5; i++) box(root, 'Vent slot', [0.19, 0.008, 0.003], [0, 1.5
 box(root, 'Lamp lens', [0.025, 0.14, 0.14], [-0.535, 1.56, 0.02], lamp);
 box(root, 'Freezer shelf', [1.08, 0.025, 0.68], [0, 1.84, 0], liner);
 for (const top of [0.56, 0.93, 1.3]) {
-  box(root, `Shelf-${top}`, [1.1, 0.018, 0.66], [0, top - 0.009, 0.005], glass, 0.006);
-  box(root, 'Shelf front trim', [1.11, 0.03, 0.035], [0, top - 0.01, 0.335], metal, 0.01);
-  for (const x of [-0.537, 0.537]) box(root, 'Shelf support', [0.028, 0.025, 0.62], [x, top - 0.026, -0.005], liner, 0.008);
+  box(root, `Shelf-${top}`, [1.1, 0.018, 0.4], [0, top - 0.009, -0.14], glass, 0.006);
+  box(root, 'Shelf front trim', [1.11, 0.03, 0.035], [0, top - 0.01, 0.06], metal, 0.01);
+  for (const x of [-0.537, 0.537]) box(root, 'Shelf support', [0.028, 0.025, 0.38], [x, top - 0.026, -0.14], liner, 0.008);
 }
 // Hollow, separate crisper drawers. Clear walls, stronger rims and recessed grips.
 for (const [name, x] of [['CrisperLeft', -0.28], ['CrisperRight', 0.28]]) {
@@ -69,11 +69,11 @@ function door(name, bottom, height) {
 }
 const lower = door('DoorPivot', 0.13, 1.6);
 door('FreezerDoorPivot', 1.75, 0.6);
-for (const y of [0.42, 0.94]) {
-  box(lower, 'Door bin base', [0.94, 0.028, 0.15], [0.62, y, -0.105], liner);
-  box(lower, 'Clear door bin', [0.94, 0.12, 0.015], [0.62, y + 0.066, -0.177], glass, 0.006);
-  box(lower, 'Bin rim', [0.94, 0.018, 0.018], [0.62, y + 0.126, -0.177], edge, 0.008);
-  for (const x of [0.155, 1.085]) box(lower, 'Bin end', [0.018, 0.12, 0.15], [x, y + 0.06, -0.105], liner, 0.008);
+for (const y of [0.42, 0.94, 1.4]) {
+  box(lower, 'Door bin base', [0.94, 0.028, 0.3], [0.62, y, -0.18], liner);
+  box(lower, 'Clear door bin', [0.94, 0.09, 0.015], [0.62, y + 0.051, -0.33], glass, 0.006);
+  box(lower, 'Bin rim', [0.94, 0.018, 0.018], [0.62, y + 0.096, -0.33], edge, 0.008);
+  for (const x of [0.155, 1.085]) box(lower, 'Bin end', [0.018, 0.09, 0.3], [x, y + 0.045, -0.18], liner, 0.008);
 }
 box(root, 'Toe kick', [1.04, 0.047, 0.024], [0, 0.084, 0.42], seal, 0.01);
 
@@ -125,3 +125,20 @@ header.writeUInt32LE(jsonChunk.length, 12); header.writeUInt32LE(0x4e4f534a, 16)
 const binHeader = Buffer.alloc(8); binHeader.writeUInt32LE(binary.length); binHeader.writeUInt32LE(0x004e4942, 4);
 await fs.writeFile(new URL('../public/kitchen/models/fridge.glb', import.meta.url), Buffer.concat([header, jsonChunk, binHeader, binary]));
 console.log(`Original fridge: ${json.meshes.length} meshes, ${binary.length} binary bytes, two doors and two transparent drawers.`);
+
+// Open 2 × 6 carton, physical size 0.84 × 0.24; each egg remains a separate node.
+const carton = new Group(); carton.name = 'EggCarton12';
+const pulp = new MeshStandardMaterial({ color: F.borderStrong, roughness: 1 });
+const shell = new MeshStandardMaterial({ color: F.surfaceWarm, roughness: 0.65 });
+box(carton, 'Pulp tray', [0.84, 0.04, 0.24], [0, 0.02, 0], pulp, 0.02);
+for (const z of [-0.116, 0.116]) box(carton, 'Long rim', [0.84, 0.04, 0.012], [0, 0.052, z], pulp, 0.005);
+for (const x of [-0.414, 0.414]) box(carton, 'End rim', [0.012, 0.04, 0.24], [x, 0.052, 0], pulp, 0.005);
+for (let i = 0; i < 12; i++) {
+  const x = (i % 6 - 2.5) * 0.133;
+  const z = i < 6 ? -0.056 : 0.056;
+  const cup = new Mesh(new TorusGeometry(0.047, 0.006, 6, 16), pulp);
+  cup.name = `Cup-${i}`; cup.rotation.x = Math.PI / 2; cup.position.set(x, 0.049, z); carton.add(cup);
+  const egg = new Mesh(new SphereGeometry(1, 16, 12), shell);
+  egg.name = `Egg-${i}`; egg.scale.set(0.047, 0.065, 0.044); egg.position.set(x, 0.089, z); carton.add(egg);
+}
+await fs.writeFile(new URL('../public/kitchen/models/egg-carton.glb', import.meta.url), Buffer.from(await new GLTFExporter().parseAsync(carton, { binary: true })));

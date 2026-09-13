@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fridgePage, kitchenModelFor } from './kitchenSceneLayout';
+import { eggVisibleCount, fridgePage, kitchenModelFor } from './kitchenSceneLayout';
 import type { KitchenLot } from './kitchenDb';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -10,6 +10,19 @@ const lot = (index: number, extra: Partial<KitchenLot> = {}): KitchenLot => ({
 });
 
 describe('fridge inventory projection', () => {
+  it('reserves a whole rack for a twelve-egg carton and pages adjacent bottles', () => {
+    const egg = lot(0, { unit: 'piece', quantity: 5, fridgePlacement: 'door-middle' });
+    const food = { id: egg.foodId, name: '鸡蛋', normalizedName: '鸡蛋', defaultUnit: 'piece' as const, createdAt: 0, updatedAt: 0 };
+    const lots = [egg, lot(1, { fridgePlacement: 'door-middle' })];
+    const first = fridgePage(lots, [food], 0);
+    expect(first.pageCount).toBe(2);
+    expect(first.entries).toHaveLength(1);
+    expect(first.entries[0].position).toEqual([0.62, 0.954, -0.18]);
+    expect(fridgePage(lots, [food], 1).entries[0].lot.id).toBe('lot-1');
+    expect(eggVisibleCount(egg)).toBe(5);
+    expect(eggVisibleCount({ ...egg, quantity: 20 })).toBe(12);
+    expect(eggVisibleCount({ ...egg, quantity: 1, unit: 'box' })).toBe(12);
+  });
   it('assigns non-overlapping local door slots and pages overflow without losing lots', () => {
     const lots = Array.from({ length: 6 }, (_, i) => lot(i, { fridgePlacement: i < 3 ? 'door-upper' : 'door-lower' }));
     lots.push(lot(8));
@@ -21,7 +34,7 @@ describe('fridge inventory projection', () => {
     const entries = [...first.entries, ...second.entries];
     expect(new Set(entries.map(entry => entry.lot.id)).size).toBe(7);
     expect(new Set(first.entries.map(entry => `${entry.placement}:${entry.position.join(',')}`)).size).toBe(5);
-    expect(first.entries.find(entry => entry.placement === 'door-upper')?.position).toEqual([0.38, 0.954, -0.105]);
+    expect(first.entries.find(entry => entry.placement === 'door-upper')?.position).toEqual([0.38, 1.414, -0.18]);
     expect(first.entries.find(entry => entry.placement === 'door-lower')?.position[1]).toBe(0.434);
   });
   it('pages twenty lots without dropping or duplicating inventory', () => {
@@ -53,7 +66,7 @@ describe('fridge inventory projection', () => {
     expect(fridgePage(lots, [], 1, 'freezer').entries).toHaveLength(1);
   });
   it('maps display models conservatively and falls back for unknown food', () => {
-    expect(kitchenModelFor('鸡蛋')).toBe('egg');
+    expect(kitchenModelFor('鸡蛋')).toBe('egg-carton');
     expect(kitchenModelFor('全脂牛奶')).toBe('carton');
     expect(kitchenModelFor('牛肉')).toBe('meat-raw');
     expect(kitchenModelFor('生日蛋糕')).toBe('bag');
@@ -70,7 +83,7 @@ describe('shipped kitchen model contract', () => {
     return JSON.parse(bytes.toString('utf8', 20, 20 + bytes.readUInt32LE(12)));
   };
   it('ships all external image dependencies beside the GLBs', () => {
-    for (const name of ['egg', 'carton', 'meat-raw', 'bag', 'fridge']) {
+    for (const name of ['egg-carton', 'carton', 'meat-raw', 'bag', 'fridge']) {
       const model = readModel(name);
       expect(model.meshes.length).toBeGreaterThan(0);
       for (const image of model.images ?? []) {
@@ -92,5 +105,11 @@ describe('shipped kitchen model contract', () => {
       expect(image.mimeType).toBe('image/png');
       expect(model.bufferViews[image.bufferView].byteLength).toBeGreaterThan(0);
     }
+  });
+  it('ships twelve separately hideable eggs and three door-bin bases', () => {
+    const carton = readModel('egg-carton');
+    expect(carton.nodes.filter((node: { name: string }) => /^Egg-\d+$/.test(node.name))).toHaveLength(12);
+    expect(carton.nodes.filter((node: { name: string }) => /^Cup-\d+$/.test(node.name))).toHaveLength(12);
+    expect(readModel('fridge').nodes.filter((node: { name: string }) => node.name === 'Door bin base')).toHaveLength(3);
   });
 });

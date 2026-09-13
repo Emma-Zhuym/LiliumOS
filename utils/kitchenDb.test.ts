@@ -18,6 +18,8 @@ describe('KitchenDB inventory ledger', () => {
     const { lot } = await KitchenDB.addLot({ name: '牛奶', quantity: 2, unit: 'large_bottle', storageZone: 'fridge', trackingMode: 'divisible' });
     await KitchenDB.setPortionRemaining({ lotId: lot.id, fraction: 0.7 });
     const eventCount = (await KitchenDB.getEvents()).length;
+    await KitchenDB.moveLot(lot.id, 'door-middle');
+    expect((await KitchenDB.getLots())[0].fridgePlacement).toBe('door-middle');
     await KitchenDB.moveLot(lot.id, 'door-upper');
     expect((await KitchenDB.getLots())[0]).toMatchObject({ quantity: 2, openContainerRemaining: 0.7, storageZone: 'fridge', fridgePlacement: 'door-upper' });
     expect(await KitchenDB.getEvents()).toHaveLength(eventCount);

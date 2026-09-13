@@ -4,7 +4,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { F, HUE, R, S, SP } from '../../utils/clayTokens';
 import type { KitchenFood, KitchenLot, KitchenFridgePlacement } from '../../utils/kitchenDb';
-import { fridgePage } from '../../utils/kitchenSceneLayout';
+import { eggVisibleCount, fridgePage } from '../../utils/kitchenSceneLayout';
 
 interface Props {
   lots: KitchenLot[];
@@ -132,7 +132,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
       }
       renderer.render(scene, camera);
       setMarkers(foodSlots.map(slot => {
-        const point = slot.object.localToWorld(new THREE.Vector3(0, 0.29, 0)).project(camera);
+        const point = slot.object.localToWorld(new THREE.Vector3(0, slot.object.userData.markerHeight, 0)).project(camera);
         return { lotId: slot.id, x: (point.x + 1) * element.clientWidth / 2, y: (1 - point.y) * element.clientHeight / 2 };
       }));
       if ((door && door.rotation.y !== targetAngle) || (freezerDoor && freezerDoor.rotation.y !== freezerAngle)
@@ -219,7 +219,10 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
           object = result.value;
           const bounds = new THREE.Box3().setFromObject(object);
           const size = bounds.getSize(new THREE.Vector3());
-          const scale = Math.min(0.27 / size.x, 0.31 / size.y, (entry.placement === 'shelf' ? 0.3 : 0.12) / size.z);
+          const scale = entry.model === 'egg-carton' ? 1 : Math.min(0.27 / size.x, (entry.placement === 'door-upper' ? 0.24 : 0.31) / size.y, (entry.placement === 'shelf' ? 0.3 : 0.24) / size.z);
+          if (entry.model === 'egg-carton') object.traverse(node => {
+            if (/^Egg-\d+$/.test(node.name)) node.visible = Number(node.name.slice(4)) < eggVisibleCount(entry.lot);
+          });
           object.scale.multiplyScalar(scale);
           const center = bounds.getCenter(new THREE.Vector3());
           object.position.set(-center.x * scale, -bounds.min.y * scale, -center.z * scale);
@@ -233,6 +236,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
         slot.userData.lotId = entry.lot.id;
         slot.userData.zone = entry.lot.storageZone;
         slot.position.set(...entry.position);
+        slot.userData.markerHeight = entry.model === 'egg-carton' ? 0.19 : 0.29;
         slot.add(object);
         if (entry.placement !== 'shelf') door!.add(slot);
         else scene.add(slot);
@@ -304,8 +308,8 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
         <button type="button" style={{ ...buttonStyle, marginLeft: SP[2] }} onClick={() => onOpenLot(selected.lot.id)}>查看详情</button>
         {selected.lot.storageZone === 'fridge' && <>
           <p style={{ fontSize: 12, marginTop: SP[2], marginBottom: SP[1], color: F.textSecondary }}>放到哪里？</p>
-          <div className="flex" style={{ gap: SP[1] }}>
-            {([{ value: 'shelf', label: '冷藏层板' }, { value: 'door-upper', label: '门内上层' }, { value: 'door-lower', label: '门内下层' }] as const).map(option =>
+          <div className="grid grid-cols-2" style={{ gap: SP[1] }}>
+            {([{ value: 'shelf', label: '冷藏层板' }, { value: 'door-upper', label: '门内上层' }, { value: 'door-middle', label: '门内中层' }, { value: 'door-lower', label: '门内下层' }] as const).map(option =>
               <button type="button" key={option.value} disabled={busy || selected.placement === option.value}
                 className="flex-1 disabled:opacity-40" style={buttonStyle}
                 onClick={() => { void onMoveLot(selected.lot.id, option.value); }}>{option.label}</button>)}
@@ -316,7 +320,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
         {page.entries.map((entry, index) => <button key={entry.lot.id} type="button" style={buttonStyle}
           className="min-w-0 text-left" onClick={() => { setSelectedId(entry.lot.id); setDoorsOpen(value => ({ ...value, [entry.lot.storageZone]: true })); }}>
           <span className="block truncate">{index + 1}. {entry.name}</span>
-          <span style={{ color: F.textSecondary, fontSize: 11 }}>{entry.lot.storageZone === 'freezer' ? '冷冻层板' : entry.placement === 'shelf' ? '冷藏层板' : entry.placement === 'door-upper' ? '门内上层' : '门内下层'}</span>
+          <span style={{ color: F.textSecondary, fontSize: 11 }}>{entry.lot.storageZone === 'freezer' ? '冷冻层板' : entry.placement === 'shelf' ? '冷藏层板' : entry.placement === 'door-upper' ? '门内上层' : entry.placement === 'door-middle' ? '门内中层' : '门内下层'}</span>
         </button>)}
       </div>
       {page.pageCount > 1 && <div className="flex items-center justify-between" style={{ marginTop: SP[2] }}>

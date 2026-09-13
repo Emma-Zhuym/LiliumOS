@@ -19,7 +19,7 @@ export type KitchenUnit =
 export type KitchenStorageZone = 'staging' | 'fridge' | 'freezer' | 'pantry';
 export type KitchenEventType = 'ADD' | 'CONSUME' | 'DISCARD' | 'ADJUST' | 'UNDO';
 export type KitchenTrackingMode = 'count' | 'divisible';
-export type KitchenFridgePlacement = 'shelf' | 'door-upper' | 'door-lower';
+export type KitchenFridgePlacement = 'shelf' | 'door-upper' | 'door-middle' | 'door-lower';
 
 export interface KitchenFood {
   id: string;
@@ -532,7 +532,7 @@ async function discardCurrentContainer(input: Omit<ChangeKitchenPortionInput, 'f
 }
 
 async function moveLot(lotId: string, placement: KitchenFridgePlacement): Promise<void> {
-  if (!['shelf', 'door-upper', 'door-lower'].includes(placement)) throw new Error('请选择有效的摆放位置');
+  if (!['shelf', 'door-upper', 'door-middle', 'door-lower'].includes(placement)) throw new Error('请选择有效的摆放位置');
   const db = await openKitchenDB();
   try {
     const transaction = db.transaction(STORE_LOTS, 'readwrite');
