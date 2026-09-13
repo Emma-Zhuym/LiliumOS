@@ -3752,7 +3752,7 @@ const Chat: React.FC = () => {
                 displayName={contactRemark}
                 extraAction={{
                     label: '聊天设置',
-                    style: { width: 44, height: 44, borderRadius: R.pill, background: F.surface, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', color: F.textSecondary },
+                    style: { width: 44, height: 44, background: 'transparent', border: 'none', boxShadow: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', color: F.textSecondary }, // [EM: chat-settings-dots-only] Emma: only dots, retain touch target.
                     icon: <DotsThree className="h-5 w-5" weight="bold" />,
                     onClick: () => { setShowPanel('none'); setChatSettingsOpen(true); },
                 }}
