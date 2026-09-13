@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowCounterClockwise,
   CaretLeft,
@@ -35,6 +35,7 @@ import {
 } from '../utils/kitchenQuantity';
 
 const KITCHEN = HUE.green;
+const KitchenFridgeScene = lazy(() => import('../components/kitchen/KitchenFridgeScene'));
 
 const UNIT_LABELS: Record<KitchenUnit, string> = {
   piece: '个',
@@ -221,6 +222,7 @@ const KitchenApp: React.FC = () => {
   const [zoneFilter, setZoneFilter] = useState<KitchenStorageZone | 'all'>('all');
   const [expandedLotId, setExpandedLotId] = useState<string | null>(null);
   const [detailLotId, setDetailLotId] = useState<string | null>(null);
+  const [showFridge, setShowFridge] = useState(false);
   const busyRef = useRef(false);
   const [busy, setBusy] = useState(false);
 
@@ -423,6 +425,7 @@ const KitchenApp: React.FC = () => {
         editableUnits={STORAGE_UNIT_OPTIONS}
         onBack={() => { closeEditors(); setDetailLotId(null); }}
         onSave={input => { void saveLotDetails(input); }}
+        onFinish={() => { void finishLot(detailLot); }}
       />
     );
   }
@@ -452,6 +455,20 @@ const KitchenApp: React.FC = () => {
         className="flex-1 min-h-0 overflow-y-auto"
         style={{ padding: `${SP[1]}px ${SP[4]}px calc(var(--safe-bottom) + ${SP[5]}px)` }}
       >
+        <div role="group" aria-label="厨房视图" className="flex"
+          style={{ gap: SP[0], padding: SP[0], marginBottom: SP[3], borderRadius: R.large, background: F.surfaceSunken, boxShadow: S.sunken }}>
+          {([{ value: false, label: '食材列表' }, { value: true, label: '看看冰箱' }]).map(option => (
+            <button key={option.label} type="button" aria-pressed={showFridge === option.value}
+              onClick={() => setShowFridge(option.value)} className="flex-1"
+              style={{ minHeight: 44, borderRadius: R.medium, fontSize: 13, fontWeight: 600,
+                background: showFridge === option.value ? F.surfaceRaised : 'transparent',
+                boxShadow: showFridge === option.value ? S.raisedSoft : undefined,
+                color: showFridge === option.value ? KITCHEN.ink : F.textSecondary }}>{option.label}</button>
+          ))}
+        </div>
+        {showFridge && !loading && <Suspense fallback={<p role="status">正在打开冰箱视图…</p>}>
+          <KitchenFridgeScene lots={lots} foods={foods} onOpenLot={id => { closeEditors(); setDetailLotId(id); }} />
+        </Suspense>}
         {showAdd && (
           <section
             style={{

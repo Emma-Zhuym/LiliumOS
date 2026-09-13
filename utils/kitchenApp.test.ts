@@ -6,6 +6,11 @@ import KitchenApp from '../apps/KitchenApp';
 import { KitchenDB } from './kitchenDb';
 
 vi.mock('../context/OSContext', () => ({ useOS: () => ({ closeApp: vi.fn() }) }));
+vi.mock('../components/kitchen/KitchenFridgeScene', () => ({
+  default: ({ lots, onOpenLot }: { lots: import('./kitchenDb').KitchenLot[]; onOpenLot: (id: string) => void }) =>
+    React.createElement('div', { 'data-testid': 'scene-lots' }, lots.filter(lot => lot.quantity > 0 && lot.storageZone === 'fridge')
+      .map(lot => React.createElement('button', { key: lot.id, onClick: () => onOpenLot(lot.id) }, `模型 ${lot.id}`))),
+}));
 
 let container: HTMLDivElement;
 let root: Root;
@@ -58,6 +63,28 @@ afterEach(async () => {
 });
 
 describe('compact kitchen inventory', () => {
+  it('opens the same lot from the scene, clears it in details and restores it with undo', async () => {
+    await act(async () => button('看看冰箱').click());
+    const scene = () => container.querySelector('[data-testid="scene-lots"]')!;
+    expect(scene().querySelectorAll('button')).toHaveLength(10);
+    const target = scene().querySelector('button')!;
+    const targetLabel = target.textContent!;
+    await act(async () => target.click());
+    expect(container.textContent).toContain('食材详情');
+    await act(async () => {
+      button('这条库存已用完').click();
+      await vi.waitFor(async () => expect((await KitchenDB.getLots()).filter(lot => lot.quantity > 0)).toHaveLength(19));
+      await KitchenDB.getEvents();
+    });
+    expect(container.textContent).toContain('剩 0 大瓶');
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="返回食材列表"]')!.click());
+    expect(scene().querySelectorAll('button')).toHaveLength(9);
+    expect(scene().textContent).not.toContain(targetLabel);
+    await waitForRows(20, () => button('撤销最近操作').click());
+    expect(scene().querySelectorAll('button')).toHaveLength(10);
+    expect(scene().textContent).toContain(targetLabel);
+  });
+
   it('keeps 20 foods collapsed, opens only one, and combines search with location', async () => {
     expect(rows()).toHaveLength(20);
     expect(button('吃了一些')).toBeUndefined();

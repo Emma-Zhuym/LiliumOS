@@ -88,6 +88,7 @@ interface KitchenLotDetailProps {
   zoneLabels: Record<KitchenStorageZone, string>;
   editableUnits: KitchenUnit[];
   onBack: () => void;
+  onFinish?: () => void;
   onSave: (input: UpdateKitchenLotDetailsInput) => void;
 }
 
@@ -102,6 +103,7 @@ const KitchenLotDetail: React.FC<KitchenLotDetailProps> = ({
   zoneLabels,
   editableUnits,
   onBack,
+  onFinish,
   onSave,
 }) => {
   const [name, setName] = useState(food.name);
@@ -252,6 +254,12 @@ const KitchenLotDetail: React.FC<KitchenLotDetailProps> = ({
 
         <section style={{ marginTop: SP[5] }}>
           <h2 style={{ marginBottom: SP[2], fontSize: 18, lineHeight: '26px', fontWeight: 600 }}>当前库存</h2>
+          {onFinish && lot.quantity > 0 && <button type="button" onClick={onFinish} disabled={busy}
+            className="w-full disabled:opacity-50"
+            style={{ minHeight: 44, marginBottom: SP[2], borderRadius: R.button, background: F.surfaceRaised,
+              color: KITCHEN.ink, boxShadow: S.raisedSoft, fontSize: 13, fontWeight: 600 }}>
+            这条库存已用完
+          </button>}
           <div style={{ padding: SP[3], borderRadius: R.bigCard, background: F.surfaceSunken, boxShadow: S.sunken }}>
             <div style={{ color: F.textPrimary, fontSize: 15, lineHeight: '23px', fontWeight: 600 }}>{stockSummary}</div>
             <div style={{ marginTop: SP[1], color: F.textSecondary, fontSize: 13, lineHeight: '18px' }}>
