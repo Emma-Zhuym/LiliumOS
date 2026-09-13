@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { eggVisibleCount, fridgePage, kitchenModelFor } from './kitchenSceneLayout';
+import { eggVisibleCount, fridgeLayout, kitchenModelFor } from './kitchenSceneLayout';
 import type { KitchenLot } from './kitchenDb';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -10,60 +10,51 @@ const lot = (index: number, extra: Partial<KitchenLot> = {}): KitchenLot => ({
 });
 
 describe('fridge inventory projection', () => {
-  it('reserves a whole rack for a twelve-egg carton and pages adjacent bottles', () => {
+  it('keeps eggs and bottles together on the chosen rack without overlap', () => {
     const egg = lot(0, { unit: 'piece', quantity: 5, fridgePlacement: 'door-middle' });
     const food = { id: egg.foodId, name: '鸡蛋', normalizedName: '鸡蛋', defaultUnit: 'piece' as const, createdAt: 0, updatedAt: 0 };
-    const lots = [egg, lot(1, { fridgePlacement: 'door-middle' })];
-    const first = fridgePage(lots, [food], 0);
-    expect(first.pageCount).toBe(2);
-    expect(first.entries).toHaveLength(1);
-    expect(first.entries[0].position).toEqual([0.62, 0.954, -0.18]);
-    expect(fridgePage(lots, [food], 1).entries[0].lot.id).toBe('lot-1');
+    const result = fridgeLayout([egg, lot(1, { fridgePlacement: 'door-middle' })], [food]);
+    expect(result.entries).toHaveLength(2);
+    const [a, b] = result.entries;
+    expect(a.position[1]).toBe(0.954);
+    expect(a.position[0] + a.width * a.scale / 2).toBeCloseTo(b.position[0] - b.width * b.scale / 2);
     expect(eggVisibleCount(egg)).toBe(5);
     expect(eggVisibleCount({ ...egg, quantity: 20 })).toBe(12);
     expect(eggVisibleCount({ ...egg, quantity: 1, unit: 'box' })).toBe(12);
   });
-  it('assigns non-overlapping local door slots and pages overflow without losing lots', () => {
-    const lots = Array.from({ length: 6 }, (_, i) => lot(i, { fridgePlacement: i < 3 ? 'door-upper' : 'door-lower' }));
-    lots.push(lot(8));
-    const first = fridgePage(lots, [], 0);
-    const second = fridgePage(lots, [], 1);
-    expect(first.pageCount).toBe(2);
-    expect(first.entries).toHaveLength(5);
-    expect(second.entries).toHaveLength(2);
-    const entries = [...first.entries, ...second.entries];
-    expect(new Set(entries.map(entry => entry.lot.id)).size).toBe(7);
-    expect(new Set(first.entries.map(entry => `${entry.placement}:${entry.position.join(',')}`)).size).toBe(5);
-    expect(first.entries.find(entry => entry.placement === 'door-upper')?.position).toEqual([0.38, 1.414, -0.18]);
-    expect(first.entries.find(entry => entry.placement === 'door-lower')?.position[1]).toBe(0.434);
-  });
-  it('pages twenty lots without dropping or duplicating inventory', () => {
+  it('fits all twenty lots on real shelves without dropping, duplicating or overlapping them', () => {
     const lots = Array.from({ length: 20 }, (_, i) => lot(i));
-    const pages = [0, 1, 2].map(index => fridgePage(lots, [], index));
-    expect(pages.map(page => page.entries.length)).toEqual([9, 9, 2]);
-    expect(new Set(pages.flatMap(page => page.entries.map(entry => entry.lot.id))).size).toBe(20);
-    expect(pages[0].entries.map(entry => entry.position.join(','))).toHaveLength(9);
-    expect(new Set(pages[0].entries.map(entry => entry.position.join(','))).size).toBe(9);
+    const { entries } = fridgeLayout(lots, []);
+    expect(entries).toHaveLength(20);
+    expect(new Set(entries.map(entry => entry.lot.id)).size).toBe(20);
+    for (const height of [1.3, 0.93, 0.56]) {
+      const row = entries.filter(entry => entry.position[1] === height);
+      row.forEach((entry, i) => {
+        const left = entry.position[0] - entry.width * entry.scale / 2;
+        const right = entry.position[0] + entry.width * entry.scale / 2;
+        expect(left).toBeGreaterThanOrEqual(-0.541);
+        expect(right).toBeLessThanOrEqual(0.541);
+        if (i) expect(left).toBeCloseTo(row[i-1].position[0] + row[i-1].width * row[i-1].scale / 2);
+      });
+    }
+    expect(lots.every(item => item.quantity === 1)).toBe(true);
   });
-  it('excludes empty and non-fridge lots, clamps after clearing the last page and restores after undo', () => {
-    const lots = Array.from({ length: 10 }, (_, i) => lot(i));
-    const changed = lots.map((item, i) => i === 9 ? { ...item, quantity: 0 } : item);
-    changed.push(lot(11, { storageZone: 'pantry' }), lot(12, { storageZone: 'freezer' }), lot(13, { storageZone: 'staging' }));
-    expect(fridgePage(changed, [], 1)).toMatchObject({ total: 9, page: 0, pageCount: 1 });
-    expect(fridgePage(lots, [], 1).entries[0].lot.id).toBe('lot-9');
-    expect(fridgePage([], [], 3)).toMatchObject({ total: 0, page: 0, pageCount: 1, entries: [] });
+  it('keeps every door-rack lot and frozen lot visible', () => {
+    for (const placement of ['door-upper', 'door-middle', 'door-lower'] as const) {
+      const entries = fridgeLayout(Array.from({ length: 20 }, (_, i) => lot(i, { fridgePlacement: placement })), []).entries;
+      expect(entries).toHaveLength(20);
+      expect(entries.every(entry => entry.placement === placement && entry.scale > 0)).toBe(true);
+    }
+    const frozen = fridgeLayout(Array.from({ length: 10 }, (_, i) => lot(i, { storageZone: 'freezer' })), [], 'freezer');
+    expect(frozen.entries).toHaveLength(10);
+    expect(frozen.entries.every(entry => entry.position[1] === 1.8525)).toBe(true);
   });
-  it('keeps partly used packages visible without rounding away the stored remainder', () => {
-    const item = lot(1, { trackingMode: 'divisible', openContainerRemaining: 0.01 });
-    expect(fridgePage([item], [], 0).entries[0].lot).toEqual(item);
-  });
-  it('places only frozen inventory on the upper freezer shelf, three per page', () => {
-    const lots = [lot(0), ...Array.from({ length: 4 }, (_, i) => lot(i + 1, { storageZone: 'freezer' }))];
-    const first = fridgePage(lots, [], 0, 'freezer');
-    expect(first).toMatchObject({ total: 4, pageCount: 2 });
-    expect(first.entries).toHaveLength(3);
-    expect(first.entries.every(entry => entry.position[1] === 1.8525 && entry.lot.storageZone === 'freezer')).toBe(true);
-    expect(fridgePage(lots, [], 1, 'freezer').entries).toHaveLength(1);
+  it('excludes empty and other zones, and restores inventory after undo', () => {
+    const items = [lot(0, { quantity: 0 }), lot(1, { storageZone: 'pantry' }), lot(2, { storageZone: 'freezer' })];
+    expect(fridgeLayout(items, [])).toEqual({ entries: [], total: 0 });
+    expect(fridgeLayout([{ ...items[0], quantity: 1 }], []).entries).toHaveLength(1);
+    const partial = lot(3, { trackingMode: 'divisible', openContainerRemaining: 0.01 });
+    expect(fridgeLayout([partial], []).entries[0].lot).toEqual(partial);
   });
   it('maps display models conservatively and falls back for unknown food', () => {
     expect(kitchenModelFor('鸡蛋')).toBe('egg-carton');
