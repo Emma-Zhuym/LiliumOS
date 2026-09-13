@@ -104,7 +104,7 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - `components/chat/ChatHeaderShell.tsx` 里点击 ⚡ 数字展开详细面板，同时展示本轮实际召回的记忆简报（0 条也显示）
 
 ### 3. 写 Notion 快捷操作
-- `components/chat/ChatInputArea.tsx` 工具栏第二页的"写 Notion"按钮（NotePencil 图标，amber 色）
+- `components/chat/ChatInputArea.tsx` 工具栏第一页第八格的"写 Notion"按钮（NotePencil 图标，amber 色）
 - `apps/Chat.tsx` 里的 `handleNotionDiaryQuick` + action case `'notion-diary-quick'`
 - `utils/chatPrompts.ts` buildMessageHistory 里 `notion_diary_nudge` 特殊处理
   - 必须在 `m.type === 'interaction'` 判断**之前**检查 `m.metadata?.kind === 'notion_diary_nudge'`

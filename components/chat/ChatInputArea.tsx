@@ -1024,11 +1024,6 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                 <span className="text-xs font-bold">日程/情绪</span>
                             </button>
 
-
-                          </div>
-
-                          {/* [EM-START: chat-settings-toolbar] 常用工具收成两页，设置迁入独立页面 */}
-                          <div className={`p-6 grid grid-cols-4 gap-8 ${actionsPage === 1 ? '' : 'hidden'}`}>
                             {/* [EM-START: notion-diary-button] 写 Notion 日记 */}
                             <button onClick={() => onPanelAction('notion-diary-quick')} className={`flex flex-col items-center gap-2 tool-btn ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}>
                                 <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border ${isDiscordStyle ? 'bg-slate-800 text-amber-300 border-amber-400/20' : 'bg-amber-50 text-amber-500 border-amber-100'}`}>
@@ -1037,6 +1032,12 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                 <span className="text-xs font-bold">写 Notion</span>
                             </button>
                             {/* [EM-END: notion-diary-button] */}
+
+
+                          </div>
+
+                          {/* [EM-START: chat-settings-toolbar] 常用工具收成两页，设置迁入独立页面 */}
+                          <div className={`p-6 grid grid-cols-4 gap-8 ${actionsPage === 1 ? '' : 'hidden'}`}>
                             <button
                               onClick={() => onPanelAction('favorites')}
                               className={`flex flex-col items-center gap-2 tool-btn ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}
