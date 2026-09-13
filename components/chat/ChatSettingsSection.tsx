@@ -3,13 +3,15 @@ import React, { useId, useState } from 'react';
 import { CaretDown } from '@phosphor-icons/react';
 
 /** Compact counterpart of the Settings app's sections; each group starts collapsed. */
-export default function ChatSettingsSection({ title, summary, children }: {
+export default function ChatSettingsSection({ title, summary, children, standalone = false }: {
+    standalone?: boolean;
     title: string;
     summary: string;
     children: React.ReactNode;
 }) {
     const [open, setOpen] = useState(false);
     const contentId = useId();
+    if (standalone) return <div className="space-y-5">{children}</div>;
     return (
         <section className="overflow-hidden" style={{ borderRadius: R.smallCard, background: F.surface, boxShadow: S.raisedSoft }} data-chat-settings-section={title}>
             <button type="button" aria-expanded={open} aria-controls={contentId}

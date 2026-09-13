@@ -1,3 +1,8 @@
+// [EM-START: standalone-chat-settings]
+import ChatSettingsPage, { type ChatSettingsGroup } from '../components/chat/ChatSettingsPage';
+import { useContactRemark } from '../utils/contactRemarks';
+import { characterLaunch } from '../utils/characterLaunch';
+// [EM-END: standalone-chat-settings]
 import ChatHistoryCleanupModal from '../components/chat/ChatHistoryCleanupModal';
 import { AppID } from '../types';
 import React, { useState, useEffect, useRef, useLayoutEffect, useMemo, useCallback } from 'react';
@@ -14,7 +19,7 @@ import ChatFineTunePanel from '../components/chat/ChatFineTunePanel';
 import ChatSearch from '../components/chat/ChatSearch';
 import TokenImg from '../components/os/TokenImg';
 import { F, S, R } from '../utils/clayTokens';
-import { FadersHorizontal, MagnifyingGlass } from '@phosphor-icons/react';
+import { FadersHorizontal, DotsThree } from '@phosphor-icons/react';
 import { generateDailyScheduleForChar, isScheduleFeatureOn } from '../utils/scheduleGenerator';
 import { getDailyScheduleForChar } from '../utils/dailySchedule';
 import { useLocalDateKey } from '../hooks/useLocalDateKey';
@@ -109,7 +114,7 @@ type InstantToolUiStatus = {
 };
 
 const Chat: React.FC = () => {
-    const { activeApp, characters, activeCharacterId, setActiveCharacterId, updateCharacter, apiConfig, apiPresets, addApiPreset, closeApp, customThemes, removeCustomTheme, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar, setMessageSubView } = useOS(); // [EM: message-sub-view-destructure]
+    const { openApp, activeApp, characters, activeCharacterId, setActiveCharacterId, updateCharacter, apiConfig, apiPresets, addApiPreset, closeApp, customThemes, removeCustomTheme, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar, setMessageSubView } = useOS(); // [EM: message-sub-view-destructure]
     const isProactiveComposing = !!(activeCharacterId && proactiveComposingChars[activeCharacterId]);
     const localDateKey = useLocalDateKey();
 
@@ -152,6 +157,16 @@ const Chat: React.FC = () => {
     }, []);
     const [showPanel, setShowPanel] = useState<'none' | 'actions' | 'emojis' | 'chars'>('none');
     const [showChatSearch, setShowChatSearch] = useState(false);
+    // [EM-START: standalone-chat-settings]
+    const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
+    const [settingsGroup, setSettingsGroup] = useState<ChatSettingsGroup>('input');
+    const contactRemark = useContactRemark(activeCharacterId || '');
+    const openCharacterSettings = () => {
+        if (!activeCharacterId) return;
+        characterLaunch.request({ charId: activeCharacterId, returnToChat: true });
+        openApp(AppID.Character);
+    };
+    // [EM-END: standalone-chat-settings]
     const [memoryRepairOpen, setMemoryRepairOpen] = useState(false);
     const [favoritesOpen, setFavoritesOpen] = useState(false);
     const [userContentFavoriteIds, setUserContentFavoriteIds] = useState<Set<string>>(new Set());
@@ -1708,7 +1723,7 @@ const Chat: React.FC = () => {
             case 'transfer': setModalType('transfer'); break;
             case 'poke': handleSendText('[戳一戳]', 'interaction'); break;
             case 'archive': setModalType('archive-settings'); break;
-            case 'settings': setModalType('chat-settings'); break;
+            case 'settings': setShowPanel('none'); setChatSettingsOpen(true); break; // [EM: standalone-chat-settings]
             case 'chrome-css': setModalType('chrome-css'); break;
             case 'chrome-sound': setModalType('chrome-sound'); break;
             case 'fine-tune': setShowPanel('none'); setFineTuneOpen(true); setFineTunePanelOpen(true); break;
@@ -1757,6 +1772,7 @@ const Chat: React.FC = () => {
                 if (!(char as any).htmlModeEnabled) {
                     updateCharacter(char.id, { htmlModeEnabled: true } as any);
                 }
+                setSettingsGroup('extensions');
                 setModalType('chat-settings');
                 break;
             }
@@ -2359,8 +2375,20 @@ const Chat: React.FC = () => {
     };
 
     const saveSettings = async () => {
-        saveChatInputPreferences(settingsInputPreferences);
-        setInputPreferences(settingsInputPreferences);
+        // [EM-START: chat-settings-scoped-save] A subpage only saves its own pending fields.
+        if (settingsGroup !== 'memory') {
+            if (settingsGroup === 'input') {
+                saveChatInputPreferences(settingsInputPreferences);
+                setInputPreferences(settingsInputPreferences);
+            } else if (settingsGroup === 'display') {
+                updateCharacter(char.id, { hideSystemLogs: settingsHideSysLogs });
+            } else if (settingsGroup === 'extensions') {
+                updateCharacter(char.id, { htmlModeCustomPrompt: settingsHtmlModeCustomPrompt });
+            }
+            setModalType('none');
+            return;
+        }
+        // [EM-END: chat-settings-scoped-save]
         const canUseAdaptiveRange = !!(char.autoArchiveEnabled || char.contextFollowsMemoryPalaceHwm);
         const nextMode: ContextRangeMode = canUseAdaptiveRange
             ? settingsContextRangeMode
@@ -2387,8 +2415,6 @@ const Chat: React.FC = () => {
             contextRangePolicyVersion: CONTEXT_RANGE_POLICY_VERSION,
             contextFollowsMemoryPalaceHwm: nextFollowsOneShotWaterline,
             contextUserStartMessageId: nextUserStart,
-            hideSystemLogs: settingsHideSysLogs,
-            htmlModeCustomPrompt: settingsHtmlModeCustomPrompt,
         } as any);
         setModalType('none');
         addToast('设置已保存', 'success');
@@ -3272,7 +3298,7 @@ const Chat: React.FC = () => {
         blocked: isInputFocused || isInputAuxiliaryPanelOpen || !!input.trim() || showPanel !== 'none' || modalType !== 'none'
             || selectionMode || isSummarizing || memoryRepairOpen || favoritesOpen
             || fineTunePanelOpen || showProactiveModal || showThinkingChainModal
-            || mcdAppOpen || luckinAppOpen || showForwardModal || showChatSearch || charStatusInfo.status === 'offline',
+            || mcdAppOpen || luckinAppOpen || showForwardModal || showChatSearch || chatSettingsOpen || charStatusInfo.status === 'offline',
         generating: isTyping || instantChatPending || isProactiveComposing,
         onGenerate: handleManualTrigger,
     });
@@ -3352,24 +3378,25 @@ const Chat: React.FC = () => {
     const chatAvatarRadiusClass = osTheme.chatAvatarShape === 'square' ? 'rounded-sm' : osTheme.chatAvatarShape === 'rounded' ? 'rounded-xl' : 'rounded-full';
     const chatPendingAvatarClass = `${chatAvatarSizeClass} ${chatAvatarRadiusClass} object-cover`;
 
-    if (showChatSearch) {
-        return (
-            <ChatSearch
-                character={char}
-                onClose={() => setShowChatSearch(false)}
-                onOpenMessage={(message) => {
-                    setShowChatSearch(false);
-                    window.setTimeout(() => void handleJumpToMessageInChat(message.id), 0);
-                }}
-            />
-        );
-    }
 
     return (
         <div
             className={`sully-chat-root ${finalRootClass}`}
             style={finalRootStyle}
         >
+             {/* [EM-START: standalone-chat-settings] Keep the conversation mounted behind settings/search. */}
+             {chatSettingsOpen && <ChatSettingsPage key={char.id} character={char}
+                 onClose={() => setChatSettingsOpen(false)} onCharacter={openCharacterSettings}
+                 onSearch={() => setShowChatSearch(true)}
+                 onGroup={group => { setSettingsGroup(group); setModalType('chat-settings'); }}
+                 onAction={handlePanelAction} onError={() => addToast('备注保存失败，请重试', 'error')}
+                 mcdActivated={mcdActivated} mcdConfigured={mcdConfiguredFlag} />}
+             {showChatSearch && <div className="absolute inset-0 z-[90]" style={{ background: F.appBg }}><ChatSearch character={char}
+                 onClose={() => setShowChatSearch(false)} onOpenMessage={message => {
+                     setShowChatSearch(false); setChatSettingsOpen(false);
+                     window.setTimeout(() => void handleJumpToMessageInChat(message.id), 0);
+                 }} /></div>}
+             {/* [EM-END: standalone-chat-settings] */}
              {/* 聊天细节微调（外观 App 可视化设置生成）：排在用户自定义 CSS 之前——
                  同为 !important 时后写的胜，手写美化代码永远可覆盖可视化设置。 */}
              {chatFineTuneCss && <style>{chatFineTuneCss}</style>}
@@ -3582,7 +3609,7 @@ const Chat: React.FC = () => {
                  addToast('选中的原文已清理，记忆与收藏保留', 'success');
              }} />}
              <ChatModals
-                modalType={modalType} setModalType={setModalType}
+                modalType={modalType} setModalType={setModalType} settingsGroup={settingsGroup}
                 transferAmt={transferAmt} setTransferAmt={setTransferAmt}
                 transferNote={transferNote} setTransferNote={setTransferNote}
                 emojiImportText={emojiImportText} setEmojiImportText={setEmojiImportText}
@@ -3720,11 +3747,14 @@ const Chat: React.FC = () => {
                 onClose={closeApp}
                 onTriggerAI={handleManualTrigger}
                 hideTrigger={inputPreferences.sendButtonGenerates}
-                onShowCharsPanel={() => setShowPanel('chars')}
+                onShowCharsPanel={openCharacterSettings}
+                onAvatarClick={openCharacterSettings}
+                displayName={contactRemark}
                 extraAction={{
-                    label: '搜索聊天记录',
-                    icon: <MagnifyingGlass className="h-5 w-5" weight="bold" />,
-                    onClick: () => setShowChatSearch(true),
+                    label: '聊天设置',
+                    style: { width: 44, height: 44, borderRadius: R.pill, background: F.surface, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', color: F.textSecondary },
+                    icon: <DotsThree className="h-5 w-5" weight="bold" />,
+                    onClick: () => { setShowPanel('none'); setChatSettingsOpen(true); },
                 }}
                 onDeleteBuff={(buffId) => {
                     const currentBuffs = char.activeBuffs || [];

@@ -1,6 +1,7 @@
 export interface CharacterLaunchIntent {
     charId: string;
     openChibiStudio?: boolean;
+    returnToChat?: boolean; // [EM: chat-avatar-settings]
 }
 
 let pending: CharacterLaunchIntent | null = null;

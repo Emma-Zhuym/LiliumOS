@@ -7,6 +7,8 @@
 
 ### P0：文档与上游同步安全
 
+- 2026-09-12 已实现独立聊天设置、两页常用底栏和私人备注，位于验收分支，待 Emma 体验；见 `progress.md` 与 `docs/design/chat-settings-proposal.md`。
+
 - 2026-09-12 选择性同步与独立异格已完成验收分支实现，待体验/发布批准；见 `docs/upstream-sync-2026-09-12.md`。main 尚未推进。
 
 - 上游同步严格执行 `.claude/CLAUDE.md` / `AGENTS.md` 的审批闸门：先只读调研和汇报，再由 Emma 选择，获批后才建验收分支。

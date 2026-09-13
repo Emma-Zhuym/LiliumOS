@@ -1,3 +1,4 @@
+import { ChatSettingsFrame, CHAT_SETTINGS_TITLES, type ChatSettingsGroup } from './ChatSettingsPage';
 import ContextSuiteSettings from './ContextSuiteSettings';
 import ChatSettingsSection from './ChatSettingsSection';
 import ChatInputSettings from './ChatInputSettings';
@@ -18,6 +19,7 @@ import { PHOTO_STYLE_PRESETS } from '../../utils/photoStylePresets';
 import { chatMessageFuzzyMatchesKeyword } from '../../utils/chatMessageSearch';
 
 interface ChatModalsProps {
+    settingsGroup?: ChatSettingsGroup; // [EM: standalone-chat-settings]
     modalType: string;
     setModalType: (v: any) => void;
     // Data Props
@@ -250,7 +252,7 @@ const TranslationLanguagePicker: React.FC<TranslationLanguagePickerProps> = ({
 };
 
 const ChatModals: React.FC<ChatModalsProps> = ({
-    modalType, setModalType,
+    modalType, setModalType, settingsGroup,
     transferAmt, setTransferAmt,
     transferNote, setTransferNote,
     emojiImportText, setEmojiImportText,
@@ -432,15 +434,15 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                 </div>
             </Modal>
 
-            <Modal 
-                isOpen={modalType === 'chat-settings'} title="聊天设置" onClose={() => setModalType('none')}
-                footer={<button onClick={onSaveSettings} className="w-full py-3 bg-primary text-white font-bold rounded-2xl">保存设置</button>}
+            <ChatSettingsFrame
+                isOpen={modalType === 'chat-settings'} title={settingsGroup ? CHAT_SETTINGS_TITLES[settingsGroup] : "聊天设置"} onClose={() => setModalType('none')}
+                footer={<button onClick={onSaveSettings} className="w-full h-12 text-sm font-semibold" style={{ background: F.textPrimary, color: F.surface, borderRadius: R.button }}>保存设置</button>}
             >
                 <div className="space-y-6">
-                     <ChatSettingsSection title="输入与回复" summary="发送、回车、自动回复和表情联想">
+                     {(!settingsGroup || settingsGroup === 'input') && <ChatSettingsSection standalone={!!settingsGroup} title="输入与回复" summary="发送、回车、自动回复和表情联想">
                      <ChatInputSettings value={settingsInputPreferences} onChange={setSettingsInputPreferences} />
-                     </ChatSettingsSection>
-                     <ChatSettingsSection title="聊天外观" summary="背景和系统消息显示">
+                     </ChatSettingsSection>}
+                     {(!settingsGroup || settingsGroup === 'background') && <ChatSettingsSection standalone={!!settingsGroup} title="聊天外观" summary="背景和系统消息显示">
                      <div>
                          <label className="text-xs font-bold text-slate-400 uppercase mb-2 block">聊天背景</label>
                          <div onClick={() => bgInputRef.current?.click()} className="h-24 bg-slate-100 rounded-xl border-2 border-dashed border-slate-200 flex items-center justify-center cursor-pointer hover:border-primary/50 overflow-hidden relative">
@@ -450,7 +452,9 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                          <input type="file" ref={bgInputRef} className="hidden" accept="image/*" onChange={(e) => e.target.files?.[0] && onBgUpload(e.target.files[0])} />
                          {activeCharacter.chatBackground && <button onClick={onRemoveBg} className="text-[10px] text-red-400 mt-1">移除背景</button>}
                      </div>
-                     <div className="pt-2 border-t border-slate-100">
+                     </ChatSettingsSection>}
+                     {(!settingsGroup || settingsGroup === 'display') && <ChatSettingsSection standalone={!!settingsGroup} title="系统消息显示" summary="系统日志显示偏好">
+                     <div>
                          <div className="flex justify-between items-center cursor-pointer" onClick={() => setSettingsHideSysLogs(!settingsHideSysLogs)}>
                              <label className="text-xs font-bold text-slate-400 uppercase pointer-events-none">隐藏系统日志</label>
                              <div className={`w-10 h-6 rounded-full p-1 transition-colors flex items-center ${settingsHideSysLogs ? 'bg-primary' : 'bg-slate-200'}`}>
@@ -462,8 +466,8 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                          </p>
                      </div>
 
-                     </ChatSettingsSection>
-                     <ChatSettingsSection title="上下文与记忆" summary="智能语境、原文范围与记忆整理">
+                     </ChatSettingsSection>}
+                     {(!settingsGroup || settingsGroup === 'memory') && <ChatSettingsSection standalone={!!settingsGroup} title="上下文与记忆" summary="智能语境、原文范围与记忆整理">
                      <ContextSuiteSettings />
                      <div>
                          {(activeCharacter.autoArchiveEnabled || activeCharacter.contextFollowsMemoryPalaceHwm) && settingsContextRangeMode === 'adaptive' ? (
@@ -538,8 +542,10 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                          )}
                      </div>
 
-                     </ChatSettingsSection>
-                     <ChatSettingsSection title="语言与语音" summary="翻译显示和语音条">
+
+                     <button type="button" onClick={() => setModalType('archive-settings')} className="w-full min-h-16 text-left text-sm">记忆归档设置</button>
+</ChatSettingsSection>}
+                     {(!settingsGroup || settingsGroup === 'voice') && <ChatSettingsSection standalone={!!settingsGroup} title="语言与语音" summary="翻译显示和语音条">
                      {/* Translation Settings */}
                      <div className="pt-2 border-t border-slate-100">
                          <div className="flex justify-between items-center cursor-pointer" onClick={onToggleTranslation}>
@@ -622,8 +628,8 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                          )}
                      </div>
 
-                     </ChatSettingsSection>
-                     <ChatSettingsSection title="扩展能力" summary="小红书、HTML 卡片和发照片风格">
+                     </ChatSettingsSection>}
+                     {(!settingsGroup || settingsGroup === 'extensions') && <ChatSettingsSection standalone={!!settingsGroup} title="扩展能力" summary="小红书、HTML 卡片和发照片风格">
                      {/* XHS Toggle */}
                      <div className="pt-2 border-t border-slate-100">
                          <div className="flex justify-between items-center cursor-pointer" onClick={onToggleXhs}>
@@ -676,8 +682,8 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                          <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">选择风格后，AI 发照片时会在描述末尾追加对应的画风 tag，影响当前生图 API 的生成效果。</p>
                      </div>
 
-                     </ChatSettingsSection>
-                     <ChatSettingsSection title="记录管理" summary="原文断点、归档和清理">
+                     </ChatSettingsSection>}
+                     {(!settingsGroup || settingsGroup === 'records') && <ChatSettingsSection standalone={!!settingsGroup} title="记录管理" summary="原文断点、归档和清理">
                      {/* 时间感知 / 自定义时区 / 线下时间感知 已统一迁移至「神经链接」角色设定页 */}
 
                      <div className="pt-2 border-t border-slate-100">
@@ -723,9 +729,9 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                      )}
 
                      {onOpenHistoryCleanup && <button type="button" onClick={onOpenHistoryCleanup} className="w-full px-4 text-sm font-semibold" style={{ minHeight: 44, background: F.surface, color: F.textPrimary, borderRadius: R.button, boxShadow: S.raisedSoft }}>按范围清理 / 保留最近 N 条</button>}
-                     </ChatSettingsSection>
+                     </ChatSettingsSection>}
                 </div>
-            </Modal>
+            </ChatSettingsFrame>
 
             <Modal
                 isOpen={modalType === 'memory-vectorize-confirm'}

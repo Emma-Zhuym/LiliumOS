@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { CaretLeft, ChatCircle } from '@phosphor-icons/react';
 import { useOS } from '../../context/OSContext';
+import { useContactRemark } from '../../utils/contactRemarks';
 import { DB } from '../../utils/db';
 import { CharacterProfile, DailySchedule } from '../../types';
 import { useCharStatus } from '../../hooks/useCharStatus';
@@ -19,6 +20,7 @@ const ContactRow: React.FC<{
   onClick: () => void;
 }> = ({ meta, unread, onClick }) => {
   const { char, preview } = meta;
+  const remark = useContactRemark(char.id); // [EM: private-contact-remark]
   const today = new Date().toISOString().split('T')[0];
   const [schedule, setSchedule] = useState<DailySchedule | null>(null);
 
@@ -57,7 +59,7 @@ const ContactRow: React.FC<{
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <div className="font-bold text-slate-800 truncate">{char.name}</div>
+        <div className="font-bold text-slate-800 truncate">{remark || char.name}</div>
         <div className="text-xs text-slate-500 truncate mt-0.5">{preview}</div>
       </div>
     </button>

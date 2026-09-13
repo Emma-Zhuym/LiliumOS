@@ -27,7 +27,7 @@ interface ChatHeaderShellProps {
     /** 覆盖状态区的 "Online" 文案（群聊传 "N 成员"）。不传 = 原行为 */
     statusText?: string;
     /** 可选的附加操作，群聊用来放置“记忆规则”帮助入口。 */
-    extraAction?: { label: string; icon: React.ReactNode; onClick: () => void };
+    extraAction?: { label: string; icon: React.ReactNode; onClick: () => void; style?: React.CSSProperties };
     /** 触发按钮图标：生成中想显示"停止"时传 'stop'。不传 = 原行为（闪电） */
     triggerIcon?: 'lightning' | 'stop';
     hideTrigger?: boolean;
@@ -44,6 +44,8 @@ interface ChatHeaderShellProps {
     onOpenContacts?: () => void;
     onTriggerAI: () => void;
     onShowCharsPanel: () => void;
+    onAvatarClick?: () => void; // [EM: chat-avatar-settings]
+    displayName?: string; // [EM: private-contact-remark]
     onDeleteBuff?: (buffId: string) => void;
     /** 隐藏顶栏情绪 buff 栏（Appearance 里的「显示情绪栏」开关）。 */
     hideBuffs?: boolean;
@@ -93,6 +95,8 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
     onOpenContacts,
     onTriggerAI,
     onShowCharsPanel,
+    displayName,
+    onAvatarClick,
     onDeleteBuff,
     statusText,
     extraAction,
@@ -377,8 +381,8 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
 
     const renderCenteredInfo = () => (
         <div className="flex w-full min-w-0 max-w-full flex-col items-center text-center">
-            <TokenImg value={activeCharacter.avatar} className={`sully-chat-avatar w-10 h-10 object-cover shadow-sm ${avatarRadiusClass}`} alt="avatar" />
-            <div className={`sully-chat-name mt-1 font-bold ${primaryTextClass}`}>{activeCharacter.name}</div>
+            {onAvatarClick ? <button type="button" aria-label="打开角色设定" className="shrink-0" onClick={event => { event.stopPropagation(); onAvatarClick(); }}><TokenImg value={activeCharacter.avatar} className={`sully-chat-avatar w-10 h-10 object-cover shadow-sm ${avatarRadiusClass}`} alt="avatar" /></button> : <TokenImg value={activeCharacter.avatar} className={`sully-chat-avatar w-10 h-10 object-cover shadow-sm ${avatarRadiusClass}`} alt="avatar" />}
+            <div className={`sully-chat-name mt-1 font-bold ${primaryTextClass}`}>{displayName || activeCharacter.name}</div>
             <div className="sully-chat-status mt-1 flex justify-center">{onlineStatusNode}</div>
             {buffs.length > 0 && (
                 <div className="mt-1 min-h-[18px] w-full">
@@ -390,9 +394,9 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
 
     const renderStandardInfo = () => (
         <>
-            <TokenImg value={activeCharacter.avatar} className={`sully-chat-avatar w-10 h-10 object-cover shadow-sm ${avatarRadiusClass}`} alt="avatar" />
+            {onAvatarClick ? <button type="button" aria-label="打开角色设定" className="shrink-0" onClick={event => { event.stopPropagation(); onAvatarClick(); }}><TokenImg value={activeCharacter.avatar} className={`sully-chat-avatar w-10 h-10 object-cover shadow-sm ${avatarRadiusClass}`} alt="avatar" /></button> : <TokenImg value={activeCharacter.avatar} className={`sully-chat-avatar w-10 h-10 object-cover shadow-sm ${avatarRadiusClass}`} alt="avatar" />}
             <div className="sully-chat-info flex-1 min-w-0 flex flex-col items-start text-left">
-                <div className={`sully-chat-name font-bold ${primaryTextClass}`}>{activeCharacter.name}</div>
+                <div className={`sully-chat-name font-bold ${primaryTextClass}`}>{displayName || activeCharacter.name}</div>
                 <div className="sully-chat-status flex items-center gap-2 flex-wrap">
                     {onlineStatusNode}
                     {lastTokenUsage && (
@@ -480,7 +484,7 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
                         {triggerIconNode}
                     </button>)}
                     {extraAction && (
-                        <button onClick={extraAction.onClick} className={`absolute right-10 bottom-2 p-2 ${iconButtonClass}`} title={extraAction.label} aria-label={extraAction.label}>
+                        <button onClick={extraAction.onClick} style={extraAction.style} className={`absolute right-10 bottom-2 p-2 ${iconButtonClass}`} title={extraAction.label} aria-label={extraAction.label}>
                             {extraAction.icon}
                         </button>
                     )}
@@ -514,7 +518,7 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
                     </div>
 
                     {extraAction && (
-                        <button onClick={extraAction.onClick} className={`p-2 ml-auto ${iconButtonClass}`} title={extraAction.label} aria-label={extraAction.label}>
+                        <button onClick={extraAction.onClick} style={extraAction.style} className={`p-2 ml-auto ${iconButtonClass}`} title={extraAction.label} aria-label={extraAction.label}>
                             {extraAction.icon}
                         </button>
                     )}
