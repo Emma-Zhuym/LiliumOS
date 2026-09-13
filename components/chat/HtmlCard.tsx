@@ -1,4 +1,6 @@
-import React from 'react';
+import { F, S, R, STATUS } from '../../utils/clayTokens';
+import React, { useEffect, useRef, useState } from 'react';
+import { CaretDown, Check, CopySimple } from '@phosphor-icons/react';
 
 /**
  * HTML 卡片渲染（私聊 MessageItem 与群聊 GroupMessageItem 共用）。
@@ -10,9 +12,55 @@ import React from 'react';
  * 这里在渲染端兜底 (对已落库的旧卡片同样生效), 提示词端同步不再教模型加外层阴影。
  */
 const HtmlCard: React.FC<{ html: string }> = ({ html }) => {
+    const [sourceExpanded, setSourceExpanded] = useState(false);
+    const [copyState, setCopyState] = useState<'idle' | 'ok' | 'error'>('idle');
+    const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const srcDoc = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;padding:0;background:transparent;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#334155;}body{display:flex;justify-content:center;padding:0;}*{box-sizing:border-box;}img{max-width:100%;}body>*{box-shadow:none!important;filter:none!important;}</style></head><body>${html}</body></html>`;
+
+    useEffect(() => () => {
+        if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+    }, []);
+
+    const copyHtmlSource = async (event: React.MouseEvent<HTMLButtonElement>) => {
+        event.preventDefault();
+        event.stopPropagation();
+        let copied = false;
+        try {
+            if (!navigator.clipboard?.writeText) throw new Error('Clipboard API unavailable');
+            // Copy the exact source stored on the message, not the renderer's
+            // srcDoc wrapper, so users can archive or edit the original card.
+            await navigator.clipboard.writeText(html);
+            copied = true;
+        } catch {
+            // iOS PWA / non-secure contexts can reject Clipboard API. Keep a
+            // user-gesture fallback without touching interactions in the iframe.
+            let textarea: HTMLTextAreaElement | null = null;
+            try {
+                textarea = document.createElement('textarea');
+                textarea.value = html;
+                textarea.setAttribute('readonly', '');
+                textarea.style.position = 'fixed';
+                textarea.style.left = '-9999px';
+                textarea.style.opacity = '0';
+                textarea.style.pointerEvents = 'none';
+                document.body.appendChild(textarea);
+                textarea.select();
+                textarea.setSelectionRange(0, textarea.value.length);
+                copied = document.execCommand('copy');
+            } catch {
+                copied = false;
+            } finally {
+                textarea?.remove();
+            }
+        }
+
+        setCopyState(copied ? 'ok' : 'error');
+        if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+        feedbackTimerRef.current = setTimeout(() => setCopyState('idle'), 1600);
+    };
+
     return (
-        <div className="rounded-[18px] overflow-hidden bg-transparent max-w-[280px]">
+        <div className="w-[280px] max-w-full overflow-hidden bg-transparent" style={{ borderRadius: R.large }}>
             <iframe
                 title="html-card"
                 srcDoc={srcDoc}
@@ -21,7 +69,7 @@ const HtmlCard: React.FC<{ html: string }> = ({ html }) => {
                 // AI 输出里的 <script> 不会执行, 表单 / 弹窗 / 顶层跳转 也都被拦。
                 sandbox="allow-same-origin"
                 referrerPolicy="no-referrer"
-                className="block w-[280px] min-h-[120px] border-0 bg-transparent"
+                className="block w-full min-h-[120px] border-0 bg-transparent"
                 style={{ height: 200 }}
                 onLoad={(e) => {
                     try {
@@ -55,6 +103,22 @@ const HtmlCard: React.FC<{ html: string }> = ({ html }) => {
                     } catch { /* 同源也读不到时静默 */ }
                 }}
             />
+            <div className="sully-html-source-bar flex items-center justify-between gap-2 p-2"
+                onPointerDown={event => event.stopPropagation()} onPointerUp={event => event.stopPropagation()}
+                onContextMenu={event => event.stopPropagation()} style={{ color: F.textSecondary }}>
+                <button type="button" onClick={event => { event.stopPropagation(); setSourceExpanded(value => !value); }}
+                    aria-expanded={sourceExpanded} aria-label={sourceExpanded ? '收起 HTML 源码操作' : '展开 HTML 源码操作'}
+                    className="sully-html-source-toggle flex items-center gap-2 px-3 text-xs"
+                    style={{ minHeight: 44, borderRadius: R.button, background: F.surface, boxShadow: S.raisedSoft }}>
+                    HTML 源码 <CaretDown size={14} weight="bold" style={{ transform: sourceExpanded ? 'rotate(180deg)' : undefined }} />
+                </button>
+                {sourceExpanded && <button type="button" onClick={copyHtmlSource} aria-label="复制完整 HTML 源码"
+                    className="sully-html-copy-button flex items-center justify-center shrink-0"
+                    style={{ width: 44, height: 44, borderRadius: R.pill, background: F.surface, boxShadow: S.raisedSoft, color: copyState === 'error' ? STATUS.danger.ink : copyState === 'ok' ? STATUS.success.ink : F.textSecondary }}>
+                    {copyState === 'ok' ? <Check size={20} weight="bold" /> : <CopySimple size={20} />}
+                </button>}
+                <span className="sr-only" role="status">{copyState === 'ok' ? '已复制' : copyState === 'error' ? '复制失败' : ''}</span>
+            </div>
         </div>
     );
 };

@@ -1,3 +1,4 @@
+import { F, S, R } from '../../utils/clayTokens';
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useOS } from '../../context/OSContext';
@@ -292,6 +293,12 @@ const DateSettings: React.FC<DateSettingsProps> = ({ char, onBack }) => {
                         </button>
                     </div>
                 </section>
+
+                <button type="button" role="switch" aria-checked={!!char.dateReadingShowAvatars} onClick={() => updateCharacter(char.id, { dateReadingShowAvatars: !char.dateReadingShowAvatars })}
+                    className="w-full p-4 flex items-center justify-between gap-4 text-left" style={{ minHeight: 64, background: F.surface, borderRadius: R.smallCard, boxShadow: S.raisedSoft, color: F.textSecondary }}>
+                    <span><span className="block text-sm font-semibold">阅读模式显示头像</span><span className="block mt-1 text-xs">在双方的正文旁显示头像。</span></span>
+                    <span className="w-10 h-6 shrink-0 flex items-center p-1" style={{ background: char.dateReadingShowAvatars ? F.accent : F.surfaceSunken, boxShadow: S.sunken, borderRadius: R.pill }}><span className="w-4 h-4" style={{ background: F.surface, boxShadow: S.raisedSoft, borderRadius: R.pill, transform: char.dateReadingShowAvatars ? 'translateX(16px)' : undefined }} /></span>
+                </button>
 
                 <ObserveSettings char={char} />
 

@@ -665,7 +665,28 @@ export interface HotNewsSnapshot {
   fetchedAt: number;   // 拉取时间戳
 }
 
+export interface MemoryPalaceFeatureFlags {
+  recallRouter: boolean;
+  interactionAdaptation: boolean;
+  deepEngagement: boolean;
+  /** 预留的薄事实约束层，不属于 M3 Deep Engagement。 */
+  epistemicState: boolean;
+}
+
+/**
+ * 角色在 ChatApp 里愿意向用户当前交流步伐靠近多少。每维 0..1；这是角色属性，
+ * 不是用户状态。缺省时使用保守默认值，且不会从角色实际回复中自动学习。
+ */
+export interface CharacterAccommodationPolicy {
+  length?: number;
+  rhythm?: number;
+  energy?: number;
+  punctuation?: number;
+  emoji?: number;
+}
+
 export interface MemoryPalaceBackupConfig {
+    featureFlags?: MemoryPalaceFeatureFlags;
   embedding: {
     baseUrl: string;
     apiKey: string;
@@ -1226,7 +1247,10 @@ export interface NovelBook {
 export type VRRoomId = 'library' | 'music' | 'guestbook' | 'gym' | 'postoffice' | 'theater' | 'signal' | 'cafe';
 
 /** 全局小说库里的一本书（所有角色共享原文，各自留批注、各自书签）。 */
+export interface VRLibraryCategory { id: string; name: string; }
+
 export interface VRWorldNovel {
+    categoryId?: string;
     id: string;
     title: string;
     author?: string;
@@ -1272,6 +1296,12 @@ export interface VRNovelAnnotation {
 
 /** 角色在虚拟世界里的个人状态（挂在 CharacterProfile.vrState）。 */
 export interface VRWorldCharState {
+    activityMode?: 'manual' | 'scheduled';
+    preferredNovelIds?: string[];
+    novelReadingMode?: 'all' | 'books' | 'categories';
+    preferredNovelCategoryIds?: string[];
+    lastNovelId?: string;
+    excludedAutoRooms?: VRRoomId[];
     /** 是否启用该角色的自主登入（独立于主动发消息 proactiveConfig） */
     enabled: boolean;
     /** 自主登入间隔（分钟，30 对齐；默认 120 = 2h） */
@@ -2196,6 +2226,8 @@ export interface StoryTheaterEntry {
     presetOverride?: StoryTheaterPresetDocument;
     /** 仅供拒绝 assistant prefill、要求最后一条消息必须为 user 的接口使用；默认关闭以保留原生预设效果。 */
     forceUserLastMessage?: boolean;
+    /** 兼容不接受高级采样参数的接口，默认关闭。 */
+    omitSamplingParams?: boolean;
     createdAt: number;
     updatedAt: number;
 }
@@ -2207,6 +2239,7 @@ export interface StoryTheaterPresetPrompt {
     role: 'system' | 'user' | 'assistant';
     content: string;
     /** marker 由发送器替换为角色/世界书/用户/场景/历史，不把占位条目当普通正文。 */
+    section?: { id: string; name: string; edge: 'start' | 'end' };
     marker?: 'characters' | 'world_before' | 'user' | 'world_after' | 'scenario' | 'examples' | 'history';
 }
 
@@ -2806,6 +2839,7 @@ export interface CharacterProfile {
   sprites?: Record<string, string>;
   spriteConfig?: SpriteConfig;
   customDateSprites?: string[]; // User-added custom emotion names for date mode (per-character)
+  dateReadingShowAvatars?: boolean;
   dateLightReading?: boolean;   // Light reading mode for novel/text view in date
   dateWritingStyle?: string;    // 约会模式写作风格预设 key（见 utils/dateWritingStyle.ts）或自定义文风字符串
   dateSkinSets?: SkinSet[];     // Multiple skin sets for portrait mode
@@ -2947,6 +2981,7 @@ export interface CharacterProfile {
 
   // 记忆宫殿 (Memory Palace)
   memoryPalaceEnabled?: boolean;
+  interactionAccommodation?: CharacterAccommodationPolicy;
   /**
    * 是否启用"palace 提取后自动同步归档"：开启后每次 buffer 处理成功都会把新记忆按日期
    * 合成 YAML MemoryFragment 追加到 char.memories，并推 hideBeforeMessageId 自动隐藏
@@ -4136,6 +4171,7 @@ export interface FullBackupData {
     storyTheaters?: StoryTheaterEntry[];
     storyTheaterPresets?: StoryTheaterPreset[];
     storyTheaterMasks?: StoryTheaterMask[];
+    storyVariants?: StoryVariantRecord[];
     customThemes?: ChatTheme[];
     savedEmojis?: Emoji[]; 
     emojiCategories?: EmojiCategory[]; 
@@ -4271,6 +4307,7 @@ export interface FullBackupData {
     chatTranslateSourceLangByChar?: Record<string, string>;
     chatTranslateTargetLangByChar?: Record<string, string>;
     chatTranslateEnabledByChar?: Record<string, boolean>;
+    chatTranslateExpandedByChar?: Record<string, boolean>;
     chatArchivePrompts?: any;
     chatActiveArchivePromptId?: string;
     characterRefinePrompts?: any;
@@ -4469,3 +4506,114 @@ export interface AgendaItem {
     reminderMinutes?: number | null; // minutes before event to remind (null = no reminder)
     createdAt?: number;             // creation timestamp ms
 }
+
+// [EM-START: standalone-story-variants]
+export type StoryVariantIdentityProfile = {
+    title: string;
+    logline: string;
+    identity: string;
+    lifePatch: string;
+    relationship: string;
+    /** 旧卡兼容字段；新卡不再携带具体现实记忆。 */
+    memoryStance?: string;
+    steelSeal: string;
+    patchCost: string;
+    behaviorShift: string;
+    /** User 在这条异界坐标中佩戴的身份面具；旧卡读取时自动补齐。 */
+    userMaskTitle?: string;
+    userIdentity?: string;
+    userLifePatch?: string;
+    openingScene: string;
+    openingLine: string;
+    playerPrompt: string;
+    /** v3 异界坐标字段；旧卡读取时由 resolveStoryVariantWorldlineProfile 补铸。 */
+    worldName?: string;
+    worldPremise?: string;
+    arrivalPoint?: string;
+    activeCrisis?: string;
+    sharedObjective?: string;
+    countdown?: string;
+    hiddenTruth?: string;
+    climaxChoice?: string;
+    memoryFuse?: string;
+};
+
+export type StoryVariantWorldlineProfile = {
+    worldName: string;
+    worldPremise: string;
+    arrivalPoint: string;
+    activeCrisis: string;
+    sharedObjective: string;
+    countdown: string;
+    hiddenTruth: string;
+    climaxChoice: string;
+    relationshipAnchor: string;
+    retrofitted: boolean;
+};
+
+export type StoryVariantUserMaskProfile = {
+    title: string;
+    identity: string;
+    lifePatch: string;
+    retrofitted: boolean;
+};
+
+export type StoryVariantIdentityCard = {
+    kind: 'card';
+    optionsSnapshot?: { variant: string; story: string };
+    id: string;
+    charId: string;
+    charName: string;
+    variantId: string;
+    storyId: string;
+    createdAt: number;
+    updatedAt: number;
+    profile: StoryVariantIdentityProfile;
+    /** v1 推演蓝图迁移而来，原始资料没有独立钢印/代价字段。 */
+    legacy?: boolean;
+};
+
+/** 身份卡可以长期收藏；每一次五十轮生命则是独立实例。 */
+export type StoryVariantSimulationRun = {
+    kind: 'run';
+    lastOperationId?: string;
+    id: string;
+    cardId: string;
+    createdAt: number;
+    updatedAt: number;
+    status: 'active' | 'archived';
+    interactionsUsed: number;
+    maxInteractions: 50;
+    archivedAt?: number;
+    archiveReason?: 'completed' | 'emergency';
+    /** 已把返航简报投递到原角色私聊；避免重复分享。 */
+    sharedAt?: number;
+};
+
+export type StoryVariantSimulationReply = {
+    /** 本轮可感知的旁白；安静的关系场景允许为空。 */
+    worldNarration: string;
+    /** 角色层：只演出角色能够感知、说出和做出的部分。 */
+    character: string;
+    /** 仅用于下一轮保持事实连续性，不展示导演内部记录。 */
+    directorState?: StoryVariantDirectorState;
+};
+
+export type StoryVariantSimulationPhase = {
+    id: 'hot-drop' | 'cascade' | 'reversal' | 'climax' | 'cost' | 'return' | 'ending' | 'arrival';
+    label: string;
+    directive: string;
+};
+
+/** Stable phase IDs retain old archives; stages shape the available space, not compulsory plot beats. */
+export type StoryVariantDirectorState = {
+    sceneFacts: string[];
+    openThreads: string[];
+    offscreenFacts: string[];
+    declinedHooks: string[];
+    revealedFacts: string[];
+};
+
+
+export type StoryVariantRecord = StoryVariantIdentityCard | StoryVariantSimulationRun;
+// [EM-END: standalone-story-variants]

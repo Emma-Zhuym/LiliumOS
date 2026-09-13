@@ -1,3 +1,5 @@
+import ContextSuiteSettings from './ContextSuiteSettings';
+import ChatSettingsSection from './ChatSettingsSection';
 import ChatInputSettings from './ChatInputSettings';
 import type { ChatInputPreferences } from '../../utils/chatInputPreferences';
 
@@ -73,6 +75,7 @@ interface ChatModalsProps {
     onBgUpload: (file: File) => void;
     onRemoveBg: () => void;
     onClearHistory: () => void;
+    onOpenHistoryCleanup?: () => void;
     onArchive: () => void;
     onCreatePrompt: () => void;
     onEditPrompt: () => void;
@@ -96,6 +99,8 @@ interface ChatModalsProps {
     onSaveCategoryVisibility?: (categoryId: string, allowedCharacterIds: string[] | undefined) => void;
     // Translation
     translationEnabled?: boolean;
+    translationExpanded?: boolean;
+    onToggleTranslationExpanded?: () => void;
     onToggleTranslation?: () => void;
     translateSourceLang?: string;
     translateTargetLang?: string;
@@ -267,11 +272,11 @@ const ChatModals: React.FC<ChatModalsProps> = ({
     allHistoryMessages = [],
     contextRangeSnapshot,
     onTransfer, onImportEmoji, onSaveSettings,
-    onBgUpload, onRemoveBg, onClearHistory,
+    onBgUpload, onRemoveBg, onClearHistory, onOpenHistoryCleanup,
     onArchive, onCreatePrompt, onEditPrompt, onSavePrompt, onDeletePrompt,
     onSetHistoryStart, onRestoreAdaptiveContext, onJumpToMessageInChat, onEnterSelectionMode, onReplyMessage, messageFavorited, onToggleMessageFavorite, onEditMessageStart, onConfirmEditMessage, onDeleteMessage, onCopyMessage, onDeleteEmoji, onDeleteCategory,
     allCharacters = [], onSaveCategoryVisibility,
-    translationEnabled, onToggleTranslation, translateSourceLang, translateTargetLang, onSetTranslateSourceLang, onSetTranslateLang,
+    translationEnabled, onToggleTranslation, translationExpanded, onToggleTranslationExpanded, translateSourceLang, translateTargetLang, onSetTranslateSourceLang, onSetTranslateLang,
     xhsEnabled, onToggleXhs,
     htmlModeEnabled, onToggleHtmlMode, htmlModeCustomPrompt, setHtmlModeCustomPrompt,
     photoStyle, onSetPhotoStyle,
@@ -436,7 +441,10 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                 footer={<button onClick={onSaveSettings} className="w-full py-3 bg-primary text-white font-bold rounded-2xl">保存设置</button>}
             >
                 <div className="space-y-6">
+                     <ChatSettingsSection title="输入与回复" summary="发送、回车、自动回复和表情联想">
                      <ChatInputSettings value={settingsInputPreferences} onChange={setSettingsInputPreferences} />
+                     </ChatSettingsSection>
+                     <ChatSettingsSection title="聊天外观" summary="背景和系统消息显示">
                      <div>
                          <label className="text-xs font-bold text-slate-400 uppercase mb-2 block">聊天背景</label>
                          <div onClick={() => bgInputRef.current?.click()} className="h-24 bg-slate-100 rounded-xl border-2 border-dashed border-slate-200 flex items-center justify-center cursor-pointer hover:border-primary/50 overflow-hidden relative">
@@ -446,6 +454,21 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                          <input type="file" ref={bgInputRef} className="hidden" accept="image/*" onChange={(e) => e.target.files?.[0] && onBgUpload(e.target.files[0])} />
                          {activeCharacter.chatBackground && <button onClick={onRemoveBg} className="text-[10px] text-red-400 mt-1">移除背景</button>}
                      </div>
+                     <div className="pt-2 border-t border-slate-100">
+                         <div className="flex justify-between items-center cursor-pointer" onClick={() => setSettingsHideSysLogs(!settingsHideSysLogs)}>
+                             <label className="text-xs font-bold text-slate-400 uppercase pointer-events-none">隐藏系统日志</label>
+                             <div className={`w-10 h-6 rounded-full p-1 transition-colors flex items-center ${settingsHideSysLogs ? 'bg-primary' : 'bg-slate-200'}`}>
+                                 <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${settingsHideSysLogs ? 'translate-x-4' : ''}`}></div>
+                             </div>
+                         </div>
+                         <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
+                             开启后隐藏见面/小程序等自动产生的灰色提示（转账、戳一戳、发图提示除外）。
+                         </p>
+                     </div>
+
+                     </ChatSettingsSection>
+                     <ChatSettingsSection title="上下文与记忆" summary="智能语境、原文范围与记忆整理">
+                     <ContextSuiteSettings />
                      <div>
                          {(activeCharacter.autoArchiveEnabled || activeCharacter.contextFollowsMemoryPalaceHwm) && settingsContextRangeMode === 'adaptive' ? (
                              <div className="rounded-2xl border border-violet-200 bg-violet-50 p-3.5">
@@ -519,18 +542,8 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                          )}
                      </div>
 
-                     <div className="pt-2 border-t border-slate-100">
-                         <div className="flex justify-between items-center cursor-pointer" onClick={() => setSettingsHideSysLogs(!settingsHideSysLogs)}>
-                             <label className="text-xs font-bold text-slate-400 uppercase pointer-events-none">隐藏系统日志</label>
-                             <div className={`w-10 h-6 rounded-full p-1 transition-colors flex items-center ${settingsHideSysLogs ? 'bg-primary' : 'bg-slate-200'}`}>
-                                 <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${settingsHideSysLogs ? 'translate-x-4' : ''}`}></div>
-                             </div>
-                         </div>
-                         <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
-                             开启后隐藏见面/小程序等自动产生的灰色提示（转账、戳一戳、发图提示除外）。
-                         </p>
-                     </div>
-
+                     </ChatSettingsSection>
+                     <ChatSettingsSection title="语言与语音" summary="翻译显示和语音条">
                      {/* Translation Settings */}
                      <div className="pt-2 border-t border-slate-100">
                          <div className="flex justify-between items-center cursor-pointer" onClick={onToggleTranslation}>
@@ -566,6 +579,55 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                          )}
                      </div>
 
+                     {translationEnabled && (
+                         <button type="button" role="switch" aria-checked={!!translationExpanded} onClick={onToggleTranslationExpanded} className="flex w-full items-center justify-between gap-3 text-left" style={{ minHeight: 44, color: F.textSecondary }}>
+                             <span><span className="block text-sm font-semibold">原文和译文同时展开</span><span className="block text-xs mt-1">直接显示已有译文，不另发翻译请求。</span></span>
+                             <span className="shrink-0 flex items-center p-1 w-10 h-6" style={{ borderRadius: R.pill, boxShadow: S.sunken, background: translationExpanded ? F.accent : F.surfaceSunken }}><span className="w-4 h-4" style={{ borderRadius: R.pill, boxShadow: S.raisedSoft, background: F.surface, transform: translationExpanded ? 'translateX(16px)' : undefined }} /></span>
+                         </button>
+                     )}
+
+                     {/* Voice TTS */}
+                     <div className="pt-2 border-t border-slate-100">
+                         <div className="flex justify-between items-center cursor-pointer" onClick={onToggleChatVoice}>
+                             <label className="text-xs font-bold text-slate-400 uppercase pointer-events-none">语音消息</label>
+                             <div className={`w-10 h-6 rounded-full p-1 transition-colors flex items-center ${chatVoiceEnabled ? 'bg-emerald-400' : 'bg-slate-200'}`}>
+                                 <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${chatVoiceEnabled ? 'translate-x-4' : ''}`}></div>
+                             </div>
+                         </div>
+                         <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
+                             开启后，AI 回复里会出现语音条（需配置 MiniMax 和角色语音）。
+                         </p>
+                         {chatVoiceEnabled && (
+                             <div className="mt-3 pt-3 border-t border-slate-100">
+                                 <div className="flex justify-between items-center cursor-pointer" onClick={onToggleChatVoiceAutoPlay}>
+                                     <label className="text-[10px] font-bold text-slate-400 uppercase pointer-events-none">收到就自动播放</label>
+                                     <div className={`w-9 h-5 rounded-full p-1 transition-colors flex items-center ${chatVoiceAutoPlay ? 'bg-emerald-400' : 'bg-slate-200'}`}>
+                                         <div className={`w-3 h-3 bg-white rounded-full shadow-sm transition-transform ${chatVoiceAutoPlay ? 'translate-x-4' : ''}`}></div>
+                                     </div>
+                                 </div>
+                                 <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
+                                     开启后收到消息就合成语音并播放。关闭时语音条照常出现，点一下才合成并播放，不听就不消耗语音额度（也可以点「转文字」直接看内容）。
+                                 </p>
+                             </div>
+                         )}
+                         {chatVoiceEnabled && (
+                             <div className="mt-3">
+                                 <label className="text-[10px] font-bold text-slate-400 mb-1.5 block">语音语种</label>
+                                 <div className="flex flex-wrap gap-1.5">
+                                     {[{v:'',l:'默认'},{v:'en',l:'English'},{v:'ja',l:'日本語'},{v:'ko',l:'한국어'},{v:'fr',l:'Français'},{v:'es',l:'Español'}].map(opt => (
+                                         <button key={opt.v} onClick={() => onSetChatVoiceLang?.(opt.v)}
+                                             className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-all ${chatVoiceLang === opt.v ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                                             {opt.l}
+                                         </button>
+                                     ))}
+                                 </div>
+                                 {chatVoiceLang && <p className="text-[10px] text-emerald-600/70 mt-1.5">选择非默认语种时，AI 台词会先翻译再生成语音。</p>}
+                             </div>
+                         )}
+                     </div>
+
+                     </ChatSettingsSection>
+                     <ChatSettingsSection title="扩展能力" summary="小红书、HTML 卡片和发照片风格">
                      {/* XHS Toggle */}
                      <div className="pt-2 border-t border-slate-100">
                          <div className="flex justify-between items-center cursor-pointer" onClick={onToggleXhs}>
@@ -618,46 +680,8 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                          <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">选择风格后，AI 发照片时会在描述末尾追加对应的画风 tag，影响当前生图 API 的生成效果。</p>
                      </div>
 
-                     {/* Voice TTS */}
-                     <div className="pt-2 border-t border-slate-100">
-                         <div className="flex justify-between items-center cursor-pointer" onClick={onToggleChatVoice}>
-                             <label className="text-xs font-bold text-slate-400 uppercase pointer-events-none">语音消息</label>
-                             <div className={`w-10 h-6 rounded-full p-1 transition-colors flex items-center ${chatVoiceEnabled ? 'bg-emerald-400' : 'bg-slate-200'}`}>
-                                 <div className={`w-4 h-4 bg-white rounded-full shadow-sm transition-transform ${chatVoiceEnabled ? 'translate-x-4' : ''}`}></div>
-                             </div>
-                         </div>
-                         <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
-                             开启后，AI 回复里会出现语音条（需配置 MiniMax 和角色语音）。
-                         </p>
-                         {chatVoiceEnabled && (
-                             <div className="mt-3 pt-3 border-t border-slate-100">
-                                 <div className="flex justify-between items-center cursor-pointer" onClick={onToggleChatVoiceAutoPlay}>
-                                     <label className="text-[10px] font-bold text-slate-400 uppercase pointer-events-none">收到就自动播放</label>
-                                     <div className={`w-9 h-5 rounded-full p-1 transition-colors flex items-center ${chatVoiceAutoPlay ? 'bg-emerald-400' : 'bg-slate-200'}`}>
-                                         <div className={`w-3 h-3 bg-white rounded-full shadow-sm transition-transform ${chatVoiceAutoPlay ? 'translate-x-4' : ''}`}></div>
-                                     </div>
-                                 </div>
-                                 <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
-                                     开启后收到消息就合成语音并播放。关闭时语音条照常出现，点一下才合成并播放，不听就不消耗语音额度（也可以点「转文字」直接看内容）。
-                                 </p>
-                             </div>
-                         )}
-                         {chatVoiceEnabled && (
-                             <div className="mt-3">
-                                 <label className="text-[10px] font-bold text-slate-400 mb-1.5 block">语音语种</label>
-                                 <div className="flex flex-wrap gap-1.5">
-                                     {[{v:'',l:'默认'},{v:'en',l:'English'},{v:'ja',l:'日本語'},{v:'ko',l:'한국어'},{v:'fr',l:'Français'},{v:'es',l:'Español'}].map(opt => (
-                                         <button key={opt.v} onClick={() => onSetChatVoiceLang?.(opt.v)}
-                                             className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-all ${chatVoiceLang === opt.v ? 'bg-emerald-500 text-white' : 'bg-slate-100 text-slate-500'}`}>
-                                             {opt.l}
-                                         </button>
-                                     ))}
-                                 </div>
-                                 {chatVoiceLang && <p className="text-[10px] text-emerald-600/70 mt-1.5">选择非默认语种时，AI 台词会先翻译再生成语音。</p>}
-                             </div>
-                         )}
-                     </div>
-
+                     </ChatSettingsSection>
+                     <ChatSettingsSection title="记录管理" summary="原文断点、归档和清理">
                      {/* 时间感知 / 自定义时区 / 线下时间感知 已统一迁移至「神经链接」角色设定页 */}
 
                      <div className="pt-2 border-t border-slate-100">
@@ -702,18 +726,8 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                          </div>
                      )}
 
-                     <div className="pt-2 border-t border-slate-100">
-                         <label className="text-xs font-bold text-red-400 uppercase mb-3 block">危险区域 (Danger Zone)</label>
-                         <div className="flex items-center gap-2 mb-3 cursor-pointer" onClick={() => setPreserveContext(!preserveContext)}>
-                             <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors ${preserveContext ? 'bg-primary border-primary' : 'bg-slate-100 border-slate-300'}`}>
-                                 {preserveContext && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>}
-                             </div>
-                             <span className="text-sm text-slate-600">清空时保留最后10条记录 (维持语境)</span>
-                         </div>
-                         <button onClick={onClearHistory} className="w-full py-3 bg-red-50 text-red-500 font-bold rounded-2xl border border-red-100 active:scale-95 transition-transform flex items-center justify-center gap-2">
-                             执行清空
-                         </button>
-                     </div>
+                     {onOpenHistoryCleanup && <button type="button" onClick={onOpenHistoryCleanup} className="w-full px-4 text-sm font-semibold" style={{ minHeight: 44, background: F.surface, color: F.textPrimary, borderRadius: R.button, boxShadow: S.raisedSoft }}>按范围清理 / 保留最近 N 条</button>}
+                     </ChatSettingsSection>
                 </div>
             </Modal>
 

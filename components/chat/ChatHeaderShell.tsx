@@ -277,19 +277,17 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
         offline: { label: charStatusActivity ? `${charStatusActivity}` : 'Offline', dotColor: 'bg-slate-400', pillBg: isDarkHeader ? 'bg-slate-500/20 text-slate-300 border-slate-400/20' : isPixelHeader ? 'bg-[#fff7ed] text-[#8f674a] border-[#8f674a]/25' : 'bg-slate-100 text-slate-400 border-slate-200' },
     }[charStatus];
 
-    const onlineStatusNode = headerStyle === 'telegram'
-        ? null
-        : statusStyle === 'pill' ? (
+    const onlineStatusNode = statusStyle === 'pill' ? (
             <div className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold border ${statusConfig.pillBg}`}>
-                {statusConfig.label}
+                {statusText ?? statusConfig.label}
             </div>
         ) : statusStyle === 'dot' ? (
             <div className={`flex items-center gap-1 text-[10px] ${secondaryTextClass}`}>
                 <span className={`w-1.5 h-1.5 rounded-full ${statusConfig.dotColor}`} />
-                <span>{statusConfig.label}</span>
+                <span>{statusText ?? statusConfig.label}</span>
             </div>
         ) : (
-            <div className={`text-[10px] uppercase ${secondaryTextClass}`}>{statusConfig.label}</div>
+            <div className={`text-[10px] uppercase ${secondaryTextClass}`}>{statusText ?? statusConfig.label}</div>
         );
 
     const triggerIconNode = triggerIcon === 'stop'
@@ -381,6 +379,7 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
         <div className="flex w-full min-w-0 max-w-full flex-col items-center text-center">
             <TokenImg value={activeCharacter.avatar} className={`sully-chat-avatar w-10 h-10 object-cover shadow-sm ${avatarRadiusClass}`} alt="avatar" />
             <div className={`sully-chat-name mt-1 font-bold ${primaryTextClass}`}>{activeCharacter.name}</div>
+            <div className="sully-chat-status mt-1 flex justify-center">{onlineStatusNode}</div>
             {buffs.length > 0 && (
                 <div className="mt-1 min-h-[18px] w-full">
                     {renderBuffRow(true)}

@@ -6,6 +6,7 @@ import AppIcon from '../components/os/AppIcon';
 import TokenImg from '../components/os/TokenImg';
 import { useBlobRefUrl } from '../utils/blobRef';
 import { DB } from '../utils/db';
+import { isChatPreviewMessage } from '../utils/chatMessageVisibility';
 import { CharacterProfile, Anniversary, AppID, DailySchedule } from '../types';
 import { ScheduleHomeWidget, ScheduleFullscreenViewer } from '../components/schedule/ScheduleHomeWidget';
 import NowPlayingSquareWidget from '../components/os/NowPlayingSquareWidget';
@@ -615,7 +616,7 @@ const Launcher: React.FC = () => {
               ]);
               
               if (msgs.length > 0) {
-                  const visibleMsgs = msgs.filter(m => m.role !== 'system');
+                  const visibleMsgs = msgs.filter(isChatPreviewMessage);
                   if (visibleMsgs.length > 0) {
                       const last = visibleMsgs[visibleMsgs.length - 1];
                       const cleanContent = last.content.replace(/\[.*?\]/g, '').trim();

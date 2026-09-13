@@ -11859,7 +11859,10 @@ var SSE_DONE_BYTES = SSE_ENCODER.encode("event: done\ndata: {}\n\n");
 
 // utils/sanitize.ts
 var stripLiteralBackslashN = (t) => t.replace(/\\n/g, "\n");
-var stripSourceTags = (t) => t.replace(/\s*\[(?:聊天|通话|约会)\]\s*/g, "\n");
+var stripLeakedSourceTags = (t) => t.replace(
+  /\s*\[\s*(?:聊\s*(?:天|chat)|chat|通\s*(?:话|call)|call|约\s*(?:会|date)|date)\s*\]\s*/giu,
+  "\n"
+);
 var stripTimestamps = (t) => t.replace(/\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*/g, "").replace(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s*/gm, "").replace(/（[上下]午\d{1,2}[：:]\d{2}）/g, "").replace(/\(\d{1,2}:\d{2}\s*[AP]M\)/gi, "");
 var stripChineseDate = (t) => t.replace(/\[\d{4}[-/年]\d{1,2}[-/月]\d{1,2}.*?\]/g, "");
 var stripRoleNamePrefix = (t) => t.replace(/^[\w一-龥]+:\s*/, "");
@@ -11996,7 +11999,7 @@ function sanitizeForNotification(text) {
   result = stripChineseDate(result);
   result = stripRoleNamePrefix(result);
   result = stripSystemLogLeak(result);
-  result = stripSourceTags(result);
+  result = stripLeakedSourceTags(result);
   result = stripInnerState(result);
   result = stripBusinessTagsForNotification(result);
   result = stripQuotes2(result);
@@ -12053,7 +12056,7 @@ ${ATOM_MARKER}B${idx}${ATOM_MARKER}
   cleaned = stripTimestamps(cleaned);
   cleaned = stripChineseDate(cleaned);
   cleaned = stripRoleNamePrefix(cleaned);
-  cleaned = stripSourceTags(cleaned);
+  cleaned = stripLeakedSourceTags(cleaned);
   cleaned = stripLegacyTrans(cleaned);
   cleaned = stripMarkdownDividers(cleaned);
   const rawChunks = chunkText(cleaned);
@@ -12115,18 +12118,7 @@ function sanitizeTextForBanner(text) {
   return result;
 }
 function chunkText(text) {
-  const CJK = "\\u4e00-\\u9fff\\u3400-\\u4dbf\\u3000-\\u303f\\uff00-\\uffef\\u2000-\\u206f\\u2e80-\\u2eff\\u3001-\\u3003\\u2018-\\u201f\\u300a-\\u300f\\uff01-\\uff0f\\uff1a-\\uff20";
-  const cjkSplitRe = new RegExp(`([${CJK}])\\s+(?=[${CJK}])`, "g");
-  const SPLIT = String.fromCharCode(1);
-  const lineChunks = text.split(/(?:\r\n|\r|\n|\u2028|\u2029)+/).map((c) => c.trim()).filter((c) => c.length > 0);
-  const SPACE_SENTINEL = String.fromCharCode(0);
-  const out = [];
-  for (const chunk of lineChunks) {
-    const guarded = chunk.replace(/\[{1,2}[^\[\]]*\]{1,2}/g, (m) => m.replace(/\s/g, SPACE_SENTINEL));
-    const sub = guarded.replace(cjkSplitRe, `$1${SPLIT}`).split(SPLIT).map((c) => c.split(SPACE_SENTINEL).join(" ").trim()).filter((c) => c.length > 0);
-    out.push(...sub);
-  }
-  return out;
+  return text.split(/(?:\r\n|\r|\n|\u2028|\u2029)+/).map((c) => c.trim()).filter((c) => c.length > 0);
 }
 function splitOnSendEmoji(chunk) {
   const re = /\[\[SEND_EMOJI[:：]\s*(.*?)\]\]/g;

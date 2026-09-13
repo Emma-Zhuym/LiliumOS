@@ -10,6 +10,10 @@ import type { APIConfig } from '../../types';
 import { DB } from '../db';
 
 export interface VRApiCall {
+    charId?: string;
+    kind?: 'skipped' | 'throttled' | 'tripped';
+    note?: string;
+    charEnabled?: boolean;
     ts: number;
     charName?: string;
     room?: string;

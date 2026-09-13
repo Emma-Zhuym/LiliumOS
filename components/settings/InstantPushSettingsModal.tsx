@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { trackEvent } from '../../utils/analytics';
 import Modal from '../os/Modal';
 import { useOS } from '../../context/OSContext';
 import { generateClientToken } from '../../utils/vapidGen';

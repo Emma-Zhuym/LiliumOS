@@ -1,3 +1,5 @@
+import StoryVariantHub from './StoryVariantHub';
+import { F, R, S, HUE } from '../../../utils/clayTokens';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Database, DownloadSimple, FilmSlate, Plus, SpinnerGap, Trash, UploadSimple, UsersThree, X } from '@phosphor-icons/react';
 import { useOS } from '../../../context/OSContext';
@@ -29,7 +31,7 @@ interface Props {
     onClose: () => void;
 }
 
-type View = 'list' | 'editor' | 'session' | 'preset' | 'masks' | 'vectors';
+type View = 'variants' | 'list' | 'editor' | 'session' | 'preset' | 'masks' | 'vectors';
 
 const StoryTheaterContent: React.FC<Props> = ({ onSwitchCompanion, onClose }) => {
     const { characters, userProfile, addToast, remoteVectorConfig } = useOS();
@@ -179,6 +181,8 @@ const StoryTheaterContent: React.FC<Props> = ({ onSwitchCompanion, onClose }) =>
         setView('editor');
     }, []);
 
+    if (view === 'variants') return <StoryVariantHub onBack={() => setView('list')} />;
+
     if (view === 'preset' && editingPreset) return <StoryPresetMaker key={editingPreset.id}
         preset={editingPreset}
         onBack={() => setView(activeEntry ? 'editor' : 'list')}
@@ -242,6 +246,7 @@ const StoryTheaterContent: React.FC<Props> = ({ onSwitchCompanion, onClose }) =>
                     <div className='mt-2 flex items-end justify-between gap-5'><div><h2 className='text-3xl font-serif font-semibold'>很多条剧情，<br />各自拥有一条时间线。</h2><p className='mt-3 text-[11px] leading-5 text-slate-500'>角色在新增时一次选定。世界书、记忆与预设的改动都只发生在这只沙盒里。</p></div><FilmSlate size={48} weight='duotone' className='shrink-0 text-violet-300' /></div>
                 </section>
 
+                <button type="button" onClick={() => setView('variants')} className="mt-6 flex min-h-16 w-full items-center justify-between gap-4 p-5 text-left" style={{ background: F.surface, borderRadius: R.bigCard, boxShadow: S.raisedSoft, color: F.textPrimary }}><span><span className="block text-base font-semibold">异格</span><span className="mt-2 block text-xs leading-relaxed" style={{ color: F.textSecondary }}>选择另一种人格分岔与世界，开启独立故事</span></span><span className="text-sm" style={{ color: HUE.violet.ink }}>进入</span></button>
                 <section className='py-6'>
                     {entries.length === 0 ? <button onClick={() => { setMaskLocked(false); setActiveEntry({ ...createStoryTheaterDraft(), presetId: presets[0]?.id }); setView('editor'); }} className='w-full py-14 rounded-3xl border border-dashed border-slate-300 text-center'><span className='block text-sm font-semibold'>新增第一条剧情</span><span className='block mt-2 text-[10px] text-slate-400'>选择多位角色、记忆方式、世界书与原生预设</span></button> : <div className='divide-y divide-slate-200'>{entries.map(item => {
                         const cast = characters.filter(char => item.characterIds.includes(char.id));

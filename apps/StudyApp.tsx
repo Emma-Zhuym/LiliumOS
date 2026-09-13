@@ -11,7 +11,7 @@ import { Notepad, Check, X, CheckCircle, XCircle, Hand } from '@phosphor-icons/r
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
 import TokenImg from '../components/os/TokenImg';
 import { trackEvent } from '../utils/analytics';
-import { extractPdfText } from '../utils/pdfText';
+import { extractPdfText, isPdfFile } from '../utils/pdfText';
 
 type KatexLike = {
     renderToString: (latex: string, options: any) => string;
@@ -492,7 +492,7 @@ const StudyApp: React.FC = () => {
     const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
-        if (file.type !== 'application/pdf') {
+        if (!isPdfFile(file)) {
             addToast('请上传 PDF 文件', 'error');
             return;
         }

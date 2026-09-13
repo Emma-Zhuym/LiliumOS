@@ -26,7 +26,7 @@ describe('database upgrade and delivery reliability', () => {
             open.onsuccess = () => { open.result.close(); resolve(); }; open.onerror = () => reject(open.error);
         });
         const DB = await load();
-        expect(connection?.version).toBe(71);
+        expect(connection?.version).toBe(72);
         expect(connection?.objectStoreNames.contains('xhs_owned_posts')).toBe(true);
         expect(await DB.getAllXhsOwnedPosts()).toEqual([]);
         for (const [name, record] of Object.entries(records)) expect(await DB.getRawStoreData(name)).toEqual([record]);

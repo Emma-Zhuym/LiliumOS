@@ -1,3 +1,6 @@
+import CallPreferencesSheet from '../components/call/CallPreferencesSheet';
+import { loadCallPreferences, saveCallPreferences, type CallPreferences } from '../utils/callPreferences';
+import { F, S, R } from '../utils/clayTokens';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Microphone, SpeakerHigh, SpeakerSlash, PhoneDisconnect, Translate, Gear, Clock, CaretLeft, CaretRight, Phone, VideoCamera, VideoCameraSlash, Cube, FolderOpen, FileZip, Moon, Sun, Check } from '@phosphor-icons/react';
 import { useOS } from '../context/OSContext';
@@ -541,6 +544,10 @@ const CallApp: React.FC = () => {
   const [showInputPanel, setShowInputPanel] = useState(true);
   const [editingBubble, setEditingBubble] = useState<CallBubble | null>(null);
   const [editingText, setEditingText] = useState('');
+  const [callPreferences, setCallPreferences] = useState<CallPreferences>(loadCallPreferences);
+  const [showCallPreferences, setShowCallPreferences] = useState(false);
+  const [generatingAudioBubbleId, setGeneratingAudioBubbleId] = useState<string | null>(null);
+  useEffect(() => saveCallPreferences(callPreferences), [callPreferences]);
   const [rerollingBubbleId, setRerollingBubbleId] = useState<string | null>(null);
   const [showHangupConfirm, setShowHangupConfirm] = useState(false);
   const [deleteConfirmRecord, setDeleteConfirmRecord] = useState<CallRecord | null>(null);
@@ -794,6 +801,7 @@ const CallApp: React.FC = () => {
   };
   const longPressTimerRef = useRef<number | null>(null);
   const callTouchStartPos = useRef({ x: 0, y: 0 });
+  const idleNudgeCountRef = useRef(0);
   // VRM 模型的自定义表情名（加载时由画布回传），喂给基础版主模型或高质量导演。
   const vrmExpressionsRef = useRef<string[]>([]);
   const selectedChar = useMemo(() => characters.find(c => c.id === selectedCharId) || null, [characters, selectedCharId]);
@@ -1113,8 +1121,7 @@ const CallApp: React.FC = () => {
   // ── TTS 服务商分发：电话语音也支持 MiniMax ↔ 鱼声二选一 ──
   const isFishTts = resolveTtsProvider(apiConfig) === 'fishaudio';
   // 当前服务商下，这个角色能否合成语音（决定要不要走 TTS / 给"语音未配置"提示）。
-  const canSpeakVoice = (): boolean => {
-    if (!isSpeakerOn) return false;
+  const hasConfiguredVoice = (): boolean => {
     if (isFishTts) {
       return !!resolveFishAudioApiKey(apiConfig) && !!selectedChar?.voiceProfile?.fishReferenceId;
     }
@@ -1122,6 +1129,7 @@ const CallApp: React.FC = () => {
     const hasTimber = (selectedChar?.voiceProfile?.timberWeights?.length || 0) > 1;
     return !!resolveMiniMaxApiKey(apiConfig) && (!!voiceId || hasTimber);
   };
+  const canSpeakVoice = (): boolean => isSpeakerOn && hasConfiguredVoice();
   // 鱼声合成：直接把（带 inline cue 的）文本交给鱼声合成器，由 cleanTextForTtsFish 做
   // 鱼声专属清洗——保留 [happy]/[whispering]/[break] 等 cue，只清系统标记 / <#秒#> 残留。
   // 绝不能先走 MiniMax 的 cleanTextForTts，那会把方括号 cue 全剥掉。
@@ -1268,7 +1276,7 @@ const CallApp: React.FC = () => {
   };
   const callAudioPrefetchKey = (rawText: string, emotion?: string) => `${emotion || ''}\u0000${rawText}`;
   const prefetchCallAudio = (rawText: string, emotion?: string) => {
-    if (!canSpeakVoice()) return;
+    if (!callPreferences.voiceAutoPlay || !canSpeakVoice()) return;
     const key = callAudioPrefetchKey(rawText, emotion);
     if (prefetchedCallAudioRef.current.has(key)) return;
     // A call normally has one pending reply. Bound the map defensively so abandoned
@@ -1461,6 +1469,8 @@ const CallApp: React.FC = () => {
     markCallTurnDirty();
   };
   const resetCurrentCall = () => {
+    idleNudgeCountRef.current = 0;
+    setGeneratingAudioBubbleId(null);
     revokeSessionBlobs();
     stopPlayback();
     pendingAvatarTouchesRef.current = [];
@@ -1976,6 +1986,125 @@ ${sentencePlan}`;
     audioRef.current.pause();
     setCallState('listening');
   };
+  const ensureCallBubbleAudio = async (bubble: CallBubble, forceRegenerate = false): Promise<string | null> => {
+    if (bubble.role !== 'assistant' || generatingAudioBubbleId) return null;
+    if (bubble.audioUrl && !forceRegenerate) return bubble.audioUrl;
+    if (!hasConfiguredVoice()) {
+      addToast('还没有配置这个角色的语音', 'info');
+      return null;
+    }
+    setGeneratingAudioBubbleId(bubble.id);
+    setErrorMessage('');
+    try {
+      const voiceTag = extractVoiceTag(bubble.text);
+      const { url, traceIds } = await takeOrSynthesizeCallAudio(
+        bubble.text,
+        voiceTag.emotion || bubble.performance?.emotion,
+      );
+      if (!url) throw new Error('未获得可播放音频');
+      trackBlobUrl(url);
+      setAudioUrl(url);
+      setTraceId(traceIds.filter(Boolean).join(' | '));
+      setBubbles(previous => previous.map(item => item.id === bubble.id ? { ...item, audioUrl: url } : item));
+      setCallRecords(previous => previous.map(record => ({
+        ...record,
+        transcript: record.transcript.map(item => item.id === bubble.id ? { ...item, audioUrl: url } : item),
+      })));
+      return url;
+    } catch (error: any) {
+      setCallState('listening');
+      setErrorMessage(error?.message || '语音生成失败');
+      addToast(`语音生成失败：${error?.message || '未知错误'}`, 'error');
+      return null;
+    } finally {
+      setGeneratingAudioBubbleId(null);
+    }
+  };
+  const handlePlayBubbleAudio = async (bubble: CallBubble) => {
+    if (bubble.role !== 'assistant' || generatingAudioBubbleId) return;
+    if (isAudioPlaying) pauseAudio();
+    if (!isSpeakerOn) setIsSpeakerOn(true);
+    if (audioRef.current) audioRef.current.muted = false;
+    const url = bubble.audioUrl || await ensureCallBubbleAudio(bubble);
+    if (!url) return;
+    trackEvent('重播一条通话语音');
+    playAudio(url, bubble.performanceTimeline, estimateSpeechMs(bubble.text));
+  };
+  // 接通后由角色先说第一句。它和后续静默主动接话共用一个显式通话偏好，
+  // 默认开启；关闭后 CallApp 会等待用户先说，ChatApp 不受影响。
+  const greetingFiredRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!callPreferences.characterInitiative || viewMode !== 'in-call' || bubbles.length > 0) return;
+    if (!selectedChar?.id || greetingFiredRef.current === currentSessionId) return;
+    greetingFiredRef.current = currentSessionId;
+    void (async () => {
+      try {
+        setCallState('connecting');
+        const greetingReply = prepareCallAssistantReply(
+          await requestAssistantReply('（电话刚接通。你先开口——像平时接到这个人电话一样自然地说第一句话。不要解释规则，就是最自然的那个“喂”“诶”或者符合你性格的开场。）'),
+          callMode === 'video' && selectedChar?.videoCallPerformanceQuality !== 'high',
+        );
+        const greetingText = greetingReply.text;
+        setAvatarEmotion(greetingReply.performance.emotion);
+        setAvatarPerformance(greetingReply.performance);
+        const nowTs = Date.now();
+        const greetingBubble: CallBubble = {
+          id: `${nowTs}-greeting`,
+          role: 'assistant',
+          text: greetingText,
+          time: formatTime(),
+          timestamp: nowTs,
+          thinkingChain: greetingReply.thinkingChain,
+          performance: greetingReply.performance,
+          performanceTimeline: greetingReply.performanceCues,
+        };
+        setCallState('speaking');
+        setBubbles([greetingBubble]);
+        const dbId = await DB.saveMessage({
+          charId: selectedChar.id,
+          role: 'assistant',
+          type: 'text',
+          content: greetingText,
+          metadata: {
+            source: 'call',
+            callSessionId: currentSessionId,
+            ...(greetingReply.thinkingChain ? { thinkingChain: greetingReply.thinkingChain } : {}),
+            avatarPerformance: greetingReply.performance,
+            avatarPerformanceCues: greetingReply.performanceCues,
+          },
+        });
+        setBubbles(previous => previous.map(bubble => bubble.id === greetingBubble.id ? { ...bubble, dbId } : bubble));
+        markCallTurnDirty();
+
+        let playbackStarted = false;
+        if (callPreferences.voiceAutoPlay && canSpeakVoice()) {
+          try {
+            const { url } = await takeOrSynthesizeCallAudio(greetingText, greetingReply.speechEmotion);
+            if (url) {
+              trackBlobUrl(url);
+              setAudioUrl(url);
+              setBubbles(previous => previous.map(bubble => bubble.id === greetingBubble.id ? { ...bubble, audioUrl: url } : bubble));
+              window.setTimeout(() => playAudio(url, greetingReply.performanceCues, estimateSpeechMs(greetingText)), 0);
+              playbackStarted = true;
+            }
+          } catch {
+            // 语音失败不抹掉角色已经说出的文字。
+          }
+        }
+        if (!playbackStarted) {
+          if (callMode === 'video' && callPreferences.voiceAutoPlay) {
+            playSilentAvatarSpeech(greetingText, greetingReply.performanceCues);
+          } else {
+            setCallState('listening');
+          }
+        }
+      } catch (error: any) {
+        setCallState('error');
+        setErrorMessage(error?.message || '开场白生成失败');
+      }
+    })();
+  }, [viewMode, currentSessionId, callPreferences.characterInitiative]);
+
   const handleAvatarTouch = (hit: AvatarTouchHit) => {
     const character = selectedChar;
     if (!character) return;
@@ -2189,7 +2318,8 @@ ${sentencePlan}`;
     let turnPerformance = DEFAULT_AVATAR_PERFORMANCE;
     let turnPerformanceCues: AvatarPerformanceCue[] = [];
     try {
-      setCallState('thinking');
+      idleNudgeCountRef.current = 0;
+    setCallState('thinking');
       const reply = prepareCallAssistantReply(
         await requestAssistantReply(input, userDbId, pendingTouchesForTurn, true, userCameraSnapshotForTurn),
         callMode === 'video' && selectedChar?.videoCallPerformanceQuality !== 'high',
@@ -2249,6 +2379,7 @@ ${sentencePlan}`;
       markCallTurnDirty();
       runCallMemoryPalaceHook(selectedChar);
     }
+    if (!callPreferences.voiceAutoPlay) { setCallState('listening'); return; }
     if (!canSpeakVoice()) {
       if (callMode === 'video') {
         playSilentAvatarSpeech(assistantText, turnPerformanceCues);
@@ -2374,7 +2505,7 @@ ${sentencePlan}`;
 
       // Synthesize voice for the rerolled text (same pipeline as handleTurn)
       let rerollAudioPlayed = false;
-      if (canSpeakVoice()) {
+      if (callPreferences.voiceAutoPlay && canSpeakVoice()) {
         try {
           setCallState('speaking');
           const { url: rerollAudioUrl } = await takeOrSynthesizeCallAudio(rerolled, rerollReply.speechEmotion);
@@ -2390,7 +2521,7 @@ ${sentencePlan}`;
           addToast('语音合成失败，已保留文本', 'info');
         }
       }
-      if (!rerollAudioPlayed && callMode === 'video') {
+      if (!rerollAudioPlayed && callMode === 'video' && callPreferences.voiceAutoPlay) {
         playSilentAvatarSpeech(rerolled, rerollReply.performanceCues);
       } else {
         setCallState('listening');
@@ -2402,6 +2533,94 @@ ${sentencePlan}`;
       setRerollingBubbleId(null);
     }
   };
+  // 一段已经开始的通话安静太久时，角色可以自然接话两次。它是独立的显式偏好，
+  // 默认关闭；“谁先开口”只决定刚接通时的第一句话。
+  const idleNudgeBusyRef = useRef(false);
+  const fireIdleNudge = async () => {
+    if (!callPreferences.idleNudgeEnabled || idleNudgeBusyRef.current || !selectedChar?.id) return;
+    if (document.visibilityState === 'hidden') return;
+    idleNudgeBusyRef.current = true;
+    try {
+      setCallState('thinking');
+      const reply = prepareCallAssistantReply(
+        await requestAssistantReply(
+          '（电话里安静了好一会儿，对方一直没说话。你不是客服，不用干等——像真实通话里那样自然地开口：可以随口说说你这边正在做的事、把刚才的话题往下接一点，或者问问ta是不是在忙。一两句就好，别重复上一句。）',
+        ),
+        callMode === 'video' && selectedChar?.videoCallPerformanceQuality !== 'high',
+      );
+      const nudgeTs = Date.now();
+      const nudgeBubble: CallBubble = {
+        id: `${nudgeTs}-nudge`,
+        role: 'assistant',
+        text: reply.text,
+        time: formatTime(),
+        timestamp: nudgeTs,
+        thinkingChain: reply.thinkingChain,
+        performance: reply.performance,
+        performanceTimeline: reply.performanceCues,
+      };
+      setAvatarEmotion(reply.performance.emotion);
+      setAvatarPerformance(reply.performance);
+      setBubbles(previous => [...previous, nudgeBubble]);
+      idleNudgeCountRef.current += 1;
+      const dbId = await DB.saveMessage({
+        charId: selectedChar.id,
+        role: 'assistant',
+        type: 'text',
+        content: reply.text,
+        metadata: {
+          source: 'call',
+          callSessionId: currentSessionId,
+          ...(reply.thinkingChain ? { thinkingChain: reply.thinkingChain } : {}),
+          avatarPerformance: reply.performance,
+          avatarPerformanceCues: reply.performanceCues,
+        },
+      });
+      setBubbles(previous => previous.map(bubble => bubble.id === nudgeBubble.id ? { ...bubble, dbId } : bubble));
+      markCallTurnDirty();
+      runCallMemoryPalaceHook(selectedChar);
+
+      let playbackStarted = false;
+      if (callPreferences.voiceAutoPlay && canSpeakVoice()) {
+        try {
+          const { url } = await takeOrSynthesizeCallAudio(reply.text, reply.speechEmotion);
+          if (url) {
+            trackBlobUrl(url);
+            setAudioUrl(url);
+            setBubbles(previous => previous.map(bubble => bubble.id === nudgeBubble.id ? { ...bubble, audioUrl: url } : bubble));
+            window.setTimeout(() => playAudio(url, reply.performanceCues, estimateSpeechMs(reply.text)), 0);
+            playbackStarted = true;
+          }
+        } catch {
+          // 主动开口拿不到语音时保留文字，并按当前播放偏好降级。
+        }
+      }
+      if (!playbackStarted) {
+        if (callMode === 'video' && callPreferences.voiceAutoPlay) {
+          playSilentAvatarSpeech(reply.text, reply.performanceCues);
+        } else if (callPreferences.voiceAutoPlay) {
+          setCallState('speaking');
+          const speakingMs = Math.max(1200, Math.min(4200, reply.text.length * 90));
+          window.setTimeout(() => setCallState(previous => previous === 'speaking' ? 'listening' : previous), speakingMs);
+        } else {
+          setCallState('listening');
+        }
+      }
+    } catch {
+      setCallState(previous => previous === 'thinking' ? 'listening' : previous);
+    } finally {
+      idleNudgeBusyRef.current = false;
+    }
+  };
+  useEffect(() => {
+    if (!callPreferences.idleNudgeEnabled) return;
+    if (viewMode !== 'in-call' || callState !== 'listening' || isAudioPlaying) return;
+    if (!bubbles.length || idleNudgeCountRef.current >= 2 || idleNudgeBusyRef.current) return;
+    const silenceMs = 50_000 + Math.random() * 30_000 + idleNudgeCountRef.current * 40_000;
+    const timer = window.setTimeout(() => { void fireIdleNudge(); }, silenceMs);
+    return () => window.clearTimeout(timer);
+  }, [viewMode, callState, isAudioPlaying, bubbles, draftInput, callPreferences.idleNudgeEnabled]);
+
   // 用户在舞台上拖拽/缩放后的构图，写回角色的 videoAvatar 持久化。
   const handleStageFramingChange = (framing: AvatarStageFraming) => {
     if (!selectedChar?.videoAvatar) return;
@@ -2494,6 +2713,8 @@ ${sentencePlan}`;
     const pagedChars = groupChars.slice(page * ROLES_PER_PAGE, page * ROLES_PER_PAGE + ROLES_PER_PAGE);
     return (
       <div className={`relative h-full w-full bg-gradient-to-b text-white flex flex-col overflow-hidden ${lightTheme ? 'sully-call-light from-[#f5f2fd] via-[#eef0f8] to-[#e9ecf5]' : 'from-[#140d28] via-[#0a0613] to-[#05030c]'}`}>
+        {showCallPreferences && <CallPreferencesSheet preferences={callPreferences} onChange={setCallPreferences}
+          onClose={() => setShowCallPreferences(false)} onOpenSystemSettings={() => { setShowCallPreferences(false); openApp(AppID.Settings); }} />}
         {lightTheme && <style>{CALL_LIGHT_THEME_CSS}</style>}
         {avatarImportOverlay}
         {vroidBetaOverlay}
@@ -2754,7 +2975,7 @@ ${sentencePlan}`;
               <Clock size={16} weight="bold" style={{ color: accentColor }} /> 通话记录
             </button>
             <div className="flex items-center justify-between pt-1">
-              <button onClick={() => openApp(AppID.Settings)} title="设置"
+              <button onClick={() => setShowCallPreferences(true)} title="通话偏好"
                 className="w-9 h-9 rounded-full border border-white/15 bg-white/[0.04] flex items-center justify-center text-white/60 active:scale-90 transition">
                 <Gear size={16} weight="fill" />
               </button>
@@ -3230,9 +3451,12 @@ ${sentencePlan}`;
                 </>;
               })() : (line || bubble.text)}
             </div>
-            {bubble.role === 'assistant' && (bubble.audioUrl || isLatest) && (
+            {bubble.role === 'assistant' && (
               <div className="mt-2 flex gap-2 flex-wrap">
-                {bubble.audioUrl && <button onClick={() => { playAudio(bubble.audioUrl, bubble.performanceTimeline, estimateSpeechMs(bubble.text)); trackEvent('重播一条通话语音'); }} className="text-xs px-2.5 py-1 rounded-full bg-white/8 border border-white/15 text-white/70 transition hover:bg-white/15">重播语音</button>}
+                <button type="button" onClick={() => void handlePlayBubbleAudio(bubble)} disabled={!!generatingAudioBubbleId}
+                  className="px-3 text-xs disabled:opacity-40" style={{ minHeight: 44, borderRadius: R.button, background: F.surface, color: F.textSecondary, boxShadow: S.raisedSoft }}>
+                  {generatingAudioBubbleId === bubble.id ? '生成语音…' : bubble.audioUrl ? '重播语音' : '播放语音'}
+                </button>
                 {bubble.audioUrl && <button onClick={() => handleDownloadCallAudio(bubble.audioUrl, bubble.timestamp)} className="text-xs px-2.5 py-1 rounded-full bg-white/8 border border-white/15 text-white/70 transition hover:bg-white/15">下载</button>}
                 {isLatest && <button onClick={() => handleRerollAssistant(bubble)} disabled={!!rerollingBubbleId} className="text-xs px-2.5 py-1 rounded-full bg-white/8 border border-white/15 text-white/70 transition hover:bg-white/15 disabled:opacity-40">{rerollingBubbleId === bubble.id ? '换一种说法…' : '换个说法'}</button>}
               </div>

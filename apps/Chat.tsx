@@ -1,8 +1,11 @@
+import ChatHistoryCleanupModal from '../components/chat/ChatHistoryCleanupModal';
 import { AppID } from '../types';
 import React, { useState, useEffect, useRef, useLayoutEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useOS } from '../context/OSContext';
 import { DB } from '../utils/db';
+import { isVisibleChatMessage } from '../utils/chatMessageVisibility';
+import { createChatHistoryWindow, expandChatHistoryWindow, type ChatHistoryWindowRange } from '../utils/chatHistoryWindow';
 import { Message, MessageType, MemoryFragment, Emoji, EmojiCategory, DailySchedule, ScheduleSlot } from '../types';
 import { processImage, processImageToBlob } from '../utils/file';
 import { safeResponseJson, extractContent } from '../utils/safeApi';
@@ -10,6 +13,7 @@ import { buildChatFineTuneCss, mergeChatFineTune } from '../utils/chatFineTuneCs
 import ChatFineTunePanel from '../components/chat/ChatFineTunePanel';
 import ChatSearch from '../components/chat/ChatSearch';
 import TokenImg from '../components/os/TokenImg';
+import { F, S, R } from '../utils/clayTokens';
 import { FadersHorizontal, MagnifyingGlass } from '@phosphor-icons/react';
 import { generateDailyScheduleForChar, isScheduleFeatureOn } from '../utils/scheduleGenerator';
 import { getDailyScheduleForChar } from '../utils/dailySchedule';
@@ -134,7 +138,9 @@ const Chat: React.FC = () => {
     // 初值 false 让首次打开也是淡入、且不会有"先显示再变透明"的闪烁。
     // 角色切换「登场」过场是否显示。切换/进入角色时由 useLayoutEffect 在绘制前置真，覆盖住加载、避免闪到新聊天。
     const [showEntry, setShowEntry] = useState(false);
-    const WINDOW_RADIUS = 25;
+    const HISTORY_WINDOW_RADIUS = 25;
+    const HISTORY_WINDOW_BATCH_SIZE = 30;
+    const [historyWindowRange, setHistoryWindowRange] = useState<ChatHistoryWindowRange | null>(null);
     const [input, setInput] = useState('');
     const [isInputFocused, setIsInputFocused] = useState(false);
     const [isInputAuxiliaryPanelOpen, setIsInputAuxiliaryPanelOpen] = useState(false); // [EM: chat-quick-toolbar-auto-reply]
@@ -177,6 +183,16 @@ const Chat: React.FC = () => {
 
     const scrollRef = useRef<HTMLDivElement>(null);
     const lastMsgIdRef = useRef<number | null>(null);
+    // 最新图片在移动端异步解码后会把消息列表继续向下撑开。记录这一条，等真实高度
+    // 确定后再补一次贴底；用户一旦主动向上翻，就清掉它，绝不抢滚动位置。
+    const pendingMediaAutoScrollIdRef = useRef<number | null>(null);
+    const historyWindowRangeRef = useRef<ChatHistoryWindowRange | null>(null);
+    const historyWindowTotalRef = useRef(0);
+    const historyWindowLoadingRef = useRef(false);
+    const historyPrependAnchorRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
+    const historyJumpUnlockTimerRef = useRef<number | null>(null);
+    const historyWindowScrollEnabledRef = useRef(false);
+
     const scrollThrottleRef = useRef(0);
     const visibleCountRef = useRef(30);
     const activeCharIdRef = useRef(activeCharacterId);
@@ -223,6 +239,8 @@ const Chat: React.FC = () => {
     const [settingsHideSysLogs, setSettingsHideSysLogs] = useState(false);
     const [settingsHtmlModeCustomPrompt, setSettingsHtmlModeCustomPrompt] = useState('');
     const [preserveContext, setPreserveContext] = useState(true);
+    const [showHistoryCleanup, setShowHistoryCleanup] = useState(false);
+    useEffect(() => setShowHistoryCleanup(false), [activeCharacterId]);
     const [isVectorizing, setIsVectorizing] = useState(false);
     // 记忆宫殿「一键存入」：打开设置弹窗时算出待处理条数（排除热区的真实口径），处理中显示逐轮进度
     const [vectorizePendingCount, setVectorizePendingCount] = useState<number | null>(null);
@@ -272,6 +290,7 @@ const Chat: React.FC = () => {
     const [selectedThinkingMsgIds, setSelectedThinkingMsgIds] = useState<Set<number>>(new Set());
 
     // --- Translation State (per-character) ---
+    const [translationExpanded, setTranslationExpanded] = useState(() => localStorage.getItem(`chat_translate_expanded_${activeCharacterId}`) === 'true');
     const [translationEnabled, setTranslationEnabled] = useState(() => {
         try { return JSON.parse(localStorage.getItem(`chat_translate_enabled_${activeCharacterId}`) || 'false'); } catch { return false; }
     });
@@ -405,7 +424,7 @@ const Chat: React.FC = () => {
     }, [activeCharacterId]);
 
     // --- Initialize Hook ---
-    const { isTyping, streamingBubbles, streamingThinking, recallStatus, searchStatus, diaryStatus, emotionStatus, memoryPalaceStatus, memoryPalaceResult, setMemoryPalaceResult, lastDigestResult, setLastDigestResult, lastTokenUsage, tokenBreakdown, contextComposition, setLastTokenUsage, triggerAI, startProactiveChat, stopProactiveChat, isProactiveActive } = useChatAI({
+    const { isTyping, streamingBubbles, streamingThinking, streamingHandoverIds, recallStatus, searchStatus, diaryStatus, emotionStatus, memoryPalaceStatus, memoryPalaceResult, setMemoryPalaceResult, lastDigestResult, setLastDigestResult, lastTokenUsage, tokenBreakdown, contextComposition, setLastTokenUsage, triggerAI, startProactiveChat, stopProactiveChat, isProactiveActive } = useChatAI({
         char,
         userProfile,
         apiConfig,
@@ -883,18 +902,15 @@ const Chat: React.FC = () => {
         if (!activeCharacterId) return;
 
         const charIdAtStart = activeCharacterId;
-        // 只用倒序游标取「最近 N 条」（含少量缓冲，抵消 date/call/系统消息被过滤后条数变少），
-        // 不再 getAll 全量反序列化 —— 图片多/消息多的账号原本要把整段历史（含内联图片）一次性读进
-        // 内存才显示 30 条，首次打开会卡好几秒。totalCount 走 index.count，不反序列化、极廉价。
+        // 先过滤，再取最近 N 条，避免连续的通话/见面记录挤掉聊天。
         const fetchLimit = requestedVisibleCount >= 100000 ? requestedVisibleCount : requestedVisibleCount + 16;
+        const accept = (message: Message) => isVisibleChatMessage(message, !!charRef.current?.hideSystemLogs, localStorage.getItem('chat_hide_activity_cards') !== 'false');
         const applyResult = (recent: Message[], totalCount: number) => {
             // 用 ref 取当前 char（避免闭包过期）
             const currentChar = charRef.current;
             // 不在视觉层过滤 hideBeforeMessageId —— 用户能往上滚回看，
             // 上下文截断仅作用于发给 LLM 的 prompt（在 chatPrompts.ts 里处理）。
-            const chatScopeMsgs = recent
-                .filter(m => m.metadata?.source !== 'date' && m.metadata?.source !== 'call' && m.metadata?.source !== 'story_theater_memory')
-                .filter(m => !(currentChar?.hideSystemLogs && m.role === 'system' && m.type !== 'score_card'));
+            const chatScopeMsgs = recent.filter(accept);
             // totalCount 走 charId 索引全量计数，包含群聊消息（以及上面被过滤的约会/通话
             // 消息）——它们永远不会出现在单聊列表里。直接拿它算「加载历史消息」会出现
             // 有计数、点击却加载不出任何东西的幽灵按钮。倒序游标没取满 fetchLimit 条
@@ -904,7 +920,7 @@ const Chat: React.FC = () => {
             setMessages(chatScopeMsgs.slice(-requestedVisibleCount));
         };
         try {
-            const { messages: recent, totalCount } = await DB.getRecentMessagesWithCount(activeCharacterId, fetchLimit);
+            const { messages: recent, totalCount } = await DB.getRecentMessagesWithCount(activeCharacterId, fetchLimit, accept);
             // Guard against stale async results: if the user switched characters
             // while the DB query was in flight, discard this result.
             if (activeCharIdRef.current !== charIdAtStart) return;
@@ -915,7 +931,7 @@ const Chat: React.FC = () => {
             await new Promise(r => setTimeout(r, 200));
             if (activeCharIdRef.current !== charIdAtStart) return;
             try {
-                const { messages: recent, totalCount } = await DB.getRecentMessagesWithCount(activeCharacterId, fetchLimit);
+                const { messages: recent, totalCount } = await DB.getRecentMessagesWithCount(activeCharacterId, fetchLimit, accept);
                 if (activeCharIdRef.current !== charIdAtStart) return;
                 applyResult(recent, totalCount);
             } catch { /* give up silently */ }
@@ -965,6 +981,8 @@ const Chat: React.FC = () => {
             );
             setVisibleCount(30);
             visibleCountRef.current = 30;
+            setTranslationExpanded(localStorage.getItem(`chat_translate_expanded_${activeCharacterId}`) === 'true');
+            pendingMediaAutoScrollIdRef.current = null;
             lastMsgIdRef.current = null;
             scrollThrottleRef.current = 0;
             setLastTokenUsage(null);
@@ -975,6 +993,16 @@ const Chat: React.FC = () => {
             setVectorizeResult(null);
             setShowingTargetIds(new Set());
             setWindowedFocusMsgId(null);
+        setHistoryWindowRange(null);
+        historyWindowRangeRef.current = null;
+        historyWindowTotalRef.current = 0;
+        historyWindowLoadingRef.current = false;
+        historyPrependAnchorRef.current = null;
+        historyWindowScrollEnabledRef.current = false;
+        if (historyJumpUnlockTimerRef.current) {
+            window.clearTimeout(historyJumpUnlockTimerRef.current);
+            historyJumpUnlockTimerRef.current = null;
+        }
             setFlashMsgId(null);
             try {
                 const rawToolStatus = localStorage.getItem(`instant_tool_status_${activeCharacterId}`);
@@ -1138,11 +1166,73 @@ const Chat: React.FC = () => {
         // windowed 模式下用户在翻旧消息，不要被新消息打断滚走。
         if (currentLastId !== lastMsgIdRef.current) {
             if (windowedFocusMsgId === null) {
+                pendingMediaAutoScrollIdRef.current = currentLastId;
                 scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+            } else {
+                pendingMediaAutoScrollIdRef.current = null;
             }
             lastMsgIdRef.current = currentLastId;
         }
     }, [messages, activeCharacterId, selectionMode, windowedFocusMsgId]);
+
+    const extendHistoryWindow = useCallback((direction: 'older' | 'newer') => {
+        const scroller = scrollRef.current;
+        const range = historyWindowRangeRef.current;
+        if (!scroller || !range || historyWindowLoadingRef.current) return;
+
+        const nextRange = expandChatHistoryWindow(
+            range,
+            historyWindowTotalRef.current,
+            direction,
+            HISTORY_WINDOW_BATCH_SIZE,
+        );
+        if (nextRange.start === range.start && nextRange.end === range.end) return;
+
+        historyWindowLoadingRef.current = true;
+        if (direction === 'older') {
+            // 前插消息会把当前内容整体向下顶；记录原高度，提交 DOM 后补偿差值，
+            // 用户看到的位置就不会突然跳走。
+            historyPrependAnchorRef.current = {
+                scrollHeight: scroller.scrollHeight,
+                scrollTop: scroller.scrollTop,
+            };
+        }
+        historyWindowRangeRef.current = nextRange;
+        setHistoryWindowRange(nextRange);
+    }, []);
+
+    useLayoutEffect(() => {
+        if (!historyWindowRange) return;
+        const anchor = historyPrependAnchorRef.current;
+        const scroller = scrollRef.current;
+        if (anchor && scroller) {
+            scroller.scrollTop = anchor.scrollTop + (scroller.scrollHeight - anchor.scrollHeight);
+        }
+        historyPrependAnchorRef.current = null;
+        historyWindowLoadingRef.current = false;
+    }, [historyWindowRange]);
+
+    const handleChatScroll = useCallback(() => {
+        const scroller = scrollRef.current;
+        if (!scroller) return;
+        const distanceFromBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
+        if (distanceFromBottom > 96) pendingMediaAutoScrollIdRef.current = null;
+
+        if (historyWindowScrollEnabledRef.current && historyWindowRangeRef.current) {
+            if (scroller.scrollTop <= 96) extendHistoryWindow('older');
+            else if (distanceFromBottom <= 96) extendHistoryWindow('newer');
+        }
+    }, [extendHistoryWindow]);
+
+    const handleMessageMediaLoad = useCallback((messageId: number) => {
+        if (windowedFocusMsgId !== null || pendingMediaAutoScrollIdRef.current !== messageId) return;
+        requestAnimationFrame(() => {
+            if (pendingMediaAutoScrollIdRef.current !== messageId) return;
+            const scroller = scrollRef.current;
+            if (scroller) scroller.scrollTop = scroller.scrollHeight;
+            pendingMediaAutoScrollIdRef.current = null;
+        });
+    }, [windowedFocusMsgId]);
 
     useEffect(() => {
         if (isTyping && scrollRef.current && !selectionMode && windowedFocusMsgId === null) {
@@ -1203,6 +1293,16 @@ const Chat: React.FC = () => {
         // 发消息隐含"回到当前聊天"——退出 windowed 旧消息浏览模式
         if (windowedFocusMsgId !== null) {
             setWindowedFocusMsgId(null);
+        setHistoryWindowRange(null);
+        historyWindowRangeRef.current = null;
+        historyWindowTotalRef.current = 0;
+        historyWindowLoadingRef.current = false;
+        historyPrependAnchorRef.current = null;
+        historyWindowScrollEnabledRef.current = false;
+        if (historyJumpUnlockTimerRef.current) {
+            window.clearTimeout(historyJumpUnlockTimerRef.current);
+            historyJumpUnlockTimerRef.current = null;
+        }
             setFlashMsgId(null);
         }
 
@@ -2572,27 +2672,66 @@ const Chat: React.FC = () => {
         addToast('已设置 AI 原文读取断点', 'success');
     };
 
-    // 跳转到旧消息：加载全量到 messages，再用 windowedFocusMsgId 把 displayMessages
-    // 收窄到目标周围 51 条。"回到当前聊天"会把 visibleCount 重置回 30。
+    // 跳转到旧消息：先定位到目标周围的小窗口，再在用户滑到窗口边缘时按批次
+    // 向前/向后扩展。这样既不会首次挂载整段超长 DOM，也不会把用户锁死在 51 条里。
     const handleJumpToMessageInChat = useCallback(async (messageId: number) => {
         if (!activeCharacterId) return;
         setModalType('none');
+        const requestCharId = activeCharacterId;
         const LARGE = 999999;
         visibleCountRef.current = LARGE;
         setVisibleCount(LARGE);
-        await reloadMessages(LARGE);
+        const allMsgs = await DB.getMessagesByCharId(requestCharId, true);
+        if (activeCharIdRef.current !== requestCharId) return;
+        const browseableMessages = allMsgs.filter(message => isVisibleChatMessage(message, !!char?.hideSystemLogs, localStorage.getItem('chat_hide_activity_cards') !== 'false'));
+        const targetIndex = browseableMessages.findIndex(message => message.id === messageId);
+        if (targetIndex < 0) {
+            visibleCountRef.current = LOAD_BATCH_SIZE;
+            setVisibleCount(LOAD_BATCH_SIZE);
+            addToast('这条记录当前未显示在聊天界面中', 'info');
+            await reloadMessages(LOAD_BATCH_SIZE);
+            return;
+        }
+
+        const nextRange = createChatHistoryWindow(
+            browseableMessages.length,
+            targetIndex,
+            HISTORY_WINDOW_RADIUS,
+        );
+        setMessages(allMsgs);
+        setTotalMsgCount(browseableMessages.length);
+        historyWindowTotalRef.current = browseableMessages.length;
+        historyWindowRangeRef.current = nextRange;
+        historyWindowScrollEnabledRef.current = false;
+        setHistoryWindowRange(nextRange);
         setWindowedFocusMsgId(messageId);
         setFlashMsgId(messageId);
-        // 等下一帧让目标节点挂上 DOM 再滚
-        requestAnimationFrame(() => {
+        // 等窗口节点挂上 DOM 再定位；定位动画结束后才开放边缘续载，避免滚动动画
+        // 自己触发 onScroll，提前改动窗口。
+        requestAnimationFrame(() => requestAnimationFrame(() => {
             const el = document.getElementById(`chat-msg-${messageId}`);
             el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        });
+            if (historyJumpUnlockTimerRef.current) window.clearTimeout(historyJumpUnlockTimerRef.current);
+            historyJumpUnlockTimerRef.current = window.setTimeout(() => {
+                historyWindowScrollEnabledRef.current = true;
+                historyJumpUnlockTimerRef.current = null;
+            }, 450);
+        }));
         window.setTimeout(() => setFlashMsgId(null), 2200);
-    }, [activeCharacterId, reloadMessages]);
+    }, [activeCharacterId, char?.hideSystemLogs, reloadMessages, addToast]);
 
     const handleBackToCurrent = async () => {
         setWindowedFocusMsgId(null);
+        setHistoryWindowRange(null);
+        historyWindowRangeRef.current = null;
+        historyWindowTotalRef.current = 0;
+        historyWindowLoadingRef.current = false;
+        historyPrependAnchorRef.current = null;
+        historyWindowScrollEnabledRef.current = false;
+        if (historyJumpUnlockTimerRef.current) {
+            window.clearTimeout(historyJumpUnlockTimerRef.current);
+            historyJumpUnlockTimerRef.current = null;
+        }
         setFlashMsgId(null);
         visibleCountRef.current = 30;
         setVisibleCount(30);
@@ -3045,31 +3184,42 @@ const Chat: React.FC = () => {
     // 真正想从聊天记录里抹掉，应该走"删除"。
     // windowed 模式：定位到旧消息时只渲染目标周围 51 条，避免 DOM 卡爆。
 
-    // EM: 隐藏跨 App 动态卡片（彼方/查手机/剧场/家园/闪光/新闻等），保持聊天纯粹
-    // 但保留用户通过浏览器插件主动分享的 social_card（metadata.post.source === 'browser_extension'）
-    const ACTIVITY_CARD_TYPES = new Set(['vr_card', 'phone_card', 'sim_card', 'theater_card', 'world_card', 'social_card', 'news_card', 'trpg_card']);
+    // [EM: chat-hide-activity-cards]
     const hideActivityCards = localStorage.getItem('chat_hide_activity_cards') !== 'false';
+    const chatDisplayMessages = useMemo(
+        () => messages.filter(message => isVisibleChatMessage(message, !!char?.hideSystemLogs, hideActivityCards)),
+        [messages, char?.id, char?.hideSystemLogs, hideActivityCards],
+    );
+
+    useEffect(() => {
+        if (windowedFocusMsgId !== null) historyWindowTotalRef.current = chatDisplayMessages.length;
+    }, [chatDisplayMessages.length, windowedFocusMsgId]);
 
     const displayMessages = useMemo(() => {
-        const base = messages
-            .filter(m => m.metadata?.source !== 'date' && m.metadata?.source !== 'call' && m.metadata?.source !== 'story_theater_memory')
-            .filter(m => !m.metadata?.proactiveHint)
-            .filter(m => { if (char?.hideSystemLogs && m.role === 'system' && m.type !== 'score_card') return false; return true; })
-            .filter(m => {
-                if (!hideActivityCards || !ACTIVITY_CARD_TYPES.has(m.type)) return true;
-                if (m.type === 'social_card' && m.metadata?.post?.source === 'browser_extension') return true;
-                return false;
-            });
         if (windowedFocusMsgId !== null) {
-            const idx = base.findIndex(m => m.id === windowedFocusMsgId);
+            if (historyWindowRange) {
+                return chatDisplayMessages.slice(
+                    Math.max(0, historyWindowRange.start),
+                    Math.min(chatDisplayMessages.length, historyWindowRange.end),
+                );
+            }
+            const idx = chatDisplayMessages.findIndex(m => m.id === windowedFocusMsgId);
             if (idx >= 0) {
-                const start = Math.max(0, idx - WINDOW_RADIUS);
-                const end = Math.min(base.length, idx + WINDOW_RADIUS + 1);
-                return base.slice(start, end);
+                return chatDisplayMessages.slice(
+                    Math.max(0, idx - HISTORY_WINDOW_RADIUS),
+                    Math.min(chatDisplayMessages.length, idx + HISTORY_WINDOW_RADIUS + 1),
+                );
             }
         }
-        return base.slice(-visibleCount);
-    }, [messages, char?.id, char?.hideSystemLogs, hideActivityCards, visibleCount, windowedFocusMsgId]);
+        return chatDisplayMessages.slice(-visibleCount);
+    }, [chatDisplayMessages, visibleCount, windowedFocusMsgId, historyWindowRange]);
+
+    // 整组预览交接前，暂不重复绘制已经落库的同一条回复。
+    const renderedMessages = useMemo(() => {
+        if (selectionMode || (!streamingBubbles.length && !streamingThinking)) return displayMessages;
+        const pending = new Set(streamingHandoverIds);
+        return displayMessages.filter(message => !pending.has(message.id));
+    }, [displayMessages, streamingBubbles, streamingThinking, streamingHandoverIds, selectionMode]);
 
     const collapsedCount = Math.max(0, totalMsgCount - displayMessages.length);
 
@@ -3457,6 +3607,11 @@ const Chat: React.FC = () => {
                  </div>
              )}
 
+             {showHistoryCleanup && char && <ChatHistoryCleanupModal key={char.id} character={char} onClose={() => setShowHistoryCleanup(false)} onDeleted={async () => {
+                 setWindowedFocusMsgId(null); setHistoryWindowRange(null); historyWindowRangeRef.current = null;
+                 historyWindowScrollEnabledRef.current = false; setModalType('none'); await reloadMessages(visibleCountRef.current);
+                 addToast('选中的原文已清理，记忆与收藏保留', 'success');
+             }} />}
              <ChatModals
                 modalType={modalType} setModalType={setModalType}
                 transferAmt={transferAmt} setTransferAmt={setTransferAmt}
@@ -3485,7 +3640,7 @@ const Chat: React.FC = () => {
                 onTransfer={() => { if(transferAmt) handleSendText(`[转账]`, 'transfer', { amount: transferAmt, note: transferNote.trim() || undefined, status: 'pending' }); setTransferNote(''); setModalType('none'); }}
                 onImportEmoji={handleImportEmoji}
                 onSaveSettings={saveSettings} onBgUpload={handleBgUpload} onRemoveBg={() => updateCharacter(char.id, { chatBackground: undefined })}
-                onClearHistory={handleClearHistory} onArchive={handleFullArchive}
+                onOpenHistoryCleanup={() => { setModalType('none'); setShowHistoryCleanup(true); }} onClearHistory={handleClearHistory} onArchive={handleFullArchive}
                 onCreatePrompt={createNewPrompt} onEditPrompt={editSelectedPrompt} onSavePrompt={handleSavePrompt} onDeletePrompt={handleDeletePrompt}
                 onSetHistoryStart={handleSetHistoryStart} onRestoreAdaptiveContext={restoreAdaptiveContext} onJumpToMessageInChat={handleJumpToMessageInChat} onEnterSelectionMode={handleEnterSelectionMode}
                 onReplyMessage={handleReplyMessage}
@@ -3495,6 +3650,12 @@ const Chat: React.FC = () => {
                 onConfirmEditMessage={confirmEditMessage} onDeleteMessage={handleDeleteMessage} onCopyMessage={handleCopyMessage} onDeleteEmoji={handleDeleteEmoji} onDeleteCategory={handleDeleteCategory}
                 allCharacters={characters} onSaveCategoryVisibility={handleSaveCategoryVisibility}
                 translationEnabled={translationEnabled}
+                translationExpanded={translationExpanded}
+                onToggleTranslationExpanded={() => {
+                    const next = !translationExpanded;
+                    setTranslationExpanded(next);
+                    localStorage.setItem(`chat_translate_expanded_${activeCharacterId}`, JSON.stringify(next));
+                }}
                 onToggleTranslation={() => { const next = !translationEnabled; setTranslationEnabled(next); localStorage.setItem(`chat_translate_enabled_${activeCharacterId}`, JSON.stringify(next)); if (next) { trackEvent('开启聊天翻译', { targetLang: isTranslationLangPreset(translateTargetLang) ? translateTargetLang : 'custom' }); } if (!next) { setShowingTargetIds(new Set()); } }}
                 translateSourceLang={translateSourceLang}
                 translateTargetLang={translateTargetLang}
@@ -3740,7 +3901,7 @@ const Chat: React.FC = () => {
                 );
             })()}
 
-            <div ref={scrollRef} onClick={() => { if (inputPreferences.autoReply) setShowPanel('none'); }} className="flex-1 overflow-y-auto overflow-x-hidden pt-6 pb-6 no-scrollbar" style={{ backgroundImage: activeTheme.type === 'custom' && activeTheme.user.backgroundImage ? 'none' : undefined }}>
+            <div ref={scrollRef} onScroll={handleChatScroll} onClick={() => { if (inputPreferences.autoReply) setShowPanel('none'); }} className="flex-1 overflow-y-auto overflow-x-hidden pt-6 pb-6 no-scrollbar" style={{ backgroundImage: activeTheme.type === 'custom' && activeTheme.user.backgroundImage ? 'none' : undefined }}>
                 {windowedFocusMsgId !== null && (
                     <div className="sticky top-0 z-20 flex justify-center pb-2 pointer-events-none">
                         <button onClick={handleBackToCurrent} className="pointer-events-auto px-4 py-2 bg-primary text-white rounded-full text-xs font-bold shadow-lg active:scale-95 transition-transform flex items-center gap-1.5">
@@ -3760,9 +3921,12 @@ const Chat: React.FC = () => {
                     </div>
                 )}
 
-                {displayMessages.map((m, i) => {
-                    const prevMessage = i > 0 ? displayMessages[i - 1] : null;
-                    const nextMessage = i < displayMessages.length - 1 ? displayMessages[i + 1] : null;
+                {windowedFocusMsgId !== null && historyWindowRange && historyWindowRange.start > 0 && (
+                    <div className="flex justify-center mb-4"><button onClick={() => extendHistoryWindow('older')} style={{ boxShadow: S.raisedSoft, background: F.surface, borderRadius: R.button, color: F.textSecondary, minHeight: 44, padding: '0 16px', fontSize: 12 }}>加载更早的消息</button></div>
+                )}
+                {renderedMessages.map((m, i) => {
+                    const prevMessage = i > 0 ? renderedMessages[i - 1] : null;
+                    const nextMessage = i < renderedMessages.length - 1 ? renderedMessages[i + 1] : null;
                     const messageGroupGapMs = 30 * 60 * 1000;
                     const breaksWithPrevious =
                         !prevMessage ||
@@ -3799,6 +3963,7 @@ const Chat: React.FC = () => {
                         >
                         <MessageItem
                             msg={m}
+                            onMediaLoad={handleMessageMediaLoad}
                             isFirstInGroup={breaksWithPrevious}
                             isLastInGroup={breaksWithNext}
                             activeTheme={activeTheme}
@@ -3814,6 +3979,7 @@ const Chat: React.FC = () => {
                             isThinkingSelected={selectedThinkingMsgIds.has(m.id)}
                             onToggleThinkingSelect={toggleThinkingSelection}
                             translationEnabled={translationEnabled && m.type === 'text' && m.role === 'assistant'}
+                            translationExpanded={translationExpanded}
                             isShowingTarget={showingTargetIds.has(m.id)}
                             onTranslateToggle={handleTranslateToggle}
                             voiceData={voiceDataMap[m.id]}
@@ -3903,6 +4069,9 @@ const Chat: React.FC = () => {
                 {/* 流式预览直接复用正式 MessageItem：气泡变体、主题背景图/装饰、头像框、
                     grouped/every_message、消息间距、时间戳、Markdown 与所有自定义 CSS 天然一致。
                     落库时 useChatAI 会登记接棒 id，正式消息首帧不再重播 fade-in。 */}
+                {windowedFocusMsgId !== null && historyWindowRange && historyWindowRange.end < chatDisplayMessages.length && (
+                    <div className="flex justify-center my-4"><button onClick={() => extendHistoryWindow('newer')} style={{ boxShadow: S.raisedSoft, background: F.surface, borderRadius: R.button, color: F.textSecondary, minHeight: 44, padding: '0 16px', fontSize: 12 }}>加载后面的消息</button></div>
+                )}
                 {streamingBubbles.length > 0 && !selectionMode && (
                     <>
                         {streamingBubbles.map((bubble, i) => (

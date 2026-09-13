@@ -1,3 +1,4 @@
+import { stripLeakedSourceTags } from '../../utils/sanitize';
 
 
 
@@ -1464,6 +1465,7 @@ const LifeSimResetCardView: React.FC<{ card: any }> = ({ card }) => {
 };
 
 interface MessageItemProps {
+    onMediaLoad?: (messageId: number) => void;
     msg: Message;
     isFirstInGroup: boolean;
     isLastInGroup: boolean;
@@ -1481,6 +1483,7 @@ interface MessageItemProps {
     onToggleThinkingSelect?: (id: number) => void;
     // Translation (AI messages only, bilingual content parsed from %%BILINGUAL%%)
     translationEnabled?: boolean;
+    translationExpanded?: boolean;
     isShowingTarget?: boolean;
     onTranslateToggle?: (msgId: number) => void;
     // Voice TTS
@@ -1525,6 +1528,7 @@ interface MessageItemProps {
 }
 
 const MessageItem = React.memo(({
+    onMediaLoad,
     msg: m,
     isFirstInGroup,
     isLastInGroup,
@@ -1540,6 +1544,7 @@ const MessageItem = React.memo(({
     isThinkingSelected,
     onToggleThinkingSelect,
     translationEnabled,
+    translationExpanded,
     isShowingTarget,
     onTranslateToggle,
     voiceData,
@@ -2105,7 +2110,7 @@ const timeHint = durationSec <= 240 ? '差不多是一杯咖啡的时间' : '像
             )}
             <div className={[
                 'sully-chat-message',
-                isUser ? 'sully-chat-message-user justify-end' : 'sully-chat-message-ai justify-start',
+                isUser ? 'sully-chat-message-user justify-end' : `sully-chat-message-ai ${isModuleCard && centerModules ? 'justify-center' : 'justify-start'}`,
                 isFirstInGroup ? 'sully-chat-message-group-first' : '',
                 isLastInGroup ? 'sully-chat-message-group-last' : '',
                 isModuleCard ? 'sully-chat-message-module' : '',
@@ -2155,7 +2160,7 @@ const timeHint = durationSec <= 240 ? '差不多是一杯咖啡的时间' : '像
                     Added min-w-0 to prevent flexbox overflow issues.
                     Added explicit margins to clear absolute avatars.
                 */}
-                <div className={`sully-chat-message-content relative max-w-[72%] min-w-0 ${isModuleCard && centerModules ? 'mx-auto' : (!isUser ? 'ml-12' : 'mr-12')} ${isModuleCard ? 'sully-html-wrap' : ''}`}>
+                <div className={`sully-chat-message-content relative min-w-0 ${isModuleCard && centerModules ? 'w-fit max-w-full mx-auto' : `max-w-[72%] ${!isUser ? 'ml-12' : 'mr-12'}`} ${isModuleCard ? 'sully-html-wrap' : ''}`}>
                     <div
                         aria-hidden="true"
                         className={`absolute -right-10 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full flex items-center justify-center pointer-events-none transition-all duration-150 ${isReplyReady ? 'bg-indigo-500 text-white shadow-md shadow-indigo-200' : 'bg-white/90 text-slate-400 shadow-sm'}`}
@@ -3466,6 +3471,7 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
             <div className="relative group">
                 {m.content ? (
                     <ChatImage
+                        onLoad={() => onMediaLoad?.(m.id)}
                         content={m.content}
                         alt={isAiPhoto ? (m.metadata as any)?.photoPrompt : 'Uploaded'}
                         isAiPhoto={isAiPhoto}
@@ -3603,13 +3609,12 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
     };
 
     // Robust content cleanup: strip legacy markers, separators, bilingual tags, stray formatting
-    const stripJunk = (s: string) => stripFishCuesForDisplay(s
+    const stripJunk = (s: string) => stripFishCuesForDisplay(stripLeakedSourceTags(s)
         .replace(/%%TRANS%%[\s\S]*/gi, '')           // legacy translation marker
         .replace(/%%BILINGUAL%%/gi, '\n')            // raw bilingual marker → newline
         // stray bilingual XML tags — 容错版：全角括号/斜杠、标签内空格、简繁、少写 `>` 的截断形态
         // (如 `</译文`) 都吃掉。掉格式消息已经按破标签落过库，显示端不容错就会原样漏给用户。
         .replace(/[<＜]\s*[/／]?\s*(?:翻[译譯]|原文|[译譯]文)\s*[>＞]?/g, '')
-        .replace(/\s*\[(?:聊天|通话|约会)\]\s*/g, '\n')   // source tags leaked from history context
         .replace(/\[\[(?:QU[OA]TE|引用)[：:][\s\S]*?\]\]/g, '')  // residual double-bracket quotes (incl. typos & Chinese)
         .replace(/\[(?:QU[OA]TE|引用)[：:][^\]]*\]/g, '')     // residual single-bracket quotes (incl. typos & Chinese)
         .replace(/\[[^\[\]\n「」]{0,24}引用了[^\[\]\n「」]{0,24}「[^」\n]*?」[^\[\]\n]{0,24}\]\s*/g, '')  // imitated history render [xx引用了xx说的「…」，并回复了 ↓]
@@ -3656,9 +3661,12 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
     const langAContent = hasBilingual ? stripJunk(rawContent.substring(0, bilingualIdx)) : stripJunk(rawContent);
     const langBContent = hasBilingual ? stripJunk(rawContent.substring(bilingualIdx + '%%BILINGUAL%%'.length)) : '';
 
-    // Display: "选" language by default, "译" language when toggled
-    const displayContent = (isShowingTarget && langBContent) ? langBContent : langAContent;
-    const showTranslateButton = translationEnabled && hasBilingual && langBContent;
+    // Display: 默认点击切换；可选“直接展开”时，上方原文 + 下方译文同时显示。
+    const showExpandedTranslation = Boolean(translationEnabled && translationExpanded && hasBilingual && langBContent);
+    const displayContent = showExpandedTranslation
+        ? langAContent
+        : (isShowingTarget && langBContent) ? langBContent : langAContent;
+    const showTranslateButton = translationEnabled && !showExpandedTranslation && hasBilingual && langBContent;
 
     // Check if raw content has a <语音> tag (voice-only message that hasn't been TTS'd yet).
     // 未闭合的开标签也算 (历史坏数据: 语音块曾被 chunkText 切碎, 开标签落单) —
@@ -3747,6 +3755,12 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
             {displayContent && !isForeignVoiceMsg && !isVoiceBubble && (
             <div className="relative z-10 text-[15px] leading-relaxed whitespace-pre-wrap break-all select-text" style={{ color: styleConfig.textColor }}>
                 {renderContent(displayContent)}
+                {showExpandedTranslation && (
+                    <div className="mt-2.5 pt-2 border-t border-current/15">
+                        <div className="mb-1 text-[10px] font-semibold opacity-50 select-none">翻译</div>
+                        {renderContent(langBContent)}
+                    </div>
+                )}
             </div>
             )}
 
@@ -3978,6 +3992,8 @@ prev.charAvatar === next.charAvatar &&
            prev.userAvatar === next.userAvatar &&
            prev.selectionMode === next.selectionMode &&
            prev.isSelected === next.isSelected &&
+           prev.onMediaLoad === next.onMediaLoad &&
+           prev.translationExpanded === next.translationExpanded &&
            prev.translationEnabled === next.translationEnabled &&
            prev.isShowingTarget === next.isShowingTarget &&
 prev.avatarShape === next.avatarShape &&

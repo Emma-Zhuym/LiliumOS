@@ -43,17 +43,16 @@ describe('CallApp runtime references', () => {
     expect(source.match(/runCallMemoryPalaceHook\(selectedChar\)/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
   });
 
-  it('waits for an explicit user send before requesting a call reply', () => {
+  it('keeps recognized speech in the draft and gates initiative on call preferences', () => {
     const source = readFileSync(path.resolve(__dirname, '../apps/CallApp.tsx'), 'utf8');
 
     expect(source).toContain("onFinal: (t) => setDraftInput(t)");
     expect(source).toContain("await requestAssistantReply(input, userDbId, pendingTouchesForTurn, true, userCameraSnapshotForTurn)");
     expect(source).toContain("{sendingBusy ? '…' : '发送'}");
     expect(source).toMatch(/const beginSelectedCall[\s\S]*?setViewMode\('in-call'\);\s+setCallStartedAt\(Date\.now\(\)\);\s+setCallState\('listening'\);/);
-    expect(source).not.toContain('fireIdleNudge');
-    expect(source).not.toContain('idleNudgeCountRef');
-    expect(source).not.toContain('电话刚接通。你先开口');
-    expect(source).not.toContain('const silenceMs =');
+    expect(source).toContain("if (!callPreferences.characterInitiative || viewMode !== 'in-call' || bubbles.length > 0) return");
+    expect(source).toContain('if (!callPreferences.idleNudgeEnabled || idleNudgeBusyRef.current || !selectedChar?.id) return');
+    expect(source).toContain('idleNudgeCountRef.current >= 2');
   });
 
   it('offers game-like video layouts and a collapsible immersive subtitle', () => {

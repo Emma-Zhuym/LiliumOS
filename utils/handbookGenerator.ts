@@ -1,3 +1,4 @@
+import { loadCharacterContextMessages } from './chatContextRange';
 /**
  * 手账生成器
  *
@@ -549,7 +550,7 @@ export async function generateLifestreamPage(
     // 这是"像不像 ta"最关键的输入: prompt 描述规则,样本展示语气
     let speechSamples: string[] = [];
     try {
-        const all = await DB.getMessagesByCharId(char.id, true);
+        const all = await loadCharacterContextMessages(char);
         const charMsgs = all.filter(m =>
             m.role === 'assistant'
             && typeof m.content === 'string'

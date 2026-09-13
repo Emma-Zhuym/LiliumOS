@@ -1,5 +1,5 @@
 
-import { useState, useRef, useEffect, MutableRefObject } from 'react';
+import { useState, useRef, useEffect, useSyncExternalStore, MutableRefObject } from 'react';
 import { CharacterProfile, UserProfile, Message, Emoji, EmojiCategory, GroupProfile, RealtimeConfig, CharacterBuff, Amsg2ExpiredNoticeRecord, ApiPreset } from '../types';
 import { DB } from '../utils/db';
 import { ChatPrompts } from '../utils/chatPrompts';
@@ -28,6 +28,9 @@ import { buildMcpOpenAITools, buildMcpRejectedToolsFallbackBody, buildMcpTextFal
 import { buildToolResultMessage, normalizeToolCallsForCompat } from '../utils/toolCallCompat';
 import { toolCallFingerprint } from '../utils/agenticToolFeedback';
 import { buildChatRequestPayload } from '../utils/chatRequestPayload';
+import { acquireChatReply, isChatReplyActive, subscribeChatReplies } from '../utils/chatReplyLock';
+import { withChatContinuation } from '../utils/chatContinuation';
+import { buildClaudeProxyCompatibilityBody, shouldRetryClaudeProxyCompatibility } from '../utils/claudeProxyCompat';
 import { buildTodayHealthSummary } from '../utils/healthContextBuilder';
 import { buildShoppingDeliveryContext } from '../utils/shoppingContextBuilder';
 import {
@@ -522,11 +525,15 @@ export const useChatAI = ({
     // 音乐上下文 — 用于聊天时注入"user 正在听什么 + 当前歌词窗口"
     const music = useMusic();
 
-    const [isTyping, setIsTyping] = useState(false);
+    const [localTyping, setLocalTyping] = useState(false);
+    const characterTyping = useSyncExternalStore(subscribeChatReplies, () => isChatReplyActive(char?.id), () => false);
+    const isTyping = localTyping || characterTyping;
+    const replyBusyRef = useRef(false);
     // 流式预览气泡：stream 开启时，已完成行与安全尾句随增量以临时气泡上屏。
-    // 流结束后由 applyAssistantPostProcessing 正常落库渲染，预览随即清空 —— 只影响体感，不改持久化。
+    // 整轮落库完成后一起交接正式消息，避免第一条落库就把后面的预览清空。
     const [streamingBubbles, setStreamingBubbles] = useState<string[]>([]);
     const [streamingThinking, setStreamingThinking] = useState('');
+    const [streamingHandoverIds, setStreamingHandoverIds] = useState<number[]>([]);
     const [recallStatus, setRecallStatus] = useState<string>('');
     const [searchStatus, setSearchStatus] = useState<string>('');
     const [diaryStatus, setDiaryStatus] = useState<string>('');
@@ -639,6 +646,7 @@ export const useChatAI = ({
                 const luckinMiniSnap = deps.luckinMiniAppRef?.current;
                 const luckinMiniOpen = !!luckinMiniSnap?.open;
                 const payload = await buildChatRequestPayload({
+                    recallEntryPoint: 'emotion_eval',
                     char: evalChar,
                     userProfile: deps.userProfile,
                     groups: deps.groups,
@@ -760,7 +768,7 @@ export const useChatAI = ({
     ) => {
         // 早退路径也要熄「发送准备中」灯: caller (Chat.tsx) 是先 setInstantSendingActive(true)
         // 再调 triggerAI 的, 这里 return 掉而不通知的话指示灯会永远亮着。
-        if (isTyping || !char) { onInstantPosted?.(); return; }
+        if (isTyping || replyBusyRef.current || !char) { onInstantPosted?.(); return; }
         // [EM-START: character-api-routing]
         // 手动 override（少数重试/特殊入口）优先；普通私聊按角色绑定的命名预设路由。
         // 旧角色没绑定、或预设被删时，resolver 会保持原来的全局 API 行为。
@@ -778,24 +786,15 @@ export const useChatAI = ({
             ? { ...char, buffInjection: '', activeBuffs: [] }
             : char;
 
-        setIsTyping(true);
-        setStreamingBubbles([]);
-        setStreamingThinking('');
-        setRecallStatus('');
-        // 全局横幅「xx 正在回应…」（ChatBroadcast）。isTyping 等 UI 状态随 Chat 卸载
-        // 一起销毁，但这个异步闭包会继续跑完并落库——横幅靠 window 事件与组件生命周期
-        // 解耦，用户切走 Chat 也能看到生成还活着。finally 里派发 end（两条路径都经过）。
-        announceChatGen(CHAT_GEN_EVENTS.replyStart, { charId: char.id, charName: char.name });
-
-        // Keep the Service Worker alive while we make potentially long AI calls
-        await KeepAlive.start();
-
         // 本轮的 amsg2 工具会话：角色一轮里可能连着排/取消多个任务，任务清单要在这一轮内
         // 累加，所以由 session 兜住最新 config，别从 char 快照上读写（char 是生成开始的
         // 那份，updateCharacter 不回写它）。finally 里打脏也要读它，所以声明在 try 外面。
         const amsg2Session = createAmsg2ToolSession({
             char, userProfile, groups, realtimeConfig, apiConfig: effectiveApi, updateCharacter,
         });
+        const releaseReply = acquireChatReply(char.id);
+        if (!releaseReply) { onInstantPosted?.(); return; }
+        replyBusyRef.current = true;
         // 本轮里角色自己新排出来的任务。排程现状块每轮现算时靠它把这些点名标出来——不标
         // 的话角色分不清清单上哪条是自己刚排的，回头又排一条一模一样的。
         const amsg2CreatedThisTurn = new Set<string>();
@@ -821,6 +820,13 @@ export const useChatAI = ({
         };
 
         try {
+            setLocalTyping(true);
+            setStreamingBubbles([]);
+            setStreamingThinking('');
+            setStreamingHandoverIds([]);
+            setRecallStatus('');
+            announceChatGen(CHAT_GEN_EVENTS.replyStart, { charId: char.id, charName: char.name });
+            await KeepAlive.start();
             const baseUrl = effectiveApi.baseUrl.replace(/\/+$/, '');
             const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${effectiveApi.apiKey || 'sk-none'}` };
 
@@ -1005,6 +1011,7 @@ export const useChatAI = ({
             });
 
             const payload = await stageT('payload', buildChatRequestPayload({
+                recallEntryPoint: 'chat_app',
                 char: charForGen, userProfile, groups, emojis, categories,
                 historyMsgs: contextMsgs,
                 recentMsgsHint: currentMsgs,
@@ -1054,8 +1061,8 @@ export const useChatAI = ({
             }));
             const systemPrompt = payload.systemPrompt;
             const cleanedApiMessages = payload.cleanedApiMessages;
-            const fullMessages = payload.fullMessages;
             const promptBuildSkipped = payload.flags.promptBuildSkipped;
+            const fullMessages = promptBuildSkipped ? payload.fullMessages : withChatContinuation(payload.fullMessages, userProfile.name);
             if (payload.flags.mcdActive) {
                 console.log(`🍔 [MCD-MiniApp] 注入协同点餐上下文 step=${mcdMiniSnap?.step} cartItems=${mcdMiniSnap?.cart?.length || 0} menuItems=${mcdMiniSnap?.menuMeals ? Object.keys(mcdMiniSnap.menuMeals).length : 0} nutrition=${mcdMiniSnap?.nutritionData ? mcdMiniSnap.nutritionData.length : 0}字`);
             }
@@ -1589,33 +1596,45 @@ export const useChatAI = ({
                 startAmsgChatPresence(char.id, getLastRealUserMessageAt(contextMsgs));
             }
 
+            // 每次发出前重建排程现状；兼容模式只改变请求，不把临时系统块存进历史。
+            let claudeCompatibility = false;
+            const prepareReplyBody = (body: any): any => {
+                const freshBody = { ...body, messages: withAmsg2TaskContext(body.messages) };
+                return claudeCompatibility ? buildClaudeProxyCompatibilityBody(freshBody) : freshBody;
+            };
+            const initialBody = prepareReplyBody(baseReqBody);
             let data: any;
             try {
                 data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                    method: 'POST', headers,
-                    body: JSON.stringify({ ...baseReqBody, messages: withAmsg2TaskContext(baseReqBody.messages) })
-                }, 2, 0, { appName: '消息', charId: char.id, charName: char.name, purpose: '聊天回复' }, streamHooks);
-            } catch (e) {
-                // 仅通用 MCP、且没有和其他工具模式混用时降级。部分 OpenAI 兼容中转
-                // 会对携带 tools 的请求直接回 4xx，而不是忽略参数；去掉 tools 后让
-                // 现有正文假调用容错接手。真实鉴权失败会在这次重试中再次抛出原样错误。
-                const mcpOnly = payload.flags.mcpChatActive
-                    && !payload.flags.luckinChatActive && !payload.flags.mcdActive && !payload.flags.luckinActive;
-                if (!mcpOnly || !baseReqBody.tools?.length || !shouldRetryMcpWithoutTools(e)) throw e;
-                console.warn('🔌 [MCP] 当前中转拒绝 tools 请求，降级为正文工具调用兼容模式');
-                // 这条路把 tools 全删了，角色排不了新任务；排程现状照样要带——它得知道
-                // 自己名下已经有哪些承诺，否则又会在正文里许一遍。
-                const fallbackBody = buildMcpRejectedToolsFallbackBody({
-                    ...baseReqBody,
-                    messages: withAmsg2TaskContext(baseReqBody.messages),
-                });
-                data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                    method: 'POST', headers,
-                    body: JSON.stringify(fallbackBody)
-                }, 0, 0, { appName: '消息', charId: char.id, charName: char.name, purpose: 'MCP tools 兼容重试' });
-                // 后续正文工具循环必须继续带着兼容协议；只把它放在这次重试请求里，下一跳
-                // 又退回原 messages，会让模型忘掉工具签名和「每步只输出一行」的约定。
-                baseReqBody.messages = fallbackBody.messages;
+                    method: 'POST', headers, body: JSON.stringify(initialBody),
+                }, 0, 0, { appName: '消息', charId: char.id, charName: char.name, purpose: '聊天回复' }, streamHooks);
+            } catch (initialError) {
+                let requestError: unknown = initialError;
+                if (shouldRetryClaudeProxyCompatibility(initialError, initialBody)) {
+                    claudeCompatibility = true;
+                    try {
+                        data = await safeFetchJson(`${baseUrl}/chat/completions`, {
+                            method: 'POST', headers, body: JSON.stringify(prepareReplyBody(baseReqBody)),
+                        }, 0, 0, { appName: '消息', charId: char.id, charName: char.name, purpose: 'Claude 请求格式兼容重试' }, streamHooks);
+                        requestError = null;
+                    } catch (compatibilityError) {
+                        requestError = compatibilityError;
+                    }
+                }
+                if (requestError !== null) {
+                    const mcpOnly = payload.flags.mcpChatActive
+                        && !payload.flags.luckinChatActive && !payload.flags.mcdActive && !payload.flags.luckinActive;
+                    if (!mcpOnly || !baseReqBody.tools?.length || !shouldRetryMcpWithoutTools(requestError)) throw requestError;
+                    console.warn('🔌 [MCP] 当前中转拒绝 tools 请求，降级为正文工具调用兼容模式');
+                    // 持久到本轮后续请求的是工具说明，不是这一刻的排程快照。
+                    const fallbackBody = buildMcpRejectedToolsFallbackBody(baseReqBody);
+                    data = await safeFetchJson(`${baseUrl}/chat/completions`, {
+                        method: 'POST', headers, body: JSON.stringify(prepareReplyBody(fallbackBody)),
+                    }, 0, 0, { appName: '消息', charId: char.id, charName: char.name, purpose: 'MCP tools 兼容重试' });
+                    baseReqBody.messages = fallbackBody.messages;
+                    delete baseReqBody.tools;
+                    delete baseReqBody.tool_choice;
+                }
             }
             console.log(`⏱ [API call] ${Math.round(performance.now() - apiT0)}ms`);
             updateTokenUsage(data, historyMsgCount, 'initial');
@@ -1747,7 +1766,7 @@ export const useChatAI = ({
                     delete followBody.tool_choice;
                     data = await safeFetchJson(`${baseUrl}/chat/completions`, {
                         method: 'POST', headers,
-                        body: JSON.stringify(followBody)
+                        body: JSON.stringify(prepareReplyBody(followBody))
                     });
                     updateTokenUsage(data, historyMsgCount, `mcd-propose-${it + 1}`);
                     // 第二轮跳过 (我们已经禁用了 tools)
@@ -1850,7 +1869,7 @@ export const useChatAI = ({
                     delete followBody.tool_choice;
                     data = await safeFetchJson(`${baseUrl}/chat/completions`, {
                         method: 'POST', headers,
-                        body: JSON.stringify(followBody)
+                        body: JSON.stringify(prepareReplyBody(followBody))
                     });
                     updateTokenUsage(data, historyMsgCount, `luckin-propose-${it + 1}`);
                     if (!data.choices?.[0]?.message?.tool_calls?.length) break;
@@ -2016,7 +2035,7 @@ export const useChatAI = ({
                     if (mcpToolResolve) setSearchStatus('正在整理 MCP 工具结果...');
                     // 排程现状现算一次贴上：本轮刚排的任务这时才进得了清单，角色下一轮
                     // 看到的是自己名下真实的排程，不会对着排程前的空清单再排一条。
-                    const followMessages = withAmsg2TaskContext(loopMessages);
+                    const followMessages = [...loopMessages];
                     if (forceWrapUp) {
                         followMessages.push({
                             role: 'user',
@@ -2030,7 +2049,7 @@ export const useChatAI = ({
                     }
                     data = await safeFetchJson(`${baseUrl}/chat/completions`, {
                         method: 'POST', headers,
-                        body: JSON.stringify(followBody)
+                        body: JSON.stringify(prepareReplyBody(followBody))
                     });
                     updateTokenUsage(data, historyMsgCount, `${payload.flags.luckinChatActive ? 'luckin-chat' : financeToolTurn ? 'finance-chat' : 'mcp-chat'}-${it + 1}`);
                     if (forceWrapUp) break;
@@ -2067,7 +2086,7 @@ export const useChatAI = ({
                         const wrapBody = buildMcpTextFallbackBody(baseReqBody, textLoopMessages);
                         data = await safeFetchJson(`${baseUrl}/chat/completions`, {
                             method: 'POST', headers,
-                            body: JSON.stringify(wrapBody)
+                            body: JSON.stringify(prepareReplyBody(wrapBody))
                         });
                         updateTokenUsage(data, historyMsgCount, `mcp-text-wrap-${it + 1}`);
                         break;
@@ -2103,7 +2122,7 @@ export const useChatAI = ({
                     const followBody = buildMcpTextFallbackBody(baseReqBody, textLoopMessages);
                     data = await safeFetchJson(`${baseUrl}/chat/completions`, {
                         method: 'POST', headers,
-                        body: JSON.stringify(followBody)
+                        body: JSON.stringify(prepareReplyBody(followBody))
                     });
                     updateTokenUsage(data, historyMsgCount, `mcp-text-${it + 1}`);
                     if (reachedHardLimit) break;
@@ -2141,7 +2160,7 @@ export const useChatAI = ({
                     delete followBody.tool_choice;
                     data = await safeFetchJson(`${baseUrl}/chat/completions`, {
                         method: 'POST', headers,
-                        body: JSON.stringify(followBody),
+                        body: JSON.stringify(prepareReplyBody(followBody)),
                     });
                     updateTokenUsage(data, historyMsgCount, 'intiface-follow');
                 }
@@ -2164,9 +2183,7 @@ export const useChatAI = ({
             // Phase 1 会让 instant push 路径也调它 (skipSecondPassLLM=true);
             // Phase 2 会让 worker 端把识别的副作用打包成 directives 传过来重放。
             // 预览气泡的无缝交棒：不提前清（提前清 = 气泡集体消失→再劈里啪啦重放，用户实报），
-            // 而是包装 setMessages——后处理第一条真实消息落库上屏的**同一帧**清预览。
-            // 交接前预览一直挂着，交接后 instantRender 秒速回填，视觉上是"预览定格成正式消息"。
-            let previewHandedOver = false;
+            // 后处理逐条落库时只记录匹配 ID；整轮结束再一起显示正式气泡。
             const previewHandoverIds = new Set<number>();
             const previewBaselineMaxId = contextMsgs.reduce(
                 (maxId, message) => Math.max(maxId, message.id),
@@ -2190,13 +2207,9 @@ export const useChatAI = ({
                     handoverIds.forEach(id => previewHandoverIds.add(id));
                     // ref 在 setMessages 触发渲染前同步更新，首帧就能关掉正式气泡的 fade-in。
                     onStreamPreviewHandover?.(char.id, [...handoverIds]);
+                    setStreamingHandoverIds([...previewHandoverIds]);
                 }
                 setMessages(msgs);
-                if (!previewHandedOver) {
-                    previewHandedOver = true;
-                    setStreamingBubbles([]);
-                    setStreamingThinking('');
-                }
             };
             const rawAiContent = data.choices?.[0]?.message?.content || '';
             if (rawAiContent && shoppingDelivery) {
@@ -2244,6 +2257,8 @@ export const useChatAI = ({
                 skipSecondPassLLM: false,
                 directives: [],
             });
+            setStreamingBubbles([]);
+            setStreamingThinking('');
 
             // 本地路径回复已全部落库。OSContext 监听这个事件 bump lastMsgTimestamp——
             // 当前挂载的 Chat（可能是切走又切回后新 mount 的实例，本闭包的 setMessages
@@ -2276,8 +2291,10 @@ export const useChatAI = ({
             }
             setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
         } finally {
+            releaseReply();
+            replyBusyRef.current = false;
+            setLocalTyping(false);
             KeepAlive.stop();
-            setIsTyping(false);
             // 本轮生成结束（成功/失败/中断都经过）→ 停止本地续租；远端靠 45s TTL 自然失效。
             // 未开过租约（instant push / 非 amsg2 角色）时是幂等 no-op。
             stopAmsgChatPresence(char.id);
@@ -2291,6 +2308,7 @@ export const useChatAI = ({
             onInstantPosted?.();
             setStreamingBubbles([]);  // 错误/中断路径兜底清预览
             setStreamingThinking('');
+            setStreamingHandoverIds([]);
             setRecallStatus('');
             setSearchStatus('');
             setDiaryStatus('');
@@ -2406,6 +2424,7 @@ export const useChatAI = ({
     return {
         isTyping,
         streamingBubbles,
+        streamingHandoverIds,
         streamingThinking,
         recallStatus,
         searchStatus,

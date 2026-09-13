@@ -167,7 +167,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     const [isBubbleSectionOpen, setIsBubbleSectionOpen] = useState(false);
     const [pendingDeleteThemeId, setPendingDeleteThemeId] = useState<string | null>(null);
     const [emojiSelectionMode, setEmojiSelectionMode] = useState(false);
-    const [selectedEmojis, setSelectedEmojis] = useState<any[]>([]);
+    const [selectedEmojis, setSelectedEmojis] = useState<Emoji[]>([]);
     const [showApiPresets, setShowApiPresets] = useState(false);
     // [EM-START: chat-quick-toolbar-auto-reply]
     useEffect(() => { setShowApiPresets(false); }, [activeCharacterId]);

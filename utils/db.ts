@@ -1,3 +1,5 @@
+import type { VRLibraryCategory } from '../types';
+import { editLibrary, VR_LIBRARY_RECORD, type LibraryEdit } from './vrWorld/library';
 
 
 
@@ -29,7 +31,8 @@ const DB_NAME = 'AetherOS_Data';
 // v69：见面·剧情条目与糯米机原生预设。正文继续复用 messages 表，避免再造会话存储。
 // v70：剧场面具箱（原创人物面具）；角色面具仍只存 characterId，不复制神经链接资料。
 // [EM: upstream-db71-compat] 仅保留 v71 归属表与备份兼容，角色主页/发帖玩法暂缓。
-const DB_VERSION = 71;
+// [EM: standalone-story-variants] v72 adds isolated story identities and run state.
+const DB_VERSION = 72;
 
 const STORE_CHARACTERS = 'characters';
 const STORE_CHAR_GROUPS = 'character_groups'; // 角色分组定义（角色通过 groupId 指向；与群聊 groups 无关）
@@ -87,6 +90,7 @@ const STORE_MED_PLANS = 'med_plans';              // 药盒计划（每天几点
 const STORE_LIFE_SETTINGS = 'life_record_settings'; // 生活记录设置单例（id='main'：周期长度等）
 const STORE_STORY_THEATERS = 'story_theaters';       // 见面·剧情条目（消息用 story-theater:${id}）
 const STORE_STORY_THEATER_PRESETS = 'story_theater_presets'; // 糯米机原生剧情预设
+const STORE_STORY_VARIANTS = 'story_variants';
 const STORE_STORY_THEATER_MASKS = 'story_theater_masks'; // 剧场原创人物面具
 
 // API 调用记录：保留近 5 天，超期丢弃；再加一个硬上限防止异常情况撑爆
@@ -358,6 +362,7 @@ export const openDB = (): Promise<IDBDatabase> => {
       createStore(STORE_STORY_THEATERS, { keyPath: 'id' });
       createStore(STORE_STORY_THEATER_PRESETS, { keyPath: 'id' });
       createStore(STORE_STORY_THEATER_MASKS, { keyPath: 'id' });
+      createStore(STORE_STORY_VARIANTS, { keyPath: 'id' });
 
       createStore(STORE_HOTNEWS, { keyPath: 'id' });
 
@@ -626,6 +631,16 @@ export const DB = {
           }
           resolve(results);
       };
+      request.onerror = () => reject(request.error);
+    });
+  },
+
+  countMessagesByCharId: async (charId: string): Promise<number> => {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_MESSAGES, 'readonly');
+      const request = transaction.objectStore(STORE_MESSAGES).index('charId').count(IDBKeyRange.only(charId));
+      request.onsuccess = () => resolve(request.result || 0);
       request.onerror = () => reject(request.error);
     });
   },
@@ -2496,6 +2511,38 @@ export const DB = {
   },
 
   // --- VR World 「彼方」 全局小说库 ---
+  getVRLibraryCategories: async (): Promise<VRLibraryCategory[]> => {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+          const req = db.transaction(STORE_VR_SETTINGS, 'readonly').objectStore(STORE_VR_SETTINGS).get(VR_LIBRARY_RECORD);
+          req.onsuccess = () => resolve(req.result?.categories || []);
+          req.onerror = () => reject(req.error);
+      });
+  },
+
+  editVRLibrary: async (edit: LibraryEdit): Promise<void> => {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+          const tx = db.transaction([STORE_VR_SETTINGS, STORE_VR_NOVELS], 'readwrite');
+          const settings = tx.objectStore(STORE_VR_SETTINGS), books = tx.objectStore(STORE_VR_NOVELS);
+          const categoryRequest = settings.get(VR_LIBRARY_RECORD), novelRequest = books.getAll();
+          let ready = 0;
+          let failure: unknown;
+          const apply = () => {
+              if (++ready !== 2) return;
+              try {
+                  const result = editLibrary(categoryRequest.result?.categories || [], novelRequest.result || [], edit);
+                  settings.put({ id: VR_LIBRARY_RECORD, categories: result.categories });
+                  for (const novel of result.changed) books.put(novel);
+              } catch (error) { failure = error; tx.abort(); }
+          };
+          categoryRequest.onsuccess = apply;
+          novelRequest.onsuccess = apply;
+          tx.oncomplete = () => resolve();
+          tx.onerror = tx.onabort = () => reject(failure || tx.error || new Error('书库分类保存失败'));
+      });
+  },
+
   getVRNovels: async (): Promise<VRWorldNovel[]> => {
       const db = await openDB();
       if (!db.objectStoreNames.contains(STORE_VR_NOVELS)) return [];
@@ -3248,6 +3295,8 @@ export const DB = {
   },
 
   exportFullData: async (): Promise<Partial<FullBackupData>> => {
+      const { StoryVariantStore } = await import('./storyVariantStore');
+      const storyVariants = await StoryVariantStore.list();
       const db = await openDB();
       
       const getAllFromStore = (storeName: string): Promise<any[]> => {
@@ -3329,7 +3378,7 @@ export const DB = {
       const dollhouseRecord = bankData.find((d: any) => d.id === 'dollhouse_state');
 
       return {
-          characters, characterGroups, messages, customThemes: themes, savedEmojis: emojis, emojiCategories, assets, galleryImages, userProfile, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, savedJournalStickers: journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels,
+          characters, characterGroups, messages, storyVariants, customThemes: themes, savedEmojis: emojis, emojiCategories, assets, galleryImages, userProfile, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, savedJournalStickers: journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels,
           bankState: mainState ? { ...mainState, id: undefined } : undefined,
           bankDollhouse: dollhouseRecord?.data || undefined,
           bankTransactions: bankTx,
@@ -3391,13 +3440,20 @@ export const DB = {
           data.voiceFavoritesIndex = validateVoiceFavoriteIndex(data.voiceFavoritesIndex);
       }
       // [EM-END: text-voice-favorites]
+      const replaceStoryVariants = data.storyVariants !== undefined || (data.messages !== undefined && data.characters !== undefined);
+      const storyVariantsToRestore = data.storyVariants ?? [];
+      if (data.storyVariants !== undefined) {
+          const { validateStoryVariantBackup } = await import('./storyVariantStore');
+          validateStoryVariantBackup(data.storyVariants, data.messages);
+          if (!data.messages && data.storyVariants.some(row => row.kind === 'run' && row.interactionsUsed > 0)) throw new Error('异格备份缺少对应正文');
+      }
       const db = await openDB();
       
       const availableStores = [
           STORE_CHARACTERS, STORE_CHAR_GROUPS, STORE_MESSAGES, STORE_THEMES, STORE_EMOJIS, STORE_EMOJI_CATEGORIES,
           STORE_ASSETS, STORE_GALLERY, STORE_USER, STORE_DIARIES,
           STORE_TASKS, STORE_ANNIVERSARIES, STORE_ROOM_TODOS, STORE_ROOM_NOTES,
-          STORE_GROUPS, STORE_JOURNAL_STICKERS, STORE_SOCIAL_POSTS, STORE_COURSES, STORE_GAMES, STORE_WORLDBOOKS, STORE_STORY_THEATERS, STORE_STORY_THEATER_PRESETS, STORE_STORY_THEATER_MASKS, STORE_NOVELS, STORE_SONGS,
+          STORE_GROUPS, STORE_JOURNAL_STICKERS, STORE_SOCIAL_POSTS, STORE_COURSES, STORE_GAMES, STORE_WORLDBOOKS, STORE_STORY_THEATERS, STORE_STORY_THEATER_PRESETS, STORE_STORY_THEATER_MASKS, STORE_STORY_VARIANTS, STORE_NOVELS, STORE_SONGS,
           STORE_BANK_TX, STORE_BANK_DATA,
           STORE_XHS_ACTIVITIES, STORE_XHS_OWNED_POSTS, STORE_XHS_STOCK,
           STORE_QUIZZES,
@@ -3475,6 +3531,7 @@ export const DB = {
           data.storyTheaters !== undefined,
           data.storyTheaterPresets !== undefined,
           data.storyTheaterMasks !== undefined,
+          replaceStoryVariants,
           data.novels !== undefined,
           data.songs !== undefined,
           data.quizSessions !== undefined,
@@ -3767,6 +3824,10 @@ export const DB = {
           await clearAndAdd(STORE_STORY_THEATER_MASKS, data.storyTheaterMasks, '剧场面具箱', true);
           data.storyTheaterMasks = undefined as any;
       }, data.storyTheaterMasks?.length || 0);
+      await runSection('独立异格', replaceStoryVariants, async () => {
+          await clearAndAdd(STORE_STORY_VARIANTS, storyVariantsToRestore, '独立异格', false);
+          data.storyVariants = undefined;
+      }, storyVariantsToRestore.length);
       await runSection('小说', data.novels !== undefined, async () => {
           await clearAndAdd(STORE_NOVELS, data.novels, '小说', false);
           data.novels = undefined as any;

@@ -1,3 +1,4 @@
+import { loadCharacterContextMessages } from '../utils/chatContextRange';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useOS } from '../context/OSContext';
@@ -54,10 +55,9 @@ async function callAPI(apiConfig: { baseUrl: string; apiKey: string; model: stri
 }
 
 // --- Helper: Fetch recent messages as text (uses char.contextLimit) ---
-async function fetchRecentMessages(charId: string, limit: number): Promise<string> {
-    if (limit <= 0) return '';
+async function fetchRecentMessages(charId: string): Promise<string> {
     try {
-        const msgs = await DB.getRecentMessagesByCharId(charId, limit);
+        const msgs = await loadCharacterContextMessages(charId);
         const privateMsgs = msgs.filter(m => !m.groupId && (m.type === 'text' || m.type === 'voice'));
         if (privateMsgs.length === 0) return '';
         return privateMsgs.map(m =>
@@ -684,7 +684,7 @@ const GuidebookApp: React.FC = () => {
 
         const char = characters.find(c => c.id === selectedCharId)!;
         const contextLimit = char.contextLimit || 500;
-        const recentMsgs = await fetchRecentMessages(selectedCharId, contextLimit);
+        const recentMsgs = await fetchRecentMessages(selectedCharId);
         setCachedRecentMsgs(recentMsgs);
 
         const newSession: GuidebookSession = {
@@ -1046,7 +1046,7 @@ const GuidebookApp: React.FC = () => {
         } else {
             setCachedRecentMsgs('');
             const resumeChar = characters.find(c => c.id === s.charId);
-            fetchRecentMessages(s.charId, resumeChar?.contextLimit || 500).then(setCachedRecentMsgs);
+            fetchRecentMessages(s.charId).then(setCachedRecentMsgs);
             setView('playing');
         }
     };

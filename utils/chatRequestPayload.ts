@@ -1,3 +1,10 @@
+import { renderLocalContextGuidance } from './memoryPalace/recallRouter';
+import { renderInteractionAdaptationGuidance } from './memoryPalace/interactionAdaptation';
+import { renderDeepEngagementGuidance } from './memoryPalace/deepEngagement';
+import { renderConversationEngagementGuidance } from './memoryPalace/conversationEngagement';
+import type { ConversationEngagementAnalysis } from './memoryPalace/conversationEngagement';
+import type { DeepEngagementAnalysis } from './memoryPalace/deepEngagement';
+import type { RecallEntryPoint, RecallTrace } from './memoryPalace/trace';
 /**
  * 聊天请求载荷统一构造器
  *
@@ -43,6 +50,7 @@ export interface UserListeningContext {
 }
 
 export interface BuildChatPayloadInput {
+    recallEntryPoint?: RecallEntryPoint;
     char: CharacterProfile;
     userProfile: UserProfile;
     groups: GroupProfile[];
@@ -114,6 +122,7 @@ export interface BuildChatPayloadInput {
 }
 
 export interface BuildChatPayloadResult {
+    recallTrace?: RecallTrace;
     /** 完整 system prompt（含所有可选块） */
     systemPrompt: string;
     /** 已剥离双语标签的历史消息（emotion eval 也吃这份） */
@@ -285,7 +294,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
 
     // ── 1. Memory Palace 向量召回 ─────────────────────────
     clearLastRecallBriefs(char.id); // [EM: token-panel-recall] 先清上一轮残留，本轮没跑召回时面板如实显示 0 条
-    await injectMemoryPalace(char, recentMsgsHint, input.recallQueryHint, userProfile?.name);
+    const recallTrace = await injectMemoryPalace(char, recentMsgsHint, input.recallQueryHint, userProfile?.name, { entryPoint: input.recallEntryPoint ?? 'chat_payload' });
 
     // ── 2. 解析音乐共听（如果 caller 没显式给，就从 snapshot 推） ──
     let userListeningContext = input.userListeningContext;
@@ -465,6 +474,19 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     // ── 10. recency 钢印归位 + 组装 fullMessages ─────────
     // 「关于对方的表达」+「回到你自己」必须是易变尾段的最后内容：修复旧版把双语/HTML/
     // 思考链/点单块拼在钢印之后、模型开口前最后读到的是格式说明书的问题。
+    if (input.recallEntryPoint === 'chat_app') {
+        volatileTail += renderLocalContextGuidance(recallTrace.contextAnalyzer);
+        volatileTail += renderInteractionAdaptationGuidance(recallTrace.interactionAdaptation?.analysis);
+        const engagementTrace = recallTrace.deepEngagement;
+        if (engagementTrace?.engine === 'legacy_depth') {
+            volatileTail += renderDeepEngagementGuidance(engagementTrace.analysis as DeepEngagementAnalysis | undefined);
+        } else if (engagementTrace?.engine === 'conversation_v2') {
+            // M3 核心原则常驻；分析结果只决定是否在后面追加当轮状态策略。
+            volatileTail += renderConversationEngagementGuidance(
+                engagementTrace.analysis as ConversationEngagementAnalysis | undefined,
+            );
+        }
+    }
     volatileTail += parts.recencyTail;
 
     // 结构：[稳定 system] + [历史消息] + [易变状态 system] (+ 末尾 reminder)。
@@ -497,6 +519,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     return {
         // 返回给情绪评估 / 调试查看器的仍是"完整拼接"——信息与主 API 完全一致，
         // 只是主 API 的实际消息结构把易变尾段放在历史之后（见上）。
+        recallTrace,
         systemPrompt: systemPrompt + volatileTail,
         cleanedApiMessages: messagesWithWorldbookDepth,
         fullMessages: finalMessages,

@@ -26,14 +26,14 @@ describe('排程现状块每轮现算', () => {
   it('首轮请求也走这个入口（不再把块写死进 baseReqBody.messages）', () => {
     // 写死进 baseReqBody.messages 的话，工具循环里那份就永远是排程前的旧清单。
     expect(src).not.toMatch(/baseReqBody\.messages\s*=\s*\[\s*\n?\s*\.\.\.baseReqBody\.messages,\s*\n?\s*\{\s*role:\s*'system',\s*content:\s*taskContext\.text/);
-    expect(src).toMatch(/messages:\s*withAmsg2TaskContext\(baseReqBody\.messages\)/);
+    expect(src).toMatch(/const prepareReplyBody =[\s\S]*?messages:\s*withAmsg2TaskContext\(body\.messages\)/);
+    expect(src).toContain('const initialBody = prepareReplyBody(baseReqBody)');
   });
 
   it('工具循环的后续请求也现算一次（本轮刚排的任务立刻进清单）', () => {
-    // 收尾路径还要往这份消息里追加「停止调用工具」，所以先落局部变量再放进 body；
-    // 仍必须保证局部变量来自每轮现算，而不是复用首轮旧快照。
-    expect(src).toMatch(/const followMessages = withAmsg2TaskContext\(loopMessages\)/);
-    expect(src).toMatch(/messages:\s*followMessages/);
+    // 普通续轮和停止工具后的正文收尾都在发送时经过统一入口，不复用首轮快照。
+    expect(src.match(/JSON\.stringify\(prepareReplyBody\(followBody\)\)/g)).toHaveLength(5);
+    expect(src).toContain('JSON.stringify(prepareReplyBody(wrapBody))');
   });
 
   it('本轮新建的任务会被点名，传进渲染函数', () => {

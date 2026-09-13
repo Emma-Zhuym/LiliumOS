@@ -1,3 +1,4 @@
+import { loadCharacterContextMessages } from './chatContextRange';
 /**
  * 手账 v2 编排器 — 版式优先 / 槽位填空
  *
@@ -388,7 +389,7 @@ async function fillCharTurn(
     // 抽 ta 平时怎么说话的样本
     let speechSamples: string[] = [];
     try {
-        const all = await DB.getMessagesByCharId(char.id, true);
+        const all = await loadCharacterContextMessages(char);
         const charMsgs = all.filter((m: any) =>
             m.role === 'assistant'
             && typeof m.content === 'string'

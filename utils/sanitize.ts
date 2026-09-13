@@ -22,8 +22,18 @@ import { segmentTextWithProtectedBlocks } from '@rei-standard/amsg-instant';
 /** `\\n` 字面 → 真实换行. 必须先跑, 否则后续 ^ 行锚定失效. */
 const stripLiteralBackslashN = (t: string): string => t.replace(/\\n/g, '\n');
 
-/** 源标签 `[聊天]/[通话]/[约会]` → 换行 (保留分隔语义) */
-const stripSourceTags = (t: string): string => t.replace(/\s*\[(?:聊天|通话|约会)\]\s*/g, '\n');
+/**
+ * 历史来源标签 → 换行（保留分隔语义）。
+ *
+ * 历史原文只会注入 `[聊天]/[通话]/[约会]`，但模型偶尔会在模仿时把标签做成
+ * 中英混写（线上实例如 `[聊chat]`），甚至直接翻成 `[chat]`。这些仍然是内部
+ * 元数据，不该作为角色正文展示。只对白名单中的三组来源词做容错，避免吞掉普通
+ * 方括号内容。
+ */
+export const stripLeakedSourceTags = (t: string): string => t.replace(
+  /\s*\[\s*(?:聊\s*(?:天|chat)|chat|通\s*(?:话|call)|call|约\s*(?:会|date)|date)\s*\]\s*/giu,
+  '\n',
+);
 
 /** 4 种时间格式: 带括号 ISO / 行首裸 ISO / 中文 12h / 英文 12h */
 const stripTimestamps = (t: string): string =>
@@ -384,7 +394,7 @@ export function sanitizeForNotification(text: string): string {
   result = stripRoleNamePrefix(result);
   result = stripSystemLogLeak(result);
   // 7. 源标签 [聊天] 等
-  result = stripSourceTags(result);
+  result = stripLeakedSourceTags(result);
   // 8. 内部状态 / 业务标签 / 引用
   result = stripInnerState(result);
   result = stripBusinessTagsForNotification(result);
@@ -424,7 +434,7 @@ export function sanitizeForBubble(
   result = normalizeVoiceTags(result);
   result = normalizeTranslationTags(result);
   // 2. 源标签 / 时间戳 / 系统日志 leak / 业务标签
-  result = stripSourceTags(result);
+  result = stripLeakedSourceTags(result);
   result = stripTimestamps(result);
   result = stripSystemLogLeak(result);
   result = stripMarkdownHeaders(result);
@@ -478,7 +488,7 @@ interface ProtectedAtomSegment {
  *  1.5. Phase 1.5 — 用 amsg-instant 标准保护分段器识别客户端要二次消费的"原子语义块",
  *                   防止 chunkText 按 \n 把它们切碎: [html]...[/html] / <翻译>...</翻译> /
  *                   <语音>...</语音>. 保护块两侧按旧逻辑补 \n, 让 chunkText 必把它独立成 chunk.
- *  2. Phase 2   — chunkText: 按 `\n` 切 + 按 CJK 字符之间的空格切, 跟客户端
+ *  2. Phase 2   — chunkText: 只按显式换行切, 跟客户端
  *                  `chatParser.chunkText` 字节对齐 (LLM 在 prompt 引导下用换行断句).
  *  3. Phase 3   — 还原占位符 (独占 chunk → 直接成单 segment; 同行 inline → 替换回原文 +
  *                  banner 兜底). 每个文字 chunk 内拆 SEND_EMOJI 独立成段, 文字段跑
@@ -544,7 +554,7 @@ export function sanitizeIntoSegments(text: string): Segment[] {
   cleaned = stripTimestamps(cleaned);
   cleaned = stripChineseDate(cleaned);
   cleaned = stripRoleNamePrefix(cleaned);
-  cleaned = stripSourceTags(cleaned);
+  cleaned = stripLeakedSourceTags(cleaned);
   // 注意: 这里**不**剥 stripQuotes — 引用要带到客户端让 Step 7 配 aiReplyTarget.
   // sanitizeTextForBanner 单独剥引用给 notification.
   //
@@ -639,34 +649,13 @@ function sanitizeTextForBanner(text: string): string {
 /**
  * `chatParser.chunkText` 的无依赖版本. 行为字节对齐:
  *  1. 按换行符切 (\n / \r\n / \r /   /  )
- *  2. 每个 chunk 再按 CJK 字符之间的空格切 (中文里本不该有空格 = LLM 想断行)
+ *  2. 保留正文里的普通空格
  *  3. trim + filter empty
  */
 function chunkText(text: string): string[] {
-  const CJK = '\\u4e00-\\u9fff\\u3400-\\u4dbf\\u3000-\\u303f\\uff00-\\uffef\\u2000-\\u206f\\u2e80-\\u2eff\\u3001-\\u3003\\u2018-\\u201f\\u300a-\\u300f\\uff01-\\uff0f\\uff1a-\\uff20';
-  // No lookbehind (?<=): iOS Safari <16.4 JSC doesn't support it; old devices throw
-  // "invalid group specifier name" at new RegExp. Capture the left CJK char + zero-width
-  // lookahead on the right, restore via $1. Byte-equivalent (see utils/lookbehindFree.test.ts).
-  const cjkSplitRe = new RegExp(`([${CJK}])\\s+(?=[${CJK}])`, 'g');
-  const SPLIT = String.fromCharCode(1);  // CJK split marker (distinct slot from SPACE_SENTINEL below)
-
-  const lineChunks = text.split(/(?:\r\n|\r|\n|\u2028|\u2029)+/)
+  return text.split(/(?:\r\n|\r|\n|\u2028|\u2029)+/)
     .map((c) => c.trim())
     .filter((c) => c.length > 0);
-
-  // 括号内的空格要保护: 否则裸括号表情包 / 标签 (如 "[你 交给我吧]" 或 "[[SEND_EMOJI: a b]]")
-  // 会被 CJK-空格断行规则劈成 "[你" + "交给我吧]" 掉格式. 先把 [...] / [[...]] 内空格换成
-  // 占位符, split 后再换回. 跟 chatParser.chunkText 同一份逻辑, 保持字节对齐.
-  const SPACE_SENTINEL = String.fromCharCode(0);
-  const out: string[] = [];
-  for (const chunk of lineChunks) {
-    const guarded = chunk.replace(/\[{1,2}[^\[\]]*\]{1,2}/g, (m) => m.replace(/\s/g, SPACE_SENTINEL));
-    const sub = guarded.replace(cjkSplitRe, `$1${SPLIT}`).split(SPLIT)
-      .map((c) => c.split(SPACE_SENTINEL).join(' ').trim())
-      .filter((c) => c.length > 0);
-    out.push(...sub);
-  }
-  return out;
 }
 
 /**

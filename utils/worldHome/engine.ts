@@ -1,3 +1,4 @@
+import { loadCharacterContextMessages } from '../chatContextRange';
 /**
  * 「家园」演绎引擎 —— 一轮"观测"的完整闭环。
  *
@@ -347,11 +348,12 @@ export async function runWorldEpisode(deps: WorldEpisodeDeps): Promise<WorldEpis
                     ].join('\n')
                     : undefined;
 
-                const contextLimit = char.contextLimit || 500;
-                const historyMsgs = await DB.getRecentMessagesByCharId(char.id, contextLimit);
+                const historyMsgs = await loadCharacterContextMessages(char);
+                const contextLimit = Math.max(1, historyMsgs.length);
                 // 家园内角色的当前时间与日程日期都必须对齐同一把世界钟。
                 const worldChar = alignCharToWorldClock(world, char);
                 const payload = await buildChatRequestPayload({
+                    recallEntryPoint: 'world_home',
                     char: worldChar, userProfile, groups, emojis: [], categories: [],
                     historyMsgs, contextLimit, realtimeConfig, recallQueryHint,
                     // 家园可配独立 API（可能不支持视觉，image_url 会 400）→ 历史图片压平成文本占位
@@ -587,10 +589,11 @@ export async function rerollWorldCharBeat(
         const recallQueryHint = others.length > 0
             ? `此刻在「${world.name}」共同生活的人：${others.join('、')}。\n我对${others.join('、')}的印象、我和${others.join('、')}之间的关系与过往。`
             : undefined;
-        const contextLimit = char.contextLimit || 500;
-        const historyMsgs = await DB.getRecentMessagesByCharId(char.id, contextLimit);
+        const historyMsgs = await loadCharacterContextMessages(char);
+        const contextLimit = Math.max(1, historyMsgs.length);
         const worldChar = alignCharToWorldClock(world, char);
         const payload = await buildChatRequestPayload({
+                    recallEntryPoint: 'world_home',
             char: worldChar, userProfile, groups, emojis: [], categories: [],
             historyMsgs, contextLimit, realtimeConfig, recallQueryHint,
             // 同上：独立 API 可能不支持视觉 → 历史图片压平成文本占位

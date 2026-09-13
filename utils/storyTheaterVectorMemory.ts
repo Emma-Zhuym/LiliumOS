@@ -11,6 +11,7 @@ function assertStoryPartition(entryId: string, node: MemoryNode | undefined): Me
     }
     return node;
 }
+
 export async function listStoryVectorMemories(entryId: string): Promise<MemoryNode[]> {
     const partitionId = storyTheaterThreadId(entryId);
     const nodes = await MemoryNodeDB.getByCharId(partitionId);

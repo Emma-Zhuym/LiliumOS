@@ -1,3 +1,4 @@
+import { loadCharacterContextMessages } from './chatContextRange';
 import type {
   APIConfig,
   CharacterProfile,
@@ -268,12 +269,11 @@ export const requestCompanionStartupDraft = async (options: {
   if (!baseUrl) throw new Error('请先在设置中配置主聊天 API');
 
   const [allMessages, emojis] = await Promise.all([
-    DB.getMessagesByCharId(character.id, true),
+    loadCharacterContextMessages(character),
     DB.getEmojis().catch(() => []),
   ]);
   const recentMessages = allMessages
-    .filter(message => message.role === 'user' || message.role === 'assistant')
-    .slice(-Math.max(8, Math.min(60, recentMessageLimit)));
+    .filter(message => message.role === 'user' || message.role === 'assistant');
   const eventText = `[陪伴桌面开机演出设置] ${user.name || '用户'}希望你为每次回到陪伴主界面准备一句符合本人性格的短开场。`;
   const coreContext = ContextBuilder.buildCoreContext(
     character,

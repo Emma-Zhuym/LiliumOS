@@ -1,3 +1,10 @@
+import { LibraryView, NovelPreferenceModal } from './vrWorld/VRLibrary';
+import SettingsView from './vrWorld/VRParticipationSettings';
+import VRDiagnostics from './vrWorld/VRDiagnostics';
+import { joinVRState, allowsAutomaticVR } from '../utils/vrWorld/participation';
+import { loadCharacterContextMessages } from '../utils/chatContextRange';
+import type { VRLibraryCategory } from '../types';
+import { F, R, S } from '../utils/clayTokens';
 import React, { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from 'react';
 import { useOS } from '../context/OSContext';
 import {
@@ -146,6 +153,9 @@ const VRWorldApp: React.FC = () => {
     const [readerNovel, setReaderNovel] = useState<VRWorldNovel | null>(null);
     const [readerJump, setReaderJump] = useState<{ novel: VRWorldNovel; seg: number } | null>(null);
     const [showUpload, setShowUpload] = useState(false);
+    const [libraryCategories, setLibraryCategories] = useState<VRLibraryCategory[]>([]);
+    const [uploadCategoryId, setUploadCategoryId] = useState<string | undefined>();
+    const [preferenceChar, setPreferenceChar] = useState<CharacterProfile | null>(null);
     const [chibiEditChar, setChibiEditChar] = useState<CharacterProfile | null>(null);
     const [chibiEditUser, setChibiEditUser] = useState(false); // 用户本人捏 chibi
     const [showHelp, setShowHelp] = useState(false);
@@ -162,7 +172,7 @@ const VRWorldApp: React.FC = () => {
         } catch { /* ignore */ }
     }, []);
 
-    const loadNovels = useCallback(async () => setNovels(await DB.getVRNovels()), []);
+    const loadNovels = useCallback(async () => { const [books, categories] = await Promise.all([DB.getVRNovels(), DB.getVRLibraryCategories()]); setNovels(books); setLibraryCategories(categories); }, []);
     const loadFeed = useCallback(async () => {
         const items: FeedItem[] = [];
         for (const c of characters) {
@@ -178,15 +188,12 @@ const VRWorldApp: React.FC = () => {
             // 「对 AI 不可见」判定：归档隐藏起点（hideBeforeMessageId，m.id < 它即隐藏）
             // 或记忆宫殿高水位（mp_lastMsgId，m.id <= 它即被向量记忆替代）。
             // 两者都让 LLM 读不到原文——动态本身仍在，只是上下文看不到，UI 里暗显并标「已隐藏」。
-            const hideBefore = (c as any).hideBeforeMessageId || 0;
-            let mpHwm = 0;
-            try { mpHwm = parseInt(localStorage.getItem(`mp_lastMsgId_${c.id}`) || '0', 10) || 0; } catch { /* ignore */ }
-            const hiddenCut = Math.max(hideBefore - 1, mpHwm); // m.id <= hiddenCut ⇒ 对 AI 不可见
+            const visibleIds = new Set((await loadCharacterContextMessages(c)).map(message => message.id));
             for (const m of msgs) {
                 // 用户在留言簿的发言会广播进每个角色的 vr_card（供 LLM 上下文用），
                 // 但它不是"角色自己的动态"——不进动态流，也不当作 chibi 气泡。
                 if (!m.metadata?.userBoardPost) {
-                    items.push({ msgId: m.id, charId: c.id, charName: c.name, avatar: c.avatar, timestamp: m.timestamp, meta: m.metadata as VRCardMeta, content: m.content, hidden: m.id <= hiddenCut });
+                    items.push({ msgId: m.id, charId: c.id, charName: c.name, avatar: c.avatar, timestamp: m.timestamp, meta: m.metadata as VRCardMeta, content: m.content, hidden: !visibleIds.has(m.id) });
                 }
             }
         }
@@ -195,7 +202,6 @@ const VRWorldApp: React.FC = () => {
     }, [characters]);
 
     const reloadAll = useCallback(async () => {
-        setLoading(true);
         await Promise.all([loadNovels(), loadFeed()]);
         setLoading(false);
     }, [loadNovels, loadFeed]);
@@ -240,12 +246,13 @@ const VRWorldApp: React.FC = () => {
     useEffect(() => registerBackHandler(() => {
         if (chibiEditChar) { setChibiEditChar(null); setPendingEnable(null); return true; }
         if (chibiEditUser) { setChibiEditUser(false); return true; }
+        if (preferenceChar) { setPreferenceChar(null); return true; }
         if (showUpload) { setShowUpload(false); return true; }
         if (readerJump) { setReaderJump(null); return true; }
         if (readerNovel) { setReaderNovel(null); return true; }
         if (enterRoom) { setEnterRoom(null); return true; }
         return false; // 无弹层 → 交回默认（关闭 App）
-    }), [registerBackHandler, chibiEditChar, chibiEditUser, showUpload, readerJump, readerNovel, enterRoom]);
+    }), [registerBackHandler, chibiEditChar, chibiEditUser, showUpload, readerJump, readerNovel, enterRoom, preferenceChar]);
 
     // 从动态/批注点回原文：peek 模式打开阅读器跳到该段，不动用户书签
     const jumpToAnnotation = useCallback((novelId: string | undefined, segIdx: number) => {
@@ -304,9 +311,9 @@ const VRWorldApp: React.FC = () => {
 
     // 启用某角色（带 chibi 设定门槛）
     const enableChar = (char: CharacterProfile) => {
-        const interval = char.vrState?.intervalMinutes || VR_DEFAULT_INTERVAL_MIN;
-        updateCharacter(char.id, { vrState: { ...(char.vrState || {}), enabled: true, intervalMinutes: interval } });
-        VRScheduler.start(char.id, interval);
+        const next = joinVRState(char.vrState);
+        updateCharacter(char.id, { vrState: next });
+        if (allowsAutomaticVR(next)) VRScheduler.start(char.id, next.intervalMinutes);
     };
     const requestEnable = (char: CharacterProfile) => {
         // 没设过专属 chibi → 先要求设定形象
@@ -374,19 +381,20 @@ const VRWorldApp: React.FC = () => {
                         onEnterRoom={setEnterRoom} onGoLibrary={() => setTab('library')} onJump={jumpToAnnotation}
                         onDeleteFeed={onDeleteFeed} onDeleteFeedMany={onDeleteFeedMany} />
                 ) : tab === 'library' ? (
-                    <LibraryView novels={novels} characters={characters} onOpen={setReaderNovel}
-                        onAdd={() => setShowUpload(true)}
+                    <LibraryView novels={novels} categories={libraryCategories} characters={characters} onOpen={setReaderNovel}
+                        onEdit={async edit => { await DB.editVRLibrary(edit); await loadNovels(); }} onPreference={setPreferenceChar}
+                        onAdd={categoryId => { setUploadCategoryId(categoryId); setShowUpload(true); }}
                         onDelete={async (id) => { await DB.deleteVRNovel(id); await loadNovels(); addToast?.('已删除', 'success'); }} />
                 ) : tab === 'settings' ? (
                     <div className="space-y-3">
                         <UserVRPanel userProfile={userProfile} updateUserProfile={updateUserProfile}
                             onEditChibi={() => setChibiEditUser(true)} onBroadcast={onUserVRBroadcast} addToast={addToast} />
                         <SettingsView characters={characters} updateCharacter={updateCharacter} addToast={addToast}
-                            novelCount={novels.length} onReload={reloadAll}
+                            novels={novels} onReload={reloadAll}
                             onRequestEnable={requestEnable} onEditChibi={setChibiEditChar} />
                     </div>
                 ) : (
-                    <VRApiSettings apiPresets={apiPresets} chatApi={apiConfig} addToast={addToast} />
+                    <VRApiSettings characters={characters} apiPresets={apiPresets} chatApi={apiConfig} addToast={addToast} />
                 )}
             </div>
 
@@ -399,8 +407,12 @@ const VRWorldApp: React.FC = () => {
             {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
             {readerNovel && <ReaderModal novel={readerNovel} characters={characters} userName={userName} onClose={() => setReaderNovel(null)} />}
             {readerJump && <ReaderModal novel={readerJump.novel} characters={characters} initialSeg={readerJump.seg} peek onClose={() => setReaderJump(null)} />}
+            {preferenceChar && <NovelPreferenceModal char={characters.find(char => char.id === preferenceChar.id) || preferenceChar} novels={novels} categories={libraryCategories} onClose={() => setPreferenceChar(null)} onSave={preference => {
+                updateCharacter(preferenceChar.id, current => ({ vrState: { enabled: false, intervalMinutes: VR_DEFAULT_INTERVAL_MIN, ...current.vrState, ...preference } }));
+                setPreferenceChar(null); addToast?.('阅读偏好已保存', 'success');
+            }} />}
             {showUpload && (
-                <UploadModal onClose={() => setShowUpload(false)}
+                <UploadModal categories={libraryCategories} initialCategoryId={uploadCategoryId} onClose={() => setShowUpload(false)}
                     onCommit={async (novel) => {
                         await DB.saveVRNovel(novel); await loadNovels(); setShowUpload(false);
                         addToast?.(`《${novel.title}》已上架（${novel.segments.length} 段）`, 'success');
@@ -418,9 +430,9 @@ const VRWorldApp: React.FC = () => {
                         if (wasPending) {
                             setPendingEnable(null);
                             // 用最新 interval 启用
-                            const interval = charSnap.vrState?.intervalMinutes || VR_DEFAULT_INTERVAL_MIN;
-                            updateCharacter(charSnap.id, { vrState: { ...(charSnap.vrState || {}), chibi, enabled: true, intervalMinutes: interval } });
-                            VRScheduler.start(charSnap.id, interval);
+                            const next = { ...joinVRState(charSnap.vrState), chibi };
+                            updateCharacter(charSnap.id, { vrState: next });
+                            if (allowsAutomaticVR(next)) VRScheduler.start(charSnap.id, next.intervalMinutes);
                             addToast?.(`${charSnap.name} 已接入彼方`, 'success');
                         } else {
                             addToast?.('形象已更新', 'success');
@@ -833,7 +845,7 @@ const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 </Block>
 
                 <Block title="怎么开始" tone="rgba(245,208,138,.95)">
-                    <Step n={1}>去 <b>「接入」</b> 标签：给角色捏个小人形象，打开开关，设个登入间隔。</Step>
+                    <Step n={1}>去 <b>「接入」</b> 标签：给角色捏个小人形象，打开开关。新接入默认手动；选「定时」后才按间隔自动活动。</Step>
                     <Step n={2}>想用图书馆，先去 <b>「书库」</b> 上传一本小说。</Step>
                     <Step n={3}>不想等？在「接入」里点 <b>「让 ta 现在去逛一次」</b>，可以<b className="text-amber-200">指定房间或随机</b>，立刻看效果。</Step>
                 </Block>
@@ -861,7 +873,7 @@ const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 <Block title="小提示" tone="rgba(180,200,255,.9)">
                     <div>· 「世界」页的<b>动态</b>长按可删除；满 5 条一页、可翻页。</div>
                     <div>· 角色在留言簿说的话，会原样进 ta 的聊天，不只是一句小总结。</div>
-                    <div>· 阅读器里的批注都是<b>角色自己留</b>的；你目前只能翻看，<b className="text-amber-200">还不能亲自写批注</b>（以后再说）。</div>
+                    <div>· 阅读器保留角色批注，也能在段落下方留标记；角色下次读到时可以回应。</div>
                     <div>· 邮局/收件箱里的信多了也会分页，慢慢翻。</div>
                     <div>· 彼方较费 API：可在 <b>「API」</b> 标签给它单独指定一份（和设置里的预设共用），还能看<b>调用记录</b>对账。</div>
                 </Block>
@@ -1089,7 +1101,7 @@ const WorldView: React.FC<{
                 )}
             </div>
             {feed.length === 0 ? (
-                <p className="text-[11px] text-white/40 py-5 text-center tracking-wide leading-relaxed">虚空尚无回响。<br />在「接入」里点亮角色，ta 们到点会独自登入这里。</p>
+                <p className="text-[11px] text-white/40 py-5 text-center tracking-wide leading-relaxed">虚空尚无回响。<br />在「接入」里点亮角色，手动邀请；选定时后也可自动登入。</p>
             ) : (
                 <>
                     {/* 翻页移到动态上方：底下翻页要滚到最后才够得着，放上方更顺手 */}
@@ -2620,46 +2632,6 @@ const RoomScene: React.FC<{
 };
 
 // ============ 书库 ============
-const LibraryView: React.FC<{
-    novels: VRWorldNovel[]; characters: CharacterProfile[];
-    onOpen: (n: VRWorldNovel) => void; onAdd: () => void; onDelete: (id: string) => void;
-}> = ({ novels, characters, onOpen, onAdd, onDelete }) => (
-    <div className="space-y-3">
-        <button onClick={onAdd} className="w-full rounded-xl py-2.5 text-[13px] font-bold flex items-center justify-center gap-1.5 active:scale-[0.98] transition-transform shadow-[0_4px_14px_rgba(120,100,255,0.4)]"
-            style={{ background: 'linear-gradient(120deg, rgba(150,168,255,.92), rgba(188,168,255,.85) 55%, rgba(150,212,204,.9))' }}>
-            <Plus size={16} weight="bold" /> 上传小说（.txt / .epub / .pdf）
-        </button>
-        {novels.length === 0 ? (
-            <p className="text-[11px] text-indigo-300/50 py-6 text-center">书库空空如也。上传的小说是所有角色共享的读物，每个角色各自留批注、各自记书签。</p>
-        ) : novels.map(novel => {
-            const readers = characters.filter(c => getBookmark(c.vrState?.novelBookmarks, novel.id) > 0);
-            return (
-                <div key={novel.id} className="rounded-2xl p-3.5 backdrop-blur-sm" style={{ background: 'rgba(255,255,255,0.045)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                    <div className="flex items-start gap-2">
-                        <BookOpen size={18} weight="fill" className="text-amber-200 mt-0.5 shrink-0" />
-                        <div className="flex-1 min-w-0">
-                            <div className="text-[13px] font-bold truncate">{novel.title}</div>
-                            {novel.author && <div className="text-[10px] text-indigo-300/60">{novel.author}</div>}
-                            <div className="text-[10px] text-indigo-300/50 mt-0.5">{novel.segments.length} 段 · {novel.totalChars.toLocaleString()} 字</div>
-                        </div>
-                        <button onClick={() => onDelete(novel.id)} className="p-1.5 rounded-full active:bg-white/10 text-indigo-300/50"><Trash size={15} /></button>
-                    </div>
-                    {readers.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                            {readers.map(c => {
-                                const bm = getBookmark(c.vrState?.novelBookmarks, novel.id);
-                                const pct = Math.round((bm / Math.max(1, novel.segments.length)) * 100);
-                                return <span key={c.id} className="text-[9.5px] bg-white/10 rounded-full px-2 py-0.5 text-indigo-100/80">{c.name} {pct}%</span>;
-                            })}
-                        </div>
-                    )}
-                    <button onClick={() => onOpen(novel)} className="mt-2 text-[11px] text-indigo-300 font-semibold flex items-center gap-0.5 active:opacity-70">翻开阅读 / 看批注 <CaretRight size={12} weight="bold" /></button>
-                </div>
-            );
-        })}
-    </div>
-);
-
 // ============ 阅读器主题 ============
 interface ReaderTheme { id: string; name: string; bg: string; paper: string; text: string; sub: string; accent: string; annBg: string; }
 const READER_THEMES: ReaderTheme[] = [
@@ -2994,10 +2966,12 @@ type UploadFileInfo = {
 };
 
 const UploadModal: React.FC<{
+    categories: VRLibraryCategory[]; initialCategoryId?: string;
     onClose: () => void;
     onCommit: (novel: VRWorldNovel) => Promise<void> | void;
     onError: (msg: string) => void;
-}> = ({ onClose, onCommit, onError }) => {
+}> = ({ categories, initialCategoryId, onClose, onCommit, onError }) => {
+    const [categoryId, setCategoryId] = useState(initialCategoryId || '');
     const uploadFieldClass = 'w-full rounded-lg border border-indigo-100/70 bg-white px-3 py-2 text-slate-800 caret-indigo-500 placeholder:text-indigo-300 outline-none focus:border-indigo-300';
     const [title, setTitle] = useState('');
     const [author, setAuthor] = useState('');
@@ -3129,7 +3103,7 @@ const UploadModal: React.FC<{
                 onProgress: (r) => setProgress(Math.round(r * 100)),
             });
             if (novel.segments.length === 0) { onError('正文是空的'); setBusy(false); return; }
-            await onCommit(novel);
+            await onCommit({ ...novel, categoryId: categories.some(category => category.id === categoryId) ? categoryId : undefined });
         } catch (e) {
             console.error('[VRWorld] build novel failed', e);
             onError('处理失败，文件可能太大或格式异常');
@@ -3185,6 +3159,7 @@ const UploadModal: React.FC<{
                 )}
 
                 <div className="space-y-2.5">
+                    <select aria-label="上架分类" value={categoryId} onChange={event => setCategoryId(event.target.value)} className="w-full px-3 text-sm" style={{ minHeight: 44, background: F.surface, color: F.textPrimary, borderRadius: R.input, boxShadow: S.sunken }}><option value="">未分类</option>{categories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}</select>
                     <input value={title} onChange={e => setTitle(e.target.value)} placeholder="书名（必填）" className={`${uploadFieldClass} text-[13px]`} />
                     <input value={author} onChange={e => setAuthor(e.target.value)} placeholder="作者（选填）" className={`${uploadFieldClass} text-[13px]`} />
                     <input value={summary} onChange={e => setSummary(e.target.value)} placeholder="一句话简介（选填，喂给角色当背景）" className={`${uploadFieldClass} text-[13px]`} />
@@ -3446,106 +3421,8 @@ const UserVRPanel: React.FC<{
 
 // ============ 接入设置 ============
 const INTERVAL_OPTIONS = [60, 120, 180, 360, 720];
-const SettingsView: React.FC<{
-    characters: CharacterProfile[];
-    updateCharacter: (id: string, updates: Partial<CharacterProfile>) => void;
-    addToast?: (msg: string, type?: any) => void;
-    novelCount: number; onReload: () => void;
-    onRequestEnable: (char: CharacterProfile) => void;
-    onEditChibi: (char: CharacterProfile) => void;
-}> = ({ characters, updateCharacter, addToast, novelCount, onReload, onRequestEnable, onEditChibi }) => {
-    const [pickFor, setPickFor] = useState<CharacterProfile | null>(null);
-    // 接入列表的分组筛选（characters 由 props 传入，这里单独取 characterGroups 即可）
-    const { characterGroups } = useOS();
-    const [settingsGroupId, setSettingsGroupId] = useState<string>(GROUP_FILTER_ALL);
-    const go = (room?: VRRoomId) => {
-        if (!pickFor) return;
-        VRScheduler.triggerNow(pickFor.id, room);
-        addToast?.(`${pickFor.name} 正在登入彼方…`, 'info');
-        setTimeout(onReload, 4000);
-        setPickFor(null);
-    };
-
-    const disable = (char: CharacterProfile) => {
-        updateCharacter(char.id, { vrState: { ...(char.vrState || { intervalMinutes: VR_DEFAULT_INTERVAL_MIN }), enabled: false } as any });
-        VRScheduler.stop(char.id);
-    };
-    const setInterval = (char: CharacterProfile, minutes: number) => {
-        updateCharacter(char.id, { vrState: { ...(char.vrState || {}), enabled: char.vrState?.enabled ?? true, intervalMinutes: minutes } });
-        if (char.vrState?.enabled) VRScheduler.start(char.id, minutes);
-    };
-
-    return (
-        <div className="space-y-3">
-            <p className="text-[11px] text-indigo-300/60 leading-relaxed">
-                启用后，角色会按设定的间隔自己登入「彼方」，在图书馆读你上传的小说、写批注。每次活动会在 ta 的聊天里留下动态卡片，也会被记忆总结捕捉。
-                {novelCount === 0 && <span className="text-amber-300/80"> 书库还空着，先去「书库」上传一本。</span>}
-            </p>
-            {characters.length === 0 && <p className="text-[11px] text-indigo-300/50 py-4 text-center">还没有角色。</p>}
-            {/* 分组筛选（没建分组时不渲染）：深色底 */}
-            <CharacterGroupFilterBar characters={characters} groups={characterGroups} dark
-                value={settingsGroupId} onChange={setSettingsGroupId} />
-            {characters.length > 0 && filterCharactersByGroup(characters, characterGroups, settingsGroupId).length === 0 &&
-                <p className="text-[11px] text-indigo-300/50 py-4 text-center">该分组下没有角色</p>}
-            {filterCharactersByGroup(characters, characterGroups, settingsGroupId).map(char => {
-                const st = char.vrState;
-                const enabled = !!st?.enabled;
-                const interval = st?.intervalMinutes || VR_DEFAULT_INTERVAL_MIN;
-                const chibi = getChibi(char);
-                return (
-                    <div key={char.id} className="rounded-2xl p-3.5 backdrop-blur-sm" style={{ background: 'rgba(255,255,255,0.045)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                        <div className="flex items-center gap-2.5">
-                            {/* chibi 缩略 */}
-                            <button onClick={() => onEditChibi(char)} className="relative h-12 w-12 rounded-xl overflow-hidden bg-black/20 flex items-end justify-center shrink-0 active:opacity-80">
-                                {chibi.img ? <TokenImg value={chibi.img} className="h-11 object-contain object-bottom" style={{ transform: `scaleX(${chibi.flip ? -1 : 1})` }} alt="" /> : <span className="text-lg text-indigo-300/60 mb-2">？</span>}
-                                <span className="absolute bottom-0 right-0 bg-indigo-500/90 rounded-tl-md p-0.5"><PencilSimple size={9} weight="bold" /></span>
-                            </button>
-                            <div className="flex-1 min-w-0">
-                                <div className="text-[13px] font-bold truncate">{char.name}</div>
-                                {enabled ? <div className="text-[10px] text-indigo-300/60">每 {interval >= 60 ? `${formatHours(interval)} 小时` : `${interval} 分`}登入一次</div>
-                                    : <div className="text-[10px] text-indigo-300/40">{chibi.isFallback ? '未设形象 · 未接入' : '未接入'}</div>}
-                            </div>
-                            <button onClick={() => enabled ? disable(char) : onRequestEnable(char)}
-                                className={`relative w-11 h-6 rounded-full transition-colors ${enabled ? 'bg-indigo-400' : 'bg-white/15'}`}>
-                                <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${enabled ? 'translate-x-5' : ''}`} />
-                            </button>
-                        </div>
-                        {enabled && (
-                            <>
-                                <div className="flex flex-wrap gap-1.5 mt-2.5">
-                                    {INTERVAL_OPTIONS.map(opt => (
-                                        <button key={opt} onClick={() => setInterval(char, opt)}
-                                            className={`text-[10.5px] rounded-full px-2.5 py-1 font-semibold ${interval === opt ? 'bg-indigo-400 text-white' : 'bg-white/10 text-indigo-200/70'}`}>
-                                            {opt >= 60 ? `${formatHours(opt)}h` : `${opt}min`}
-                                        </button>
-                                    ))}
-                                </div>
-                                <button onClick={() => setPickFor(char)}
-                                    className="mt-2.5 text-[11px] text-amber-200 font-semibold flex items-center gap-1 active:opacity-70">
-                                    <Play size={12} weight="fill" /> 让 ta 现在去逛一次
-                                </button>
-                            </>
-                        )}
-                    </div>
-                );
-            })}
-            <ActionSheet open={!!pickFor} title={pickFor ? `让 ${pickFor.name} 现在去哪个房间？` : ''}
-                actions={[
-                    { label: '随机一个房间', onClick: () => go() },
-                    ...(novelCount > 0 ? [{ label: '图书馆 · 读书写批注', onClick: () => go('library') }] : []),
-                    { label: '剧院 · 写剧本投稿', onClick: () => go('theater') },
-                    { label: '听歌房 · 点歌锐评', onClick: () => go('music') },
-                    { label: '留言簿 · 发帖版聊', onClick: () => go('guestbook') },
-                    { label: '娱乐室 · 放开玩', onClick: () => go('gym') },
-                    { label: '邮局 · 写漂流信', onClick: () => go('postoffice') },
-                    // 信号坠落处不放这里：参与统一走活动 banner → 面板「✍ 参与」，那条路才有「耳语」
-                ]} onClose={() => setPickFor(null)} />
-        </div>
-    );
-};
-
 // ============ 彼方 · API 设置 + 调用记录 ============
-const VRApiSettings: React.FC<{ apiPresets: ApiPreset[]; chatApi: APIConfig; addToast?: (m: string, t?: any) => void }> = ({ apiPresets, chatApi, addToast }) => {
+const VRApiSettings: React.FC<{ characters: CharacterProfile[]; apiPresets: ApiPreset[]; chatApi: APIConfig; addToast?: (m: string, t?: any) => void }> = ({ characters, apiPresets, chatApi, addToast }) => {
     const [vrApi, setVr] = useState<APIConfig | null>(null);
     const [log, setLog] = useState<VRApiCall[]>([]);
     const [testing, setTesting] = useState(false);
@@ -3585,10 +3462,12 @@ const VRApiSettings: React.FC<{ apiPresets: ApiPreset[]; chatApi: APIConfig; add
         } catch (e: any) { setTestResult(`连接失败: ${e.message}`); } finally { setTesting(false); }
     };
 
-    const okCount = log.filter(l => l.ok).length;
+    const actualCalls = log.filter(item => !item.kind);
+    const okCount = actualCalls.filter(l => l.ok).length;
 
     return (
         <div className="space-y-3">
+            <VRDiagnostics characters={characters} api={chatApi} />
             <p className="text-[11px] text-indigo-300/60 leading-relaxed">
                 彼方里的角色会自主、按间隔登入触发模型调用，比较费 API。你可以在这里给彼方<b className="text-indigo-200">单独指定一份 API</b>（和「设置」里保存的预设共用同一批），不设则跟随聊天默认。
             </p>
@@ -3665,7 +3544,7 @@ const VRApiSettings: React.FC<{ apiPresets: ApiPreset[]; chatApi: APIConfig; add
                         {log.slice(0, 60).map((l, i) => (
                             <div key={i} className="flex items-center gap-2 text-[10.5px] py-1 border-b border-white/5 last:border-0">
                                 <span className={`shrink-0 ${l.ok ? 'text-emerald-400/80' : 'text-rose-400/80'}`}>{l.ok ? '●' : '○'}</span>
-                                <span className="text-white/75 truncate">{l.charName || '—'}</span>
+                                <span className="text-white/75 truncate">{l.charName || '—'}{l.kind ? ` · ${{ skipped: '跳过', throttled: '间隔拦截', tripped: '已停止' }[l.kind]}` : ''}</span>
                                 <span className="text-indigo-300/40 shrink-0">{l.room ? getRoom(l.room as VRRoomId).name : ''}</span>
                                 <span className="ml-auto text-white/30 shrink-0 tabular-nums">{(l.ms / 1000).toFixed(1)}s</span>
                                 <span className="text-white/35 shrink-0 tabular-nums w-[68px] text-right">{new Date(l.ts).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>

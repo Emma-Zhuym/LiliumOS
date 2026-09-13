@@ -1,3 +1,7 @@
+import { allowsAutomaticVR } from '../utils/vrWorld/participation';
+import { logVRApiCall } from '../utils/vrWorld/vrApi';
+import type { VRSessionOutcome } from '../utils/vrWorld/scheduler';
+import type { MemoryPalaceFeatureFlags } from '../types';
 import { loadChatInputPreferences, saveChatInputPreferences } from '../utils/chatInputPreferences';
 import { getCheckPhoneApi, setCheckPhoneApi } from '../utils/checkPhoneApi';
 
@@ -246,6 +250,7 @@ const defaultRealtimeConfig: RealtimeConfig = {
 
 // 记忆宫殿全局配置（所有角色共用 embedding、副 LLM 和 rerank）
 export interface MemoryPalaceGlobalConfig {
+  featureFlags: MemoryPalaceFeatureFlags;
   embedding: {
     baseUrl: string;
     apiKey: string;
@@ -270,10 +275,18 @@ export interface MemoryPalaceGlobalConfig {
 }
 
 const defaultMemoryPalaceConfig: MemoryPalaceGlobalConfig = {
+  featureFlags: { recallRouter: false, interactionAdaptation: false, deepEngagement: false, epistemicState: false },
   embedding: { baseUrl: '', apiKey: '', model: 'BAAI/bge-m3', dimensions: 1024 },
   lightLLM: { baseUrl: '', apiKey: '', model: '' },
   rerank: { enabled: false, baseUrl: '', apiKey: '', model: 'BAAI/bge-reranker-v2-m3', topN: 5 },
 };
+
+const normalizeMemoryPalaceConfig = (value?: Partial<MemoryPalaceGlobalConfig> | null): MemoryPalaceGlobalConfig => ({
+  embedding: { ...defaultMemoryPalaceConfig.embedding, ...(value?.embedding || {}) },
+  lightLLM: { ...defaultMemoryPalaceConfig.lightLLM, ...(value?.lightLLM || {}) },
+  rerank: { ...defaultMemoryPalaceConfig.rerank, ...(value?.rerank || {}) },
+  featureFlags: { ...defaultMemoryPalaceConfig.featureFlags, ...(value?.featureFlags || {}) },
+});
 
 // [EM-START: message-sub-view]
 /** Dock Message：通讯录列表 vs 私聊会话；持久化到 localStorage */
@@ -915,7 +928,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   const [apiPresets, setApiPresets] = useState<ApiPreset[]>([]);
   const [realtimeConfig, setRealtimeConfig] = useState<RealtimeConfig>(defaultRealtimeConfig);
   const [memoryPalaceConfig, setMemoryPalaceConfig] = useState<MemoryPalaceGlobalConfig>(() => {
-    try { const s = localStorage.getItem('os_memory_palace_config'); return s ? { ...defaultMemoryPalaceConfig, ...JSON.parse(s) } : defaultMemoryPalaceConfig; } catch { return defaultMemoryPalaceConfig; }
+    try { const s = localStorage.getItem('os_memory_palace_config'); return normalizeMemoryPalaceConfig(s ? JSON.parse(s) : undefined); } catch { return defaultMemoryPalaceConfig; }
   });
   const defaultRemoteVectorConfig = { enabled: false, supabaseUrl: '', supabaseAnonKey: '', initialized: false };
   const [remoteVectorConfig, setRemoteVectorConfig] = useState(() => {
@@ -2605,34 +2618,66 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       });
 
       // 「彼方」自主登入 —— 独立调度，复用同一批 refs 拿最新状态
-      const runVR = async (charId: string, room?: string, letterId?: string) => {
+      const runVR = async (charId: string, room?: string, letterId?: string, manual?: boolean) => {
           const char = charactersRef.current.find(c => c.id === charId);
-          if (!char || !char.vrState?.enabled) return;
+          // 调度表里还排着队，角色却已经不接入了（或者压根被删了）：这条调度不该继续存在。
+          // 就地撤掉并留一行记录 —— 不撤的话它会一直空转，而空转是完全静默的，
+          // 用户那边只看得到「明明全关了，调用记录还在涨」，谁也说不清是哪一边错了。
+          if (!char || !char.vrState?.enabled || (!manual && !allowsAutomaticVR(char.vrState))) {
+              VRScheduler.stop(charId);
+              void logVRApiCall({
+                  ts: Date.now(), charId, charName: char?.name, ok: false, ms: 0,
+                  kind: 'skipped', charEnabled: !!char?.vrState?.enabled,
+                  note: char?.vrState?.enabled ? '角色仅手动活动，已撤掉这条残留调度' : char ? '角色未接入彼方，已撤掉这条残留调度' : '角色已不存在，已撤掉这条残留调度',
+              });
+              return;
+          }
           if (!userProfileRef.current) return;
+          let outcome: VRSessionOutcome = 'skipped';
           try {
-              await runVRSession({
+              const result = await runVRSession({
                   char,
                   characters: charactersRef.current,
                   apiConfig: apiConfigRef.current,
                   userProfile: userProfileRef.current,
                   groups: groupsRef.current,
-                  realtimeConfig: realtimeConfigRef.current,
-                  memoryPalaceConfig: memoryPalaceConfigRef.current,
-                  updateCharacter,
-                  forcedRoom: room as any,
+                   realtimeConfig: realtimeConfigRef.current,
+                   memoryPalaceConfig: memoryPalaceConfigRef.current,
+                   updateCharacter,
+                   forcedRoom: room as any,
                   forcedLetterId: letterId,
+                  manual,
               });
+              // 没书没歌、房间被别人占着这些都不算账，只有真的没调通模型才记一笔失败
+              outcome = result.ok ? 'ok' : (result.reason === 'api-error' ? 'failed' : 'skipped');
           } catch (e) {
               console.error('[VRWorld] runVR error', e);
+              outcome = 'failed';
           }
+
+          if (!allowsAutomaticVR(charactersRef.current.find(c => c.id === charId)?.vrState)) return;
+          const { tripped, streak } = VRScheduler.report(charId, outcome);
+          if (!tripped) return;
+          // 熔断了：调度已经被掐掉，这里把角色一并落回未接入，让界面和实际跑的东西对上，
+          // 免得又变成「显示未接入、后台还在动」。用函数式更新拿最新的 vrState，
+          // 别拿会话开头那份快照写回去，那会把这一轮刚记下的房间和时间抹掉。
+          void updateCharacter(charId, prev => ({
+              vrState: { ...(prev.vrState || { intervalMinutes: VR_DEFAULT_INTERVAL_MIN }), enabled: false } as any,
+          }));
+          void logVRApiCall({
+              ts: Date.now(), charId, charName: char.name, ok: false, ms: 0,
+              kind: 'tripped',
+              note: `连续 ${streak} 次没能调通模型，已暂停 ${char.name} 的自主登入`,
+          });
+          addToast(`${char.name} 连续 ${streak} 次没能调通模型，已暂停 ta 在彼方的自主登入`, 'error');
       };
-      VRScheduler.onTrigger((charId: string, room?: string, letterId?: string) => { void runVR(charId, room, letterId); });
+      VRScheduler.onTrigger((charId: string, room?: string, letterId?: string, manual?: boolean) => { void runVR(charId, room, letterId, manual); });
 
       // 以角色 vrState 为准对账调度表：调度表存 localStorage、不随备份迁移，
       // 导入备份后角色虽 enabled 但调度表为空，这里补建/清理使其按时触发。
       VRScheduler.reconcile(
           charactersRef.current
-              .filter(c => c.vrState?.enabled)
+              .filter(c => allowsAutomaticVR(c.vrState))
               .map(c => ({ charId: c.id, intervalMinutes: c.vrState?.intervalMinutes || VR_DEFAULT_INTERVAL_MIN }))
       );
 
@@ -3022,6 +3067,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
   const updateMemoryPalaceConfig = (updates: Partial<MemoryPalaceGlobalConfig>) => {
     const newConfig: MemoryPalaceGlobalConfig = {
+      featureFlags: { ...memoryPalaceConfig.featureFlags, ...(updates.featureFlags || {}) },
       embedding: { ...memoryPalaceConfig.embedding, ...(updates.embedding || {}) },
       lightLLM: { ...memoryPalaceConfig.lightLLM, ...(updates.lightLLM || {}) },
       rerank: { ...memoryPalaceConfig.rerank, ...(updates.rerank || {}) },
@@ -3872,7 +3918,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               // 角色身上的 groupId 指向这张表，漏导会让导入端全员回落「未分组」
               'characters', 'character_groups', 'messages', 'themes', 'emojis', 'emoji_categories', 'assets', 'gallery',
               'user_profile', 'diaries', 'tasks', 'anniversaries', 'room_todos',
-              'room_notes', 'groups', 'journal_stickers', 'social_posts', 'courses', 'games', 'worldbooks', 'story_theaters', 'story_theater_presets', 'story_theater_masks', 'novels', 'songs',
+              'room_notes', 'groups', 'journal_stickers', 'social_posts', 'courses', 'games', 'worldbooks', 'story_theaters', 'story_theater_presets', 'story_theater_masks', 'story_variants', 'novels', 'songs',
               'bank_transactions', 'bank_data',
               'xhs_activities', 'xhs_owned_posts', 'xhs_stock',
               'quizzes', 'guidebook', 'scheduled_messages', 'life_sim',
@@ -3993,6 +4039,16 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                       const key = localStorage.key(i);
                       if (!key || !key.startsWith('chat_translate_enabled_')) continue;
                       const charId = key.replace('chat_translate_enabled_', '');
+                      map[charId] = localStorage.getItem(key) === 'true';
+                  }
+                  return Object.keys(map).length > 0 ? map : undefined;
+              })() : undefined,
+              chatTranslateExpandedByChar: (mode === 'text_only' || mode === 'full') ? (() => {
+                  const map: Record<string, boolean> = {};
+                  for (let i = 0; i < localStorage.length; i++) {
+                      const key = localStorage.key(i);
+                      if (!key || !key.startsWith('chat_translate_expanded_')) continue;
+                      const charId = key.replace('chat_translate_expanded_', '');
                       map[charId] = localStorage.getItem(key) === 'true';
                   }
                   return Object.keys(map).length > 0 ? map : undefined;
@@ -4219,7 +4275,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               'room_plates', 'digest_reports',
               'bank_transactions', 'scheduled_messages', 'memory_batches', 'hotnews_snapshots',
               'character_groups',
-              'story_theaters', 'story_theater_presets',
+              'story_theaters', 'story_theater_presets', 'story_variants',
               'life_records', 'med_plans', 'life_record_settings'
           ]);
 
@@ -4261,6 +4317,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               story_theaters: 'storyTheaters',
               story_theater_presets: 'storyTheaterPresets',
               story_theater_masks: 'storyTheaterMasks',
+              story_variants: 'storyVariants',
               novels: 'novels',
               songs: 'songs',
               bank_transactions: 'bankTransactions',
@@ -4481,6 +4538,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   case 'story_theaters': backupData.storyTheaters = processedData; break;
                   case 'story_theater_presets': backupData.storyTheaterPresets = processedData; break;
                   case 'story_theater_masks': backupData.storyTheaterMasks = processedData; break;
+                  case 'story_variants': backupData.storyVariants = processedData; break;
                   case 'novels': backupData.novels = processedData; break;
                   case 'songs': backupData.songs = processedData; break;
                   case 'bank_transactions': backupData.bankTransactions = processedData; break;
@@ -4978,6 +5036,11 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           if (data.chatTranslateEnabledByChar && typeof data.chatTranslateEnabledByChar === 'object') {
               for (const [charId, enabled] of Object.entries(data.chatTranslateEnabledByChar)) {
                   localStorage.setItem(`chat_translate_enabled_${charId}`, enabled ? 'true' : 'false');
+              }
+          }
+          if (data.chatTranslateExpandedByChar && typeof data.chatTranslateExpandedByChar === 'object') {
+              for (const [charId, expanded] of Object.entries(data.chatTranslateExpandedByChar)) {
+                  localStorage.setItem(`chat_translate_expanded_${charId}`, expanded ? 'true' : 'false');
               }
           }
           if (data.chatTranslateSourceLangByChar && typeof data.chatTranslateSourceLangByChar === 'object') {

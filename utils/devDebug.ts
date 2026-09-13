@@ -6,7 +6,7 @@
 // 其余存储 / 脱敏 / 限容 / 导出逻辑全部通用，不用改。
 // 分类按「来源通道」切：api = 普通聊天直发模型；instant-push = 经 worker 的通道事件；
 // lifecycle = 页面前后台/网络状态变化（排查「请求等着等着就 NetworkError」时跟 api 类对时间线）。
-export type DevDebugCaptureCategory = 'api' | 'instant-push' | 'lifecycle';
+export type DevDebugCaptureCategory = 'api' | 'instant-push' | 'lifecycle' | 'memory-palace';
 
 export interface DevDebugCaptureCategoryMeta {
     key: DevDebugCaptureCategory;
@@ -33,6 +33,8 @@ export const DEV_DEBUG_CAPTURE_CATEGORIES: DevDebugCaptureCategoryMeta[] = [
         detail: '页面前后台 / 焦点 / 网络状态变化（visibilitychange、focus/blur、pagehide/pageshow、online/offline、freeze/resume），用来跟 api 类对时间线，判断请求失败是不是切后台导致的。',
     },
 ];
+
+DEV_DEBUG_CAPTURE_CATEGORIES.push({ key: 'memory-palace', title: '记忆', detail: '记忆召回的统计和状态，不记录查询原文。' });
 
 const CAPTURE_CATEGORY_KEYS: DevDebugCaptureCategory[] = DEV_DEBUG_CAPTURE_CATEGORIES.map((c) => c.key);
 
@@ -609,4 +611,8 @@ export function subscribeDevDebugLog(listener: (entries: DevDebugLogEntry[]) => 
     };
     window.addEventListener(DEV_DEBUG_LOG_EVENT, onChange);
     return () => window.removeEventListener(DEV_DEBUG_LOG_EVENT, onChange);
+}
+
+export function appendDevDebugMemoryPalaceLog(input: { label?: string; data: unknown }): void {
+    appendDevDebugLog('memory-palace', input);
 }

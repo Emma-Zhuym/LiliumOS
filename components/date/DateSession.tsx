@@ -136,6 +136,38 @@ const NOVEL_HISTORY_FETCH_STEP = 220;
 const NOVEL_MESSAGE_LOAD_STEP = 40;
 const REQUIRED_EMOTIONS_SET = ['normal', 'happy', 'angry', 'sad', 'shy'];
 
+const ReadingAvatar: React.FC<{ src?: string; name: string; light: boolean }> = ({ src, name, light }) => {
+    const [imageFailed, setImageFailed] = useState(false);
+    useEffect(() => setImageFailed(false), [src]);
+
+    // TokenImg 会把 blobref 令牌解析成可用 url，这里只判「有没有头像」和「加载失败没」
+    const canShowImage = !!src && !imageFailed;
+    return (
+        <div
+            className={`mt-1 h-9 w-9 shrink-0 overflow-hidden rounded-full ring-1 shadow-sm ${
+                light ? 'bg-stone-200 text-stone-500 ring-stone-300/70' : 'bg-white/10 text-white/70 ring-white/15'
+            }`}
+            aria-hidden="true"
+        >
+            {canShowImage ? (
+                <TokenImg
+                    value={src}
+                    alt=""
+                    className="h-full w-full object-cover"
+                    loading="lazy"
+                    decoding="async"
+                    referrerPolicy="no-referrer"
+                    onError={() => setImageFailed(true)}
+                />
+            ) : (
+                <span className="flex h-full w-full items-center justify-center text-xs font-bold">
+                    {(name || '·').trim().slice(0, 1) || '·'}
+                </span>
+            )}
+        </div>
+    );
+};
+
 const DateSession: React.FC<DateSessionProps> = ({ 
     onLoadMoreHistory,
     historyLoadLimit = 0,
@@ -1057,12 +1089,18 @@ addToast('重播对话', 'info');
                                         </div>
                                     )}
                                     {msg.role === 'user' ? (
-                                        <p className={`whitespace-pre-wrap font-serif text-[16px] text-right leading-loose tracking-wide italic pr-4 ${char.dateLightReading ? 'text-stone-400 border-r-2 border-stone-300/50' : 'text-slate-400 border-r-2 border-slate-600/50'}`}>{cleanTextForDisplay(msg.content)} <span className="text-[10px] uppercase font-sans not-italic ml-2 opacity-50">{userProfile.name}</span></p>
+                                        <div className="flex min-w-0 items-start justify-end gap-3">
+                                        <p className={`min-w-0 flex-1 whitespace-pre-wrap font-serif text-[16px] text-right leading-loose tracking-wide italic pr-4 ${char.dateLightReading ? 'text-stone-400 border-r-2 border-stone-300/50' : 'text-slate-400 border-r-2 border-slate-600/50'}`}>{cleanTextForDisplay(msg.content)} <span className="text-[10px] uppercase font-sans not-italic ml-2 opacity-50">{userProfile.name}</span></p>
+
+                                        {char.dateReadingShowAvatars && <ReadingAvatar src={userProfile.perCharAvatars?.[char.id] || userProfile.avatar} name={userProfile.name} light={!!char.dateLightReading} />}
+                                        </div>
                                     ) : (() => {
                                         // 观测协议：从这条回复里剥出观测块，正文上方渲染独立卡片，正文本身不显示块文本
                                         const { observation: msgObs, rest: msgBody } = extractObservation(msg.content || '', { lenient: observeEnabled, custom: char.dateObserve?.custom });
                                         return (
-                                        <div>
+                                        <div className="flex min-w-0 items-start gap-3">
+                                        {char.dateReadingShowAvatars && <ReadingAvatar src={char.avatar} name={char.name} light={!!char.dateLightReading} />}
+                                        <div className="min-w-0 flex-1">
                                             {observeEnabled && hasObservation(msgObs) && (
                                                 <ObserveHUD observation={msgObs} variant="card" charName={char.name} config={char.dateObserve} />
                                             )}
@@ -1098,6 +1136,7 @@ addToast('重播对话', 'info');
                                                     </div>
                                                 );
                                             })}
+                                        </div>
                                         </div>
                                         ); })()}
                                 </div>
@@ -1156,7 +1195,7 @@ addToast('重播对话', 'info');
                 )}
                 {showInputBox && (
                     <div className={`w-[90%] max-w-lg backdrop-blur-xl rounded-2xl p-2 flex gap-2 shadow-2xl animate-fade-in mb-8 pointer-events-auto ${char.dateLightReading ? 'bg-stone-100 border border-stone-300' : 'bg-white/10 border border-white/20'}`} onClick={(e) => e.stopPropagation()}>
-                        <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder={isTyping ? "等待回应..." : "输入对话..."} disabled={isTyping} className={`flex-1 bg-transparent px-4 py-3 outline-none font-light resize-none h-14 no-scrollbar leading-tight ${char.dateLightReading ? 'text-stone-800 placeholder:text-stone-400' : 'text-white placeholder:text-white/30'}`} autoFocus />
+                        <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder={isTyping ? "等待回应..." : "输入对话..."} disabled={isTyping} className={`min-w-0 flex-1 bg-transparent px-3 sm:px-4 py-3 outline-none font-light resize-none h-14 no-scrollbar leading-tight ${char.dateLightReading ? 'text-stone-800 placeholder:text-stone-400' : 'text-white placeholder:text-white/30'}`} autoFocus />
                         {(() => {
                             const retryText = pendingRetryText || getPendingReplyText(messages);
                             const canRetry = !input.trim() && !isTyping && !!retryText;
@@ -1164,7 +1203,7 @@ addToast('重播对话', 'info');
                                 <button
                                     onClick={handleSend}
                                     disabled={(!input.trim() && !canRetry) || isTyping}
-                                    className="px-6 bg-white text-black rounded-xl font-bold text-sm hover:bg-slate-200 disabled:opacity-50 transition-colors h-14 flex items-center justify-center"
+                                    className="shrink-0 px-4 sm:px-6 bg-white text-black rounded-xl font-bold text-sm hover:bg-slate-200 disabled:opacity-50 transition-colors h-14 flex items-center justify-center"
                                 >
                                     {canRetry ? '重试' : '发送'}
                                 </button>

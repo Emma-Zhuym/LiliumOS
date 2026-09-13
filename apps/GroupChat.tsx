@@ -1,3 +1,4 @@
+import { loadCharacterContextMessages } from '../utils/chatContextRange';
 
 import React, { useState, useEffect, useRef, useLayoutEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
@@ -1198,7 +1199,7 @@ ${sharedScene.text}${activeGroup ? buildGroupTopicContext(activeGroup) : ''}`;
 
         // 私聊+群聊合并时间线：让角色看清两条线的先后关系，感情才能衔接。
         // includeProcessed=true——被宫殿归档的私聊也是"底色"，不能漏
-        const privateMsgs = await DB.getRecentMessagesByCharId(member.id, timelineCap, true);
+        const privateMsgs = await loadCharacterContextMessages(member);
         const memberTimeline = buildMemberTimeline({
             privateMsgs,
             groupMsgs: liveGroupMsgs,
