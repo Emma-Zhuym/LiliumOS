@@ -3,7 +3,7 @@ import type { KitchenFridgePlacement } from './kitchenDb';
 // Shared by the GLB builder and inventory projection. Dimensions are in scene units.
 export const FRIDGE_SHELVES = {
   fridge: [1.3, 0.93, 0.56],
-  freezer: [2.08, 1.8525],
+  freezer: [2.19, 1.8525],
 } as const;
 
 export const FRIDGE_DOOR_RACKS = {
@@ -13,8 +13,8 @@ export const FRIDGE_DOOR_RACKS = {
     { placement: 'door-lower', baseY: 0.42, wallHeight: 0.14, foodHeight: 0.31 },
   ],
   freezer: [
-    { placement: 'door-upper', baseY: 2.1, wallHeight: 0.065, foodHeight: 0.12 },
-    { placement: 'door-lower', baseY: 1.835, wallHeight: 0.09, foodHeight: 0.2 },
+    { placement: 'door-upper', baseY: 2.25, wallHeight: 0.09, foodHeight: 0.17 },
+    { placement: 'door-lower', baseY: 1.835, wallHeight: 0.1, foodHeight: 0.28 },
   ],
 } as const;
 

@@ -7,6 +7,7 @@ import type { KitchenFood, KitchenLot, KitchenFridgePlacement } from '../../util
 import { FRIDGE_SHELVES, fridgePlacementOptions, fridgeDoorParent } from '../../utils/kitchenFridgeSpec';
 import { eggVisibleCount, fridgeLayout } from '../../utils/kitchenSceneLayout';
 import { createKitchenBackdrop } from '../../utils/kitchenBackdrop';
+import { spaceKitchenMarkers } from '../../utils/kitchenSceneMarkers';
 
 interface Props {
   lots: KitchenLot[];
@@ -15,6 +16,8 @@ interface Props {
   busy?: boolean;
   onMoveLot: (id: string, placement: KitchenFridgePlacement) => Promise<void>;
 }
+
+const DOOR_OPEN_ANGLE = -THREE.MathUtils.degToRad(112);
 
 function disposeObjects(objects: THREE.Object3D[]) {
   const geometries = new Set<THREE.BufferGeometry>();
@@ -71,8 +74,8 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
     let freezerDoor: THREE.Object3D | undefined;
     let drawers: THREE.Object3D[] = [];
     let drawerTarget = openRef.current.fridge && drawersRef.current ? 0.3 : 0;
-    let targetAngle = openRef.current.fridge ? -Math.PI * 0.62 : 0;
-    let freezerAngle = openRef.current.freezer ? -Math.PI * 0.62 : 0;
+    let targetAngle = openRef.current.fridge ? DOOR_OPEN_ANGLE : 0;
+    let freezerAngle = openRef.current.freezer ? DOOR_OPEN_ANGLE : 0;
     const foodSlots: { id: string; object: THREE.Group }[] = [];
     let inView = true;
     let renderer: THREE.WebGLRenderer;
@@ -107,8 +110,8 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
     environment.dispose();
     pmrem.dispose();
     const camera = new THREE.OrthographicCamera(-1.4, 1.4, 1.4, -1.4, 0.1, 30);
-    camera.position.set(1.5, 2.5, 6);
-    camera.lookAt(-0.12, 1.19, 0);
+    camera.position.set(-0.12, 1.65, 6);
+    camera.lookAt(-0.12, 1.3, 0);
     scene.add(new THREE.HemisphereLight(F.surfaceRaised, HUE.gray.soft, 0.3));
     const light = new THREE.DirectionalLight(F.surfaceRaised, 2.7);
     light.position.set(-3, 5, 4);
@@ -127,7 +130,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
     scene.add(rimLight);
     // Interior fill follows each door. Only the exterior key renders a shadow map.
     const interiorLights: THREE.PointLight[] = [];
-    for (const y of [1.6, 2.21]) {
+    for (const y of [1.6, 2.41]) {
       const fill = new THREE.PointLight(F.surfaceRaised, 0, 1.6, 2);
       fill.position.set(0, y, 0.12); scene.add(fill);
       interiorLights.push(fill);
@@ -179,10 +182,10 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
         fill.intensity = (index === 0 ? 0.38 : 0.18) * Math.min(1, Math.abs(angle) / 0.5);
       });
       renderer.render(scene, camera);
-      setMarkers(foodSlots.map(slot => {
+      setMarkers(spaceKitchenMarkers(foodSlots.filter(slot => openRef.current[slot.object.userData.zone as 'fridge' | 'freezer']).map(slot => {
         const point = slot.object.localToWorld(new THREE.Vector3(0, slot.object.userData.markerHeight, 0)).project(camera);
         return { lotId: slot.id, x: (point.x + 1) * element.clientWidth / 2, y: (1 - point.y) * element.clientHeight / 2 };
-      }));
+      }), element.clientWidth, element.clientHeight));
       if ((door && door.rotation.y !== targetAngle) || (freezerDoor && freezerDoor.rotation.y !== freezerAngle)
         || drawers.some(drawer => drawer.position.z !== drawerTarget)) frame = requestAnimationFrame(draw);
     };
@@ -190,7 +193,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
       if (!disposed && !frame && !failed) frame = requestAnimationFrame(draw);
     };
     controller.current = {
-      setOpen: value => { targetAngle = value.fridge ? -Math.PI * 0.62 : 0; freezerAngle = value.freezer ? -Math.PI * 0.62 : 0; invalidate(); },
+      setOpen: value => { targetAngle = value.fridge ? DOOR_OPEN_ANGLE : 0; freezerAngle = value.freezer ? DOOR_OPEN_ANGLE : 0; invalidate(); },
       setDrawers: value => { drawerTarget = value ? 0.3 : 0; invalidate(); },
     };
     const resize = () => {
@@ -200,7 +203,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
       if (!width || !height) return;
       renderer.setSize(width, height, false);
       const aspect = width / height;
-      const halfHeight = Math.max(1.4, 1.4 / aspect);
+      const halfHeight = Math.max(1.4, 1.2 / aspect);
       camera.left = -halfHeight * aspect;
       camera.right = halfHeight * aspect;
       camera.top = halfHeight;
@@ -278,7 +281,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
         shade.position.set(...position);
         fridge.add(shade);
       };
-      for (const [bottom, top] of [[0.18, 1.68], [1.79, 2.25]]) {
+      for (const [bottom, top] of [[0.18, 1.68], [1.79, 2.45]]) {
         const center = (bottom + top) / 2;
         for (const side of [-1, 1]) {
           linerShade(0.2, top - bottom, 0.26, [side * 0.46, center, -0.338]);
@@ -369,7 +372,8 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
       {(['fridge', 'freezer'] as const).map(value => <button key={value} type="button" disabled={status !== 'ready'}
         className="sr-only focus:not-sr-only" aria-pressed={doorsOpen[value]} style={buttonStyle}
         onClick={() => toggleDoor(value)}>{doorsOpen[value] ? '关闭' : '打开'}{value === 'fridge' ? '冷藏门' : '冷冻门'}</button>)}
-      <div className="relative" style={{ height: 420, marginTop: SP[2], borderRadius: R.smallCard, overflow: 'hidden', background: HUE.blue.tint }}>
+      <div className="relative" style={{ aspectRatio: '1 / 1.18', maxHeight: 420,
+        marginTop: SP[2], borderRadius: R.smallCard, overflow: 'hidden', background: HUE.blue.tint }}>
         <div ref={host} className="absolute inset-0" />
         {status !== 'ready' && <div role="status" className="absolute inset-0 flex items-center justify-center text-center"
           style={{ padding: SP[3], color: F.textSecondary, fontSize: 13 }}>

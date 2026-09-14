@@ -66,21 +66,21 @@ function panel(parent, name, width, height, depth, position, material, radius = 
   mesh.name = name; mesh.position.set(position[0], position[1], position[2] - depth / 2); parent.add(mesh);
   return mesh;
 }
-box(root, 'Back shell', [1.3, 2.32, 0.1], [0, 1.21, -0.42], enamel, 0.05);
+box(root, 'Back shell', [1.3, 2.52, 0.1], [0, 1.31, -0.42], enamel, 0.05);
 for (const x of [-0.61, 0.61]) {
-  box(root, 'Rounded side', [0.1, 2.32, 0.88], [x, 1.21, -0.02], enamel, 0.045);
-  box(root, 'Side liner', [0.018, 2.13, 0.72], [x * 0.91, 1.21, -0.01], liner, 0.008);
+  box(root, 'Rounded side', [0.1, 2.52, 0.88], [x, 1.31, -0.02], enamel, 0.045);
+  box(root, 'Side liner', [0.018, 2.33, 0.72], [x * 0.91, 1.31, -0.01], liner, 0.008);
 }
-box(root, 'Crown', [1.3, 0.12, 0.88], [0, 2.31, -0.02], enamel, 0.05);
+box(root, 'Crown', [1.3, 0.12, 0.88], [0, 2.51, -0.02], enamel, 0.05);
 box(root, 'Base', [1.3, 0.12, 0.88], [0, 0.11, -0.02], enamel, 0.035);
-box(root, 'Inner back', [1.1, 2.12, 0.022], [0, 1.21, -0.352], recess);
+box(root, 'Inner back', [1.1, 2.32, 0.022], [0, 1.31, -0.352], recess);
 box(root, 'Freezer divider', [1.15, 0.09, 0.78], [0, 1.73, 0], liner, 0.022);
 for (const x of [-0.49, 0.49]) for (const z of [-0.28, 0.28]) box(root, 'Foot', [0.13, 0.09, 0.15], [x, 0.035, z], seal, 0.02);
 for (let i = 0; i < 7; i++) box(root, 'Rear cooling channel', [0.78, 0.012, 0.008], [0, 0.65 + i * 0.135, -0.334], liner, 0.004);
 box(root, 'Air control housing', [0.32, 0.2, 0.048], [0, 1.57, -0.305], liner, 0.02);
 for (let i = 0; i < 5; i++) box(root, 'Vent slot', [0.19, 0.008, 0.003], [0, 1.525 + i * 0.02, -0.278], seal, 0.003);
 box(root, 'Lamp lens', [0.3, 0.026, 0.12], [0, 1.66, 0.14], lamp);
-box(root, 'Freezer lamp lens', [0.22, 0.022, 0.1], [0, 2.235, 0.1], lamp);
+box(root, 'Freezer lamp lens', [0.22, 0.022, 0.1], [0, 2.435, 0.1], lamp);
 for (const top of [...FRIDGE_SHELVES.fridge, ...FRIDGE_SHELVES.freezer]) {
   box(root, `Shelf-${top}`, [1.1, 0.018, 0.4], [0, top - 0.009, -0.14], glass, 0.006);
   box(root, 'Shelf front trim', [1.11, 0.03, 0.035], [0, top - 0.01, 0.06], metal, 0.01);
@@ -117,7 +117,7 @@ function door(name, bottom, height) {
   return pivot;
 }
 for (const zone of ['fridge', 'freezer']) {
-  const pivot = zone === 'fridge' ? door(fridgeDoorParent(zone), 0.13, 1.6) : door(fridgeDoorParent(zone), 1.75, 0.6);
+  const pivot = zone === 'fridge' ? door(fridgeDoorParent(zone), 0.13, 1.6) : door(fridgeDoorParent(zone), 1.75, 0.8);
   for (const { baseY: y, wallHeight: h, placement } of FRIDGE_DOOR_RACKS[zone]) {
     const bin = new Group(); bin.name = `${zone}-${placement}`; pivot.add(bin);
     box(bin, 'Door bin base', [0.94, 0.028, 0.3], [0.62, y, -0.18], glass);
@@ -131,7 +131,7 @@ for (const zone of ['fridge', 'freezer']) {
   }
 }
 // Visible hinges and shelf-height mouldings read at phone size.
-for (const y of [0.16, 1.73, 2.32]) box(root, 'Hinge cap', [0.075, 0.04, 0.16], [-0.6, y, 0.42], metal, 0.014);
+for (const y of [0.16, 1.73, 2.52]) box(root, 'Hinge cap', [0.075, 0.04, 0.16], [-0.6, y, 0.42], metal, 0.014);
 for (const x of [-0.538, 0.538]) for (const y of [0.6, 0.82, 1.04, 1.26, 1.48, 1.9, 2.12])
   box(root, 'Liner shelf notch', [0.018, 0.034, 0.07], [x, y, -0.23], enamel, 0.006);
 box(root, 'Toe kick', [1.04, 0.047, 0.024], [0, 0.084, 0.42], seal, 0.01);

@@ -29,7 +29,7 @@ export function fridgeLayout(lots: KitchenLot[], foods: KitchenFood[], zone: 'fr
     });
     const rack = FRIDGE_DOOR_RACKS[zone].find(item => item.placement === placement);
     const heights = rack ? [rack.baseY + 0.014] : FRIDGE_SHELVES[zone];
-    const maxHeight = rack?.foodHeight ?? (zone === 'freezer' ? 0.17 : 0.31);
+    const maxHeight = rack?.foodHeight ?? (zone === 'freezer' ? 0.23 : 0.31);
     const rows = heights.map(y => ({ y, width: 0, items: [] as { lot: KitchenLot; name: string; model: KitchenModelKey; width: number }[] }));
     for (const lot of items) {
       const name = names.get(lot.foodId) ?? '未命名食物';

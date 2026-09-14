@@ -67,8 +67,8 @@ describe('fridge inventory projection', () => {
     const lower = entries.find(entry => entry.lot.id === 'lot-1')!;
     expect(upper.placement).toBe('door-upper');
     expect(lower.placement).toBe('door-lower');
-    expect(upper.position[1] + upper.maxHeight).toBeLessThan(2.25);
-    expect(lower.position[1] + lower.maxHeight).toBeLessThan(2.086);
+    expect(upper.position[1] + upper.maxHeight).toBeLessThan(2.45);
+    expect(lower.position[1] + lower.maxHeight).toBeLessThan(2.23);
     expect(entries.find(entry => entry.lot.id === 'lot-3')?.placement).toBe('shelf');
     expect(fridgePlacementOptions('freezer').map(option => option.value)).toEqual(['shelf', 'door-upper', 'door-lower']);
   });
@@ -103,7 +103,7 @@ describe('shipped kitchen model contract', () => {
     const pivot = nodes.find((node: { name: string }) => node.name === 'DoorPivot');
     expect(pivot.children.length).toBeGreaterThan(1);
     for (const name of ['FreezerDoorPivot', 'CrisperLeft', 'CrisperRight']) expect(nodes.some((node: { name: string }) => node.name === name)).toBe(true);
-    for (const top of [0.56, 0.93, 1.3]) expect(nodes.some((node: { name: string }) => node.name === `Shelf-${top}`)).toBe(true);
+    for (const top of [...FRIDGE_SHELVES.fridge, ...FRIDGE_SHELVES.freezer]) expect(nodes.some((node: { name: string }) => node.name === `Shelf-${top}`)).toBe(true);
     const model = readModel('fridge');
     expect(model.materials.find((material: { name: string }) => material.name === 'Clear crisper plastic').alphaMode).toBe('BLEND');
     for (const name of ['Satin enamel', 'Brushed aluminium']) {
@@ -118,6 +118,25 @@ describe('shipped kitchen model contract', () => {
     expect(carton.nodes.filter((node: { name: string }) => /^Egg-\d+$/.test(node.name))).toHaveLength(12);
     expect(carton.nodes.filter((node: { name: string }) => /^Cup-\d+$/.test(node.name))).toHaveLength(12);
     expect(readModel('fridge').nodes.filter((node: { name: string }) => node.name === 'Door bin base')).toHaveLength(5);
+  });
+  it('gives the freezer a third of the door height and keeps its food below each ceiling', () => {
+    const model = readModel('fridge');
+    const panelHeight = (pivotName: string) => {
+      const pivot = model.nodes.find((node: { name: string }) => node.name === pivotName);
+      const panel = pivot.children.map((index: number) => model.nodes[index])
+        .find((node: { name: string }) => node.name === 'Sculpted enamel door');
+      const positions = model.accessors[model.meshes[panel.mesh].primitives[0].attributes.POSITION];
+      return positions.max[1] - positions.min[1];
+    };
+    const freezerHeight = panelHeight('FreezerDoorPivot');
+    const ratio = freezerHeight / (freezerHeight + panelHeight('DoorPivot'));
+    expect(ratio).toBeGreaterThan(0.32);
+    expect(ratio).toBeLessThan(0.35);
+    const shelves = fridgeLayout([lot(0, { storageZone: 'freezer' }), lot(1, { storageZone: 'freezer' })], [], 'freezer').entries;
+    for (const entry of shelves) {
+      const ceiling = entry.position[1] === FRIDGE_SHELVES.freezer[0] ? 2.45 : FRIDGE_SHELVES.freezer[0] - 0.018;
+      expect(entry.position[1] + entry.maxHeight).toBeLessThan(ceiling);
+    }
   });
   it('attaches each rack to the correct independent door and keeps closed racks clear of shelves and drawers', () => {
     const { nodes } = readModel('fridge');
