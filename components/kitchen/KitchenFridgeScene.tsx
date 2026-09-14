@@ -6,6 +6,7 @@ import { F, HUE, R, S, SP } from '../../utils/clayTokens';
 import type { KitchenFood, KitchenLot, KitchenFridgePlacement } from '../../utils/kitchenDb';
 import { FRIDGE_SHELVES, fridgePlacementOptions, fridgeDoorParent } from '../../utils/kitchenFridgeSpec';
 import { eggVisibleCount, fridgeLayout } from '../../utils/kitchenSceneLayout';
+import { createKitchenBackdrop } from '../../utils/kitchenBackdrop';
 
 interface Props {
   lots: KitchenLot[];
@@ -96,6 +97,8 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
     canvas.setAttribute('aria-hidden', 'true');
     element.appendChild(canvas);
     const scene = new THREE.Scene();
+    const backdrop = createKitchenBackdrop();
+    scene.add(backdrop);
     const environment = new RoomEnvironment();
     const pmrem = new THREE.PMREMGenerator(renderer);
     const environmentMap = pmrem.fromScene(environment, 0.04);
@@ -151,7 +154,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
     const ground = contactShadow(2.7, 1.5, 0.22);
     ground.position.y = -0.012;
     scene.add(ground);
-    const loaded: THREE.Object3D[] = [ground];
+    const loaded: THREE.Object3D[] = [ground, backdrop];
     const raycaster = new THREE.Raycaster();
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
@@ -366,7 +369,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
       {(['fridge', 'freezer'] as const).map(value => <button key={value} type="button" disabled={status !== 'ready'}
         className="sr-only focus:not-sr-only" aria-pressed={doorsOpen[value]} style={buttonStyle}
         onClick={() => toggleDoor(value)}>{doorsOpen[value] ? '关闭' : '打开'}{value === 'fridge' ? '冷藏门' : '冷冻门'}</button>)}
-      <div className="relative" style={{ height: 420 }}>
+      <div className="relative" style={{ height: 420, marginTop: SP[2], borderRadius: R.smallCard, overflow: 'hidden', background: HUE.blue.tint }}>
         <div ref={host} className="absolute inset-0" />
         {status !== 'ready' && <div role="status" className="absolute inset-0 flex items-center justify-center text-center"
           style={{ padding: SP[3], color: F.textSecondary, fontSize: 13 }}>
