@@ -4,7 +4,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { F, HUE, R, S, SP } from '../../utils/clayTokens';
 import type { KitchenFood, KitchenLot, KitchenFridgePlacement } from '../../utils/kitchenDb';
-import { fridgePlacementOptions, fridgeDoorParent } from '../../utils/kitchenFridgeSpec';
+import { FRIDGE_SHELVES, fridgePlacementOptions, fridgeDoorParent } from '../../utils/kitchenFridgeSpec';
 import { eggVisibleCount, fridgeLayout } from '../../utils/kitchenSceneLayout';
 
 interface Props {
@@ -100,15 +100,15 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
     const pmrem = new THREE.PMREMGenerator(renderer);
     const environmentMap = pmrem.fromScene(environment, 0.04);
     scene.environment = environmentMap.texture;
-    scene.environmentIntensity = 0.4;
+    scene.environmentIntensity = 0.32;
     environment.dispose();
     pmrem.dispose();
     const camera = new THREE.OrthographicCamera(-1.4, 1.4, 1.4, -1.4, 0.1, 30);
     camera.position.set(1.5, 2.5, 6);
     camera.lookAt(-0.12, 1.19, 0);
-    scene.add(new THREE.HemisphereLight(F.surfaceRaised, HUE.gray.soft, 0.5));
-    const light = new THREE.DirectionalLight(F.surfaceRaised, 2.4);
-    light.position.set(-2, 7, 3);
+    scene.add(new THREE.HemisphereLight(F.surfaceRaised, HUE.gray.soft, 0.3));
+    const light = new THREE.DirectionalLight(F.surfaceRaised, 2.7);
+    light.position.set(-3, 5, 4);
     light.castShadow = true;
     light.shadow.mapSize.set(1024, 1024);
     light.shadow.radius = 4;
@@ -119,10 +119,15 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
     light.shadow.normalBias = 0.015; light.shadow.bias = -0.0003;
     light.target.position.set(-0.2, 1.1, 0);
     scene.add(light, light.target);
-    // Interior fill is deliberately unshadowed: only the exterior key renders a shadow map.
+    const rimLight = new THREE.DirectionalLight(HUE.blue.tint, 0.6);
+    rimLight.position.set(3, 3, -1);
+    scene.add(rimLight);
+    // Interior fill follows each door. Only the exterior key renders a shadow map.
+    const interiorLights: THREE.PointLight[] = [];
     for (const y of [1.6, 2.21]) {
-      const fill = new THREE.PointLight(F.surfaceRaised, 0.25, 1.4, 2);
-      fill.position.set(0, y, 0.2); scene.add(fill);
+      const fill = new THREE.PointLight(F.surfaceRaised, 0, 1.6, 2);
+      fill.position.set(0, y, 0.12); scene.add(fill);
+      interiorLights.push(fill);
     }
     // Soft contact shading stays inexpensive and anchors items on transparent shelves.
     const shadowCanvas = document.createElement('canvas');
@@ -166,6 +171,10 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
         const delta = drawerTarget - drawer.position.z;
         drawer.position.z = reducedMotion.matches || Math.abs(delta) < 0.002 ? drawerTarget : drawer.position.z + delta * 0.16;
       }
+      interiorLights.forEach((fill, index) => {
+        const angle = (index === 0 ? door : freezerDoor)?.rotation.y ?? 0;
+        fill.intensity = (index === 0 ? 0.38 : 0.18) * Math.min(1, Math.abs(angle) / 0.5);
+      });
       renderer.render(scene, camera);
       setMarkers(foodSlots.map(slot => {
         const point = slot.object.localToWorld(new THREE.Vector3(0, slot.object.userData.markerHeight, 0)).project(camera);
@@ -257,6 +266,31 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
         // Thin internal mouldings self-shadow noisily at mobile shadow-map resolution.
         node.receiveShadow = !material.transparent && ['Sculpted enamel door', 'Rounded side', 'Crown'].includes(node.name);
       });
+      // Broad, feathered contact masks on the liner imply recess depth without
+      // shadow-map acne on thin mouldings. They never participate in picking.
+      const linerShade = (width: number, height: number, opacity: number,
+        position: [number, number, number], rotationY = 0) => {
+        const shade = contactShadow(width, height, opacity);
+        shade.rotation.set(0, rotationY, 0);
+        shade.position.set(...position);
+        fridge.add(shade);
+      };
+      for (const [bottom, top] of [[0.18, 1.68], [1.79, 2.25]]) {
+        const center = (bottom + top) / 2;
+        for (const side of [-1, 1]) {
+          linerShade(0.2, top - bottom, 0.26, [side * 0.46, center, -0.338]);
+          linerShade(0.3, top - bottom, 0.2, [side * 0.546, center, -0.22], -side * Math.PI / 2);
+        }
+        linerShade(1.06, 0.16, 0.28, [0, top - 0.06, -0.338]);
+      }
+      for (const top of [...FRIDGE_SHELVES.fridge, ...FRIDGE_SHELVES.freezer]) {
+        linerShade(1.05, 0.12, 0.26, [0, top - 0.045, -0.338]);
+      }
+      for (const drawer of drawers) {
+        const shade = contactShadow(0.56, 0.46, 0.32);
+        shade.position.set(0, -0.008, -0.14);
+        drawer.add(shade);
+      }
       scene.add(fridge);
       layout.entries.forEach((entry, index) => {
         const result = results[index + 1];
