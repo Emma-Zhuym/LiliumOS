@@ -20,6 +20,24 @@ const metal = new MeshStandardMaterial({ name: 'Brushed aluminium', color: F.sur
 const seal = new MeshStandardMaterial({ name: 'Rubber seal', color: HUE.gray.soft, roughness: 0.92 });
 const glass = new MeshPhysicalMaterial({ name: 'Clear crisper plastic', color: F.surfaceRaised, transparent: true, opacity: 0.22, roughness: 0.13, metalness: 0.05, clearcoat: 1, depthWrite: false });
 const edge = new MeshPhysicalMaterial({ name: 'Polished plastic rim', color: HUE.gray.main, transparent: true, opacity: 0.46, roughness: 0.18, metalness: 0.5, depthWrite: false });
+// Slightly smoked walls and thicker joins stay legible against the white liner.
+// Keep the broad faces translucent; silhouette comes from the moulded edges.
+const crisperFace = glass.clone();
+crisperFace.name = 'Smoked crisper face';
+crisperFace.color.set(HUE.blue.soft).lerp(edge.color, 0.38);
+crisperFace.opacity = 0.32;
+crisperFace.roughness = 0.2;
+crisperFace.metalness = 0;
+const crisperWall = crisperFace.clone();
+crisperWall.name = 'Thick crisper wall';
+crisperWall.opacity = 0.42;
+const crisperRim = crisperWall.clone();
+crisperRim.name = 'Moulded crisper edge';
+crisperRim.color.lerp(edge.color, 0.32);
+crisperRim.opacity = 0.62;
+const crisperHighlight = glass.clone();
+crisperHighlight.name = 'Crisper edge highlight';
+crisperHighlight.opacity = 0.7;
 const lamp = new MeshStandardMaterial({ name: 'Interior lamp', color: F.surfaceRaised, emissive: F.surfaceRaised, emissiveIntensity: 0.7 });
 const root = new Group(); root.name = 'LiliumRoundedFridge';
 const geometryCache = new Map();
@@ -71,15 +89,19 @@ for (const top of [...FRIDGE_SHELVES.fridge, ...FRIDGE_SHELVES.freezer]) {
 // Hollow, separate crisper drawers. Clear walls, stronger rims and recessed grips.
 for (const [name, x] of [['CrisperLeft', -0.28], ['CrisperRight', 0.28]]) {
   const drawer = new Group(); drawer.name = name; drawer.position.set(x, 0.18, 0); root.add(drawer);
-  box(drawer, 'Transparent base', [0.51, 0.015, 0.4], [0, 0, -0.14], glass, 0.006);
-  box(drawer, 'Transparent front', [0.51, 0.31, 0.016], [0, 0.15, 0.06], glass, 0.007);
-  box(drawer, 'Transparent back', [0.51, 0.29, 0.012], [0, 0.14, -0.34], glass, 0.005);
+  box(drawer, 'Transparent base', [0.51, 0.015, 0.4], [0, 0, -0.14], crisperWall, 0.006);
+  box(drawer, 'Transparent front', [0.51, 0.31, 0.016], [0, 0.15, 0.06], crisperFace, 0.007);
+  box(drawer, 'Transparent back', [0.51, 0.29, 0.012], [0, 0.14, -0.34], crisperFace, 0.005);
   for (const side of [-0.249, 0.249]) {
-    box(drawer, 'Transparent side', [0.012, 0.3, 0.4], [side, 0.15, -0.14], glass, 0.005);
-    box(drawer, 'Side rim', [0.014, 0.018, 0.4], [side, 0.3, -0.14], edge, 0.006);
+    box(drawer, 'Transparent side', [0.012, 0.3, 0.4], [side, 0.15, -0.14], crisperWall, 0.005);
+    box(drawer, 'Side rim', [0.014, 0.018, 0.4], [side, 0.3, -0.14], crisperRim, 0.006);
+    box(drawer, 'Front corner seam', [0.01, 0.285, 0.018], [side, 0.145, 0.062], crisperRim, 0.004);
+    box(drawer, 'Base side seam', [0.014, 0.014, 0.39], [side, 0.008, -0.14], crisperRim, 0.005);
   }
-  box(drawer, 'Top rim', [0.51, 0.025, 0.026], [0, 0.3, 0.06], edge, 0.01);
-  box(drawer, 'Drawer grip', [0.27, 0.036, 0.05], [0, 0.265, 0.083], edge, 0.014);
+  box(drawer, 'Top rim', [0.51, 0.025, 0.026], [0, 0.3, 0.06], crisperRim, 0.01);
+  box(drawer, 'Lower lip', [0.5, 0.014, 0.025], [0, 0.008, 0.06], crisperRim, 0.006);
+  box(drawer, 'Rim highlight', [0.48, 0.006, 0.012], [0, 0.311, 0.067], crisperHighlight, 0.003);
+  box(drawer, 'Drawer grip', [0.27, 0.036, 0.05], [0, 0.265, 0.083], crisperRim, 0.014);
 }
 function door(name, bottom, height) {
   const pivot = new Group(); pivot.name = name; pivot.position.set(-0.62, 0, 0.43); root.add(pivot);

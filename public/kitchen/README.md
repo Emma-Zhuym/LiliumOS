@@ -7,4 +7,4 @@
 - The refrigerator has three cold-door bins and two freezer-door bins; shortened shelves and crispers leave space for them when closed.
 - These meshes describe appearance only. One food model represents one inventory lot, not one package or a measured remaining volume. For eggs tracked by piece, the carton shows up to 12 remaining eggs; boxed stock shows a full carton.
 
-- Pearl-white geometry uses layered gaskets, silver handles and neutral clear rims. Shared geometry reduces the refrigerator GLB to about 1.8 MB. Shelf and rack dimensions are shared with the app through `utils/kitchenFridgeSpec.ts`.
+- Pearl-white geometry uses layered gaskets, silver handles and neutral clear rack rims. Crispers have lightly smoked blue-grey faces, stronger side walls, moulded seams and top-edge highlights to remain visible against the white liner. Shared geometry keeps the refrigerator GLB at about 1.9 MB. Shelf and rack dimensions are shared with the app through `utils/kitchenFridgeSpec.ts`.
