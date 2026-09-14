@@ -187,7 +187,10 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
       const height = element.clientHeight;
       if (!width || !height) return;
       renderer.setSize(width, height, false);
-      const halfHeight = 1.4 / (width / height);
+      const aspect = width / height;
+      const halfHeight = Math.max(1.4, 1.4 / aspect);
+      camera.left = -halfHeight * aspect;
+      camera.right = halfHeight * aspect;
       camera.top = halfHeight;
       camera.bottom = -halfHeight;
       camera.updateProjectionMatrix();
