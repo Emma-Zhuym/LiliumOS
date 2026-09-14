@@ -4,6 +4,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { F, HUE, R, S, SP } from '../../utils/clayTokens';
 import type { KitchenFood, KitchenLot, KitchenFridgePlacement } from '../../utils/kitchenDb';
+import { fridgePlacementOptions, fridgeDoorParent } from '../../utils/kitchenFridgeSpec';
 import { eggVisibleCount, fridgeLayout } from '../../utils/kitchenSceneLayout';
 
 interface Props {
@@ -85,7 +86,9 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.1;
+    renderer.toneMappingExposure = 1;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.VSMShadowMap;
     const canvas = renderer.domElement;
     canvas.style.display = 'block';
     canvas.style.width = '100%';
@@ -97,17 +100,53 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
     const pmrem = new THREE.PMREMGenerator(renderer);
     const environmentMap = pmrem.fromScene(environment, 0.04);
     scene.environment = environmentMap.texture;
-    scene.environmentIntensity = 0.65;
+    scene.environmentIntensity = 0.4;
     environment.dispose();
     pmrem.dispose();
     const camera = new THREE.OrthographicCamera(-1.4, 1.4, 1.4, -1.4, 0.1, 30);
-    camera.position.set(2.1, 2.65, 6);
+    camera.position.set(1.5, 2.5, 6);
     camera.lookAt(-0.12, 1.19, 0);
-    scene.add(new THREE.HemisphereLight(F.surfaceRaised, F.borderStrong, 1.2));
-    const light = new THREE.DirectionalLight(F.surfaceRaised, 2);
-    light.position.set(-3, 5, 4);
-    scene.add(light);
-    const loaded: THREE.Object3D[] = [];
+    scene.add(new THREE.HemisphereLight(F.surfaceRaised, HUE.gray.soft, 0.5));
+    const light = new THREE.DirectionalLight(F.surfaceRaised, 2.4);
+    light.position.set(-2, 7, 3);
+    light.castShadow = true;
+    light.shadow.mapSize.set(1024, 1024);
+    light.shadow.radius = 4;
+    light.shadow.blurSamples = 8;
+    light.shadow.camera.left = -2.4; light.shadow.camera.right = 2.4;
+    light.shadow.camera.top = 2.6; light.shadow.camera.bottom = -2.6;
+    light.shadow.camera.near = 0.1; light.shadow.camera.far = 12;
+    light.shadow.normalBias = 0.015; light.shadow.bias = -0.0003;
+    light.target.position.set(-0.2, 1.1, 0);
+    scene.add(light, light.target);
+    // Interior fill is deliberately unshadowed: only the exterior key renders a shadow map.
+    for (const y of [1.6, 2.21]) {
+      const fill = new THREE.PointLight(F.surfaceRaised, 0.25, 1.4, 2);
+      fill.position.set(0, y, 0.2); scene.add(fill);
+    }
+    // Soft contact shading stays inexpensive and anchors items on transparent shelves.
+    const shadowCanvas = document.createElement('canvas');
+    shadowCanvas.width = shadowCanvas.height = 64;
+    const shadowContext = shadowCanvas.getContext('2d')!;
+    const gradient = shadowContext.createRadialGradient(32, 32, 4, 32, 32, 32);
+    gradient.addColorStop(0, F.textPrimary);
+    gradient.addColorStop(1, `${F.textPrimary}00`);
+    shadowContext.fillStyle = gradient;
+    shadowContext.fillRect(0, 0, 64, 64);
+    const contactTexture = new THREE.CanvasTexture(shadowCanvas);
+    contactTexture.colorSpace = THREE.SRGBColorSpace;
+    const contactShadow = (width: number, depth: number, opacity: number) => {
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), new THREE.MeshBasicMaterial({
+        map: contactTexture, transparent: true, opacity, depthWrite: false, toneMapped: false,
+      }));
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.raycast = () => {};
+      return mesh;
+    };
+    const ground = contactShadow(2.7, 1.5, 0.22);
+    ground.position.y = -0.012;
+    scene.add(ground);
+    const loaded: THREE.Object3D[] = [ground];
     const raycaster = new THREE.Raycaster();
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
@@ -208,6 +247,13 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
       drawers.forEach(drawer => { drawer.position.z = drawerTarget; });
       door.rotation.y = targetAngle;
       freezerDoor.rotation.y = freezerAngle;
+      fridge.traverse(node => {
+        if (!(node instanceof THREE.Mesh)) return;
+        const material = Array.isArray(node.material) ? node.material[0] : node.material;
+        node.castShadow = !material.transparent;
+        // Thin internal mouldings self-shadow noisily at mobile shadow-map resolution.
+        node.receiveShadow = !material.transparent && ['Sculpted enamel door', 'Rounded side', 'Crown'].includes(node.name);
+      });
       scene.add(fridge);
       layout.entries.forEach((entry, index) => {
         const result = results[index + 1];
@@ -216,7 +262,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
           object = result.value;
           const bounds = new THREE.Box3().setFromObject(object);
           const size = bounds.getSize(new THREE.Vector3());
-          const scale = entry.model === 'egg-carton' ? 1 : Math.min(0.27 / size.x, (entry.placement === 'door-upper' ? 0.24 : 0.31) / size.y, (entry.placement === 'shelf' ? 0.3 : 0.24) / size.z);
+          const scale = entry.model === 'egg-carton' ? Math.min(1, entry.maxHeight / size.y) : Math.min(0.27 / size.x, entry.maxHeight / size.y, (entry.placement === 'shelf' ? 0.3 : 0.24) / size.z);
           if (entry.model === 'egg-carton') object.traverse(node => {
             if (/^Egg-\d+$/.test(node.name)) node.visible = Number(node.name.slice(4)) < eggVisibleCount(entry.lot);
           });
@@ -233,10 +279,15 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
         slot.userData.lotId = entry.lot.id;
         slot.userData.zone = entry.lot.storageZone;
         slot.position.set(...entry.position);
-        slot.userData.markerHeight = entry.model === 'egg-carton' ? 0.19 : 0.29;
+        slot.userData.markerHeight = new THREE.Box3().setFromObject(object).max.y + 0.045;
+        object.traverse(node => { if (node instanceof THREE.Mesh) { node.castShadow = true; node.receiveShadow = true; } });
         slot.scale.setScalar(entry.scale);
         slot.add(object);
-        if (entry.placement !== 'shelf') door!.add(slot);
+        const footprint = new THREE.Box3().setFromObject(object).getSize(new THREE.Vector3());
+        const contact = contactShadow(footprint.x * 1.12, footprint.z * 1.12, 0.2);
+        contact.position.y = 0.002;
+        slot.add(contact); loaded.push(contact);
+        if (entry.placement !== 'shelf') fridge.getObjectByName(fridgeDoorParent(entry.lot.storageZone as 'fridge' | 'freezer'))!.add(slot);
         else scene.add(slot);
         foodSlots.push({ id: entry.lot.id, object: slot });
       });
@@ -256,6 +307,8 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
       canvas.removeEventListener('pointerdown', pointerDown);
       canvas.removeEventListener('pointerup', pointerUp);
       disposeObjects(loaded);
+      light.shadow.map?.dispose();
+      light.shadow.mapPass?.dispose();
       environmentMap.dispose();
       renderer.dispose();
       renderer.forceContextLoss();
@@ -268,7 +321,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
     background: F.surfaceRaised, color: HUE.green.ink, boxShadow: S.raisedSoft, fontSize: 13,
   };
   return (
-    <section aria-label="冰箱可视化" style={{ marginBottom: SP[3], padding: SP[2], borderRadius: R.bigCard, background: HUE.green.tint }}>
+    <section aria-label="冰箱可视化" style={{ marginBottom: SP[3], padding: SP[2], borderRadius: R.bigCard, background: F.surfaceSunken }}>
       <div className="flex items-center justify-between" style={{ gap: SP[2] }}>
         <span style={{ fontSize: 14, fontWeight: 600 }}>冰箱 · {layout.total} 条库存</span>
         <span style={{ fontSize: 12, color: F.textSecondary }}>点哪扇门，就开哪一层</span>
@@ -299,15 +352,15 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
       {status === 'ready' && doorsOpen.fridge && <button type="button" aria-pressed={drawersOpen} style={{ ...buttonStyle, marginBottom: SP[2] }}
         onClick={() => setDrawersOpen(value => !value)}>{drawersOpen ? '推回保鲜抽屉' : '拉开保鲜抽屉'}</button>}
       <p style={{ color: F.textSecondary, fontSize: 12, marginBottom: SP[2] }}>
-        {layout.total === 0 ? '冰箱里还没有食材，可以先添加冷藏或冷冻库存。' : '点食材可以查看详情或移动；门内置物架随冷藏门一起开合。'}
+        {layout.total === 0 ? '冰箱里还没有食材，可以先添加冷藏或冷冻库存。' : '点食材可以查看详情或移动；门内置物架随各自的门一起开合。'}
       </p>
       {selected && <div ref={selectionPanel} aria-label="选中食材" style={{ padding: SP[2], marginBottom: SP[2], borderRadius: R.medium, background: F.surfaceSunken, boxShadow: S.sunken }}>
         <strong style={{ fontSize: 14 }}>{selected.name}</strong>
         <button type="button" style={{ ...buttonStyle, marginLeft: SP[2] }} onClick={() => onOpenLot(selected.lot.id)}>查看详情</button>
-        {selected.lot.storageZone === 'fridge' && <>
+        {(selected.lot.storageZone === 'fridge' || selected.lot.storageZone === 'freezer') && <>
           <p style={{ fontSize: 12, marginTop: SP[2], marginBottom: SP[1], color: F.textSecondary }}>放到哪里？</p>
           <div className="grid grid-cols-2" style={{ gap: SP[1] }}>
-            {([{ value: 'shelf', label: '冷藏层板' }, { value: 'door-upper', label: '门内上层' }, { value: 'door-middle', label: '门内中层' }, { value: 'door-lower', label: '门内下层' }] as const).map(option =>
+            {fridgePlacementOptions(selected.lot.storageZone).map(option =>
               <button type="button" key={option.value} disabled={busy || selected.placement === option.value}
                 className="flex-1 disabled:opacity-40" style={buttonStyle}
                 onClick={() => { void onMoveLot(selected.lot.id, option.value); }}>{option.label}</button>)}
@@ -318,7 +371,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
         {layout.entries.map((entry, index) => <button key={entry.lot.id} type="button" style={buttonStyle}
           className="min-w-0 text-left" onClick={() => { setSelectedId(entry.lot.id); setDoorsOpen(value => ({ ...value, [entry.lot.storageZone]: true })); }}>
           <span className="block truncate">{index + 1}. {entry.name}</span>
-          <span style={{ color: F.textSecondary, fontSize: 11 }}>{entry.lot.storageZone === 'freezer' ? '冷冻层板' : entry.placement === 'shelf' ? '冷藏层板' : entry.placement === 'door-upper' ? '门内上层' : entry.placement === 'door-middle' ? '门内中层' : '门内下层'}</span>
+          <span style={{ color: F.textSecondary, fontSize: 11 }}>{entry.placement === 'shelf' ? (entry.lot.storageZone === 'freezer' ? '冷冻层板' : '冷藏层板') : `${entry.lot.storageZone === 'freezer' ? '冷冻' : '冷藏'}门${entry.placement === 'door-upper' ? '上层' : entry.placement === 'door-middle' ? '中层' : '下层'}`}</span>
         </button>)}
       </div>
     </section>

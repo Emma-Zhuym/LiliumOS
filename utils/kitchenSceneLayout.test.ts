@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { eggVisibleCount, fridgeLayout, kitchenModelFor } from './kitchenSceneLayout';
+import { FRIDGE_DOOR_RACKS, FRIDGE_SHELVES, fridgeDoorParent, fridgePlacementOptions } from './kitchenFridgeSpec';
 import type { KitchenLot } from './kitchenDb';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -16,7 +17,7 @@ describe('fridge inventory projection', () => {
     const result = fridgeLayout([egg, lot(1, { fridgePlacement: 'door-middle' })], [food]);
     expect(result.entries).toHaveLength(2);
     const [a, b] = result.entries;
-    expect(a.position[1]).toBe(0.954);
+    expect(a.position[1]).toBeCloseTo(0.954);
     expect(a.position[0] + a.width * a.scale / 2).toBeCloseTo(b.position[0] - b.width * b.scale / 2);
     expect(eggVisibleCount(egg)).toBe(5);
     expect(eggVisibleCount({ ...egg, quantity: 20 })).toBe(12);
@@ -47,7 +48,7 @@ describe('fridge inventory projection', () => {
     }
     const frozen = fridgeLayout(Array.from({ length: 10 }, (_, i) => lot(i, { storageZone: 'freezer' })), [], 'freezer');
     expect(frozen.entries).toHaveLength(10);
-    expect(frozen.entries.every(entry => entry.position[1] === 1.8525)).toBe(true);
+    expect(frozen.entries.every(entry => FRIDGE_SHELVES.freezer.some(height => entry.position[1] === height))).toBe(true);
   });
   it('excludes empty and other zones, and restores inventory after undo', () => {
     const items = [lot(0, { quantity: 0 }), lot(1, { storageZone: 'pantry' }), lot(2, { storageZone: 'freezer' })];
@@ -55,6 +56,21 @@ describe('fridge inventory projection', () => {
     expect(fridgeLayout([{ ...items[0], quantity: 1 }], []).entries).toHaveLength(1);
     const partial = lot(3, { trackingMode: 'divisible', openContainerRemaining: 0.01 });
     expect(fridgeLayout([partial], []).entries[0].lot).toEqual(partial);
+  });
+  it('places all frozen inventory on its own two door racks or shelves with safe heights', () => {
+    const items = ['door-upper', 'door-lower', 'shelf', 'door-middle'].map((placement, i) =>
+      lot(i, { storageZone: 'freezer', fridgePlacement: placement as KitchenLot['fridgePlacement'] }));
+    const { entries } = fridgeLayout(items, [], 'freezer');
+    expect(new Set(entries.map(entry => entry.lot.id)).size).toBe(4);
+    expect(entries).toHaveLength(4);
+    const upper = entries.find(entry => entry.lot.id === 'lot-0')!;
+    const lower = entries.find(entry => entry.lot.id === 'lot-1')!;
+    expect(upper.placement).toBe('door-upper');
+    expect(lower.placement).toBe('door-lower');
+    expect(upper.position[1] + upper.maxHeight).toBeLessThan(2.25);
+    expect(lower.position[1] + lower.maxHeight).toBeLessThan(2.086);
+    expect(entries.find(entry => entry.lot.id === 'lot-3')?.placement).toBe('shelf');
+    expect(fridgePlacementOptions('freezer').map(option => option.value)).toEqual(['shelf', 'door-upper', 'door-lower']);
   });
   it('maps display models conservatively and falls back for unknown food', () => {
     expect(kitchenModelFor('鸡蛋')).toBe('egg-carton');
@@ -97,10 +113,23 @@ describe('shipped kitchen model contract', () => {
       expect(model.bufferViews[image.bufferView].byteLength).toBeGreaterThan(0);
     }
   });
-  it('ships twelve separately hideable eggs and three door-bin bases', () => {
+  it('ships twelve separately hideable eggs and five door-bin bases', () => {
     const carton = readModel('egg-carton');
     expect(carton.nodes.filter((node: { name: string }) => /^Egg-\d+$/.test(node.name))).toHaveLength(12);
     expect(carton.nodes.filter((node: { name: string }) => /^Cup-\d+$/.test(node.name))).toHaveLength(12);
-    expect(readModel('fridge').nodes.filter((node: { name: string }) => node.name === 'Door bin base')).toHaveLength(3);
+    expect(readModel('fridge').nodes.filter((node: { name: string }) => node.name === 'Door bin base')).toHaveLength(5);
   });
+  it('attaches each rack to the correct independent door and keeps closed racks clear of shelves and drawers', () => {
+    const { nodes } = readModel('fridge');
+    for (const zone of ['fridge', 'freezer'] as const) {
+      const pivot = nodes.find((node: { name: string }) => node.name === fridgeDoorParent(zone));
+      const children = pivot.children.map((index: number) => nodes[index].name);
+      for (const rack of FRIDGE_DOOR_RACKS[zone]) expect(children).toContain(`${zone}-${rack.placement}`);
+    }
+    for (const node of nodes.filter((item: { name: string }) => item.name.startsWith('Shelf-') || item.name === 'Transparent front')) {
+      // Shelf front is 0.06; closed door-bin backs extend inwards to about 0.09.
+      expect(node.translation?.[2] ?? 0).toBeLessThanOrEqual(0.061);
+    }
+  });
+
 });

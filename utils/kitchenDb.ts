@@ -538,7 +538,8 @@ async function moveLot(lotId: string, placement: KitchenFridgePlacement): Promis
     const transaction = db.transaction(STORE_LOTS, 'readwrite');
     const store = transaction.objectStore(STORE_LOTS);
     const lot = await requestValue(store.get(lotId)) as KitchenLot | undefined;
-    if (!lot || lot.quantity <= 0 || lot.storageZone !== 'fridge') throw new Error('只能移动现有的冷藏食材');
+    if (!lot || lot.quantity <= 0 || !['fridge', 'freezer'].includes(lot.storageZone)) throw new Error('只能移动现有的冷藏或冷冻食材');
+    if (lot.storageZone === 'freezer' && placement === 'door-middle') throw new Error('冷冻门只有上层和下层置物架');
     store.put({ ...lot, fridgePlacement: placement, updatedAt: Date.now() });
     await transactionDone(transaction);
   } finally { db.close(); }
@@ -585,6 +586,7 @@ async function updateLotDetails(input: UpdateKitchenLotDetailsInput): Promise<Ki
       ...currentLot,
       unit: input.unit,
       storageZone: input.storageZone,
+      fridgePlacement: input.storageZone === currentLot.storageZone ? currentLot.fridgePlacement : undefined,
       packageSize,
       purchasedAt,
       expiresAt,

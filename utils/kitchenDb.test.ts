@@ -33,15 +33,33 @@ describe('KitchenDB inventory ledger', () => {
     await KitchenDB.moveLot(lot.id, 'shelf');
     expect((await KitchenDB.getLots())[0].fridgePlacement).toBe('shelf');
   });
-  it('rejects moving frozen, missing or finished food onto the fridge door', async () => {
+  it('rejects invalid zones, absent racks, missing and finished food', async () => {
     const { lot } = await KitchenDB.addLot({ name: '冷冻牛肉', quantity: 1, unit: 'pack', storageZone: 'freezer' });
-    await expect(KitchenDB.moveLot(lot.id, 'door-lower')).rejects.toThrow('冷藏');
+    await expect(KitchenDB.moveLot(lot.id, 'door-middle')).rejects.toThrow('冷冻门');
+    const pantry = await KitchenDB.addLot({ name: '米', quantity: 1, unit: 'pack', storageZone: 'pantry' });
+    await expect(KitchenDB.moveLot(pantry.lot.id, 'door-upper')).rejects.toThrow('冷藏或冷冻');
     await expect(KitchenDB.moveLot('missing', 'shelf')).rejects.toThrow();
     await expect(KitchenDB.moveLot(lot.id, 'bad-slot' as never)).rejects.toThrow('有效');
     expect((await KitchenDB.getLots())[0]).toMatchObject({ storageZone: 'freezer', quantity: 1 });
     const cold = await KitchenDB.addLot({ name: '牛奶', quantity: 1, unit: 'pack', storageZone: 'fridge' });
     await KitchenDB.changeLot({ type: 'FINISH', lotId: cold.lot.id });
     await expect(KitchenDB.moveLot(cold.lot.id, 'door-lower')).rejects.toThrow();
+  });
+  it('persists freezer rack placement through backup and undo, then resets it when changing compartments', async () => {
+    const { lot } = await KitchenDB.addLot({ name: '冻虾', quantity: 2, unit: 'pack', storageZone: 'freezer' });
+    const before = (await KitchenDB.getEvents()).length;
+    await KitchenDB.moveLot(lot.id, 'door-upper');
+    expect(await KitchenDB.getEvents()).toHaveLength(before);
+    const backup = await KitchenDB.exportAll();
+    await KitchenDB.importAll({ foods: [], lots: [], events: [] });
+    await KitchenDB.importAll(backup);
+    expect((await KitchenDB.getLots())[0]).toMatchObject({ fridgePlacement: 'door-upper', storageZone: 'freezer', quantity: 2 });
+    await KitchenDB.moveLot(lot.id, 'door-lower');
+    await KitchenDB.changeLot({ type: 'FINISH', lotId: lot.id });
+    await KitchenDB.undoLatest();
+    expect((await KitchenDB.getLots())[0]).toMatchObject({ fridgePlacement: 'door-lower', storageZone: 'freezer', quantity: 2 });
+    await KitchenDB.updateLotDetails({ lotId: lot.id, name: '冻虾', unit: 'pack', storageZone: 'fridge' });
+    expect((await KitchenDB.getLots())[0].fridgePlacement).toBeUndefined();
   });
   it.each([0.5, 1, 2])('clears all %s packages and restores them on undo', async quantity => {
     const added = await KitchenDB.addLot({

@@ -1,27 +1,52 @@
 // Original LiliumOS refrigerator; rebuild with node scripts/build-kitchen-model.mjs.
 import fs from 'node:fs/promises';
 import zlib from 'node:zlib';
-import { Group, Mesh, MeshPhysicalMaterial, MeshStandardMaterial, SphereGeometry, TorusGeometry } from 'three';
+import { Group, Mesh, MeshPhysicalMaterial, MeshStandardMaterial, SphereGeometry, TorusGeometry, Shape, ExtrudeGeometry } from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 import { transform } from 'esbuild';
 
 const { code } = await transform(await fs.readFile(new URL('../utils/clayTokens.ts', import.meta.url), 'utf8'), { loader: 'ts', format: 'esm' });
 const { F, HUE } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+const specCode = await transform(await fs.readFile(new URL('../utils/kitchenFridgeSpec.ts', import.meta.url), 'utf8'), { loader: 'ts', format: 'esm' });
+const { FRIDGE_SHELVES, FRIDGE_DOOR_RACKS, fridgeDoorParent } = await import(`data:text/javascript;base64,${Buffer.from(specCode.code).toString('base64')}`);
 globalThis.FileReader = class {
   readAsArrayBuffer(blob) { blob.arrayBuffer().then(result => { this.result = result; this.onloadend?.(); }); }
 };
-const enamel = new MeshPhysicalMaterial({ name: 'Satin enamel', color: F.surfaceWarm, roughness: 0.32, metalness: 0.18, clearcoat: 0.3, clearcoatRoughness: 0.25 });
-const liner = new MeshStandardMaterial({ name: 'Moulded liner', color: F.surface, roughness: 0.48 });
-const metal = new MeshStandardMaterial({ name: 'Brushed aluminium', color: F.borderStrong, roughness: 0.28, metalness: 0.8 });
-const seal = new MeshStandardMaterial({ name: 'Rubber seal', color: F.textSecondary, roughness: 0.95 });
-const glass = new MeshPhysicalMaterial({ name: 'Clear crisper plastic', color: HUE.green.tint, transparent: true, opacity: 0.28, roughness: 0.12, depthWrite: false });
-const edge = new MeshPhysicalMaterial({ name: 'Polished plastic rim', color: HUE.green.soft, transparent: true, opacity: 0.58, roughness: 0.18 });
+const enamel = new MeshPhysicalMaterial({ name: 'Satin enamel', color: F.surfaceRaised, roughness: 0.27, metalness: 0.12, clearcoat: 0.5, clearcoatRoughness: 0.2 });
+const liner = new MeshStandardMaterial({ name: 'Moulded liner', color: F.surfaceRaised, roughness: 0.4 });
+const recess = new MeshStandardMaterial({ name: 'Recessed liner', color: HUE.gray.tint, roughness: 0.65 });
+const metal = new MeshStandardMaterial({ name: 'Brushed aluminium', color: F.surfaceRaised, roughness: 0.3, metalness: 0.88 });
+const seal = new MeshStandardMaterial({ name: 'Rubber seal', color: HUE.gray.soft, roughness: 0.92 });
+const glass = new MeshPhysicalMaterial({ name: 'Clear crisper plastic', color: F.surfaceRaised, transparent: true, opacity: 0.22, roughness: 0.13, metalness: 0.05, clearcoat: 1, depthWrite: false });
+const edge = new MeshPhysicalMaterial({ name: 'Polished plastic rim', color: HUE.gray.main, transparent: true, opacity: 0.46, roughness: 0.18, metalness: 0.5, depthWrite: false });
 const lamp = new MeshStandardMaterial({ name: 'Interior lamp', color: F.surfaceRaised, emissive: F.surfaceRaised, emissiveIntensity: 0.7 });
 const root = new Group(); root.name = 'LiliumRoundedFridge';
+const geometryCache = new Map();
 function box(parent, name, size, position, material, radius = 0.012) {
-  const mesh = new Mesh(new RoundedBoxGeometry(...size, 2, Math.min(radius, ...size.map(v => v / 2))), material);
+  const key = [...size, radius].join(':');
+  if (!geometryCache.has(key)) geometryCache.set(key, new RoundedBoxGeometry(...size, 2, Math.min(radius, ...size.map(v => v / 2))));
+  const mesh = new Mesh(geometryCache.get(key), material);
   mesh.name = name; mesh.position.set(...position); parent.add(mesh); return mesh;
+}
+// Rounded outline independent of panel depth: visible corners stay softly curved.
+function outline(width, height, radius) {
+  const shape = new Shape(), x = -width / 2, y = -height / 2;
+  shape.moveTo(x + radius, y);
+  shape.lineTo(x + width - radius, y); shape.quadraticCurveTo(x + width, y, x + width, y + radius);
+  shape.lineTo(x + width, y + height - radius); shape.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+  shape.lineTo(x + radius, y + height); shape.quadraticCurveTo(x, y + height, x, y + height - radius);
+  shape.lineTo(x, y + radius); shape.quadraticCurveTo(x, y, x + radius, y);
+  return shape;
+}
+function panel(parent, name, width, height, depth, position, material, radius = 0.07, border = 0) {
+  const shape = outline(width, height, radius);
+  if (border) shape.holes.push(outline(width - border * 2, height - border * 2, Math.max(0.008, radius - border)));
+  const bevel = border ? Math.min(border / 4, 0.005) : 0.012;
+  const mesh = new Mesh(new ExtrudeGeometry(shape, { depth, bevelEnabled: true, bevelSegments: 2,
+    steps: 1, curveSegments: 6, bevelSize: bevel, bevelThickness: bevel }), material);
+  mesh.name = name; mesh.position.set(position[0], position[1], position[2] - depth / 2); parent.add(mesh);
+  return mesh;
 }
 box(root, 'Back shell', [1.3, 2.32, 0.1], [0, 1.21, -0.42], enamel, 0.05);
 for (const x of [-0.61, 0.61]) {
@@ -30,15 +55,15 @@ for (const x of [-0.61, 0.61]) {
 }
 box(root, 'Crown', [1.3, 0.12, 0.88], [0, 2.31, -0.02], enamel, 0.05);
 box(root, 'Base', [1.3, 0.12, 0.88], [0, 0.11, -0.02], enamel, 0.035);
-box(root, 'Inner back', [1.1, 2.12, 0.022], [0, 1.21, -0.352], liner);
+box(root, 'Inner back', [1.1, 2.12, 0.022], [0, 1.21, -0.352], recess);
 box(root, 'Freezer divider', [1.15, 0.09, 0.78], [0, 1.73, 0], liner, 0.022);
 for (const x of [-0.49, 0.49]) for (const z of [-0.28, 0.28]) box(root, 'Foot', [0.13, 0.09, 0.15], [x, 0.035, z], seal, 0.02);
-for (let i = 0; i < 7; i++) box(root, 'Rear cooling channel', [0.78, 0.012, 0.008], [0, 0.65 + i * 0.135, -0.334], enamel, 0.004);
-box(root, 'Air control housing', [0.32, 0.2, 0.048], [0, 1.57, -0.305], enamel, 0.02);
+for (let i = 0; i < 7; i++) box(root, 'Rear cooling channel', [0.78, 0.012, 0.008], [0, 0.65 + i * 0.135, -0.334], liner, 0.004);
+box(root, 'Air control housing', [0.32, 0.2, 0.048], [0, 1.57, -0.305], liner, 0.02);
 for (let i = 0; i < 5; i++) box(root, 'Vent slot', [0.19, 0.008, 0.003], [0, 1.525 + i * 0.02, -0.278], seal, 0.003);
-box(root, 'Lamp lens', [0.025, 0.14, 0.14], [-0.535, 1.56, 0.02], lamp);
-box(root, 'Freezer shelf', [1.08, 0.025, 0.68], [0, 1.84, 0], liner);
-for (const top of [0.56, 0.93, 1.3]) {
+box(root, 'Lamp lens', [0.3, 0.026, 0.12], [0, 1.66, 0.14], lamp);
+box(root, 'Freezer lamp lens', [0.22, 0.022, 0.1], [0, 2.235, 0.1], lamp);
+for (const top of [...FRIDGE_SHELVES.fridge, ...FRIDGE_SHELVES.freezer]) {
   box(root, `Shelf-${top}`, [1.1, 0.018, 0.4], [0, top - 0.009, -0.14], glass, 0.006);
   box(root, 'Shelf front trim', [1.11, 0.03, 0.035], [0, top - 0.01, 0.06], metal, 0.01);
   for (const x of [-0.537, 0.537]) box(root, 'Shelf support', [0.028, 0.025, 0.38], [x, top - 0.026, -0.14], liner, 0.008);
@@ -46,35 +71,47 @@ for (const top of [0.56, 0.93, 1.3]) {
 // Hollow, separate crisper drawers. Clear walls, stronger rims and recessed grips.
 for (const [name, x] of [['CrisperLeft', -0.28], ['CrisperRight', 0.28]]) {
   const drawer = new Group(); drawer.name = name; drawer.position.set(x, 0.18, 0); root.add(drawer);
-  box(drawer, 'Transparent base', [0.51, 0.015, 0.65], [0, 0, 0], glass, 0.006);
-  box(drawer, 'Transparent front', [0.51, 0.31, 0.016], [0, 0.15, 0.325], glass, 0.007);
-  box(drawer, 'Transparent back', [0.51, 0.29, 0.012], [0, 0.14, -0.325], glass, 0.005);
+  box(drawer, 'Transparent base', [0.51, 0.015, 0.4], [0, 0, -0.14], glass, 0.006);
+  box(drawer, 'Transparent front', [0.51, 0.31, 0.016], [0, 0.15, 0.06], glass, 0.007);
+  box(drawer, 'Transparent back', [0.51, 0.29, 0.012], [0, 0.14, -0.34], glass, 0.005);
   for (const side of [-0.249, 0.249]) {
-    box(drawer, 'Transparent side', [0.012, 0.3, 0.65], [side, 0.15, 0], glass, 0.005);
-    box(drawer, 'Side rim', [0.014, 0.018, 0.65], [side, 0.3, 0], edge, 0.006);
+    box(drawer, 'Transparent side', [0.012, 0.3, 0.4], [side, 0.15, -0.14], glass, 0.005);
+    box(drawer, 'Side rim', [0.014, 0.018, 0.4], [side, 0.3, -0.14], edge, 0.006);
   }
-  box(drawer, 'Top rim', [0.51, 0.025, 0.026], [0, 0.3, 0.325], edge, 0.01);
-  box(drawer, 'Drawer grip', [0.25, 0.036, 0.045], [0, 0.265, 0.348], liner, 0.014);
+  box(drawer, 'Top rim', [0.51, 0.025, 0.026], [0, 0.3, 0.06], edge, 0.01);
+  box(drawer, 'Drawer grip', [0.27, 0.036, 0.05], [0, 0.265, 0.083], edge, 0.014);
 }
 function door(name, bottom, height) {
   const pivot = new Group(); pivot.name = name; pivot.position.set(-0.62, 0, 0.43); root.add(pivot);
   const center = bottom + height / 2;
-  box(pivot, 'Door gasket', [1.22, height - 0.025, 0.045], [0.62, center, 0], seal, 0.025);
-  box(pivot, 'Sculpted enamel door', [1.3, height, 0.12], [0.62, center, 0.073], enamel, 0.055);
-  box(pivot, 'Inset door liner', [1.12, height - 0.13, 0.022], [0.62, center, -0.029], liner, 0.02);
+  panel(pivot, 'Sculpted enamel door', 1.27, height - 0.01, 0.1, [0.62, center, 0.073], enamel, 0.075);
+  for (const [inset, z] of [[0, 0], [0.027, -0.016]])
+    panel(pivot, 'Door gasket', 1.22 - inset, height - 0.05 - inset, 0.014, [0.62, center, z], seal, 0.065, 0.018);
+  panel(pivot, 'Inset door liner', 1.1, height - 0.17, 0.022, [0.62, center, -0.029], liner, 0.065);
+  panel(pivot, 'Moulded door ridge', 1.04, height - 0.23, 0.015, [0.62, center, -0.044], liner, 0.05, 0.026);
   const handleY = name === 'FreezerDoorPivot' ? bottom + 0.16 : bottom + height - 0.32;
   for (const offset of [-0.1, 0.1]) box(pivot, 'Handle mount', [0.048, 0.05, 0.075], [1.08, handleY + offset, 0.16], metal, 0.018);
-  box(pivot, 'Rounded metal handle', [0.055, 0.29, 0.065], [1.08, handleY, 0.207], metal, 0.025);
+  box(pivot, 'Rounded metal handle', [0.058, name === 'FreezerDoorPivot' ? 0.31 : 0.55, 0.065], [1.08, handleY, 0.207], metal, 0.025);
   return pivot;
 }
-const lower = door('DoorPivot', 0.13, 1.6);
-door('FreezerDoorPivot', 1.75, 0.6);
-for (const y of [0.42, 0.94, 1.4]) {
-  box(lower, 'Door bin base', [0.94, 0.028, 0.3], [0.62, y, -0.18], liner);
-  box(lower, 'Clear door bin', [0.94, 0.09, 0.015], [0.62, y + 0.051, -0.33], glass, 0.006);
-  box(lower, 'Bin rim', [0.94, 0.018, 0.018], [0.62, y + 0.096, -0.33], edge, 0.008);
-  for (const x of [0.155, 1.085]) box(lower, 'Bin end', [0.018, 0.09, 0.3], [x, y + 0.045, -0.18], liner, 0.008);
+for (const zone of ['fridge', 'freezer']) {
+  const pivot = zone === 'fridge' ? door(fridgeDoorParent(zone), 0.13, 1.6) : door(fridgeDoorParent(zone), 1.75, 0.6);
+  for (const { baseY: y, wallHeight: h, placement } of FRIDGE_DOOR_RACKS[zone]) {
+    const bin = new Group(); bin.name = `${zone}-${placement}`; pivot.add(bin);
+    box(bin, 'Door bin base', [0.94, 0.028, 0.3], [0.62, y, -0.18], glass);
+    box(bin, 'Clear door bin', [0.94, h, 0.015], [0.62, y + 0.014 + h / 2, -0.33], glass, 0.006);
+    box(bin, 'Bin rim', [0.94, 0.014, 0.018], [0.62, y + 0.014 + h, -0.33], edge, 0.006);
+    box(bin, 'Bin lower edge', [0.94, 0.014, 0.018], [0.62, y + 0.014, -0.33], edge, 0.006);
+    for (const x of [0.155, 1.085]) {
+      box(bin, 'Bin end', [0.018, h, 0.3], [x, y + 0.014 + h / 2, -0.18], glass, 0.008);
+      box(bin, 'Bin side rim', [0.018, 0.014, 0.3], [x, y + 0.014 + h, -0.18], edge, 0.006);
+    }
+  }
 }
+// Visible hinges and shelf-height mouldings read at phone size.
+for (const y of [0.16, 1.73, 2.32]) box(root, 'Hinge cap', [0.075, 0.04, 0.16], [-0.6, y, 0.42], metal, 0.014);
+for (const x of [-0.538, 0.538]) for (const y of [0.6, 0.82, 1.04, 1.26, 1.48, 1.9, 2.12])
+  box(root, 'Liner shelf notch', [0.018, 0.034, 0.07], [x, y, -0.23], enamel, 0.006);
 box(root, 'Toe kick', [1.04, 0.047, 0.024], [0, 0.084, 0.42], seal, 0.01);
 
 // Original deterministic micro-normal maps, embedded so Blender and the app share textures.
@@ -114,7 +151,7 @@ for (const [materialName, brushed] of [['Satin enamel', false], ['Brushed alumin
   json.images.push({ mimeType: 'image/png', bufferView: json.bufferViews.length });
   json.bufferViews.push({ buffer: 0, byteOffset: binary.length, byteLength: image.length });
   json.textures.push({ sampler: 0, source: index });
-  json.materials.find(item => item.name === materialName).normalTexture = { index, scale: brushed ? 0.22 : 0.14 };
+  json.materials.find(item => item.name === materialName).normalTexture = { index, scale: brushed ? 0.05 : 0.08 };
   binary = Buffer.concat([binary, image, Buffer.alloc((4 - image.length % 4) % 4)]);
 }
 json.buffers[0].byteLength = binary.length;
