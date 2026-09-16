@@ -29,6 +29,7 @@ export const S = {
 
 // ── Radius ──
 export const R = {
+  chartBar: 2, // Compact chart bars: square base, subtly rounded top.
   tiny: 6, small: 10, medium: 14, large: 18,
   panel: 24, sheet: 28, pill: 999,
   button: 14, input: 14, smallCard: 16, bigCard: 20,
