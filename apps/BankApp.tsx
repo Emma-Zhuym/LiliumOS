@@ -1440,7 +1440,7 @@ const TransactionForm: React.FC<{
         {txType !== 'transfer' && <div className="p-4 mb-4" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard }}>
           <div className="text-xs mb-2" style={{ color: F.textSecondary }}>分析标记</div>
           <FinanceTreatmentSelect value={treatment} onChange={setTreatment} />
-          <p className="text-xs mt-2 leading-relaxed" style={{ color: F.textTertiary }}>仅在分析的排除视图生效，流水和余额不变。代充的收款与付款分别选“代收代付”；家具可选“一次性支出”。“始终保留”不会被分位数排除。</p>
+          <p className="text-xs mt-2 leading-relaxed" style={{ color: F.textTertiary }}>仅在分析的排除视图生效，流水和余额不变。代充的收款与付款分别选“代收代付”；家具可选“一次性支出”。“始终保留”不会被大额筛选排除。</p>
         </div>}
 
         {/* 分类（转账不需要） */}

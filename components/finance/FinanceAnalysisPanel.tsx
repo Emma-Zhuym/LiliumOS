@@ -73,6 +73,18 @@ export function FinanceAnalysisPanel({ result, currency, ready, saving, error, o
           </button>
         ))}
       </div>
+      <label className="block text-xs mb-2" style={{ color: F.textSecondary }}>
+        大额筛选方法
+        <select aria-label="大额筛选方法" value={result.settings.method} disabled={!ready}
+          onChange={event => onSettingsChange({ method: event.target.value as 'iqr' | 'percentile' })}
+          className="w-full mt-2 px-3 py-2 text-sm"
+          style={{ minHeight: 44, background: F.surfaceSunken, color: F.textPrimary, borderRadius: R.input,
+            border: `1px solid ${F.borderSoft}`, boxShadow: S.sunken }}>
+          <option value="iqr">IQR · 偏离平常金额</option>
+          <option value="percentile">Percentile · 按金额排名</option>
+        </select>
+      </label>
+      {result.settings.method === 'percentile' && <>
       <div className="flex items-center gap-3 mb-2">
         <label htmlFor="finance-percentile" className="text-xs flex-1" style={{ color: F.textSecondary }}>金额分位数 Percentile</label>
         <span className="text-xs" style={{ color: HUE.indigo.ink }}>P</span>
@@ -85,16 +97,21 @@ export function FinanceAnalysisPanel({ result, currency, ready, saving, error, o
             border: `1px solid ${F.borderSoft}`, boxShadow: S.sunken }} />
       </div>
       {inputError && <p role="alert" className="text-xs mb-2" style={{ color: STATUS.danger.ink }}>请输入 50–100；当前计算仍使用 P{result.settings.percentile}。</p>}
+      </>}
+      {result.settings.method === 'iqr' && <p className="text-xs mb-2 leading-relaxed" style={{ color: F.textSecondary }}>
+        按中间一半消费的金额跨度识别大额，不固定排除多少笔。界线 = P75 + 1.5 ×（P75 − P25）。
+        {result.iqr === 0 && '当前中间一半金额相同，界线可能偏严格，请检查候选明细。'}
+      </p>}
       <p id="finance-percentile-help" className="text-xs leading-relaxed" style={{ color: F.textSecondary }}>
         手动排除后 {result.sampleSize} 笔支出参与计算；{result.threshold === null ? '暂无阈值。' : `阈值约 ${money(result.threshold)}，高于阈值的交易列为大额候选。`}
-        等于阈值仍保留，P100 不排大额；“始终保留”不被分位数排除。
+        等于阈值仍保留；“始终保留”不被自动排除。{result.settings.method === 'percentile' && 'P100 不排大额。'}
       </p>
       <p className="text-xs mt-2 leading-relaxed" style={{ color: F.textSecondary }}>
-        手动排除支出 {money(result.manualExcludedExpenseTotal)}；分位数再排 {result.outliers.length} 笔 / {money(result.outlierTotal)}。这是统计范围的差额，不是省下的钱。
+        手动排除支出 {money(result.manualExcludedExpenseTotal)}；大额筛选再排 {result.outliers.length} 笔 / {money(result.outlierTotal)}。这是统计范围的差额，不是省下的钱。
       </p>
       {result.smallSample && <p className="text-xs mt-2" style={{ color: STATUS.warning.ink }}>样本不足 20 笔，少数交易会明显影响阈值；请对照完整支出判断。</p>}
       {result.pending.length > 0 && <p className="text-xs mt-2" style={{ color: F.textTertiary }}>{result.pending.length} 笔待入账暂不参与这三组统计。</p>}
-      <p className="text-xs mt-2 leading-relaxed" style={{ color: F.textTertiary }}>收入不做分位数筛选；在排除视图中，已手动标记的代收款等收入也不计入。退款仍按原有收入口径展示，暂不净抵原消费。</p>
+      <p className="text-xs mt-2 leading-relaxed" style={{ color: F.textTertiary }}>收入不做大额筛选；在排除视图中，已手动标记的代收款等收入也不计入。退款仍按原有收入口径展示，暂不净抵原消费。</p>
       {error && <p role="alert" className="text-xs mt-2" style={{ color: STATUS.danger.ink }}>{error}</p>}
       <button type="button" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}
         className="w-full mt-3 px-3 py-2 text-xs font-medium"
@@ -117,7 +134,7 @@ export function FinanceAnalysisPanel({ result, currency, ready, saving, error, o
               <span className="text-xs break-words min-w-0" style={{ color: F.textPrimary }}>{t.note || t.sourceDescription || '未命名交易'}</span>
               <span className="text-xs font-semibold shrink-0 tabular-nums" style={{ color: F.textPrimary }}>{t.type === 'expense' ? '−' : '+'}{money(t.amount)}</span>
             </div>
-            <div className="text-xs mb-2" style={{ color: F.textTertiary }}>{t.dateStr} · {ANALYSIS_TREATMENT_LABELS[analysisTreatment(t)]}{result.outlierIds.has(t.id) ? ` · 高于 P${result.settings.percentile}` : ''}</div>
+            <div className="text-xs mb-2" style={{ color: F.textTertiary }}>{t.dateStr} · {ANALYSIS_TREATMENT_LABELS[analysisTreatment(t)]}{result.outlierIds.has(t.id) ? ` · ${result.settings.method === 'iqr' ? '高于 IQR 界线' : `高于 P${result.settings.percentile}`}` : ''}</div>
             <FinanceTreatmentSelect value={t.analysisTreatment} disabled={!ready || saving}
               label={`分析标记：${t.note || t.sourceDescription || t.id} ${t.amount}`}
               onChange={value => onTreatmentChange(t, value)} />

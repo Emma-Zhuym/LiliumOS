@@ -7,7 +7,7 @@
 
 ### 待验收：Finance 花销分析（2026-09-16）
 
-- 已在 `codex/finance-spending-scope` 实现手动排除 + 金额分位数 + 三种总额对比，未发布正式站。
+- 已在 `codex/finance-spending-scope` 实现手动排除 + 默认 IQR（可切换百分位数）+ 三种总额对比，未发布正式站。
 - 方案对比、算法边界与验收入口见 `docs/finance-spending-analysis.md`。真实账本由 Emma 体验后决定发布。
 
 ### P0：文档与上游同步安全

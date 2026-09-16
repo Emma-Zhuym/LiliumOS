@@ -15,12 +15,12 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.unstubAllGlobals(); });
 const result = buildFinanceAnalysis([], new Map(), {
-  view: 'manual', percentile: 95, from: '2026-09-01', to: '2026-09-30', currency: 'USD',
+  view: 'manual', method: 'percentile', percentile: 95, from: '2026-09-01', to: '2026-09-30', currency: 'USD',
 });
-const render = (saving = false) => {
+const render = (saving = false, method: 'iqr' | 'percentile' = 'percentile') => {
   const onSettingsChange = vi.fn();
   act(() => root.render(React.createElement(FinanceAnalysisPanel, {
-    result, currency: 'USD', ready: true, saving, error: null,
+    result: { ...result, settings: { ...result.settings, method } }, currency: 'USD', ready: true, saving, error: null,
     onSettingsChange, onTreatmentChange: vi.fn(),
   })));
   return onSettingsChange;
@@ -35,6 +35,14 @@ function changeAndBlur(value: string) {
 }
 
 describe('finance analysis controls', () => {
+  it('shows IQR without percentile controls and lets the user switch methods', () => {
+    const change = render(false, 'iqr');
+    expect(host.querySelector('input[type="number"]')).toBeNull();
+    expect(host.textContent).toContain('不固定排除多少笔');
+    const method = host.querySelector('select[aria-label="大额筛选方法"]') as HTMLSelectElement;
+    act(() => { method.value = 'percentile'; method.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(change).toHaveBeenCalledWith({ method: 'percentile' });
+  });
   it('rejects invalid percentile without replacing the effective value, and accepts a correction', () => {
     const change = render();
     changeAndBlur('49');

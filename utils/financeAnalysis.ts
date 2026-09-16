@@ -2,9 +2,10 @@ import type { FinanceAnalysisTreatment, FinanceCategory, FinanceTransaction } fr
 import { isFinanceTransactionReportable, reportingTransactionType } from './financeTransfers';
 
 export type FinanceAnalysisView = 'all' | 'manual' | 'trimmed';
-export interface FinanceAnalysisSettings { view: FinanceAnalysisView; percentile: number }
+export type FinanceOutlierMethod = 'iqr' | 'percentile';
+export interface FinanceAnalysisSettings { view: FinanceAnalysisView; method: FinanceOutlierMethod; percentile: number }
 export const FINANCE_ANALYSIS_KEY = 'financeAnalysisSettings';
-export const DEFAULT_FINANCE_ANALYSIS: FinanceAnalysisSettings = { view: 'manual', percentile: 95 };
+export const DEFAULT_FINANCE_ANALYSIS: FinanceAnalysisSettings = { view: 'manual', method: 'iqr', percentile: 95 };
 export const ANALYSIS_VIEW_LABELS: Record<FinanceAnalysisView, string> = {
   all: '全部支出', manual: '手动排除后', trimmed: '再排大额后',
 };
@@ -24,6 +25,7 @@ export function isManuallyExcluded(transaction: Pick<FinanceTransaction, 'analys
 export function normalizeFinanceAnalysisSettings(value: unknown): FinanceAnalysisSettings {
   const source = value && typeof value === 'object' ? value as Partial<FinanceAnalysisSettings> : {};
   return {
+    method: source.method === 'percentile' ? 'percentile' : 'iqr',
     view: source.view === 'all' || source.view === 'trimmed' || source.view === 'manual'
       ? source.view : DEFAULT_FINANCE_ANALYSIS.view,
     percentile: typeof source.percentile === 'number' && Number.isFinite(source.percentile)
@@ -63,7 +65,13 @@ export function buildFinanceAnalysis(
   const posted = scoped.filter(t => !t.pending);
   const expenses = posted.filter(t => reportingTransactionType(t, categories) === 'expense');
   const manualExpenses = expenses.filter(t => !isManuallyExcluded(t));
-  const threshold = expensePercentile(manualExpenses.map(t => t.amount), settings.percentile);
+  const amounts = manualExpenses.map(t => t.amount);
+  const q1 = expensePercentile(amounts, 25);
+  const q3 = expensePercentile(amounts, 75);
+  const iqr = q1 === null || q3 === null ? null : q3 - q1;
+  const threshold = settings.method === 'iqr'
+    ? (q3 === null || iqr === null ? null : q3 + 1.5 * iqr)
+    : expensePercentile(amounts, settings.percentile);
   // Strictly greater: ties at the threshold stay together. Never iterate/recompute
   // after trimming, and never persist percentile results onto source transactions.
   const outliers = manualExpenses.filter(t => analysisTreatment(t) !== 'keep'
@@ -84,7 +92,7 @@ export function buildFinanceAnalysis(
     selectedIncome: selected.filter(t => ['income', 'refund'].includes(reportingTransactionType(t, categories))),
     manualExcluded: posted.filter(isManuallyExcluded),
     manualExcludedExpenseTotal: sum(expenses.filter(isManuallyExcluded)),
-    outlierTotal: sum(outliers), comparisons, threshold, sampleSize: manualExpenses.length,
+    outlierTotal: sum(outliers), comparisons, threshold, q1, q3, iqr, sampleSize: manualExpenses.length,
     smallSample: manualExpenses.length > 0 && manualExpenses.length < 20,
   };
 }
@@ -95,8 +103,8 @@ export function describeFinanceAnalysis(result: FinanceAnalysisResult, currency:
   const { settings, sampleSize, threshold } = result;
   return `分析口径：${ANALYSIS_VIEW_LABELS[settings.view]}；仅已入账记录，币种 ${currency}。`
     + `原始支出 ${result.comparisons[0].total.toFixed(2)}，手动排除后 ${result.comparisons[1].total.toFixed(2)}，`
-    + `P${settings.percentile} 后 ${result.comparisons[2].total.toFixed(2)}。`
-    + `分位数样本 ${sampleSize} 笔，阈值 ${threshold === null ? '无' : threshold.toFixed(2)}；`
+    + `${settings.method === 'iqr' ? 'IQR（P75 + 1.5 × 四分位距）' : `P${settings.percentile}`} 后 ${result.comparisons[2].total.toFixed(2)}。`
+    + `大额筛选样本 ${sampleSize} 笔，阈值 ${threshold === null ? '无' : threshold.toFixed(2)}；`
     + '仅筛选分析，不代表钱没花、节省了钱或交易有错；代收代付不代表个人消费或劳动收入。';
 }
 
@@ -107,5 +115,5 @@ export function financeAnalysisCacheKey(result: FinanceAnalysisResult, options: 
   ]).sort((a, b) => String(a[0]).localeCompare(String(b[0])))]);
   let hash = 2166136261;
   for (let i = 0; i < data.length; i++) hash = Math.imul(hash ^ data.charCodeAt(i), 16777619);
-  return `analysis-v1-${(hash >>> 0).toString(16)}`;
+  return `analysis-v2-${(hash >>> 0).toString(16)}`;
 }

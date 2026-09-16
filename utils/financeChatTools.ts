@@ -42,14 +42,15 @@ export const FINANCE_CHAT_TOOLS = [
     type: 'function',
     function: {
       name: 'finance_get_spending_summary',
-      description: '按用户保存的分析口径汇总已入账支出，同时返回原始、手动排除、分位数筛选对照。可以在关心用户近期生活状态或想自然聊聊消费习惯时主动查看；不能把筛选差额说成省下的钱。',
+      description: '按用户保存的分析口径汇总已入账支出，同时返回原始、手动排除、大额筛选对照。可以在关心用户近期生活状态或想自然聊聊消费习惯时主动查看；不能把筛选差额说成省下的钱。',
       parameters: {
         type: 'object',
         properties: {
           start_date: { type: 'string', description: '开始日期 YYYY-MM-DD，默认本月第一天' },
           end_date: { type: 'string', description: '结束日期 YYYY-MM-DD，默认今天' },
           view: { type: 'string', enum: ['all', 'manual', 'trimmed'], description: '可选：全部、手动排除后、再排大额后；默认用户保存的口径' },
-          percentile: { type: 'number', minimum: 50, maximum: 100, description: '可选金额分位数，默认用户保存值；只对支出计算' },
+          method: { type: 'string', enum: ['iqr', 'percentile'], description: '可选大额筛选方法，默认用户保存值；未设置时 IQR，界线为 P75 + 1.5 × (P75 − P25)' },
+          percentile: { type: 'number', minimum: 50, maximum: 100, description: '可选金额分位数，默认用户保存值；仅 method=percentile 时生效，只对支出计算' },
           currency: { type: 'string', description: '可选币种，如 USD；不同币种绝不混算' },
         },
       },
@@ -163,7 +164,7 @@ export function buildFinanceChatSystemBlock(pulse?: string | null): string {
   return [
     '[本轮可使用本地财务查询工具]',
     '这是用户的个人账本，你可以随时查看。',
-    '原始流水不等于个人消费。留意 analysis_treatment；代收代付不属于个人消费或收入，一次性支出不代表日常水平。总结生活花销时用汇总工具的保存口径，不自行把原始流水相加；分位数筛选不是节省、退款或异常交易认定。',
+    '原始流水不等于个人消费。留意 analysis_treatment；代收代付不属于个人消费或收入，一次性支出不代表日常水平。总结生活花销时用汇总工具的保存口径，不自行把原始流水相加；大额筛选不是节省、退款或异常交易认定。',
     '用户聊到消费、账户或生活近况时可以查；你也可以出于好奇、关心近况或想给日常聊天增加意外话题而主动翻看，不必等用户先提到钱。',
     '工具结果来自 LiliumOS 本地账本，可能不是实时数据。留意 data_as_of，把查到的内容自然融入对话，不必像报表一样逐笔复述。',
     pulse ? `[用户个人账本近况，仅供生活感知]\n${pulse}\n你可以自然提及、继续查细节或暂时忽略，按你此刻的兴趣决定。` : '',
@@ -277,6 +278,7 @@ export async function executeFinanceChatTool(name: string, args: Record<string, 
     const settings = normalizeFinanceAnalysisSettings({
       ...data.analysisSettings,
       ...(args.view !== undefined ? { view: args.view } : {}),
+      ...(args.method !== undefined ? { method: args.method } : {}),
       ...(args.percentile !== undefined ? { percentile: args.percentile } : {}),
     });
     const currencies = [...new Set(data.transactions.filter(t => t.dateStr >= startDate && t.dateStr <= endDate
@@ -297,14 +299,14 @@ export async function executeFinanceChatTool(name: string, args: Record<string, 
       }
       analysisByCurrency[currency] = {
         description: describeFinanceAnalysis(analysis, currency), comparisons: analysis.comparisons,
-        threshold: analysis.threshold, sample_size: analysis.sampleSize, small_sample: analysis.smallSample,
+        method: settings.method, threshold: analysis.threshold, q1: analysis.q1, q3: analysis.q3, iqr: analysis.iqr, sample_size: analysis.sampleSize, small_sample: analysis.smallSample,
         manually_excluded_expense: analysis.manualExcludedExpenseTotal,
-        percentile_excluded_expense: analysis.outlierTotal, percentile_excluded_count: analysis.outliers.length,
+        outlier_excluded_expense: analysis.outlierTotal, outlier_excluded_count: analysis.outliers.length,
       };
     }
     return { data_as_of: dataAsOf, start_date: startDate, end_date: endDate,
       transaction_count: transactionCount, by_currency: byCurrency, view: settings.view,
-      percentile: settings.percentile, account_scope: 'all', analysis_by_currency: analysisByCurrency };
+      method: settings.method, percentile: settings.method === 'percentile' ? settings.percentile : undefined, account_scope: 'all', analysis_by_currency: analysisByCurrency };
 
   }
 

@@ -9,7 +9,7 @@ import { buildFinanceAnalysis, expensePercentile, FINANCE_ANALYSIS_KEY,
 const categories = new Map<string, FinanceCategory>([
   ['food', { id: 'food', name: '餐饮' }], ['cat_transfer', { id: 'cat_transfer', name: '转账' }],
 ]);
-const options = { from: '2026-06-01', to: '2026-06-30', currency: 'USD', view: 'trimmed' as const, percentile: 95 };
+const options = { from: '2026-06-01', to: '2026-06-30', currency: 'USD', view: 'trimmed' as const, method: 'percentile' as const, percentile: 95 };
 const transaction = (id: string, amount: number, patch: Partial<FinanceTransaction> = {}): FinanceTransaction => ({
   id, type: 'expense', amount, currency: 'USD', accountId: 'card', categoryId: 'food',
   dateStr: '2026-06-12', timestamp: Date.now() - 60000, note: id, ...patch,
@@ -79,9 +79,9 @@ describe('expense percentile and scope', () => {
   });
 
   it('treats legacy rows as included and validates saved settings', () => {
-    expect(normalizeFinanceAnalysisSettings(null)).toEqual({ view: 'manual', percentile: 95 });
-    expect(normalizeFinanceAnalysisSettings({ view: 'oops', percentile: 0 })).toEqual({ view: 'manual', percentile: 95 });
-    expect(normalizeFinanceAnalysisSettings({ view: 'all', percentile: 99 })).toEqual({ view: 'all', percentile: 99 });
+    expect(normalizeFinanceAnalysisSettings(null)).toEqual({ view: 'manual', method: 'iqr', percentile: 95 });
+    expect(normalizeFinanceAnalysisSettings({ view: 'oops', percentile: 0 })).toEqual({ view: 'manual', method: 'iqr', percentile: 95 });
+    expect(normalizeFinanceAnalysisSettings({ view: 'all', percentile: 99 })).toEqual({ view: 'all', method: 'iqr', percentile: 99 });
     expect(buildFinanceAnalysis([transaction('old', 20)], categories, { ...options, view: 'manual' }).selectedExpenses).toHaveLength(1);
   });
 
@@ -142,7 +142,7 @@ describe('analysis choices survive storage and provider sync', () => {
   it('uses the same saved view for chat summaries and keeps currencies separate', async () => {
     await FinanceDB.saveTransactions([transaction('a', 10), transaction('b', 20), transaction('large', 100),
       transaction('third-party', 500, { analysisTreatment: 'pass_through', timestamp: Date.now() - 1000 }), transaction('cny', 999, { currency: 'CNY' })]);
-    await FinanceDB.saveSetting(FINANCE_ANALYSIS_KEY, { view: 'trimmed', percentile: 95 });
+    await FinanceDB.saveSetting(FINANCE_ANALYSIS_KEY, { view: 'trimmed', method: 'percentile', percentile: 95 });
     const summary = await executeFinanceChatTool('finance_get_spending_summary', { start_date: options.from, end_date: options.to }) as any;
     expect(summary.by_currency.USD.total).toBe(30);
     expect(summary.by_currency.CNY.total).toBe(999);
@@ -153,5 +153,63 @@ describe('analysis choices survive storage and provider sync', () => {
     const awareness = await getFinanceAwareness('new-character');
     expect(awareness.pulse).toContain('代收代付');
     expect(awareness.pulse).not.toContain('USD 630.00');
+  });
+});
+
+
+describe('IQR upper fence', () => {
+  const iqrOptions = { ...options, method: 'iqr' as const };
+  it('finds several furniture purchases that P95 misses', () => {
+    const amounts = [...Array(7).fill(20), ...Array(7).fill(30), 50, 55, 60, 110, 120, 130];
+    const rows = amounts.map((amount, i) => transaction(String(i), amount));
+    const result = buildFinanceAnalysis(rows, categories, iqrOptions);
+    expect(result.q1).toBe(20);
+    expect(result.q3).toBe(51.25);
+    expect(result.threshold).toBe(98.125);
+    expect(result.outliers.map(t => t.amount)).toEqual([110, 120, 130]);
+    expect(buildFinanceAnalysis(rows, categories, options).outliers.map(t => t.amount)).toEqual([130]);
+    expect(financeAnalysisCacheKey(result, iqrOptions)).not.toBe(financeAnalysisCacheKey(result, options));
+  });
+  it('does not remove a fixed fraction of regular spending, and retains the exact fence', () => {
+    const rows = [10, 20, 30, 40, 70].map((amount, i) => transaction(String(i), amount));
+    const result = buildFinanceAnalysis(rows, categories, iqrOptions);
+    expect(result.threshold).toBe(70);
+    expect(result.outliers).toEqual([]);
+  });
+  it('handles empty, single and zero-spread samples explicitly', () => {
+    expect(buildFinanceAnalysis([], categories, iqrOptions).threshold).toBeNull();
+    expect(buildFinanceAnalysis([transaction('one', 120)], categories, iqrOptions).outliers).toEqual([]);
+    const result = buildFinanceAnalysis([20, 20, 20, 20, 120].map((amount, i) => transaction(String(i), amount)), categories, iqrOptions);
+    expect(result.iqr).toBe(0);
+    expect(result.outliers.map(t => t.amount)).toEqual([120]);
+  });
+  it('respects manual exclusions and protected expenses without iteratively trimming', () => {
+    const rows = [...Array.from({ length: 20 }, (_, i) => transaction(String(i), 20 + i)),
+      transaction('large', 120), transaction('rent', 900, { analysisTreatment: 'keep' }),
+      transaction('excluded', 10000, { analysisTreatment: 'one_off' }),
+      transaction('income', 10000, { type: 'income' })];
+    const result = buildFinanceAnalysis(rows, categories, iqrOptions);
+    expect(result.sampleSize).toBe(22);
+    expect(result.outliers.map(t => t.id)).toEqual(['large']);
+    expect(result.selectedExpenses.some(t => t.id === 'rent')).toBe(true);
+    expect(result.selectedIncome).toHaveLength(1);
+  });
+  it('upgrades saved percentile-only settings to IQR and preserves an explicit later choice', () => {
+    expect(normalizeFinanceAnalysisSettings({ view: 'trimmed', percentile: 90 })).toEqual({ view: 'trimmed', method: 'iqr', percentile: 90 });
+    expect(normalizeFinanceAnalysisSettings({ method: 'percentile', percentile: 90 }).method).toBe('percentile');
+    expect(normalizeFinanceAnalysisSettings({ method: 'invalid' }).method).toBe('iqr');
+  });
+  it('uses saved IQR in chat summaries and allows an explicit percentile comparison', async () => {
+    const amounts = [...Array(7).fill(20), ...Array(7).fill(30), 50, 55, 60, 110, 120, 130];
+    await FinanceDB.importAll({ accounts: [], categories: [...categories.values()], transactions: amounts.map((amount, i) => transaction(String(i), amount)), settings: [] });
+    await FinanceDB.saveSetting(FINANCE_ANALYSIS_KEY, { view: 'trimmed', method: 'iqr', percentile: 95 });
+    const args = { start_date: options.from, end_date: options.to };
+    const summary = await executeFinanceChatTool('finance_get_spending_summary', args) as any;
+    expect(summary.method).toBe('iqr');
+    expect(summary.by_currency.USD.total).toBe(515);
+    expect(summary.analysis_by_currency.USD.threshold).toBe(98.125);
+    expect(summary.analysis_by_currency.USD.outlier_excluded_count).toBe(3);
+    const comparison = await executeFinanceChatTool('finance_get_spending_summary', { ...args, method: 'percentile' }) as any;
+    expect(comparison.by_currency.USD.total).toBe(745);
   });
 });
