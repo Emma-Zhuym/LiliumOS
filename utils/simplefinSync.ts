@@ -1,6 +1,7 @@
 import type { FinanceAccount, FinanceTransaction } from '../types';
 import { HUE } from './clayTokens';
 import { FinanceDB } from './financeDb';
+import { reconcileInstacartHolds } from './simplefinInstacart';
 import { announceFinanceReviewChanged, learnedCategoryForTransaction } from './financeReview';
 import {
   fetchSimpleFinAccounts,
@@ -233,7 +234,7 @@ export function normalizeSimpleFinSnapshot(
   const accounts: FinanceAccount[] = [];
   const transactions: FinanceTransaction[] = [];
   const holdUpdates = new Map<string, FinanceTransaction>();
-  let newTransactionCount = 0;
+  const newReviewTransactionIds = new Set<string>();
 
   snapshot.accounts.forEach((sourceAccount, index) => {
     const id = simpleFinAccountKey(sourceAccount.conn_id, sourceAccount.id);
@@ -317,10 +318,11 @@ export function normalizeSimpleFinSnapshot(
             ? preservedTransaction.categoryReviewStatus === 'unrecognized'
             : preservedTransaction.needsCategoryReview === true
           : !learnedCategory && eventSeconds * 1000 > reviewSince;
-      if (!existingTransaction && needsCategoryReview) newTransactionCount += 1;
+      const localId = existingTransaction?.id || `simplefin-tx:${sourceAccount.conn_id}:${sourceAccount.id}:${sourceTransaction.id}`;
+      if (!existingTransaction && needsCategoryReview) newReviewTransactionIds.add(localId);
       transactions.push({
         ...preservedTransaction,
-        id: existingTransaction?.id || `simplefin-tx:${sourceAccount.conn_id}:${sourceAccount.id}:${sourceTransaction.id}`,
+        id: localId,
         type: inferTransactionType(sourceTransaction),
         amount: Math.abs(numericAmount),
         currency: sourceAccount.currency || preservedTransaction?.currency || 'USD',
@@ -364,7 +366,18 @@ export function normalizeSimpleFinSnapshot(
       needsCategoryReview: false,
     });
   });
-  return { accounts, transactions: [...reconciledTransactions.values()], newTransactionCount };
+  // Include local history: an old authorization can outlive the fetch window.
+  // Return only refreshed rows and repair updates; storage remains an upsert.
+  const history = new Map(currentTransactions.map(transaction => [transaction.id, transaction]));
+  reconciledTransactions.forEach((transaction, id) => history.set(id, transaction));
+  for (const update of reconcileInstacartHolds([...history.values()], syncedAt)) {
+    reconciledTransactions.set(update.id, update);
+  }
+  const resultTransactions = [...reconciledTransactions.values()];
+  const newTransactionCount = resultTransactions.filter(transaction =>
+    newReviewTransactionIds.has(transaction.id) && transaction.needsCategoryReview,
+  ).length;
+  return { accounts, transactions: resultTransactions, newTransactionCount };
 }
 
 export async function getSimpleFinSyncState(): Promise<SimpleFinSyncState> {
