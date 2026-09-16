@@ -252,7 +252,6 @@ const BankApp: React.FC = () => {
             accounts={accounts}
             filterType={analyticsFilter}
             setFilterType={setAnalyticsFilter}
-            onRefresh={refreshData}
           />
         )}
       </div>
@@ -2524,8 +2523,7 @@ const AnalyticsTab: React.FC<{
   accounts: FinanceAccount[];
   filterType: 'all' | 'expense' | 'income';
   setFilterType: React.Dispatch<React.SetStateAction<'all' | 'expense' | 'income'>>;
-  onRefresh: () => Promise<void>;
-}> = ({ transactions, categories, accounts, filterType, setFilterType, onRefresh }) => {
+}> = ({ transactions, categories, accounts, filterType, setFilterType }) => {
   const { characters, apiConfig, userProfile } = useOS();
   const [period, setPeriod] = useState<'week' | 'month' | 'year'>('month');
   const [periodOffset, setPeriodOffset] = useState(0);
@@ -2578,12 +2576,7 @@ const AnalyticsTab: React.FC<{
       if (pendingAnalysisSettings.current === next || pendingAnalysisSettings.current === savedAnalysisSettings.current) setAnalysisSaving(false);
     }
   };
-  const saveTreatment = async (transaction: FinanceTransaction, value: FinanceTransaction['analysisTreatment']) => {
-    setAnalysisSaving(true); setAnalysisError(null);
-    try { await FinanceDB.setAnalysisTreatment(transaction.id, value); await onRefresh(); }
-    catch { setAnalysisError('标记保存或刷新失败，请刷新后确认。'); }
-    finally { setAnalysisSaving(false); }
-  };
+
 
 
   // 加载 IndexedDB 中已缓存的评论
@@ -2880,7 +2873,7 @@ const AnalyticsTab: React.FC<{
       </div>
 
       <FinanceAnalysisPanel from={fromDate} to={toDate} monthly={period === 'year'} result={analysis} currency={activeCurrency} ready={analysisReady}
-        saving={analysisSaving} error={analysisError} onSettingsChange={saveAnalysisSettings} onTreatmentChange={saveTreatment} />
+        saving={analysisSaving} error={analysisError} onSettingsChange={saveAnalysisSettings} />
 
       <details className="mb-5">
         <summary className="text-sm font-medium py-3 cursor-pointer" style={{ color: F.textSecondary }}>分类分布</summary>

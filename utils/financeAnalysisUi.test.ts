@@ -21,7 +21,7 @@ const render = (saving = false, method: 'iqr' | 'percentile' = 'percentile', ope
   const onSettingsChange = vi.fn();
   act(() => root.render(React.createElement(FinanceAnalysisPanel, {
     from: '2026-09-01', to: '2026-09-30', result: { ...result, settings: { ...result.settings, method } }, currency: 'USD', ready: true, saving, error: null,
-    onSettingsChange, onTreatmentChange: vi.fn(),
+    onSettingsChange,
   })));
   const settingsButton = host.querySelector('[aria-label="筛选设置"]') as HTMLButtonElement;
   if (openSettings) act(() => settingsButton.click());
