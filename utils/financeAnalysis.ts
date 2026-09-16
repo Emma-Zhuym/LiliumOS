@@ -138,3 +138,14 @@ export function financeSpendingSeries(result: FinanceAnalysisResult, from: strin
   }
   return [...buckets.values()];
 }
+
+/** Reference lines summarize calendar totals, including zero-spend days/months. */
+export function spendingReferenceValues(series: Array<{ selected: number }>) {
+  if (!series.length) return { mean: 0, median: 0 };
+  const amounts = series.map(bucket => bucket.selected).sort((a, b) => a - b);
+  const middle = Math.floor(amounts.length / 2);
+  return {
+    mean: amounts.reduce((sum, amount) => sum + amount, 0) / amounts.length,
+    median: amounts.length % 2 ? amounts[middle] : (amounts[middle - 1] + amounts[middle]) / 2,
+  };
+}

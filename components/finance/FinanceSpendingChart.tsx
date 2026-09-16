@@ -1,13 +1,16 @@
 import React, { useState } from 'react';
 import { ChartBar } from '@phosphor-icons/react';
 import { F, HUE, R, S } from '../../utils/clayTokens';
-import { financeSpendingSeries, type FinanceAnalysisResult } from '../../utils/financeAnalysis';
+import { financeSpendingSeries, spendingReferenceValues, type FinanceAnalysisResult } from '../../utils/financeAnalysis';
 
 export function FinanceSpendingChart({ result, from, to, monthly, currency }: {
   result: FinanceAnalysisResult; from: string; to: string; monthly: boolean; currency: string;
 }) {
   const series = financeSpendingSeries(result, from, to, monthly);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [reference, setReference] = useState<'median' | 'mean' | 'none'>('median');
+  const referenceValues = spendingReferenceValues(series);
+  const referenceAmount = reference === 'none' ? 0 : referenceValues[reference];
   const active = series.find(day => day.date === selectedDate);
   const max = Math.max(1, ...series.map(day => day.all));
   const width = 320, top = 24, height = 128, bottom = top + height;
@@ -40,7 +43,21 @@ export function FinanceSpendingChart({ result, from, to, monthly, currency }: {
           {(index % labelEvery === 0 || index === series.length - 1) && <text x={x + step / 2} y={174} textAnchor="middle" fontSize="9" fill={F.textTertiary}>{monthly ? day.label : Number(day.date.slice(8))}</text>}
         </g>;
       })}
+      {reference !== 'none' && result.expenses.length > 0 && <g pointerEvents="none" aria-label={`${reference === 'median' ? '中位数' : '均值'} ${money(referenceAmount)}`}>
+        <line x1="10" x2="310" y1={bottom - referenceAmount / max * height} y2={bottom - referenceAmount / max * height}
+          stroke={HUE.indigo.ink} strokeWidth="1" strokeDasharray="5 4" />
+      </g>}
     </svg>
+    <div className="flex items-center gap-2 text-[11px] mb-2" style={{ color: F.textTertiary }}>
+      <select aria-label="图表参考线" value={reference} onChange={event => setReference(event.target.value as typeof reference)}
+        title="按当前视图的每日合计计算，包含零支出日期；年视图按月计算。"
+        className="px-2 text-xs" style={{ minHeight: 44, color: F.textSecondary, background: F.surfaceSunken, borderRadius: R.input }}>
+        <option value="median">{monthly ? '月' : '日'}中位数</option>
+        <option value="mean">{monthly ? '月' : '日'}均值</option>
+        <option value="none">不显示参考线</option>
+      </select>
+      {reference !== 'none' && <span className="tabular-nums" aria-live="polite">{currency} {referenceAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}
+    </div>
     {!result.expenses.length && <div className="flex items-center justify-center gap-2 p-4 text-xs" style={{ color: F.textTertiary, background: F.surfaceSunken, borderRadius: R.medium, boxShadow: S.sunken }}><ChartBar size={18} />这段时间还没有支出</div>}
     {result.settings.view !== 'all' && result.expenses.length > 0 && <div className="flex items-center justify-end gap-1 text-[10px]" style={{ color: F.textTertiary }}><span className="w-2 h-2" style={{ background: HUE.indigo.tint, borderRadius: R.small }} />浅色为全部支出</div>}
   </div>;

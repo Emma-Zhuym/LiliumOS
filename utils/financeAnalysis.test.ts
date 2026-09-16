@@ -4,7 +4,7 @@ import { FinanceDB } from './financeDb';
 import { normalizeSimpleFinSnapshot } from './simplefinSync';
 import { executeFinanceChatTool, getFinanceAwareness } from './financeChatTools';
 import { buildFinanceAnalysis, expensePercentile, FINANCE_ANALYSIS_KEY,
-  financeSpendingSeries, financeAnalysisCacheKey, normalizeFinanceAnalysisSettings } from './financeAnalysis';
+  spendingReferenceValues, financeSpendingSeries, financeAnalysisCacheKey, normalizeFinanceAnalysisSettings } from './financeAnalysis';
 
 const categories = new Map<string, FinanceCategory>([
   ['food', { id: 'food', name: '餐饮' }], ['cat_transfer', { id: 'cat_transfer', name: '转账' }],
@@ -230,5 +230,15 @@ describe('calendar spending chart', () => {
     expect(months).toHaveLength(12);
     expect(months[5].all).toBe(25);
     expect(financeSpendingSeries(report, '2024-02-28', '2024-03-01').map(day => day.date)).toEqual(['2024-02-28', '2024-02-29', '2024-03-01']);
+  });
+});
+
+
+describe('calendar reference lines', () => {
+  it('includes zero-spend dates and separates the typical day from the mean pulled by a large purchase', () => {
+    expect(spendingReferenceValues([0, 20, 30, 40, 600].map(selected => ({ selected })))).toEqual({ mean: 138, median: 30 });
+    expect(spendingReferenceValues([0, 20, 30, 40].map(selected => ({ selected })))).toEqual({ mean: 22.5, median: 25 });
+    expect(spendingReferenceValues([])).toEqual({ mean: 0, median: 0 });
+    expect(spendingReferenceValues([{ selected: 0 }])).toEqual({ mean: 0, median: 0 });
   });
 });
