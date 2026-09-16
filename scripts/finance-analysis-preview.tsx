@@ -30,7 +30,7 @@ function Preview() {
         });
         await FinanceDB.saveAccount({ id: 'demo-account', name: '合成验收账户', type: 'checking', currency: 'USD', initialBalance: 5000, color: F.accent });
         await FinanceDB.saveTransactions([
-          ...Array.from({ length: 24 }, (_, i) => make(`日常样本 ${i + 1}`, 10 + i)),
+          ...Array.from({ length: 24 }, (_, i) => make(`日常样本 ${i + 1}`, 10 + i, { dateStr: `${dateStr.slice(0, 8)}${String(i % 12 + 1).padStart(2, '0')}` })),
           make('合成家具', 800, { analysisTreatment: 'one_off' }),
           make('合成代充付款', 200), make('合成代充收款', 200, { type: 'income', categoryId: 'cat_income' }),
           make('合成房租', 900, { analysisTreatment: 'keep' }), make('合成临时大额', 180),

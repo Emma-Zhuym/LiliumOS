@@ -7,7 +7,7 @@ export interface FinanceAnalysisSettings { view: FinanceAnalysisView; method: Fi
 export const FINANCE_ANALYSIS_KEY = 'financeAnalysisSettings';
 export const DEFAULT_FINANCE_ANALYSIS: FinanceAnalysisSettings = { view: 'manual', method: 'iqr', percentile: 95 };
 export const ANALYSIS_VIEW_LABELS: Record<FinanceAnalysisView, string> = {
-  all: '全部支出', manual: '手动排除后', trimmed: '再排大额后',
+  all: '全部', manual: '个人', trimmed: '日常',
 };
 export const ANALYSIS_TREATMENT_LABELS: Record<FinanceAnalysisTreatment, string> = {
   auto: '正常计入', keep: '始终保留', pass_through: '代收代付', one_off: '一次性支出', other: '其他排除',
@@ -116,4 +116,25 @@ export function financeAnalysisCacheKey(result: FinanceAnalysisResult, options: 
   let hash = 2166136261;
   for (let i = 0; i < data.length; i++) hash = Math.imul(hash ^ data.charCodeAt(i), 16777619);
   return `analysis-v2-${(hash >>> 0).toString(16)}`;
+}
+
+/** Zero-filled calendar buckets; all scopes use the same baseline and y-axis. */
+export function financeSpendingSeries(result: FinanceAnalysisResult, from: string, to: string, monthly = false) {
+  const buckets = new Map<string, { date: string; label: string; all: number; selected: number }>();
+  const cursor = new Date(`${from}T00:00:00Z`);
+  const end = new Date(`${to}T00:00:00Z`);
+  if (!Number.isFinite(cursor.getTime()) || !Number.isFinite(end.getTime())) return [];
+  while (cursor <= end) {
+    const date = cursor.toISOString().slice(0, 10);
+    const key = monthly ? date.slice(0, 7) : date;
+    if (!buckets.has(key)) buckets.set(key, { date: key, label: monthly ? `${Number(date.slice(5, 7))}月` : `${Number(date.slice(5, 7))}/${Number(date.slice(8))}`, all: 0, selected: 0 });
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  for (const [rows, field] of [[result.expenses, 'all'], [result.selectedExpenses, 'selected']] as const) {
+    for (const row of rows) {
+      const bucket = buckets.get(monthly ? row.dateStr.slice(0, 7) : row.dateStr);
+      if (bucket) bucket[field] += row.amount;
+    }
+  }
+  return [...buckets.values()];
 }

@@ -17,12 +17,14 @@ afterEach(() => { act(() => root.unmount()); host.remove(); vi.unstubAllGlobals(
 const result = buildFinanceAnalysis([], new Map(), {
   view: 'manual', method: 'percentile', percentile: 95, from: '2026-09-01', to: '2026-09-30', currency: 'USD',
 });
-const render = (saving = false, method: 'iqr' | 'percentile' = 'percentile') => {
+const render = (saving = false, method: 'iqr' | 'percentile' = 'percentile', openSettings = true) => {
   const onSettingsChange = vi.fn();
   act(() => root.render(React.createElement(FinanceAnalysisPanel, {
-    result: { ...result, settings: { ...result.settings, method } }, currency: 'USD', ready: true, saving, error: null,
+    from: '2026-09-01', to: '2026-09-30', result: { ...result, settings: { ...result.settings, method } }, currency: 'USD', ready: true, saving, error: null,
     onSettingsChange, onTreatmentChange: vi.fn(),
   })));
+  const settingsButton = host.querySelector('[aria-label="筛选设置"]') as HTMLButtonElement;
+  if (openSettings) act(() => settingsButton.click());
   return onSettingsChange;
 };
 function changeAndBlur(value: string) {
@@ -35,6 +37,15 @@ function changeAndBlur(value: string) {
 }
 
 describe('finance analysis controls', () => {
+  it('starts with the calendar chart and keeps explanations and method controls collapsed', () => {
+    render(false, 'iqr', false);
+    expect(host.querySelector('svg[aria-label="每日支出柱状图"]')).not.toBeNull();
+    expect(host.querySelector('select[aria-label="大额筛选方法"]')).toBeNull();
+    expect(host.textContent).not.toContain('P75');
+    const day = host.querySelector('g[role="button"]') as SVGGElement;
+    act(() => day.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(host.querySelector('[aria-live="polite"]')?.textContent).toBe('9/1 · 0');
+  });
   it('shows IQR without percentile controls and lets the user switch methods', () => {
     const change = render(false, 'iqr');
     expect(host.querySelector('input[type="number"]')).toBeNull();
@@ -55,7 +66,7 @@ describe('finance analysis controls', () => {
 
   it('keeps scope controls clickable during queued saving so blur does not swallow the next click', () => {
     const change = render(true);
-    const all = Array.from(host.querySelectorAll('button')).find(button => button.textContent?.includes('全部支出'))!;
+    const all = Array.from(host.querySelectorAll('button')).find(button => button.textContent?.includes('全部'))!;
     expect(all.disabled).toBe(false);
     act(() => all.click());
     expect(change).toHaveBeenCalledWith({ view: 'all' });

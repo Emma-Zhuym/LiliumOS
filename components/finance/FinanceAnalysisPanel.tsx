@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from 'react';
+import { SlidersHorizontal } from '@phosphor-icons/react';
+import { FinanceSpendingChart } from './FinanceSpendingChart';
 import type { FinanceAnalysisTreatment, FinanceTransaction } from '../../types';
 import { F, S, R, HUE, STATUS } from '../../utils/clayTokens';
 import {
@@ -23,8 +25,9 @@ export function FinanceTreatmentSelect({ value, onChange, disabled, label = '分
   );
 }
 
-export function FinanceAnalysisPanel({ result, currency, ready, saving, error, onSettingsChange, onTreatmentChange }: {
+export function FinanceAnalysisPanel({ result, currency, ready, saving, error, onSettingsChange, onTreatmentChange, from, to, monthly = false }: {
   result: FinanceAnalysisResult;
+  from: string; to: string; monthly?: boolean;
   currency: string;
   ready: boolean;
   saving: boolean;
@@ -33,6 +36,7 @@ export function FinanceAnalysisPanel({ result, currency, ready, saving, error, o
   onTreatmentChange: (transaction: FinanceTransaction, treatment: FinanceAnalysisTreatment) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [query, setQuery] = useState('');
   const [excludedOnly, setExcludedOnly] = useState(false);
   const [percentile, setPercentile] = useState(String(result.settings.percentile));
@@ -54,25 +58,35 @@ export function FinanceAnalysisPanel({ result, currency, ready, saving, error, o
   return (
     <section aria-label="花销分析口径" className="mb-4 p-4"
       style={{ background: F.surface, borderRadius: R.bigCard, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}>
-      <div className="flex items-center justify-between gap-2 mb-1">
-        <h3 className="text-sm font-semibold" style={{ color: F.textPrimary }}>花销口径</h3>
-        <span role="status" className="text-xs" style={{ color: F.textTertiary }}>{!ready ? '读取设置…' : saving ? '保存中…' : '仅影响分析'}</span>
-      </div>
-      <p className="text-xs mb-3 leading-relaxed" style={{ color: F.textSecondary }}>原始流水和账户余额保留。点选口径，下面的图表同步切换。</p>
-      <div role="group" aria-label="选择分析口径" className="p-1 space-y-1 mb-3"
+      <div role="group" aria-label="选择分析口径" className="grid grid-cols-3 gap-1 p-1"
         style={{ background: F.surfaceSunken, borderRadius: R.large, boxShadow: S.sunken }}>
         {result.comparisons.map(item => (
           <button key={item.view} type="button" aria-pressed={result.settings.view === item.view}
             disabled={!ready} onClick={() => onSettingsChange({ view: item.view })}
-            className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left"
-            style={{ minHeight: 44, borderRadius: R.medium,
+            className="min-w-0 py-2 px-1 text-center active:scale-[0.98] transition-transform"
+            style={{ minHeight: 58, borderRadius: R.medium, color: result.settings.view === item.view ? HUE.indigo.ink : F.textSecondary,
               background: result.settings.view === item.view ? F.surfaceRaised : 'transparent',
-              boxShadow: result.settings.view === item.view ? S.raisedSoft : 'none', color: F.textPrimary }}>
-            <span className="text-xs">{ANALYSIS_VIEW_LABELS[item.view]}<span className="ml-2" style={{ color: F.textTertiary }}>{item.count} 笔</span></span>
-            <span className="text-sm font-semibold tabular-nums">{money(item.total)}</span>
+              boxShadow: result.settings.view === item.view ? S.raisedSoft : 'none' }}>
+            <span className="block text-xs font-medium">{ANALYSIS_VIEW_LABELS[item.view]}</span>
+            <span className="block text-[11px] mt-1 tabular-nums">{item.total.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
           </button>
         ))}
       </div>
+      <FinanceSpendingChart result={result} from={from} to={to} monthly={monthly} currency={currency} />
+      <div className="flex items-center justify-between gap-2 mt-3">
+        <button type="button" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}
+          className="text-xs font-medium py-3" style={{ minHeight: 44, color: HUE.indigo.ink }}>
+          {expanded ? '收起明细' : '管理排除'}
+        </button>
+        <button type="button" aria-label="筛选设置" aria-expanded={showSettings} onClick={() => setShowSettings(value => !value)}
+          className="flex items-center gap-1.5 text-xs py-3" style={{ minHeight: 44, color: F.textTertiary }}>
+          <SlidersHorizontal size={16} />{result.settings.method === 'iqr' ? 'IQR' : `P${result.settings.percentile}`}
+        </button>
+      </div>
+      {(!ready || saving) && <p role="status" className="text-xs" style={{ color: F.textTertiary }}>{!ready ? '读取中…' : '保存中…'}</p>}
+      {error && <p role="alert" className="text-xs" style={{ color: STATUS.danger.ink }}>{error}</p>}
+      {showSettings && <div className="pt-3" style={{ borderTop: `1px solid ${F.divider}` }}>
+      <p className="text-xs mb-3 leading-relaxed" style={{ color: F.textSecondary }}>全部：完整支出。个人：排除手动标记。日常：再筛去大额。只影响分析，流水和余额保留。</p>
       <label className="block text-xs mb-2" style={{ color: F.textSecondary }}>
         大额筛选方法
         <select aria-label="大额筛选方法" value={result.settings.method} disabled={!ready}
@@ -112,13 +126,7 @@ export function FinanceAnalysisPanel({ result, currency, ready, saving, error, o
       {result.smallSample && <p className="text-xs mt-2" style={{ color: STATUS.warning.ink }}>样本不足 20 笔，少数交易会明显影响阈值；请对照完整支出判断。</p>}
       {result.pending.length > 0 && <p className="text-xs mt-2" style={{ color: F.textTertiary }}>{result.pending.length} 笔待入账暂不参与这三组统计。</p>}
       <p className="text-xs mt-2 leading-relaxed" style={{ color: F.textTertiary }}>收入不做大额筛选；在排除视图中，已手动标记的代收款等收入也不计入。退款仍按原有收入口径展示，暂不净抵原消费。</p>
-      {error && <p role="alert" className="text-xs mt-2" style={{ color: STATUS.danger.ink }}>{error}</p>}
-      <button type="button" aria-expanded={expanded} onClick={() => setExpanded(value => !value)}
-        className="w-full mt-3 px-3 py-2 text-xs font-medium"
-        style={{ minHeight: 44, background: F.surfaceRaised, borderRadius: R.button,
-          border: `1px solid ${F.borderSoft}`, color: HUE.indigo.ink, boxShadow: S.raisedSoft }}>
-        {expanded ? '收起明细' : '查看明细 / 手动标记'}
-      </button>
+      </div>}
       {expanded && <div className="mt-3">
         <input aria-label="搜索分析明细" placeholder="搜索商户、备注、日期或金额" value={query} onChange={event => setQuery(event.target.value)}
           className="w-full px-3 py-2 text-xs" style={{ minHeight: 44, borderRadius: R.input, background: F.surfaceSunken,

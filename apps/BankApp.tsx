@@ -2879,9 +2879,11 @@ const AnalyticsTab: React.FC<{
         )}
       </div>
 
-      <FinanceAnalysisPanel result={analysis} currency={activeCurrency} ready={analysisReady}
+      <FinanceAnalysisPanel from={fromDate} to={toDate} monthly={period === 'year'} result={analysis} currency={activeCurrency} ready={analysisReady}
         saving={analysisSaving} error={analysisError} onSettingsChange={saveAnalysisSettings} onTreatmentChange={saveTreatment} />
 
+      <details className="mb-5">
+        <summary className="text-sm font-medium py-3 cursor-pointer" style={{ color: F.textSecondary }}>分类分布</summary>
       {/* 饼图 */}
       <div className="p-4 mb-5" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, boxShadow: S.raisedSoft }}>
         {catList.length === 0 ? (
@@ -2954,6 +2956,8 @@ const AnalyticsTab: React.FC<{
           })}
         </div>
       )}
+
+      </details>
 
       {/* TA 读区域 */}
       <div className="p-4" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, boxShadow: S.raisedSoft }}>

@@ -4,7 +4,7 @@ import { FinanceDB } from './financeDb';
 import { normalizeSimpleFinSnapshot } from './simplefinSync';
 import { executeFinanceChatTool, getFinanceAwareness } from './financeChatTools';
 import { buildFinanceAnalysis, expensePercentile, FINANCE_ANALYSIS_KEY,
-  financeAnalysisCacheKey, normalizeFinanceAnalysisSettings } from './financeAnalysis';
+  financeSpendingSeries, financeAnalysisCacheKey, normalizeFinanceAnalysisSettings } from './financeAnalysis';
 
 const categories = new Map<string, FinanceCategory>([
   ['food', { id: 'food', name: '餐饮' }], ['cat_transfer', { id: 'cat_transfer', name: '转账' }],
@@ -211,5 +211,24 @@ describe('IQR upper fence', () => {
     expect(summary.analysis_by_currency.USD.outlier_excluded_count).toBe(3);
     const comparison = await executeFinanceChatTool('finance_get_spending_summary', { ...args, method: 'percentile' }) as any;
     expect(comparison.by_currency.USD.total).toBe(745);
+  });
+});
+
+
+describe('calendar spending chart', () => {
+  it('fills missing days and preserves the baseline when exclusions change', () => {
+    const rows = [transaction('daily', 20, { dateStr: '2026-06-02' }), transaction('furniture', 120, { dateStr: '2026-06-02', analysisTreatment: 'one_off' })];
+    const report = buildFinanceAnalysis(rows, categories, { ...options, view: 'manual' });
+    const series = financeSpendingSeries(report, '2026-06-01', '2026-06-03');
+    expect(series.map(day => day.selected)).toEqual([0, 20, 0]);
+    expect(series.map(day => day.all)).toEqual([0, 140, 0]);
+    expect(financeSpendingSeries(buildFinanceAnalysis(rows, categories, { ...options, view: 'all' }), '2026-06-01', '2026-06-03')[1].selected).toBe(140);
+  });
+  it('groups calendar years by month and crosses leap-day boundaries', () => {
+    const report = buildFinanceAnalysis([transaction('june', 25)], categories, options);
+    const months = financeSpendingSeries(report, '2026-01-01', '2026-12-31', true);
+    expect(months).toHaveLength(12);
+    expect(months[5].all).toBe(25);
+    expect(financeSpendingSeries(report, '2024-02-28', '2024-03-01').map(day => day.date)).toEqual(['2024-02-28', '2024-02-29', '2024-03-01']);
   });
 });
