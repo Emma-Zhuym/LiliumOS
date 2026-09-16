@@ -1,6 +1,8 @@
 import type { FinanceAccount, FinanceCategory, FinanceTransaction, Message } from '../types';
 import { FinanceDB } from './financeDb';
 import { getLocalDateKey } from './localDate';
+import { ANALYSIS_TREATMENT_LABELS, analysisTreatment, buildFinanceAnalysis, describeFinanceAnalysis,
+  FINANCE_ANALYSIS_KEY, isManuallyExcluded, normalizeFinanceAnalysisSettings } from './financeAnalysis';
 import { getSimpleFinSyncState } from './simplefinSync';
 import { isFinanceTransactionReportable, reportingTransactionType } from './financeTransfers';
 
@@ -40,12 +42,15 @@ export const FINANCE_CHAT_TOOLS = [
     type: 'function',
     function: {
       name: 'finance_get_spending_summary',
-      description: '汇总一段时间内的真实支出，并按 LiliumOS 本地多层分类统计。可以在关心用户近期生活状态或想自然聊聊消费习惯时主动查看。',
+      description: '按用户保存的分析口径汇总已入账支出，同时返回原始、手动排除、分位数筛选对照。可以在关心用户近期生活状态或想自然聊聊消费习惯时主动查看；不能把筛选差额说成省下的钱。',
       parameters: {
         type: 'object',
         properties: {
           start_date: { type: 'string', description: '开始日期 YYYY-MM-DD，默认本月第一天' },
           end_date: { type: 'string', description: '结束日期 YYYY-MM-DD，默认今天' },
+          view: { type: 'string', enum: ['all', 'manual', 'trimmed'], description: '可选：全部、手动排除后、再排大额后；默认用户保存的口径' },
+          percentile: { type: 'number', minimum: 50, maximum: 100, description: '可选金额分位数，默认用户保存值；只对支出计算' },
+          currency: { type: 'string', description: '可选币种，如 USD；不同币种绝不混算' },
         },
       },
     },
@@ -130,7 +135,7 @@ export async function getFinanceAwareness(charId: string): Promise<FinanceAwaren
 
   const totals: Record<string, number> = {};
   for (const transaction of fresh) {
-    if (reportingTransactionType(transaction, categoryMap) === 'expense') {
+    if (reportingTransactionType(transaction, categoryMap) === 'expense' && !transaction.pending && !isManuallyExcluded(transaction)) {
       totals[transaction.currency] = (totals[transaction.currency] || 0) + transaction.amount;
     }
   }
@@ -141,7 +146,7 @@ export async function getFinanceAwareness(charId: string): Promise<FinanceAwaren
     const label = transaction.sourceDescription || transaction.note || '未命名交易';
     const type = reportingTransactionType(transaction, categoryMap);
     const sign = type === 'transfer' ? '↔' : type === 'expense' ? '-' : '+';
-    return `${label} ${sign}${transaction.currency} ${transaction.amount.toFixed(2)}`;
+    return `${label} ${sign}${transaction.currency} ${transaction.amount.toFixed(2)}${isManuallyExcluded(transaction) ? `（${ANALYSIS_TREATMENT_LABELS[analysisTreatment(transaction)]}，不计入日常消费/收入）` : ''}${transaction.pending ? '（待入账）' : ''}`;
   }).join('；');
 
   await FinanceDB.saveSetting<FinanceAwarenessState>(stateKey, {
@@ -150,7 +155,7 @@ export async function getFinanceAwareness(charId: string): Promise<FinanceAwaren
   });
   return {
     hasLedger: true,
-    pulse: `用户个人账本新增 ${fresh.length} 笔记录${totalText ? `，其中支出 ${totalText}` : ''}。最近：${recentText}。`,
+    pulse: `用户个人账本新增 ${fresh.length} 笔记录${totalText ? `，其中未手动排除的已入账支出 ${totalText}` : ''}。最近：${recentText}。`,
   };
 }
 
@@ -158,6 +163,7 @@ export function buildFinanceChatSystemBlock(pulse?: string | null): string {
   return [
     '[本轮可使用本地财务查询工具]',
     '这是用户的个人账本，你可以随时查看。',
+    '原始流水不等于个人消费。留意 analysis_treatment；代收代付不属于个人消费或收入，一次性支出不代表日常水平。总结生活花销时用汇总工具的保存口径，不自行把原始流水相加；分位数筛选不是节省、退款或异常交易认定。',
     '用户聊到消费、账户或生活近况时可以查；你也可以出于好奇、关心近况或想给日常聊天增加意外话题而主动翻看，不必等用户先提到钱。',
     '工具结果来自 LiliumOS 本地账本，可能不是实时数据。留意 data_as_of，把查到的内容自然融入对话，不必像报表一样逐笔复述。',
     pulse ? `[用户个人账本近况，仅供生活感知]\n${pulse}\n你可以自然提及、继续查细节或暂时忽略，按你此刻的兴趣决定。` : '',
@@ -200,22 +206,26 @@ function publicTransaction(
     account: accountDisplayName(accounts.get(transaction.accountId)),
     category: categoryPath(transaction.categoryId, categories),
     pending: Boolean(transaction.pending),
+    analysis_treatment: ANALYSIS_TREATMENT_LABELS[analysisTreatment(transaction)],
+    manually_excluded_from_analysis: isManuallyExcluded(transaction),
     note: transaction.note && transaction.note !== transaction.sourceDescription ? transaction.note : undefined,
   };
 }
 
 async function loadFinanceData() {
-  const [accounts, categories, transactions, syncState] = await Promise.all([
+  const [accounts, categories, transactions, syncState, analysisSettings] = await Promise.all([
     FinanceDB.getAccounts(),
     FinanceDB.getCategories(),
     FinanceDB.getTransactions(),
     getSimpleFinSyncState(),
+    FinanceDB.getSetting(FINANCE_ANALYSIS_KEY),
   ]);
   return {
     accounts,
     categories,
     transactions: transactions.filter(isFinanceTransactionReportable),
     syncState,
+    analysisSettings: normalizeFinanceAnalysisSettings(analysisSettings),
     accountMap: new Map(accounts.map(account => [account.id, account])),
     categoryMap: new Map(categories.map(category => [category.id, category])),
   };
@@ -264,20 +274,38 @@ export async function executeFinanceChatTool(name: string, args: Record<string, 
     const defaultStart = `${today.slice(0, 7)}-01`;
     const startDate = typeof args.start_date === 'string' && args.start_date ? args.start_date : defaultStart;
     const endDate = typeof args.end_date === 'string' && args.end_date ? args.end_date : today;
-    const spending = data.transactions.filter(transaction =>
-      reportingTransactionType(transaction, data.categoryMap) === 'expense'
-      && !transaction.pending
-      && transaction.dateStr >= startDate
-      && transaction.dateStr <= endDate,
-    );
+    const settings = normalizeFinanceAnalysisSettings({
+      ...data.analysisSettings,
+      ...(args.view !== undefined ? { view: args.view } : {}),
+      ...(args.percentile !== undefined ? { percentile: args.percentile } : {}),
+    });
+    const currencies = [...new Set(data.transactions.filter(t => t.dateStr >= startDate && t.dateStr <= endDate
+      && (!args.currency || t.currency === args.currency)).map(t => t.currency))];
     const byCurrency: Record<string, { total: number; by_category: Record<string, number> }> = {};
-    for (const transaction of spending) {
-      const bucket = byCurrency[transaction.currency] ||= { total: 0, by_category: {} };
-      const category = categoryPath(transaction.categoryId, data.categoryMap);
-      bucket.total += transaction.amount;
-      bucket.by_category[category] = (bucket.by_category[category] || 0) + transaction.amount;
+    const analysisByCurrency: Record<string, unknown> = {};
+    let transactionCount = 0;
+    for (const currency of currencies) {
+      const analysis = buildFinanceAnalysis(data.transactions, data.categoryMap, {
+        ...settings, from: startDate, to: endDate, currency,
+      });
+      for (const transaction of analysis.selectedExpenses) {
+        const bucket = byCurrency[currency] ||= { total: 0, by_category: {} };
+        const category = categoryPath(transaction.categoryId, data.categoryMap);
+        bucket.total += transaction.amount;
+        bucket.by_category[category] = (bucket.by_category[category] || 0) + transaction.amount;
+        transactionCount += 1;
+      }
+      analysisByCurrency[currency] = {
+        description: describeFinanceAnalysis(analysis, currency), comparisons: analysis.comparisons,
+        threshold: analysis.threshold, sample_size: analysis.sampleSize, small_sample: analysis.smallSample,
+        manually_excluded_expense: analysis.manualExcludedExpenseTotal,
+        percentile_excluded_expense: analysis.outlierTotal, percentile_excluded_count: analysis.outliers.length,
+      };
     }
-    return { data_as_of: dataAsOf, start_date: startDate, end_date: endDate, transaction_count: spending.length, by_currency: byCurrency };
+    return { data_as_of: dataAsOf, start_date: startDate, end_date: endDate,
+      transaction_count: transactionCount, by_currency: byCurrency, view: settings.view,
+      percentile: settings.percentile, account_scope: 'all', analysis_by_currency: analysisByCurrency };
+
   }
 
   if (name === 'finance_get_account_snapshot') {

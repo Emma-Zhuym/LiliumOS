@@ -124,6 +124,7 @@ function isPendingReplacement(
 function hasLocalTransactionEdits(transaction: FinanceTransaction | undefined): boolean {
   return Boolean(transaction && (
     transaction.categoryId !== 'cat_uncategorized'
+    || Boolean(transaction.analysisTreatment && transaction.analysisTreatment !== 'auto')
     || (transaction.note && transaction.note !== transaction.sourceDescription)
   ));
 }
@@ -215,6 +216,7 @@ function findExistingTransaction(
   const candidates = [...fingerprintMatches, ...pendingMatches];
   const locallyEdited = candidates.find(transaction =>
     transaction.categoryId !== 'cat_uncategorized'
+    || Boolean(transaction.analysisTreatment && transaction.analysisTreatment !== 'auto')
     || Boolean(transaction.note && transaction.note !== transaction.sourceDescription),
   );
   return direct
@@ -407,7 +409,7 @@ export async function syncSimpleFin(): Promise<SimpleFinSyncResult> {
     const normalized = normalizeSimpleFinSnapshot(snapshot, currentAccounts, currentTransactions, attemptedAt, reviewSince);
     await Promise.all([
       FinanceDB.saveAccounts(normalized.accounts),
-      FinanceDB.saveTransactions(normalized.transactions),
+      FinanceDB.saveSyncedTransactions(normalized.transactions),
     ]);
 
     const errors = snapshot.errlist.map(error => error.msg).filter(Boolean);

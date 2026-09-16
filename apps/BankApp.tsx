@@ -18,6 +18,12 @@ import { FinanceAccount, FinanceCategory, FinanceTransaction, FinanceTxType, Cha
 import { F, S, R, HUE, STATUS, MOTION } from '../utils/clayTokens';
 import { syncSimpleFinIfStale } from '../utils/simplefinSync';
 import { SimpleFinSettingsCard } from '../components/finance/SimpleFinSettingsCard';
+import { FinanceAnalysisPanel, FinanceTreatmentSelect } from '../components/finance/FinanceAnalysisPanel';
+import {
+  ANALYSIS_TREATMENT_LABELS, analysisTreatment, buildFinanceAnalysis, describeFinanceAnalysis,
+  DEFAULT_FINANCE_ANALYSIS, FINANCE_ANALYSIS_KEY, financeAnalysisCacheKey,
+  normalizeFinanceAnalysisSettings, type FinanceAnalysisSettings,
+} from '../utils/financeAnalysis';
 import {
   announceFinanceReviewChanged,
   isAmazonTransaction,
@@ -246,6 +252,7 @@ const BankApp: React.FC = () => {
             accounts={accounts}
             filterType={analyticsFilter}
             setFilterType={setAnalyticsFilter}
+            onRefresh={refreshData}
           />
         )}
       </div>
@@ -1191,6 +1198,7 @@ const TransactionForm: React.FC<{
   const [toAccountId, setToAccountId] = useState(initial?.toAccountId || '');
   const [categoryId, setCategoryId] = useState(initial?.categoryId || '');
   const [note, setNote] = useState(initial?.note || '');
+  const [treatment, setTreatment] = useState(analysisTreatment(initial || {}));
   const [dateStr, setDateStr] = useState(initial?.dateStr || new Date().toISOString().split('T')[0]);
   const [expandedTopCat, setExpandedTopCat] = useState<string | null>(null);
   const [newCategoryParentId, setNewCategoryParentId] = useState<string | null | undefined>(undefined);
@@ -1254,6 +1262,7 @@ const TransactionForm: React.FC<{
       categoryReviewStatus: reviewStatus,
       categoryReviewedAt: isSynced && reviewStatus !== 'unrecognized' ? Date.now() : initial?.categoryReviewedAt,
       autoCategoryConfidence: isSynced && reviewStatus !== 'auto' ? undefined : initial?.autoCategoryConfidence,
+      analysisTreatment: treatment,
     });
   };
 
@@ -1427,6 +1436,12 @@ const TransactionForm: React.FC<{
             />
           </div>
         </div>
+
+        {txType !== 'transfer' && <div className="p-4 mb-4" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard }}>
+          <div className="text-xs mb-2" style={{ color: F.textSecondary }}>分析标记</div>
+          <FinanceTreatmentSelect value={treatment} onChange={setTreatment} />
+          <p className="text-xs mt-2 leading-relaxed" style={{ color: F.textTertiary }}>仅在分析的排除视图生效，流水和余额不变。代充的收款与付款分别选“代收代付”；家具可选“一次性支出”。“始终保留”不会被分位数排除。</p>
+        </div>}
 
         {/* 分类（转账不需要） */}
         {txType !== 'transfer' && (
@@ -2221,6 +2236,7 @@ const TransactionsTab: React.FC<{
                         <div className="text-sm truncate" style={{ color: F.textPrimary }}>{t.note || cat?.name || '未分类'}</div>
                         <div className="flex items-center gap-1.5 text-[11px]" style={{ color: F.textTertiary }}>
                           <span>#{accountDisplayName(acc) || '未知账户'}</span>
+                          {analysisTreatment(t) !== 'auto' && <span className="text-[10px]" style={{ color: HUE.indigo.ink }}>{ANALYSIS_TREATMENT_LABELS[analysisTreatment(t)]}</span>}
                           {(t.categoryReviewStatus === 'unrecognized' || (t.categoryReviewStatus == null && t.needsCategoryReview)) && (
                             <span className="px-1.5 py-0.5 text-[9px] font-medium" style={{ borderRadius: R.pill, color: STATUS.warning.ink, background: STATUS.warning.tint }}>
                               值得确认
@@ -2423,6 +2439,7 @@ function buildTAReadPrompt(
   notableTxs: NotableTx[],
   tone: Tone,
   memoryContext?: string,
+  analysisContext?: string,
 ): string {
   const toneInstructions: Record<Tone, string> = {
     teasing: `用调侃、打趣的语气。可以毒舌但不伤人，像真正了解${userName}的人在吐槽——你知道ta的哪些消费习惯是老毛病，哪些是可以拿来开玩笑的。`,
@@ -2460,6 +2477,7 @@ function buildTAReadPrompt(
 
   prompt += `### 消费数据（${periodLabel}）\n`;
   prompt += `币种: ${currency}\n`;
+  if (analysisContext) prompt += `${analysisContext}\n以下仅为所选口径的支出，不能把被排除的代付或一次性消费说成日常消费，也不能把筛选差额说成节省。\n`;
   prompt += `总支出: ${formatAmount(totalExpense, currency)}\n`;
   prompt += `分类汇总:\n${breakdown}\n\n`;
 
@@ -2506,7 +2524,8 @@ const AnalyticsTab: React.FC<{
   accounts: FinanceAccount[];
   filterType: 'all' | 'expense' | 'income';
   setFilterType: React.Dispatch<React.SetStateAction<'all' | 'expense' | 'income'>>;
-}> = ({ transactions, categories, accounts, filterType, setFilterType }) => {
+  onRefresh: () => Promise<void>;
+}> = ({ transactions, categories, accounts, filterType, setFilterType, onRefresh }) => {
   const { characters, apiConfig, userProfile } = useOS();
   const [period, setPeriod] = useState<'week' | 'month' | 'year'>('month');
   const [periodOffset, setPeriodOffset] = useState(0);
@@ -2518,6 +2537,54 @@ const AnalyticsTab: React.FC<{
   const [commentary, setCommentary] = useState<string | null>(null);
   const [loadingComment, setLoadingComment] = useState(false);
   const commentCache = useRef<Map<string, string>>(new Map());
+  const [analysisSettings, setAnalysisSettings] = useState(DEFAULT_FINANCE_ANALYSIS);
+  const pendingAnalysisSettings = useRef(DEFAULT_FINANCE_ANALYSIS);
+  const savedAnalysisSettings = useRef(DEFAULT_FINANCE_ANALYSIS);
+  const analysisSaveQueue = useRef(Promise.resolve());
+  const [analysisReady, setAnalysisReady] = useState(false);
+  const [analysisSaving, setAnalysisSaving] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const activeCommentKey = useRef('');
+  useEffect(() => {
+    let active = true;
+    FinanceDB.getSetting(FINANCE_ANALYSIS_KEY).then(value => {
+      if (active) {
+        const settings = normalizeFinanceAnalysisSettings(value);
+        pendingAnalysisSettings.current = savedAnalysisSettings.current = settings;
+        setAnalysisSettings(settings); setAnalysisReady(true);
+      }
+    }).catch(() => { if (active) setAnalysisError('分析设置读取失败，请重新进入此页。'); });
+    return () => { active = false; };
+  }, []);
+  const saveAnalysisSettings = async (patch: Partial<FinanceAnalysisSettings>) => {
+    setAnalysisSaving(true); setAnalysisError(null);
+    // A percentile blur and a view click may arrive before React rerenders.
+    // Merge against the latest request and serialize writes so neither is lost.
+    const next = normalizeFinanceAnalysisSettings({ ...pendingAnalysisSettings.current, ...patch });
+    pendingAnalysisSettings.current = next;
+    const write = analysisSaveQueue.current.then(async () => {
+      await FinanceDB.saveSetting(FINANCE_ANALYSIS_KEY, next);
+      savedAnalysisSettings.current = next;
+      setAnalysisSettings(next);
+    });
+    analysisSaveQueue.current = write.catch(() => {});
+    try { await write; }
+    catch {
+      if (pendingAnalysisSettings.current === next) {
+        pendingAnalysisSettings.current = savedAnalysisSettings.current;
+        setAnalysisError('设置未保存，请重试。');
+      }
+    } finally {
+      if (pendingAnalysisSettings.current === next || pendingAnalysisSettings.current === savedAnalysisSettings.current) setAnalysisSaving(false);
+    }
+  };
+  const saveTreatment = async (transaction: FinanceTransaction, value: FinanceTransaction['analysisTreatment']) => {
+    setAnalysisSaving(true); setAnalysisError(null);
+    try { await FinanceDB.setAnalysisTreatment(transaction.id, value); await onRefresh(); }
+    catch { setAnalysisError('标记保存或刷新失败，请刷新后确认。'); }
+    finally { setAnalysisSaving(false); }
+  };
+
 
   // 加载 IndexedDB 中已缓存的评论
   useEffect(() => {
@@ -2552,27 +2619,16 @@ const AnalyticsTab: React.FC<{
     setPeriodOffset(0);
   };
 
-  const periodTxs = transactions.filter(t => {
-    if (t.dateStr < fromDate || t.dateStr > toDate) return false;
-    if (filterAccountId && t.accountId !== filterAccountId) return false;
-    if (t.currency !== activeCurrency) return false;
-    const reportingType = reportingTransactionType(t, catMap);
-    if (reportingType === 'transfer') return false;
-    if (filterType === 'expense' && reportingType !== 'expense') return false;
-    if (filterType === 'income' && reportingType !== 'income' && reportingType !== 'refund') return false;
-    return true;
+  const analysisOptions = { ...analysisSettings, from: fromDate, to: toDate, currency: activeCurrency, accountId: filterAccountId };
+  const analysis = buildFinanceAnalysis(transactions, catMap, analysisOptions);
+  const analysisKey = financeAnalysisCacheKey(analysis, analysisOptions);
+  activeCommentKey.current = `${selectedCharId}_${tone}_${analysisKey}`;
+  const periodTxs = analysis.selected.filter(t => {
+    const type = reportingTransactionType(t, catMap);
+    return filterType === 'all' || (filterType === 'expense' ? type === 'expense' : type === 'income' || type === 'refund');
   });
-
-  // "收支" 模式：分别计算收入支出
-  const expenseTxs = transactions.filter(t => t.dateStr >= fromDate && t.dateStr <= toDate && t.currency === activeCurrency && reportingTransactionType(t, catMap) === 'expense' && (!filterAccountId || t.accountId === filterAccountId));
-  const incomeTxs = transactions.filter(t => {
-    const reportingType = reportingTransactionType(t, catMap);
-    return t.dateStr >= fromDate
-      && t.dateStr <= toDate
-      && t.currency === activeCurrency
-      && (reportingType === 'income' || reportingType === 'refund')
-      && (!filterAccountId || t.accountId === filterAccountId);
-  });
+  const expenseTxs = analysis.selectedExpenses;
+  const incomeTxs = analysis.selectedIncome;
   const totalExpense = expenseTxs.reduce((s, t) => s + t.amount, 0);
   const totalIncome = incomeTxs.reduce((s, t) => s + t.amount, 0);
   const netBalance = totalIncome - totalExpense;
@@ -2607,21 +2663,21 @@ const AnalyticsTab: React.FC<{
   useEffect(() => {
     setCommentary(null);
     setSelectedCharId(null);
-  }, [period, periodOffset, filterAccountId, filterType, activeCurrency]);
+  }, [period, periodOffset, filterAccountId, filterType, activeCurrency, analysisKey]);
 
   const handleSelectChar = (charId: string) => {
     setSelectedCharId(charId);
-    const cacheKey = `${charId}_${period}${periodOffset}_${tone}_${filterAccountId || 'all'}_${filterType}_${activeCurrency}`;
+    const cacheKey = `${charId}_${tone}_${analysisKey}`;
     const cached = commentCache.current.get(cacheKey);
     setCommentary(cached || null);
   };
 
   const generateCommentary = async () => {
-    if (!selectedCharId || !apiConfig?.baseUrl) return;
+    if (!selectedCharId || !apiConfig?.baseUrl || !analysisReady) return;
     const char = characters.find(c => c.id === selectedCharId);
     if (!char) return;
 
-    const cacheKey = `${selectedCharId}_${period}${periodOffset}_${tone}_${filterAccountId || 'all'}_${filterType}_${activeCurrency}`;
+    const cacheKey = `${selectedCharId}_${tone}_${analysisKey}`;
     const cached = commentCache.current.get(cacheKey);
     if (cached) { setCommentary(cached); return; }
 
@@ -2629,12 +2685,13 @@ const AnalyticsTab: React.FC<{
     setCommentary(null);
 
     try {
-      const catBreakdown = catList.map(c => ({
-        name: c.cat?.name || '未分类',
-        amount: c.amount,
-        pct: c.pct,
-      }));
-      const notableTxs = findNotableTransactions(periodTxs, transactions.filter(transaction => transaction.currency === activeCurrency), catMap);
+      const expenseCategories = new Map<string, number>();
+      for (const transaction of expenseTxs) {
+        const name = catMap.get(transaction.categoryId)?.name || '未分类';
+        expenseCategories.set(name, (expenseCategories.get(name) || 0) + transaction.amount);
+      }
+      const catBreakdown = [...expenseCategories].map(([name, amount]) => ({ name, amount, pct: totalExpense ? Math.round(amount / totalExpense * 100) : 0 })).sort((a, b) => b.amount - a.amount);
+      const notableTxs = findNotableTransactions(expenseTxs, expenseTxs, catMap);
 
       // 从记忆宫殿检索消费相关记忆
       let memoryContext = '';
@@ -2658,7 +2715,7 @@ const AnalyticsTab: React.FC<{
 
       const prompt = buildTAReadPrompt(
         char, userProfile?.name || '用户', periodLabel,
-        totalAmount, activeCurrency, catBreakdown, notableTxs, tone, memoryContext,
+        totalExpense, activeCurrency, catBreakdown, notableTxs, tone, memoryContext, describeFinanceAnalysis(analysis, activeCurrency),
       );
 
       const baseUrl = apiConfig.baseUrl.replace(/\/+$/, '');
@@ -2683,14 +2740,14 @@ const AnalyticsTab: React.FC<{
       const reply = extractContent(data).trim();
       if (reply) {
         commentCache.current.set(cacheKey, reply);
-        setCommentary(reply);
+        if (activeCommentKey.current === cacheKey) setCommentary(reply);
         // 持久化到 IndexedDB
         FinanceDB.saveTAComment({ id: cacheKey, text: reply, createdAt: Date.now() }).catch(() => {});
 
         // 回传记忆宫殿 — 让角色记住自己评论过用户的消费
         const userName = userProfile?.name || '用户';
         const topCats = catBreakdown.slice(0, 3).map(c => c.name).join('、');
-        const memoryContent = `${char.name}看了${userName}${periodLabel}的${activeCurrency}消费记录（${topCats}等，总计${formatAmount(totalAmount, activeCurrency)}），评价道：「${reply.slice(0, 150)}」`;
+        const memoryContent = `${char.name}看了${userName}${periodLabel}的${activeCurrency}消费记录（${topCats}等，${describeFinanceAnalysis(analysis, activeCurrency)}；当前口径总计${formatAmount(totalExpense, activeCurrency)}），评价道：「${reply.slice(0, 150)}」`;
         const memNode: MemoryNode = {
           id: `bank_ta_${Date.now()}_${char.id}`,
           charId: char.id,
@@ -2717,7 +2774,7 @@ const AnalyticsTab: React.FC<{
         }).catch(() => {});
       }
     } catch (e) {
-      setCommentary('生成失败，请检查 API 配置。');
+      if (activeCommentKey.current === cacheKey) setCommentary('生成失败，请检查 API 配置。');
     } finally {
       setLoadingComment(false);
     }
@@ -2726,7 +2783,7 @@ const AnalyticsTab: React.FC<{
   const handleToneChange = (t: Tone) => {
     setTone(t);
     if (selectedCharId) {
-      const cacheKey = `${selectedCharId}_${period}${periodOffset}_${t}_${filterAccountId || 'all'}_${filterType}_${activeCurrency}`;
+      const cacheKey = `${selectedCharId}_${t}_${analysisKey}`;
       const cached = commentCache.current.get(cacheKey);
       setCommentary(cached || null);
     }
@@ -2822,6 +2879,9 @@ const AnalyticsTab: React.FC<{
         )}
       </div>
 
+      <FinanceAnalysisPanel result={analysis} currency={activeCurrency} ready={analysisReady}
+        saving={analysisSaving} error={analysisError} onSettingsChange={saveAnalysisSettings} onTreatmentChange={saveTreatment} />
+
       {/* 饼图 */}
       <div className="p-4 mb-5" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, boxShadow: S.raisedSoft }}>
         {catList.length === 0 ? (
@@ -2873,7 +2933,7 @@ const AnalyticsTab: React.FC<{
                 {budget && budgetPct !== null && filterType === 'expense' && (period === 'month' || period === 'week') && (
                   <div className="mt-2 ml-[22px]">
                     <div className="flex items-center justify-between mb-0.5">
-                      <span className="text-[10px]" style={{ color: F.textTertiary }}>预算 {formatAmount(budget, activeCurrency)}</span>
+                      <span className="text-[10px]" style={{ color: F.textTertiary }}>预算 {formatAmount(budget, activeCurrency)} · 按当前口径</span>
                       <span className="text-[10px] font-medium" style={{ color: overBudget ? STATUS.danger.main : F.textTertiary }}>
                         {Math.round(budgetPct)}%{overBudget ? ' 超支' : ''}
                       </span>
@@ -2898,7 +2958,7 @@ const AnalyticsTab: React.FC<{
       {/* TA 读区域 */}
       <div className="p-4" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, boxShadow: S.raisedSoft }}>
         <div className="text-sm font-medium mb-3" style={{ color: F.textPrimary }}>TA 怎么看</div>
-        <div className="text-xs mb-3" style={{ color: F.textTertiary }}>选一个角色来评价你{periodLabel}的消费</div>
+        <div className="text-xs mb-3" style={{ color: F.textTertiary }}>选一个角色来评价你{periodLabel}当前口径的支出</div>
 
         {/* 角色选择 — 直接用全量 characters */}
         <div className="mb-3">
@@ -2947,7 +3007,7 @@ const AnalyticsTab: React.FC<{
             </div>
             <button
               onClick={() => {
-                const cacheKey = `${selectedCharId}_${period}${periodOffset}_${tone}_${filterAccountId || 'all'}_${filterType}_${activeCurrency}`;
+                const cacheKey = `${selectedCharId}_${tone}_${analysisKey}`;
                 commentCache.current.delete(cacheKey);
                 generateCommentary();
               }}
@@ -2962,17 +3022,17 @@ const AnalyticsTab: React.FC<{
           <div className="text-center py-6">
             <button
               onClick={generateCommentary}
-              disabled={loadingComment || totalAmount === 0}
+              disabled={loadingComment || !analysisReady || totalExpense === 0}
               className="px-5 py-2.5 text-sm font-medium active:scale-95 transition-transform"
               style={{
                 borderRadius: R.medium,
-                background: loadingComment || totalAmount === 0 ? F.borderStrong : HUE.blue.main,
-                color: loadingComment || totalAmount === 0 ? F.textTertiary : F.surfaceRaised,
+                background: loadingComment || !analysisReady || totalExpense === 0 ? F.borderStrong : HUE.blue.main,
+                color: loadingComment || !analysisReady || totalExpense === 0 ? F.textTertiary : F.surfaceRaised,
               }}
             >
               {loadingComment ? '生成中...' : `让${characters.find(c => c.id === selectedCharId)?.name || 'TA'}来说说`}
             </button>
-            {totalAmount === 0 && (
+            {totalExpense === 0 && (
               <div className="text-[11px] mt-2" style={{ color: F.textTertiary }}>没有{typeLabel}数据</div>
             )}
           </div>

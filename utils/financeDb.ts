@@ -197,6 +197,47 @@ export const FinanceDB = {
   },
   deleteTransaction: (id: string) => del(STORE_TX, id),
 
+  // Apply only this local field, atomically, without saving an outdated UI copy
+  // over a transaction's latest provider amount/date/category.
+  setAnalysisTreatment: async (id: string, analysisTreatment: FinanceTransaction['analysisTreatment']) => {
+    const db = await openFinanceDB();
+    return new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_TX, 'readwrite');
+      const store = tx.objectStore(STORE_TX);
+      const request = store.get(id);
+      request.onsuccess = () => {
+        if (!request.result) { tx.abort(); return; }
+        store.put({ ...request.result, analysisTreatment });
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error('保存分析标记失败'));
+      tx.onabort = () => reject(tx.error || new Error('交易已不存在，请刷新后重试'));
+    });
+  },
+
+  // A sync may have read rows before the user changed a local analysis marker.
+  // Preserve the current marker at write time, including explicit reset to auto.
+  saveSyncedTransactions: async (transactions: FinanceTransaction[]) => {
+    if (!transactions.length) return;
+    const db = await openFinanceDB();
+    return new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_TX, 'readwrite');
+      const store = tx.objectStore(STORE_TX);
+      for (const transaction of transactions) {
+        const request = store.get(transaction.id);
+        request.onsuccess = () => {
+          const current = request.result as FinanceTransaction | undefined;
+          store.put(current && Object.prototype.hasOwnProperty.call(current, 'analysisTreatment')
+            ? { ...transaction, analysisTreatment: current.analysisTreatment }
+            : transaction);
+        };
+      }
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('同步交易保存失败'));
+    });
+  },
+
   getTransactionsByAccount: async (accountId: string): Promise<FinanceTransaction[]> => {
     const db = await openFinanceDB();
     return new Promise((resolve, reject) => {

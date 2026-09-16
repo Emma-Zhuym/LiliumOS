@@ -3568,6 +3568,8 @@ export interface RecurringRule {
 
 export type FinanceTxType = 'expense' | 'income' | 'refund' | 'transfer';
 
+export type FinanceAnalysisTreatment = 'auto' | 'keep' | 'pass_through' | 'one_off' | 'other'; // [EM: finance-analysis-scope]
+
 export type FinanceCategoryReviewStatus =
     | 'unrecognized'
     | 'snoozed'
@@ -3589,6 +3591,8 @@ export interface FinanceTransaction {
     toAmount?: number;
     toCurrency?: string;
     refundForTxId?: string;
+    /** Local analysis choice only; never changes cash flow, source amount or visibility. */
+    analysisTreatment?: FinanceAnalysisTreatment; // [EM: finance-analysis-scope]
     charComments?: { charId: string; comment: string; timestamp: number }[];
     source?: 'manual' | 'simplefin';
     externalId?: string;
