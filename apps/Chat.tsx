@@ -69,6 +69,9 @@ import { markAmsgStateDirty, markAmsgStateDirtyForAll } from '../utils/amsgState
 import { generatePersistedChatImage } from '../utils/chatGeneratedImage';
 import { AMSG_INSTANT_CHAT_PENDING_EVENT, AMSG_INSTANT_CHAT_PENDING_LS_KEY, getInstantChatPending } from '../utils/amsgInstantChat';
 import { formatAmsgToolTrace } from '../utils/amsgToolTrace';
+// [EM: mcp-call-trace] 本地角色聊天的可展开 MCP 调用记录。
+import McpToolTraceCard from '../components/chat/McpToolTraceCard';
+import { readMcpToolTraceRecord } from '../utils/mcpToolTraceRecord';
 import { formatHours } from '../utils/format';
 import {
     CONTENT_FAVORITES_CHANGED_EVENT,
@@ -3683,6 +3686,13 @@ const Chat: React.FC = () => {
                     const pushMessageId = (m.metadata as any)?.activeMsg2?.messageId;
                     const showToolTrace = !!toolTraceText
                         && !(pushMessageId && (nextMessage?.metadata as any)?.activeMsg2?.messageId === pushMessageId);
+                    // [EM-START: mcp-call-trace]
+                    // 后处理可能把同一轮回复拆成多个气泡，共享同一份 metadata；只在本轮最后一条下显示一次。
+                    const mcpToolTrace = selectionMode
+                        ? null : readMcpToolTraceRecord((m.metadata as any)?.mcpToolTrace);
+                    const nextMcpRunId = (nextMessage?.metadata as any)?.mcpToolTrace?.runId;
+                    const showMcpToolTrace = !!mcpToolTrace && nextMcpRunId !== mcpToolTrace.runId;
+                    // [EM-END: mcp-call-trace]
                     return (
                         <div
                             key={m.id || i}
@@ -3744,6 +3754,15 @@ const Chat: React.FC = () => {
                                 </div>
                             </div>
                         )}
+                        {/* [EM-START: mcp-call-trace] */}
+                        {showMcpToolTrace && mcpToolTrace && (
+                            <div className={`px-3 mb-4 ${breaksWithNext ? toolTracePullClass : ''}`}>
+                                <div className="ml-12 max-w-[72%]">
+                                    <McpToolTraceCard trace={mcpToolTrace} />
+                                </div>
+                            </div>
+                        )}
+                        {/* [EM-END: mcp-call-trace] */}
                         </div>
                     );
                 })}

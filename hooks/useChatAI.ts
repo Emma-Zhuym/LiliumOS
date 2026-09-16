@@ -80,6 +80,8 @@ import { applyEmotionEvalRaw, extractAssistantText } from '../utils/emotionApply
 import { announceChatGen, CHAT_GEN_EVENTS } from '../utils/chatGenEvents';
 import { shouldRequestAmbient, buildAmbientEvalSection } from '../utils/roomAmbient';
 import { isEmotionEvalSkipped } from '../utils/devDebug';
+// [EM: mcp-call-trace] MCP 参数/结果在进入聊天消息 metadata 前统一打码与限长。
+import { createMcpToolCallRecord, type McpToolCallRecord } from '../utils/mcpToolTraceRecord';
 import {
     computeContextRangeSnapshot,
     getMemoryPalaceHighWaterMarkForContext,
@@ -869,7 +871,13 @@ export const useChatAI = ({
             //    — 主动消息和 emotion eval 走的是同一个 helper，保证三家拿到的"材料"完全一致。
             const mcdMiniSnap = mcdMiniAppRef?.current;
             const mcdMiniOpen = !!mcdMiniSnap?.open;
-            const mcdInheritMeta = mcdMiniOpen ? { fromMcdMiniApp: true } : undefined;
+            // [EM-START: mcp-call-trace]
+            // `mcdInheritMeta` 是历史命名，实际已承担「本轮所有 assistant 气泡共享 metadata」的职责。
+            // MCP 记录挂这里而不是另落系统消息，避免工具细节被下一轮当聊天正文再次送给模型。
+            let mcdInheritMeta: Record<string, unknown> | undefined = mcdMiniOpen ? { fromMcdMiniApp: true } : undefined;
+            const mcpToolRecords: McpToolCallRecord[] = [];
+            const mcpTraceRunId = `mcp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+            // [EM-END: mcp-call-trace]
             const luckinMiniSnap = luckinMiniAppRef?.current;
             const luckinMiniOpen = !!luckinMiniSnap?.open;
 
@@ -1936,9 +1944,22 @@ export const useChatAI = ({
                         const mcpHit = mcpToolResolve?.get(fname);
                         if (mcpHit) {
                             setSearchStatus(`正在调用 MCP 工具：${fname}...`);
+                            const mcpStartedAt = Date.now(); // [EM: mcp-call-trace]
                             let mcpResult: any;
                             try { mcpResult = await callMcpTool(mcpHit.server, mcpHit.toolName, args); }
                             catch (e: any) { mcpResult = { success: false, error: e?.message || String(e) }; }
+                            // [EM-START: mcp-call-trace]
+                            mcpToolRecords.push(createMcpToolCallRecord({
+                                id: tc.id || `${mcpTraceRunId}_${mcpToolRecords.length}`,
+                                serverName: mcpHit.server.name,
+                                toolName: mcpHit.toolName,
+                                exposedName: fname,
+                                source: 'native',
+                                args,
+                                result: mcpResult,
+                                startedAt: mcpStartedAt,
+                            }));
+                            // [EM-END: mcp-call-trace]
                             const mcpMsg = mcpResult.success
                                 ? `工具 ${fname} 成功。结果: ${formatMcpToolResult(mcpResult.data)}`
                                 : `工具 ${fname} 失败: ${mcpResult.error}`;
@@ -2032,9 +2053,22 @@ export const useChatAI = ({
                     const results: string[] = [];
                     for (const call of faked) {
                         try { executedSig.add(`${call.exposedName}|${JSON.stringify(call.args)}`); } catch { /* ignore */ }
+                        const mcpStartedAt = Date.now(); // [EM: mcp-call-trace]
                         let r: any;
                         try { r = await callMcpTool(call.server, call.toolName, call.args); }
                         catch (e: any) { r = { success: false, error: e?.message || String(e) }; }
+                        // [EM-START: mcp-call-trace]
+                        mcpToolRecords.push(createMcpToolCallRecord({
+                            id: `${mcpTraceRunId}_text_${mcpToolRecords.length}`,
+                            serverName: call.server.name,
+                            toolName: call.toolName,
+                            exposedName: call.exposedName,
+                            source: 'text_fallback',
+                            args: call.args,
+                            result: r,
+                            startedAt: mcpStartedAt,
+                        }));
+                        // [EM-END: mcp-call-trace]
                         results.push(r.success
                             ? `工具 ${call.exposedName} 执行成功, 结果: ${formatMcpToolResult(r.data)}`
                             : `工具 ${call.exposedName} 执行失败: ${r.error}`);
@@ -2055,6 +2089,15 @@ export const useChatAI = ({
                 }
                 setSearchStatus('');
             }
+
+            // [EM-START: mcp-call-trace]
+            if (mcpToolRecords.length > 0) {
+                mcdInheritMeta = {
+                    ...(mcdInheritMeta || {}),
+                    mcpToolTrace: { version: 1, runId: mcpTraceRunId, records: mcpToolRecords },
+                };
+            }
+            // [EM-END: mcp-call-trace]
 
             // EM: Intiface control_toy 工具调用处理
             // 与 MCD/瑞幸互斥——那些模式的工具循环已处理过 tool_calls
