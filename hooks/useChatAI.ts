@@ -71,11 +71,21 @@ import { appendInstantTraceEntry } from '../utils/instantTraceLog';
 import { AMSG2_TOOLS, AMSG2_TOOL_NAMES, createAmsg2ToolSession, executeAmsg2Tool, isAmsg2GlobalReady } from '../utils/amsg2ToolBridge';
 import { shouldSendThinkingParams } from '../utils/thinkingGate';
 import { buildFinanceChatSystemBlock, executeFinanceChatTool, FINANCE_CHAT_TOOLS, FINANCE_CHAT_TOOL_NAMES, getFinanceAwareness, shouldEnableFinanceTools } from '../utils/financeChatTools';
+import {
+    buildHealthChatSystemBlock,
+    executeHealthChatTool,
+    HEALTH_CHAT_TOOLS,
+    HEALTH_CHAT_TOOL_NAMES,
+    isHealthChatToolAvailable,
+    shouldEnableHealthTools,
+} from '../utils/healthChatTools';
 import { routeMiniAppToolCall } from '../utils/miniAppToolRoute';
 import { applyEmotionEvalRaw, extractAssistantText } from '../utils/emotionApply';
 import { announceChatGen, CHAT_GEN_EVENTS } from '../utils/chatGenEvents';
 import { shouldRequestAmbient, buildAmbientEvalSection } from '../utils/roomAmbient';
 import { isEmotionEvalSkipped } from '../utils/devDebug';
+// [EM: mcp-call-trace] MCP 参数/结果在进入聊天消息 metadata 前统一打码与限长。
+import { createMcpToolCallRecord, type McpToolCallRecord } from '../utils/mcpToolTraceRecord';
 import {
     computeContextRangeSnapshot,
     getMemoryPalaceHighWaterMarkForContext,
@@ -868,7 +878,13 @@ export const useChatAI = ({
             //    — 主动消息和 emotion eval 走的是同一个 helper，保证三家拿到的"材料"完全一致。
             const mcdMiniSnap = mcdMiniAppRef?.current;
             const mcdMiniOpen = !!mcdMiniSnap?.open;
-            const mcdInheritMeta = mcdMiniOpen ? { fromMcdMiniApp: true } : undefined;
+            // [EM-START: mcp-call-trace]
+            // `mcdInheritMeta` 是历史命名，实际已承担「本轮所有 assistant 气泡共享 metadata」的职责。
+            // MCP 记录挂这里而不是另落系统消息，避免工具细节被下一轮当聊天正文再次送给模型。
+            let mcdInheritMeta: Record<string, unknown> | undefined = mcdMiniOpen ? { fromMcdMiniApp: true } : undefined;
+            const mcpToolRecords: McpToolCallRecord[] = [];
+            const mcpTraceRunId = `mcp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+            // [EM-END: mcp-call-trace]
             const luckinMiniSnap = luckinMiniAppRef?.current;
             const luckinMiniOpen = !!luckinMiniSnap?.open;
 
@@ -903,6 +919,10 @@ export const useChatAI = ({
             // 路由和工具注入共用同一份语义判断：普通 HA 闲聊不只要走 CF，也不能继续
             // 携带本地工具 prompt / tools 或因此禁用 thinking。
             const mcpToolTurn = shouldActivateMcpForTurn(currentMsgs, char.id);
+            // Apple Health 细节使用独立只读工具，不再让模型从整套 HA MCP 工具里猜。
+            // 权限仍复用 HA MCP 的角色绑定；命中健康语义的这一轮留在本机读取私密数据。
+            const healthToolAvailable = isHealthChatToolAvailable(char.id);
+            const healthToolTurn = healthToolAvailable && shouldEnableHealthTools(currentMsgs);
             // 用户明确让角色查本人位置时，必须留在当前设备：云端拿不到前台 GPS，
             // 若仍走 Instant Chat / Instant Push，模型看到的工具列表里会真的没有定位工具。
             const locationLocalRequired = isLocationChatToolEnabled()
@@ -911,6 +931,7 @@ export const useChatAI = ({
                 : mcdMiniOpen ? 'mcd'
                     : luckinMiniOpen ? 'luckin'
                         : intifaceReady ? 'intiface'
+                            : healthToolTurn ? 'health-local'
                             : locationLocalRequired ? 'location-local'
                             : financeLocalRequired ? 'finance-local'
                             : mcpLocalIntent ? 'mcp-local-intent' : null;
@@ -941,6 +962,8 @@ export const useChatAI = ({
                 console.warn(
                     skipReason === 'mcp-local-intent'
                         ? '[AmsgInstantChat] 这一轮没上云（命中本机/内网 MCP 的工具意图），本地生成，工具照常可用'
+                        : skipReason === 'health-local'
+                            ? '[AmsgInstantChat] 这一轮没上云（Apple Health 详细工具只读取本机 HA），本地生成，健康数据不会上传到 worker'
                         : skipReason === 'finance-local'
                             ? '[AmsgInstantChat] 这一轮没上云（财务工具只读取本机账本），本地生成，账目不会上传到 worker'
                         : skipReason === 'location-local'
@@ -1107,7 +1130,7 @@ export const useChatAI = ({
             // 这一轮的生成在云端跑（两条路互斥，见 instantChatRoute 的算法）。
             // instantPushConfigured 是路由判定处冻结的同一回合终值——这里绝不自己再读
             // 一次，否则可能「按上云模式把评估打包走了，实际却走本地」，情绪底色悄悄停更。
-            const cloudGenRoute = (instantPushConfigured && !locationLocalRequired) || instantChatRoute;
+            const cloudGenRoute = (instantPushConfigured && !locationLocalRequired && !healthToolTurn) || instantChatRoute;
             // 评估跟随全局流式开关（专用情绪 API 自带 stream 字段时以它为准）
             const evalStream: boolean = !!((effectiveApi as any).stream ?? apiConfig.stream ?? false);
             const emotionApi = emotionEvalEnabled
@@ -1245,6 +1268,12 @@ export const useChatAI = ({
                     content: `${baseReqBody.messages[0].content}\n\n${buildLocationChatToolSystemBlock()}`,
                 };
             }
+            if (healthToolTurn && baseReqBody.messages[0]?.role === 'system') {
+                baseReqBody.messages[0] = {
+                    ...baseReqBody.messages[0],
+                    content: `${baseReqBody.messages[0].content}\n\n${buildHealthChatSystemBlock()}`,
+                };
+            }
             // 思考过程展示开启时显式向后端请求 extended thinking。
             // 不同代理认不同入口，全都试一遍，代理不识别的会自动忽略：
             //  - 模型名 -thinking 后缀：packycode / anyrouter 等第三方 Claude 中转的主流约定
@@ -1255,7 +1284,7 @@ export const useChatAI = ({
             // ⚠️ 工具模式(瑞幸点单/麦当劳)下绝不带 thinking/reasoning 参数: "thinking + tools" 同发
             //    Gemini 等会直接 400 INVALID_ARGUMENT —— 表现就是"开了思考链的角色一点单就报错,
             //    换个没开思考链的角色就好"。工具循环优先, 思考链这一轮让步。
-            const toolModeActive = payload.flags.luckinChatActive || payload.flags.mcdActive || payload.flags.luckinActive || payload.flags.mcpChatActive || financeToolTurn || locationToolEnabled;
+            const toolModeActive = payload.flags.luckinChatActive || payload.flags.mcdActive || payload.flags.luckinActive || payload.flags.mcpChatActive || financeToolTurn || locationToolEnabled || healthToolTurn;
             // 主动消息 2.0 的工具本轮会不会注入：thinking 门要先知道这件事（工具在下面才真正
             // 拼进 tools，但参数取舍必须现在就定）。角色级开关关掉的不注入——否则被用户显式
             // 关掉的功能会被角色一次工具调用重新打开。
@@ -1330,6 +1359,10 @@ export const useChatAI = ({
                 baseReqBody.tools = [...(baseReqBody.tools || []), LOCATION_CHAT_TOOL];
                 if (!baseReqBody.tool_choice) baseReqBody.tool_choice = 'auto';
             }
+            if (healthToolTurn) {
+                baseReqBody.tools = [...(baseReqBody.tools || []), ...HEALTH_CHAT_TOOLS];
+                if (!baseReqBody.tool_choice) baseReqBody.tool_choice = 'auto';
+            }
             // 主动消息 2.0 本地工具：worker 已配置 + 角色没关掉时注入 schedule/cancel/renew/list，
             // 并注入「排程现状」背景块（常驻能力简介 + 进行中任务 + 作废待处理，角色自行判断怎么接）。
             // 是否注入在上面 thinking 门那里就算好了（amsg2ToolsInjected）。
@@ -1400,7 +1433,7 @@ export const useChatAI = ({
             // 表现就是"选了城市也没用 / 角色不下单"。这些模式下跳过 instant push, 用本地 fetch 跑工具循环。
             // 双向互斥后理论上到不了：走到这条 trace 说明两边开关同时亮着（脏配置），当断言告警看。
             const AMSG2_SUPPRESSED_TRACE = 'amsg2-suppressed-by-instant';
-            if (instantPushConfigured && !locationLocalRequired && !payload.flags.luckinChatActive && !payload.flags.mcdActive && !payload.flags.luckinActive && !payload.flags.mcpChatActive && !intifaceReady && !financeToolTurn) { // [EM: intiface-gate]
+            if (instantPushConfigured && !locationLocalRequired && !healthToolTurn && !payload.flags.luckinChatActive && !payload.flags.mcdActive && !payload.flags.luckinActive && !payload.flags.mcpChatActive && !intifaceReady && !financeToolTurn) { // [EM: intiface-gate]
                 // 走这条路 = 上面那段 amsg2 的工具、排程现状块都白拼了（instant 发的是原始
                 // fullMessages、请求体不带 tools），下面的活跃会话租约也不会开。三样都是静默
                 // 失效，留一条 trace 让观察窗看得见，别让人对着「功能不响」凭空排查。
@@ -1882,7 +1915,7 @@ export const useChatAI = ({
             //       createOrder 被拦截 —— 下单付款必须用户在结账卡上点。
             //     · 通用 MCP: 工具名命中 mcpToolResolve 映射就分发给对应服务器 (utils/mcpClient),
             //       结果只回填循环不落卡片。两类工具可同时在场, 按名字各走各的。
-            if ((payload.flags.luckinChatActive || mcpToolResolve || amsg2ToolsInjected || financeToolTurn || locationToolEnabled) && data.choices?.[0]?.message?.tool_calls?.length) {
+            if ((payload.flags.luckinChatActive || mcpToolResolve || amsg2ToolsInjected || financeToolTurn || locationToolEnabled || healthToolTurn) && data.choices?.[0]?.message?.tool_calls?.length) {
                 // 普通点单/排程维持 6 轮；接了通用 MCP 时允许游戏/论坛类任务自然推进到
                 // 12 轮。模型正常给正文会立刻 break，并不是固定多发 12 次请求。
                 const MAX_LOOPS = mcpToolResolve ? MCP_CHAT_MAX_TOOL_LOOPS : 6;
@@ -1940,6 +1973,17 @@ export const useChatAI = ({
                             loopMessages.push(buildToolResultMessage(tc, JSON.stringify(locationResult)) as any);
                             continue;
                         }
+                        if (HEALTH_CHAT_TOOL_NAMES.has(fname)) {
+                            setSearchStatus('正在查看你的 Apple Health 数据...');
+                            let healthResult: Record<string, unknown>;
+                            try {
+                                healthResult = await executeHealthChatTool(fname, args, char.id);
+                            } catch (e: any) {
+                                healthResult = { success: false, status: 'error', message: e?.message || String(e) };
+                            }
+                            loopMessages.push(buildToolResultMessage(tc, JSON.stringify(healthResult)) as any);
+                            continue;
+                        }
                         // 通用 MCP 工具: 命中映射直接分发, 不走下面的瑞幸逻辑
                         const mcpHit = mcpToolResolve?.get(fname);
                         if (mcpHit) {
@@ -1956,9 +2000,22 @@ export const useChatAI = ({
                             }
                             lastMcpCallSignature = callSignature;
                             setSearchStatus(`正在调用 MCP 工具：${fname}...`);
+                            const mcpStartedAt = Date.now(); // [EM: mcp-call-trace]
                             let mcpResult: any;
                             try { mcpResult = await callMcpTool(mcpHit.server, mcpHit.toolName, args); }
                             catch (e: any) { mcpResult = { success: false, error: e?.message || String(e) }; }
+                            // [EM-START: mcp-call-trace]
+                            mcpToolRecords.push(createMcpToolCallRecord({
+                                id: tc.id || `${mcpTraceRunId}_${mcpToolRecords.length}`,
+                                serverName: mcpHit.server.name,
+                                toolName: mcpHit.toolName,
+                                exposedName: fname,
+                                source: 'native',
+                                args,
+                                result: mcpResult,
+                                startedAt: mcpStartedAt,
+                            }));
+                            // [EM-END: mcp-call-trace]
                             const mcpMsg = mcpResult.success
                                 ? `工具 ${fname} 成功。结果: ${formatMcpToolResult(mcpResult.data)}`
                                 : `工具 ${fname} 失败: ${mcpResult.error}`;
@@ -2051,10 +2108,10 @@ export const useChatAI = ({
                         method: 'POST', headers,
                         body: JSON.stringify(prepareReplyBody(followBody))
                     });
-                    updateTokenUsage(data, historyMsgCount, `${payload.flags.luckinChatActive ? 'luckin-chat' : financeToolTurn ? 'finance-chat' : 'mcp-chat'}-${it + 1}`);
+                    updateTokenUsage(data, historyMsgCount, `${payload.flags.luckinChatActive ? 'luckin-chat' : financeToolTurn ? 'finance-chat' : healthToolTurn ? 'health-chat' : 'mcp-chat'}-${it + 1}`);
                     if (forceWrapUp) break;
                 }
-                if (mcpToolResolve || financeToolTurn || locationToolEnabled) setSearchStatus('');
+                if (mcpToolResolve || financeToolTurn || locationToolEnabled || healthToolTurn) setSearchStatus('');
             }
 
             // 3.6b MCP 掉格式容错（第二层, 对标见面观测协议的两层容错）:
@@ -2098,9 +2155,22 @@ export const useChatAI = ({
                     const results: string[] = [];
                     for (const call of faked) {
                         lastExecutedSig = toolCallFingerprint(call.exposedName, call.args);
+                        const mcpStartedAt = Date.now(); // [EM: mcp-call-trace]
                         let r: any;
                         try { r = await callMcpTool(call.server, call.toolName, call.args); }
                         catch (e: any) { r = { success: false, error: e?.message || String(e) }; }
+                        // [EM-START: mcp-call-trace]
+                        mcpToolRecords.push(createMcpToolCallRecord({
+                            id: `${mcpTraceRunId}_text_${mcpToolRecords.length}`,
+                            serverName: call.server.name,
+                            toolName: call.toolName,
+                            exposedName: call.exposedName,
+                            source: 'text_fallback',
+                            args: call.args,
+                            result: r,
+                            startedAt: mcpStartedAt,
+                        }));
+                        // [EM-END: mcp-call-trace]
                         results.push(r.success
                             ? `工具 ${call.exposedName} 执行成功, 结果: ${formatMcpToolResult(r.data)}`
                             : `工具 ${call.exposedName} 执行失败: ${r.error}`);
@@ -2129,6 +2199,15 @@ export const useChatAI = ({
                 }
                 setSearchStatus('');
             }
+
+            // [EM-START: mcp-call-trace]
+            if (mcpToolRecords.length > 0) {
+                mcdInheritMeta = {
+                    ...(mcdInheritMeta || {}),
+                    mcpToolTrace: { version: 1, runId: mcpTraceRunId, records: mcpToolRecords },
+                };
+            }
+            // [EM-END: mcp-call-trace]
 
             // EM: Intiface control_toy 工具调用处理
             // 与 MCD/瑞幸互斥——那些模式的工具循环已处理过 tool_calls
