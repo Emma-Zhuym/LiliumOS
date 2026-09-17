@@ -266,6 +266,7 @@ const defaultRealtimeConfig: RealtimeConfig = {
 // 记忆宫殿全局配置（所有角色共用 embedding、副 LLM 和 rerank）
 export interface MemoryPalaceGlobalConfig {
   featureFlags: MemoryPalaceFeatureFlags;
+  relativeTimeAnnotations?: boolean;
   embedding: {
     baseUrl: string;
     apiKey: string;
@@ -297,6 +298,7 @@ const defaultMemoryPalaceConfig: MemoryPalaceGlobalConfig = {
 };
 
 const normalizeMemoryPalaceConfig = (value?: Partial<MemoryPalaceGlobalConfig> | null): MemoryPalaceGlobalConfig => ({
+  relativeTimeAnnotations: value?.relativeTimeAnnotations === true,
   embedding: { ...defaultMemoryPalaceConfig.embedding, ...(value?.embedding || {}) },
   lightLLM: { ...defaultMemoryPalaceConfig.lightLLM, ...(value?.lightLLM || {}) },
   rerank: { ...defaultMemoryPalaceConfig.rerank, ...(value?.rerank || {}) },

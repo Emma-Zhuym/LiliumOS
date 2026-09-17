@@ -701,6 +701,7 @@ export interface CharacterAccommodationPolicy {
 }
 
 export interface MemoryPalaceBackupConfig {
+  relativeTimeAnnotations?: boolean;
     featureFlags?: MemoryPalaceFeatureFlags;
   embedding: {
     baseUrl: string;
