@@ -575,3 +575,25 @@ export const createDemoSmartHomeDevices = (): SmartHomeDevice[] => [
         state: 'scening', available: true,
     },
 ];
+
+const SMART_HOME_DEMO_STATES_KEY = 'liliumos.smart_home.demo_states';
+export const SMART_HOME_DEMO_CHANGED_EVENT = 'liliumos:smart-home-demo-changed';
+
+export const loadDemoSmartHomeDevices = (): SmartHomeDevice[] => {
+    const devices = createDemoSmartHomeDevices();
+    try {
+        const saved = JSON.parse(localStorage.getItem(SMART_HOME_DEMO_STATES_KEY) || '{}') as Record<string, string>;
+        return devices.map(device => saved[device.entityId] === 'on' || saved[device.entityId] === 'off'
+            ? { ...device, state: saved[device.entityId] } : device);
+    } catch {
+        return devices;
+    }
+};
+
+export const saveDemoSmartHomeDevices = (devices: SmartHomeDevice[], source: 'widget' | 'app' = 'widget'): void => {
+    const states = Object.fromEntries(devices
+        .filter(device => device.kind === 'light' || device.kind === 'fan')
+        .map(device => [device.entityId, device.state]));
+    localStorage.setItem(SMART_HOME_DEMO_STATES_KEY, JSON.stringify(states));
+    window.dispatchEvent(new CustomEvent(SMART_HOME_DEMO_CHANGED_EVENT, { detail: { source } }));
+};

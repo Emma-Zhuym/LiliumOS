@@ -23,7 +23,9 @@ import {
 import { useOS } from '../context/OSContext';
 import { F, HUE, MOTION, R, S, SP, STATUS } from '../utils/clayTokens';
 import {
-  createDemoSmartHomeDevices,
+  loadDemoSmartHomeDevices,
+  saveDemoSmartHomeDevices,
+  SMART_HOME_DEMO_CHANGED_EVENT,
   enableHomeAssistantMcp,
   fetchSmartHomeDevices,
   loadSmartHomeConfig,
@@ -871,7 +873,7 @@ const SmartHomeApp: React.FC = () => {
   const [tab, setTab] = useState<MainTab>('devices');
   const [config, setConfig] = useState<SmartHomeConfig>(() => loadSmartHomeConfig());
   const [draft, setDraft] = useState<SmartHomeConfig>(() => loadSmartHomeConfig());
-  const [devices, setDevices] = useState<SmartHomeDevice[]>(() => createDemoSmartHomeDevices());
+  const [devices, setDevices] = useState<SmartHomeDevice[]>(() => loadDemoSmartHomeDevices());
   const [selected, setSelected] = useState<SmartHomeDevice | null>(null);
   const [addTarget, setAddTarget] = useState<MainTab | null>(null);
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
@@ -880,7 +882,7 @@ const SmartHomeApp: React.FC = () => {
 
   const refresh = useCallback(async (nextConfig = config) => {
     if (nextConfig.demoMode || !nextConfig.baseUrl.trim()) {
-      setDevices(current => current.length ? current : createDemoSmartHomeDevices());
+      setDevices(loadDemoSmartHomeDevices());
       setLoading(false);
       return true;
     }
@@ -902,6 +904,16 @@ const SmartHomeApp: React.FC = () => {
     void refresh(config);
   }, [config, refresh]);
 
+  useEffect(() => {
+    const syncDemo = (event: Event) => {
+      if (config.demoMode && (event as CustomEvent<{ source?: string }>).detail?.source !== 'app') {
+        setDevices(loadDemoSmartHomeDevices());
+      }
+    };
+    window.addEventListener(SMART_HOME_DEMO_CHANGED_EVENT, syncDemo);
+    return () => window.removeEventListener(SMART_HOME_DEMO_CHANGED_EVENT, syncDemo);
+  }, [config.demoMode]);
+
   const lights = useMemo(() => devices.filter(device => device.kind === 'light'), [devices]);
   const fans = useMemo(() => devices.filter(device => device.kind === 'fan'), [devices]);
   const monitors = useMemo(() => devices.filter(device => device.kind === 'monitor'), [devices]);
@@ -916,7 +928,7 @@ const SmartHomeApp: React.FC = () => {
   const unavailableCount = devices.filter(device => device.kind !== 'scene' && !device.available).length;
 
   const updateDemoDevice = (command: SmartHomeCommand) => {
-    setDevices(current => current.map(device => {
+    const next = devices.map(device => {
       if (command.entityId === device.displayEntityId) {
         return { ...device, displayOn: command.action === 'turn_on' };
       }
@@ -934,7 +946,9 @@ const SmartHomeApp: React.FC = () => {
       if (command.action === 'set_percentage') return { ...device, state: 'on', percentage: Number(command.value), presetMode: 'manual' };
       if (command.action === 'set_preset') return { ...device, state: 'on', presetMode: String(command.value) };
       return device;
-    }));
+    });
+    setDevices(next);
+    if (command.action === 'turn_on' || command.action === 'turn_off') saveDemoSmartHomeDevices(next, 'app');
   };
 
   const runCommand = async (command: SmartHomeCommand) => {
