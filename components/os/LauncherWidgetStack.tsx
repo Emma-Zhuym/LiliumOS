@@ -182,28 +182,32 @@ function HomeCard({ onOpen }: { onOpen: () => void }) {
     }
   };
   return (
-    <div style={{ ...cardStyle, paddingRight: SP[8] }} className="p-3 flex flex-col" onClick={onOpen} role="button" tabIndex={0} onKeyDown={e => { if (e.key === 'Enter') onOpen(); }}>
+    <div style={{ ...cardStyle, paddingRight: SP[8] }} className="p-3 flex flex-col" onClick={onOpen} role="button" tabIndex={0} onKeyDown={e => { if (e.target === e.currentTarget && e.key === 'Enter') onOpen(); }}>
       <div className="flex items-center justify-between text-[13px] font-semibold">
         <span className="flex items-center gap-2"><HouseLine size={18} style={{ color: HUE.cyan.ink }} />共栖舱</span>
         <span className="text-[10px] font-normal" style={{ color: failed ? HUE.rose.ink : F.textTertiary }}>{failed ? '控制或连接失败' : demo ? '演示模式' : '设备开关'}</span>
       </div>
-      <div className="flex-1 min-h-0 mt-2 grid grid-cols-2 grid-rows-2 gap-2">
+      <div className="flex-1 min-h-0 mt-2 grid grid-cols-2 grid-rows-2 gap-x-2 gap-y-1">
         {controls.map(device => {
           const on = device.state === 'on';
           const Icon = device.kind === 'light' ? Lightbulb : Wind;
-          return <button key={device.entityId} type="button" role="switch" aria-checked={on}
-            aria-label={`${device.name}，${device.available ? on ? '开' : '关' : '不可用'}`}
-            disabled={!device.available || !!busyId} onClick={event => { event.stopPropagation(); void toggle(device); }}
-            className="min-w-0 flex items-center gap-2 px-2 text-left disabled:opacity-50"
-            style={{ background: on ? HUE.cyan.tint : F.surfaceSunken, borderRadius: R.medium, boxShadow: S.sunken }}>
-            <Icon size={17} style={{ color: on ? HUE.cyan.ink : F.textSecondary, flexShrink: 0 }} />
-            <span className="min-w-0 flex-1 truncate text-[11px] font-medium">{device.name}</span>
-            <span className="text-[10px] font-semibold shrink-0" style={{ color: on ? HUE.cyan.ink : F.textTertiary }}>{busyId === device.entityId ? '…' : !device.available ? '—' : on ? '开' : '关'}</span>
-          </button>;
+          return <div key={device.entityId} className="min-w-0 flex flex-col items-center justify-center gap-2">
+            <span className="min-w-0 w-full flex items-center justify-center gap-1 text-[11px] font-medium" style={{ color: F.textPrimary }}>
+              <Icon size={16} style={{ color: on ? HUE.cyan.ink : F.textSecondary, flexShrink: 0 }} />
+              <span className="truncate">{device.name}</span>
+            </span>
+            <button type="button" role="switch" aria-checked={on}
+              aria-label={`${device.name}，${device.available ? on ? '开' : '关' : '不可用'}`}
+              disabled={!device.available || !!busyId} onClick={event => { event.stopPropagation(); void toggle(device); }}
+              className="relative w-12 h-7 shrink-0 disabled:opacity-50"
+              style={{ background: on ? HUE.cyan.main : F.surfaceSunken, borderRadius: R.pill, boxShadow: S.sunken, transition: `background ${MOTION.hover} ${MOTION.ease}` }}>
+              <span className="absolute top-1 left-1 w-5 h-5" style={{ background: F.surfaceRaised, borderRadius: R.pill, boxShadow: S.raisedSoft, transform: on ? 'translateX(20px)' : 'none', transition: `transform ${MOTION.hover} ${MOTION.ease}` }} />
+            </button>
+          </div>;
         })}
         {controls.length < 4 && <button type="button" onClick={event => { event.stopPropagation(); onOpen(); }}
-          className="min-w-0 flex items-center justify-center gap-1 text-[11px]" style={{ background: F.surfaceSunken, borderRadius: R.medium, boxShadow: S.sunken }}>
-          <ArrowSquareOut size={15} />更多设备
+          className="min-w-0 flex flex-col items-center justify-center gap-2 text-[11px]" style={{ color: F.textSecondary }}>
+          <ArrowSquareOut size={16} />更多设备
         </button>}
       </div>
     </div>
