@@ -7,9 +7,12 @@ import TokenImg from '../components/os/TokenImg';
 import { useBlobRefUrl } from '../utils/blobRef';
 import { DB } from '../utils/db';
 import { isChatPreviewMessage } from '../utils/chatMessageVisibility';
-import { CharacterProfile, Anniversary, AppID, DailySchedule } from '../types';
-import { ScheduleHomeWidget, ScheduleFullscreenViewer } from '../components/schedule/ScheduleHomeWidget';
+import { CharacterProfile, Anniversary, AppID, DailySchedule, LauncherFolder, AppConfig } from '../types';
+import { ScheduleFullscreenViewer } from '../components/schedule/ScheduleHomeWidget';
 import NowPlayingSquareWidget from '../components/os/NowPlayingSquareWidget';
+import LauncherWidgetStack from '../components/os/LauncherWidgetStack'; // [EM: launcher-widget-stack]
+import { LauncherFolderIcon, LauncherFolderPanel, LauncherFolderEditor } from '../components/os/LauncherFolder'; // [EM: launcher-folders]
+import { normalizeLauncherFolders, rootLauncherIds } from '../utils/launcherFolders'; // [EM: launcher-folders]
 import MobileGameHome from '../components/os/MobileGameHome';
 import TamagotchiHome from '../components/os/TamagotchiHome';
 import { getDailyScheduleForChar } from '../utils/dailySchedule';
@@ -251,31 +254,31 @@ const CharacterWidget = React.memo(({
 });
 
 // 3. Grid Page Component
+type LauncherGridItem = { kind: 'app'; app: AppConfig } | { kind: 'folder'; folder: LauncherFolder };
 const AppGridPage = React.memo(({
-    apps,
+    items,
     openApp,
+    openFolder,
     acnh = false,
     editing = false,
 }: {
-    apps: typeof INSTALLED_APPS,
+    items: LauncherGridItem[],
     openApp: (id: AppID) => void,
+    openFolder: (id: string) => void,
     acnh?: boolean,
     editing?: boolean,
 }) => {
     return (
         <div className={`grid place-items-center animate-fade-in relative ${acnh ? 'grid-cols-4 gap-y-6 gap-x-2' : 'grid-cols-4 gap-y-6 gap-x-2'}`}>
-             {apps.map(app => (
+             {items.map(item => (
                  <div
-                    key={app.id}
-                    data-launcher-item={app.id}
+                    key={item.kind === 'app' ? item.app.id : item.folder.id}
+                    data-launcher-item={item.kind === 'app' ? item.app.id : item.folder.id}
                     data-launcher-kind="app"
                     className={`relative transition-transform duration-200 active:scale-95 ${editing ? 'launcher-edit-item' : ''}`}
                  >
-                     <AppIcon
-                        app={app}
-                        onClick={() => { if (!editing) openApp(app.id); }}
-                        size="md"
-                     />
+                     {item.kind === 'app' ? <AppIcon app={item.app} onClick={() => { if (!editing) openApp(item.app.id); }} size="md" />
+                       : <LauncherFolderIcon folder={item.folder} onOpen={() => { if (!editing) openFolder(item.folder.id); }} />}
                  </div>
              ))}
         </div>
@@ -283,12 +286,13 @@ const AppGridPage = React.memo(({
 });
 
 // 3b. Small 2x2 app grid for pinwheel cells
-const AppQuadGrid = React.memo(({ apps, openApp, editing = false }: { apps: typeof INSTALLED_APPS, openApp: (id: AppID) => void, editing?: boolean }) => {
+const AppQuadGrid = React.memo(({ items, openApp, openFolder, editing = false }: { items: LauncherGridItem[], openApp: (id: AppID) => void, openFolder: (id: string) => void, editing?: boolean }) => {
     return (
         <div className="w-full h-full grid grid-cols-2 grid-rows-2 place-items-center gap-x-2 gap-y-3">
-            {apps.map(app => (
-                <div key={app.id} data-launcher-item={app.id} data-launcher-kind="app" className={`relative transition-transform duration-200 active:scale-95 ${editing ? 'launcher-edit-item' : ''}`}>
-                    <AppIcon app={app} onClick={() => { if (!editing) openApp(app.id); }} />
+            {items.map(item => (
+                <div key={item.kind === 'app' ? item.app.id : item.folder.id} data-launcher-item={item.kind === 'app' ? item.app.id : item.folder.id} data-launcher-kind="app" className={`relative transition-transform duration-200 active:scale-95 ${editing ? 'launcher-edit-item' : ''}`}>
+                    {item.kind === 'app' ? <AppIcon app={item.app} onClick={() => { if (!editing) openApp(item.app.id); }} />
+                      : <LauncherFolderIcon folder={item.folder} onOpen={() => { if (!editing) openFolder(item.folder.id); }} />}
                 </div>
             ))}
         </div>
@@ -489,6 +493,8 @@ const Launcher: React.FC = () => {
   const [scheduleCharId, setScheduleCharId] = useState<string | null>(null);
   const [scheduleViewerOpen, setScheduleViewerOpen] = useState(false);
   const [layoutEditing, setLayoutEditing] = useState(false);
+  const [openFolderId, setOpenFolderId] = useState<string | null>(null); // [EM: launcher-folders]
+  const [editingFolderId, setEditingFolderId] = useState<string | 'new' | null>(null); // [EM: launcher-folders]
   const layoutPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const layoutPointer = useRef<{
       pointerId: number;
@@ -537,8 +543,9 @@ const Launcher: React.FC = () => {
       return [...(saved || []).filter((id, index, all) => valid.has(id) && all.indexOf(id) === index), ...available.filter(id => !(saved || []).includes(id))];
   }, []);
 
-  const availableGridIds = useMemo(() => availableGridApps.map(app => app.id), [availableGridApps]);
-  const [launcherAppOrder, setLauncherAppOrder] = useState<string[]>(() => normalizeOrder(theme.launcherAppOrder, INSTALLED_APPS.filter(app => !DOCK_APPS.includes(app.id)).map(app => app.id)));
+  const folders = useMemo(() => normalizeLauncherFolders(theme.launcherFolders, availableGridApps.map(app => app.id)), [theme.launcherFolders, availableGridApps]);
+  const availableGridIds = useMemo(() => rootLauncherIds(availableGridApps.map(app => app.id), folders), [availableGridApps, folders]);
+  const [launcherAppOrder, setLauncherAppOrder] = useState<string[]>(() => normalizeOrder(theme.launcherAppOrder, availableGridIds));
   const [launcherDockOrder, setLauncherDockOrder] = useState<string[]>(() => normalizeOrder(theme.launcherDockOrder, DOCK_APPS));
   const [pinwheelOrder, setPinwheelOrder] = useState<Array<'music' | 'appsA' | 'appsB' | 'image'>>(() => {
       const available = ['music', 'appsA', 'appsB', 'image'] as const;
@@ -574,10 +581,16 @@ const Launcher: React.FC = () => {
       setPinwheelOrder(next);
   }, [layoutEditing, theme.launcherPinwheelOrder]);
 
-  const gridApps = useMemo(() => {
+  const gridItems = useMemo(() => {
       const byId = new Map(availableGridApps.map(app => [app.id, app]));
-      return launcherAppOrder.map(id => byId.get(id as AppID)).filter(Boolean) as typeof INSTALLED_APPS;
-  }, [availableGridApps, launcherAppOrder]);
+      const folderById = new Map(folders.map(folder => [folder.id, folder]));
+      return launcherAppOrder.flatMap((id): LauncherGridItem[] => {
+          const folder = folderById.get(id);
+          if (folder) return [{ kind: 'folder', folder }];
+          const app = byId.get(id as AppID);
+          return app && availableGridIds.includes(id) ? [{ kind: 'app', app }] : [];
+      });
+  }, [availableGridApps, availableGridIds, folders, launcherAppOrder]);
 
   const dockAppsConfig = useMemo(() => {
       const byId = new Map(INSTALLED_APPS.map(app => [app.id, app]));
@@ -586,7 +599,7 @@ const Launcher: React.FC = () => {
 
   // Page 1 keeps three icon rows below its widgets, page 2 keeps the 2x2 pinwheel
   // quads, and ordinary pages use the full five-row grid.
-  const appPages = useMemo(() => paginateLauncherApps(gridApps), [gridApps]);
+  const appPages = useMemo(() => paginateLauncherApps(gridItems), [gridItems]);
 
   // Page 2 (pinwheel) uses appPages[1]: split into two 2x2 quads
   const page2Apps = appPages[1] || [];
@@ -911,6 +924,46 @@ const Launcher: React.FC = () => {
       setLayoutEditing(false);
   };
 
+  // [EM-START: launcher-folders] Keep folders in the theme backup alongside icon order.
+  const activeFolder = folders.find(folder => folder.id === openFolderId);
+  const folderBeingEdited = folders.find(folder => folder.id === editingFolderId);
+  const editorApps = availableGridApps.filter(app => !folders.some(folder => folder.id !== editingFolderId && folder.appIds.includes(app.id)));
+  const saveFolder = (name: string, appIds: AppID[]) => {
+      const id = folderBeingEdited?.id || `folder:${crypto.randomUUID()}`;
+      const nextFolders = normalizeLauncherFolders(
+          folderBeingEdited
+              ? folders.map(folder => folder.id === id ? { id, name, appIds } : folder)
+              : [...folders, { id, name, appIds }],
+          availableGridApps.map(app => app.id),
+      );
+      const nextRootIds = rootLauncherIds(availableGridApps.map(app => app.id), nextFolders);
+      const oldOrder = launcherAppOrderRef.current;
+      const firstMemberIndex = Math.min(...appIds.map(appId => oldOrder.indexOf(appId)).filter(index => index >= 0));
+      const candidate = oldOrder.filter(item => !appIds.includes(item as AppID));
+      if (!folderBeingEdited && Number.isFinite(firstMemberIndex)) candidate.splice(Math.min(firstMemberIndex, candidate.length), 0, id);
+      const nextOrder = normalizeOrder(candidate, nextRootIds);
+      launcherAppOrderRef.current = nextOrder;
+      setLauncherAppOrder(nextOrder);
+      void updateTheme({ launcherFolders: nextFolders, launcherAppOrder: nextOrder });
+      setOpenFolderId(id);
+      setEditingFolderId(null);
+      setLayoutEditing(false);
+  };
+  const deleteFolder = () => {
+      if (!folderBeingEdited) return;
+      const nextFolders = folders.filter(folder => folder.id !== folderBeingEdited.id);
+      const nextOrder = normalizeOrder(
+          launcherAppOrderRef.current.filter(id => id !== folderBeingEdited.id),
+          rootLauncherIds(availableGridApps.map(app => app.id), nextFolders),
+      );
+      launcherAppOrderRef.current = nextOrder;
+      setLauncherAppOrder(nextOrder);
+      void updateTheme({ launcherFolders: nextFolders, launcherAppOrder: nextOrder });
+      setOpenFolderId(null);
+      setEditingFolderId(null);
+  };
+  // [EM-END: launcher-folders]
+
   const contentColor = theme.contentColor || '#ffffff';
   const acnh = theme.skin === 'animalcrossing'; // 动森彩蛋：Dock 换奶油木质底
   const paper = theme.skin !== 'animalcrossing' && theme.skin !== 'mobilegame' && theme.skin !== 'tamagotchi' && isPaperWallpaper(theme.wallpaper);
@@ -947,7 +1000,10 @@ const Launcher: React.FC = () => {
       onPointerUp={finishLayoutPointer}
       onPointerCancel={finishLayoutPointer}
       onContextMenu={(e) => {
-          if ((e.target as HTMLElement).closest('[data-launcher-item]')) e.preventDefault();
+          if ((e.target as HTMLElement).closest('[data-launcher-item]')) {
+              e.preventDefault();
+              setLayoutEditing(true);
+          }
       }}
     >
       <style>{`
@@ -979,7 +1035,10 @@ const Launcher: React.FC = () => {
           <div className="absolute top-[calc(var(--safe-top)+0.65rem)] left-4 right-4 z-50 flex items-center justify-between rounded-full px-3 py-2"
               style={{ background: 'rgba(75,65,54,0.88)', color: '#fffdf8', boxShadow: '0 8px 24px rgba(75,65,54,0.20)' }}>
               <span className="text-[10px] font-semibold tracking-wide">按住拖动，松手交换位置</span>
-              <button onClick={finishLayoutEditing} className="ml-3 px-3 py-1 rounded-full text-[10px] font-bold bg-white/15 active:scale-95">完成</button>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setEditingFolderId('new')} className="px-2 py-1 rounded-full text-[10px] font-bold bg-white/15">新建文件夹</button>
+                <button onClick={finishLayoutEditing} className="px-3 py-1 rounded-full text-[10px] font-bold bg-white/15 active:scale-95">完成</button>
+              </div>
           </div>
       )}
       
@@ -1034,22 +1093,20 @@ const Launcher: React.FC = () => {
                             paper={paper}
                         />
                         <div className="flex-1">
-                            <AppGridPage apps={pageApps} openApp={openApp} acnh={acnh} editing={layoutEditing} />
+                            <AppGridPage items={pageApps} openApp={openApp} openFolder={setOpenFolderId} acnh={acnh} editing={layoutEditing} />
                         </div>
                       </>
                   ) : idx === 1 ? (
                       // Page 2: Schedule 4x2 widget on top + Pinwheel (Music / 2x2 icons / 2x2 icons / Image) below
                       <div className="flex-1 min-h-0 w-full flex flex-col gap-5 justify-center">
-                          {scheduleChar && (
-                              <ScheduleHomeWidget
-                                  schedule={scheduleData}
-                                  character={scheduleChar}
-                                  contentColor={contentColor}
-                                  onOpen={() => setScheduleViewerOpen(true)}
-                                  acnh={acnh}
-                                  paper={paper}
-                              />
-                          )}
+                          <LauncherWidgetStack
+                              schedule={scheduleData}
+                              character={scheduleChar}
+                              contentColor={contentColor}
+                              onOpenSchedule={() => setScheduleViewerOpen(true)}
+                              acnh={acnh}
+                              paper={paper}
+                          />
                           <div className="grid grid-cols-2 gap-x-3 gap-y-5 w-full">
                               {pinwheelOrder.map(cell => (
                                   <div
@@ -1061,9 +1118,9 @@ const Launcher: React.FC = () => {
                                       {cell === 'music' ? (
                                           <NowPlayingSquareWidget contentColor={contentColor} />
                                       ) : cell === 'appsA' ? (
-                                          <AppQuadGrid apps={page2QuadA} openApp={openApp} editing={layoutEditing} />
+                                          <AppQuadGrid items={page2QuadA} openApp={openApp} openFolder={setOpenFolderId} editing={layoutEditing} />
                                       ) : cell === 'appsB' ? (
-                                          <AppQuadGrid apps={page2QuadB} openApp={openApp} editing={layoutEditing} />
+                                          <AppQuadGrid items={page2QuadB} openApp={openApp} openFolder={setOpenFolderId} editing={layoutEditing} />
                                       ) : (
                                           <DesktopSquareImage
                                               image={theme.launcherWidgets?.['dsq']}
@@ -1131,8 +1188,9 @@ const Launcher: React.FC = () => {
                           })()}
 
                           <AppGridPage
-                                apps={pageApps}
+                                items={pageApps}
                                 openApp={openApp}
+                                openFolder={setOpenFolderId}
                                 acnh={acnh}
                                 editing={layoutEditing}
                           />
@@ -1204,6 +1262,11 @@ const Launcher: React.FC = () => {
           activeCharacter={scheduleChar}
           contentColor={contentColor}
       />
+
+      {activeFolder && !editingFolderId && <LauncherFolderPanel folder={activeFolder} onClose={() => setOpenFolderId(null)}
+        onOpenApp={id => { setOpenFolderId(null); openApp(id); }} onEdit={() => setEditingFolderId(activeFolder.id)} />}
+      {editingFolderId && <LauncherFolderEditor key={editingFolderId} folder={folderBeingEdited} availableApps={editorApps}
+        onClose={() => setEditingFolderId(null)} onSave={saveFolder} onDelete={folderBeingEdited ? deleteFolder : undefined} />}
 
     </div>
   );
