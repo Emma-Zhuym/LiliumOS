@@ -190,8 +190,8 @@ function HomeCard({ onOpen }: { onOpen: () => void }) {
         {controls.map(device => {
           const on = device.state === 'on';
           const Icon = device.kind === 'light' ? Lightbulb : Wind;
-          return <div key={device.entityId} className="min-w-0 flex flex-col items-center justify-center gap-2">
-            <span className="min-w-0 w-full flex items-center justify-center gap-1 text-[11px] font-medium" style={{ color: F.textPrimary }}>
+          return <div key={device.entityId} className="min-w-0 flex items-center justify-center gap-3">
+            <span className="min-w-0 flex items-center gap-1 text-[11px] font-medium" style={{ color: F.textPrimary }}>
               <Icon size={16} style={{ color: on ? HUE.cyan.ink : F.textSecondary, flexShrink: 0 }} />
               <span className="truncate">{device.name}</span>
             </span>
@@ -205,7 +205,7 @@ function HomeCard({ onOpen }: { onOpen: () => void }) {
           </div>;
         })}
         {controls.length < 4 && <button type="button" onClick={event => { event.stopPropagation(); onOpen(); }}
-          className="min-w-0 flex flex-col items-center justify-center gap-2 text-[11px]" style={{ color: F.textSecondary }}>
+          className="min-w-0 flex items-center justify-center gap-1 text-[11px]" style={{ color: F.textSecondary }}>
           <ArrowSquareOut size={16} />更多设备
         </button>}
       </div>
