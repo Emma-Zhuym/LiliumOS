@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ChartBar, Heartbeat, HouseLine, CaretUp, CaretDown, Lightbulb, Wind, ArrowSquareOut } from '@phosphor-icons/react';
-import { AppID, type CharacterProfile, type DailySchedule } from '../../types';
+import { AppID } from '../../types';
 import { useOS } from '../../context/OSContext';
 import { FinanceDB } from '../../utils/financeDb';
 import { FINANCE_REVIEW_CHANGED_EVENT } from '../../utils/financeReview';
@@ -9,11 +9,10 @@ import { getAllHealthEvents, type PeriodHealthEvent } from '../../utils/healthDb
 import { calcCycleStatus } from '../../utils/cycleCalc';
 import { SMART_HOME_DEMO_CHANGED_EVENT, fetchSmartHomeDevices, loadDemoSmartHomeDevices, loadSmartHomeConfig, saveDemoSmartHomeDevices, sendSmartHomeCommand, type SmartHomeDevice } from '../../utils/smartHome';
 import { F, S, R, HUE, MOTION, SP } from '../../utils/clayTokens';
-import { ScheduleHomeWidget } from '../schedule/ScheduleHomeWidget';
 
-type CardId = 'schedule' | 'finance' | 'health' | 'home';
-const CARD_IDS: CardId[] = ['schedule', 'finance', 'health', 'home'];
-const CARD_LABELS: Record<CardId, string> = { schedule: '日程', finance: '存钱罐', health: '健康', home: '共栖舱' };
+type CardId = 'finance' | 'health' | 'home';
+const CARD_IDS: CardId[] = ['finance', 'health', 'home'];
+const CARD_LABELS: Record<CardId, string> = { finance: '存钱罐', health: '健康', home: '共栖舱' };
 
 const cardStyle: React.CSSProperties = {
   height: '100%', background: F.surface, border: `1px solid ${F.borderSoft}`,
@@ -214,20 +213,16 @@ function HomeCard({ onOpen }: { onOpen: () => void }) {
   );
 }
 
-export default function LauncherWidgetStack({ schedule, character, contentColor, acnh, paper, onOpenSchedule }: {
-  schedule: DailySchedule | null; character: CharacterProfile | null; contentColor: string;
-  acnh: boolean; paper: boolean; onOpenSchedule: () => void;
-}) {
+export default function LauncherWidgetStack() {
   const { openApp } = useOS();
-  const ids = character ? CARD_IDS : CARD_IDS.filter(id => id !== 'schedule');
   const [index, setIndex] = useState(0);
   const pointerStart = React.useRef<{ id: number; x: number; y: number } | null>(null);
   const suppressClickUntil = React.useRef(0);
-  const activeIndex = Math.min(index, ids.length - 1);
-  const move = (delta: number) => setIndex(current => (current + delta + ids.length) % ids.length);
-  const selected = ids[activeIndex];
+  const activeIndex = Math.min(index, CARD_IDS.length - 1);
+  const move = (delta: number) => setIndex(current => (current + delta + CARD_IDS.length) % CARD_IDS.length);
+  const selected = CARD_IDS[activeIndex];
   return (
-    <div className="relative w-full shrink-0" style={{ height: SP[8] * 3 }}
+    <div className="relative w-full h-full"
       onClickCapture={event => { if (Date.now() < suppressClickUntil.current) { event.preventDefault(); event.stopPropagation(); } }}
       onPointerDown={event => { pointerStart.current = { id: event.pointerId, x: event.clientX, y: event.clientY }; }}
       onPointerCancel={() => { pointerStart.current = null; }}
@@ -243,14 +238,13 @@ export default function LauncherWidgetStack({ schedule, character, contentColor,
         }
       }}>
       <div className="h-full" style={{ transition: `opacity ${MOTION.card} ${MOTION.ease}` }}>
-        {selected === 'schedule' && character && <ScheduleHomeWidget schedule={schedule} character={character} contentColor={contentColor} onOpen={onOpenSchedule} acnh={acnh} paper={paper} />}
         {selected === 'finance' && <FinanceCard onOpen={() => openApp(AppID.Bank)} />}
         {selected === 'health' && <HealthCard onOpen={() => openApp(AppID.Health)} />}
         {selected === 'home' && <HomeCard onOpen={() => openApp(AppID.SmartHome)} />}
       </div>
       <div className="absolute right-1 top-1/2 -translate-y-1/2 flex flex-col items-center gap-1 p-1" style={{ background: F.surface, borderRadius: R.pill, boxShadow: S.raisedSoft }} onClick={event => event.stopPropagation()}>
         <button type="button" aria-label="上一张小组件" className="w-11 h-11 flex items-center justify-center" onClick={() => move(-1)}><CaretUp size={18} weight="bold" /></button>
-        {ids.map((id, cardIndex) => <span key={id} title={CARD_LABELS[id]} className="w-1.5 h-1.5 rounded-full" style={{ background: cardIndex === activeIndex ? HUE.gray.ink : F.borderStrong }} />)}
+        {CARD_IDS.map((id, cardIndex) => <span key={id} title={CARD_LABELS[id]} className="w-1.5 h-1.5 rounded-full" style={{ background: cardIndex === activeIndex ? HUE.gray.ink : F.borderStrong }} />)}
         <button type="button" aria-label="下一张小组件" className="w-11 h-11 flex items-center justify-center" onClick={() => move(1)}><CaretDown size={18} weight="bold" /></button>
       </div>
     </div>

@@ -19,3 +19,33 @@ export function paginateLauncherApps<T>(apps: T[]): T[][] {
     while (pages.length < 3) pages.push([]);
     return pages;
 }
+
+/** Pack a single wide utility widget into the launcher grid without placing it on the reserved schedule page. */
+export function paginateLauncherLayout<T>(items: T[], isWideWidget: (item: T) => boolean): T[][] {
+    const capacities = [FIRST_LAUNCHER_PAGE_APPS, PINWHEEL_PAGE_APPS];
+    const pages: T[][] = [[], []];
+    let pageIndex = 0;
+    let used = 0;
+
+    for (const item of items) {
+        const wide = isWideWidget(item);
+        const weight = wide ? 8 : 1;
+        if (wide && pageIndex === 1) {
+            pageIndex = 2;
+            used = 0;
+        }
+        let capacity = capacities[pageIndex] || STANDARD_LAUNCHER_PAGE_APPS;
+        if (used + weight > capacity) {
+            pageIndex += 1;
+            used = 0;
+            if (wide && pageIndex === 1) pageIndex = 2;
+            capacity = capacities[pageIndex] || STANDARD_LAUNCHER_PAGE_APPS;
+        }
+        while (pages.length <= pageIndex) pages.push([]);
+        pages[pageIndex].push(item);
+        used += weight;
+    }
+
+    while (pages.length < 3) pages.push([]);
+    return pages;
+}

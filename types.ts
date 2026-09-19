@@ -128,6 +128,8 @@ export interface OSTheme {
   /** 默认桌面长按编辑后的 App / Dock / 第二页风车组件顺序。 */
   launcherAppOrder?: string[];
   launcherFolders?: LauncherFolder[]; // [EM: launcher-folders]
+  /** 三页工具小组件是否已添加到桌面；undefined 兼容首版并视为已添加。 */
+  launcherUtilityWidgetEnabled?: boolean;
   launcherDockOrder?: string[];
   launcherPinwheelOrder?: Array<'music' | 'appsA' | 'appsB' | 'image'>;
   /** 自定义透明图标是否保留原始轮廓并移除系统圆角底框。默认 false。 */

@@ -5,6 +5,7 @@ import {
     PINWHEEL_PAGE_APPS,
     STANDARD_LAUNCHER_PAGE_APPS,
     paginateLauncherApps,
+    paginateLauncherLayout,
 } from './launcherPagination';
 
 describe('launcher pagination', () => {
@@ -21,6 +22,22 @@ describe('launcher pagination', () => {
 
     it('keeps the fixed launcher pages when there are few apps', () => {
         expect(paginateLauncherApps([1, 2, 3])).toEqual([[1, 2, 3], [], []]);
+    });
+});
+
+describe('launcher mixed layout', () => {
+    it('packs a wide widget as eight cells and keeps it away from the reserved schedule page', () => {
+        const items = [...Array.from({ length: 12 }, (_, index) => `app-${index}`), 'widget', 'app-12'];
+        const pages = paginateLauncherLayout(items, item => item === 'widget');
+        expect(pages[0]).toHaveLength(12);
+        expect(pages[1]).toEqual([]);
+        expect(pages[2]).toEqual(['widget', 'app-12']);
+    });
+
+    it('allows the wide widget on the first page when the user moves it there', () => {
+        const pages = paginateLauncherLayout(['widget', 'a', 'b', 'c', 'd', 'e'], item => item === 'widget');
+        expect(pages[0]).toEqual(['widget', 'a', 'b', 'c', 'd']);
+        expect(pages[1]).toEqual(['e']);
     });
 });
 

@@ -1,4 +1,5 @@
 import React, { useMemo, useEffect, useLayoutEffect, useState, useRef, useCallback } from 'react';
+import { X } from '@phosphor-icons/react';
 import { isPaperWallpaper, useOS } from '../context/OSContext';
 import { INSTALLED_APPS, DOCK_APPS } from '../constants';
 import { isDevDebugAvailable, subscribeDevDebugAvailability } from '../utils/devDebug';
@@ -8,7 +9,7 @@ import { useBlobRefUrl } from '../utils/blobRef';
 import { DB } from '../utils/db';
 import { isChatPreviewMessage } from '../utils/chatMessageVisibility';
 import { CharacterProfile, Anniversary, AppID, DailySchedule, LauncherFolder, AppConfig } from '../types';
-import { ScheduleFullscreenViewer } from '../components/schedule/ScheduleHomeWidget';
+import { ScheduleHomeWidget, ScheduleFullscreenViewer } from '../components/schedule/ScheduleHomeWidget';
 import NowPlayingSquareWidget from '../components/os/NowPlayingSquareWidget';
 import LauncherWidgetStack from '../components/os/LauncherWidgetStack'; // [EM: launcher-widget-stack]
 import { LauncherFolderIcon, LauncherFolderPanel, LauncherFolderEditor } from '../components/os/LauncherFolder'; // [EM: launcher-folders]
@@ -18,8 +19,9 @@ import TamagotchiHome from '../components/os/TamagotchiHome';
 import { getDailyScheduleForChar } from '../utils/dailySchedule';
 import { useLocalDateKey } from '../hooks/useLocalDateKey';
 import { resolveCharTimeZone } from '../utils/timezone';
-import { paginateLauncherApps } from '../utils/launcherPagination';
+import { paginateLauncherLayout } from '../utils/launcherPagination';
 import { useContactRemark } from '../utils/contactRemarks'; // [EM: desktop-contact-remark]
+import { F, R, S } from '../utils/clayTokens';
 
 const CompanionHome = React.lazy(() => import('../components/os/CompanionHome'));
 
@@ -254,31 +256,39 @@ const CharacterWidget = React.memo(({
 });
 
 // 3. Grid Page Component
-type LauncherGridItem = { kind: 'app'; app: AppConfig } | { kind: 'folder'; folder: LauncherFolder };
+const UTILITY_WIDGET_ID = 'widget:utilities';
+type LauncherGridItem = { kind: 'app'; app: AppConfig } | { kind: 'folder'; folder: LauncherFolder } | { kind: 'widget' };
 const AppGridPage = React.memo(({
     items,
     openApp,
     openFolder,
+    onRemoveWidget,
     acnh = false,
     editing = false,
 }: {
     items: LauncherGridItem[],
     openApp: (id: AppID) => void,
     openFolder: (id: string) => void,
+    onRemoveWidget: () => void,
     acnh?: boolean,
     editing?: boolean,
 }) => {
     return (
-        <div className={`grid place-items-center animate-fade-in relative ${acnh ? 'grid-cols-4 gap-y-6 gap-x-2' : 'grid-cols-4 gap-y-6 gap-x-2'}`}>
+        <div className={`grid grid-cols-4 auto-rows-[4.5rem] place-items-center gap-y-6 gap-x-2 animate-fade-in relative`}>
              {items.map(item => (
                  <div
-                    key={item.kind === 'app' ? item.app.id : item.folder.id}
-                    data-launcher-item={item.kind === 'app' ? item.app.id : item.folder.id}
+                    key={item.kind === 'app' ? item.app.id : item.kind === 'folder' ? item.folder.id : UTILITY_WIDGET_ID}
+                    data-launcher-item={item.kind === 'app' ? item.app.id : item.kind === 'folder' ? item.folder.id : UTILITY_WIDGET_ID}
                     data-launcher-kind="app"
-                    className={`relative transition-transform duration-200 active:scale-95 ${editing ? 'launcher-edit-item' : ''}`}
+                    className={`relative transition-transform duration-200 active:scale-95 ${item.kind === 'widget' ? 'col-span-4 row-span-2 w-full h-full' : ''} ${editing ? 'launcher-edit-item' : ''}`}
                  >
                      {item.kind === 'app' ? <AppIcon app={item.app} onClick={() => { if (!editing) openApp(item.app.id); }} size="md" />
-                       : <LauncherFolderIcon folder={item.folder} onOpen={() => { if (!editing) openFolder(item.folder.id); }} />}
+                       : item.kind === 'folder' ? <LauncherFolderIcon folder={item.folder} onOpen={() => { if (!editing) openFolder(item.folder.id); }} />
+                       : <LauncherWidgetStack />}
+                     {item.kind === 'widget' && editing && <button type="button" aria-label="移除小组件"
+                       onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); onRemoveWidget(); }}
+                       className="absolute -top-2 -left-2 z-20 w-8 h-8 flex items-center justify-center"
+                       style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.pill, boxShadow: S.raisedSoft }}><X size={16} weight="bold" /></button>}
                  </div>
              ))}
         </div>
@@ -289,7 +299,7 @@ const AppGridPage = React.memo(({
 const AppQuadGrid = React.memo(({ items, openApp, openFolder, editing = false }: { items: LauncherGridItem[], openApp: (id: AppID) => void, openFolder: (id: string) => void, editing?: boolean }) => {
     return (
         <div className="w-full h-full grid grid-cols-2 grid-rows-2 place-items-center gap-x-2 gap-y-3">
-            {items.map(item => (
+            {items.filter(item => item.kind !== 'widget').map(item => (
                 <div key={item.kind === 'app' ? item.app.id : item.folder.id} data-launcher-item={item.kind === 'app' ? item.app.id : item.folder.id} data-launcher-kind="app" className={`relative transition-transform duration-200 active:scale-95 ${editing ? 'launcher-edit-item' : ''}`}>
                     {item.kind === 'app' ? <AppIcon app={item.app} onClick={() => { if (!editing) openApp(item.app.id); }} />
                       : <LauncherFolderIcon folder={item.folder} onOpen={() => { if (!editing) openFolder(item.folder.id); }} />}
@@ -544,7 +554,11 @@ const Launcher: React.FC = () => {
   }, []);
 
   const folders = useMemo(() => normalizeLauncherFolders(theme.launcherFolders, availableGridApps.map(app => app.id)), [theme.launcherFolders, availableGridApps]);
-  const availableGridIds = useMemo(() => rootLauncherIds(availableGridApps.map(app => app.id), folders), [availableGridApps, folders]);
+  const utilityWidgetEnabled = theme.launcherUtilityWidgetEnabled !== false;
+  const availableGridIds = useMemo(() => [
+      ...rootLauncherIds(availableGridApps.map(app => app.id), folders),
+      ...(utilityWidgetEnabled ? [UTILITY_WIDGET_ID] : []),
+  ], [availableGridApps, folders, utilityWidgetEnabled]);
   const [launcherAppOrder, setLauncherAppOrder] = useState<string[]>(() => normalizeOrder(theme.launcherAppOrder, availableGridIds));
   const [launcherDockOrder, setLauncherDockOrder] = useState<string[]>(() => normalizeOrder(theme.launcherDockOrder, DOCK_APPS));
   const [pinwheelOrder, setPinwheelOrder] = useState<Array<'music' | 'appsA' | 'appsB' | 'image'>>(() => {
@@ -585,12 +599,13 @@ const Launcher: React.FC = () => {
       const byId = new Map(availableGridApps.map(app => [app.id, app]));
       const folderById = new Map(folders.map(folder => [folder.id, folder]));
       return launcherAppOrder.flatMap((id): LauncherGridItem[] => {
+          if (id === UTILITY_WIDGET_ID && utilityWidgetEnabled) return [{ kind: 'widget' }];
           const folder = folderById.get(id);
           if (folder) return [{ kind: 'folder', folder }];
           const app = byId.get(id as AppID);
           return app && availableGridIds.includes(id) ? [{ kind: 'app', app }] : [];
       });
-  }, [availableGridApps, availableGridIds, folders, launcherAppOrder]);
+  }, [availableGridApps, availableGridIds, folders, launcherAppOrder, utilityWidgetEnabled]);
 
   const dockAppsConfig = useMemo(() => {
       const byId = new Map(INSTALLED_APPS.map(app => [app.id, app]));
@@ -599,7 +614,7 @@ const Launcher: React.FC = () => {
 
   // Page 1 keeps three icon rows below its widgets, page 2 keeps the 2x2 pinwheel
   // quads, and ordinary pages use the full five-row grid.
-  const appPages = useMemo(() => paginateLauncherApps(gridItems), [gridItems]);
+  const appPages = useMemo(() => paginateLauncherLayout(gridItems, item => item.kind === 'widget'), [gridItems]);
 
   // Page 2 (pinwheel) uses appPages[1]: split into two 2x2 quads
   const page2Apps = appPages[1] || [];
@@ -936,7 +951,7 @@ const Launcher: React.FC = () => {
               : [...folders, { id, name, appIds }],
           availableGridApps.map(app => app.id),
       );
-      const nextRootIds = rootLauncherIds(availableGridApps.map(app => app.id), nextFolders);
+      const nextRootIds = [...rootLauncherIds(availableGridApps.map(app => app.id), nextFolders), ...(utilityWidgetEnabled ? [UTILITY_WIDGET_ID] : [])];
       const oldOrder = launcherAppOrderRef.current;
       const firstMemberIndex = Math.min(...appIds.map(appId => oldOrder.indexOf(appId)).filter(index => index >= 0));
       const candidate = oldOrder.filter(item => !appIds.includes(item as AppID));
@@ -954,7 +969,7 @@ const Launcher: React.FC = () => {
       const nextFolders = folders.filter(folder => folder.id !== folderBeingEdited.id);
       const nextOrder = normalizeOrder(
           launcherAppOrderRef.current.filter(id => id !== folderBeingEdited.id),
-          rootLauncherIds(availableGridApps.map(app => app.id), nextFolders),
+          [...rootLauncherIds(availableGridApps.map(app => app.id), nextFolders), ...(utilityWidgetEnabled ? [UTILITY_WIDGET_ID] : [])],
       );
       launcherAppOrderRef.current = nextOrder;
       setLauncherAppOrder(nextOrder);
@@ -963,6 +978,21 @@ const Launcher: React.FC = () => {
       setEditingFolderId(null);
   };
   // [EM-END: launcher-folders]
+
+  // [EM-START: launcher-utility-widget] One movable widget with three manually switched views.
+  const addUtilityWidget = () => {
+      const next = [...launcherAppOrderRef.current.filter(id => id !== UTILITY_WIDGET_ID), UTILITY_WIDGET_ID];
+      launcherAppOrderRef.current = next;
+      setLauncherAppOrder(next);
+      void updateTheme({ launcherUtilityWidgetEnabled: true, launcherAppOrder: next });
+  };
+  const removeUtilityWidget = () => {
+      const next = launcherAppOrderRef.current.filter(id => id !== UTILITY_WIDGET_ID);
+      launcherAppOrderRef.current = next;
+      setLauncherAppOrder(next);
+      void updateTheme({ launcherUtilityWidgetEnabled: false, launcherAppOrder: next });
+  };
+  // [EM-END: launcher-utility-widget]
 
   const contentColor = theme.contentColor || '#ffffff';
   const acnh = theme.skin === 'animalcrossing'; // 动森彩蛋：Dock 换奶油木质底
@@ -1036,6 +1066,7 @@ const Launcher: React.FC = () => {
               style={{ background: 'rgba(75,65,54,0.88)', color: '#fffdf8', boxShadow: '0 8px 24px rgba(75,65,54,0.20)' }}>
               <span className="text-[10px] font-semibold tracking-wide">按住拖动，松手交换位置</span>
               <div className="flex items-center gap-2">
+                {!utilityWidgetEnabled && <button onClick={addUtilityWidget} className="px-2 py-1 rounded-full text-[10px] font-bold bg-white/15">添加小组件</button>}
                 <button onClick={() => setEditingFolderId('new')} className="px-2 py-1 rounded-full text-[10px] font-bold bg-white/15">新建文件夹</button>
                 <button onClick={finishLayoutEditing} className="px-3 py-1 rounded-full text-[10px] font-bold bg-white/15 active:scale-95">完成</button>
               </div>
@@ -1093,20 +1124,14 @@ const Launcher: React.FC = () => {
                             paper={paper}
                         />
                         <div className="flex-1">
-                            <AppGridPage items={pageApps} openApp={openApp} openFolder={setOpenFolderId} acnh={acnh} editing={layoutEditing} />
+                            <AppGridPage items={pageApps} openApp={openApp} openFolder={setOpenFolderId} onRemoveWidget={removeUtilityWidget} acnh={acnh} editing={layoutEditing} />
                         </div>
                       </>
                   ) : idx === 1 ? (
                       // Page 2: Schedule 4x2 widget on top + Pinwheel (Music / 2x2 icons / 2x2 icons / Image) below
                       <div className="flex-1 min-h-0 w-full flex flex-col gap-5 justify-center">
-                          <LauncherWidgetStack
-                              schedule={scheduleData}
-                              character={scheduleChar}
-                              contentColor={contentColor}
-                              onOpenSchedule={() => setScheduleViewerOpen(true)}
-                              acnh={acnh}
-                              paper={paper}
-                          />
+                          {scheduleChar && <ScheduleHomeWidget schedule={scheduleData} character={scheduleChar} contentColor={contentColor}
+                              onOpen={() => setScheduleViewerOpen(true)} acnh={acnh} paper={paper} />}
                           <div className="grid grid-cols-2 gap-x-3 gap-y-5 w-full">
                               {pinwheelOrder.map(cell => (
                                   <div
@@ -1191,6 +1216,7 @@ const Launcher: React.FC = () => {
                                 items={pageApps}
                                 openApp={openApp}
                                 openFolder={setOpenFolderId}
+                                onRemoveWidget={removeUtilityWidget}
                                 acnh={acnh}
                                 editing={layoutEditing}
                           />
