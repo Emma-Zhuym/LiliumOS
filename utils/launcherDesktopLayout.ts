@@ -45,6 +45,7 @@ function fits(layout: DesktopLayout, id: string, position: DesktopPosition): boo
 
 function firstFree(layout: DesktopLayout, id: string, startPage = 0): DesktopPosition {
   for (let page = startPage; page < 100; page++) {
+    if (page === 1) continue; // The clock home is a fixed composition, never a free drop page.
     for (let row = 0; row < DESKTOP_ROWS; row++) {
       for (let col = 0; col < DESKTOP_COLUMNS; col++) {
         const position = { page, row, col };
