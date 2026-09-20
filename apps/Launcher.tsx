@@ -1133,23 +1133,19 @@ const Launcher: React.FC = () => {
                 style={{ contentVisibility: 'auto', contain: 'layout paint', transform: 'translateZ(0)', containerType: idx === 0 || idx >= 1 ? 'inline-size' : undefined }}
               >
                   {idx === 0 ? <div className="w-full flex-none my-auto" style={{ height: FREE_PAGE_HEIGHT }}><WidgetsPage contentColor={contentColor} openApp={openApp} anniversaries={anniversaries} characters={characters}
-                    acnh={acnh} paper={paper} /></div> : idx === 1 ? <div data-desktop-page={idx} className="relative grid w-full flex-none my-auto gap-x-2.5 gap-y-[18px]"
-                    style={{ '--launcher-cell': 'calc((100cqw - 30px) / 4)', gridTemplateColumns: `repeat(${DESKTOP_COLUMNS}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${DESKTOP_ROWS}, var(--launcher-cell))` } as React.CSSProperties}>
-                    <div className="relative min-w-0 min-h-0 col-span-4 row-span-2 flex items-center">
-                      <DesktopClock />
-                    </div>
-                    <div className="relative min-w-0 min-h-0 col-span-4 row-span-1 flex items-center">
-                      <CharacterWidget char={widgetChar} unreadCount={widgetUnread} lastMessage={lastMessage}
-                        onClick={() => { if (!layoutEditing) openApp(AppID.Chat); }} contentColor={contentColor} paper={paper} />
-                    </div>
-                    {fixedHomeItems.map((item, index) => {
+                    acnh={acnh} paper={paper} /></div> : idx === 1 ? <div className="w-full flex-1 flex flex-col">
+                    <DesktopClock />
+                    <CharacterWidget char={widgetChar} unreadCount={widgetUnread} lastMessage={lastMessage}
+                      onClick={() => { if (!layoutEditing) openApp(AppID.Chat); }} contentColor={contentColor} paper={paper} />
+                    <div className="flex-1 grid grid-cols-4 auto-rows-[4.5rem] place-items-center gap-x-2 gap-y-6 animate-fade-in relative">
+                    {fixedHomeItems.map(item => {
                       const id = item.kind === 'app' ? item.app.id : item.folder.id;
-                      return <div key={id} data-launcher-item={id} data-launcher-kind="fixed" className="relative min-w-0 min-h-0 flex items-center justify-center"
-                        style={{ gridColumn: index % DESKTOP_COLUMNS + 1, gridRow: 4 + Math.floor(index / DESKTOP_COLUMNS) }}>
+                      return <div key={id} data-launcher-item={id} data-launcher-kind="fixed" className="min-w-0 flex items-center justify-center">
                         {item.kind === 'app' ? <AppIcon app={item.app} onClick={() => { if (!layoutEditing) openApp(item.app.id); }} size="md" />
                           : <LauncherFolderIcon folder={item.folder} onOpen={() => { if (!layoutEditing) setOpenFolderId(item.folder.id); }} />}
                       </div>;
                     })}
+                    </div>
                   </div> : <div data-desktop-page={idx} className="relative grid w-full flex-none my-auto gap-x-2.5 gap-y-[18px]"
                        style={{ '--launcher-cell': 'calc((100cqw - 30px) / 4)', gridTemplateColumns: `repeat(${DESKTOP_COLUMNS}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${DESKTOP_ROWS}, var(--launcher-cell))` } as React.CSSProperties}>
                     {Object.entries(desktopLayout).filter(([, position]) => position.page === idx).map(([id, position]) => {
