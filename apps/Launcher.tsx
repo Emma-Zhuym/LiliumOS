@@ -125,6 +125,7 @@ const CharacterWidget = React.memo(({
     onClick, 
     contentColor,
     paper = false,
+    fixedRow = false,
 }: { 
     char: CharacterProfile | null, 
     unreadCount: number, 
@@ -132,6 +133,7 @@ const CharacterWidget = React.memo(({
     onClick: () => void,
     contentColor: string,
     paper?: boolean,
+    fixedRow?: boolean,
 }) => {
     const { theme } = useOS();
     const contactRemark = useContactRemark(char?.id || ''); // [EM: desktop-contact-remark]
@@ -142,7 +144,7 @@ const CharacterWidget = React.memo(({
     // 动森：村民头像 + AC 对话气泡（显示最近消息，点开聊天）
     if (acnh) {
         return (
-            <div className="mb-4 animate-fade-in" onClick={onClick}>
+            <div className="mb-4 animate-fade-in" onClick={onClick} style={fixedRow ? { height: 'var(--launcher-cell)' } : undefined}>
                 <div className="flex items-end gap-2.5 cursor-pointer active:scale-[0.98] transition-transform">
                     {/* 村民头像（圆角方块 + 白边） */}
                     <div className="relative w-[60px] h-[60px] shrink-0 rounded-[26%] overflow-hidden bg-[#e8e2d6]"
@@ -178,22 +180,25 @@ const CharacterWidget = React.memo(({
     return (
         <div className="mb-3 group animate-fade-in">
              <div
-                className="relative h-24 w-full overflow-hidden rounded-3xl cursor-pointer transition-transform duration-300 active:scale-[0.98]"
+                className={`relative ${fixedRow ? '' : 'h-24'} w-full overflow-hidden rounded-3xl cursor-pointer transition-transform duration-300 active:scale-[0.98]`}
                 onClick={onClick}
                 style={paper ? {
                     background: 'rgba(224,221,215,0.40)',
                     border: '1px solid rgba(91,72,51,0.07)',
                     boxShadow: '0 5px 16px rgba(91,72,51,0.055)',
+                    ...(fixedRow ? { height: 'var(--launcher-cell)' } : {}),
                 } : acnh ? {
                     background: 'rgb(247,243,223)',
                     border: '2px solid #e8e2d6',
                     boxShadow: '0 8px 24px 0 rgba(61,52,40,0.14)',
+                    ...(fixedRow ? { height: 'var(--launcher-cell)' } : {}),
                 } : {
                     background: 'rgba(255,255,255,0.08)',
                     backdropFilter: 'blur(24px) saturate(1.4)',
                     WebkitBackdropFilter: 'blur(24px) saturate(1.4)',
                     border: '1px solid rgba(255,255,255,0.12)',
                     boxShadow: '0 8px 32px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.08)',
+                    ...(fixedRow ? { height: 'var(--launcher-cell)' } : {}),
                 }}
              >
                  {/* 背景虚化角色头像（动森模式下省略，避免糊在奶油底上） */}
@@ -1134,11 +1139,11 @@ const Launcher: React.FC = () => {
               >
                   {idx === 0 ? <div className="w-full flex-none my-auto" style={{ height: FREE_PAGE_HEIGHT }}><WidgetsPage contentColor={contentColor} openApp={openApp} anniversaries={anniversaries} characters={characters}
                     acnh={acnh} paper={paper} /></div> : idx === 1 ? <div className="w-full flex-1 flex flex-col" style={{ '--launcher-cell': 'calc((100cqw - 30px) / 4)' } as React.CSSProperties}>
-                    <div className="w-full flex-none flex items-center" style={{ height: 'calc(2 * var(--launcher-cell) + 18px)' }}>
+                    <div className="w-full flex-none flex items-center" style={{ height: FREE_TWO_CELL_HEIGHT }}>
                       <DesktopClock />
                     </div>
                     <CharacterWidget char={widgetChar} unreadCount={widgetUnread} lastMessage={lastMessage}
-                      onClick={() => { if (!layoutEditing) openApp(AppID.Chat); }} contentColor={contentColor} paper={paper} />
+                      onClick={() => { if (!layoutEditing) openApp(AppID.Chat); }} contentColor={contentColor} paper={paper} fixedRow />
                     <div className="flex-1 grid grid-cols-4 auto-rows-[4.5rem] place-items-center gap-x-2 gap-y-6 animate-fade-in relative">
                     {fixedHomeItems.map(item => {
                       const id = item.kind === 'app' ? item.app.id : item.folder.id;
