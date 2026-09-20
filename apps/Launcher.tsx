@@ -21,7 +21,7 @@ import { useLocalDateKey } from '../hooks/useLocalDateKey';
 import { resolveCharTimeZone } from '../utils/timezone';
 import { DESKTOP_COLUMNS, DESKTOP_ROWS, DESKTOP_WIDGET_IDS, defaultDesktopLayout, desktopItemSize, desktopPageCount, moveDesktopItem, normalizeDesktopLayout, type DesktopLayout } from '../utils/launcherDesktopLayout';
 import { useContactRemark } from '../utils/contactRemarks'; // [EM: desktop-contact-remark]
-import { F, R, S } from '../utils/clayTokens';
+import { F, R, S, SP } from '../utils/clayTokens';
 
 const CompanionHome = React.lazy(() => import('../components/os/CompanionHome'));
 
@@ -1157,7 +1157,7 @@ const Launcher: React.FC = () => {
                           : id === DESKTOP_WIDGET_IDS.clock ? <DesktopClock />
                           : id === DESKTOP_WIDGET_IDS.character ? <CharacterWidget char={widgetChar} unreadCount={widgetUnread} lastMessage={lastMessage}
                               onClick={() => { if (!layoutEditing) openApp(AppID.Chat); }} contentColor={contentColor} paper={paper} />
-                          : id === DESKTOP_WIDGET_IDS.schedule ? scheduleChar && <div className="w-full px-[5px]" style={{ height: FREE_TWO_CELL_HEIGHT }}><ScheduleHomeWidget schedule={scheduleData} character={scheduleChar} contentColor={contentColor}
+                          : id === DESKTOP_WIDGET_IDS.schedule ? scheduleChar && <div className="w-full px-[5px]" style={{ height: `calc(${FREE_TWO_CELL_HEIGHT} - ${SP[1]}px)`, marginTop: SP[1] }}><ScheduleHomeWidget schedule={scheduleData} character={scheduleChar} contentColor={contentColor}
                               onOpen={() => { if (!layoutEditing) setScheduleViewerOpen(true); }} acnh={acnh} paper={paper} /></div>
                           : id === DESKTOP_WIDGET_IDS.music ? <div className="w-full" style={{ height: FREE_TWO_CELL_HEIGHT }}><NowPlayingSquareWidget contentColor={contentColor} /></div>
                           : id === DESKTOP_WIDGET_IDS.image ? <div className="w-full" style={{ height: FREE_TWO_CELL_HEIGHT }}><DesktopSquareImage image={theme.launcherWidgets?.dsq} contentColor={contentColor}

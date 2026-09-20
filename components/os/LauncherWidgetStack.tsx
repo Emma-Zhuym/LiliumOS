@@ -12,7 +12,6 @@ import { F, S, R, HUE, MOTION, SP } from '../../utils/clayTokens';
 
 type CardId = 'finance' | 'health' | 'home';
 const CARD_IDS: CardId[] = ['finance', 'health', 'home'];
-const CARD_LABELS: Record<CardId, string> = { finance: '存钱罐', health: '健康', home: '共栖舱' };
 
 const cardStyle: React.CSSProperties = {
   height: '100%', background: F.surface, border: `1px solid ${F.borderSoft}`,
@@ -60,7 +59,7 @@ function FinanceCard({ onOpen }: { onOpen: () => void }) {
   const values = view === 'day' ? chart?.days || [] : chart?.categories.map(item => item.amount) || [];
   const max = Math.max(1, ...values);
   return (
-    <div style={{ ...cardStyle, paddingRight: SP[8] }} className="p-3 flex flex-col" onClick={onOpen} role="button" tabIndex={0} onKeyDown={e => { if (e.target === e.currentTarget && e.key === 'Enter') onOpen(); }}>
+    <div style={{ ...cardStyle, paddingRight: SP[6] }} className="p-3 flex flex-col" onClick={onOpen} role="button" tabIndex={0} onKeyDown={e => { if (e.target === e.currentTarget && e.key === 'Enter') onOpen(); }}>
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <ChartBar size={18} weight="regular" style={{ color: HUE.lime.ink }} />
@@ -127,7 +126,7 @@ function HealthCard({ onOpen }: { onOpen: () => void }) {
     return () => { active = false; document.removeEventListener('visibilitychange', onVisible); };
   }, []);
   return (
-    <div style={{ ...cardStyle, paddingRight: SP[8] }} className="p-4 flex flex-col" onClick={onOpen} role="button" tabIndex={0} onKeyDown={e => { if (e.key === 'Enter') onOpen(); }}>
+    <div style={{ ...cardStyle, paddingRight: SP[6] }} className="p-4 flex flex-col" onClick={onOpen} role="button" tabIndex={0} onKeyDown={e => { if (e.key === 'Enter') onOpen(); }}>
       <div className="flex items-center gap-2 text-[13px] font-semibold"><Heartbeat size={18} style={{ color: HUE.rose.ink }} />健康</div>
       <div className="flex-1 flex flex-col justify-center items-center" style={{ color: HUE.rose.ink }}>
         {failed ? <span className="text-sm">健康记录读取失败</span>
@@ -181,7 +180,7 @@ function HomeCard({ onOpen }: { onOpen: () => void }) {
     }
   };
   return (
-    <div style={{ ...cardStyle, paddingRight: SP[8] }} className="p-3 flex flex-col" onClick={onOpen} role="button" tabIndex={0} onKeyDown={e => { if (e.target === e.currentTarget && e.key === 'Enter') onOpen(); }}>
+    <div style={{ ...cardStyle, paddingRight: SP[6] }} className="p-3 flex flex-col" onClick={onOpen} role="button" tabIndex={0} onKeyDown={e => { if (e.target === e.currentTarget && e.key === 'Enter') onOpen(); }}>
       <div className="flex items-center justify-between text-[13px] font-semibold">
         <span className="flex items-center gap-2"><HouseLine size={18} style={{ color: HUE.cyan.ink }} />共栖舱</span>
         <span className="text-[10px] font-normal" style={{ color: failed ? HUE.rose.ink : F.textTertiary }}>{failed ? '控制或连接失败' : demo ? '演示模式' : '设备开关'}</span>
@@ -242,11 +241,8 @@ export default function LauncherWidgetStack() {
         {selected === 'health' && <HealthCard onOpen={() => openApp(AppID.Health)} />}
         {selected === 'home' && <HomeCard onOpen={() => openApp(AppID.SmartHome)} />}
       </div>
-      <div className="absolute right-1 top-1/2 -translate-y-1/2 flex flex-col items-center gap-1 p-1" style={{ background: F.surface, borderRadius: R.pill, boxShadow: S.raisedSoft }} onClick={event => event.stopPropagation()}>
-        <button type="button" aria-label="上一张小组件" className="w-11 h-11 flex items-center justify-center" onClick={() => move(-1)}><CaretUp size={18} weight="bold" /></button>
-        {CARD_IDS.map((id, cardIndex) => <span key={id} title={CARD_LABELS[id]} className="w-1.5 h-1.5 rounded-full" style={{ background: cardIndex === activeIndex ? HUE.gray.ink : F.borderStrong }} />)}
-        <button type="button" aria-label="下一张小组件" className="w-11 h-11 flex items-center justify-center" onClick={() => move(1)}><CaretDown size={18} weight="bold" /></button>
-      </div>
+      <button type="button" aria-label="上一张小组件" className="absolute right-1 top-1 w-8 h-8 flex items-center justify-center" style={{ color: F.textPrimary }} onClick={event => { event.stopPropagation(); move(-1); }}><CaretUp size={18} weight="bold" /></button>
+      <button type="button" aria-label="下一张小组件" className="absolute right-1 bottom-1 w-8 h-8 flex items-center justify-center" style={{ color: F.textPrimary }} onClick={event => { event.stopPropagation(); move(1); }}><CaretDown size={18} weight="bold" /></button>
     </div>
   );
 }
