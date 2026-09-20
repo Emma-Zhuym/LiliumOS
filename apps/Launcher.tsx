@@ -17,6 +17,7 @@ import { normalizeLauncherFolders, rootLauncherIds } from '../utils/launcherFold
 import MobileGameHome from '../components/os/MobileGameHome';
 import TamagotchiHome from '../components/os/TamagotchiHome';
 import { getDailyScheduleForChar } from '../utils/dailySchedule';
+import { sortAnniversariesByNextOccurrence } from '../utils/anniversaryNext';
 import { useLocalDateKey } from '../hooks/useLocalDateKey';
 import { resolveCharTimeZone } from '../utils/timezone';
 import { DESKTOP_COLUMNS, DESKTOP_ROWS, DESKTOP_WIDGET_IDS, defaultDesktopLayout, desktopItemSize, desktopPageCount, moveDesktopItem, normalizeDesktopLayout, type DesktopLayout } from '../utils/launcherDesktopLayout';
@@ -257,6 +258,7 @@ const CharacterWidget = React.memo(({
 
 const UTILITY_WIDGET_ID = 'widget:utilities';
 const FREE_TWO_CELL_HEIGHT = 'calc(2 * var(--launcher-cell) + 10px)';
+const FREE_PAGE_HEIGHT = 'calc(6 * var(--launcher-cell) + 90px)';
 type LauncherGridItem = { kind: 'app'; app: AppConfig } | { kind: 'folder'; folder: LauncherFolder } | { kind: 'widget' };
 // Square image widget, kept separate from the placement grid.
 const DesktopSquareImage = React.memo(({ image, contentColor, onClick, acnh = false }: {
@@ -336,13 +338,16 @@ const WidgetsPage = React.memo(({ contentColor, openApp, anniversaries, characte
     const paddingDays = Array.from({ length: startOffset }, () => null);
 
     // --- Upcoming events: only today + future, soonest first (non-mutating), paginated ---
-    const todayStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    const upcomingEvents = useMemo(
-        () => [...(anniversaries as any[])]
-            .filter((a: any) => a.date >= todayStr)
-            .sort((a: any, b: any) => a.date.localeCompare(b.date)),
-        [anniversaries, todayStr]
+    const upcomingAnniversaryRows = useMemo(
+        () => sortAnniversariesByNextOccurrence(anniversaries as Anniversary[]),
+        [anniversaries]
     );
+    const calendarEventDates = useMemo(() => new Set(
+        upcomingAnniversaryRows
+            .filter(({ next }) => next.getFullYear() === currentYear && next.getMonth() === currentMonth)
+            .map(({ next }) => `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`)
+    ), [currentMonth, currentYear, upcomingAnniversaryRows]);
+    const upcomingEvents = upcomingAnniversaryRows;
     const EVENTS_PER_PAGE = 4;
     const eventPageCount = Math.max(1, Math.ceil(upcomingEvents.length / EVENTS_PER_PAGE));
     const [eventPage, setEventPage] = useState(0);
@@ -371,7 +376,7 @@ const WidgetsPage = React.memo(({ contentColor, openApp, anniversaries, characte
                       {calendarDays.map(day => {
                           const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                           const isToday = day === now.getDate();
-                          const hasEvent = anniversaries.some((a: any) => a.date === dateStr);
+                          const hasEvent = calendarEventDates.has(dateStr);
                           
                           return (
                               <div key={day} className="flex flex-col items-center justify-center h-8 relative">
@@ -416,11 +421,11 @@ const WidgetsPage = React.memo(({ contentColor, openApp, anniversaries, characte
                       )}
                   </div>
                   <div className="space-y-3">
-                      {upcomingEvents.length > 0 ? pagedEvents.map((anni: any) => (
+                      {upcomingEvents.length > 0 ? pagedEvents.map(({ anni, next }) => (
                           <div key={anni.id} className={`flex items-center gap-3 p-3 rounded-xl ${acnh ? 'bg-[#efe7d4] border border-[#e0d6c0]' : paper ? 'bg-[#f3ecdf]/70 border border-[#5b4833]/10' : 'bg-white/5 border border-white/10'}`}>
                               <div className={`w-10 h-10 shrink-0 rounded-lg flex flex-col items-center justify-center ${acnh ? 'bg-[#82D5BB] text-white border border-[#6cc0a6]' : paper ? 'bg-[#a66f52]/12 text-[#8c5d46] border border-[#a66f52]/15' : 'bg-purple-500/20 text-purple-200 border border-purple-500/30'}`}>
-                                  <span className="text-[9px] opacity-70">{anni.date.split('-')[1]}</span>
-                                  <span className="text-sm font-bold leading-none">{anni.date.split('-')[2]}</span>
+                                  <span className="text-[9px] opacity-70">{String(next.getMonth() + 1).padStart(2, '0')}</span>
+                                  <span className="text-sm font-bold leading-none">{String(next.getDate()).padStart(2, '0')}</span>
                               </div>
                               <div className="flex-1 min-w-0">
                                   <div className="text-sm font-bold truncate" style={{ color: contentColor }}>{anni.title}</div>
@@ -1124,15 +1129,15 @@ const Launcher: React.FC = () => {
           {Array.from({ length: desktopPages }, (_, idx) => (
               <div
                 key={idx}
-                className={`w-full flex-shrink-0 snap-center snap-always flex flex-col h-full overflow-y-auto no-scrollbar ${idx === 0 ? 'px-5 pt-12 pb-8' : idx === 1 ? 'px-6 pt-8 pb-12' : 'px-5 py-8'}`}
-                style={{ contentVisibility: 'auto', contain: 'layout paint', transform: 'translateZ(0)', containerType: idx >= 2 ? 'inline-size' : undefined }}
+                className={`w-full flex-shrink-0 snap-center snap-always flex flex-col h-full overflow-y-auto no-scrollbar ${idx === 0 ? 'px-5 py-8' : idx === 1 ? 'px-6 pt-12 pb-8' : 'px-5 py-8'}`}
+                style={{ contentVisibility: 'auto', contain: 'layout paint', transform: 'translateZ(0)', containerType: idx === 0 || idx >= 2 ? 'inline-size' : undefined }}
               >
-                  {idx === 0 ? <WidgetsPage contentColor={contentColor} openApp={openApp} anniversaries={anniversaries} characters={characters}
-                    acnh={acnh} paper={paper} /> : idx === 1 ? <>
+                  {idx === 0 ? <div className="w-full flex-none my-auto" style={{ height: FREE_PAGE_HEIGHT }}><WidgetsPage contentColor={contentColor} openApp={openApp} anniversaries={anniversaries} characters={characters}
+                    acnh={acnh} paper={paper} /></div> : idx === 1 ? <>
                     <DesktopClock />
                     <CharacterWidget char={widgetChar} unreadCount={widgetUnread} lastMessage={lastMessage}
                       onClick={() => { if (!layoutEditing) openApp(AppID.Chat); }} contentColor={contentColor} paper={paper} />
-                    <div className="mt-2 grid grid-cols-4 auto-rows-[5rem] gap-x-2 gap-y-4">
+                    <div className="flex-1 grid grid-cols-4 auto-rows-[4.5rem] place-items-center gap-x-2 gap-y-6 animate-fade-in relative">
                       {fixedHomeItems.map(item => {
                         const id = item.kind === 'app' ? item.app.id : item.folder.id;
                         return <div key={id} data-launcher-item={id} data-launcher-kind="fixed" className="min-w-0 flex items-center justify-center">
