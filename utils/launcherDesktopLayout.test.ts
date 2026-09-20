@@ -61,11 +61,8 @@ describe('launcher desktop grid', () => {
     expectValid(result);
   });
 
-  it('keeps newly added free items off the fixed clock page', () => {
-    const result = normalizeDesktopLayout(
-      [DESKTOP_WIDGET_IDS.agenda, 'app:new'], undefined,
-      { [DESKTOP_WIDGET_IDS.agenda]: { page: 0, row: 0, col: 0 } },
-    );
+  it('keeps newly added free items off the fixed calendar and clock pages', () => {
+    const result = normalizeDesktopLayout(['app:new'], undefined, {});
     expect(result['app:new'].page).toBe(2);
     expectValid(result);
   });

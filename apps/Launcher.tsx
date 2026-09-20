@@ -256,6 +256,7 @@ const CharacterWidget = React.memo(({
 });
 
 const UTILITY_WIDGET_ID = 'widget:utilities';
+const FREE_TWO_CELL_HEIGHT = 'calc(2 * var(--launcher-cell) + 10px)';
 type LauncherGridItem = { kind: 'app'; app: AppConfig } | { kind: 'folder'; folder: LauncherFolder } | { kind: 'widget' };
 // Square image widget, kept separate from the placement grid.
 const DesktopSquareImage = React.memo(({ image, contentColor, onClick, acnh = false }: {
@@ -352,7 +353,7 @@ const WidgetsPage = React.memo(({ contentColor, openApp, anniversaries, characte
     const pagedEvents = upcomingEvents.slice(eventPage * EVENTS_PER_PAGE, eventPage * EVENTS_PER_PAGE + EVENTS_PER_PAGE);
 
     return (
-        <div className="w-full h-full flex flex-col min-h-0 gap-6 overflow-y-auto no-scrollbar pt-8">
+        <div className="w-full flex flex-col gap-6">
               <div className={`rounded-3xl p-6 ${acnh ? 'shadow-sm' : paper ? '' : 'bg-white/25 border border-white/25 shadow-xl'}`} style={paper ? { background: 'rgba(224,221,215,0.36)', border: '1px solid rgba(91,72,51,0.07)', boxShadow: '0 5px 16px rgba(91,72,51,0.05)' } : acCard}>
                   <div className="flex justify-between items-center mb-4" style={{ color: contentColor }}>
                       <h3 className="text-xl font-bold tracking-widest">{monthName} {currentYear}</h3>
@@ -387,7 +388,7 @@ const WidgetsPage = React.memo(({ contentColor, openApp, anniversaries, characte
                   </div>
               </div>
 
-              <div className={`rounded-3xl p-5 flex flex-col flex-1 min-h-[200px] ${acnh ? 'shadow-sm' : paper ? '' : 'bg-white/25 border border-white/25 shadow-xl'}`} style={paper ? { background: 'rgba(224,221,215,0.36)', border: '1px solid rgba(91,72,51,0.07)', boxShadow: '0 5px 16px rgba(91,72,51,0.05)' } : acCard}>
+              <div className={`rounded-3xl p-5 flex flex-col min-h-[200px] ${acnh ? 'shadow-sm' : paper ? '' : 'bg-white/25 border border-white/25 shadow-xl'}`} style={paper ? { background: 'rgba(224,221,215,0.36)', border: '1px solid rgba(91,72,51,0.07)', boxShadow: '0 5px 16px rgba(91,72,51,0.05)' } : acCard}>
                   <div className="flex items-center justify-between mb-4">
                       <h3 className="text-xs font-bold opacity-60 uppercase tracking-widest flex items-center gap-2" style={{ color: contentColor }}>
                           <span className="w-2 h-2 rounded-full" style={{ background: acDot || (paper ? '#a66f52' : '#c084fc') }}></span> Upcoming Events
@@ -550,7 +551,7 @@ const Launcher: React.FC = () => {
 
   // [EM-START: free-launcher-layout] Every desktop tile uses the same saved 4-column grid.
   const desktopIds = useMemo(() => [
-      DESKTOP_WIDGET_IDS.agenda, DESKTOP_WIDGET_IDS.schedule,
+      DESKTOP_WIDGET_IDS.schedule,
       DESKTOP_WIDGET_IDS.music, DESKTOP_WIDGET_IDS.image,
       ...availableGridIds.filter(id => !fixedHomeIds.has(id)),
       ...(['tl', 'tr', 'wide'] as const).filter(slot => !!theme.launcherWidgets?.[slot]).map(slot => `widget:image:${slot}`),
@@ -559,13 +560,14 @@ const Launcher: React.FC = () => {
       const defaults = defaultDesktopLayout(launcherAppOrder, utilityWidgetEnabled, theme.launcherPinwheelOrder);
       delete defaults[DESKTOP_WIDGET_IDS.clock];
       delete defaults[DESKTOP_WIDGET_IDS.character];
+      delete defaults[DESKTOP_WIDGET_IDS.agenda];
       for (const id of fixedHomeIds) delete defaults[id];
       defaults['widget:image:tl'] = { page: 3, row: 0, col: 0 };
       defaults['widget:image:tr'] = { page: 3, row: 0, col: 2 };
       defaults['widget:image:wide'] = { page: 3, row: 2, col: 0 };
       return defaults;
   }, [launcherAppOrder, utilityWidgetEnabled, theme.launcherPinwheelOrder, fixedHomeIds]);
-  const savedFreeLayout = useMemo(() => Object.fromEntries(Object.entries(theme.launcherDesktopLayout || {}).filter(([, position]) => position.page !== 1)) as DesktopLayout, [theme.launcherDesktopLayout]);
+  const savedFreeLayout = useMemo(() => Object.fromEntries(Object.entries(theme.launcherDesktopLayout || {}).filter(([, position]) => position.page >= 2)) as DesktopLayout, [theme.launcherDesktopLayout]);
   const [desktopLayout, setDesktopLayout] = useState<DesktopLayout>(() => normalizeDesktopLayout(desktopIds, savedFreeLayout, desktopDefaults));
   const desktopLayoutRef = useRef(desktopLayout);
   useEffect(() => {
@@ -1122,10 +1124,11 @@ const Launcher: React.FC = () => {
           {Array.from({ length: desktopPages }, (_, idx) => (
               <div
                 key={idx}
-                className={`w-full flex-shrink-0 snap-center snap-always flex flex-col h-full overflow-y-auto no-scrollbar ${idx === 1 ? 'px-6 pt-8 pb-12' : 'px-5 py-8'}`}
-                style={{ contentVisibility: 'auto', contain: 'layout paint', transform: 'translateZ(0)', containerType: idx === 1 ? undefined : 'inline-size' }}
+                className={`w-full flex-shrink-0 snap-center snap-always flex flex-col h-full overflow-y-auto no-scrollbar ${idx === 0 ? 'px-5 pt-12 pb-8' : idx === 1 ? 'px-6 pt-8 pb-12' : 'px-5 py-8'}`}
+                style={{ contentVisibility: 'auto', contain: 'layout paint', transform: 'translateZ(0)', containerType: idx >= 2 ? 'inline-size' : undefined }}
               >
-                  {idx === 1 ? <>
+                  {idx === 0 ? <WidgetsPage contentColor={contentColor} openApp={openApp} anniversaries={anniversaries} characters={characters}
+                    acnh={acnh} paper={paper} /> : idx === 1 ? <>
                     <DesktopClock />
                     <CharacterWidget char={widgetChar} unreadCount={widgetUnread} lastMessage={lastMessage}
                       onClick={() => { if (!layoutEditing) openApp(AppID.Chat); }} contentColor={contentColor} paper={paper} />
@@ -1138,8 +1141,8 @@ const Launcher: React.FC = () => {
                         </div>;
                       })}
                     </div>
-                  </> : <div data-desktop-page={idx} className="relative grid w-full flex-none my-auto gap-2.5"
-                       style={{ gridTemplateColumns: `repeat(${DESKTOP_COLUMNS}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${DESKTOP_ROWS}, calc((100cqw - 30px) / 4))` }}>
+                  </> : <div data-desktop-page={idx} className="relative grid w-full flex-none my-auto gap-x-2.5 gap-y-[18px]"
+                       style={{ '--launcher-cell': 'calc((100cqw - 30px) / 4)', gridTemplateColumns: `repeat(${DESKTOP_COLUMNS}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${DESKTOP_ROWS}, var(--launcher-cell))` } as React.CSSProperties}>
                     {Object.entries(desktopLayout).filter(([, position]) => position.page === idx).map(([id, position]) => {
                       const size = desktopItemSize(id);
                       const item = desktopItemById.get(id);
@@ -1147,23 +1150,20 @@ const Launcher: React.FC = () => {
                       const label = item?.kind === 'app' ? item.app.name : item?.kind === 'folder' ? item.folder.name
                         : ({ [DESKTOP_WIDGET_IDS.agenda]: '月历与近期事件', [DESKTOP_WIDGET_IDS.clock]: '时钟', [DESKTOP_WIDGET_IDS.character]: '聊天', [DESKTOP_WIDGET_IDS.schedule]: '日程', [DESKTOP_WIDGET_IDS.music]: '音乐', [DESKTOP_WIDGET_IDS.image]: '图片', [DESKTOP_WIDGET_IDS.utilities]: '功能小组件' } as Record<string, string>)[id] || '图片';
                       return <div key={id} data-launcher-item={id} data-launcher-kind="desktop" data-launcher-label={label}
-                        className={`relative min-w-0 min-h-0 ${size.cols === 1 ? 'flex items-center justify-center' : ''} ${layoutEditing ? 'launcher-edit-item' : ''}`}
+                        className={`relative min-w-0 min-h-0 ${size.cols === 1 ? 'flex items-center justify-center' : size.rows === 2 ? 'flex items-center' : ''} ${layoutEditing ? 'launcher-edit-item' : ''}`}
                         style={{ gridColumn: `${position.col + 1} / span ${size.cols}`, gridRow: `${position.row + 1} / span ${size.rows}` }}>
                         {item?.kind === 'app' ? <AppIcon app={item.app} onClick={() => { if (!layoutEditing) openApp(item.app.id); }} size="md" />
                           : item?.kind === 'folder' ? <LauncherFolderIcon folder={item.folder} onOpen={() => { if (!layoutEditing) setOpenFolderId(item.folder.id); }} />
                           : id === DESKTOP_WIDGET_IDS.clock ? <DesktopClock />
                           : id === DESKTOP_WIDGET_IDS.character ? <CharacterWidget char={widgetChar} unreadCount={widgetUnread} lastMessage={lastMessage}
                               onClick={() => { if (!layoutEditing) openApp(AppID.Chat); }} contentColor={contentColor} paper={paper} />
-                          : id === DESKTOP_WIDGET_IDS.schedule ? scheduleChar && <div className="w-full h-full px-[5px]"><ScheduleHomeWidget schedule={scheduleData} character={scheduleChar} contentColor={contentColor}
+                          : id === DESKTOP_WIDGET_IDS.schedule ? scheduleChar && <div className="w-full px-[5px]" style={{ height: FREE_TWO_CELL_HEIGHT }}><ScheduleHomeWidget schedule={scheduleData} character={scheduleChar} contentColor={contentColor}
                               onOpen={() => { if (!layoutEditing) setScheduleViewerOpen(true); }} acnh={acnh} paper={paper} /></div>
-                          : id === DESKTOP_WIDGET_IDS.music ? <NowPlayingSquareWidget contentColor={contentColor} />
-                          : id === DESKTOP_WIDGET_IDS.image ? <DesktopSquareImage image={theme.launcherWidgets?.dsq} contentColor={contentColor}
-                              onClick={() => { if (!layoutEditing) openApp(AppID.Appearance); }} acnh={acnh} />
-                          : id === DESKTOP_WIDGET_IDS.utilities ? <div className="w-full h-full px-[5px]"><LauncherWidgetStack /></div>
-                          : id === DESKTOP_WIDGET_IDS.agenda ? <WidgetsPage
-                              contentColor={contentColor} openApp={openApp} anniversaries={anniversaries} characters={characters}
-                              acnh={acnh} paper={paper} />
-                          : imageSlot && theme.launcherWidgets?.[imageSlot] ? <div className={`h-full ${imageSlot === 'wide' ? 'mx-[5px]' : 'w-full'} overflow-hidden`} style={{ borderRadius: R.bigCard, boxShadow: S.raisedSoft }}>
+                          : id === DESKTOP_WIDGET_IDS.music ? <div className="w-full" style={{ height: FREE_TWO_CELL_HEIGHT }}><NowPlayingSquareWidget contentColor={contentColor} /></div>
+                          : id === DESKTOP_WIDGET_IDS.image ? <div className="w-full" style={{ height: FREE_TWO_CELL_HEIGHT }}><DesktopSquareImage image={theme.launcherWidgets?.dsq} contentColor={contentColor}
+                              onClick={() => { if (!layoutEditing) openApp(AppID.Appearance); }} acnh={acnh} /></div>
+                          : id === DESKTOP_WIDGET_IDS.utilities ? <div className="w-full px-[5px]" style={{ height: FREE_TWO_CELL_HEIGHT }}><LauncherWidgetStack /></div>
+                          : imageSlot && theme.launcherWidgets?.[imageSlot] ? <div className={`${imageSlot === 'wide' ? 'mx-[5px]' : 'w-full'} overflow-hidden`} style={{ height: FREE_TWO_CELL_HEIGHT, borderRadius: R.bigCard, boxShadow: S.raisedSoft }}>
                               <TokenImg value={theme.launcherWidgets[imageSlot]} className="w-full h-full object-cover" alt="" loading="lazy" />
                             </div> : null}
                         {id === DESKTOP_WIDGET_IDS.utilities && layoutEditing && <button type="button" aria-label="移除小组件"
