@@ -8,12 +8,12 @@ import AppIcon from './AppIcon';
 
 export function LauncherFolderIcon({ folder, onOpen }: { folder: LauncherFolder; onOpen: () => void }) {
   const { theme } = useOS();
-  const paper = isPaperWallpaper(theme.wallpaper);
+  const paper = theme.skin !== 'animalcrossing' && theme.skin !== 'mobilegame' && theme.skin !== 'tamagotchi' && isPaperWallpaper(theme.wallpaper);
   const items = folder.appIds.slice(0, 4).map(id => INSTALLED_APPS.find(app => app.id === id)).filter((app): app is AppConfig => Boolean(app));
   return (
     <button type="button" onClick={onOpen} className="flex flex-col items-center gap-1.5 active:scale-95">
       <span className="w-14 h-14 grid grid-cols-2 grid-rows-2 place-items-center p-1"
-        style={{ background: HUE.indigo.tint, border: `1px solid ${F.borderSoft}`, borderRadius: R.large, boxShadow: S.raisedSoft }}>
+        style={{ background: paper ? F.appBg : F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.large, boxShadow: S.raisedSoft }}>
         {items.map(app => {
           const Icon = Icons[app.icon] || Icons.Settings;
           return <Icon key={app.id} className="w-5 h-5" />;

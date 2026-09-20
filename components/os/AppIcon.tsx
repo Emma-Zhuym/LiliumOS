@@ -6,6 +6,7 @@ import { isPaperWallpaper, useOS } from '../../context/OSContext';
 import { useBlobRefUrl } from '../../utils/blobRef';
 import { getAcnhIcon } from './acnhIcons';
 import { preloadApp } from './appPreload';
+import { F, S } from '../../utils/clayTokens';
 
 interface AppIconProps {
   app: AppConfig;
@@ -96,9 +97,9 @@ const AppIcon: React.FC<AppIconProps> = React.memo(({ app, onClick, size = 'md',
         group-hover:bg-white/50 group-hover:border-white/50
       `}`}
         style={!preserveCustomOutline && isPaperDesktop ? {
-          background: 'rgba(224,221,215,0.42)',
-          borderColor: 'rgba(91,72,51,0.075)',
-          boxShadow: '0 4px 12px rgba(91,72,51,0.055)',
+          background: F.appBg,
+          borderColor: F.borderSoft,
+          boxShadow: S.raisedSoft,
         } : undefined}
       >
 

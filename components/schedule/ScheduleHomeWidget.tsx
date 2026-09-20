@@ -227,19 +227,19 @@ export const ScheduleHomeWidget: React.FC<ScheduleHomeWidgetProps> = ({
                 }}
                 role="button"
                 tabIndex={0}
-                className="sully-schedule-root sully-schedule-widget w-full shrink-0 text-left rounded-3xl overflow-hidden active:scale-[0.98] transition-transform relative"
+                className="sully-schedule-root sully-schedule-widget w-full h-full min-h-0 text-left rounded-3xl overflow-hidden active:scale-[0.98] transition-transform relative"
                 style={{ ...scheduleVars, background: 'rgb(247,243,223)', border: '2px solid #e8e2d6', boxShadow: '0 6px 18px rgba(61,52,40,0.12)', color: '#725d42' }}>
                 <ScheduleCustomCssStyle />
                 <div className="absolute right-3 top-3 z-20" style={{ '--schedule-text': '#725d42', '--schedule-line': 'rgba(91,72,51,.16)' } as React.CSSProperties}>
                     <ScheduleAppearanceButton compact />
                 </div>
-                <div className="flex flex-col p-4 gap-3">
+                <div className="flex flex-col h-full p-4 gap-3">
                     <div className="sully-schedule-header flex items-center gap-2 pr-8">
                         <span className="text-[12px] font-extrabold" style={{ color: '#725d42' }}>🍃 今日日程</span>
                         <div className="h-[2px] flex-1 rounded-full" style={{ background: '#e8e2d6' }} />
                         <span className="text-[11px] font-bold" style={{ color: '#9f927d' }}>{timeLabel}</span>
                     </div>
-                    <div className="flex items-center gap-3.5">
+                    <div className="flex flex-1 items-center gap-3.5">
                         <div className="w-[64px] h-[64px] shrink-0 rounded-[22%] overflow-hidden bg-[#e8e2d6] flex items-center justify-center"
                             style={{ border: '3px solid #fff', boxShadow: '0 4px 10px -3px rgba(61,52,40,0.25)' }}>
                             {character?.avatar
@@ -298,7 +298,7 @@ export const ScheduleHomeWidget: React.FC<ScheduleHomeWidgetProps> = ({
             }}
             role="button"
             tabIndex={0}
-            className="sully-schedule-root sully-schedule-widget w-full shrink-0 group text-left rounded-3xl overflow-hidden transition-transform duration-200 active:scale-[0.98] relative"
+            className="sully-schedule-root sully-schedule-widget w-full h-full min-h-0 group text-left rounded-3xl overflow-hidden transition-transform duration-200 active:scale-[0.98] relative"
             style={effectivePaper ? {
                 ...scheduleVars,
                 background: 'rgba(224,221,215,0.40)',
@@ -349,7 +349,7 @@ export const ScheduleHomeWidget: React.FC<ScheduleHomeWidgetProps> = ({
                 style={{ background: effectivePaper ? 'linear-gradient(to bottom, #788369, rgba(120,131,105,0.12))' : `linear-gradient(to bottom, ${accentHsl}, transparent)` }}
             />
 
-            <div className="relative flex flex-col p-4 gap-3">
+            <div className="relative flex flex-col h-full p-4 gap-3">
                 {/* Header row: label + character name + time */}
                 <div className="sully-schedule-header flex items-center gap-2 pr-8 text-[9px] tracking-[0.22em] uppercase opacity-60">
                     <span className="font-bold">Daily Schedule</span>
@@ -358,7 +358,7 @@ export const ScheduleHomeWidget: React.FC<ScheduleHomeWidgetProps> = ({
                 </div>
 
                 {/* Main row: avatar | activity */}
-                <div className="flex items-center gap-4">
+                <div className="flex flex-1 items-center gap-4">
                     <div
                         className={`w-[72px] h-[72px] shrink-0 rounded-2xl overflow-hidden relative ${effectivePaper ? 'bg-[#ded2c1]' : 'bg-slate-800/60'}`}
                         style={{

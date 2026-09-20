@@ -127,10 +127,10 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - `types.ts` 里 `AgendaItem` 的 `dateTime?`, `charId?`, `reminderMinutes?`, `createdAt?`
   - `dateTime` 是 optional，代码中访问时必须用 `item.dateTime ?? ''` 防 undefined
 
-### 7. 桌面图标排序
-- `context/OSContext.tsx` 里的 `appOrder` / `setAppOrder` state
-- `apps/Launcher.tsx` 里长按拖拽排序逻辑
-- 第一页固定 12 个图标
+### 7. 桌面图标与组件布局
+- `context/OSContext.tsx` 里的 `appOrder` / `setAppOrder` 保留软件顺序；`theme.launcherDesktopLayout` 保存每个桌面项的页、行、列
+- `apps/Launcher.tsx` 里长按进入编辑模式，软件、文件夹、小组件在 4×6 网格中拖动；尺寸和冲突处理见 `utils/launcherDesktopLayout.ts`
+- 默认打开中间的时钟页；左侧是合并的月历与近期事件页；时钟页默认排 12 个图标，但不锁定位置
 
 ### 8. 默认壁纸
 - `context/OSContext.tsx` 里 `export const DEFAULT_WALLPAPER = 'linear-gradient(...)'`

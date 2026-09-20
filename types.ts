@@ -132,6 +132,8 @@ export interface OSTheme {
   launcherUtilityWidgetEnabled?: boolean;
   launcherDockOrder?: string[];
   launcherPinwheelOrder?: Array<'music' | 'appsA' | 'appsB' | 'image'>;
+  /** Desktop grid cells for apps, folders, and widgets. Older orders seed this on first use. */
+  launcherDesktopLayout?: Record<string, { page: number; row: number; col: number }>;
   /** 自定义透明图标是否保留原始轮廓并移除系统圆角底框。默认 false。 */
   preserveCustomIconOutlines?: boolean;
   /** 默认皮肤桌面「正在播放」音乐卡片改用浅色系样式（新安装默认 true）。 */
