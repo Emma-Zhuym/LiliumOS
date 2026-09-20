@@ -60,7 +60,7 @@ const DesktopClock = React.memo(() => {
                 <div className="text-[13px] font-extrabold tracking-wide" style={{ color: '#8a7a5c' }}>
                     🍃 {greeting}, Resident
                 </div>
-                <div className="text-[3.5rem] font-extrabold leading-none mt-1.5 tracking-[2px]" style={{ color: '#8b7355' }}>
+                <div className="text-[clamp(4rem,20vw,6rem)] font-extrabold leading-none mt-1.5 tracking-[2px]" style={{ color: '#8b7355' }}>
                     {hh}<span className="animate-pulse" style={{ color: '#cfcab2' }}>:</span>{mm}
                 </div>
                 <div className="text-[15px] font-bold mt-1.5" style={{ color: '#725C4E' }}>
@@ -94,7 +94,7 @@ const DesktopClock = React.memo(() => {
             {/* 主时钟 */}
             <div className="flex items-end gap-4">
                 <div className="relative">
-                    <div className={`${paper ? 'text-[clamp(3.75rem,16vw,5.65rem)] font-semibold tracking-[-0.055em] drop-shadow-[0_2px_0_rgba(255,255,255,0.34)]' : 'text-[clamp(3.75rem,17vw,6.25rem)] font-black tracking-tighter drop-shadow-2xl'} leading-[0.84]`}
+                    <div className={`${paper ? 'text-[clamp(4rem,19vw,6.5rem)] font-semibold tracking-[-0.055em] drop-shadow-[0_2px_0_rgba(255,255,255,0.34)]' : 'text-[clamp(4.25rem,20vw,7.25rem)] font-black tracking-tighter drop-shadow-2xl'} leading-[0.84]`}
                         style={{ fontFamily: paper ? `'Iowan Old Style', 'Baskerville', 'Times New Roman', serif` : `'Space Grotesk', 'SF Pro Display', sans-serif`, fontFeatureSettings: '"tnum"' }}>
                         <span>{virtualTime.hours.toString().padStart(2, '0')}</span>
                         <span className="opacity-35 font-thin mx-0.5 animate-pulse">:</span>
@@ -1133,8 +1133,10 @@ const Launcher: React.FC = () => {
                 style={{ contentVisibility: 'auto', contain: 'layout paint', transform: 'translateZ(0)', containerType: idx === 0 || idx >= 1 ? 'inline-size' : undefined }}
               >
                   {idx === 0 ? <div className="w-full flex-none my-auto" style={{ height: FREE_PAGE_HEIGHT }}><WidgetsPage contentColor={contentColor} openApp={openApp} anniversaries={anniversaries} characters={characters}
-                    acnh={acnh} paper={paper} /></div> : idx === 1 ? <div className="w-full flex-1 flex flex-col">
-                    <DesktopClock />
+                    acnh={acnh} paper={paper} /></div> : idx === 1 ? <div className="w-full flex-1 flex flex-col" style={{ '--launcher-cell': 'calc((100cqw - 30px) / 4)' } as React.CSSProperties}>
+                    <div className="w-full flex-none flex items-center" style={{ height: 'calc(2 * var(--launcher-cell) + 18px)' }}>
+                      <DesktopClock />
+                    </div>
                     <CharacterWidget char={widgetChar} unreadCount={widgetUnread} lastMessage={lastMessage}
                       onClick={() => { if (!layoutEditing) openApp(AppID.Chat); }} contentColor={contentColor} paper={paper} />
                     <div className="flex-1 grid grid-cols-4 auto-rows-[4.5rem] place-items-center gap-x-2 gap-y-6 animate-fade-in relative">
