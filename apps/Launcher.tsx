@@ -70,8 +70,8 @@ const DesktopClock = React.memo(() => {
         );
     }
 
-    return (
-        <div className="flex flex-col mb-5 mt-5 relative animate-fade-in" style={{ color: contentColor }}>
+        return (
+        <div className="w-full flex flex-col mb-5 mt-5 relative animate-fade-in" style={{ color: contentColor }}>
             {/* 顶部装饰 — 状态胶囊 + 细线 */}
             <div className="flex items-center gap-2 mb-3 opacity-90">
                 <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full"
@@ -1130,23 +1130,27 @@ const Launcher: React.FC = () => {
               <div
                 key={idx}
                 className={`w-full flex-shrink-0 snap-center snap-always flex flex-col h-full overflow-y-auto no-scrollbar ${idx === 0 ? 'px-5 py-8' : idx === 1 ? 'px-6 pt-12 pb-8' : 'px-5 py-8'}`}
-                style={{ contentVisibility: 'auto', contain: 'layout paint', transform: 'translateZ(0)', containerType: idx === 0 || idx >= 2 ? 'inline-size' : undefined }}
+                style={{ contentVisibility: 'auto', contain: 'layout paint', transform: 'translateZ(0)', containerType: idx === 0 || idx >= 1 ? 'inline-size' : undefined }}
               >
                   {idx === 0 ? <div className="w-full flex-none my-auto" style={{ height: FREE_PAGE_HEIGHT }}><WidgetsPage contentColor={contentColor} openApp={openApp} anniversaries={anniversaries} characters={characters}
-                    acnh={acnh} paper={paper} /></div> : idx === 1 ? <>
-                    <DesktopClock />
-                    <CharacterWidget char={widgetChar} unreadCount={widgetUnread} lastMessage={lastMessage}
-                      onClick={() => { if (!layoutEditing) openApp(AppID.Chat); }} contentColor={contentColor} paper={paper} />
-                    <div className="flex-1 grid grid-cols-4 auto-rows-[4.5rem] place-items-center gap-x-2 gap-y-6 animate-fade-in relative">
-                      {fixedHomeItems.map(item => {
-                        const id = item.kind === 'app' ? item.app.id : item.folder.id;
-                        return <div key={id} data-launcher-item={id} data-launcher-kind="fixed" className="min-w-0 flex items-center justify-center">
-                          {item.kind === 'app' ? <AppIcon app={item.app} onClick={() => { if (!layoutEditing) openApp(item.app.id); }} size="md" />
-                            : <LauncherFolderIcon folder={item.folder} onOpen={() => { if (!layoutEditing) setOpenFolderId(item.folder.id); }} />}
-                        </div>;
-                      })}
+                    acnh={acnh} paper={paper} /></div> : idx === 1 ? <div data-desktop-page={idx} className="relative grid w-full flex-none my-auto gap-x-2.5 gap-y-[18px]"
+                    style={{ '--launcher-cell': 'calc((100cqw - 30px) / 4)', gridTemplateColumns: `repeat(${DESKTOP_COLUMNS}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${DESKTOP_ROWS}, var(--launcher-cell))` } as React.CSSProperties}>
+                    <div className="relative min-w-0 min-h-0 col-span-4 row-span-2 flex items-center">
+                      <DesktopClock />
                     </div>
-                  </> : <div data-desktop-page={idx} className="relative grid w-full flex-none my-auto gap-x-2.5 gap-y-[18px]"
+                    <div className="relative min-w-0 min-h-0 col-span-4 row-span-1 flex items-center">
+                      <CharacterWidget char={widgetChar} unreadCount={widgetUnread} lastMessage={lastMessage}
+                        onClick={() => { if (!layoutEditing) openApp(AppID.Chat); }} contentColor={contentColor} paper={paper} />
+                    </div>
+                    {fixedHomeItems.map((item, index) => {
+                      const id = item.kind === 'app' ? item.app.id : item.folder.id;
+                      return <div key={id} data-launcher-item={id} data-launcher-kind="fixed" className="relative min-w-0 min-h-0 flex items-center justify-center"
+                        style={{ gridColumn: index % DESKTOP_COLUMNS + 1, gridRow: 4 + Math.floor(index / DESKTOP_COLUMNS) }}>
+                        {item.kind === 'app' ? <AppIcon app={item.app} onClick={() => { if (!layoutEditing) openApp(item.app.id); }} size="md" />
+                          : <LauncherFolderIcon folder={item.folder} onOpen={() => { if (!layoutEditing) setOpenFolderId(item.folder.id); }} />}
+                      </div>;
+                    })}
+                  </div> : <div data-desktop-page={idx} className="relative grid w-full flex-none my-auto gap-x-2.5 gap-y-[18px]"
                        style={{ '--launcher-cell': 'calc((100cqw - 30px) / 4)', gridTemplateColumns: `repeat(${DESKTOP_COLUMNS}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${DESKTOP_ROWS}, var(--launcher-cell))` } as React.CSSProperties}>
                     {Object.entries(desktopLayout).filter(([, position]) => position.page === idx).map(([id, position]) => {
                       const size = desktopItemSize(id);

@@ -71,8 +71,8 @@ function FinanceCard({ onOpen }: { onOpen: () => void }) {
           <span className="text-[13px] font-semibold">本月支出</span>
           <strong className="text-[15px] tabular-nums" style={{ color: HUE.lime.ink }}>{chart ? amount(chart.total) : '—'}</strong>
           <span className="text-[10px]" style={{ color: F.textTertiary }}>{currency}</span>
-          <span className="min-w-0 flex-1 text-[9px] truncate" style={{ color: F.textTertiary }} title={chart?.excludedCategoryNames.join('、') || '未选择排除分类'}>
-            {chart?.excludedCategoryNames.length ? `已排除${chart.excludedCategoryNames.join('、')}` : '未选择排除分类'}
+          <span className="min-w-0 flex-1 text-[9px] truncate" style={{ color: F.textTertiary }} title={chart?.excludedCategoryNames.length ? '已排除所选分类' : '未选择排除分类'}>
+            {chart?.excludedCategoryNames.length ? '已排除所选分类' : '未选择排除分类'}
           </span>
         </div>
         <div className="flex p-0.5" style={{ background: F.surfaceSunken, borderRadius: R.medium }} onClick={e => e.stopPropagation()}>
