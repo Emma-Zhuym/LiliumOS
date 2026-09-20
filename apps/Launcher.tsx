@@ -70,7 +70,7 @@ const DesktopClock = React.memo(() => {
         );
     }
 
-        return (
+    return (
         <div className="w-full flex flex-col mb-5 mt-5 relative animate-fade-in" style={{ color: contentColor }}>
             {/* 顶部装饰 — 状态胶囊 + 细线 */}
             <div className="flex items-center gap-2 mb-3 opacity-90">
@@ -140,6 +140,9 @@ const CharacterWidget = React.memo(({
     const acnh = theme.skin === 'animalcrossing'; // 动森彩蛋：会"说话"的村民卡
     // 卡片底的虚化头像画在 CSS background-image 上，吃不到 TokenImg 的解析，这里自己解析一次。
     const avatarUrl = useBlobRefUrl(char?.avatar);
+    const fixedRowCardStyle: React.CSSProperties = fixedRow
+        ? { height: 'calc(var(--launcher-cell) + 12px)', top: '-12px' }
+        : {};
 
     // 动森：村民头像 + AC 对话气泡（显示最近消息，点开聊天）
     if (acnh) {
@@ -178,7 +181,7 @@ const CharacterWidget = React.memo(({
     }
 
     return (
-        <div className="mb-3 group animate-fade-in">
+        <div className="mb-3 group animate-fade-in" style={fixedRow ? { height: 'var(--launcher-cell)' } : undefined}>
              <div
                 className={`relative ${fixedRow ? '' : 'h-24'} w-full overflow-hidden rounded-3xl cursor-pointer transition-transform duration-300 active:scale-[0.98]`}
                 onClick={onClick}
@@ -186,19 +189,19 @@ const CharacterWidget = React.memo(({
                     background: 'rgba(224,221,215,0.40)',
                     border: '1px solid rgba(91,72,51,0.07)',
                     boxShadow: '0 5px 16px rgba(91,72,51,0.055)',
-                    ...(fixedRow ? { height: 'var(--launcher-cell)' } : {}),
+                    ...fixedRowCardStyle,
                 } : acnh ? {
                     background: 'rgb(247,243,223)',
                     border: '2px solid #e8e2d6',
                     boxShadow: '0 8px 24px 0 rgba(61,52,40,0.14)',
-                    ...(fixedRow ? { height: 'var(--launcher-cell)' } : {}),
+                    ...fixedRowCardStyle,
                 } : {
                     background: 'rgba(255,255,255,0.08)',
                     backdropFilter: 'blur(24px) saturate(1.4)',
                     WebkitBackdropFilter: 'blur(24px) saturate(1.4)',
                     border: '1px solid rgba(255,255,255,0.12)',
                     boxShadow: '0 8px 32px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.08)',
-                    ...(fixedRow ? { height: 'var(--launcher-cell)' } : {}),
+                    ...fixedRowCardStyle,
                 }}
              >
                  {/* 背景虚化角色头像（动森模式下省略，避免糊在奶油底上） */}
@@ -1134,12 +1137,13 @@ const Launcher: React.FC = () => {
           {Array.from({ length: desktopPages }, (_, idx) => (
               <div
                 key={idx}
-                className={`w-full flex-shrink-0 snap-center snap-always flex flex-col h-full overflow-y-auto no-scrollbar ${idx === 0 ? 'px-5 py-8' : idx === 1 ? 'px-6 pt-12 pb-8' : 'px-5 py-8'}`}
+                className={`w-full flex-shrink-0 snap-center snap-always flex flex-col h-full overflow-y-auto no-scrollbar ${idx === 1 ? 'px-5 py-16' : 'px-5 py-8'}`}
                 style={{ contentVisibility: 'auto', contain: 'layout paint', transform: 'translateZ(0)', containerType: idx === 0 || idx >= 1 ? 'inline-size' : undefined }}
               >
                   {idx === 0 ? <div className="w-full flex-none my-auto" style={{ height: FREE_PAGE_HEIGHT }}><WidgetsPage contentColor={contentColor} openApp={openApp} anniversaries={anniversaries} characters={characters}
-                    acnh={acnh} paper={paper} /></div> : idx === 1 ? <div className="w-full flex-1 flex flex-col" style={{ '--launcher-cell': 'calc((100cqw - 30px) / 4)' } as React.CSSProperties}>
-                    <div className="w-full flex-none flex items-center" style={{ height: FREE_TWO_CELL_HEIGHT }}>
+                    acnh={acnh} paper={paper} /></div> : idx === 1 ? <div className="w-full flex-none flex flex-col my-auto" style={{ '--launcher-cell': 'calc((100cqw - 30px) / 4)', height: FREE_PAGE_HEIGHT } as React.CSSProperties}>
+                    <div className="w-full flex-none flex items-center"
+                      style={{ height: FREE_TWO_CELL_HEIGHT, transform: 'translateY(calc(-0.5 * var(--launcher-cell)))' }}>
                       <DesktopClock />
                     </div>
                     <CharacterWidget char={widgetChar} unreadCount={widgetUnread} lastMessage={lastMessage}
