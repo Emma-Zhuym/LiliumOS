@@ -5,7 +5,7 @@ export interface LauncherExpenseChart {
   days: number[];
   categories: { id: string; name: string; amount: number }[];
   total: number;
-  rentCategoryFound: boolean;
+  excludedCategoryNames: string[];
 }
 
 /** Desktop-only view of expenses. The underlying ledger is never changed. */
@@ -15,10 +15,27 @@ export function buildLauncherExpenseChart(
   year: number,
   month: number,
   currency: string,
+  excludedCategoryIds: string[] = [],
 ): LauncherExpenseChart {
   const categoryMap = new Map(categories.map(category => [category.id, category]));
-  const fixedIds = new Set(categories.filter(category => category.name.trim() === '每月固定').map(category => category.id));
-  const rentIds = new Set(categories.filter(category => category.name.trim() === '房租' && category.parentId && fixedIds.has(category.parentId)).map(category => category.id));
+  const selectedIds = new Set(excludedCategoryIds.filter(id => categoryMap.has(id)));
+  const excludedIds = new Set(selectedIds);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const category of categories) {
+      if (category.parentId && excludedIds.has(category.parentId) && !excludedIds.has(category.id)) {
+        excludedIds.add(category.id);
+        changed = true;
+      }
+    }
+  }
+  const excludedCategoryNames = [...selectedIds].map(id => {
+    const category = categoryMap.get(id);
+    if (!category) return '';
+    const parent = category.parentId ? categoryMap.get(category.parentId) : undefined;
+    return parent ? `${parent.name}／${category.name}` : category.name;
+  }).filter(Boolean);
   const days = Array.from({ length: new Date(year, month, 0).getDate() }, () => 0);
   const byCategory = new Map<string, number>();
   const monthPrefix = `${year}-${String(month).padStart(2, '0')}-`;
@@ -29,7 +46,7 @@ export function buildLauncherExpenseChart(
       || !transaction.dateStr.startsWith(monthPrefix)
       || transaction.currency !== currency
       || reportingTransactionType(transaction, categoryMap) !== 'expense'
-      || rentIds.has(transaction.categoryId)) continue;
+      || excludedIds.has(transaction.categoryId)) continue;
     const day = Number(transaction.dateStr.slice(8, 10));
     if (!Number.isInteger(day) || day < 1 || day > days.length) continue;
     days[day - 1] += transaction.amount;
@@ -45,6 +62,6 @@ export function buildLauncherExpenseChart(
       .map(([id, amount]) => ({ id, name: categoryMap.get(id)?.name || '未分类', amount }))
       .sort((a, b) => b.amount - a.amount),
     total,
-    rentCategoryFound: rentIds.size > 0,
+    excludedCategoryNames,
   };
 }

@@ -5,6 +5,7 @@ import { useOS } from '../../context/OSContext';
 import { FinanceDB } from '../../utils/financeDb';
 import { FINANCE_REVIEW_CHANGED_EVENT } from '../../utils/financeReview';
 import { buildLauncherExpenseChart, type LauncherExpenseChart } from '../../utils/launcherFinanceChart';
+import { LAUNCHER_FINANCE_SETTINGS_CHANGED_EVENT, normalizeLauncherFinanceSettings } from '../../utils/launcherFinanceSettings';
 import { getAllHealthEvents, type PeriodHealthEvent } from '../../utils/healthDb';
 import { calcCycleStatus } from '../../utils/cycleCalc';
 import { SMART_HOME_DEMO_CHANGED_EVENT, fetchSmartHomeDevices, loadDemoSmartHomeDevices, loadSmartHomeConfig, saveDemoSmartHomeDevices, sendSmartHomeCommand, type SmartHomeDevice } from '../../utils/smartHome';
@@ -30,13 +31,15 @@ function FinanceCard({ onOpen }: { onOpen: () => void }) {
         const now = new Date();
         const from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
         const to = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()).padStart(2, '0')}`;
-        const [transactions, categories, settings] = await Promise.all([
+        const [transactions, categories, financeSettings, launcherFinanceSettings] = await Promise.all([
           FinanceDB.getTransactionsByDateRange(from, to), FinanceDB.getCategories(),
           FinanceDB.getSetting<{ defaultCurrency?: string }>('financeSettings'),
+          FinanceDB.getSetting('launcherFinanceSettings'),
         ]);
-        const chosenCurrency = settings?.defaultCurrency || transactions[0]?.currency || 'CNY';
+        const launcherSettings = normalizeLauncherFinanceSettings(launcherFinanceSettings);
+        const chosenCurrency = financeSettings?.defaultCurrency || transactions[0]?.currency || 'CNY';
         if (active) {
-          setChart(buildLauncherExpenseChart(transactions, categories, now.getFullYear(), now.getMonth() + 1, chosenCurrency));
+          setChart(buildLauncherExpenseChart(transactions, categories, now.getFullYear(), now.getMonth() + 1, chosenCurrency, launcherSettings.excludedCategoryIds));
           setCurrency(chosenCurrency);
           setFailed(false);
         }
@@ -47,10 +50,12 @@ function FinanceCard({ onOpen }: { onOpen: () => void }) {
     void refresh();
     const onVisible = () => { if (document.visibilityState === 'visible') void refresh(); };
     window.addEventListener(FINANCE_REVIEW_CHANGED_EVENT, refresh);
+    window.addEventListener(LAUNCHER_FINANCE_SETTINGS_CHANGED_EVENT, refresh);
     document.addEventListener('visibilitychange', onVisible);
     return () => {
       active = false;
       window.removeEventListener(FINANCE_REVIEW_CHANGED_EVENT, refresh);
+      window.removeEventListener(LAUNCHER_FINANCE_SETTINGS_CHANGED_EVENT, refresh);
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, []);
@@ -60,11 +65,15 @@ function FinanceCard({ onOpen }: { onOpen: () => void }) {
   const max = Math.max(1, ...values);
   return (
     <div style={{ ...cardStyle, paddingRight: SP[6] }} className="p-3 flex flex-col" onClick={onOpen} role="button" tabIndex={0} onKeyDown={e => { if (e.target === e.currentTarget && e.key === 'Enter') onOpen(); }}>
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
+      <div className="flex items-center justify-between gap-2 min-w-0">
+        <div className="flex items-center gap-1.5 min-w-0 whitespace-nowrap">
           <ChartBar size={18} weight="regular" style={{ color: HUE.lime.ink }} />
           <span className="text-[13px] font-semibold">本月支出</span>
+          <strong className="text-[15px] tabular-nums" style={{ color: HUE.lime.ink }}>{chart ? amount(chart.total) : '—'}</strong>
           <span className="text-[10px]" style={{ color: F.textTertiary }}>{currency}</span>
+          <span className="min-w-0 flex-1 text-[9px] truncate" style={{ color: F.textTertiary }} title={chart?.excludedCategoryNames.join('、') || '未选择排除分类'}>
+            {chart?.excludedCategoryNames.length ? `已排除${chart.excludedCategoryNames.join('、')}` : '未选择排除分类'}
+          </span>
         </div>
         <div className="flex p-0.5" style={{ background: F.surfaceSunken, borderRadius: R.medium }} onClick={e => e.stopPropagation()}>
           {(['day', 'category'] as const).map(option => (
@@ -76,18 +85,12 @@ function FinanceCard({ onOpen }: { onOpen: () => void }) {
           ))}
         </div>
       </div>
-      <div className="flex items-baseline gap-2 mt-1">
-        <strong className="text-lg tabular-nums" style={{ color: HUE.lime.ink }}>{chart ? amount(chart.total) : '—'}</strong>
-        <span className="text-[10px]" style={{ color: F.textTertiary }}>
-          {chart?.rentCategoryFound ? '已排除每月固定／房租' : '未找到每月固定／房租分类'}
-        </span>
-      </div>
       <div className="flex-1 min-h-0 mt-1 px-2 py-1" style={{ background: HUE.lime.tint, borderRadius: R.small, boxShadow: S.sunken }}>
         {failed ? <div className="h-full flex items-center justify-center text-xs" style={{ color: F.textTertiary }}>账目读取失败</div>
           : !chart ? <div className="h-full flex items-center justify-center text-xs" style={{ color: F.textTertiary }}>正在读取账目</div>
           : chart.total <= 0 ? <div className="h-full flex items-center justify-center text-xs" style={{ color: F.textTertiary }}>本月暂无支出</div>
           : view === 'day' ? (
-            <div className="h-full flex items-end gap-px" role="img" aria-label={`本月每日支出柱状图，合计 ${amount(chart.total)} ${currency}，已排除房租`}>
+            <div className="h-full flex items-end gap-px" role="img" aria-label={`本月每日支出柱状图，合计 ${amount(chart.total)} ${currency}`}>
               {chart.days.map((value, index) => (
                 <div key={index} className="flex-1 min-w-0 flex flex-col justify-end items-center h-full" title={`${index + 1}日 ${amount(value)} ${currency}`}>
                   <div className="w-full" style={{ height: value > 0 ? `${Math.max(4, value / max * 100)}%` : 0, background: HUE.lime.main, borderRadius: R.tiny }} />
@@ -95,7 +98,7 @@ function FinanceCard({ onOpen }: { onOpen: () => void }) {
               ))}
             </div>
           ) : (
-            <div className="h-full overflow-y-auto flex flex-col gap-1" role="img" aria-label="本月各分类支出柱状图，已排除房租">
+            <div className="h-full overflow-y-auto flex flex-col gap-1" role="img" aria-label="本月各分类支出柱状图">
               {chart.categories.map(item => (
                 <div key={item.id} className="flex items-center gap-1 text-[10px] leading-none">
                   <span className="w-10 truncate" title={item.name}>{item.name}</span>

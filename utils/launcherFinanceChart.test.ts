@@ -14,7 +14,7 @@ const tx = (id: string, patch: Partial<FinanceTransaction> = {}): FinanceTransac
 });
 
 describe('desktop expense chart', () => {
-  it('excludes only the nested monthly rent category without changing the ledger', () => {
+  it('excludes the manually selected category without changing the ledger', () => {
     const rows = [
       tx('rent', { categoryId: 'rent', amount: 2000 }),
       tx('food', { amount: 30 }),
@@ -24,11 +24,23 @@ describe('desktop expense chart', () => {
       tx('other-currency', { amount: 50, currency: 'CNY' }),
       tx('other-month', { amount: 70, dateStr: '2026-08-03' }),
     ];
-    const chart = buildLauncherExpenseChart(rows, categories, 2026, 9, 'USD');
+    const chart = buildLauncherExpenseChart(rows, categories, 2026, 9, 'USD', ['rent']);
     expect(chart.days[2]).toBe(45);
     expect(chart.total).toBe(45);
-    expect(chart.rentCategoryFound).toBe(true);
+    expect(chart.excludedCategoryNames).toEqual(['每月固定／房租']);
     expect(chart.categories.map(item => [item.name, item.amount])).toEqual([['餐饮', 30], ['房租', 15]]);
     expect(rows[0].amount).toBe(2000);
+  });
+
+  it('includes every category when no exclusions are selected', () => {
+    const chart = buildLauncherExpenseChart([tx('rent', { categoryId: 'rent', amount: 2000 })], categories, 2026, 9, 'USD');
+    expect(chart.total).toBe(2000);
+    expect(chart.excludedCategoryNames).toEqual([]);
+  });
+
+  it('excludes child categories when a parent is selected', () => {
+    const chart = buildLauncherExpenseChart([tx('rent', { categoryId: 'rent', amount: 2000 })], categories, 2026, 9, 'USD', ['fixed']);
+    expect(chart.total).toBe(0);
+    expect(chart.excludedCategoryNames).toEqual(['每月固定']);
   });
 });

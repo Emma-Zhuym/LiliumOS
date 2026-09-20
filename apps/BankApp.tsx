@@ -30,6 +30,12 @@ import {
   reviewStatusForCategory,
 } from '../utils/financeReview';
 import {
+  announceLauncherFinanceSettingsChanged,
+  LAUNCHER_FINANCE_SETTINGS_KEY,
+  normalizeLauncherFinanceSettings,
+  type LauncherFinanceSettings,
+} from '../utils/launcherFinanceSettings';
+import {
   CREDIT_CARD_PAYMENT_CATEGORY_ID,
   findCreditCardPaymentCounterpart,
   isFinanceTransactionReportable,
@@ -2542,6 +2548,8 @@ const AnalyticsTab: React.FC<{
   const [analysisReady, setAnalysisReady] = useState(false);
   const [analysisSaving, setAnalysisSaving] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [launcherFinanceSettings, setLauncherFinanceSettings] = useState<LauncherFinanceSettings>({ excludedCategoryIds: [] });
+  const [launcherSettingsReady, setLauncherSettingsReady] = useState(false);
   const activeCommentKey = useRef('');
   useEffect(() => {
     let active = true;
@@ -2552,6 +2560,16 @@ const AnalyticsTab: React.FC<{
         setAnalysisSettings(settings); setAnalysisReady(true);
       }
     }).catch(() => { if (active) setAnalysisError('分析设置读取失败，请重新进入此页。'); });
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    let active = true;
+    FinanceDB.getSetting(LAUNCHER_FINANCE_SETTINGS_KEY).then(value => {
+      if (active) {
+        setLauncherFinanceSettings(normalizeLauncherFinanceSettings(value));
+        setLauncherSettingsReady(true);
+      }
+    }).catch(() => { if (active) setLauncherSettingsReady(true); });
     return () => { active = false; };
   }, []);
   const saveAnalysisSettings = async (patch: Partial<FinanceAnalysisSettings>) => {
@@ -2575,6 +2593,13 @@ const AnalyticsTab: React.FC<{
     } finally {
       if (pendingAnalysisSettings.current === next || pendingAnalysisSettings.current === savedAnalysisSettings.current) setAnalysisSaving(false);
     }
+  };
+
+  const saveLauncherFinanceSettings = async (excludedCategoryIds: string[]) => {
+    const next = normalizeLauncherFinanceSettings({ excludedCategoryIds });
+    setLauncherFinanceSettings(next);
+    await FinanceDB.saveSetting(LAUNCHER_FINANCE_SETTINGS_KEY, next);
+    announceLauncherFinanceSettingsChanged();
   };
 
 
@@ -2874,6 +2899,38 @@ const AnalyticsTab: React.FC<{
 
       <FinanceAnalysisPanel from={fromDate} to={toDate} monthly={period === 'year'} result={analysis} currency={activeCurrency} ready={analysisReady}
         saving={analysisSaving} error={analysisError} onSettingsChange={saveAnalysisSettings} />
+
+      <details className="mb-4 p-4" style={{ background: F.surface, borderRadius: R.bigCard, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}>
+        <summary className="cursor-pointer text-sm font-medium" style={{ color: F.textSecondary }}>桌面小组件排除分类</summary>
+        <p className="text-[11px] leading-relaxed mt-2 mb-3" style={{ color: F.textTertiary }}>
+          这里只影响桌面上的“本月支出”小组件，不会改动流水或分析结果。选择一级分类时会连同它的子分类一起排除。
+        </p>
+        {!launcherSettingsReady ? (
+          <div className="text-xs" style={{ color: F.textTertiary }}>读取中…</div>
+        ) : categories.length === 0 ? (
+          <div className="text-xs" style={{ color: F.textTertiary }}>暂无可选分类</div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            {categories.map(category => {
+              const parent = category.parentId ? catMap.get(category.parentId) : undefined;
+              const checked = launcherFinanceSettings.excludedCategoryIds.includes(category.id);
+              return (
+                <label key={category.id} className="flex items-center gap-2 min-w-0 px-3 py-2 cursor-pointer" style={{ background: checked ? HUE.lime.tint : F.surfaceSunken, borderRadius: R.medium, boxShadow: checked ? S.raisedSoft : S.sunken }}>
+                  <input type="checkbox" checked={checked} onChange={event => {
+                    const next = event.target.checked
+                      ? [...launcherFinanceSettings.excludedCategoryIds, category.id]
+                      : launcherFinanceSettings.excludedCategoryIds.filter(id => id !== category.id);
+                    void saveLauncherFinanceSettings(next);
+                  }} className="accent-lime-600 shrink-0" />
+                  <span className="truncate text-xs" style={{ color: F.textPrimary }} title={parent ? `${parent.name}／${category.name}` : category.name}>
+                    {parent ? `${parent.name}／` : ''}{category.name}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        )}
+      </details>
 
       <details className="mb-5">
         <summary className="text-sm font-medium py-3 cursor-pointer" style={{ color: F.textSecondary }}>分类分布</summary>
