@@ -94,8 +94,8 @@ const DesktopClock = React.memo(() => {
             {/* 主时钟 */}
             <div className="flex items-end gap-4">
                 <div className="relative">
-                    <div className={`${paper ? 'text-[clamp(4rem,19vw,6.5rem)] font-semibold tracking-[-0.055em] drop-shadow-[0_2px_0_rgba(255,255,255,0.34)]' : 'text-[clamp(4.25rem,20vw,7.25rem)] font-black tracking-tighter drop-shadow-2xl'} leading-[0.84]`}
-                        style={{ fontFamily: paper ? `'Iowan Old Style', 'Baskerville', 'Times New Roman', serif` : `'Space Grotesk', 'SF Pro Display', sans-serif`, fontFeatureSettings: '"tnum"' }}>
+                    <div className={`${paper ? 'text-[clamp(5rem,24vw,8rem)] font-normal tracking-[-0.045em] drop-shadow-[0_2px_0_rgba(255,255,255,0.34)]' : 'text-[clamp(4.5rem,21vw,7.5rem)] font-black tracking-tighter drop-shadow-2xl'} leading-[0.82]`}
+                        style={{ fontFamily: paper ? `'DM Serif Display', 'Iowan Old Style', 'Baskerville', 'Times New Roman', serif` : `'Space Grotesk', 'SF Pro Display', sans-serif`, fontFeatureSettings: '"tnum"' }}>
                         <span>{virtualTime.hours.toString().padStart(2, '0')}</span>
                         <span className="opacity-35 font-thin mx-0.5 animate-pulse">:</span>
                         <span>{virtualTime.minutes.toString().padStart(2, '0')}</span>
@@ -1243,7 +1243,7 @@ const Launcher: React.FC = () => {
                   {idx === 0 ? <div className="w-full flex-none my-auto" style={{ height: FREE_PAGE_HEIGHT }}><WidgetsPage contentColor={contentColor} openApp={openApp} anniversaries={anniversaries} characters={characters}
                     acnh={acnh} paper={paper} /></div> : idx === 1 ? <div className="w-full flex-none flex flex-col my-auto" style={{ '--launcher-cell': 'calc((100cqw - 30px) / 4)', height: FREE_PAGE_HEIGHT } as React.CSSProperties}>
                     <div className="w-full flex-none flex items-center"
-                      style={{ height: FREE_TWO_CELL_HEIGHT, transform: 'translateY(calc(-0.5 * var(--launcher-cell)))' }}>
+                      style={{ height: FREE_TWO_CELL_HEIGHT, transform: 'translateY(calc(-0.28 * var(--launcher-cell)))' }}>
                       <DesktopClock />
                     </div>
                     <CharacterWidget char={widgetChar} unreadCount={widgetUnread} lastMessage={lastMessage}
