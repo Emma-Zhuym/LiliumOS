@@ -119,6 +119,40 @@ export function moveDesktopItem(layout: DesktopLayout, id: string, destination: 
   return result;
 }
 
+/** Exchange a fixed-home icon with a free-grid icon, preserving all twelve home slots. */
+export function swapHomeDesktopItem(order: string[], layout: DesktopLayout, homeId: string, desktopId: string): { order: string[]; layout: DesktopLayout } | null {
+  const homeIndex = order.indexOf(homeId);
+  const desktopIndex = order.indexOf(desktopId);
+  const desktopPosition = layout[desktopId];
+  if (homeIndex < 0 || desktopIndex < 0 || homeIndex === desktopIndex || !desktopPosition ||
+      desktopItemSize(homeId).cols !== 1 || desktopItemSize(homeId).rows !== 1 ||
+      desktopItemSize(desktopId).cols !== 1 || desktopItemSize(desktopId).rows !== 1) return null;
+  const nextOrder = [...order];
+  nextOrder[homeIndex] = desktopId;
+  nextOrder[desktopIndex] = homeId;
+  const nextLayout = { ...layout };
+  delete nextLayout[desktopId];
+  nextLayout[homeId] = desktopPosition;
+  return { order: nextOrder, layout: nextLayout };
+}
+
+/** Replace one dock app with a home or free-grid app, returning the displaced app to that slot. */
+export function swapDockApp(dockOrder: string[], appOrder: string[], layout: DesktopLayout, dockId: string, appId: string): { dockOrder: string[]; appOrder: string[]; layout: DesktopLayout } | null {
+  const dockIndex = dockOrder.indexOf(dockId);
+  const appIndex = appOrder.indexOf(appId);
+  if (dockIndex < 0 || appIndex < 0 || dockId === appId || desktopItemSize(appId).cols !== 1 || desktopItemSize(appId).rows !== 1) return null;
+  const nextDockOrder = [...dockOrder];
+  const nextAppOrder = [...appOrder];
+  nextDockOrder[dockIndex] = appId;
+  nextAppOrder[appIndex] = dockId;
+  const nextLayout = { ...layout };
+  if (nextLayout[appId]) {
+    nextLayout[dockId] = nextLayout[appId];
+    delete nextLayout[appId];
+  }
+  return { dockOrder: nextDockOrder, appOrder: nextAppOrder, layout: nextLayout };
+}
+
 export function desktopPageCount(layout: DesktopLayout): number {
   return Math.max(3, ...Object.values(layout).map(position => position.page + 1));
 }

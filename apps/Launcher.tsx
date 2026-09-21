@@ -20,7 +20,7 @@ import { getDailyScheduleForChar } from '../utils/dailySchedule';
 import { sortAnniversariesByNextOccurrence } from '../utils/anniversaryNext';
 import { useLocalDateKey } from '../hooks/useLocalDateKey';
 import { resolveCharTimeZone } from '../utils/timezone';
-import { DESKTOP_COLUMNS, DESKTOP_ROWS, DESKTOP_WIDGET_IDS, defaultDesktopLayout, desktopItemSize, desktopPageCount, moveDesktopItem, normalizeDesktopLayout, type DesktopLayout } from '../utils/launcherDesktopLayout';
+import { DESKTOP_COLUMNS, DESKTOP_ROWS, DESKTOP_WIDGET_IDS, defaultDesktopLayout, desktopItemSize, desktopPageCount, moveDesktopItem, normalizeDesktopLayout, swapDockApp, swapHomeDesktopItem, type DesktopLayout } from '../utils/launcherDesktopLayout';
 import { useContactRemark } from '../utils/contactRemarks'; // [EM: desktop-contact-remark]
 import { F, R, S, SP } from '../utils/clayTokens';
 
@@ -506,11 +506,10 @@ const Launcher: React.FC = () => {
   // 会让它锁在 mount 时的初值。
   const [devDebugVisible, setDevDebugVisible] = useState(() => isDevDebugAvailable());
   useEffect(() => subscribeDevDebugAvailability(setDevDebugVisible), []);
-  const availableGridApps = useMemo(() => {
+  const availableLauncherApps = useMemo(() => {
     return INSTALLED_APPS.filter(app =>
-      !DOCK_APPS.includes(app.id)
       // 「捏脸·开发」仅在开发模式（右下角开发徽标可见或手动解锁时）显示
-      && (app.id !== AppID.CharCreatorDev || devDebugVisible)
+      app.id !== AppID.CharCreatorDev || devDebugVisible
     );
   }, [devDebugVisible]);
 
@@ -519,6 +518,19 @@ const Launcher: React.FC = () => {
       return [...(saved || []).filter((id, index, all) => valid.has(id) && all.indexOf(id) === index), ...available.filter(id => !(saved || []).includes(id))];
   }, []);
 
+  const normalizeDockOrder = useCallback((saved: string[] | undefined) => {
+      const valid = new Set(availableLauncherApps.map(app => app.id));
+      const selected = (saved || []).filter((id, index, all) => valid.has(id as AppID) && all.indexOf(id) === index).slice(0, 4);
+      for (const id of DOCK_APPS) {
+          if (selected.length === 4) break;
+          if (valid.has(id) && !selected.includes(id)) selected.push(id);
+      }
+      return selected;
+  }, [availableLauncherApps]);
+  const [launcherDockOrder, setLauncherDockOrder] = useState<string[]>(() => normalizeDockOrder(theme.launcherDockOrder));
+  const launcherDockOrderRef = useRef(launcherDockOrder);
+  const dockIds = useMemo(() => new Set(launcherDockOrder), [launcherDockOrder]);
+  const availableGridApps = useMemo(() => availableLauncherApps.filter(app => !dockIds.has(app.id)), [availableLauncherApps, dockIds]); // [EM: launcher-editable-dock]
   const folders = useMemo(() => normalizeLauncherFolders(theme.launcherFolders, availableGridApps.map(app => app.id)), [theme.launcherFolders, availableGridApps]);
   const utilityWidgetEnabled = theme.launcherUtilityWidgetEnabled !== false;
   const availableGridIds = useMemo(() => [
@@ -526,9 +538,7 @@ const Launcher: React.FC = () => {
       ...(utilityWidgetEnabled ? [UTILITY_WIDGET_ID] : []),
   ], [availableGridApps, folders, utilityWidgetEnabled]);
   const [launcherAppOrder, setLauncherAppOrder] = useState<string[]>(() => normalizeOrder(theme.launcherAppOrder, availableGridIds));
-  const [launcherDockOrder, setLauncherDockOrder] = useState<string[]>(() => normalizeOrder(theme.launcherDockOrder, DOCK_APPS));
   const launcherAppOrderRef = useRef(launcherAppOrder);
-  const launcherDockOrderRef = useRef(launcherDockOrder);
 
   useEffect(() => {
       setLauncherAppOrder(prev => {
@@ -541,10 +551,10 @@ const Launcher: React.FC = () => {
   useEffect(() => { launcherDockOrderRef.current = launcherDockOrder; }, [launcherDockOrder]);
   useEffect(() => {
       if (layoutEditing) return;
-      const next = normalizeOrder(theme.launcherDockOrder, DOCK_APPS);
+      const next = normalizeDockOrder(theme.launcherDockOrder);
       launcherDockOrderRef.current = next;
       setLauncherDockOrder(next);
-  }, [layoutEditing, normalizeOrder, theme.launcherDockOrder]);
+  }, [layoutEditing, normalizeDockOrder, theme.launcherDockOrder]);
 
   const gridItems = useMemo(() => {
       const byId = new Map(availableGridApps.map(app => [app.id, app]));
@@ -794,7 +804,7 @@ const Launcher: React.FC = () => {
       });
       document.body.appendChild(ghost);
       pointer.ghost = ghost;
-      if (pointer.kind === 'desktop') pointer.originLayout = desktopLayoutRef.current;
+      if (pointer.kind === 'desktop' || pointer.kind === 'fixed' || pointer.kind === 'dock') pointer.originLayout = desktopLayoutRef.current; // [EM: launcher-home-cross-page]
       pointer.grabOffsetX = pointer.x - rect.left;
       pointer.grabOffsetY = pointer.y - rect.top;
       pointer.element.classList.add('launcher-dragging');
@@ -808,12 +818,13 @@ const Launcher: React.FC = () => {
       const turn = () => {
           const pointer = layoutPointer.current;
           const scroller = scrollContainerRef.current;
-          if (!pointer?.active || pointer.kind !== 'desktop' || !scroller || layoutPageTurnDirection.current !== direction) {
+          if (!pointer?.active || (pointer.kind !== 'desktop' && pointer.kind !== 'fixed' && pointer.kind !== 'dock') || !scroller || layoutPageTurnDirection.current !== direction) {
               clearLayoutPageTurn();
               return;
           }
           const maxAppPage = Math.max(0, desktopPages - 1);
-          const nextPage = Math.max(0, Math.min(maxAppPage, activePageIndexRef.current + direction));
+          const minPage = pointer.key.startsWith('widget:') ? 2 : 1;
+          const nextPage = Math.max(minPage, Math.min(maxAppPage, activePageIndexRef.current + direction)); // [EM: launcher-home-cross-page]
           if (nextPage === activePageIndexRef.current) {
               clearLayoutPageTurn();
               return;
@@ -845,17 +856,6 @@ const Launcher: React.FC = () => {
       const kind = item.dataset.launcherKind;
       if (!key || !kind) return;
       clearLayoutPressTimer();
-      if (kind === 'fixed') {
-          if (layoutEditing) return;
-          layoutPointer.current = { pointerId: e.pointerId, key, kind, x: e.clientX, y: e.clientY, active: false, element: item };
-          layoutPressTimer.current = setTimeout(() => {
-              if (layoutPointer.current?.pointerId !== e.pointerId) return;
-              suppressLayoutClickUntil.current = Date.now() + 700;
-              setLayoutEditing(true);
-              layoutPointer.current = null;
-          }, 520);
-          return;
-      }
       layoutPointer.current = { pointerId: e.pointerId, key, kind, x: e.clientX, y: e.clientY, active: layoutEditing, element: item };
       if (layoutEditing) {
           activateLayoutDrag(layoutPointer.current);
@@ -889,10 +889,49 @@ const Launcher: React.FC = () => {
           pointer.ghost.style.transform = `translate3d(${e.clientX - (pointer.grabOffsetX || 0)}px, ${e.clientY - (pointer.grabOffsetY || 0)}px, 0) scale(1.055)`;
       }
       const rootRect = e.currentTarget.getBoundingClientRect();
-      if (pointer.kind === 'desktop' && e.clientX <= rootRect.left + 40) queueLayoutPageTurn(-1);
-      else if (pointer.kind === 'desktop' && e.clientX >= rootRect.right - 40) queueLayoutPageTurn(1);
+      if (e.clientX <= rootRect.left + 40) queueLayoutPageTurn(-1);
+      else if (e.clientX >= rootRect.right - 40) queueLayoutPageTurn(1);
       else clearLayoutPageTurn();
       if (pointer.kind === 'desktop') {
+          const dockTarget = desktopItemById.get(pointer.key)?.kind === 'app'
+              ? document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('[data-launcher-kind="dock"]')
+              : null;
+          const dockId = dockTarget?.dataset.launcherItem;
+          if (dockId && launcherDockOrderRef.current.includes(dockId)) {
+              if (pointer.targetElement !== dockTarget) {
+                  pointer.targetElement?.classList.remove('launcher-drop-target');
+                  dockTarget.classList.add('launcher-drop-target');
+                  pointer.targetElement = dockTarget;
+              }
+              pointer.lastTarget = dockId;
+              pointer.lastCell = undefined;
+              if (pointer.originLayout && desktopLayoutRef.current !== pointer.originLayout) {
+                  desktopLayoutRef.current = pointer.originLayout;
+                  setDesktopLayout(pointer.originLayout);
+              }
+              return;
+          }
+          const fixedTarget = !pointer.key.startsWith('widget:')
+              ? document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('[data-launcher-kind="fixed"]')
+              : null;
+          const homeId = fixedTarget?.dataset.launcherItem;
+          if (homeId && fixedHomeIds.has(homeId)) {
+              if (pointer.targetElement !== fixedTarget) {
+                  pointer.targetElement?.classList.remove('launcher-drop-target');
+                  fixedTarget.classList.add('launcher-drop-target');
+                  pointer.targetElement = fixedTarget;
+              }
+              pointer.lastTarget = homeId;
+              pointer.lastCell = undefined;
+              if (pointer.originLayout && desktopLayoutRef.current !== pointer.originLayout) {
+                  desktopLayoutRef.current = pointer.originLayout;
+                  setDesktopLayout(pointer.originLayout);
+              }
+              return;
+          }
+          pointer.targetElement?.classList.remove('launcher-drop-target');
+          pointer.targetElement = undefined;
+          pointer.lastTarget = undefined;
           const grid = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('[data-desktop-page]');
           if (!grid || !pointer.originLayout) return;
           const rect = grid.getBoundingClientRect();
@@ -917,7 +956,13 @@ const Launcher: React.FC = () => {
       const target = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('[data-launcher-item]');
       const targetKey = target?.dataset.launcherItem;
       const targetKind = target?.dataset.launcherKind;
-      const validTarget = !!targetKey && targetKind === pointer.kind && targetKey !== pointer.key;
+      const validTarget = !!targetKey && targetKey !== pointer.key && (
+          (pointer.kind === 'fixed' && (targetKind === 'fixed' ||
+              (targetKind === 'desktop' && desktopItemById.get(targetKey)?.kind !== 'widget' && desktopItemById.has(targetKey)) ||
+              (targetKind === 'dock' && desktopItemById.get(pointer.key)?.kind === 'app')))
+          || (pointer.kind === 'dock' && (targetKind === 'dock' ||
+              ((targetKind === 'fixed' || targetKind === 'desktop') && desktopItemById.get(targetKey)?.kind === 'app')))
+      ); // [EM: launcher-home-cross-page] [EM: launcher-editable-dock]
       if (!validTarget) {
           pointer.targetElement?.classList.remove('launcher-drop-target');
           pointer.targetElement = undefined;
@@ -937,19 +982,74 @@ const Launcher: React.FC = () => {
       clearLayoutPressTimer();
       clearLayoutPageTurn();
       if (pointer?.active) {
+          const dropElement = e
+              ? document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('[data-launcher-item]')
+              : pointer.targetElement;
+          const dropId = dropElement?.dataset.launcherItem;
+          const dropKind = dropElement?.dataset.launcherKind;
           suppressLayoutClickUntil.current = Date.now() + 500;
           pointer.element.style.pointerEvents = '';
           pointer.element.classList.remove('launcher-dragging');
           pointer.ghost?.remove();
           pointer.targetElement?.classList.remove('launcher-drop-target');
+          const swapWithHome = (homeId: string, desktopId: string) => {
+              const swapped = swapHomeDesktopItem(launcherAppOrderRef.current, pointer.originLayout || desktopLayoutRef.current, homeId, desktopId);
+              if (!swapped) return;
+              launcherAppOrderRef.current = swapped.order;
+              setLauncherAppOrder(swapped.order);
+              desktopLayoutRef.current = swapped.layout;
+              setDesktopLayout(swapped.layout);
+              void updateTheme({ launcherAppOrder: swapped.order, launcherDesktopLayout: swapped.layout });
+          }; // [EM: launcher-home-cross-page]
+          const swapWithDock = (dockId: string, appId: string) => {
+              if (desktopItemById.get(appId)?.kind !== 'app') return;
+              const swapped = swapDockApp(launcherDockOrderRef.current, launcherAppOrderRef.current, pointer.originLayout || desktopLayoutRef.current, dockId, appId);
+              if (!swapped) return;
+              launcherDockOrderRef.current = swapped.dockOrder;
+              setLauncherDockOrder(swapped.dockOrder);
+              launcherAppOrderRef.current = swapped.appOrder;
+              setLauncherAppOrder(swapped.appOrder);
+              desktopLayoutRef.current = swapped.layout;
+              setDesktopLayout(swapped.layout);
+              void updateTheme({ launcherDockOrder: swapped.dockOrder, launcherAppOrder: swapped.appOrder, launcherDesktopLayout: swapped.layout });
+          }; // [EM: launcher-editable-dock]
           if (pointer.kind === 'desktop') {
               if (cancelled && pointer.originLayout) {
                   desktopLayoutRef.current = pointer.originLayout;
                   setDesktopLayout(pointer.originLayout);
+              } else if (dropKind === 'dock' && dropId) {
+                  swapWithDock(dropId, pointer.key);
+              } else if (dropKind === 'fixed' && dropId && fixedHomeIds.has(dropId) && !pointer.key.startsWith('widget:')) {
+                  swapWithHome(dropId, pointer.key);
+              } else if (activePageIndexRef.current < 2 && pointer.originLayout) {
+                  desktopLayoutRef.current = pointer.originLayout;
+                  setDesktopLayout(pointer.originLayout);
               } else void updateTheme({ launcherDesktopLayout: desktopLayoutRef.current });
-          } else {
-              if (!cancelled && pointer.lastTarget) reorderByTarget(pointer.kind, pointer.key, pointer.lastTarget);
-              if (!cancelled) void updateTheme({ launcherDockOrder: launcherDockOrderRef.current });
+          } else if (pointer.kind === 'fixed') {
+              if (!cancelled && dropId && dropId !== pointer.key && fixedHomeIds.has(pointer.key)) {
+                  if (dropKind === 'dock') {
+                      swapWithDock(dropId, pointer.key);
+                  } else if (dropKind === 'desktop' && desktopItemById.get(dropId)?.kind !== 'widget' && desktopItemById.has(dropId)) {
+                      swapWithHome(pointer.key, dropId);
+                  } else if (dropKind === 'fixed' && fixedHomeIds.has(dropId)) {
+                      const nextOrder = [...launcherAppOrderRef.current];
+                      const from = nextOrder.indexOf(pointer.key);
+                      const to = nextOrder.indexOf(dropId);
+                      if (from >= 0 && to >= 0) {
+                          [nextOrder[from], nextOrder[to]] = [nextOrder[to], nextOrder[from]];
+                          launcherAppOrderRef.current = nextOrder;
+                          setLauncherAppOrder(nextOrder);
+                          void updateTheme({ launcherAppOrder: nextOrder });
+                      }
+                  }
+              }
+          } else if (!cancelled && dropId && dropId !== pointer.key) {
+              if (dropKind === 'fixed' || dropKind === 'desktop') {
+                  swapWithDock(pointer.key, dropId);
+              } else if (dropKind === 'dock') {
+                  reorderByTarget(pointer.kind, pointer.key, dropId);
+                  void updateTheme({ launcherDockOrder: launcherDockOrderRef.current });
+              }
           }
       }
       layoutPointer.current = null;
@@ -1151,7 +1251,7 @@ const Launcher: React.FC = () => {
                     <div className="flex-1 grid grid-cols-4 auto-rows-[4.5rem] place-items-center gap-x-2 gap-y-6 animate-fade-in relative">
                     {fixedHomeItems.map(item => {
                       const id = item.kind === 'app' ? item.app.id : item.folder.id;
-                      return <div key={id} data-launcher-item={id} data-launcher-kind="fixed" className="min-w-0 flex items-center justify-center">
+                      return <div key={id} data-launcher-item={id} data-launcher-kind="fixed" className={`min-w-0 flex items-center justify-center ${layoutEditing ? 'launcher-edit-item' : ''}`}>
                         {item.kind === 'app' ? <AppIcon app={item.app} onClick={() => { if (!layoutEditing) openApp(item.app.id); }} size="md" />
                           : <LauncherFolderIcon folder={item.folder} onOpen={() => { if (!layoutEditing) setOpenFolderId(item.folder.id); }} />}
                       </div>;
