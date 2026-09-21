@@ -33,6 +33,8 @@ const DesktopClock = React.memo(() => {
     const { virtualTime, theme } = useOS();
     const contentColor = theme.contentColor || '#ffffff';
     const paper = theme.skin !== 'animalcrossing' && theme.skin !== 'mobilegame' && theme.skin !== 'tamagotchi' && isPaperWallpaper(theme.wallpaper);
+    const serifClock = theme.skin !== 'animalcrossing' && theme.skin !== 'mobilegame' && theme.skin !== 'tamagotchi'
+        && (theme.desktopVariant === 'paper' || (!theme.desktopVariant && paper));
 
     const days = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
     const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
@@ -94,8 +96,8 @@ const DesktopClock = React.memo(() => {
             {/* 主时钟 */}
             <div className="flex items-end gap-4">
                 <div className="relative">
-                    <div className={`${paper ? 'text-[clamp(5rem,24vw,8rem)] font-normal tracking-[-0.045em] drop-shadow-[0_2px_0_rgba(255,255,255,0.34)]' : 'text-[clamp(4.5rem,21vw,7.5rem)] font-black tracking-tighter drop-shadow-2xl'} leading-[0.82]`}
-                        style={{ fontFamily: paper ? `'DM Serif Display', 'Iowan Old Style', 'Baskerville', 'Times New Roman', serif` : `'Space Grotesk', 'SF Pro Display', sans-serif`, fontFeatureSettings: '"tnum"' }}>
+                    <div className={`${serifClock ? 'text-[clamp(5rem,24vw,8rem)] font-normal tracking-[-0.045em] drop-shadow-[0_2px_0_rgba(255,255,255,0.34)]' : 'text-[clamp(4.5rem,21vw,7.5rem)] font-black tracking-tighter drop-shadow-2xl'} leading-[0.82]`}
+                        style={{ fontFamily: serifClock ? `'DM Serif Display', 'Iowan Old Style', 'Baskerville', 'Times New Roman', serif` : `'Space Grotesk', 'SF Pro Display', sans-serif`, fontFeatureSettings: '"tnum"' }}>
                         <span>{virtualTime.hours.toString().padStart(2, '0')}</span>
                         <span className="opacity-35 font-thin mx-0.5 animate-pulse">:</span>
                         <span>{virtualTime.minutes.toString().padStart(2, '0')}</span>
