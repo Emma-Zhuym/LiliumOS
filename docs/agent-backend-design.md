@@ -1,4 +1,4 @@
-# LiliumOS Agent Backend · 接口与数据表设计（草案 v0.1）
+# LiliumOS Agent Backend · 接口与数据表设计（草案 v0.2）
 
 > 状态：设计草案，未实施
 >
@@ -7,6 +7,10 @@
 > 前置文档：[`agent-backend-phase0-audit.md`](./agent-backend-phase0-audit.md)（为什么是纯 Mac mini、2.1 的硬性约束）
 >
 > 读法：每节先有一段「🐾 小帕讲人话」给阿萌，后面是给实现者（Claude / Codex）看的规格。两部分说的是同一件事。
+>
+> 审查记录：v0.2 按 Elias 的审查意见修订（2026-09-22），改动汇总见文末第 10 节。
+
+**使用场景前提**（决定优先级）：阿萌目前基本只在手机上用 PWA；Mac mini 每天休眠；角色自己的睡眠窗口设得比 mini 休眠更宽。因此多设备 ack、设备分权不挡第一阶段；工具副作用的幂等、真实互动判断、Codex 故障分类是第一优先。
 
 ---
 
@@ -129,6 +133,9 @@ CREATE TABLE characters (
   heartbeat_generation  INTEGER NOT NULL DEFAULT 0,   -- 关闭/改频率时 +1，旧链自动作废
   daily_model_budget    INTEGER NOT NULL DEFAULT 12,  -- 每天最多调用模型次数
   message_cooldown_min  INTEGER NOT NULL DEFAULT 90,  -- 两次主动消息的最小间隔
+  last_user_interaction_at TEXT,             -- 在场信号写入，见 3.4
+  heartbeat_paused      TEXT,                 -- 非空即暂停，值为原因：'codex_auth' | 'manual'
+  heartbeat_paused_at   TEXT,
   updated_at            TEXT NOT NULL
 );
 ```
@@ -265,6 +272,52 @@ CREATE TABLE tool_audit (
 );
 ```
 
+### 2.7.1 `tool_calls` — 写操作的「先记意图、再执行」
+
+> 🐾 **小帕讲人话**
+>
+> Elias 担心的场景是：管家帮你建了个提醒，**提醒已经建好了**，但管家还没来得及在本子上记「做完了」就断电了。重启后管家一看本子，以为没做，再建一遍——你就收到两个一样的提醒。
+>
+> 解决办法是**先写后做、重来先查**：
+>
+> 1. 动手之前，先在本子上写「我**打算**建一个提醒，编号 X」。
+> 2. 建提醒时，把编号 X 悄悄写进提醒的备注里。
+> 3. 建好了，本子上改成「已完成」。
+> 4. 重启后看到一条只有「打算」、没有「已完成」的记录，**不许直接重做**，先去提醒事项里找有没有带编号 X 的那条：有就补记「已完成」；确实没有才重做；查不了就停下来问你，绝不瞎猜。
+
+```sql
+CREATE TABLE tool_calls (
+  call_key      TEXT PRIMARY KEY,             -- `${job_uuid}:${step}`，同一任务同一步永远同一个 key
+  job_uuid      TEXT NOT NULL,
+  char_id       TEXT NOT NULL,
+  tool_name     TEXT NOT NULL,
+  args          TEXT NOT NULL,                -- 校验后的参数（JSON），已注入 marker
+  marker        TEXT NOT NULL,                -- `lilium:${call_key}`，写进目标条目的备注
+  status        TEXT NOT NULL CHECK (status IN ('intent','done','failed','needs_review')),
+  external_id   TEXT,                         -- 工具返回的条目 ID（提醒 / 日程 ID）
+  result        TEXT,
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);
+```
+
+执行规则（只针对 `background-write` 工具；只读工具不走这张表）：
+
+1. 事务内写入 `status='intent'`，**提交后**才调用工具。
+2. 调用成功 → `done` + `external_id`；工具明确返回失败 → `failed`（此时可按任务重试策略重来，因为目标上确实没有东西）。
+3. 重试或重启时遇到 `intent`：调用该工具对应的**对账函数**，按 marker 查找已存在的条目：
+   - 找到 → 补记 `done`，不再调用；
+   - 确认没有 → 重新调用（同一个 marker）；
+   - 查询失败或该工具没有对账函数 → `needs_review`，任务终止，通知阿萌，**不重试**。
+4. 没有注册对账函数的写工具，不允许进入 `background-write` 档位。
+
+Phase 1 注册的对账函数（参数细节在 mini 上对 `mcp-server-apple-events` 实测后定稿）：
+
+| 工具 | marker 写在哪 | 对账方式 |
+|---|---|---|
+| `reminders_tasks`（新建） | 提醒备注末尾 | 列出目标列表中的提醒，匹配备注里的 marker |
+| `calendar_events`（新建） | 日程备注末尾 | 按目标时间 ±1 天列出日程，匹配备注里的 marker |
+
 服务端硬编码的**永不后台写**名单（优先级高于 `tool_policies`）：删除类、Home Assistant 设备控制、发帖 / 评论、任何支付与转账。
 
 ### 2.8 `model_runs` — 动脑记录（用于预算）
@@ -361,6 +414,8 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
 | POST | `/agent/v1/credentials/put` | `{ ref, baseUrl, model, apiKey }` → 写入钥匙串，**只写不读** |
 | GET  | `/agent/v1/credentials` | 只返回 `[{ ref, baseUrl, model, updatedAt }]`，永不返回 Key |
 
+`heartbeat_paused` 只能由阿萌在设置页清除（`characters/upsert` 传 `heartbeatPaused: null`）；清除 `codex_auth` 前服务端先复核 `codex login status`，未登录则拒绝（`409 CODEX_NOT_LOGGED_IN`）。
+
 开启心跳（`heartbeat_enabled` 0→1）或改 `heartbeat_every_min` 时，服务端把 `heartbeat_generation` +1，并在约 3 分钟后排第一跳。旧代次的心跳任务到点发现代次不符，直接 `cancelled`。
 
 ### 3.4 近况快照
@@ -368,6 +423,7 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
 | 方法 | 路径 | 作用 |
 |---|---|---|
 | POST | `/agent/v1/characters/snapshot` | 上传一个角色的快照 |
+| POST | `/agent/v1/characters/presence` | 在场信号：阿萌刚给这个角色发了消息 |
 
 ```json
 {
@@ -380,13 +436,31 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
     "timezone":   "America/Chicago",
     "sleepWindow": { "start": "00:30", "end": "08:00" },
     "todaySchedule": [ { "start": "09:00", "end": "11:00", "title": "……", "availability": "busy" } ],
+    "lastInteraction": { "userAt": "2026-09-22T13:58:10.000Z", "charAt": "2026-09-22T13:58:40.000Z" },
     "recentMessages": [ { "role": "user", "at": "…", "text": "……" } ],
-    "openThreads": [ "答应周末一起看展" ]
+    "boundaries": [
+      { "text": "工作日晚上 11 点后不要催我睡觉", "kind": "preference", "confirmedAt": "…", "source": "settings" },
+      { "text": "我们是恋人关系", "kind": "relationship", "confirmedAt": "…", "source": "settings" }
+    ],
+    "openThreads": [
+      { "text": "周末一起看展", "source": "user_said", "messageId": "…", "confirmed": true },
+      { "text": "阿萌可能想换个工作日程", "source": "inferred", "confirmed": false }
+    ]
   }
 }
 ```
 
+字段规则：
+
+- `lastInteraction`：最后一条**真实**用户消息与角色消息的时间，取自消息本身的时间戳，不是快照上传时间。
+- `boundaries`：只收**已确认**的关系设定与偏好边界。Phase 1 来源是设置页里阿萌手动维护的列表；以后接记忆系统时，只允许导入阿萌确认过的条目。没有 `confirmedAt` 的条目服务端拒收。
+- `openThreads`：未完事项必须带来源和确认状态。`source` 取值 `user_said`（阿萌亲口说的，需带 `messageId`）/ `char_said`（角色自己许的）/ `inferred`（推测）。
+  - `inferred` 一律 `confirmed: false`，服务端强制，前端传 `true` 也会被改回 `false`。
+  - 拼提示词时，未确认事项只能以「可能」「也许」呈现，并附一句硬性指令：**不得把未确认事项说成阿萌的承诺或已约定的事**。
+
+
 - `recentMessages` 最多 30 条，每条截断到 500 字；图片、语音只留占位描述。
+- 另有**在场信号** `POST /agent/v1/characters/presence { charId, userAt }`：阿萌每发一条消息就发一次（不防抖、失败静默），只更新 `characters.last_user_interaction_at`（只增不减），不带正文。这样即使快照防抖还没上传，后端也知道阿萌刚说过话。
 - 触发时机：每轮聊天结束后 30s 防抖上传；打开 App 时补传一次。
 - 快照只是「最近的样子」，**不是记忆**。长期记忆、Continuity State 的确认流程在 Phase 2 另开文档。
 
@@ -454,12 +528,11 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
   for job in due:
     if 在 quiet 时段 && job.char_id 非空 → 跳过（保持 pending，出 quiet 后再按过期规则处理）
     if job.expires_at && now > job.expires_at → status='expired'; continue
-    if 刚从休眠醒来 && job.missed_policy='drop' && run_at < 醒来时刻 - 5min → 'expired'; continue
     claim(job) 失败 → continue
     run(job)（带 30s 续租）→ done / failed(重试退避 1m, 5m, 30m) / expired
 ```
 
-醒来判定：本轮与上轮间隔超过 5 分钟，即视为刚从休眠或停机中恢复。
+不再做「是否刚醒来」的推断：每个任务自带最晚执行时间 `expires_at`，过了就 `expired`。心跳固定为 `run_at + 15 分钟`，所以 mini 休眠或重启后，积压的心跳全部自然过期，不会误补跑。
 
 两个时段不要混淆：
 
@@ -473,7 +546,7 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
 | kind | 谁建 | 过期策略 | 作用 | 阶段 |
 |---|---|---|---|---|
 | `test.ping` | 前端 / CLI | `catch_up` | 读一次日历，发一条 `system_notice` | Phase 1 |
-| `heartbeat` | 调度器 | `drop` | 角色醒来自主判断 | Phase 1 末 |
+| `heartbeat` | 调度器 | `drop`，`expires_at = run_at + 15min` | 角色醒来自主判断 | Phase 1 末 |
 | `ha.watchdog` | 调度器 | `drop` | 每 5 分钟检查 HA，连续失败 3 次用 `utmctl` 重启虚拟机，重启后仍不通就通知 | Phase 1 |
 | `reminder.followup` | 角色 / 前端 | `catch_up` | 到点跟进你交代的事 | Phase 2 |
 
@@ -485,10 +558,29 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
    - 角色在 `sleepWindow` 内；
    - 当日 `model_runs` 次数 ≥ `daily_model_budget`；
    - 距上次该角色 `chat_message` 不足 `message_cooldown_min`；
-   - 快照 `built_at` 在 2 分钟内（阿萌正在和这个角色聊天，让路）；
+   - 阿萌正在和这个角色聊天：`max(快照.lastInteraction.userAt, characters.last_user_interaction_at, 快照.lastInteraction.charAt)` 距今不足 20 分钟（取真实消息时间，不看快照上传时间）；
+   - `heartbeat_paused` 非空；
    - 没有快照。
-4. 调模型：见第 5 节；输出必须符合 `{ action: 'noop'|'message'|'task', text?, task?, reason }`。
-5. `message` → 写 outbox 并推送；`task` → 经白名单执行一个工具，结果写 `tool_audit`，需要时再发消息；`noop` → 只记 `model_runs`。
+4. 调模型：见第 5 节；输出必须符合：
+
+   ```ts
+   type HeartbeatOutput =
+     | { action: 'noop'; reason: string }
+     | { action: 'message'; text: string; reason: string }
+     | { action: 'task'; tool: string; args: object; reason: string };
+   ```
+
+   `tool` 必须是本角色白名单中 `background-read` 或 `background-write` 档位的具体工具名；模型看到的工具清单本身就只含这些。
+5. `noop` → 只记 `model_runs`。
+6. `message` → 写 outbox 并推送。
+7. `task` → **后端二次校验**，任一不过即 `failed`，不执行、不重试：
+   - 工具在白名单且档位允许后台；不在永不后台写名单；
+   - `args` 通过该工具的 MCP `inputSchema` 校验；
+   - 写工具额外要求已注册对账函数（2.7.1）。
+
+   校验通过后按 2.7.1 执行。执行完把结果交回模型**一次**，这一次输出只允许 `noop | message`（不能再接着调工具），用来决定要不要告诉阿萌。这次调用计入每日预算；预算不足时不发消息，只在操作记录里留痕。
+8. 每次心跳最多一个工具调用。
+9. 影子运行（阶段 1c）：以上全部照常判断，但第 6、7 步不真正执行——消息只写入 `model_runs.outcome` 与操作记录，工具只做校验不调用。阿萌在设置页看判断和语气，满意后再打开真实执行。
 
 ---
 
@@ -528,7 +620,17 @@ codex exec --ephemeral --ignore-user-config --skip-git-repo-check \
 - 提示词经 stdin 传入，不出现在进程参数里（`ps` 看不到）。
 - 专用空目录下不放 `AGENTS.md`；`CODEX_HOME` 使用阿萌现有登录。
 - 超时即杀进程，记 `model_runs.error='timeout'`。
-- 连续 3 次登录失败 → `status.deps.codex.ok=false`，停止 Codex 心跳并通知阿萌，不回落到别的 API（避免 Elias 悄悄换了「大脑」）。
+- **任何情况下都不自动切换到其他 API**（避免 Elias 悄悄换了「大脑」）。失败按类型分别处理：
+
+| 类型 | 如何判定 | 处理 |
+|---|---|---|
+| 登录失效 | exec 失败后立即运行 `codex login status` 复核，确认未登录 / 凭据无效 | **立即**置 `heartbeat_paused='codex_auth'`，通知阿萌一次；阿萌重新登录后在设置页手动恢复 |
+| 网络故障 | 连接失败、DNS、超时，且 `login status` 正常 | 本次心跳 `failed`，不重试（下一跳自然再来）；连续 6 小时都是网络故障才通知一次 |
+| 额度 / 限流 | 输出中出现 rate limit / usage limit 类错误 | 本次 `failed`，若能解析出恢复时间则在此之前的心跳直接跳过；每天最多通知一次 |
+| 其他 | 以上都不是 | 本次 `failed`，记录脱敏错误摘要；同类错误连续 3 次通知一次 |
+
+- 所有通知走 `system_notice`，同一原因在未恢复前不重复通知。
+- 错误分类的具体匹配规则在阶段 1c 用真实报错样本定稿，未确认前按「其他」处理，**不会**因为猜测而误暂停。
 
 **API 运行器**：OpenAI 兼容 `/chat/completions`，`response_format` 支持时用 JSON Schema，不支持时用解析容错；Key 从钥匙串按 `cred_ref` 读取。
 
@@ -546,7 +648,7 @@ codex exec --ephemeral --ignore-user-config --skip-git-repo-check \
 | `utils/emAgentSnapshot.ts`（新） | 从角色、聊天、日程生成 3.4 的快照 |
 | `utils/emAgentOutbox.ts`（新） | 取信箱、写入聊天、ack |
 | `apps/AgentBackendApp.tsx` 或设置子页（新） | 配对、设备列表、每角色心跳开关、工具白名单、操作记录 |
-| `hooks/useChatAI.ts` | 1 行：聊天结束后调用快照上传（带防抖，失败静默） |
+| `hooks/useChatAI.ts` | 2 行：用户发送时发在场信号；聊天结束后上传快照（带防抖）。两者都失败静默 |
 | App 启动处 | 1 行：打开时补收 outbox |
 
 后端不可达时前端一律静默降级，只在设置页显示「后台休息中 / 离线」。
@@ -572,10 +674,10 @@ LaunchAgent: cc.liliumos.agent-backend.plist（RunAtLoad + KeepAlive）
 
 | 阶段 | 内容 | 验收 |
 |---|---|---|
-| **1a** | 服务骨架、迁移、配对、多设备推送、outbox、`test.ping` | 手机和电脑**都**收到测试通知；关掉后端，LiliumOS 聊天与 amsg 不受影响 |
+| **1a** | 服务骨架、迁移、配对、推送、outbox、`test.ping` | 手机收到测试通知并能补收 outbox；关掉后端，LiliumOS 聊天与 amsg 不受影响。多设备 ack、设备分权保留表结构但不作为验收项 |
 | **1b** | `ha.watchdog`、`status` 依赖检查、前端设置页 | HA 虚拟机关掉后 15 分钟内收到通知 |
-| **1c** | Codex 运行器实测、心跳（只判断不发送的「影子运行」一周） | 阿萌看影子记录，确认 Elias 的判断和语气可以接受 |
-| **1d** | 心跳真实推送、白名单生效 | 按 4.3 全部闸门验收 |
+| **1c** | Codex 运行器实测与错误分类样本、对账函数实测、心跳影子运行一周 | ① 人为制造「工具已执行、结果未记录」后重启，不产生重复提醒 / 日程；② 阿萌聊天中不触发心跳；③ 登出 Codex 后 Elias 心跳立即暂停并收到一次通知，断网不会误暂停；④ 阿萌看影子记录，确认判断和语气可以接受 |
+| **1d** | 心跳真实推送、工具真实执行 | 按 4.3 全部闸门验收 |
 | 2 | Continuity State、记忆确认流程、ChatGPT 侧 MCP | 另开文档 |
 
 ---
@@ -588,3 +690,19 @@ LaunchAgent: cc.liliumos.agent-backend.plist（RunAtLoad + KeepAlive）
 2. 心跳影子运行期的记录在 LiliumOS 设置页查看（走 `GET /agent/v1/audit`）。
 3. 默认值：安静时段 0:00–7:00；心跳每 90 分钟 ±20%；每日模型预算 12 次；消息冷却 90 分钟。
    换算：清醒 17 小时 ÷ 平均 1.5 小时 ≈ 11 次唤醒，刚好落在预算 12 次以内，一整天都不会提前用完。
+
+---
+
+## 10. v0.2 修订记录（Elias 审查，2026-09-22）
+
+| 意见 | 落在哪 |
+|---|---|
+| 只用手机：多设备 ack、设备分权不挡第一阶段 | 文首使用场景；第 8 节 1a 验收 |
+| `noop / message / task` 够用；`task` 只能选白名单内具体工具和参数，执行前后端再校验，执行后按结果决定是否发消息 | 4.3 第 4、7 步 |
+| ① 工具已生效但结果未记录时，重试不能重复创建 | 2.7.1 `tool_calls` + 对账函数；1c 验收 ① |
+| ② 「正在聊天」看真实互动时间 | 3.4 `lastInteraction` 与 presence 信号；4.3 第 3 步；1c 验收 ② |
+| ③ Codex 确认登录失效才暂停并通知，不切换 API；网络与额度分别处理 | 第 5 节错误分类表；1c 验收 ③ |
+| 快照补充已确认的关系与偏好边界、未完事项的来源与确认状态，推测不得写成承诺 | 3.4 `boundaries` / `openThreads` 字段规则 |
+| 心跳加最晚执行时间，避免重启误补跑 | 4.1、4.2：`expires_at = run_at + 15min`，删除「醒来推断」 |
+| 真实发送前保留影子运行 | 4.3 第 9 步；第 8 节 1c |
+
