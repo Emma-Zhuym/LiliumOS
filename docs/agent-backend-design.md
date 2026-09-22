@@ -1,4 +1,4 @@
-# LiliumOS Agent Backend · 接口与数据表设计（草案 v0.2）
+# LiliumOS Agent Backend · 接口与数据表设计（草案 v0.3）
 
 > 状态：设计草案，未实施
 >
@@ -8,7 +8,7 @@
 >
 > 读法：每节先有一段「🐾 小帕讲人话」给阿萌，后面是给实现者（Claude / Codex）看的规格。两部分说的是同一件事。
 >
-> 审查记录：v0.2 按 Elias 的审查意见修订（2026-09-22），改动汇总见文末第 10 节。
+> 审查记录：v0.2、v0.3 按 Elias 的两轮审查意见修订（2026-09-22），改动汇总见文末第 10、11 节。
 
 **使用场景前提**（决定优先级）：阿萌目前基本只在手机上用 PWA；Mac mini 每天休眠；角色自己的睡眠窗口设得比 mini 休眠更宽。因此多设备 ack、设备分权不挡第一阶段；工具副作用的幂等、真实互动判断、Codex 故障分类是第一优先。
 
@@ -209,7 +209,7 @@ UPDATE jobs
                       AND b.status = 'running' AND b.lease_until > :now);
 ```
 
-`changes = 1` 才算领到。执行中每 30s 续租到 `now + 90s`。启动时把 `status='running' AND lease_until < now` 的行放回 `pending`。
+`changes = 1` 才算领到。执行中每 30s 续租到 `now + 90s`。启动时处理 `status='running' AND lease_until < now` 的行：`attempts < max_attempts` 放回 `pending`，否则记 `failed`（`last_error='lease_lost'`）。
 
 ### 2.6 `outbox` 与 `deliveries` — 信箱与门铃记录
 
@@ -304,12 +304,16 @@ CREATE TABLE tool_calls (
 执行规则（只针对 `background-write` 工具；只读工具不走这张表）：
 
 1. 事务内写入 `status='intent'`，**提交后**才调用工具。
-2. 调用成功 → `done` + `external_id`；工具明确返回失败 → `failed`（此时可按任务重试策略重来，因为目标上确实没有东西）。
-3. 重试或重启时遇到 `intent`：调用该工具对应的**对账函数**，按 marker 查找已存在的条目：
+2. 调用成功 → `done` + `external_id`。
+3. **其余一切结果都不能当成「什么都没发生」**：请求已发出后的超时、断连、5xx、工具返回错误、响应无法解析，都保持 `intent`，交给对账。只有两种情况可以直接记 `failed`：
+   - 请求**确定没有发出**（本地校验失败、连接在发送前就被拒绝）；
+   - 工具返回的是**执行前**的拒绝，且该工具的对账函数声明这类错误不会产生副作用（例如 MCP JSON-RPC `-32602` 参数无效）。
+4. 遇到 `intent`：调用该工具对应的**对账函数**，按 marker 查找已存在的条目：
    - 找到 → 补记 `done`，不再调用；
    - 确认没有 → 重新调用（同一个 marker）；
    - 查询失败或该工具没有对账函数 → `needs_review`，任务终止，通知阿萌，**不重试**。
-4. 没有注册对账函数的写工具，不允许进入 `background-write` 档位。
+5. 没有注册对账函数的写工具，不允许进入 `background-write` 档位。
+6. **对账与任务重试脱钩**：服务启动时、以及之后每 5 分钟，扫描所有 `intent` 超过 2 分钟的行并对账。心跳只跑一次（见 4.3），不会为了对账而重跑心跳；对账补记 `done` 后也不再补发消息，只在操作记录里留痕。
 
 Phase 1 注册的对账函数（参数细节在 mini 上对 `mcp-server-apple-events` 实测后定稿）：
 
@@ -333,11 +337,19 @@ CREATE TABLE model_runs (
   started_at   TEXT NOT NULL,
   duration_ms  INTEGER,
   ok           INTEGER NOT NULL,
-  outcome      TEXT,                          -- 'noop' | 'message' | 'task' | 'error'
+  outcome      TEXT,                          -- 'noop' | 'message' | 'task' | 'skipped' | 'error'
+  shadow       INTEGER NOT NULL DEFAULT 0,    -- 1 = 影子运行，没有真实执行
+  reason       TEXT,                          -- 模型给出的理由（截断 500 字）
+  proposed_text TEXT,                         -- 拟发送 / 已发送的消息正文
+  proposed_tool TEXT,                         -- 拟调用的工具名
+  proposed_args_summary TEXT,                 -- 参数摘要：截断、去 token / 坐标
+  skip_gate    TEXT,                          -- outcome='skipped' 时命中的是哪道闸
   error        TEXT
 );
 CREATE INDEX idx_model_runs_day ON model_runs (char_id, started_at);
 ```
+
+`reason` / `proposed_*` 含聊天内容，只存在 mini 的数据库里，不写日志；保留 30 天后清空这几列（行本身留着用于预算与统计）。设置页的影子记录就是按时间倒序展示这些字段。`outcome='skipped'` 的行不计入每日预算。
 
 ### 2.9 `settings` — 全局设置
 
@@ -416,7 +428,16 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
 
 `heartbeat_paused` 只能由阿萌在设置页清除（`characters/upsert` 传 `heartbeatPaused: null`）；清除 `codex_auth` 前服务端先复核 `codex login status`，未登录则拒绝（`409 CODEX_NOT_LOGGED_IN`）。
 
-开启心跳（`heartbeat_enabled` 0→1）或改 `heartbeat_every_min` 时，服务端把 `heartbeat_generation` +1，并在约 3 分钟后排第一跳。旧代次的心跳任务到点发现代次不符，直接 `cancelled`。
+心跳开关与频率的变更规则（同一个事务内完成）：
+
+| 变更 | `heartbeat_generation` | 其他动作 |
+|---|---|---|
+| 开启（0→1） | +1 | 约 3 分钟后排第一跳 |
+| **关闭（1→0）** | **+1** | 把该角色所有 `pending` 心跳改为 `cancelled` |
+| 改 `heartbeat_every_min` | +1 | 取消旧的 `pending` 心跳，按新频率排下一跳 |
+| 暂停 / 恢复（`heartbeat_paused`） | 不变 | 恢复时若没有 `pending` 心跳则补排一跳 |
+
+关闭时即使有一条心跳正在执行，它在第 4.3 节第 1 步（执行前）和「排下一跳」之前都会重新读取角色行，发现代次不符或 `heartbeat_enabled=0` 就结束且不续排，旧链不会复活。
 
 ### 3.4 近况快照
 
@@ -460,7 +481,7 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
 
 
 - `recentMessages` 最多 30 条，每条截断到 500 字；图片、语音只留占位描述。
-- 另有**在场信号** `POST /agent/v1/characters/presence { charId, userAt }`：阿萌每发一条消息就发一次（不防抖、失败静默），只更新 `characters.last_user_interaction_at`（只增不减），不带正文。这样即使快照防抖还没上传，后端也知道阿萌刚说过话。
+- 另有**在场信号** `POST /agent/v1/characters/presence { charId, userAt }`：阿萌每发一条消息就发一次（不防抖、失败静默），服务端把**自己收到请求的时间**写入 `characters.last_user_interaction_at`（只增不减），忽略请求里的 `userAt`，不带正文。这样手机时间跑快也不会长期封住心跳。这样即使快照防抖还没上传，后端也知道阿萌刚说过话。
 - 触发时机：每轮聊天结束后 30s 防抖上传；打开 App 时补传一次。
 - 快照只是「最近的样子」，**不是记忆**。长期记忆、Continuity State 的确认流程在 Phase 2 另开文档。
 
@@ -529,7 +550,8 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
     if 在 quiet 时段 && job.char_id 非空 → 跳过（保持 pending，出 quiet 后再按过期规则处理）
     if job.expires_at && now > job.expires_at → status='expired'; continue
     claim(job) 失败 → continue
-    run(job)（带 30s 续租）→ done / failed(重试退避 1m, 5m, 30m) / expired
+    run(job)（带 30s 续租）→ done / failed / expired
+    failed 且 attempts < max_attempts → 回 pending，retry_after 退避 1m, 5m, 30m
 ```
 
 不再做「是否刚醒来」的推断：每个任务自带最晚执行时间 `expires_at`，过了就 `expired`。心跳固定为 `run_at + 15 分钟`，所以 mini 休眠或重启后，积压的心跳全部自然过期，不会误补跑。
@@ -546,7 +568,7 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
 | kind | 谁建 | 过期策略 | 作用 | 阶段 |
 |---|---|---|---|---|
 | `test.ping` | 前端 / CLI | `catch_up` | 读一次日历，发一条 `system_notice` | Phase 1 |
-| `heartbeat` | 调度器 | `drop`，`expires_at = run_at + 15min` | 角色醒来自主判断 | Phase 1 末 |
+| `heartbeat` | 调度器 | `drop`，`expires_at = run_at + 15min`，**`max_attempts = 1`** | 角色醒来自主判断。本轮无论模型、网络还是工具失败都直接结束，由已经排好的下一跳接续 | Phase 1 末 |
 | `ha.watchdog` | 调度器 | `drop` | 每 5 分钟检查 HA，连续失败 3 次用 `utmctl` 重启虚拟机，重启后仍不通就通知 | Phase 1 |
 | `reminder.followup` | 角色 / 前端 | `catch_up` | 到点跟进你交代的事 | Phase 2 |
 
@@ -558,7 +580,9 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
    - 角色在 `sleepWindow` 内；
    - 当日 `model_runs` 次数 ≥ `daily_model_budget`；
    - 距上次该角色 `chat_message` 不足 `message_cooldown_min`；
-   - 阿萌正在和这个角色聊天：`max(快照.lastInteraction.userAt, characters.last_user_interaction_at, 快照.lastInteraction.charAt)` 距今不足 20 分钟（取真实消息时间，不看快照上传时间）；
+   - 阿萌正在和这个角色聊天：「最近真实互动时间」距今不足 20 分钟。它取以下两者的较大值，**都以服务端时钟为准**：
+     - `characters.last_user_interaction_at`（在场信号的服务端接收时间）；
+     - 快照里的 `lastInteraction.userAt` / `charAt`，但先夹到不晚于该快照的 `received_at`（手机时间跑快时，最多只能算作「上传那一刻刚聊过」）。
    - `heartbeat_paused` 非空；
    - 没有快照。
 4. 调模型：见第 5 节；输出必须符合：
@@ -580,7 +604,7 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
 
    校验通过后按 2.7.1 执行。执行完把结果交回模型**一次**，这一次输出只允许 `noop | message`（不能再接着调工具），用来决定要不要告诉阿萌。这次调用计入每日预算；预算不足时不发消息，只在操作记录里留痕。
 8. 每次心跳最多一个工具调用。
-9. 影子运行（阶段 1c）：以上全部照常判断，但第 6、7 步不真正执行——消息只写入 `model_runs.outcome` 与操作记录，工具只做校验不调用。阿萌在设置页看判断和语气，满意后再打开真实执行。
+9. 影子运行（阶段 1c）：以上全部照常判断，但第 6、7 步不真正执行——`model_runs.shadow=1`，拟发的消息写入 `proposed_text`，拟调用的工具写入 `proposed_tool` / `proposed_args_summary`，并照常跑第 7 步的二次校验（校验结果也记下来）。影子模式**不创建 `tool_calls` 行**、不写 outbox、不推送，也不进行执行后的第二次模型调用。阿萌在设置页看判断和语气，满意后再打开真实执行。
 
 ---
 
@@ -624,8 +648,8 @@ codex exec --ephemeral --ignore-user-config --skip-git-repo-check \
 
 | 类型 | 如何判定 | 处理 |
 |---|---|---|
-| 登录失效 | exec 失败后立即运行 `codex login status` 复核，确认未登录 / 凭据无效 | **立即**置 `heartbeat_paused='codex_auth'`，通知阿萌一次；阿萌重新登录后在设置页手动恢复 |
-| 网络故障 | 连接失败、DNS、超时，且 `login status` 正常 | 本次心跳 `failed`，不重试（下一跳自然再来）；连续 6 小时都是网络故障才通知一次 |
+| 登录失效 | 任一成立即认定：① `exec` 明确返回 401 / unauthorized；② token refresh 失败；③ `codex login status` 显示未登录。`login status` 只作辅助，它显示「已登录」不能推翻 ①② | **立即**置 `heartbeat_paused='codex_auth'`，通知阿萌一次；阿萌重新登录后在设置页手动恢复 |
+| 网络故障 | 连接失败、DNS、超时，且不属于上一行 | 本次心跳 `failed`（心跳 `max_attempts=1`，下一跳接续）；连续 6 小时都是网络故障才通知一次 |
 | 额度 / 限流 | 输出中出现 rate limit / usage limit 类错误 | 本次 `failed`，若能解析出恢复时间则在此之前的心跳直接跳过；每天最多通知一次 |
 | 其他 | 以上都不是 | 本次 `failed`，记录脱敏错误摘要；同类错误连续 3 次通知一次 |
 
@@ -705,4 +729,16 @@ LaunchAgent: cc.liliumos.agent-backend.plist（RunAtLoad + KeepAlive）
 | 快照补充已确认的关系与偏好边界、未完事项的来源与确认状态，推测不得写成承诺 | 3.4 `boundaries` / `openThreads` 字段规则 |
 | 心跳加最晚执行时间，避免重启误补跑 | 4.1、4.2：`expires_at = run_at + 15min`，删除「醒来推断」 |
 | 真实发送前保留影子运行 | 4.3 第 9 步；第 8 节 1c |
+
+## 11. v0.3 修订记录（Elias 第二轮审查，2026-09-22）
+
+| 意见 | 落在哪 |
+|---|---|
+| 关闭心跳也要原子地 +1 generation，执行前检查 `heartbeat_enabled` | 3.3 心跳变更规则表 |
+| 工具「返回失败」不代表没发生；请求发出后的不确定结果一律保持 `intent` 先对账 | 2.7.1 执行规则第 3 条 |
+| 心跳 `max_attempts=1`，任何失败都由下一跳接续 | 4.1、4.2；第 5 节错误表；2.5 租约恢复按 `max_attempts` 处理 |
+| 影子记录要能看语气：存理由、拟发文字、拟调用工具与参数摘要；影子模式不建 `tool_calls` | 2.8 `model_runs` 新字段与保留期；4.3 第 9 步 |
+| presence 用服务端接收时间 | 3.4 在场信号；4.3 第 3 步（快照时间夹到 `received_at`） |
+| `exec` 返回 401 / refresh 失败即认定登录失效，`login status` 只作辅助 | 第 5 节错误表 |
+| （小帕补充）心跳只跑一次后，崩溃留下的 `intent` 由独立的对账扫描处理，不靠重跑心跳 | 2.7.1 执行规则第 6 条 |
 
