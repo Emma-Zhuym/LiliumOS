@@ -28,7 +28,8 @@ const loadWebPush = async () => {
 export const loadVapid = config => {
     const publicKey = readSecret(config, 'vapid-public');
     const privateKey = readSecret(config, 'vapid-private');
-    const subject = readSecret(config, 'vapid-subject') || 'mailto:liliumos@localhost';
+    // Apple 的推送服务拒收 localhost 之类的 sub（403 BadJwtToken），与 amsg worker 用同一个兜底。
+    const subject = readSecret(config, 'vapid-subject') || 'mailto:noreply@sullyos.app';
     if (!publicKey || !privateKey) return null;
     return { publicKey, privateKey, subject };
 };
