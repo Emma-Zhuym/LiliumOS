@@ -118,6 +118,27 @@ export const MIGRATIONS = [
       notified_at TEXT NOT NULL
     );
     `,
+    // 2：Phase 1c —— 心跳的动脑记录。影子期只往这里写，不写 outbox、不推送（设计 4.3 第 9 步）。
+    `
+    CREATE TABLE model_runs (
+      id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+      job_uuid              TEXT,
+      char_id               TEXT NOT NULL,
+      runtime               TEXT NOT NULL CHECK (runtime IN ('codex','api')),
+      started_at            TEXT NOT NULL,
+      duration_ms           INTEGER,
+      ok                    INTEGER NOT NULL,
+      outcome               TEXT,
+      shadow                INTEGER NOT NULL DEFAULT 0,
+      reason                TEXT,
+      proposed_text         TEXT,
+      proposed_tool         TEXT,
+      proposed_args_summary TEXT,
+      skip_gate             TEXT,
+      error                 TEXT
+    );
+    CREATE INDEX idx_model_runs_day ON model_runs (char_id, started_at);
+    `,
 ];
 
 export const DEFAULT_SETTINGS = {
@@ -126,6 +147,9 @@ export const DEFAULT_SETTINGS = {
     quiet_end: '07:00',
     // 看门狗：连续 3 次检查不通过才重启虚拟机，重启后仍不通只通知一次。
     ha_watchdog: JSON.stringify({ enabled: true, failuresBeforeRestart: 3, everyMin: 5 }),
+    // 影子运行（1c）：心跳照常判断、照常调模型，但不发消息、不执行工具，只记 model_runs。
+    // 关掉它就是 1d 的真实执行，所以默认必须是开着的——忘了关比忘了开危险得多。
+    heartbeat_shadow: JSON.stringify({ enabled: true }),
 };
 
 export const openDb = (path, { now = () => new Date().toISOString() } = {}) => {

@@ -11,7 +11,12 @@
 
 import { ensureDataDir, loadConfig, readSecret } from './config.mjs';
 import { getSetting, openDb } from './db.mjs';
+import { listCharacters } from './characters.mjs';
+import {
+    FIRST_BEAT_DELAY_MS, HEARTBEAT_TTL_MS, createHeartbeatHandler, heartbeatUuid, isShadowMode, nextRunAt,
+} from './heartbeat.mjs';
 import { createHaWatchdogHandler, createTestPingHandler, probeHomeAssistant } from './kinds.mjs';
+import { createApiRunner, createCodexRunnerStub } from './runner.mjs';
 import { createJob, inQuietWindow, recoverStaleLeases, runTick } from './jobs.mjs';
 import { createMcpClient } from './mcp.mjs';
 import { cleanup as cleanupOutbox, enqueue } from './outbox.mjs';
@@ -45,9 +50,58 @@ export const createContext = async (config = loadConfig()) => {
         return { active: inQuietWindow(now, { start, end, timezone }), start, end, timezone };
     };
 
+    /** 给 nextRunAt 用的安静时段判断：排跳时避开 0–7 点，而不是排完再靠巡逻拦。 */
+    const quietForScheduling = {
+        isQuiet: date => quietState(date).active,
+        nextEndAfter: date => {
+            const { end, timezone } = quietState(date);
+            const [hour, minute] = String(end).split(':').map(Number);
+            // 从 date 往后找最近的一个 quiet_end 时刻（最多找两天，跨午夜也够用）。
+            for (let step = 0; step <= 48; step += 1) {
+                const candidate = new Date(date.getTime() + step * 30 * 60_000);
+                const local = new Intl.DateTimeFormat('en-US', {
+                    timeZone: timezone, hour12: false, hour: '2-digit', minute: '2-digit',
+                }).format(candidate).split(':').map(Number);
+                if (local[0] === hour && local[1] >= minute) return candidate;
+            }
+            return new Date(date.getTime() + 60 * 60_000);
+        },
+    };
+
+    /** 排下一跳。心跳链由服务端自己续，不靠 cron，进程重启也不会整条断掉。 */
+    const scheduleNextHeartbeat = (character, now = new Date()) => {
+        if (!character.heartbeatEnabled || character.heartbeatPaused) return null;
+        const runAt = nextRunAt(character, {
+            now,
+            everyMinOverride: config.heartbeatEveryMinOverride,
+            quiet: quietForScheduling,
+        });
+        const { job } = createJob(db, {
+            uuid: heartbeatUuid(character.charId, character.heartbeatGeneration, runAt),
+            kind: 'heartbeat',
+            charId: character.charId,
+            runAt: runAt.toISOString(),
+            missedPolicy: 'drop',
+            expiresAt: new Date(runAt.getTime() + HEARTBEAT_TTL_MS).toISOString(),
+            // 心跳只试一次：这一跳失败就由下一跳接续，不要把旧的判断补跑出来（设计 4.2）。
+            maxAttempts: 1,
+            generation: character.heartbeatGeneration,
+            createdBy: 'scheduler',
+        }, now);
+        return job;
+    };
+
+    const runners = {
+        api: createApiRunner({ config }),
+        codex: createCodexRunnerStub(),
+    };
+
     const handlers = {
         'test.ping': createTestPingHandler({ appleEvents, deliver }),
         'ha.watchdog': createHaWatchdogHandler({ db, config, deliver }),
+        heartbeat: createHeartbeatHandler({
+            db, config, runners, scheduleNext: scheduleNextHeartbeat,
+        }),
     };
 
     const buildStatus = async () => {
@@ -68,19 +122,56 @@ export const createContext = async (config = loadConfig()) => {
                 appleEvents: { ok: appleOk },
                 homeAssistant: { ok: haOk },
                 push: { ok: pusher.ready, detail: pusher.reason, activeDevices },
-                // 1c 才接；先如实报「还没有」，前端据此不显示心跳开关。
+                // Codex 那条路还没接：如实报「没有」，前端据此不给 codex 角色开心跳。
                 codex: { ok: false, detail: 'not-implemented' },
             },
+            heartbeat: {
+                // 影子期：照常判断、照常调模型，但不发消息、不执行工具。
+                shadow: isShadowMode(db),
+                // 试跑提速开着时必须报出来，否则很容易忘了它还在生效。
+                everyMinOverride: config.heartbeatEveryMinOverride || null,
+            },
             // 前端只认这个字段判断功能可用与否（设计约束 4）。
-            capabilities: ['jobs', 'outbox', 'watchdog'],
+            capabilities: ['jobs', 'outbox', 'watchdog', 'heartbeat-shadow'],
         };
     };
 
     return {
         config, db, pusher, appleEvents, handlers, deliver, quietState, buildStatus,
-        // 客户端只允许创建这些种类；心跳等只能由调度器自己排。
+        scheduleNextHeartbeat,
+        // 客户端只允许创建这些种类；心跳只能由调度器自己排（设计 3.5）。
         allowedClientKinds: ['test.ping'],
     };
+};
+
+/**
+ * 给开着心跳、却一条待跑心跳都没有的角色补排一跳。
+ *
+ * 开心跳、恢复暂停、进程重启后掉链子，都靠这里接回来。约 3 分钟后的第一跳（设计 3.3），
+ * 之后每跳自己续下一跳。
+ */
+export const ensureHeartbeatJobs = (ctx, now = new Date()) => {
+    const { db } = ctx;
+    for (const character of listCharacters(db)) {
+        if (!character.heartbeatEnabled || character.heartbeatPaused) continue;
+        const pending = db.prepare(
+            `SELECT COUNT(*) AS n FROM jobs
+              WHERE char_id = ? AND kind = 'heartbeat' AND status IN ('pending','running')`,
+        ).get(character.charId).n;
+        if (pending > 0) continue;
+        const runAt = new Date(now.getTime() + FIRST_BEAT_DELAY_MS);
+        createJob(db, {
+            uuid: heartbeatUuid(character.charId, character.heartbeatGeneration, runAt),
+            kind: 'heartbeat',
+            charId: character.charId,
+            runAt: runAt.toISOString(),
+            missedPolicy: 'drop',
+            expiresAt: new Date(runAt.getTime() + HEARTBEAT_TTL_MS).toISOString(),
+            maxAttempts: 1,
+            generation: character.heartbeatGeneration,
+            createdBy: 'scheduler',
+        }, now);
+    }
 };
 
 /** 看门狗自己续排下一次：不用 cron，也就不会因为进程重启漏掉一整条链。 */
@@ -111,6 +202,7 @@ export const startScheduler = ctx => {
         running = true;
         try {
             ensureWatchdogJob(db);
+            ensureHeartbeatJobs(ctx);
             await runTick(db, { handlers, quiet: ctx.quietState() });
             cleanupOutbox(db);
         } catch (error) {

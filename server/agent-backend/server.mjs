@@ -12,6 +12,9 @@ import { authenticate, createPairingCode, listDevices, putPushSubscription, rede
 import { ack, listUnacked } from './outbox.mjs';
 import { cancelJob, createJob, listJobs } from './jobs.mjs';
 import { characterExists, listCharacters, touchPresence, upsertCharacter } from './characters.mjs';
+import { listCredentials, putCredential } from './credentials.mjs';
+import { listModelRuns } from './heartbeat.mjs';
+import { listSnapshotMeta, putSnapshot } from './snapshots.mjs';
 
 const MAX_BODY_BYTES = 256 * 1024;
 const PREFIX = '/agent/v1';
@@ -156,6 +159,46 @@ export const createRouter = ctx => {
                 // 只回执，不回读时间：客户端不需要，也省得把互动时间到处散播。
                 return { updated: touchPresence(db, charId) };
             },
+        },
+
+        'POST /characters/snapshot': {
+            handle: ({ body, device }) => {
+                const charId = String(body.charId || '');
+                if (!characterExists(db, charId)) {
+                    throw Object.assign(new Error('这个角色还没在后端登记'), {
+                        code: 'UNKNOWN_CHARACTER', status: 400,
+                    });
+                }
+                return putSnapshot(db, {
+                    charId,
+                    schemaVersion: Number(body.schemaVersion) || 1,
+                    builtAt: body.builtAt,
+                    payload: body.payload,
+                    sourceDevice: device.id,
+                });
+            },
+        },
+        'GET /characters/snapshots': {
+            // 只报「有没有、多新」，正文不回读：近况里带着聊天内容。
+            handle: () => ({ snapshots: listSnapshotMeta(db) }),
+        },
+
+        'POST /credentials/put': {
+            handle: ({ body }) => ({ credential: putCredential(config, body) }),
+        },
+        'GET /credentials': {
+            // 只读得到 ref / baseUrl / model，永远读不到 Key。
+            handle: () => ({ credentials: listCredentials(config) }),
+        },
+
+        'GET /audit': {
+            // 影子期就靠这个看角色「本来想说什么」（设计第 9 节第 2 条）。
+            handle: ({ query }) => ({
+                modelRuns: listModelRuns(db, {
+                    charId: query.get('charId'),
+                    limit: query.get('limit'),
+                }),
+            }),
         },
 
         'GET /outbox': {

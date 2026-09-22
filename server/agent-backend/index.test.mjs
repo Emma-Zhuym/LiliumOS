@@ -6,7 +6,7 @@
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { openDb, shouldNotice, clearNotice } from './db.mjs';
+import { MIGRATIONS, openDb, shouldNotice, clearNotice } from './db.mjs';
 import { authenticate, createPairingCode, putPushSubscription, redeemPairingCode, resetPairingFailures, revokeDevice } from './devices.mjs';
 import { ack, enqueue, listUnacked } from './outbox.mjs';
 import { claim, createJob, finish, inQuietWindow, recoverStaleLeases, runTick, toJob } from './jobs.mjs';
@@ -33,7 +33,8 @@ const pairedDevice = db => {
 
 test('迁移可重复执行，不会重复建表', () => {
     const db = freshDb();
-    assert.equal(db.prepare('PRAGMA user_version').get().user_version, 1);
+    // 跟着迁移条数走：加了新迁移不该把这条测试也一起改成新的数字。
+    assert.equal(db.prepare('PRAGMA user_version').get().user_version, MIGRATIONS.length);
     assert.doesNotThrow(() => openDb(':memory:'));
 });
 

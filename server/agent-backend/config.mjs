@@ -48,6 +48,15 @@ export const loadConfig = (env = process.env) => {
         utmVmName: env.AGENT_UTM_VM || '',
         // utmctl 在 App 包里，不在 PATH 上；/usr/bin 受 SIP 保护也放不进去。
         utmctlPath: env.AGENT_UTMCTL || '/Applications/UTM.app/Contents/MacOS/utmctl',
+        /**
+         * 只为试跑用的心跳提速：把每个角色的 heartbeat_every_min 统一按这个分钟数算。
+         * 表上的 CHECK 是 30–480 分钟，试跑时等半小时才看到一次判断太慢，但又不该为了
+         * 试跑放松线上的约束——所以覆盖只发生在排下一跳的时候，库里存的值不变。
+         * 留空即按角色自己的设置走；非空时 /status 会如实报出来，免得忘了它开着。
+         */
+        heartbeatEveryMinOverride: num(env.AGENT_HEARTBEAT_EVERY_MIN, 0),
+        /** 心跳调模型的超时（设计 5：默认 120s）。 */
+        heartbeatTimeoutMs: num(env.AGENT_HEARTBEAT_TIMEOUT_MS, 120_000),
         version: '0.1.0',
         apiVersion: 1,
     };

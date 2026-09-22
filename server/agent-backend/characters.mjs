@@ -44,8 +44,9 @@ export const toCharacter = row => row && ({
 /**
  * 新建或更新角色。只写传进来的字段，没传的保持原样。
  *
- * 心跳开关与频率的换代规则（关闭也要 +1）在 1c 实现心跳时一并加进来，
- * 现在这里不碰 heartbeat_generation，免得留下一个只加一半的实现。
+ * 心跳开关与频率的换代规则见设计 3.3：开启 / 关闭 / 改频率都要 `heartbeat_generation + 1`，
+ * 并把该角色所有 pending 心跳作废。**关闭也要 +1** 是关键——只把 enabled 置 0 的话，
+ * 已经排在队列里的那一跳还会照跑一次，看起来就像「关了还说话」。
  */
 export const upsertCharacter = (db, input, now = new Date()) => {
     const charId = String(input.charId || '').trim();
@@ -74,11 +75,41 @@ export const upsertCharacter = (db, input, now = new Date()) => {
         sets.push(`${column} = ?`);
         values.push(typeof input[key] === 'boolean' ? (input[key] ? 1 : 0) : input[key]);
     }
+
+    // 暂停 / 恢复不换代（设计 3.3 的表最后一行）：恢复时旧链还能接着用。
+    if (input.heartbeatPaused !== undefined) {
+        sets.push('heartbeat_paused = ?', 'heartbeat_paused_at = ?');
+        values.push(input.heartbeatPaused || null, input.heartbeatPaused ? nowIso : null);
+    }
+
+    const enabledChanged = input.heartbeatEnabled !== undefined
+        && (input.heartbeatEnabled ? 1 : 0) !== existing.heartbeat_enabled;
+    const everyMinChanged = input.heartbeatEveryMin !== undefined
+        && Number(input.heartbeatEveryMin) !== existing.heartbeat_every_min;
+    const bumpGeneration = enabledChanged || everyMinChanged;
+    if (bumpGeneration) sets.push('heartbeat_generation = heartbeat_generation + 1');
+
     if (sets.length === 0) return toCharacter(existing);
     values.push(nowIso, charId);
-    db.prepare(`UPDATE characters SET ${sets.join(', ')}, updated_at = ? WHERE char_id = ?`).run(...values);
+    // 换代和作废旧心跳必须一起成或一起不成，否则会留下一条认不出代次的孤儿心跳。
+    db.exec('BEGIN');
+    try {
+        db.prepare(`UPDATE characters SET ${sets.join(', ')}, updated_at = ? WHERE char_id = ?`).run(...values);
+        if (bumpGeneration) cancelPendingHeartbeats(db, charId, nowIso);
+        db.exec('COMMIT');
+    } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+    }
     return toCharacter(getCharacter(db, charId));
 };
+
+/** 作废这个角色所有还没跑的心跳。换代时调用，旧链就此断掉，不会复活。 */
+export const cancelPendingHeartbeats = (db, charId, nowIso = new Date().toISOString()) =>
+    db.prepare(
+        `UPDATE jobs SET status = 'cancelled', updated_at = ?
+          WHERE char_id = ? AND kind = 'heartbeat' AND status = 'pending'`,
+    ).run(nowIso, charId).changes;
 
 /** 在场信号：用服务端收到的时间，忽略客户端自己报的时刻（手机时钟可能跑快）。 */
 export const touchPresence = (db, charId, now = new Date()) => {
