@@ -19,7 +19,7 @@
 > - **门口**：手机和电脑要找管家，得先经过 Tailscale 那扇门（已经有了），门口的分流台看到网址是 `/agent/...` 开头，就把你领到管家这里。
 > - **钥匙**：每台设备第一次来要「配对」，管家发一把专属钥匙。以后每次来都出示钥匙；哪台设备丢了，就只作废那一把。
 > - **笔记本**：管家有一个本子（SQLite 数据库），记着：有哪些设备、每个角色的近况、待办任务、要给你的消息。
-> - **闹钟**：管家每 15 秒看一眼本子上有没有到点的任务，有就去做。凌晨 4–7 点 Mac mini 睡觉，管家也睡。
+> - **闹钟**：管家每 15 秒看一眼本子上有没有到点的任务，有就去做。凌晨 0–7 点是角色的安静时段，谁都不会来打扰你；其中 4–7 点 Mac mini 睡觉，管家也跟着睡。
 > - **信箱**：管家做完事要告诉你，就把消息放进信箱（outbox），再按门铃（推送）。门铃没响也没关系，你下次打开 LiliumOS 会自己去信箱取。
 
 ```text
@@ -125,7 +125,7 @@ CREATE TABLE characters (
   runtime               TEXT NOT NULL CHECK (runtime IN ('codex','api')),
   cred_ref              TEXT,                 -- runtime='api' 时指向钥匙串条目
   heartbeat_enabled     INTEGER NOT NULL DEFAULT 0,
-  heartbeat_every_min   INTEGER NOT NULL DEFAULT 60 CHECK (heartbeat_every_min BETWEEN 30 AND 480),
+  heartbeat_every_min   INTEGER NOT NULL DEFAULT 90 CHECK (heartbeat_every_min BETWEEN 30 AND 480),  -- 实际间隔 ±20% 随机，见 4.3
   heartbeat_generation  INTEGER NOT NULL DEFAULT 0,   -- 关闭/改频率时 +1，旧链自动作废
   daily_model_budget    INTEGER NOT NULL DEFAULT 12,  -- 每天最多调用模型次数
   message_cooldown_min  INTEGER NOT NULL DEFAULT 90,  -- 两次主动消息的最小间隔
@@ -292,7 +292,7 @@ CREATE INDEX idx_model_runs_day ON model_runs (char_id, started_at);
 CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEXT NOT NULL);
 ```
 
-初始键：`timezone`（`America/Chicago`）、`quiet_start`（`04:00`）、`quiet_end`（`07:00`）、`ha_watchdog`（`{"enabled":true,"vm":"Home Assistant","failuresBeforeRestart":3}`）。
+初始键：`timezone`（`America/Chicago`）、`quiet_start`（`00:00`）、`quiet_end`（`07:00`）、`ha_watchdog`（`{"enabled":true,"vm":"Home Assistant","failuresBeforeRestart":3}`）。
 
 ---
 
@@ -325,7 +325,7 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
     "version": "0.1.0",
     "apiVersion": 1,
     "now": "2026-09-22T14:03:00.000Z",
-    "quiet": { "active": false, "start": "04:00", "end": "07:00", "timezone": "America/Chicago" },
+    "quiet": { "active": false, "start": "00:00", "end": "07:00", "timezone": "America/Chicago" },
     "deps": {
       "codex":        { "ok": true,  "detail": "logged-in:chatgpt" },
       "appleEvents":  { "ok": true },
@@ -439,7 +439,7 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
 >
 > 管家的一轮巡逻（每 15 秒）：
 >
-> 1. 现在是不是 4–7 点？是就什么都不做。
+> 1. 现在是不是 0–7 点？是的话，所有跟角色有关的任务都先放着；只有「检查 HA 活没活着」这种不打扰你的系统活儿照常干。（4–7 点 Mac mini 睡着，那就真的什么都不干了。）
 > 2. 翻待办清单，找出到点的任务。
 > 3. 每件任务先问：是不是已经过期了？过期的按它自己的规矩，要么丢掉，要么补做。
 > 4. 心跳任务还要多问几句：这个角色是不是在睡觉？今天的「动脑次数」用完没有？刚给阿萌发过消息吗？任何一条不满足，就安静地跳过，**连模型都不叫**，一分钱额度都不花。
@@ -450,9 +450,9 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
 
 ```text
 每 15s：
-  if 在 quiet 时段：return
   due = SELECT … FROM jobs WHERE status='pending' AND run_at <= now ORDER BY run_at LIMIT 20
   for job in due:
+    if 在 quiet 时段 && job.char_id 非空 → 跳过（保持 pending，出 quiet 后再按过期规则处理）
     if job.expires_at && now > job.expires_at → status='expired'; continue
     if 刚从休眠醒来 && job.missed_policy='drop' && run_at < 醒来时刻 - 5min → 'expired'; continue
     claim(job) 失败 → continue
@@ -460,6 +460,13 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
 ```
 
 醒来判定：本轮与上轮间隔超过 5 分钟，即视为刚从休眠或停机中恢复。
+
+两个时段不要混淆：
+
+| 时段 | 含义 | 影响 |
+|---|---|---|
+| 0:00–7:00 安静时段（`quiet_start` / `quiet_end`） | 角色不主动打扰阿萌 | 只拦 `char_id` 非空的任务；`ha.watchdog` 等系统任务照常 |
+| 4:00–7:00 Mac mini 休眠 | 进程根本不运行 | 醒来后按过期规则处理积压 |
 
 ### 4.2 任务种类
 
@@ -473,7 +480,7 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
 ### 4.3 心跳执行
 
 1. 代次检查：`job.generation != characters.heartbeat_generation` → `cancelled`，不续排。
-2. **先排下一跳**：`uuid = hb:<charId>:<generation>:<nominalRunAt>`，间隔加 ±10% 确定性抖动（与 8-18 版一致，重试时算出同一个 uuid，不会长出两条链）。下一跳若落在 quiet 时段，推到 `quiet_end + 抖动`。
+2. **先排下一跳**：`uuid = hb:<charId>:<generation>:<nominalRunAt>`，间隔加 **±20%** 确定性抖动（默认 90 分钟 → 72–108 分钟之间；抖动由 `charId + generation + 名义时刻` 算出，看起来随机，但重试时算出同一个时刻和 uuid，不会长出两条链）。下一跳若落在 quiet 时段，推到 `quiet_end + 抖动`。
 3. 零模型闸（任一命中即 `done`，`outcome='skipped'`，不调模型）：
    - 角色在 `sleepWindow` 内；
    - 当日 `model_runs` 次数 ≥ `daily_model_budget`；
@@ -575,6 +582,9 @@ LaunchAgent: cc.liliumos.agent-backend.plist（RunAtLoad + KeepAlive）
 
 ## 9. 待决定
 
-1. 配对码是否也允许在 Mac mini 上用二维码显示（手机扫一下更方便），还是 6 位数字就够？
-2. 心跳影子运行期的记录，想在哪里看：LiliumOS 设置页，还是只在 Mac mini 上看日志？
-3. `heartbeat_every_min` 默认 60、每日预算 12 次、消息冷却 90 分钟——这组默认值合适吗？
+已决定（2026-09-22）：
+
+1. 配对只用 6 位数字码，不做二维码。
+2. 心跳影子运行期的记录在 LiliumOS 设置页查看（走 `GET /agent/v1/audit`）。
+3. 默认值：安静时段 0:00–7:00；心跳每 90 分钟 ±20%；每日模型预算 12 次；消息冷却 90 分钟。
+   换算：清醒 17 小时 ÷ 平均 1.5 小时 ≈ 11 次唤醒，刚好落在预算 12 次以内，一整天都不会提前用完。
