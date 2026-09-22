@@ -304,7 +304,7 @@ const startTestServer = async () => {
     const server = createServer(createApp(ctx));
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     const base = `http://127.0.0.1:${server.address().port}/agent/v1`;
-    return { db, server, base, close: () => new Promise(resolve => server.close(resolve)) };
+    return { db, server, base, config: ctx.config, close: () => new Promise(resolve => server.close(resolve)) };
 };
 
 test('HTTP：/health 不需要钥匙，其余接口需要', async t => {
@@ -403,4 +403,34 @@ test('MCP 连不上时，错误信息要指出是哪个服务', async () => {
         () => client.callTool('calendar_events', {}),
         /连不上 MCP 服务（http:\/\/127\.0\.0\.1:59999\/mcp，initialize）/,
     );
+});
+
+test('连通测试：日历连不上也照送消息，并写明原因', async () => {
+    const delivered = [];
+    const handler = createTestPingHandler({
+        appleEvents: { callTool: async () => { throw new Error('连不上 MCP 服务'); } },
+        deliver: async message => { delivered.push(message); },
+    });
+    const result = await handler({ uuid: 'job-2' });
+    assert.equal(result.ok, true);
+    assert.equal(result.calendarOk, false);
+    assert.equal(delivered.length, 1);
+    assert.match(delivered[0].payload.detail, /日历桥接连不上/);
+});
+
+test('端口被占用时给出可读提示，而不是崩溃堆栈', async t => {
+    const app = await startTestServer();
+    t.after(() => app.close());
+    const { startServer } = await import('./server.mjs');
+    const ctx = {
+        db: app.db,
+        config: { ...app.config, host: '127.0.0.1', port: app.server.address().port },
+        allowedClientKinds: [],
+        buildStatus: async () => ({}),
+    };
+    const fatal = await new Promise(resolve => {
+        const second = startServer(ctx, { onFatal: resolve });
+        t.after(() => second.close());
+    });
+    assert.match(fatal, /已被占用/);
 });

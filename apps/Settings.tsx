@@ -1,4 +1,5 @@
 import AppearanceEmergency from '../components/settings/AppearanceEmergency';
+import AgentBackendSection from '../components/settings/AgentBackendSection'; // [EM: agent-backend-panel]
 import FirecrawlSettings from '../components/settings/FirecrawlSettings';
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
@@ -2167,6 +2168,9 @@ const Settings: React.FC = () => {
       <div className="flex-1 overflow-y-auto p-5 space-y-6 no-scrollbar pb-20">
         
         <AppearanceEmergency />
+        {/* [EM-START: agent-backend-panel] */}
+        <AgentBackendSection />
+        {/* [EM-END: agent-backend-panel] */}
         {/* 数据备份区域 */}
         <SettingsSection
             title="备份与恢复 (ZIP)"

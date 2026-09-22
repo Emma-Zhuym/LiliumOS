@@ -19,27 +19,32 @@ const execFileAsync = promisify(execFile);
 export const createTestPingHandler = ({ appleEvents, deliver }) => async job => {
     const startedAt = Date.now();
     let calendarSummary = '（未调用日历）';
+    let calendarOk = true;
     if (appleEvents) {
-        const result = await appleEvents.callTool('calendar_events', {
-            action: 'read',
-            limit: 3,
-        });
-        calendarSummary = flattenContent(result, 300) || '（日历没有返回内容）';
+        try {
+            const result = await appleEvents.callTool('calendar_events', { action: 'read', limit: 3 });
+            calendarSummary = flattenContent(result, 300) || '（日历没有返回内容）';
+        } catch (error) {
+            // 日历连不上不该让这条任务整个失败：它要验证的是「调度 → 信箱 → 推送 → 补收」这条链，
+            // 日历只是顺路看一眼。失败原因照实写进消息里，不掩盖。
+            calendarOk = false;
+            calendarSummary = `日历桥接连不上：${String(error?.message || error).slice(0, 200)}`;
+        }
     }
     await deliver({
         messageId: `ping:${job.uuid}`,
         jobUuid: job.uuid,
         kind: 'system_notice',
         title: '后端连通测试',
-        body: '调度、工具、信箱、推送这条链是通的。',
+        body: calendarOk ? '调度、信箱、推送这条链是通的。' : '这条链是通的，但日历桥接连不上。',
         payload: {
-            text: '后端连通测试成功。',
+            text: calendarOk ? '后端连通测试成功。' : '后端连通测试成功，但日历桥接连不上。',
             detail: calendarSummary,
             createdAt: new Date().toISOString(),
             source: 'test.ping',
         },
     });
-    return { ok: true, durationMs: Date.now() - startedAt, calendarSummary: calendarSummary.slice(0, 200) };
+    return { ok: true, calendarOk, durationMs: Date.now() - startedAt, calendarSummary: calendarSummary.slice(0, 200) };
 };
 
 /**
