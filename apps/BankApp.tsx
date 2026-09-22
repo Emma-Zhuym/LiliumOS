@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import TokenImg from '../components/os/TokenImg'; // [EM: token-img-avatars]
 import { Wallet, Receipt, ChartPie, CaretLeft, CaretRight, CaretDown, Plus, Trash, Gear, CreditCard, PiggyBank, Money, Coffee, ChartLine, ArrowsClockwise, ArrowSquareOut, Clock, Lightbulb, type Icon } from '@phosphor-icons/react';
 import { useOS } from '../context/OSContext';
 import { FinanceDB } from '../utils/financeDb';
@@ -2180,7 +2181,7 @@ const TransactionsTab: React.FC<{
             <div className="flex items-center gap-1.5">
               <span className="text-[10px]" style={{ color: F.textTertiary }}>关于</span>
               {gossipChar.avatar ? (
-                <img src={gossipChar.avatar} className="w-4 h-4 rounded-full object-cover" />
+                <TokenImg value={gossipChar.avatar} className="w-4 h-4 rounded-full object-cover" />
               ) : (
                 <div className="w-4 h-4 rounded-full flex items-center justify-center text-[9px]" style={{ background: F.borderStrong, color: F.textSecondary }}>
                   {gossipChar.name[0]}
@@ -3033,7 +3034,7 @@ const AnalyticsTab: React.FC<{
                   }}
                 >
                   {c.avatar ? (
-                    <img src={c.avatar} className="w-4 h-4 rounded-full object-cover" />
+                    <TokenImg value={c.avatar} className="w-4 h-4 rounded-full object-cover" />
                   ) : null}
                   {c.name}
                 </button>
