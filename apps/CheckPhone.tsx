@@ -58,8 +58,9 @@ const PhotoCarouselWidget: React.FC<{ photos: GalleryImage[] }> = ({ photos }) =
     if (!cur) return null;
     return (
         <div className="relative w-full h-full" style={{ background: '#efe9dd' }}>
-            {prev && <img src={prev.url} className="absolute inset-0 w-full h-full object-cover" alt="" />}
-            <img key={idx} src={cur.url} className="absolute inset-0 w-full h-full object-cover" style={{ animation: 'emPhotoFade 0.8s ease both' }} alt="" loading="lazy" />
+            {/* 相册 url 会被「优化资源存储」换成 blobref 令牌，裸 <img> 加载不了，必须走 TokenImg */}
+            {prev && <TokenImg value={prev.url} className="absolute inset-0 w-full h-full object-cover" alt="" />}
+            <TokenImg key={idx} value={cur.url} className="absolute inset-0 w-full h-full object-cover" style={{ animation: 'emPhotoFade 0.8s ease both' }} alt="" loading="lazy" />
             <style>{`@keyframes emPhotoFade { from { opacity: 0 } to { opacity: 1 } }`}</style>
         </div>
     );
@@ -3459,7 +3460,7 @@ ${olderText}
                     <div className="shrink-0 ml-3 flex flex-col items-center gap-1">
                         <div className="w-12 h-12 rounded-full overflow-hidden shadow-sm" style={{ border: `2px solid ${CF.border}` }}>
                             {targetChar?.avatar
-                                ? <img src={targetChar.avatar} className="w-full h-full object-cover" alt="" />
+                                ? <TokenImg value={targetChar.avatar} className="w-full h-full object-cover" alt="" />
                                 : <div className="w-full h-full flex items-center justify-center text-lg" style={{ background: '#efe9dd', color: CF.sub }}>?</div>}
                         </div>
                         <span className="text-[10px] font-medium truncate max-w-[60px]" style={{ color: CF.text }}>{charName}</span>

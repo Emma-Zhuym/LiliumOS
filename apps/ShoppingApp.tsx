@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import TokenImg from '../components/os/TokenImg'; // [EM: token-img-avatars]
 import { CaretLeft, CaretRight, CaretDown, Plus, Minus, House, Package, CheckCircle, ShoppingCart, Clock, PencilSimple, Trash } from '@phosphor-icons/react';
 import { useOS } from '../context/OSContext';
 import { ShoppingDB, type ShopProduct, type CartItem, type ShopOrder } from '../utils/shoppingDb';
@@ -51,7 +52,8 @@ const mono = (s: string) => s?.trim()[0] || '?';
 
 const CharAvatar: React.FC<{ name: string; avatar?: string; size: number; bg?: string }> = ({ name, avatar, size, bg }) => {
   if (avatar) {
-    return <img src={avatar} alt={name} style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover' }} />;
+    // 角色头像可能是 blobref 令牌；TokenImg 对非令牌值原样透传，行为与普通 <img> 一致
+    return <TokenImg value={avatar} alt={name} style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover' }} />;
   }
   return (
     <div className="flex items-center justify-center shrink-0" style={{ width: size, height: size, borderRadius: '50%', background: bg || F.surfaceSunken, fontSize: size * 0.38, fontWeight: 700, color: F.textTertiary }}>
