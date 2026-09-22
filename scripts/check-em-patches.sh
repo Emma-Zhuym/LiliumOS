@@ -28,7 +28,10 @@ check() {
 echo "── EM 独立文件 ──"
 check "通讯录组件" components/chat/ContactsList.tsx "ContactsList"
 check "单角色聊天记录搜索" components/chat/ChatSearch.tsx "按日期查找"
-check "聊天页搜索入口" apps/Chat.tsx "搜索聊天记录"
+# 搜索入口 2026-08 搬进了聊天设置页（ChatSearch 组件），原来那句「搜索聊天记录」的文案没了。
+# 锚点改钉真正的接线：组件引入 + 打开它的回调，改文案不会再误报功能丢失。
+check "聊天页搜索入口" apps/Chat.tsx "import ChatSearch from"
+check "聊天页搜索开关" apps/Chat.tsx "setShowChatSearch(true)"
 check "双方图片相册同步" utils/galleryMessageSync.ts "syncGalleryImagesFromMessages"
 check "提示词附加包" utils/emPromptAddons.ts "emNotionDiarySection"
 check "Notion 扩展库配置" utils/notionExtraConfig.ts "NotionExtraDatabase"
