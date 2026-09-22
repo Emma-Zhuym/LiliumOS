@@ -1,4 +1,4 @@
-# LiliumOS Agent Backend · 接口与数据表设计（草案 v0.3）
+# LiliumOS Agent Backend · 接口与数据表设计（草案 v0.4）
 
 > 状态：设计草案，未实施
 >
@@ -223,7 +223,7 @@ CREATE TABLE outbox (
   message_id  TEXT NOT NULL UNIQUE,               -- UUID，前端据此去重写入聊天
   char_id     TEXT,
   job_uuid    TEXT,
-  kind        TEXT NOT NULL CHECK (kind IN ('chat_message','job_result','system_notice')),
+  kind        TEXT NOT NULL CHECK (kind IN ('chat_message','job_result','system_notice','activity_log')),
   payload     TEXT NOT NULL,                      -- JSON，见 3.6
   notify      INTEGER NOT NULL DEFAULT 1,         -- 0 = 只进信箱，不按门铃
   created_at  TEXT NOT NULL,
@@ -550,6 +550,19 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
 
 前端写入聊天时用 `messageId` 去重，`metadata.source = 'agent-backend'`，与 amsg 来源的消息区分。
 
+`activity_log` 的 payload（进「查手机 → TA 的动态」，不进聊天、不推送，见 4.4）：
+
+```json
+{
+  "charId": "elias",
+  "activity": "顺手把你周四那个会挪到了下午。",
+  "at": "2026-09-22T14:05:00.000Z",
+  "usedTool": "日历",
+  "hasMessage": false,
+  "shadow": false
+}
+```
+
 推送内容只放标题和不超过 80 字的预览，完整正文走 outbox（Web Push 正文上限约 4 KB，而且推送内容会经过 Apple / Google 的服务器）。
 
 ### 3.7 白名单与记录
@@ -622,15 +635,28 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
 4. 调模型：见第 5 节；输出必须符合：
 
    ```ts
+   interface HeartbeatBase {
+     /** 给阿萌看的一句话：这次醒来我做了什么。角色第一人称，≤40 字。
+      *  它进「查手机 → TA 的动态」，不是聊天消息，也不推送。 */
+     activity: string;
+     /** 给日志和影子记录看的判断依据，不展示给阿萌。 */
+     reason: string;
+   }
    type HeartbeatOutput =
-     | { action: 'noop'; reason: string }
-     | { action: 'message'; text: string; reason: string }
-     | { action: 'task'; tool: string; args: object; reason: string };
+     | (HeartbeatBase & { action: 'noop' })
+     | (HeartbeatBase & { action: 'message'; text: string })
+     | (HeartbeatBase & { action: 'task'; tool: string; args: object });
    ```
 
    `tool` 必须是本角色白名单中 `background-read` 或 `background-write` 档位的具体工具名；模型看到的工具清单本身就只含这些。
-5. `noop` → 只记 `model_runs`。
-6. `message` → 写 outbox 并推送。
+
+   提示词里对「什么时候该说话」要写死（借鉴 cyberboss 的写法，避免没话找话）：
+   **做了事，就在 `activity` 里如实写一句；只有真的有话要对阿萌说时才用 `message`，
+   而且那句话要自然地反映刚发生的事。没什么可说的就 `noop`——沉默是默认选项，不是失败。**
+
+5. 不管哪种 action，都写一条 `activity_log` 进 outbox（`notify: false`，只落信箱不推送），
+   见 4.4。`noop` 除此之外只记 `model_runs`。
+6. `message` → 另写一条 `chat_message` 进 outbox 并推送。
 7. `task` → **后端二次校验**，任一不过即 `failed`，不执行、不重试：
    - 工具在白名单且档位允许后台；不在永不后台写名单；
    - `args` 通过该工具的 MCP `inputSchema` 校验；
@@ -639,6 +665,32 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
    校验通过后按 2.7.1 执行。执行完把结果交回模型**一次**，这一次输出只允许 `noop | message`（不能再接着调工具），用来决定要不要告诉阿萌。这次调用计入每日预算；预算不足时不发消息，只在操作记录里留痕。
 8. 每次心跳最多一个工具调用。
 9. 影子运行（阶段 1c）：以上全部照常判断，但第 6、7 步不真正执行——`model_runs.shadow=1`，拟发的消息写入 `proposed_text`，拟调用的工具写入 `proposed_tool` / `proposed_args_summary`，并照常跑第 7 步的二次校验（校验结果也记下来）。影子模式**不创建 `tool_calls` 行**、不写 outbox、不推送，也不进行执行后的第二次模型调用。阿萌在设置页看判断和语气，满意后再打开真实执行。
+
+### 4.3.1 心跳消息的保质期
+
+> 🐾 **小帕讲人话**
+>
+> 假如推送一直没送到（手机关机、没网），Elias 三天前那句「突然想到你」会在你某次打开 App 时原样冒出来，像是刚说的一样——很怪。所以给心跳发的消息加个保质期。
+
+- `chat_message` 且 `payload.source = 'heartbeat'` 的条目带 `staleAfter = createdAt + 6 小时`。
+- 超过 `staleAfter` 仍未 ack：**不投递到聊天**，改写成一条 `activity_log`（「那会儿想跟你说点什么，不过时间过去了」），让它出现在动态里而不是假装刚发生。
+- 阿萌主动排的任务结果（`job_result`）不受此限：它们本来就是「办完了告诉我」，晚到也有效。
+- 与信箱保留期（已 ack 7 天 / 全部 28 天）是两回事：保留期管什么时候删，保质期管还要不要当成「刚说的话」送出去。
+
+### 4.4 查手机 · TA 的动态
+
+> 🐾 **小帕讲人话**
+>
+> 角色醒来做完事，不一定要发消息打扰你。所以「查手机」里加一页 **TA 的动态**：按时间倒序列出每次醒来他做了什么，一条一句话，你想看的时候自己翻。
+>
+> 这一页天然契合「查手机」的设定——你本来就是在偷看 TA 的手机，看到的是 TA 的活动记录，而不是 TA 特地发给你的消息。
+
+- 数据来源：每次**真正调用过模型**的心跳都产出一条 `activity_log`（被零模型闸拦下的那些不算活动，不记）。按每日预算 12 次算，一天最多 12 条。
+- 条目字段：`charId`、`activity`（角色第一人称那句话）、`at`、`usedTool`（工具的中文名，没用工具就没有）、`hasMessage`（这次是否也发了聊天消息，前端据此显示「并给你发了消息」的小标记）。
+- **不推送**（`notify: false`）：动态是给你翻的，不是来打扰你的。
+- 前端：`apps/CheckPhone.tsx` 里新增一页，条目存本地 IndexedDB（离线也能翻），随完整备份导出。
+- 保留：与 `model_runs` 的 30 天对齐，前端可以留得更久。
+- 影子运行期（阶段 1c）同样产出动态条目，但标记 `shadow: true`，前端用浅色显示并注明「试跑，没有真的执行」。阿萌正好靠这一页判断 Elias 的语气和判断合不合适，不用专门去设置页翻记录。
 
 ---
 
@@ -704,7 +756,9 @@ codex exec --ephemeral --ignore-user-config --skip-git-repo-check \
 |---|---|
 | `utils/emAgentClient.ts`（新） | 所有 `/agent/v1` 调用、设备 token 存储（仅本机 localStorage，不进备份） |
 | `utils/emAgentSnapshot.ts`（新） | 从角色、聊天、日程生成 3.4 的快照 |
-| `utils/emAgentOutbox.ts`（新） | 取信箱、写入聊天、ack |
+| `utils/emAgentOutbox.ts`（新） | 取信箱、按 kind 分流（`chat_message` 进聊天、`activity_log` 进动态）、ack |
+| `utils/emAgentActivity.ts`（新） | 动态条目的本地存储（IndexedDB）与查询，随完整备份导出 |
+| `apps/CheckPhone.tsx` | 新增「TA 的动态」一页（EM 独有文件，见 4.4） |
 | `apps/AgentBackendApp.tsx` 或设置子页（新） | 配对、设备列表、每角色心跳开关、工具白名单、操作记录 |
 | `hooks/useChatAI.ts` | 2 行：用户发送时发在场信号；聊天结束后上传快照（带防抖）。两者都失败静默 |
 | App 启动处 | 1 行：打开时补收 outbox |
@@ -734,7 +788,7 @@ LaunchAgent: cc.liliumos.agent-backend.plist（RunAtLoad + KeepAlive）
 |---|---|---|
 | **1a** | 服务骨架、迁移、配对、推送、outbox、`test.ping` | 手机收到测试通知并能补收 outbox；关掉后端，LiliumOS 聊天与 amsg 不受影响。多设备 ack、设备分权保留表结构但不作为验收项 |
 | **1b** | `ha.watchdog`、`status` 依赖检查、前端设置页 | HA 虚拟机关掉后 15 分钟内收到通知 |
-| **1c** | Codex 运行器实测与错误分类样本、对账函数实测、心跳影子运行一周 | ① 人为制造「工具已执行、结果未记录」后重启，不产生重复提醒 / 日程；② 阿萌聊天中不触发心跳；③ 登出 Codex 后 Elias 心跳立即暂停并收到一次通知，断网不会误暂停；④ 阿萌看影子记录，确认判断和语气可以接受 |
+| **1c** | Codex 运行器实测与错误分类样本、对账函数实测、心跳影子运行一周、查手机「TA 的动态」页 | ① 人为制造「工具已执行、结果未记录」后重启，不产生重复提醒 / 日程；② 阿萌聊天中不触发心跳；③ 登出 Codex 后 Elias 心跳立即暂停并收到一次通知，断网不会误暂停；④ 阿萌在「TA 的动态」里看一周试跑记录，确认判断和语气可以接受 |
 | **1d** | 心跳真实推送、工具真实执行 | 按 4.3 全部闸门验收 |
 | 2 | Continuity State、记忆确认流程、ChatGPT 侧 MCP | 另开文档 |
 
@@ -785,4 +839,16 @@ LaunchAgent: cc.liliumos.agent-backend.plist（RunAtLoad + KeepAlive）
 | 对账器原子领取 + 租约，且确认原 job 不在运行 | 2.7.1 边界 (a) |
 | 对账重试上限、退避、截止时间，超限转 `needs_review` 只通知一次 | 2.7.1 边界 (b)；`tool_calls` 新增 `reconcile_attempts` / `reconcile_after` / `deadline` / `lease_until` |
 | 写 outbox、首次调用工具、对账后重新调用前，重查 generation / enabled / pause / cancel / 权限 | 2.7.1 边界 (c)；已发生的操作仍补记 `done` |
+
+## 12. v0.4 修订记录（2026-09-22）
+
+看了 [cyberboss](https://github.com/WenXiaoWendy/cyberboss) 的自动唤醒实现后的三处调整。它的唤醒是常驻循环里随机睡 3–60 分钟，醒来只往队列塞一条内部触发消息，再由通用的「回合闸」决定什么时候真正执行。
+
+| 借鉴 / 决定 | 落在哪 |
+|---|---|
+| 提示词写死「什么时候该说话」：做了事如实记一句，只有真有话说才发消息，沉默是默认选项 | 4.3 第 4 步 |
+| 心跳消息加保质期，过期的改写成动态而不是当成刚说的话送出去 | 4.3.1 |
+| **阿萌的想法**：做完事不一定要发消息，改在「查手机」里加一页 TA 的动态 | 4.4；`activity_log` 进 outbox 种类；4.3 第 5 步 |
+
+不抄的部分：它的唤醒循环活在内存里（进程一死就忘了下次什么时候醒），而 mini 每天 4–7 点休眠，所以下一跳必须落库；它也没有预算、冷却和安静时段，3–60 分钟的频率放我们这儿会烧额度也会吵人。
 
