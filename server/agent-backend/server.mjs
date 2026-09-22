@@ -220,8 +220,18 @@ export const createApp = ctx => {
     };
 };
 
-export const startServer = ctx => {
+export const startServer = (ctx, { onFatal = message => { console.error(message); process.exit(1); } } = {}) => {
     const server = createServer(createApp(ctx));
+    // 不接 error 事件的话，端口被占会以未捕获异常的形式崩掉；LaunchAgent 的 KeepAlive
+    // 会立刻把它拉起来，于是变成每秒崩一次的重启循环，日志里全是同一段堆栈。
+    server.on('error', error => {
+        if (error?.code === 'EADDRINUSE') {
+            onFatal(`[agent] 端口 ${ctx.config.host}:${ctx.config.port} 已被占用——多半是已经有一个后端在跑了。`
+                + '确认后再启动，或用 AGENT_BACKEND_PORT 换一个端口。');
+            return;
+        }
+        onFatal(`[agent] 监听失败：${error?.message || error}`);
+    });
     server.listen(ctx.config.port, ctx.config.host);
     return server;
 };
