@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  LaunchAgent：开机自启 + 崩溃自动重启。
+  放到 ~/Library/LaunchAgents/ 后 launchctl load 一次即可，之后随登录启动。
+
+  路径按需改：NODE 的绝对路径（which node）、仓库位置。
+  密钥不写在这里——plist 会被备份工具抓走，密钥一律放 secrets/ 下的 600 文件。
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>cc.liliumos.agent-backend</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/node</string>
+        <string>/Users/emmazhu/Projects/Lilium/LiliumOS/server/agent-backend/index.mjs</string>
+    </array>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>AGENT_BACKEND_PORT</key>
+        <string>8790</string>
+        <key>AGENT_APPLE_EVENTS_URL</key>
+        <string>http://127.0.0.1:8765/mcp</string>
+        <key>AGENT_HA_URL</key>
+        <string>http://192.168.64.2:8123</string>
+        <!-- 要看门狗重启的 UTM 虚拟机名；留空则只探活不重启 -->
+        <key>AGENT_UTM_VM</key>
+        <string></string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/emmazhu/Library/Application Support/LiliumOS/agent-backend/logs/stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/emmazhu/Library/Application Support/LiliumOS/agent-backend/logs/stderr.log</string>
+</dict>
+</plist>
