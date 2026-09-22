@@ -957,6 +957,13 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
                          if (index === historySlice.length - 1 && timeGapHint && m.role === 'user') textPart += `\n\n${timeGapHint}`;
                          return { role: m.role, content: textPart };
                      }
+                     // [EM-START: assistant-photo-history] 角色自己发的图（SEND_PHOTO 生图）只回放文字：
+                     // OpenAI / Claude / Gemini 都只接受 user 消息里的 image_url，assistant 带图整轮 400。
+                     if (m.role !== 'user') {
+                         const photoPrompt = typeof m.metadata?.photoPrompt === 'string' ? m.metadata.photoPrompt.trim() : '';
+                         return { role: m.role, content: photoPrompt ? `${timeStr} [你发送了一张照片：${photoPrompt}]` : `${timeStr} [你发送了一张照片]` };
+                     }
+                     // [EM-END: assistant-photo-history]
                      // 向下兼容：如果图片数据缺失（例如只导入了文字备份），不要把空 URL 发给 API，否则会报错无法回应
                      // 图片有三种形态：base64 data URL、外链 http(s)、本机的 blobref 令牌
                      // （二进制在 blob_assets，见 utils/blobRef.ts）。令牌既不以 data: 也不以 http 开头，
