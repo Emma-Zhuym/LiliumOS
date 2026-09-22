@@ -817,7 +817,7 @@ const ScheduleApp: React.FC = () => {
                                                     className="flex flex-1 items-center gap-3 min-w-0 text-left"
                                                 >
                                                     {char ? (
-                                                        <img src={char.avatar} className="w-10 h-10 rounded-full object-cover shrink-0" alt="" />
+                                                        <TokenImg value={char.avatar} className="w-10 h-10 rounded-full object-cover shrink-0" alt="" />
                                                     ) : (
                                                         <div className={`w-10 h-10 rounded-full shrink-0 flex items-center justify-center text-lg ${currentThemeMode === 'cyber' ? 'bg-slate-800 text-cyan-400' : currentThemeMode === 'soft' ? 'bg-pink-100 text-pink-400' : 'bg-[#eef2f6] shadow-[3px_3px_6px_#d1d9e6,-3px_-3px_6px_#ffffff] text-slate-400'}`}>📅</div>
                                                     )}
@@ -1023,7 +1023,7 @@ const ScheduleApp: React.FC = () => {
                             </button>
                             {characters.map(c => (
                                 <button key={c.id} onClick={() => setNewAgendaChar(c.id)} className={`flex flex-col items-center gap-2 p-2 rounded-lg border transition-all min-w-[60px] ${newAgendaChar === c.id ? currentThemeMode === 'minimal' ? 'shadow-[inset_2px_2px_5px_#d1d9e6,inset_-2px_-2px_5px_#ffffff]' : 'border-current' : 'border-transparent opacity-50'}`}>
-                                    <img src={c.avatar} className="w-10 h-10 rounded-md object-cover" />
+                                    <TokenImg value={c.avatar} className="w-10 h-10 rounded-md object-cover" />
                                     <span className={`text-[10px] font-bold whitespace-nowrap ${theme.text}`}>{c.name}</span>
                                 </button>
                             ))}

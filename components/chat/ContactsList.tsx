@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import TokenImg from '../os/TokenImg'; // [EM: token-img-avatars]
 import { CaretLeft, ChatCircle } from '@phosphor-icons/react';
 import { useOS } from '../../context/OSContext';
 import { useContactRemark } from '../../utils/contactRemarks';
@@ -46,7 +47,7 @@ const ContactRow: React.FC<{
       className="w-full flex items-center gap-3 p-3 mb-2 rounded-2xl bg-white/90 border border-slate-200/80 shadow-sm active:scale-[0.99] transition-transform text-left"
     >
       <div className="relative shrink-0">
-        <img src={char.avatar} alt="" className="w-14 h-14 rounded-2xl object-cover shadow-sm" />
+        <TokenImg value={char.avatar} alt="" className="w-14 h-14 rounded-2xl object-cover shadow-sm" />
         {unread > 0 ? (
           <span className="absolute -top-1 -right-1 min-w-[1.25rem] h-5 px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center border-2 border-white shadow">
             {unread > 99 ? '99+' : unread}

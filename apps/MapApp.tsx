@@ -10,6 +10,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import TokenImg from '../components/os/TokenImg'; // [EM: token-img-avatars]
 import {
   CaretLeft, CaretUp, CaretDown, Plus, Check, GearSix, Buildings,
   MapPin, ChatTeardrop, Crosshair, MagnifyingGlass, ArrowRight,
@@ -142,7 +143,7 @@ const CharAvatar: React.FC<{ char: CharacterProfile; monogramSize: number; monog
     <>
       <span style={{ fontSize: monogramSize, fontWeight: 700, color: monogramColor }}>{char.name.slice(0, 1)}</span>
       {char.avatar && (
-        <img src={char.avatar} className="absolute inset-0 w-full h-full object-cover"
+        <TokenImg value={char.avatar} className="absolute inset-0 w-full h-full object-cover"
           onError={e => { e.currentTarget.style.display = 'none'; }} />
       )}
     </>
