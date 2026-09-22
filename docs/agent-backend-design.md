@@ -294,6 +294,10 @@ CREATE TABLE tool_calls (
   args          TEXT NOT NULL,                -- 校验后的参数（JSON），已注入 marker
   marker        TEXT NOT NULL,                -- `lilium:${call_key}`，写进目标条目的备注
   status        TEXT NOT NULL CHECK (status IN ('intent','done','failed','needs_review')),
+  lease_until   TEXT,                         -- 对账器领取后持有
+  reconcile_attempts INTEGER NOT NULL DEFAULT 0,
+  reconcile_after    TEXT,                    -- 退避到这个时刻再对账
+  deadline      TEXT NOT NULL,                -- 过了还没对完 → needs_review
   external_id   TEXT,                         -- 工具返回的条目 ID（提醒 / 日程 ID）
   result        TEXT,
   created_at    TEXT NOT NULL,
@@ -313,7 +317,37 @@ CREATE TABLE tool_calls (
    - 确认没有 → 重新调用（同一个 marker）；
    - 查询失败或该工具没有对账函数 → `needs_review`，任务终止，通知阿萌，**不重试**。
 5. 没有注册对账函数的写工具，不允许进入 `background-write` 档位。
-6. **对账与任务重试脱钩**：服务启动时、以及之后每 5 分钟，扫描所有 `intent` 超过 2 分钟的行并对账。心跳只跑一次（见 4.3），不会为了对账而重跑心跳；对账补记 `done` 后也不再补发消息，只在操作记录里留痕。
+6. **对账与任务重试脱钩**：服务启动时、以及之后每 5 分钟跑一次对账扫描。心跳只跑一次（见 4.3），不会为了对账而重跑心跳；对账补记 `done` 后也不再补发消息，只在操作记录里留痕。
+
+#### 对账器的三条边界（Elias 第三轮审查，实现于阶段 1c）
+
+**(a) 绝不与原调用并发。** 对账器不能只看「`intent` 超过 2 分钟」就动手——原调用可能还在飞，或者刚超时、副作用正在生效。开始前必须同时满足，并在一条原子 UPDATE 里领走：
+
+```sql
+UPDATE tool_calls
+   SET lease_until = :lease, reconcile_attempts = reconcile_attempts + 1, updated_at = :now
+ WHERE call_key = :key AND status = 'intent'
+   AND (lease_until IS NULL OR lease_until <= :now)
+   AND (reconcile_after IS NULL OR reconcile_after <= :now)
+   AND NOT EXISTS (SELECT 1 FROM jobs j
+                    WHERE j.uuid = tool_calls.job_uuid
+                      AND j.status = 'running' AND j.lease_until > :now);
+```
+
+`changes = 1` 才开始对账；租约 2 分钟，到期未完成由下一轮重新领取。原 job 还在 `running` 就这一轮不碰。
+
+**(b) 对账重试有上限。** `reconcile_attempts` 上限 5 次，退避 1 / 5 / 15 / 30 / 60 分钟写进 `reconcile_after`；`deadline` 默认为创建后 24 小时。超过次数上限或过了截止时间 → `needs_review`，通知阿萌**一次**（同一 `call_key` 只通知一次），此后不再自动重试，只能由阿萌在设置页决定「已经处理了」或「重新执行」。绝不允许每 5 分钟无限重建。
+
+**(c) 重新调用前再查一遍权限。** 三个时刻——写 outbox 前、首次调用工具前、对账确认「确实不存在」准备重新调用前——都要重新读取当前状态并全部通过：
+
+| 检查 | 不通过时 |
+|---|---|
+| `heartbeat_generation` 与任务一致 | 停止 |
+| `heartbeat_enabled = 1`、`heartbeat_paused` 为空 | 停止 |
+| job 未被 `cancelled`、未过 `expires_at` | 停止 |
+| 该工具当前仍在白名单且档位允许后台写 | 停止 |
+
+停止时的处置：**现实操作已经发生**（对账查到了条目）→ 照常补记 `done`，事实就是事实；**尚未发生** → `tool_calls` 记 `cancelled_by_policy`（并入 `failed`，`result` 写明原因），不再创建。已经生成但还没写出去的消息一律丢弃，不投递。
 
 Phase 1 注册的对账函数（参数细节在 mini 上对 `mcp-server-apple-events` 实测后定稿）：
 
@@ -741,4 +775,14 @@ LaunchAgent: cc.liliumos.agent-backend.plist（RunAtLoad + KeepAlive）
 | presence 用服务端接收时间 | 3.4 在场信号；4.3 第 3 步（快照时间夹到 `received_at`） |
 | `exec` 返回 401 / refresh 失败即认定登录失效，`login status` 只作辅助 | 第 5 节错误表 |
 | （小帕补充）心跳只跑一次后，崩溃留下的 `intent` 由独立的对账扫描处理，不靠重跑心跳 | 2.7.1 执行规则第 6 条 |
+
+### 11.1 第三轮审查（Elias，2026-09-22）：结论「v0.3 通过，可开工 1a、1b」
+
+三条对账边界随阶段 1c 落地，不挡 1a、1b 开工：
+
+| 意见 | 落在哪 |
+|---|---|
+| 对账器原子领取 + 租约，且确认原 job 不在运行 | 2.7.1 边界 (a) |
+| 对账重试上限、退避、截止时间，超限转 `needs_review` 只通知一次 | 2.7.1 边界 (b)；`tool_calls` 新增 `reconcile_attempts` / `reconcile_after` / `deadline` / `lease_until` |
+| 写 outbox、首次调用工具、对账后重新调用前，重查 generation / enabled / pause / cancel / 权限 | 2.7.1 边界 (c)；已发生的操作仍补记 `done` |
 
