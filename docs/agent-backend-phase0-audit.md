@@ -68,7 +68,22 @@ Cloudflare Worker（amsg，单用户）+ D1
 | 后台工具的危险操作拦截 | ⚠️ 部分：后台只剔除 `destructiveHint: true` 的工具（`utils/mcpClient.ts:254`）；**新建/修改类**（如新建日历事件、提醒）若服务器没标注为 destructive，后台可无人确认执行 |
 | 推送 + 离线补收 | ✅ Web Push / FCM + outbox |
 | 「唤醒不等于发消息」 | ✅ 后台任务 `skip-push`、`notification.show=false` 只落账本 |
-| 心跳 | ❌ 8-18 做过完整一版（滚动一次性任务、代次控制、睡眠硬闸、NOOP 静默、确定性抖动），同日 `25399fad` 整体撤回，原因未记录 |
+| 心跳 | ❌ 8-18 做过完整一版（滚动一次性任务、代次控制、睡眠硬闸、NOOP 静默、确定性抖动），同日 `25399fad` 整体撤回。原因不是心跳逻辑本身，而是它牵连了共用链路（见 2.1） |
+
+### 2.1 8-18 心跳撤回的根因（2026-09-22 与 GPT 侧记录核对）
+
+心跳调度算法本身没有被证实有问题。撤回是因为它接进 amsg 共用后端之后，暴露出两处会影响正常聊天的链路问题：
+
+1. **前端与 Worker 版本对不上。** 心跳用的是新版 `fire_pack v8`，但一键部署（`utils/cfProvision.ts:25`）和 Worker 自更新（`worker/amsg/src/selfUpdate.ts:26`）都从上游 `Tosd0/sullyos-workers` 拉代码。界面显示「更新成功」，云端实际跑的仍是不认识 v8 的上游版本，于是所有依赖 fire_pack 的云端生成都失败。**这两处至今仍指向上游。**
+2. **推送只能到一台设备。** `push_subscriptions` 以 `user_id` 为主键，单用户只有一条订阅，桌面端后登记就会覆盖手机。手机把即时聊天交给云端后，只看到任务结束，拿不到回复正文。当时补过「发送前重新登记当前设备」，但整条链路已经不够可信。**表结构至今未变。**
+
+回滚撤掉了心跳、`fire_pack v8` 和相关设置，并清理了云端残留的隐藏心跳任务；普通主动消息和即时聊天保留。
+
+**对本方案的约束：**
+
+- 任何需要 EM 版本 amsg Worker 才能工作的功能，都会被自更新或一键部署静默换回上游版本。这是 Q1 选择「旁挂」的第三条理由，而且是最硬的一条。
+- Runner 和心跳要通知手机时，不能假设 `push_subscriptions` 里那一条就是手机。要么在旁挂 Worker 里另存多设备订阅，要么只把 outbox 当作送达保证、推送只作提醒。
+- 云端协议要升级时，旁挂 Worker 必须自己报告版本，前端按实际运行的能力判断，不看「更新成功」的提示。
 | Mac Runner / 任务队列 | ❌ 无 |
 | 连续性状态 / ChatGPT 侧 MCP | ❌ 无（fire_pack 是 amsg 专用的聊天快照，不是跨入口状态） |
 | 设备级凭据 | ❌ 只有一个可选的全局 `AMSG_SERVER_TOKEN` |
@@ -83,7 +98,9 @@ Cloudflare Worker（amsg，单用户）+ D1
 - 调度内核本身在 npm 包 `@rei-standard/amsg-server` 里，EM 改不了；只能通过 hook 插业务。而 hook 的形状是「到点 → 在 Worker 里调 LLM → 出结果」，没有「到点 → 交给外部执行器 → 等回执」这一步。
 - 旁挂服务可以**绑定同一个 D1**（表名加 `em_` 前缀），需要推送时调用 amsg 现成的 `/schedule-message`，不需要自己管 VAPID 或订阅。
 
-**例外**：纯云端、秒级完成、不需要 Codex 的心跳，放回 amsg 用 fireKinds 注册表加一种 kind 是最省的（新文件 + 表里一行）。前提是先弄清楚 8-18 为什么撤回（见第 6 节）。
+- 最硬的一条：amsg 的一键部署和自更新都从上游仓库拉 bundle（见 2.1）。放进 amsg 的 EM 功能随时可能被静默换掉，8-18 心跳正是这样出的事。
+
+~~例外：纯云端心跳放回 amsg 用 fireKinds 加一种 kind~~——不再推荐，理由同上。心跳也放进旁挂 Worker，由它的 cron 驱动。
 
 ### Q2 D1 够不够？要不要 Queue / DO / Workflows？
 
@@ -146,7 +163,7 @@ Cloudflare Worker（amsg，单用户）+ D1
 | Mac Runner 本体 | `server/agent-runner/`（新，与 apple-events-bridge 并列） | 无 |
 | 任务契约、白名单纯逻辑 | `utils/emRunnerCore.ts`（新，环境无关叶子） | 无 |
 | 前端设置面板 | `apps/` 下 EM 独立页面或 Settings 一个入口 | 1 行入口 |
-| 纯云端心跳（如采用） | `worker/amsg/src/heartbeatFire.ts` + fireKinds 表一行 | 1 行 + 客户端建链 |
+| 心跳 | 放进 `worker/em-runner-hub/`，不放 amsg（见 2.1） | 无 |
 
 ## 4. 建议的 Phase 1 形状（待细化）
 
@@ -176,6 +193,7 @@ Phase 1 验收只跑通这一条最小链路：建测试任务 → mini 领取 �
 
 仍待办：
 
-1. **8-18 心跳撤回的根因**。阿萌的回忆是：云端生成消息失败后，消息也无法回落到本地生成，为保基础功能先整体撤回。具体原因阿萌去 GPT / Codex 那边查记录。无论根因是什么，新方案都必须满足：**心跳或 Runner 失败不能拖垮普通聊天和本地主动消息的生成**（与 home-assistant-mac-mini-plan P4「心跳旁路化」一致）。
+1. ~~8-18 心跳撤回的根因~~ → 已查明，见 2.1。由此得出的硬性要求：**心跳或 Runner 失败不能拖垮普通聊天和本地主动消息的生成**（与 home-assistant-mac-mini-plan P4「心跳旁路化」一致）；**新功能不能依赖一份会被自更新换回上游的 Worker**。
 2. **Cloudflare 面板里 `AMSG_SERVER_TOKEN` 是否存在，并且是 Secret 类型。**
 3. **本次审计在 MacBook 上完成**；Runner 部署、`codex exec` 实测和 mini 上的登录状态需要在 mini 上复核。
+4. **多设备推送怎么做**（见 2.1 第 2 条），细化方案时决定。
