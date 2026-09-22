@@ -74,7 +74,7 @@ export const createHaWatchdogHandler = ({ db, config, deliver, fetchImpl = fetch
 
         let restart = { attempted: false };
         if (config.utmVmName) {
-            restart = await restartUtmVm(config.utmVmName, execImpl);
+            restart = await restartUtmVm(config.utmVmName, execImpl, config.utmctlPath);
             // 给 HAOS 一点启动时间再探一次；还不通就认定这次重启没救回来。
             if (restart.ok) {
                 await new Promise(resolve => setTimeout(resolve, 60_000));
@@ -122,14 +122,14 @@ export const probeHomeAssistant = async (baseUrl, fetchImpl = fetch) => {
     }
 };
 
-export const restartUtmVm = async (vmName, execImpl = execFileAsync) => {
+export const restartUtmVm = async (vmName, execImpl = execFileAsync, utmctl = '/Applications/UTM.app/Contents/MacOS/utmctl') => {
     try {
-        await execImpl('/usr/bin/utmctl', ['stop', vmName], { timeout: 60_000 });
+        await execImpl(utmctl, ['stop', vmName], { timeout: 60_000 });
     } catch {
         // 已经停了或停不动都继续尝试启动：目标是「让它起来」，不是「让停止成功」。
     }
     try {
-        await execImpl('/usr/bin/utmctl', ['start', vmName], { timeout: 60_000 });
+        await execImpl(utmctl, ['start', '--hide', vmName], { timeout: 60_000 });
         return { attempted: true, ok: true };
     } catch (error) {
         return { attempted: true, ok: false, error: String(error?.message || error).slice(0, 200) };

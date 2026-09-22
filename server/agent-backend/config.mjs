@@ -42,9 +42,12 @@ export const loadConfig = (env = process.env) => {
             'https://emma-zhuym.github.io,http://localhost:5173,http://127.0.0.1:5173',
         ),
         appleEventsUrl: env.AGENT_APPLE_EVENTS_URL || 'http://127.0.0.1:8765/mcp',
-        homeAssistantUrl: env.AGENT_HA_URL || 'http://192.168.64.2:8123',
+        // mini 上的 HAOS 在 80 端口（8123 不通），与 scripts/home-assistant-proxy.mjs 的默认目标一致。
+        homeAssistantUrl: env.AGENT_HA_URL || 'http://192.168.64.2',
         // 看门狗要重启的 UTM 虚拟机名；留空则只检查不重启。
         utmVmName: env.AGENT_UTM_VM || '',
+        // utmctl 在 App 包里，不在 PATH 上；/usr/bin 受 SIP 保护也放不进去。
+        utmctlPath: env.AGENT_UTMCTL || '/Applications/UTM.app/Contents/MacOS/utmctl',
         version: '0.1.0',
         apiVersion: 1,
     };

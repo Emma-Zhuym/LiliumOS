@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
   LaunchAgent：开机自启 + 崩溃自动重启。
   放到 ~/Library/LaunchAgents/ 后 launchctl load 一次即可，之后随登录启动。
@@ -13,7 +14,7 @@
 
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/node</string>
+        <string>/opt/homebrew/bin/node</string>
         <string>/Users/emmazhu/Projects/Lilium/LiliumOS/server/agent-backend/index.mjs</string>
     </array>
 
@@ -24,7 +25,7 @@
         <key>AGENT_APPLE_EVENTS_URL</key>
         <string>http://127.0.0.1:8765/mcp</string>
         <key>AGENT_HA_URL</key>
-        <string>http://192.168.64.2:8123</string>
+        <string>http://192.168.64.2</string>
         <!-- 要看门狗重启的 UTM 虚拟机名；留空则只探活不重启 -->
         <key>AGENT_UTM_VM</key>
         <string></string>

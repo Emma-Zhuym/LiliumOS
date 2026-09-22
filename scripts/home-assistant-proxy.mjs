@@ -13,6 +13,7 @@ const HOST = getArg('--host', '127.0.0.1');
 const PORT = Number.parseInt(getArg('--port', '18123'), 10);
 const TARGET = new URL(getArg('--target', 'http://192.168.64.2'));
 const APPLE_EVENTS_TARGET = new URL(getArg('--apple-events-target', 'http://127.0.0.1:8765'));
+const AGENT_BACKEND_TARGET = new URL(getArg('--agent-backend-target', 'http://127.0.0.1:8790'));
 const ALLOWED_ORIGINS = new Set(
     getArg('--origins', 'https://emma-zhuym.github.io,http://localhost:5173,http://127.0.0.1:5173')
         .split(',')
@@ -28,6 +29,9 @@ if (TARGET.protocol !== 'http:' && TARGET.protocol !== 'https:') {
 }
 if (APPLE_EVENTS_TARGET.protocol !== 'http:' && APPLE_EVENTS_TARGET.protocol !== 'https:') {
     throw new Error('Only HTTP and HTTPS Apple Events targets are supported');
+}
+if (AGENT_BACKEND_TARGET.protocol !== 'http:' && AGENT_BACKEND_TARGET.protocol !== 'https:') {
+    throw new Error('Only HTTP and HTTPS Agent Backend targets are supported');
 }
 
 const corsHeaders = origin => ({
@@ -75,7 +79,7 @@ const server = createServer((request, response) => {
         });
         response.end(JSON.stringify({
             status: 'ok',
-            routes: { homeAssistant: '/api/*', appleEvents: '/mcp' },
+            routes: { homeAssistant: '/api/*', appleEvents: '/mcp', agentBackend: '/agent/*' },
         }));
         return;
     }
@@ -98,9 +102,13 @@ const server = createServer((request, response) => {
         }
     } else {
         const isAppleEventsPath = incoming.pathname === '/mcp' || incoming.pathname.startsWith('/mcp/');
+        const isAgentBackendPath = incoming.pathname.startsWith('/agent/');
         if (isAppleEventsPath) {
             target = new URL(`${incoming.pathname}${incoming.search}`, APPLE_EVENTS_TARGET);
             upstreamName = 'Apple Events';
+        } else if (isAgentBackendPath) {
+            target = new URL(`${incoming.pathname}${incoming.search}`, AGENT_BACKEND_TARGET);
+            upstreamName = 'Agent Backend';
         } else {
             target = new URL(`${incoming.pathname}${incoming.search}`, TARGET);
         }
@@ -110,7 +118,9 @@ const server = createServer((request, response) => {
         && (target.pathname === '/api' || target.pathname.startsWith('/api/'));
     const isAppleEventsPath = target.origin === APPLE_EVENTS_TARGET.origin
         && (target.pathname === '/mcp' || target.pathname.startsWith('/mcp/'));
-    if (!isHomeAssistantPath && !isAppleEventsPath) {
+    const isAgentBackendPath = target.origin === AGENT_BACKEND_TARGET.origin
+        && target.pathname.startsWith('/agent/');
+    if (!isHomeAssistantPath && !isAppleEventsPath && !isAgentBackendPath) {
         response.writeHead(404, corsHeaders(origin));
         response.end();
         return;
@@ -149,4 +159,5 @@ server.listen(PORT, HOST, () => {
     console.log(`LiliumOS local service mux listening on http://${HOST}:${PORT}`);
     console.log(`Forwarding /api requests to ${TARGET.origin}`);
     console.log(`Forwarding /mcp requests to ${APPLE_EVENTS_TARGET.origin}`);
+    console.log(`Forwarding /agent requests to ${AGENT_BACKEND_TARGET.origin}`);
 });
