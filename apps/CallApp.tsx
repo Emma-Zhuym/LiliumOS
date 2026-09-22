@@ -20,6 +20,7 @@ import { resolveTtsProvider, getTtsProvider, getVoicePromptOverride } from '../u
 import { VOICE_LANGUAGE_OPTIONS } from '../utils/voiceLanguage';
 import { startStt, isSttSupported, type SttSession } from '../utils/speechToText';
 import { ContextBuilder } from '../utils/context';
+import { injectWorldbookDepthEntries, resolveWorldbookDepthEntries } from '../utils/worldbook';
 import { resolveCharTimeZone } from '../utils/timezone';
 import {
   injectMemoryPalace,
@@ -1795,12 +1796,24 @@ ${sentencePlan}`;
       const callMsgs = await DB.getMessagesByCharId(selectedChar.id);
       await injectMemoryPalace(selectedChar, callMsgs);
     }
+    const touchContext = selectedChar
+      ? buildPendingAvatarTouchContext(
+          pendingTouches,
+          selectedChar.name,
+          userName,
+        )
+      : '';
+    // 历史先建好：世界书关键词要扫它，「聊天记录指定深度」的条目也要插进它
+    const messages = await buildHistoryMessages(input, skipDbId, touchContext);
     const baseCallPrompt = selectedChar
       ? buildCallPrompt(
           userName,
           selectedChar.name,
           // conversational：通话是实时对话，时间块补那句语境框定（见 buildTimeAwarenessBlock）
-          ContextBuilder.buildCoreContext(selectedChar, userProfile, true, undefined, undefined, { conversational: true }),
+          ContextBuilder.buildCoreContext(selectedChar, userProfile, true, undefined, undefined, {
+            conversational: true,
+            worldbookMessages: messages,
+          }),
           voiceLang || undefined,
           callMode,
           resolveCharTimeZone(selectedChar),
@@ -1841,17 +1854,15 @@ ${sentencePlan}`;
     const systemPrompt = [baseSystemPrompt, userCameraSnapshot ? USER_CAMERA_SNAPSHOT_SYSTEM_NOTE : '']
       .filter(Boolean)
       .join('\n\n');
-    const touchContext = selectedChar
-      ? buildPendingAvatarTouchContext(
-          pendingTouches,
-          selectedChar.name,
-          userName,
-        )
-      : '';
-    const messages = await buildHistoryMessages(input, skipDbId, touchContext);
+    // 深度条目在贴完快照之后再插：快照要贴在用户本轮的话上，
+    // 不能让插进来的 user 角色条目顶掉「最后一条 user 消息」的位置
+    const depthEntries = selectedChar
+      ? resolveWorldbookDepthEntries(selectedChar.mountedWorldbooks || [], messages, selectedChar.name, userName)
+      : [];
+    const textOnlyMessages = injectWorldbookDepthEntries(messages, depthEntries);
     const requestMessages = userCameraSnapshot
-      ? attachSnapshotToLatestUserMessage(messages, userCameraSnapshot)
-      : messages;
+      ? injectWorldbookDepthEntries(attachSnapshotToLatestUserMessage(messages, userCameraSnapshot), depthEntries)
+      : textOnlyMessages;
     const sendChatRequest = (
       nextMessages: any[],
       nextSystemPrompt: string,
@@ -1884,7 +1895,7 @@ ${sentencePlan}`;
       if (!userCameraSnapshot || !isVisionInputUnsupportedError(error)) throw error;
       console.warn('[camera-snapshot] provider rejected vision input; retrying text-only:', error);
       addToast('当前模型不支持图片；本轮已自动改为只发文字', 'info');
-      chatData = await sendChatRequest(messages, baseSystemPrompt, 2, '视频通话·快照降级为文字');
+      chatData = await sendChatRequest(textOnlyMessages, baseSystemPrompt, 2, '视频通话·快照降级为文字');
     }
     const parsed = parseCallAssistantMessage(
       chatData?.choices?.[0]?.message,
