@@ -278,6 +278,26 @@ describe('buildMcpOpenAITools', () => {
         expect(parameters.properties.mode).toEqual({ type: 'string', enum: ['read', 'write'] });
         expect(inputSchema.properties.priority).toEqual({ type: 'integer', enum: [0, 1, 5, 9] });
     });
+
+    it('带 items 的参数统一成 type: array（Home Assistant GetLiveContext.domain 会让 Gemini 400）', () => {
+        const inputSchema = {
+            type: 'object',
+            properties: {
+                domain: { type: ['string', 'array'], items: { type: 'string' } },
+                area: { items: { type: 'string' } },
+                floor: { type: 'string', items: { type: 'string' }, enum: ['1F', '2F'] },
+                tags: { type: 'array', items: { type: 'string' } },
+            },
+        };
+        saveMcpServers([mkServer({ tools: [{ name: 'GetLiveContext', inputSchema }] })]);
+
+        const { properties } = buildMcpOpenAITools().tools[0].function.parameters;
+        expect(properties.domain).toEqual({ type: 'array', items: { type: 'string' } });
+        expect(properties.area).toEqual({ type: 'array', items: { type: 'string' } });
+        expect(properties.floor).toEqual({ type: 'array', items: { type: 'string', enum: ['1F', '2F'] } });
+        expect(properties.tags).toEqual({ type: 'array', items: { type: 'string' } });
+        expect(inputSchema.properties.domain.type).toEqual(['string', 'array']);
+    });
 });
 
 describe('MCP 多步任务策略', () => {

@@ -117,6 +117,17 @@ export const normalizeMcpToolSchemaForLLM = (schema: any): any => {
                 normalized.description = description ? `${description} ${suffix}` : suffix;
             }
         }
+
+        // Gemini also rejects any schema that carries `items` without `type: "array"`
+        // (missing, a scalar, or a JSON Schema type list such as ["string", "array"]).
+        // Home Assistant's GetLiveContext `domain` hits this and takes down the whole tools array.
+        if (normalized.items && typeof normalized.items === 'object' && normalized.type !== 'array') {
+            normalized.type = 'array';
+            if (Array.isArray(normalized.enum)) {
+                if (!normalized.items.enum) normalized.items = { ...normalized.items, enum: normalized.enum };
+                delete normalized.enum;
+            }
+        }
         return normalized;
     };
 

@@ -9427,6 +9427,13 @@ var normalizeMcpToolSchemaForLLM = (schema) => {
         normalized.description = description ? `${description} ${suffix}` : suffix;
       }
     }
+    if (normalized.items && typeof normalized.items === "object" && normalized.type !== "array") {
+      normalized.type = "array";
+      if (Array.isArray(normalized.enum)) {
+        if (!normalized.items.enum) normalized.items = { ...normalized.items, enum: normalized.enum };
+        delete normalized.enum;
+      }
+    }
     return normalized;
   };
   return visit(schema || { type: "object", properties: {} }, 0);
