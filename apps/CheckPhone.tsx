@@ -15,6 +15,8 @@ import {
     phoneConversationContext, topicText, summarizeConversation, applyRealConversationToPhoneState, mergePhoneScanResults,
 } from '../utils/relationshipChat';
 import PersonaSim, { LifeLog, generatePersonaScript } from './PersonaSim';
+// [EM: agent-backend-chronicle] 起居注：TA 自己醒来做了什么
+import ChronicleApp from '../components/checkphone/ChronicleApp';
 import { usePersonaSim, personaSimStore } from '../utils/personaSimStore';
 import { getLastInnerState } from '../utils/emotionApply';
 import { normalizePhoneEvidence, phoneFieldToText } from '../utils/phoneEvidence';
@@ -25,7 +27,7 @@ import {
     Plus, SignOut, CaretLeft, CaretRight, Cloud, ImagesSquare, LockSimple, Package,
     Storefront, Heart, ArrowsClockwise, Tray, DotsThree, ClockCounterClockwise, Sparkle,
     UsersThree, UserPlus, Prohibit, LinkSimple, PaperPlaneTilt, PencilSimple, Trash,
-    Robot, Brain, MaskHappy, Question, PaintBrush
+    Robot, Brain, MaskHappy, Question, PaintBrush, PencilSimpleLine
 } from '@phosphor-icons/react';
 
 type LayoutId = NonNullable<PhoneCustomApp['layout']>;
@@ -3421,6 +3423,8 @@ ${olderText}
         { id: 'chat', icon: <ChatCircleDots size={cpIconSize} weight="light" />, label: '短信', bg: '#e7decd' },
         { id: 'aiagent', icon: <Robot size={cpIconSize} weight="light" />, label: '智能体', bg: '#e2ddd4' },
         { id: 'persona', icon: <MaskHappy size={cpIconSize} weight="light" />, label: '人格', bg: '#ede6da' },
+        // [EM: agent-backend-chronicle]
+        { id: 'chronicle', icon: <PencilSimpleLine size={cpIconSize} weight="light" />, label: '起居注', bg: '#eee7d9' },
         ...(customApps.length > 0 ? [{ id: '__myapps__', icon: <DotsThree size={cpIconSize} weight="bold" />, label: '更多', bg: '#e8e2d6' }] : []),
         { id: '__add__', icon: <Plus size={cpIconSize} weight="light" />, label: '添加', bg: '#e8e2d6' },
     ];
@@ -3809,6 +3813,14 @@ ${olderText}
                         <PersonaSim targetChar={targetChar} onExit={() => setActiveAppId('home')} openLifeLog={() => setActiveAppId('lifelog')}
                             sim={sim} onStart={runSim} onConsumed={() => personaSimStore.reset()} />
                     )}
+                    {/* [EM-START: agent-backend-chronicle] */}
+                    {activeAppId === 'chronicle' && targetChar && (
+                        <SubAppShell>
+                            <TermHeader title="起居注" sub="daily record" accent="#c9683e" onBack={() => setActiveAppId('home')} />
+                            <ChronicleApp targetChar={targetChar} accent="#c9683e" />
+                        </SubAppShell>
+                    )}
+                    {/* [EM-END: agent-backend-chronicle] */}
                     {activeAppId === 'lifelog' && targetChar && (
                         <LifeLog targetChar={targetChar} onBack={() => setActiveAppId('home')}
                             onRequestDelete={requestDeleteSimLog}

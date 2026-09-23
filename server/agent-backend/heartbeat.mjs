@@ -176,16 +176,19 @@ export const recordModelRun = (db, {
     proposedArgsSummary = null,
     skipGate = null,
     error = null,
+    activity = null,
+    rawOutput = null,
 }) => {
     db.prepare(
         `INSERT INTO model_runs (job_uuid, char_id, runtime, started_at, duration_ms, ok, outcome,
                                  shadow, reason, proposed_text, proposed_tool, proposed_args_summary,
-                                 skip_gate, error)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                 skip_gate, error, activity, raw_output)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
         jobUuid, charId, runtime, startedAt, durationMs, ok ? 1 : 0, outcome,
         shadow ? 1 : 0, truncate(reason, 500), truncate(proposedText, 2000), proposedTool,
         truncate(proposedArgsSummary, 500), skipGate, truncate(error, 500),
+        truncate(activity, 200), truncate(rawOutput, 2000),
     );
 };
 
@@ -214,6 +217,8 @@ export const listModelRuns = (db, { charId = null, limit = 50 } = {}) => {
         proposedArgsSummary: row.proposed_args_summary,
         skipGate: row.skip_gate,
         error: row.error,
+        activity: row.activity,
+        rawOutput: row.raw_output,
     }));
 };
 
@@ -223,6 +228,18 @@ export const isShadowMode = db => {
     } catch {
         // 设置读坏了就按影子算：宁可少说话，也不要在没人看着的时候突然真发消息。
         return true;
+    }
+};
+
+/**
+ * 排查开关：解析失败时要不要把模型原文留一段。
+ * 默认关。原文里有角色的话，只落在 mini 的库里，不进日志、不进推送。
+ */
+export const shouldCaptureRaw = db => {
+    try {
+        return JSON.parse(getSetting(db, 'heartbeat_debug') || '{}').captureRawOnError === true;
+    } catch {
+        return false;
     }
 };
 
@@ -278,11 +295,17 @@ export const buildPrompt = (character, snapshot, now = new Date()) => {
     return lines.join('\n\n');
 };
 
+/**
+ * 给模型看的时间。
+ *
+ * 用中文 12 小时制（「晚上7:47」），不用 24 小时制：实测模型会把 `19:47` 读成 9 点多，
+ * 一句话里的时间错两个小时，后面的判断全跟着歪。角色本来也该这么说话。
+ */
 const formatLocal = (date, timezone) => {
     try {
         return new Intl.DateTimeFormat('zh-CN', {
-            timeZone: timezone || 'America/Chicago', hour12: false,
-            month: 'numeric', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit',
+            timeZone: timezone || 'America/Chicago', hour12: true,
+            month: 'numeric', day: 'numeric', weekday: 'short', hour: 'numeric', minute: '2-digit',
         }).format(date);
     } catch {
         return date.toISOString();
@@ -364,6 +387,7 @@ export const createHeartbeatHandler = ({
             outcome: 'error',
             error: result.error,
             shadow,
+            rawOutput: shouldCaptureRaw(db) ? result.raw ?? null : null,
         });
         // 心跳 max_attempts=1：这里抛出去就是本次 failed，由已经排好的下一跳接续。
         throw new Error(result.error);
@@ -379,6 +403,8 @@ export const createHeartbeatHandler = ({
         ok: true,
         outcome: output.action,
         reason: output.reason,
+        // activity 是「这次醒来我做了什么」，起居注列的就是它。
+        activity: output.activity,
         proposedText: output.action === 'message' ? output.text : null,
         shadow,
     });

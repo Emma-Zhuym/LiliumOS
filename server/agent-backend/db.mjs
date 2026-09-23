@@ -139,6 +139,11 @@ export const MIGRATIONS = [
     );
     CREATE INDEX idx_model_runs_day ON model_runs (char_id, started_at);
     `,
+    // 3：起居注要的那句「我这次做了什么」，以及排查用的原始输出。
+    `
+    ALTER TABLE model_runs ADD COLUMN activity TEXT;
+    ALTER TABLE model_runs ADD COLUMN raw_output TEXT;
+    `,
 ];
 
 export const DEFAULT_SETTINGS = {
@@ -150,6 +155,9 @@ export const DEFAULT_SETTINGS = {
     // 影子运行（1c）：心跳照常判断、照常调模型，但不发消息、不执行工具，只记 model_runs。
     // 关掉它就是 1d 的真实执行，所以默认必须是开着的——忘了关比忘了开危险得多。
     heartbeat_shadow: JSON.stringify({ enabled: true }),
+    // 排查开关：打开后，解析失败时把模型的原始输出截一段存进 model_runs.raw_output。
+    // 原始输出里有角色的话，只留在 mini 的库里、不进日志，查完记得关。
+    heartbeat_debug: JSON.stringify({ captureRawOnError: false }),
 };
 
 export const openDb = (path, { now = () => new Date().toISOString() } = {}) => {

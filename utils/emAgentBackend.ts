@@ -91,9 +91,13 @@ export interface AgentModelRun {
     outcome: 'noop' | 'message' | 'task' | 'skipped' | 'error' | null;
     shadow: boolean;
     reason: string | null;
+    /** 角色第一人称那句「这次醒来我做了什么」。起居注列的就是它。 */
+    activity: string | null;
     proposedText: string | null;
     skipGate: string | null;
     error: string | null;
+    /** 只有打开后端的排查开关、且这次解析失败时才有；平时是 null。 */
+    rawOutput?: string | null;
 }
 
 export interface AgentDevice {

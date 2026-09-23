@@ -14,8 +14,8 @@ import { createJob, listJobs } from './jobs.mjs';
 import { enqueue } from './outbox.mjs';
 import { putSnapshot, normalizeSnapshotPayload } from './snapshots.mjs';
 import {
-    ACTIVE_CHAT_WINDOW_MS, checkGates, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
-    jitterRatio, lastRealInteractionAt, listModelRuns, nextRunAt, recordModelRun,
+    ACTIVE_CHAT_WINDOW_MS, buildPrompt, checkGates, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
+    jitterRatio, lastRealInteractionAt, listModelRuns, nextRunAt, recordModelRun, shouldCaptureRaw,
 } from './heartbeat.mjs';
 import { chatCompletionsUrl, createApiRunner, parseHeartbeatOutput } from './runner.mjs';
 
@@ -332,4 +332,49 @@ test('API 运行器：baseUrl 给到 /v1 或整条地址都认', () => {
         chatCompletionsUrl('https://api.example.com/v1/chat/completions'),
         'https://api.example.com/v1/chat/completions',
     );
+});
+
+test('提示词里的时间用 12 小时制：24 小时制会被模型读成差两小时', () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    seedSnapshot(db);
+    const snapshot = {
+        receivedAt: AT.toISOString(),
+        payload: { identity: { name: '露米' }, user: { name: '阿萌' }, timezone: 'America/Chicago' },
+    };
+    // 芝加哥时间 19:47。
+    const prompt = buildPrompt(character, snapshot, new Date('2026-09-23T00:47:00.000Z'));
+    assert.ok(prompt.includes('7:47'), `应出现 12 小时制的 7:47：${prompt.slice(0, 200)}`);
+    assert.ok(!prompt.includes('19:47'), '不该再出现 24 小时制的 19:47');
+});
+
+test('排查开关默认关着，解析失败不留模型原文', async () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    seedSnapshot(db);
+    assert.equal(shouldCaptureRaw(db), false);
+    const runner = { run: async () => ({ ok: false, error: '解析不出来', raw: '角色说了一段没格式的话' }) };
+    await assert.rejects(() => runHandler(db, { runner, job: jobFor(character.heartbeatGeneration) }));
+    assert.equal(listModelRuns(db)[0].rawOutput, null);
+});
+
+test('打开排查开关后，解析失败会留一段原文', async () => {
+    const db = freshDb();
+    setSetting(db, 'heartbeat_debug', JSON.stringify({ captureRawOnError: true }));
+    const character = seedCharacter(db);
+    seedSnapshot(db);
+    const runner = { run: async () => ({ ok: false, error: '解析不出来', raw: '角色说了一段没格式的话' }) };
+    await assert.rejects(() => runHandler(db, { runner, job: jobFor(character.heartbeatGeneration) }));
+    assert.equal(listModelRuns(db)[0].rawOutput, '角色说了一段没格式的话');
+});
+
+test('起居注要的 activity 会被记下来', async () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    seedSnapshot(db);
+    const runner = {
+        run: async () => ({ ok: true, output: { action: 'noop', activity: '给窗台的花浇了水', reason: '没什么可说的' } }),
+    };
+    await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration) });
+    assert.equal(listModelRuns(db)[0].activity, '给窗台的花浇了水');
 });

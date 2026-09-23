@@ -44,7 +44,8 @@ export const parseHeartbeatOutput = raw => {
             },
         };
     }
-    return { ok: false, error: '模型输出解析不出合法的心跳结果' };
+    // 带上原文：调用方在排查开关打开时才会落库，平时直接丢掉。
+    return { ok: false, error: '模型输出解析不出合法的心跳结果', raw: text };
 };
 
 /** baseUrl 可能已经带 /chat/completions，也可能只给到 /v1，两种都收。 */
