@@ -25,6 +25,7 @@ const MAX_RECENT_MESSAGES = 30;
 const MAX_MESSAGE_CHARS = 500;
 const MAX_PERSONA_CHARS = 4000;
 const MAX_MOOD_CHARS = 1500;
+const MAX_RHYTHM_CHARS = 3000;
 
 export interface SnapshotBoundary {
     text: string;
@@ -44,6 +45,8 @@ export interface CharacterSnapshot {
         sleepWindow?: { start: string; end: string };
         /** 情绪底色：聊天里每轮情绪评估写出的那段叙事（char.buffInjection）。 */
         mood?: string;
+        /** 日常节律：聊天「日程/情绪」面板里的自由文本，日程生成器一直在用的那份。 */
+        dailyRhythm?: string;
         todaySchedule?: { start: string; end: string; title: string; availability?: string }[];
         lastInteraction?: { userAt?: string; charAt?: string };
         recentMessages?: { role: 'user' | 'char'; at: string | null; text: string }[];
@@ -174,6 +177,10 @@ export const buildCharacterSnapshot = async (
             // 跟聊天注入同一个条件：总开关或情绪系统关着时，残留的底色不该漏进心跳。
             ...(isScheduleFeatureOn(char) && char.emotionConfig?.enabled && char.buffInjection?.trim()
                 ? { mood: char.buffInjection.trim().slice(0, MAX_MOOD_CHARS) }
+                : {}),
+            // 与日程生成同一个开关：'mindful' 角色没有物理生活，这份「上班/日常安排」对它没意义。
+            ...(char.scheduleStyle !== 'mindful' && char.dailyRhythm?.trim()
+                ? { dailyRhythm: char.dailyRhythm.trim().slice(0, MAX_RHYTHM_CHARS) }
                 : {}),
             lastInteraction: findLastInteraction(messages),
             ...(recent.length ? { recentMessages: recent } : {}),

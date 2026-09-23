@@ -370,6 +370,8 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
     if (p.sleepWindow) lines.push(`你的作息：${p.sleepWindow.start} 睡，${p.sleepWindow.end} 起。`);
     // 情绪底色：聊天那边每轮情绪评估写出来的叙事。缺了它，心跳里的 TA 永远是出厂情绪。
     if (p.mood) lines.push(`你此刻的情绪底色：\n${p.mood}`);
+    // 日常节律：跟聊天日程生成用的是同一份自由文本。没有它，心跳完全不知道 TA 平时在哪、忙什么。
+    if (p.dailyRhythm) lines.push(`你平时的生活节律（稳定的框架，不是今天必须逐字照做）：\n${p.dailyRhythm}`);
     if (Array.isArray(p.todaySchedule) && p.todaySchedule.length) {
         lines.push(`今天的安排：\n${p.todaySchedule.map(s => `- ${s.start}–${s.end} ${s.title}`).join('\n')}`);
     }

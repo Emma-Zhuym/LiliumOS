@@ -621,3 +621,15 @@ test('试跑记录不算 TA 的经历：既不进回看，也不留「等会儿�
     assert.equal(pendingUrge(db, CHAR), null);
     assert.equal(recentThoughts(db, CHAR, { since: new Date(AT.getTime() - 60 * 60_000) }).length, 0);
 });
+
+test('日常节律进提示词：跟聊天日程生成用的是同一份文本', () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    const prompt = buildPrompt(
+        character,
+        { payload: { timezone: 'America/Chicago', dailyRhythm: '周二周四必须到公司开会，其余时间较自由' } },
+        AT,
+        'live',
+    );
+    assert.ok(prompt.includes('周二周四必须到公司开会'));
+});

@@ -81,4 +81,23 @@ describe('角色近况快照', () => {
         expect(messageToPlainText(message({ type: 'voice', content: '晚安' }))).toBe('[语音] 晚安');
     });
 });
-// [EM-END: agent-backend-snapshot]
+
+
+describe('dailyRhythm 进快照', () => {
+    it('带上聊天「日程/情绪」面板里的日常节律原文', async () => {
+        const rhythmChar = { ...char, dailyRhythm: '周二周四必须到公司开会，其余时间较自由' } as unknown as CharacterProfile;
+        const snapshot = await buildCharacterSnapshot(rhythmChar, [], {});
+        expect(snapshot.payload.dailyRhythm).toBe('周二周四必须到公司开会，其余时间较自由');
+    });
+
+    it('mindful 角色没有物理生活，不带这份', async () => {
+        const rhythmChar = { ...char, dailyRhythm: '……', scheduleStyle: 'mindful' } as unknown as CharacterProfile;
+        const snapshot = await buildCharacterSnapshot(rhythmChar, [], {});
+        expect(snapshot.payload.dailyRhythm).toBeUndefined();
+    });
+
+    it('没填就不带这个字段', async () => {
+        const snapshot = await buildCharacterSnapshot(char, [], {});
+        expect(snapshot.payload.dailyRhythm).toBeUndefined();
+    });
+});
