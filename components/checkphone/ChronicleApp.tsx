@@ -26,7 +26,7 @@ import type { CharacterProfile, ScheduleSlot } from '../../types';
 import { getDailyScheduleForChar } from '../../utils/dailySchedule';
 import { AgentBackend, isAgentPaired } from '../../utils/emAgentBackend';
 import {
-    foldPhoneEvents, loadChronicle, mergeChronicle, toSegments,
+    foldPhoneEvents, loadChronicle, mergeChronicle, runToChronicleEntry, toSegments,
     type ChronicleEntry, type ChronicleSegment,
 } from '../../utils/emAgentActivity';
 
@@ -97,17 +97,7 @@ export default function ChronicleApp({ targetChar, accent, phoneEvents = [] }: P
         setLoading(true);
         try {
             const runs = await AgentBackend.audit(targetChar.id, 100);
-            setEntries(mergeChronicle(targetChar.id, runs.map(run => ({
-                id: run.id,
-                charId: run.charId,
-                activity: run.activity,
-                outcome: run.outcome,
-                skipGate: run.skipGate,
-                proposedText: run.proposedText,
-                reason: run.reason,
-                shadow: run.shadow,
-                at: run.startedAt,
-            }))));
+            setEntries(mergeChronicle(targetChar.id, runs.map(runToChronicleEntry)));
             setOffline(false);
         } catch {
             // 取不到就翻本地那份副本：后台不在线是常态，不是故障。

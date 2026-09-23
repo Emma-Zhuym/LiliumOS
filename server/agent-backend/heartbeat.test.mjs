@@ -554,3 +554,57 @@ test('影子期仍然不发：开关是最后一道闸', async () => {
     });
     assert.equal(sent.length, 0);
 });
+
+test('上一跳说了「等会儿找 ta」，下一跳不抽签直接去找，并且记得自己想过什么', async () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    seedSnapshot(db);
+    const prompts = [];
+    let call = 0;
+    const runner = {
+        run: async ({ system }) => {
+            prompts.push(system);
+            call += 1;
+            return call === 1
+                ? { ok: true, output: { action: 'noop', activity: '在开会', reason: '她在难过，忙完哄她', urge: 'later' } }
+                : { ok: true, output: { action: 'noop', activity: '散会了', reason: '', urge: 'none' } };
+        },
+    };
+    // rng=0.99 本来必定抽不中；第二跳仍然要是 reach_out。
+    await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 'a'), rng: () => 0.99 });
+    await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 'b'), rng: () => 0.99 });
+    const [second, first] = listModelRuns(db);
+    assert.equal(first.intent, 'live');
+    assert.equal(first.urge, 'later');
+    assert.equal(second.intent, 'reach_out', '「等会儿」由程序兑现');
+    assert.ok(prompts[1].includes('她在难过，忙完哄她'), '下一跳看得到上一跳的心声');
+    assert.ok(prompts[1].includes('在开会'));
+});
+
+test('念头之后聊过天，就不再欠着', async () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    recordModelRun(db, {
+        charId: CHAR, runtime: 'api', startedAt: new Date(AT.getTime() - 60 * 60_000).toISOString(),
+        ok: true, outcome: 'noop', reason: '等会儿找她', urge: 'later',
+    });
+    const { pendingUrge } = await import('./heartbeat.mjs');
+    assert.ok(pendingUrge(db, character.charId, { since: new Date(AT.getTime() - 2 * 60 * 60_000) }));
+    assert.equal(pendingUrge(db, character.charId, { since: new Date(AT.getTime() - 10 * 60_000) }), null);
+});
+
+test('情绪底色进提示词；没抽中也允许放不下的时候直接开口', () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    const prompt = buildPrompt(character, { payload: { timezone: 'America/Chicago', mood: '有点委屈，想被哄' } }, AT, 'live');
+    assert.ok(prompt.includes('有点委屈，想被哄'));
+    assert.ok(prompt.includes('别等'));
+    assert.ok(prompt.includes('"later"'));
+});
+
+test('urge 解析：未知值一律当 none', () => {
+    const later = parseHeartbeatOutput('{"action":"noop","activity":"a","reason":"b","urge":"later"}');
+    assert.equal(later.output.urge, 'later');
+    const junk = parseHeartbeatOutput('{"action":"noop","activity":"a","reason":"b","urge":"maybe"}');
+    assert.equal(junk.output.urge, 'none');
+});

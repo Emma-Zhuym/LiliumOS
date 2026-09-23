@@ -149,6 +149,11 @@ export const MIGRATIONS = [
     `
     ALTER TABLE model_runs ADD COLUMN intent TEXT;
     `,
+    // 5：TA 这一跳有没有「想找对方」的念头。模型最爱的托词是「等会儿再说」，
+    // 这个念头由程序记下来、下一跳兑现，否则「等会儿」永远不会来。
+    `
+    ALTER TABLE model_runs ADD COLUMN urge TEXT;
+    `,
 ];
 
 export const DEFAULT_SETTINGS = {

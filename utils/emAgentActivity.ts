@@ -9,6 +9,8 @@
  * 量级跟一次聊天草稿差不多，犯不着为它开一个库。
  */
 
+import { AgentBackend, isAgentPaired, type AgentModelRun } from './emAgentBackend';
+
 const KEY_PREFIX = 'em_agent_chronicle_v1:';
 /** 每个角色最多留多少条。后端那边按 30 天清，这里只管别把 localStorage 撑爆。 */
 const MAX_PER_CHAR = 200;
@@ -66,6 +68,83 @@ export const mergeChronicle = (charId: string, incoming: ChronicleEntry[]): Chro
         }
     }
     return merged;
+};
+
+/** 后端一条动脑记录 → 起居注条目。起居注页和聊天注入共用这一份映射。 */
+export const runToChronicleEntry = (run: AgentModelRun): ChronicleEntry => ({
+    id: run.id,
+    charId: run.charId,
+    activity: run.activity,
+    outcome: run.outcome,
+    skipGate: run.skipGate,
+    proposedText: run.proposedText,
+    reason: run.reason,
+    shadow: run.shadow,
+    at: run.startedAt,
+});
+
+/**
+ * 一次把所有角色的起居注拉回本地。
+ *
+ * 聊天注入读的是本地副本（发消息时不能再等一趟网络），所以打开 App / 回前台时
+ * 顺手刷一遍。静默失败：mini 不在线时就用上次那份。
+ */
+export const refreshAllChronicles = async (limit = 200): Promise<void> => {
+    if (!isAgentPaired()) return;
+    let runs: AgentModelRun[];
+    try {
+        runs = await AgentBackend.audit(undefined, limit);
+    } catch {
+        return;
+    }
+    const byChar = new Map<string, ChronicleEntry[]>();
+    for (const run of runs) {
+        const list = byChar.get(run.charId) ?? [];
+        list.push(runToChronicleEntry(run));
+        byChar.set(run.charId, list);
+    }
+    for (const [charId, entries] of byChar) mergeChronicle(charId, entries);
+};
+
+/** 聊天里回看多久、最多几条。更早的，聊天本身多半已经盖过去了。 */
+export const CHRONICLE_INJECT_WINDOW_MS = 12 * 60 * 60 * 1000;
+const CHRONICLE_INJECT_MAX = 6;
+
+/**
+ * 给聊天用的「你不在聊天时的样子」。
+ *
+ * 心跳里想过的事原本只存在 mini 的库里，聊天那边的 TA 完全不知道——上一跳刚想过
+ * 「等会儿忙完哄她」，一聊起来却像什么都没想过。这段让聊天里的 TA 接得上自己。
+ * 只取真正动过脑的条目；被闸门拦下的没有内容。说出口的那句已经在聊天记录里，不重复。
+ */
+export const buildChronicleInjection = (
+    charId: string,
+    { now = Date.now(), timeZone }: { now?: number; timeZone?: string } = {},
+): string => {
+    const recent = loadChronicle(charId)
+        .filter(entry => (entry.outcome === 'noop' || entry.outcome === 'message') && (entry.activity || entry.reason))
+        .filter(entry => {
+            const at = Date.parse(entry.at);
+            return at <= now && now - at <= CHRONICLE_INJECT_WINDOW_MS;
+        })
+        .slice(0, CHRONICLE_INJECT_MAX)
+        .reverse();
+    if (recent.length === 0) return '';
+    const clock = (iso: string) => {
+        try {
+            return new Intl.DateTimeFormat('zh-CN', {
+                timeZone, hour12: true, hour: 'numeric', minute: '2-digit',
+            }).format(new Date(iso));
+        } catch {
+            return new Date(iso).toLocaleTimeString('zh-CN', { hour: 'numeric', minute: '2-digit' });
+        }
+    };
+    const lines = recent.map(entry => `- ${clock(entry.at)}：${entry.activity || ''}`
+        + (entry.reason ? `（心里想：${entry.reason}）` : ''));
+    return '\n### 你刚才自己待着的时候\n'
+        + '以下是你没在聊天时真实经历过的片刻和当时的心思，对方看不到这些。'
+        + '聊天时自然地接着这些往下走：想过要找 ta、要哄 ta、要问 ta 的事，现在就是时候；不必逐条复述。\n'
+        + `${lines.join('\n')}\n`;
 };
 
 /**

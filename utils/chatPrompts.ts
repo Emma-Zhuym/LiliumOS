@@ -26,6 +26,7 @@ import { getLocalDateKey } from './localDate';
 import { buildNotionDiaryCadenceReminder } from './notionDiaryCadence';
 import { getDailyScheduleForChar } from './dailySchedule';
 import { buildEmScribeInjection } from './emScribe'; // [EM: em-scribe]
+import { buildChronicleInjection } from './emAgentActivity'; // [EM: agent-backend-chronicle]
 import { formatRelativeAge } from './groupChat/relativeTime';
 import { isBlobRef } from './blobRef';
 
@@ -602,6 +603,11 @@ ${groupLogStr}\n`;
             );
         }
         // [EM-END: notion-diary-cadence]
+        // [EM-START: agent-backend-chronicle] 心跳里想过的事接进聊天（读本地起居注副本，不等网络）
+        if (!forFirePack) {
+            try { volatileState += buildChronicleInjection(char.id, { timeZone: charTz || undefined }); } catch (e) { console.error('Failed to inject chronicle:', e); }
+        }
+        // [EM-END: agent-backend-chronicle]
         baseSystemPrompt += feishuDiaryText;
         baseSystemPrompt += notionNotesText;
         baseSystemPrompt += lifeRecordText;

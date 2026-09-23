@@ -98,6 +98,8 @@ export interface AgentModelRun {
     error: string | null;
     /** 只有打开后端的排查开关、且这次解析失败时才有；平时是 null。 */
     rawOutput?: string | null;
+    /** 这一跳有没有「过会儿找 ta」的念头；有的话下一跳会兑现。 */
+    urge?: 'none' | 'later' | 'now' | null;
 }
 
 export interface AgentDevice {

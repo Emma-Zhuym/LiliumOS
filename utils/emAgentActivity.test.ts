@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
-    clearChronicle, foldPhoneEvents, loadChronicle, mergeChronicle, toSegments, type ChronicleEntry,
+    buildChronicleInjection, clearChronicle, foldPhoneEvents, loadChronicle, mergeChronicle, toSegments, type ChronicleEntry,
 } from './emAgentActivity';
 
 const CHAR = 'lumi';
@@ -131,6 +131,32 @@ describe('手机动静合并', () => {
             { id: 'c', at: at(2), label: '逛了逛淘宝' },
         ]);
         expect(folded.map(item => item.id)).toEqual(['a', 'b', 'c']);
+    });
+});
+
+describe('buildChronicleInjection', () => {
+    const NOW = Date.parse('2026-09-23T20:00:00Z');
+    const entry = (id: number, minutesAgo: number, extra: Partial<ChronicleEntry> = {}): ChronicleEntry => ({
+        id, charId: 'inj', activity: `活动${id}`, outcome: 'noop', skipGate: null, proposedText: null,
+        reason: `心声${id}`, shadow: false, at: new Date(NOW - minutesAgo * 60_000).toISOString(), ...extra,
+    });
+
+    it('把最近动过脑的片刻按时间正序写进聊天，拦下的和太久以前的不算', () => {
+        mergeChronicle('inj', [
+            entry(1, 30),
+            entry(2, 90, { reason: '忙完哄她' }),
+            entry(3, 20, { outcome: 'skipped', activity: null, reason: null, skipGate: 'sleeping' }),
+            entry(4, 13 * 60),
+        ]);
+        const text = buildChronicleInjection('inj', { now: NOW, timeZone: 'America/Chicago' });
+        expect(text).toContain('忙完哄她');
+        expect(text.indexOf('活动2')).toBeLessThan(text.indexOf('活动1'));
+        expect(text).not.toContain('活动4');
+        expect(text).not.toContain('sleeping');
+    });
+
+    it('没有记录就什么都不加', () => {
+        expect(buildChronicleInjection('nobody', { now: NOW })).toBe('');
     });
 });
 // [EM-END: agent-backend-chronicle]

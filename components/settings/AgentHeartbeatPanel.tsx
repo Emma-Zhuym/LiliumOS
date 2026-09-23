@@ -141,13 +141,13 @@ export default function AgentHeartbeatPanel({ open, onClose }: Props) {
 
     const handleToggle = (charId: string, enabled: boolean) => run(async () => {
         await AgentBackend.upsertCharacter({ charId, heartbeatEnabled: enabled });
-        addToast(enabled ? '心跳已开（影子试跑）' : '心跳已关', 'success');
+        addToast(enabled ? (shadow ? '心跳已开（影子试跑）' : '心跳已开') : '心跳已关', 'success');
         await refresh();
     });
 
     const backendOf = (charId: string) => backendChars.find(item => item.charId === charId);
 
-    return <Modal isOpen={open} title="角色心跳 · 影子试跑" onClose={onClose}>
+    return <Modal isOpen={open} title={shadow ? '角色心跳 · 影子试跑' : '角色心跳'} onClose={onClose}>
         <div className="space-y-4">
             <p className="text-[10px] text-slate-400 leading-relaxed rounded-2xl border border-slate-200/80 bg-slate-50/60 p-3">
                 {shadow
@@ -190,7 +190,7 @@ export default function AgentHeartbeatPanel({ open, onClose }: Props) {
 
             <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                    <p className="text-xs font-bold text-slate-500">试跑记录</p>
+                    <p className="text-xs font-bold text-slate-500">{shadow ? '试跑记录' : '最近几次醒来'}</p>
                     <button disabled={busy} onClick={() => void refresh()} className={BTN}>刷新</button>
                 </div>
                 {loaded && runs.length === 0 && (

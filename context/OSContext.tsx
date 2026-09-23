@@ -96,6 +96,7 @@ import { createBuiltinSullyLive2DConfig, isBuiltinSullyLive2D, upgradeBuiltinSul
 import { normalizeCharacterRoomAssetsInPlace } from '../utils/roomTemplateAssets';
 // [EM: agent-backend-inbox] 后端信箱 → 聊天，打开 App / 回前台各取一次
 import { syncAgentMessagesIntoChat } from '../utils/emAgentInbox';
+import { refreshAllChronicles } from '../utils/emAgentActivity'; // [EM: agent-backend-chronicle]
 
 interface ProactiveQueueEntry {
   charId: string;
@@ -1958,6 +1959,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       let alive = true;
       const pull = async () => {
           if (document.visibilityState !== 'visible') return;
+          // 起居注副本顺手刷新：聊天注入读的是它，发消息那一刻不能再等网络。
+          void refreshAllChronicles();
           const result = await syncAgentMessagesIntoChat();
           if (!alive || result.delivered === 0) return;
           // 落库了要让正在看的那个聊天刷新出来；复用主动消息那条既有广播。

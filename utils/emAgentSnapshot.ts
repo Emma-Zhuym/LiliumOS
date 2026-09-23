@@ -16,6 +16,7 @@ import type { CharacterProfile, Message } from '../types';
 import { getDailyScheduleForChar } from './dailySchedule';
 import { formatSleepTimelineTime } from './scheduleTime';
 import { resolveCharTimeZone } from './timezone';
+import { isScheduleFeatureOn } from './scheduleFeature';
 
 export const SNAPSHOT_SCHEMA_VERSION = 1;
 
@@ -23,6 +24,7 @@ export const SNAPSHOT_SCHEMA_VERSION = 1;
 const MAX_RECENT_MESSAGES = 30;
 const MAX_MESSAGE_CHARS = 500;
 const MAX_PERSONA_CHARS = 4000;
+const MAX_MOOD_CHARS = 1500;
 
 export interface SnapshotBoundary {
     text: string;
@@ -40,6 +42,8 @@ export interface CharacterSnapshot {
         user: { name: string };
         timezone: string;
         sleepWindow?: { start: string; end: string };
+        /** 情绪底色：聊天里每轮情绪评估写出的那段叙事（char.buffInjection）。 */
+        mood?: string;
         todaySchedule?: { start: string; end: string; title: string; availability?: string }[];
         lastInteraction?: { userAt?: string; charAt?: string };
         recentMessages?: { role: 'user' | 'char'; at: string | null; text: string }[];
@@ -167,6 +171,10 @@ export const buildCharacterSnapshot = async (
                 }
                 : {}),
             ...(todaySchedule?.length ? { todaySchedule } : {}),
+            // 跟聊天注入同一个条件：总开关或情绪系统关着时，残留的底色不该漏进心跳。
+            ...(isScheduleFeatureOn(char) && char.emotionConfig?.enabled && char.buffInjection?.trim()
+                ? { mood: char.buffInjection.trim().slice(0, MAX_MOOD_CHARS) }
+                : {}),
             lastInteraction: findLastInteraction(messages),
             ...(recent.length ? { recentMessages: recent } : {}),
             ...(options.boundaries?.length ? { boundaries: options.boundaries } : {}),

@@ -40,6 +40,7 @@ export const parseHeartbeatOutput = raw => {
                 action,
                 activity: String(parsed.activity ?? '').slice(0, 120),
                 reason: String(parsed.reason ?? '').slice(0, 500),
+                urge: parsed.urge === 'later' || parsed.urge === 'now' ? parsed.urge : 'none',
                 ...(action === 'message' ? { text: String(parsed.text).slice(0, 2000) } : {}),
             },
         };

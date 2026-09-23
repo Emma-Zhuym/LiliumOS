@@ -186,18 +186,54 @@ export const recordModelRun = (db, {
     activity = null,
     rawOutput = null,
     intent = null,
+    urge = null,
 }) => {
     db.prepare(
         `INSERT INTO model_runs (job_uuid, char_id, runtime, started_at, duration_ms, ok, outcome,
                                  shadow, reason, proposed_text, proposed_tool, proposed_args_summary,
-                                 skip_gate, error, activity, raw_output, intent)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                 skip_gate, error, activity, raw_output, intent, urge)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
         jobUuid, charId, runtime, startedAt, durationMs, ok ? 1 : 0, outcome,
         shadow ? 1 : 0, truncate(reason, 500), truncate(proposedText, 2000), proposedTool,
         truncate(proposedArgsSummary, 500), skipGate, truncate(error, 500),
-        truncate(activity, 200), truncate(rawOutput, 2000), intent,
+        truncate(activity, 200), truncate(rawOutput, 2000), intent, urge,
     );
+};
+
+/**
+ * TA 前几次醒来时的样子（按时间正序）。
+ *
+ * 每一跳原本都是失忆的：上一跳刚想过「等会儿去找她」，这一跳完全不知道，
+ * 于是「等会儿」永远停在嘴上。只取真正动过脑的那些，被闸门拦下的没有内容。
+ */
+export const recentThoughts = (db, charId, { since, limit = 4 } = {}) => db.prepare(
+    `SELECT started_at, activity, reason, outcome, proposed_text FROM model_runs
+      WHERE char_id = ? AND ok = 1 AND outcome IN ('noop','message') AND started_at >= ?
+      ORDER BY id DESC LIMIT ?`,
+).all(charId, since.toISOString(), limit).reverse().map(row => ({
+    at: row.started_at,
+    activity: row.activity,
+    reason: row.reason,
+    said: row.outcome === 'message' ? row.proposed_text : null,
+}));
+
+/**
+ * 上一跳留下、还没兑现的「想找 ta」。
+ *
+ * 只看最近一次动过脑的那跳：它说了「等会儿」却没开口，这一跳就是那个等会儿。
+ * `since` 是最后一次真实聊天——之后聊过了，念头已经在聊天里了结，不再欠着。
+ */
+export const pendingUrge = (db, charId, { since = null } = {}) => {
+    const row = db.prepare(
+        `SELECT started_at, reason, urge, outcome FROM model_runs
+          WHERE char_id = ? AND ok = 1 AND outcome IN ('noop','message')
+          ORDER BY id DESC LIMIT 1`,
+    ).get(charId);
+    if (!row || row.outcome === 'message') return null;
+    if (row.urge !== 'later' && row.urge !== 'now') return null;
+    if (since && Date.parse(row.started_at) <= since.getTime()) return null;
+    return { at: row.started_at, reason: row.reason, urge: row.urge };
 };
 
 const truncate = (value, limit) =>
@@ -228,6 +264,7 @@ export const listModelRuns = (db, { charId = null, limit = 50 } = {}) => {
         activity: row.activity,
         rawOutput: row.raw_output,
         intent: row.intent,
+        urge: row.urge,
     }));
 };
 
@@ -281,10 +318,12 @@ export const messageChance = ({ availability, minutesSinceContact }) => {
  * 决定这一跳的意图。reach_out = 去说句话；live = 过自己的日子。
  * rng 可注入，测试里钉死。
  */
-export const decideIntent = ({ snapshot, now, timezone, minutesSinceContact, rng = Math.random }) => {
+export const decideIntent = ({ snapshot, now, timezone, minutesSinceContact, carried = null, rng = Math.random }) => {
     const slot = currentSlot(snapshot, now, timezone);
     const availability = slot?.availability ?? null;
-    const chance = messageChance({ availability, minutesSinceContact });
+    // 上一跳自己说了「等会儿找 ta」：这一跳不再抽签，兑现它。
+    // 冷却、每日上限这些闸在抽签之前已经过了，所以不会因此刷屏。
+    const chance = carried ? 1 : messageChance({ availability, minutesSinceContact });
     return {
         intent: rng() < chance ? 'reach_out' : 'live',
         chance,
@@ -314,6 +353,7 @@ export const HEARTBEAT_SCHEMA = {
         activity: { type: 'string', maxLength: 120 },
         reason: { type: 'string', maxLength: 500 },
         text: { type: 'string', maxLength: 2000 },
+        urge: { type: 'string', enum: ['none', 'later', 'now'] },
     },
 };
 
@@ -321,13 +361,15 @@ export const HEARTBEAT_SCHEMA = {
  * 拼提示词。「什么时候该说话」写死在这里，不交给模型自由发挥——
  * 没话找话是主动消息最容易翻车的地方（设计 4.3 第 4 步）。
  */
-export const buildPrompt = (character, snapshot, now = new Date(), intent = 'live') => {
+export const buildPrompt = (character, snapshot, now = new Date(), intent = 'live', { thoughts = [], carried = null } = {}) => {
     const p = snapshot.payload || {};
     const lines = [];
     lines.push(`你是「${p.identity?.name || character.displayName}」，正在自己的生活里过日子。`);
     if (p.identity?.persona) lines.push(`你的设定：\n${p.identity.persona}`);
     lines.push(`对方是「${p.user?.name || '阿萌'}」。现在是 ${formatLocal(now, p.timezone)}（${p.timezone || '未知时区'}）。`);
     if (p.sleepWindow) lines.push(`你的作息：${p.sleepWindow.start} 睡，${p.sleepWindow.end} 起。`);
+    // 情绪底色：聊天那边每轮情绪评估写出来的叙事。缺了它，心跳里的 TA 永远是出厂情绪。
+    if (p.mood) lines.push(`你此刻的情绪底色：\n${p.mood}`);
     if (Array.isArray(p.todaySchedule) && p.todaySchedule.length) {
         lines.push(`今天的安排：\n${p.todaySchedule.map(s => `- ${s.start}–${s.end} ${s.title}`).join('\n')}`);
     }
@@ -361,6 +403,16 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
             + '如果你们之间有还没兑现的约定，而时间已经过去不少，问一句正是此刻该做的事。',
         );
     }
+    if (thoughts.length) {
+        lines.push(
+            '你今天早些时候自己待着的样子（这是你真实经历过的，对方并不知道）：\n'
+            + thoughts.map(t => `- ${formatLocal(new Date(t.at), p.timezone)}：${t.activity || ''}`
+                + `${t.reason ? `（心里想：${t.reason}）` : ''}${t.said ? `（你对 ta 说了：${t.said}）` : ''}`).join('\n'),
+        );
+    }
+    if (carried) {
+        lines.push(`你上一次醒来时心里想的是：「${carried.reason}」。现在就是那个「等会儿」了。`);
+    }
     // 开不开口已经定了，模型不再做判断题，只负责把它说得像这个人会说的话。
     lines.push(
         intent === 'reach_out'
@@ -369,12 +421,14 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
                 + 'action 填 "message"，text 写你要说的那句话——'
                 + '要贴着你此刻正在做的事和你们之间还没了结的话头，别写成万能问候。'
                 + '真的想不出任何自然的话头时才退回 action="noop"，那说明这一刻确实不合适。'
-                + 'reason 写你心里的想法，对方看不到它。'
-            : '现在你自己醒了一下，过你自己的日子，不必联系对方。\n'
+                + 'reason 写你心里的想法，对方看不到它。urge 填 "none"。'
+            : '现在你自己醒了一下，过你自己的日子。\n'
                 + '规则：activity 里用第一人称写你这会儿在做什么（40 字以内），'
                 + '贴着你当下的时段——在上班就是工作里的事，闲着就是闲着的事。'
-                + 'action 填 "noop"。'
-                + 'reason 写你心里的想法，对方看不到它。',
+                + '一般 action 填 "noop"；但如果你心里正放不下 ta、此刻就想说（比如 ta 刚才在难过），'
+                + '那就别等：action 填 "message"，text 写你要说的话。'
+                + 'reason 写你心里的想法，对方看不到它。'
+                + 'urge：你打算过一阵再找 ta 就填 "later"（下次醒来你就会去找），没这个打算填 "none"。',
     );
     return lines.join('\n\n');
 };
@@ -464,18 +518,24 @@ export const createHeartbeatHandler = ({
     const shadow = isShadowMode(db);
     const timezone = snapshot.payload?.timezone || getSetting(db, 'timezone') || 'America/Chicago';
     const lastContact = lastRealInteractionAt(character, snapshot);
+    const carried = pendingUrge(db, character.charId, { since: lastContact });
     // 开不开口由程序抽签，不再让模型做判断题——它总能为沉默找到理由（设计 3.3）。
     const { intent } = decideIntent({
         snapshot,
         now: startedAt,
         timezone,
         minutesSinceContact: lastContact ? (startedAt.getTime() - lastContact.getTime()) / 60_000 : null,
+        carried,
         rng,
+    });
+    // 只回看最近 12 小时：更早的那些，今天的聊天多半已经盖过去了。
+    const thoughts = recentThoughts(db, character.charId, {
+        since: new Date(startedAt.getTime() - 12 * 60 * 60_000),
     });
     const result = await runner.run({
         charId: character.charId,
         credRef: character.credRef,
-        system: buildPrompt(character, snapshot, startedAt, intent),
+        system: buildPrompt(character, snapshot, startedAt, intent, { thoughts, carried }),
         user: '现在要做什么？只按 schema 回一个 JSON。',
         schema: HEARTBEAT_SCHEMA,
         timeoutMs: config.heartbeatTimeoutMs,
@@ -516,6 +576,8 @@ export const createHeartbeatHandler = ({
         shadow,
         // 抽中了开口、模型却退回 noop 的次数值得盯：多了说明提示词还是在劝它闭嘴。
         intent,
+        // 开了口就不再欠着；没开口的「等会儿」留给下一跳兑现。
+        urge: output.action === 'message' ? 'none' : output.urge,
     });
 
     // 影子期到此为止：不写 outbox、不推送、不执行工具（设计 4.3 第 9 步）。
