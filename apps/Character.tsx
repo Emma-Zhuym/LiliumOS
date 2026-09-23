@@ -142,6 +142,7 @@ const Character: React.FC = () => {
   // [EM-START: character-daily-rhythm-draft]
   const [rhythmDraft, setRhythmDraft] = useState<string | null>(null);
   const [rhythmDraftLoading, setRhythmDraftLoading] = useState(false);
+  const [rhythmInstruction, setRhythmInstruction] = useState('');
   // [EM-END: character-daily-rhythm-draft]
   
   // Modals
@@ -538,7 +539,23 @@ const Character: React.FC = () => {
       const targetId = formData.id;
       trackEvent('生成日常节律草稿');
 
-      const { system, user: userMsg } = buildDailyRhythmDraftPrompt(formData, userProfile);
+      // 老角色的作息可能是相处中慢慢改的：带上最近的聊天记录，让草稿有机会顺着
+      // 实际相处调整，而不是每次都从人设重新瞎猜一份（阿萌反馈：纯读人设很怪）。
+      let recentChatText = '';
+      try {
+          const recent = await DB.getRecentMessagesByCharId(targetId, 40, true);
+          recentChatText = recent
+              .filter(m => m.type !== 'system' && m.type !== 'interaction')
+              .map(m => `${m.role === 'user' ? userProfile.name : formData.name}: ${m.type === 'text' ? m.content : `[${m.type}]`}`)
+              .join('\n')
+              .slice(-4000);
+      } catch { /* 拿不到聊天记录不影响生成，退化成只读人设 */ }
+
+      const { system, user: userMsg } = buildDailyRhythmDraftPrompt(formData, userProfile, {
+          currentRhythm: formData.dailyRhythm,
+          recentChatText,
+          instruction: rhythmInstruction.trim() || undefined,
+      });
       setRhythmDraftLoading(true);
       try {
           const data = await safeFetchJson(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
@@ -1512,14 +1529,24 @@ const parsed = normalizeUserImpression(JSON.parse(content));
                                     />
                                    <div className="flex items-center justify-between gap-3">
                                        <span className="text-[9px] text-slate-400">{(formData.dailyRhythm || '').length}/6000</span>
+                                   </div>
+                                   <div className="rounded-2xl bg-slate-50 p-2.5 space-y-2">
+                                       <input
+                                            value={rhythmInstruction}
+                                            onChange={(e) => setRhythmInstruction(e.target.value)}
+                                            maxLength={500}
+                                            placeholder="想让 TA 怎么调整？可选，例如「他最近升职了，周末也偶尔加班」"
+                                            className="w-full bg-white rounded-xl px-3 py-2 text-[11px] outline-none border border-slate-200 focus:ring-1 focus:ring-primary/20"
+                                        />
+                                       <p className="text-[9px] text-slate-400 leading-relaxed">已有节律和最近的聊天记录都会一起参考——有变化会顺着改，没提到的部分不会被无缘无故推翻重写。</p>
                                        <button
                                             type="button"
                                             onClick={handleGenerateDailyRhythm}
                                             disabled={rhythmDraftLoading}
-                                            className="rounded-xl px-3 py-2 text-[11px] font-bold text-white disabled:opacity-60"
+                                            className="w-full rounded-xl px-3 py-2 text-[11px] font-bold text-white disabled:opacity-60"
                                             style={{ background: '#0d9488' }}
                                         >
-                                            {rhythmDraftLoading ? '生成中…' : (formData.dailyRhythm?.trim() ? '重新生成草稿' : '从人设生成草稿')}
+                                            {rhythmDraftLoading ? '生成中…' : (formData.dailyRhythm?.trim() ? '按上面的说明更新草稿' : '从人设生成草稿')}
                                        </button>
                                    </div>
                                    {rhythmDraft && (
