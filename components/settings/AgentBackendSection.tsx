@@ -11,6 +11,7 @@ import { CheckCircle, MoonStars, WarningCircle } from '@phosphor-icons/react';
 import { useOS } from '../../context/OSContext';
 import { F, R, S, STATUS } from '../../utils/clayTokens';
 import ClayDialog from '../os/ClayDialog';
+import AgentHeartbeatPanel from './AgentHeartbeatPanel';
 import {
     AgentBackend,
     AgentBackendError,
@@ -26,7 +27,7 @@ const DEP_LABELS: Record<string, string> = {
     appleEvents: '日历 / 提醒桥接',
     homeAssistant: 'Home Assistant',
     push: '推送',
-    codex: 'Codex（1c 才接）',
+    codex: 'Codex（还没接）',
 };
 
 const buttonStyle = {
@@ -57,6 +58,7 @@ export default function AgentBackendSection() {
     const [pairing, setPairing] = useState(false);
     const [busy, setBusy] = useState(false);
     const [form, setForm] = useState({ baseUrl: '', code: '', deviceName: '' });
+    const [heartbeatOpen, setHeartbeatOpen] = useState(false);
     const version = useRef(0);
 
     const paired = isAgentPaired(config);
@@ -222,6 +224,7 @@ export default function AgentBackendSection() {
                 <button disabled={busy} onClick={handleTestPing} className="flex-1 px-4 text-sm" style={buttonStyle}>连通测试</button>
                 <button disabled={busy} onClick={handleFetchInbox} className="flex-1 px-4 text-sm" style={buttonStyle}>收取消息</button>
                 <button disabled={busy} onClick={handleOpenDevices} className="flex-1 px-4 text-sm" style={buttonStyle}>设备列表</button>
+                <button disabled={busy} onClick={() => setHeartbeatOpen(true)} className="flex-1 px-4 text-sm" style={buttonStyle}>角色心跳</button>
                 <button disabled={busy} onClick={handleUnpair} className="flex-1 px-4 text-sm" style={{ ...buttonStyle, color: STATUS.danger.ink }}>解除绑定</button>
             </> : (
                 <button onClick={() => { setForm({ baseUrl: config.baseUrl, code: '', deviceName: '' }); setPairing(true); }} className="flex-1 px-4 text-sm font-semibold" style={buttonStyle}>
@@ -229,6 +232,8 @@ export default function AgentBackendSection() {
                 </button>
             )}
         </div>
+
+        <AgentHeartbeatPanel open={heartbeatOpen} onClose={() => setHeartbeatOpen(false)} />
 
         <ClayDialog
             isOpen={pairing}

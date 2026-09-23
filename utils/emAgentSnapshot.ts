@@ -1,0 +1,176 @@
+// [EM-START: agent-backend-snapshot]
+/**
+ * 角色近况快照：把「角色此刻是什么样子」打包成后端能读的一份 JSON（契约见
+ * docs/agent-backend-design.md 3.4）。
+ *
+ * 快照**不是记忆**，只是最近的样子：后端每个角色只留最新一份，旧的直接被盖掉。
+ * 心跳没有快照就不动脑（后端第二道闸），所以这份传不上去，角色就不会自己醒来说话。
+ *
+ * 时间的两把尺子（docs/character-timezone.md）：
+ * - 快照里的 `timezone` / `sleepWindow` / `todaySchedule` 都是**角色那边**的时间；
+ * - `builtAt` / `lastInteraction` 是绝对时刻（ISO），跟时区无关。
+ * 别把两者混起来，否则角色会在自己的凌晨三点醒来找人。
+ */
+
+import type { CharacterProfile, Message } from '../types';
+import { getDailyScheduleForChar } from './dailySchedule';
+import { formatSleepTimelineTime } from './scheduleTime';
+import { resolveCharTimeZone } from './timezone';
+
+export const SNAPSHOT_SCHEMA_VERSION = 1;
+
+/** 最多带多少条最近消息；每条截断到多少字。与后端的规整逻辑对齐。 */
+const MAX_RECENT_MESSAGES = 30;
+const MAX_MESSAGE_CHARS = 500;
+const MAX_PERSONA_CHARS = 4000;
+
+export interface SnapshotBoundary {
+    text: string;
+    kind?: 'preference' | 'relationship';
+    confirmedAt: string;
+    source?: string;
+}
+
+export interface CharacterSnapshot {
+    charId: string;
+    schemaVersion: number;
+    builtAt: string;
+    payload: {
+        identity: { name: string; persona?: string };
+        user: { name: string };
+        timezone: string;
+        sleepWindow?: { start: string; end: string };
+        todaySchedule?: { start: string; end: string; title: string; availability?: string }[];
+        lastInteraction?: { userAt?: string; charAt?: string };
+        recentMessages?: { role: 'user' | 'char'; at: string | null; text: string }[];
+        boundaries?: SnapshotBoundary[];
+        openThreads?: never[];
+    };
+}
+
+/** 跨午夜刻度（21:30 → 次日 10:00）转成 "HH:MM"，「次日」前缀对后端没意义，去掉。 */
+const toClock = (minutes: number): string => formatSleepTimelineTime(minutes).replace('次日 ', '');
+
+/** 设备时区兜底：角色没开自定义时区时，ta 的作息就按这台设备所在地算。 */
+const deviceTimeZone = (): string => {
+    try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Chicago';
+    } catch {
+        return 'America/Chicago';
+    }
+};
+
+/**
+ * 消息正文的纯文本形态。图片、语音这类只留占位描述——
+ * 快照是给模型读的近况，不该把 base64 之类的东西塞进去。
+ */
+export const messageToPlainText = (message: Message): string => {
+    if (message.type === 'image') return '[一张照片]';
+    if (message.type === 'voice' || message.metadata?.voice) return `[语音] ${message.content ?? ''}`.trim();
+    if (message.type === 'interaction') return '[戳了一下]';
+    return String(message.content ?? '');
+};
+
+const isFromUser = (message: Message): boolean => message.role === 'user';
+
+/**
+ * 角色设定：系统提示词 + 人设简介 + 世界观，按这个顺序拼。
+ * 记忆、日记那些不进快照——快照只是「最近的样子」，长期记忆是 Phase 2 的事。
+ */
+export const buildPersona = (char: CharacterProfile): string =>
+    [char.systemPrompt, char.description, char.worldview]
+        .map(part => (part ?? '').trim())
+        .filter(Boolean)
+        .join('\n\n')
+        .slice(0, MAX_PERSONA_CHARS);
+
+/**
+ * 找最后一条**真实**的用户消息与角色消息的时刻（设计 3.4）。
+ * 系统提示、卡片之类不算真实互动，别让它们把心跳的「正在聊天」闸一直按住。
+ */
+export const findLastInteraction = (messages: Message[]): { userAt?: string; charAt?: string } => {
+    const out: { userAt?: string; charAt?: string } = {};
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const message = messages[index];
+        if (!message?.timestamp) continue;
+        if (message.type === 'system') continue;
+        const at = new Date(message.timestamp).toISOString();
+        if (!out.userAt && isFromUser(message)) out.userAt = at;
+        if (!out.charAt && !isFromUser(message)) out.charAt = at;
+        if (out.userAt && out.charAt) break;
+    }
+    return out;
+};
+
+export interface BuildSnapshotOptions {
+    /** 阿萌在这个角色的称呼，用于提示词里的第二人称。 */
+    userName?: string;
+    /** 已确认的关系与边界。没有 confirmedAt 的条目后端会丢掉，这里也不硬造。 */
+    boundaries?: SnapshotBoundary[];
+    at?: Date;
+}
+
+/**
+ * 拼一份快照。
+ *
+ * `openThreads`（未完事项）这一版恒为空：设计要求每条都带来源和确认状态，
+ * 靠前端猜出来的「未完事项」会被角色当成约定说出口，宁可不给。
+ */
+export const buildCharacterSnapshot = async (
+    char: CharacterProfile,
+    messages: Message[],
+    options: BuildSnapshotOptions = {},
+): Promise<CharacterSnapshot> => {
+    const at = options.at ?? new Date();
+    const timezone = resolveCharTimeZone(char) || deviceTimeZone();
+
+    let todaySchedule: CharacterSnapshot['payload']['todaySchedule'];
+    try {
+        const schedule = await getDailyScheduleForChar(char, at);
+        const slots = schedule?.slots ?? [];
+        todaySchedule = slots.map((slot, index) => ({
+            start: slot.startTime,
+            // slot 只有开始时间，结束时间按下一个 slot 的开始时间算；最后一个留空。
+            end: slots[index + 1]?.startTime ?? '',
+            title: [slot.activity, slot.location].filter(Boolean).join(' · '),
+            availability: slot.availability,
+        }));
+    } catch {
+        // 日程读不出来不是拦路石：心跳照样能判断，只是少一层依据。
+        todaySchedule = undefined;
+    }
+
+    const recent = messages
+        .filter(message => message.type !== 'system')
+        .slice(-MAX_RECENT_MESSAGES)
+        .map(message => ({
+            role: (isFromUser(message) ? 'user' : 'char') as 'user' | 'char',
+            at: message.timestamp ? new Date(message.timestamp).toISOString() : null,
+            text: messageToPlainText(message).slice(0, MAX_MESSAGE_CHARS),
+        }))
+        .filter(item => item.text.length > 0);
+
+    return {
+        charId: char.id,
+        schemaVersion: SNAPSHOT_SCHEMA_VERSION,
+        builtAt: at.toISOString(),
+        payload: {
+            identity: { name: char.name, persona: buildPersona(char) },
+            user: { name: options.userName || '阿萌' },
+            timezone,
+            ...(char.sleepWindow
+                ? {
+                    sleepWindow: {
+                        start: toClock(char.sleepWindow.bedtimeMinutes),
+                        end: toClock(char.sleepWindow.wakeTimeMinutes),
+                    },
+                }
+                : {}),
+            ...(todaySchedule?.length ? { todaySchedule } : {}),
+            lastInteraction: findLastInteraction(messages),
+            ...(recent.length ? { recentMessages: recent } : {}),
+            ...(options.boundaries?.length ? { boundaries: options.boundaries } : {}),
+        },
+    };
+};
+// [EM-END: agent-backend-snapshot]

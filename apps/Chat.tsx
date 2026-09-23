@@ -8,6 +8,9 @@ import { AppID } from '../types';
 import React, { useState, useEffect, useRef, useLayoutEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useOS } from '../context/OSContext';
+// [EM: agent-backend-presence] 在场信号 + 近况快照，后端离线时全程静默
+import { scheduleSnapshotUpload, signalAgentPresence } from '../utils/emAgentBackend';
+import { buildCharacterSnapshot } from '../utils/emAgentSnapshot';
 import { DB } from '../utils/db';
 import { isVisibleChatMessage } from '../utils/chatMessageVisibility';
 import { createChatHistoryWindow, expandChatHistoryWindow, type ChatHistoryWindowRange } from '../utils/chatHistoryWindow';
@@ -1578,6 +1581,18 @@ const Chat: React.FC = () => {
         const finish = autoReply.beginSend(char?.id || null);
         try {
             const sent = await sendText(customContent, customType, metadata);
+            // [EM-START: agent-backend-presence]
+            // 告诉 Mac mini 后端「人在」，并把近况排进防抖上传。两者都静默失败：
+            // 后端离线是常态，不该在聊天里冒出任何提示。
+            if (sent === true && char) {
+                signalAgentPresence(char.id);
+                scheduleSnapshotUpload(char.id, async () => buildCharacterSnapshot(
+                    char,
+                    await DB.getMessagesByCharId(char.id),
+                    { userName: userProfile?.name },
+                ));
+            }
+            // [EM-END: agent-backend-presence]
             finish(sent === true && (!customType || ['text', 'image', 'emoji'].includes(customType)));
         } catch (error) {
             finish(false);

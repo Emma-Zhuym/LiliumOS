@@ -60,7 +60,40 @@ export interface AgentStatus {
     now: string;
     quiet: { active: boolean; start: string; end: string; timezone: string };
     deps: Record<string, AgentDependency>;
+    /** 心跳状态：shadow=true 表示只试跑、不真发消息；everyMinOverride 非空表示试跑提速开着。 */
+    heartbeat?: { shadow: boolean; everyMinOverride: number | null };
     capabilities: string[];
+}
+
+export interface AgentCharacter {
+    charId: string;
+    displayName: string;
+    runtime: 'api' | 'codex';
+    credRef: string | null;
+    heartbeatEnabled: boolean;
+    heartbeatEveryMin: number;
+    heartbeatGeneration: number;
+    dailyModelBudget: number;
+    messageCooldownMin: number;
+    lastUserInteractionAt: string | null;
+    heartbeatPaused: string | null;
+    updatedAt: string;
+}
+
+/** 一次「动脑」的记录。影子期就靠它看角色本来想说什么。 */
+export interface AgentModelRun {
+    id: number;
+    charId: string;
+    runtime: 'api' | 'codex';
+    startedAt: string;
+    durationMs: number | null;
+    ok: boolean;
+    outcome: 'noop' | 'message' | 'task' | 'skipped' | 'error' | null;
+    shadow: boolean;
+    reason: string | null;
+    proposedText: string | null;
+    skipGate: string | null;
+    error: string | null;
 }
 
 export interface AgentDevice {
@@ -178,10 +211,107 @@ export const AgentBackend = {
         },
     }),
 
+    characters: () => request<{ characters: AgentCharacter[] }>('/characters').then(data => data.characters),
+
+    /** 登记 / 改角色设置（心跳开关、频率、预算都走这里）。 */
+    upsertCharacter: (input: Partial<AgentCharacter> & { charId: string }) =>
+        request<{ character: AgentCharacter }>('/characters/upsert', { method: 'POST', body: input })
+            .then(data => data.character),
+
+    /**
+     * 把这个角色在本机用的 API 配置推给后端。
+     *
+     * Key 从手机的角色 API 配置里直接取，只发给自己的 mini（Tailscale 内网 + 设备钥匙），
+     * 后端存成 600 文件且**只写不读**——接口永远不会把它回传出来。
+     */
+    putCredential: (input: { ref: string; baseUrl: string; model: string; apiKey: string }) =>
+        request<{ credential: { ref: string; baseUrl: string; model: string; updatedAt: string } }>(
+            '/credentials/put', { method: 'POST', body: input },
+        ).then(data => data.credential),
+
+    credentials: () => request<{ credentials: { ref: string; baseUrl: string; model: string; updatedAt: string }[] }>(
+        '/credentials',
+    ).then(data => data.credentials),
+
+    /** 上传角色近况快照。后端只留最新一份，更旧的会被 409 拒收。 */
+    putSnapshot: (snapshot: { charId: string; schemaVersion: number; builtAt: string; payload: unknown }) =>
+        request<{ charId: string; receivedAt: string }>('/characters/snapshot', {
+            method: 'POST', body: snapshot,
+        }),
+
+    /** 在场信号：阿萌刚给这个角色发了消息。不带正文，服务端按自己的时钟记。 */
+    presence: (charId: string) =>
+        request<{ updated: boolean }>('/characters/presence', { method: 'POST', body: { charId } }),
+
+    /** 影子期的动脑记录。 */
+    audit: (charId?: string, limit = 50) =>
+        request<{ modelRuns: AgentModelRun[] }>(
+            `/audit?limit=${limit}${charId ? `&charId=${encodeURIComponent(charId)}` : ''}`,
+        ).then(data => data.modelRuns),
+
     inbox: () => request<{ messages: AgentMessage[] }>('/outbox').then(data => data.messages),
     ackInbox: (messageIds: string[]) => request<{ acked: number }>('/outbox/ack', {
         method: 'POST', body: { messageIds },
     }),
+};
+
+/**
+ * 在场信号：阿萌刚给这个角色发了消息。
+ *
+ * 失败一律静默（设计 3.4）：它只是让心跳知道「人在」，漏一次最多让角色早醒 20 分钟，
+ * 为它弹一个错误提示远比漏发更烦人。
+ */
+export const signalAgentPresence = (charId: string): void => {
+    if (!charId || !isAgentPaired()) return;
+    void AgentBackend.presence(charId).catch(() => { /* 后端不在线是常态 */ });
+};
+
+/** 每个角色一个计时器：聊完 30 秒没有新动静才传，别每说一句就传一次。 */
+const snapshotTimers = new Map<string, ReturnType<typeof setTimeout>>();
+export const SNAPSHOT_DEBOUNCE_MS = 30_000;
+
+/**
+ * 防抖上传快照。`build` 在真正要传的那一刻才执行——
+ * 提前拼好的话，连发五条消息就会拼五次，而且传上去的还是第一条时的样子。
+ */
+export const scheduleSnapshotUpload = (
+    charId: string,
+    build: () => Promise<{ charId: string; schemaVersion: number; builtAt: string; payload: unknown }>,
+    delayMs = SNAPSHOT_DEBOUNCE_MS,
+): void => {
+    if (!charId || !isAgentPaired()) return;
+    const existing = snapshotTimers.get(charId);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+        snapshotTimers.delete(charId);
+        void (async () => {
+            try {
+                await AgentBackend.putSnapshot(await build());
+            } catch {
+                // 后端睡着、快照比库里那份旧（409）都不是错误：下次聊完会再传一份更新的。
+            }
+        })();
+    }, delayMs);
+    // 页面在后台时浏览器会压制计时器，这里不做补偿：晚传一会儿没关系，传错时间点才要命。
+    snapshotTimers.set(charId, timer);
+};
+
+/** 立刻传一份（打开 App 时补传）。同样静默失败。 */
+export const flushSnapshotUpload = async (
+    snapshot: { charId: string; schemaVersion: number; builtAt: string; payload: unknown },
+): Promise<boolean> => {
+    if (!isAgentPaired()) return false;
+    const timer = snapshotTimers.get(snapshot.charId);
+    if (timer) {
+        clearTimeout(timer);
+        snapshotTimers.delete(snapshot.charId);
+    }
+    try {
+        await AgentBackend.putSnapshot(snapshot);
+        return true;
+    } catch {
+        return false;
+    }
 };
 
 /**
