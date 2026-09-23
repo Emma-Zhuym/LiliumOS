@@ -129,7 +129,9 @@ export const restartUtmVm = async (vmName, execImpl = execFileAsync, utmctl = '/
         // 已经停了或停不动都继续尝试启动：目标是「让它起来」，不是「让停止成功」。
     }
     try {
-        await execImpl(utmctl, ['start', '--hide', vmName], { timeout: 60_000 });
+        // 不加 --hide：实测在 launchd 与终端下都稳定报 -10004（权限冲突），
+        // 隐藏窗口这一步需要控制 UTM 的界面，而启动本身不需要。加了只是多两行报错。
+        await execImpl(utmctl, ['start', vmName], { timeout: 60_000 });
         return { attempted: true, ok: true };
     } catch (error) {
         return { attempted: true, ok: false, error: String(error?.message || error).slice(0, 200) };
