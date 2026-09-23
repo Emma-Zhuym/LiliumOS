@@ -691,6 +691,12 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
 - 前端：`apps/CheckPhone.tsx` 里新增一页（`components/checkphone/ChronicleApp.tsx`），做成一条时间轴——
   起居注记的是「一天是怎么过的」，顺序和间隔本身就是内容。被闸门拦下的醒来不单独占一格，
   折成轴上的一段「醒了 N 次又睡回去」，否则安静的一天会刷满「没动静」，真做过的事反而被埋掉。
+- 轴上混入**当天日程**（`utils/dailySchedule.ts`，按角色时区取当天那份）作为底子：
+  没有日程作底，心跳条目就是悬空的碎片——「翻了会儿手机」发生在上班路上还是躺床上，读起来完全是两回事。
+  只铺到当前时刻为止；之后的时段是计划，不是起居注。这是与 Calendar / Shared Life 联动的第一步，
+  完整方案见 `codex/calendar-life-hub-plan` 分支的 `docs/calendar-shared-life-design.md`。
+- 文案不得把后台的「唤醒」写成角色在睡觉：角色大部分时候醒着，在上班、逛街、打游戏，
+  只是没有要对阿萌说的话。只有 `sleeping` 这道闸才真的是 TA 睡着了。
 - 影子期（1c）条目来自 `GET /agent/v1/audit`（model_runs），**不经过 outbox**——4.3 第 9 步规定影子不写信箱。
   1d 开启真实执行后再按本节改走 outbox 的 `activity_log`。
 - 本地副本存 localStorage（`utils/emAgentActivity.ts`，每角色 200 条）：mini 每天 4–7 点休眠时这一页照样能翻。

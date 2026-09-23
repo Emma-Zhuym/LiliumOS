@@ -66,7 +66,7 @@ describe('起居注时间轴', () => {
         const quiet = segments[1] as { kind: 'quiet'; count: number; gates: string[] };
         expect(quiet.count).toBe(3);
         // 理由去重，最多留两个：列全了反而看不出重点。
-        expect(quiet.gates).toEqual(['在睡觉', '今天想得够多了']);
+        expect(quiet.gates).toEqual(['在睡觉', '今天已经想了很多次']);
     });
 
     it('两段安静之间隔着一次活动时，不会被合并', () => {

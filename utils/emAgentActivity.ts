@@ -66,14 +66,19 @@ export const mergeChronicle = (charId: string, incoming: ChronicleEntry[]): Chro
     return merged;
 };
 
-/** 闸门名字翻成人话。起居注里最常见的就是这几条。 */
+/**
+ * 闸门名字翻成人话。
+ *
+ * 注意别把后台的「唤醒」写成角色在睡觉——角色大部分时候是醒着的，
+ * 在上班、逛街、打游戏。只有 sleeping 这一道才真的是 TA 睡着了。
+ */
 export const GATE_LABELS: Record<string, string> = {
     paused: '被按了暂停',
-    no_snapshot: '还不知道最近怎么样',
+    no_snapshot: '还不知道你最近怎么样',
     sleeping: '在睡觉',
     active_chat: '正和你说着话',
-    message_cooldown: '刚说过话，先歇着',
-    daily_budget: '今天想得够多了',
+    message_cooldown: '刚说过话',
+    daily_budget: '今天已经想了很多次',
 };
 
 /** 时间轴上的一段：要么是一次真的活动，要么是「醒了几次又睡回去」。 */
@@ -84,8 +89,8 @@ export type ChronicleSegment =
 /**
  * 把条目折成时间轴的段落。
  *
- * 连着被拦下的几次合成一段：被闸门拦下的醒来不是「活动」，一次占一格的话，
- * 安静的一天会刷满「没动静」，真正做过的事反而被埋掉。理由去重后最多留两个。
+ * 连着被拦下的几次合成一段：这些时刻 TA 没有要对阿萌说的话，一次占一格的话，
+ * 平常的一天会刷满「没出声」，真正做过的事反而被埋掉。理由去重后最多留两个。
  */
 export const toSegments = (entries: ChronicleEntry[]): ChronicleSegment[] => {
     const segments: ChronicleSegment[] = [];

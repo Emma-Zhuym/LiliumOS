@@ -6,15 +6,23 @@
  * 不是 TA 特地发给你的消息。所以它不推送、不进聊天，只躺在这里等你翻。
  *
  * 做成一条时间轴而不是一叠卡片：起居注记的是「一天是怎么过的」，
- * 顺序和间隔本身就是内容。被闸门拦下的那些醒来不单独占一格，
- * 而是缩成轴上的一段灰线（「醒了 3 次又睡回去」）——既保住了时序，
- * 又不会让安静的一天刷满「没动静」。
+ * 顺序和间隔本身就是内容。
+ *
+ * 轴上有两种东西：
+ * - **当天日程**（上班、逛街、打游戏……）是底子，说明这一天 TA 本来在做什么；
+ * - **心跳条目**是 TA 自己想起阿萌的时刻，钉在对应的时间点上。
+ * 没有日程作底，那些时刻就成了悬空的碎片——「翻了会儿手机」发生在上班路上还是躺床上，
+ * 读起来完全是两回事。日程取自本机 IndexedDB，跟聊天用的是同一份（角色时区算日期）。
+ *
+ * 被闸门拦下的那些不单独占一格，缩成轴上的一行灰字。注意别写成「睡回去了」——
+ * 角色大部分时候醒着，只是没有要对阿萌说的话。
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowsClockwise, PencilSimpleLine } from '@phosphor-icons/react';
 
-import type { CharacterProfile } from '../../types';
+import type { CharacterProfile, ScheduleSlot } from '../../types';
+import { getDailyScheduleForChar } from '../../utils/dailySchedule';
 import { AgentBackend, isAgentPaired } from '../../utils/emAgentBackend';
 import {
     loadChronicle, mergeChronicle, toSegments,
@@ -27,6 +35,18 @@ const fmtClock = (at: string) =>
     new Date(at).toLocaleTimeString('zh-CN', { hour: 'numeric', minute: '2-digit', hour12: true });
 
 const dayKey = (at: string) => new Date(at).toDateString();
+
+/** 把日程的 "HH:MM" 落到某一天上，好和心跳条目一起按时间排。 */
+const slotTimestamp = (day: Date, startTime: string): number => {
+    const [hour, minute] = String(startTime).split(':').map(Number);
+    const at = new Date(day);
+    at.setHours(Number.isFinite(hour) ? hour : 0, Number.isFinite(minute) ? minute : 0, 0, 0);
+    return at.getTime();
+};
+
+/** 段落自己的时刻：活动取那一条，安静段取它开始的那一刻。 */
+const segmentAt = (segment: ChronicleSegment): string =>
+    segment.kind === 'entry' ? segment.entry.at : segment.at;
 
 const fmtDay = (at: string) => {
     const date = new Date(at);
@@ -44,6 +64,7 @@ interface Props {
 
 export default function ChronicleApp({ targetChar, accent }: Props) {
     const [entries, setEntries] = useState<ChronicleEntry[]>(() => loadChronicle(targetChar.id));
+    const [slots, setSlots] = useState<ScheduleSlot[]>([]);
     const [loading, setLoading] = useState(false);
     const [offline, setOffline] = useState(false);
 
@@ -76,19 +97,53 @@ export default function ChronicleApp({ targetChar, accent }: Props) {
 
     useEffect(() => { void refresh(); }, [refresh]);
 
-    /** 先按天分组，天内再折成轴上的段落。 */
+    // 当天日程：本机就有，不用等后台。没生成日程的角色这里是空的，轴上就只剩心跳条目。
+    useEffect(() => {
+        let alive = true;
+        void (async () => {
+            try {
+                const schedule = await getDailyScheduleForChar(targetChar);
+                if (alive) setSlots(schedule?.slots ?? []);
+            } catch {
+                if (alive) setSlots([]);
+            }
+        })();
+        return () => { alive = false; };
+    }, [targetChar]);
+
+    /** 先按天分组，天内再折成轴上的段落；今天那一组把日程混进去当底子。 */
     const days = useMemo(() => {
         const sorted = [...entries].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
-        const grouped: { key: string; label: string; segments: ChronicleSegment[] }[] = [];
+        const grouped: { key: string; label: string; entries: ChronicleEntry[] }[] = [];
         for (const entry of sorted) {
             const key = dayKey(entry.at);
             if (grouped[grouped.length - 1]?.key !== key) {
-                grouped.push({ key, label: fmtDay(entry.at), segments: [] });
+                grouped.push({ key, label: fmtDay(entry.at), entries: [] });
             }
-            grouped[grouped.length - 1].segments.push({ kind: 'entry', entry });
+            grouped[grouped.length - 1].entries.push(entry);
         }
-        return grouped.map(day => ({ ...day, segments: toSegments(day.segments.map(s => (s as { entry: ChronicleEntry }).entry)) }));
-    }, [entries]);
+
+        const todayKey = new Date().toDateString();
+        return grouped.map(day => {
+            const segments = toSegments(day.entries);
+            // 日程只有「今天」这一份（IndexedDB 按天存），所以只给今天铺底。
+            if (day.key !== todayKey || slots.length === 0) {
+                return { ...day, rows: segments.map(segment => ({ at: Date.parse(segmentAt(segment)), segment })) };
+            }
+            const dayDate = new Date(day.entries[0].at);
+            const scheduleRows = slots.map((slot, index) => ({
+                at: slotTimestamp(dayDate, slot.startTime),
+                slot,
+                // 当前时段之后的日程还没发生，不该出现在「起居注」里——那是计划，不是记录。
+                index,
+            })).filter(row => row.at <= Date.now());
+            const entryRows = segments.map(segment => ({ at: Date.parse(segmentAt(segment)), segment }));
+            return {
+                ...day,
+                rows: [...scheduleRows, ...entryRows].sort((a, b) => b.at - a.at),
+            };
+        });
+    }, [entries, slots]);
 
     return (
         <div className="flex-1 overflow-y-auto no-scrollbar px-5 pt-1 pb-28 overscroll-contain">
@@ -123,27 +178,41 @@ export default function ChronicleApp({ targetChar, accent }: Props) {
                         {/* 轴线：从第一个点延到最后一个点，不要在段落之间断开 */}
                         <div className="absolute left-[7px] top-2 bottom-2 w-px bg-gradient-to-b from-white/[0.14] via-white/[0.09] to-transparent" />
 
-                        {day.segments.map((segment, index) => segment.kind === 'quiet' ? (
-                            <div key={`quiet-${segment.at}-${index}`} className="relative py-2">
-                                {/* 空心小点：醒过，但没做什么 */}
+                        {day.rows.map((row, index) => 'slot' in row ? (
+                            /* 日程：这一天的底子，淡一些——它是背景，不是 TA 主动做的事 */
+                            <div key={`slot-${row.at}-${index}`} className="relative py-1.5">
+                                <span className="absolute -left-[24px] top-[10px] w-[3px] h-[3px] rounded-full bg-white/20" />
+                                <div className="flex items-baseline gap-2">
+                                    <span className="text-[10px] tabular-nums text-white/25 shrink-0">
+                                        {row.slot.startTime}
+                                    </span>
+                                    <span className="text-[11px] text-white/35 truncate">
+                                        {row.slot.activity}
+                                        {row.slot.location && <span className="text-white/20"> · {row.slot.location}</span>}
+                                    </span>
+                                </div>
+                            </div>
+                        ) : row.segment.kind === 'quiet' ? (
+                            <div key={`quiet-${row.at}-${index}`} className="relative py-2">
+                                {/* 空心小点：想起过你，但没出声 */}
                                 <span className="absolute -left-[26px] top-[13px] w-[7px] h-[7px] rounded-full border border-white/20" />
                                 <p className="text-[10px] text-white/25 leading-relaxed">
-                                    醒了 {segment.count} 次又睡回去了
-                                    <span className="text-white/15">（{segment.gates.join('、')}）</span>
+                                    这中间 {row.segment.count} 次没出声
+                                    <span className="text-white/15">（{row.segment.gates.join('、')}）</span>
                                 </p>
                             </div>
                         ) : (
-                            <div key={segment.entry.id} className="relative pb-4 animate-fade-in">
-                                {/* 实心点：这次真做了什么 */}
+                            <div key={row.segment.entry.id} className="relative pb-4 animate-fade-in">
+                                {/* 实心点：TA 自己想起你的那一刻 */}
                                 <span
                                     className="absolute -left-[26px] top-[7px] w-[9px] h-[9px] rounded-full"
                                     style={{ background: accent, boxShadow: `0 0 0 3px ${accent}22` }}
                                 />
                                 <div className="flex items-baseline gap-2">
                                     <span className="text-[11px] tabular-nums text-white/40 shrink-0">
-                                        {fmtClock(segment.entry.at)}
+                                        {fmtClock(row.segment.entry.at)}
                                     </span>
-                                    {segment.entry.shadow && (
+                                    {row.segment.entry.shadow && (
                                         <span className="text-[9px] px-1.5 py-[1px] rounded-full tracking-wider shrink-0"
                                             style={{ color: accent, background: `${accent}1a` }}>
                                             试跑
@@ -151,13 +220,13 @@ export default function ChronicleApp({ targetChar, accent }: Props) {
                                     )}
                                 </div>
                                 <p className="mt-1 text-[14px] font-light text-white/90 leading-relaxed" style={{ fontFamily: SERIF }}>
-                                    {segment.entry.activity || '（什么都没记下来）'}
+                                    {row.segment.entry.activity || '（什么都没记下来）'}
                                 </p>
-                                {segment.entry.proposedText && (
+                                {row.segment.entry.proposedText && (
                                     <p className="mt-2 text-[12px] text-white/50 leading-relaxed pl-2.5 border-l"
                                         style={{ borderColor: `${accent}44` }}>
-                                        想跟你说：「{segment.entry.proposedText}」
-                                        {segment.entry.shadow && <span className="text-white/25">　没有真的发出去</span>}
+                                        想跟你说：「{row.segment.entry.proposedText}」
+                                        {row.segment.entry.shadow && <span className="text-white/25">　没有真的发出去</span>}
                                     </p>
                                 )}
                             </div>
