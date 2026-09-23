@@ -114,6 +114,38 @@ export const toSegments = (entries: ChronicleEntry[]): ChronicleSegment[] => {
     return segments;
 };
 
+/**
+ * 「一次翻看」的合并窗口。
+ *
+ * 刷一次淘宝会一口气生成三四条记录，时间戳几乎挨在一起——轴上就成了连着三行「逛了逛淘宝」。
+ * 对起居注来说那只是一次翻看，所以同一个 App、挨得够近的几条合成一行。
+ */
+export const PHONE_FOLD_WINDOW_MS = 15 * 60 * 1000;
+
+export interface FoldablePhoneEvent {
+    id: string;
+    at: number;
+    label: string;
+}
+
+/**
+ * 把挨在一起、同一个 App 的几条合成一条。传入按时间倒序，返回也是倒序。
+ * 时间取这一簇里最晚的那条——「那会儿在刷淘宝」，不必精确到第一条。
+ */
+export const foldPhoneEvents = <T extends FoldablePhoneEvent>(
+    events: T[],
+    windowMs = PHONE_FOLD_WINDOW_MS,
+): T[] => {
+    const sorted = [...events].sort((a, b) => b.at - a.at);
+    const folded: T[] = [];
+    for (const event of sorted) {
+        const last = folded[folded.length - 1];
+        if (last && last.label === event.label && last.at - event.at <= windowMs) continue;
+        folded.push(event);
+    }
+    return folded;
+};
+
 export const clearChronicle = (charId: string): void => {
     if (typeof localStorage === 'undefined') return;
     try { localStorage.removeItem(keyFor(charId)); } catch { /* ignore */ }

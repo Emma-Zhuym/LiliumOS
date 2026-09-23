@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
-    clearChronicle, loadChronicle, mergeChronicle, toSegments, type ChronicleEntry,
+    clearChronicle, foldPhoneEvents, loadChronicle, mergeChronicle, toSegments, type ChronicleEntry,
 } from './emAgentActivity';
 
 const CHAR = 'lumi';
@@ -92,6 +92,45 @@ describe('起居注时间轴', () => {
             entry(2, '2026-09-22T19:00:00.000Z', { outcome: 'message', proposedText: '在吗' }),
         ]);
         expect(segments.every(s => s.kind === 'entry')).toBe(true);
+    });
+});
+describe('手机动静合并', () => {
+    const at = (min: number) => Date.parse('2026-09-23T12:00:00.000Z') - min * 60_000;
+
+    it('刷一次刷出好几条，合成一行', () => {
+        const folded = foldPhoneEvents([
+            { id: 'a', at: at(0), label: '逛了逛淘宝' },
+            { id: 'b', at: at(0), label: '逛了逛淘宝' },
+            { id: 'c', at: at(1), label: '逛了逛淘宝' },
+        ]);
+        expect(folded).toHaveLength(1);
+        // 时间取最晚的那条。
+        expect(folded[0].at).toBe(at(0));
+    });
+
+    it('隔得够久的两次翻看不合并', () => {
+        const folded = foldPhoneEvents([
+            { id: 'a', at: at(0), label: '逛了逛淘宝' },
+            { id: 'b', at: at(40), label: '逛了逛淘宝' },
+        ]);
+        expect(folded).toHaveLength(2);
+    });
+
+    it('不同 App 挨着也不合并', () => {
+        const folded = foldPhoneEvents([
+            { id: 'a', at: at(0), label: '逛了逛淘宝' },
+            { id: 'b', at: at(1), label: '刷了刷朋友圈' },
+        ]);
+        expect(folded).toHaveLength(2);
+    });
+
+    it('中间隔了别的 App，前后同款不会被跨过去合并', () => {
+        const folded = foldPhoneEvents([
+            { id: 'a', at: at(0), label: '逛了逛淘宝' },
+            { id: 'b', at: at(1), label: '刷了刷朋友圈' },
+            { id: 'c', at: at(2), label: '逛了逛淘宝' },
+        ]);
+        expect(folded.map(item => item.id)).toEqual(['a', 'b', 'c']);
     });
 });
 // [EM-END: agent-backend-chronicle]

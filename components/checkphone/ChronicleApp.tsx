@@ -26,7 +26,7 @@ import type { CharacterProfile, ScheduleSlot } from '../../types';
 import { getDailyScheduleForChar } from '../../utils/dailySchedule';
 import { AgentBackend, isAgentPaired } from '../../utils/emAgentBackend';
 import {
-    loadChronicle, mergeChronicle, toSegments,
+    foldPhoneEvents, loadChronicle, mergeChronicle, toSegments,
     type ChronicleEntry, type ChronicleSegment,
 } from '../../utils/emAgentActivity';
 
@@ -163,7 +163,8 @@ export default function ChronicleApp({ targetChar, accent, phoneEvents = [] }: P
             .map(([key, day]) => {
                 const rows: DayRow[] = [
                     ...toSegments(day.entries).map(segment => ({ at: Date.parse(segmentAt(segment)), segment })),
-                    ...day.phone.map(event => ({ at: event.at, phone: event })),
+                    // 刷一次会刷出三四条，对起居注来说那是一次翻看。
+                    ...foldPhoneEvents(day.phone).map(event => ({ at: event.at, phone: event })),
                 ];
                 if (key === todayKey && slots.length > 0) {
                     const dayDate = new Date(day.entries[0]?.at ?? day.phone[0]?.at ?? Date.now());
