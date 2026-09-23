@@ -58,14 +58,16 @@ const fmtDay = (at: string) => {
     return date.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
 };
 
-/** 「查手机」刷出来的一条动静。由 CheckPhone 把 phoneState.records 整形后传进来。 */
+/**
+ * 「查手机」刷出来的一条动静。由 CheckPhone 把 phoneState.records 整形后传进来。
+ *
+ * 只带一句「刷了刷朋友圈」这样的说法，不带正文：起居注是一天的轮廓，
+ * 朋友圈写了什么、订单买了什么，点进那个 App 自己看就是了。
+ */
 export interface PhoneEvent {
     id: string;
     at: number;
-    /** App 名，如「朋友圈」「淘宝」。 */
-    app: string;
-    /** 这条动静本身，如朋友圈正文或订单标题。 */
-    title: string;
+    label: string;
 }
 
 type DayRow =
@@ -213,10 +215,7 @@ export default function ChronicleApp({ targetChar, accent, phoneEvents = [] }: P
                                     <span className="text-[10px] tabular-nums text-white/30 shrink-0">
                                         {fmtClock(new Date(row.at).toISOString())}
                                     </span>
-                                    <span className="text-[11px] text-white/45 min-w-0">
-                                        <span className="text-white/30">{row.phone.app}</span>
-                                        {row.phone.title && <> · {row.phone.title}</>}
-                                    </span>
+                                    <span className="text-[11px] text-white/40 truncate">{row.phone.label}</span>
                                 </div>
                             </div>
                         ) : 'slot' in row ? (

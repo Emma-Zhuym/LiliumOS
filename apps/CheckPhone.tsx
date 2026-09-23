@@ -2133,6 +2133,18 @@ ${olderText}
 
     const fmtClock = (t: number) => new Date(t).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
 
+    /** [EM: agent-backend-chronicle] 起居注只记「几点看了看什么」，正文留在各自 App 里。 */
+    const phoneActionLabel = (type: string): string => {
+        switch (type) {
+            case 'social': return '刷了刷朋友圈';
+            case 'order': return '逛了逛淘宝';
+            case 'delivery': return '看了看外卖';
+            case 'call': return '打了个电话';
+            case 'chat': return '看了看短信';
+            default: return `看了看${appLabel(type)}`;
+        }
+    };
+
     const lastSeenText = (() => {
         if (!lastTs) return 'Awaiting first sync';
         const d = Date.now() - lastTs;
@@ -3826,8 +3838,7 @@ ${olderText}
                                     .map(record => ({
                                         id: record.id,
                                         at: record.timestamp,
-                                        app: appLabel(record.type),
-                                        title: record.title,
+                                        label: phoneActionLabel(record.type),
                                     }))}
                             />
                         </SubAppShell>
