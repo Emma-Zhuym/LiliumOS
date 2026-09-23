@@ -48,6 +48,27 @@ export const parseHeartbeatOutput = raw => {
     return { ok: false, error: '模型输出解析不出合法的心跳结果', raw: text };
 };
 
+/**
+ * 取出这轮回复的正文。
+ *
+ * 各家代理给 content 的形状不一：字符串是常见的，Claude 系经过代理时常常是
+ * `[{type:'thinking',...},{type:'text',text:'{...}'}]`。整个 JSON.stringify 会把真正的
+ * JSON 转义成字符串塞进数组里，两层容错都捞不出来——这是解析失败里耗时特别长的那一类。
+ * 所以数组按块取 text 拼起来，thinking / reasoning 块丢掉。
+ */
+export const extractContentText = content => {
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+        return content
+            .map(block => (typeof block === 'string' ? block : block?.text ?? ''))
+            .filter(Boolean)
+            .join('\n')
+            .trim();
+    }
+    if (content && typeof content === 'object' && typeof content.text === 'string') return content.text;
+    return content === null || content === undefined ? '' : JSON.stringify(content);
+};
+
 /** baseUrl 可能已经带 /chat/completions，也可能只给到 /v1，两种都收。 */
 export const chatCompletionsUrl = baseUrl => {
     const trimmed = String(baseUrl).replace(/\/+$/, '');
@@ -89,8 +110,11 @@ export const createApiRunner = ({ config, fetchImpl = fetch }) => ({
                 return { ok: false, error: `模型返回 ${response.status}：${detail.slice(0, 200)}` };
             }
             const data = await response.json();
-            const content = data?.choices?.[0]?.message?.content;
-            return parseHeartbeatOutput(typeof content === 'string' ? content : JSON.stringify(content));
+            const message = data?.choices?.[0]?.message;
+            // 有的代理把正文放在 reasoning_content 之外的 content 里，两个都可能为空，
+            // 这时候把整条 message 交给容错解析，至少能从原文里捞出 JSON。
+            const text = extractContentText(message?.content) || extractContentText(message);
+            return parseHeartbeatOutput(text);
         } catch (error) {
             if (error?.name === 'AbortError') return { ok: false, error: 'timeout' };
             return { ok: false, error: String(error?.message || error).slice(0, 200) };

@@ -17,7 +17,7 @@ import {
     ACTIVE_CHAT_WINDOW_MS, buildPrompt, checkGates, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
     formatGap, jitterRatio, lastRealInteractionAt, listModelRuns, nextRunAt, recordModelRun, shouldCaptureRaw,
 } from './heartbeat.mjs';
-import { chatCompletionsUrl, createApiRunner, parseHeartbeatOutput } from './runner.mjs';
+import { chatCompletionsUrl, createApiRunner, extractContentText, parseHeartbeatOutput } from './runner.mjs';
 
 const AT = new Date('2026-09-23T20:00:00.000Z');          // 芝加哥时间 15:00，醒着
 const CHAR = 'lumi';
@@ -425,4 +425,22 @@ test('提示词写死「这段时间什么都没发生」：否则角色会把�
     assert.ok(prompt.includes('没有发生过任何互动'), '必须说明这段时间没有互动');
     assert.ok(prompt.includes('已经做完了'), '必须禁止把说好的事当成做完了');
     assert.ok(prompt.includes('还没兑现的约定'), '久等的约定应该成为开口的理由');
+});
+
+test('正文是 thinking + text 数组时，只取 text 那块', () => {
+    const content = [
+        { type: 'thinking', thinking: '她刚说去洗澡……' },
+        { type: 'text', text: '{"action":"noop","activity":"在客厅等着","reason":"等她出来"}' },
+    ];
+    const text = extractContentText(content);
+    assert.ok(!text.includes('她刚说去洗澡'), 'thinking 块不该混进正文');
+    const parsed = parseHeartbeatOutput(text);
+    assert.equal(parsed.ok, true, `应能解析：${text}`);
+    assert.equal(parsed.output.activity, '在客厅等着');
+});
+
+test('正文是字符串或 {text} 对象时也照样取得到', () => {
+    assert.equal(extractContentText('直接是字符串'), '直接是字符串');
+    assert.equal(extractContentText({ text: '包一层' }), '包一层');
+    assert.equal(extractContentText(null), '');
 });
