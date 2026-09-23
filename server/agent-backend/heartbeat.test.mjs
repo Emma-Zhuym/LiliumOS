@@ -557,6 +557,7 @@ test('影子期仍然不发：开关是最后一道闸', async () => {
 
 test('上一跳说了「等会儿找 ta」，下一跳不抽签直接去找，并且记得自己想过什么', async () => {
     const db = freshDb();
+    setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
     const character = seedCharacter(db);
     seedSnapshot(db);
     const prompts = [];
@@ -607,4 +608,16 @@ test('urge 解析：未知值一律当 none', () => {
     assert.equal(later.output.urge, 'later');
     const junk = parseHeartbeatOutput('{"action":"noop","activity":"a","reason":"b","urge":"maybe"}');
     assert.equal(junk.output.urge, 'none');
+});
+
+test('试跑记录不算 TA 的经历：既不进回看，也不留「等会儿」', async () => {
+    const db = freshDb();
+    seedCharacter(db);
+    recordModelRun(db, {
+        charId: CHAR, runtime: 'api', startedAt: new Date(AT.getTime() - 30 * 60_000).toISOString(),
+        ok: true, outcome: 'noop', activity: '试跑里的事', reason: '等会儿找她', urge: 'later', shadow: true,
+    });
+    const { pendingUrge, recentThoughts } = await import('./heartbeat.mjs');
+    assert.equal(pendingUrge(db, CHAR), null);
+    assert.equal(recentThoughts(db, CHAR, { since: new Date(AT.getTime() - 60 * 60_000) }).length, 0);
 });

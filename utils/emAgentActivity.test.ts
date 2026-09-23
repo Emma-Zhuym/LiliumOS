@@ -155,6 +155,11 @@ describe('buildChronicleInjection', () => {
         expect(text).not.toContain('sleeping');
     });
 
+    it('试跑的片刻不进聊天', () => {
+        mergeChronicle('shadowy', [{ ...entry(9, 10), charId: 'shadowy', shadow: true, activity: '试跑里的事' }]);
+        expect(buildChronicleInjection('shadowy', { now: NOW })).toBe('');
+    });
+
     it('没有记录就什么都不加', () => {
         expect(buildChronicleInjection('nobody', { now: NOW })).toBe('');
     });

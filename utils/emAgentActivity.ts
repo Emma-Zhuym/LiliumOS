@@ -122,6 +122,8 @@ export const buildChronicleInjection = (
     { now = Date.now(), timeZone }: { now?: number; timeZone?: string } = {},
 ): string => {
     const recent = loadChronicle(charId)
+        // 试跑的片刻只供审阅，不是 TA 真实经历过的事（设计 4.6），不能进聊天。
+        .filter(entry => !entry.shadow)
         .filter(entry => (entry.outcome === 'noop' || entry.outcome === 'message') && (entry.activity || entry.reason))
         .filter(entry => {
             const at = Date.parse(entry.at);

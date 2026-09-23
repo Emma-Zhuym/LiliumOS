@@ -209,7 +209,7 @@ export const recordModelRun = (db, {
  */
 export const recentThoughts = (db, charId, { since, limit = 4 } = {}) => db.prepare(
     `SELECT started_at, activity, reason, outcome, proposed_text FROM model_runs
-      WHERE char_id = ? AND ok = 1 AND outcome IN ('noop','message') AND started_at >= ?
+      WHERE char_id = ? AND ok = 1 AND shadow = 0 AND outcome IN ('noop','message') AND started_at >= ?
       ORDER BY id DESC LIMIT ?`,
 ).all(charId, since.toISOString(), limit).reverse().map(row => ({
     at: row.started_at,
@@ -227,7 +227,7 @@ export const recentThoughts = (db, charId, { since, limit = 4 } = {}) => db.prep
 export const pendingUrge = (db, charId, { since = null } = {}) => {
     const row = db.prepare(
         `SELECT started_at, reason, urge, outcome FROM model_runs
-          WHERE char_id = ? AND ok = 1 AND outcome IN ('noop','message')
+          WHERE char_id = ? AND ok = 1 AND shadow = 0 AND outcome IN ('noop','message')
           ORDER BY id DESC LIMIT 1`,
     ).get(charId);
     if (!row || row.outcome === 'message') return null;
