@@ -552,3 +552,43 @@ ${chatSummary}
         return null;
     }
 }
+
+// [EM-START: daily-rhythm-draft]
+/**
+ * 给「神经链接」角色详情页的「日常节律」生成一份草稿。
+ *
+ * 只在阿萌主动点「生成草稿」时跑一次，从不自动覆盖已有内容——生成结果只回填到
+ * 编辑框里等阿萌确认或改了再用。跟每天都在跑的 generateDailyScheduleForChar
+ * 是两件事：那个生成的是「今天」，这个生成的是「TA 平时大概是怎么生活的」这份
+ * 更稳定的参考本身，格式要跟阿萌手写时一致（固定时段当锚点、概述当基调）。
+ */
+export function buildDailyRhythmDraftPrompt(
+    char: Pick<CharacterProfile, 'name' | 'systemPrompt' | 'description' | 'worldview'>,
+    user: Pick<UserProfile, 'name'>,
+): { system: string; user: string } {
+    const details = [
+        char.systemPrompt?.trim() ? `核心设定：\n${char.systemPrompt.trim()}` : '',
+        char.description?.trim() ? `简介：${char.description.trim()}` : '',
+        char.worldview?.trim() ? `世界观：${char.worldview.trim()}` : '',
+    ].filter(Boolean);
+    const identity = details.length
+        ? [`名字：${char.name}`, ...details].join('\n\n')
+        : '';
+
+    const system = `### 任务
+根据下面这份角色设定，写一段这个角色**平时**的生活节律参考——不是「今天」的日程，是「TA 一般来说是怎么生活的」这种更稳定的框架。这段文字会被日程生成器和 TA 的自主活动长期参考，不会每天重写。
+
+### 输出要求
+- 直接输出这段参考文字本身，不要任何前后缀说明、不要 markdown 标题、不要用引号包起来。
+- 可以混合两种写法：写死的时间段（比如"9:00-18:00 在公司"）当作锚点；概括性的规律（比如"周末大多在家"）当作基调，两种都可以有，不强求全是时间表。
+- 贴着人设走：TA 是学生就该有课表和作息，是自由职业就该有更随性的规律，是不需要睡觉的存在就别写睡眠时间。
+- 如果人设暗示了固定的职业/学业身份，尽量把这个身份体现在里面（在哪工作、大概什么时候在忙），不要写成「整天很自由」这种什么都没说的话。
+- 涉及跟对方互动的地方写 {{user}} 占位符，不要直接写死对方名字。
+- 200–500 字左右，够当参考就行，不用写满一整天每个小时。`;
+
+    return {
+        system,
+        user: identity || `名字：${char.name}\n（这个角色还没有填写详细设定，按名字直觉写一份泛用的参考即可，对方的名字是「${user.name}」）`,
+    };
+}
+// [EM-END: daily-rhythm-draft]

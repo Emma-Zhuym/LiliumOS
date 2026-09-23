@@ -117,6 +117,10 @@ check "地图世界存储模块" utils/mapWorlds.ts "matchRegionForSlot"
 check "ScheduleSlot.regionId 字段" types.ts "regionId?: string;    // [EM: map-region-id]"
 check "日程生成注入地点清单" utils/scheduleGenerator.ts "[EM-START: map-region-id]"
 
+echo "── 神经链接 · 日常节律草稿 ──"
+check "草稿生成 prompt 构建" utils/scheduleGenerator.ts "[EM-START: daily-rhythm-draft]"
+check "角色详情页生成入口" apps/Character.tsx "[EM-START: character-daily-rhythm-draft]"
+
 echo "── EM 角色代记 ──"
 check "代记核心模块" utils/emScribe.ts "executeEmScribeDirectives"
 check "chatPrompts 注入" utils/chatPrompts.ts "[EM-START: em-scribe]"
