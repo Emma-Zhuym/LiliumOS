@@ -61,7 +61,7 @@ export interface AgentStatus {
     quiet: { active: boolean; start: string; end: string; timezone: string };
     deps: Record<string, AgentDependency>;
     /** 心跳状态：shadow=true 表示只试跑、不真发消息；everyMinOverride 非空表示试跑提速开着。 */
-    heartbeat?: { shadow: boolean; everyMinOverride: number | null };
+    heartbeat?: { shadow: boolean; everyMinOverride: number | null; jitterSpread?: number };
     capabilities: string[];
 }
 

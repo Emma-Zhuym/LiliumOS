@@ -14,7 +14,7 @@ import { getSetting, openDb } from './db.mjs';
 import { listCharacters } from './characters.mjs';
 import {
     FIRST_BEAT_DELAY_MS, HEARTBEAT_TTL_MS, createHeartbeatHandler, heartbeatUuid, isShadowMode, nextRunAt,
-    upcomingBreakStarts,
+    upcomingBreakStarts, HEARTBEAT_JITTER_SPREAD,
 } from './heartbeat.mjs';
 import { getSnapshot } from './snapshots.mjs';
 import { createHaWatchdogHandler, createTestPingHandler, probeHomeAssistant } from './kinds.mjs';
@@ -136,6 +136,8 @@ export const createContext = async (config = loadConfig()) => {
                 shadow: isShadowMode(db),
                 // 试跑提速开着时必须报出来，否则很容易忘了它还在生效。
                 everyMinOverride: config.heartbeatEveryMinOverride || null,
+                // 前端据此显示「平均 60 分钟（约 30–90）」，不必自己再抄一份幅度。
+                jitterSpread: HEARTBEAT_JITTER_SPREAD,
             },
             // 前端只认这个字段判断功能可用与否（设计约束 4）。
             capabilities: ['jobs', 'outbox', 'watchdog', 'heartbeat-shadow'],

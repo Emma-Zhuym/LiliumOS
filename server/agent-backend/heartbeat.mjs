@@ -36,14 +36,22 @@ const MINUTE = 60_000;
  * 用 charId + 代次 + 名义时刻算哈希，所以看起来随机，但同一跳重算永远是同一个结果——
  * 重试时不会因为「又摇了一次骰子」而长出第二条心跳链。
  */
-export const jitterRatio = (charId, generation, nominalRunAt) => {
+export const jitterRatio = (charId, generation, nominalRunAt, spread = 0.2) => {
     const digest = createHash('sha256')
         .update(`${charId}:${generation}:${nominalRunAt}`)
         .digest();
-    // 取两字节映射到 [-0.2, 0.2]。
+    // 取两字节映射到 [-spread, +spread]，在区间里是均匀的。
     const unit = ((digest[0] << 8) | digest[1]) / 0xffff;
-    return (unit - 0.5) * 0.4;
+    return (unit - 0.5) * 2 * spread;
 };
+
+/**
+ * 排跳时用的抖动幅度：±50%，也就是默认 60 分钟一跳时实际落在 30–90 分钟之间。
+ *
+ * 之前是 ±20%（90 分钟 → 72–108），太像整点报时。区间宽一点更像人：有时隔半小时又想起你，
+ * 有时忙到一个半小时才有空。平均间隔不变，所以每天的醒来次数和预算都不受影响。
+ */
+export const HEARTBEAT_JITTER_SPREAD = 0.5;
 
 /**
  * 「空档」= 从忙碌转成有空的那一刻起的一小段时间：午休、下班、茶歇。
@@ -120,7 +128,7 @@ export const nextRunAt = (character, {
 } = {}) => {
     const everyMin = effectiveEveryMin(character, { everyMinOverride });
     const nominal = new Date(now.getTime() + everyMin * MINUTE);
-    const ratio = jitterRatio(character.charId, character.heartbeatGeneration, nominal.toISOString());
+    const ratio = jitterRatio(character.charId, character.heartbeatGeneration, nominal.toISOString(), HEARTBEAT_JITTER_SPREAD);
     let runAt = new Date(nominal.getTime() + everyMin * MINUTE * ratio);
     // 瞄准空档：有个空档开头落在「现在之后、自然下一跳之后不久」之间，就把这一跳挪进去。
     // 试跑提速（everyMinOverride）时不挪——那是在测节奏，不该被日程改写。

@@ -24,6 +24,10 @@ import {
 } from '../../utils/emAgentBackend';
 import Modal from '../os/Modal';
 
+/** 平均醒来间隔的可选档位（后端只收 30–480）。实际每一跳会在平均值上下浮动，见下方 rangeText。 */
+const EVERY_MIN_OPTIONS = [30, 45, 60, 90, 120, 180, 240];
+const DEFAULT_JITTER_SPREAD = 0.5;
+
 /** 与「Mac mini 后端」区块同一套按钮长相。 */
 const BTN = 'px-3 py-2 bg-white border border-slate-200 rounded-xl text-[11px] font-bold text-slate-600 shadow-sm active:scale-95 transition-all disabled:opacity-50';
 
@@ -55,6 +59,7 @@ export default function AgentHeartbeatPanel({ open, onClose }: Props) {
     const [backendChars, setBackendChars] = useState<AgentCharacter[]>([]);
     const [runs, setRuns] = useState<AgentModelRun[]>([]);
     const [shadow, setShadow] = useState(true);
+    const [jitterSpread, setJitterSpread] = useState(DEFAULT_JITTER_SPREAD);
     const [busy, setBusy] = useState(false);
     const [loaded, setLoaded] = useState(false);
 
@@ -69,6 +74,7 @@ export default function AgentHeartbeatPanel({ open, onClose }: Props) {
             setBackendChars(list);
             setRuns(audit);
             setShadow(status.heartbeat?.shadow !== false);
+            setJitterSpread(status.heartbeat?.jitterSpread ?? DEFAULT_JITTER_SPREAD);
         } catch {
             // 连不上就保持上一次的样子：mini 每天 4–7 点休眠是正常状态。
         } finally {
@@ -145,6 +151,16 @@ export default function AgentHeartbeatPanel({ open, onClose }: Props) {
         await refresh();
     });
 
+    const handleEveryMin = (charId: string, minutes: number) => run(async () => {
+        await AgentBackend.upsertCharacter({ charId, heartbeatEveryMin: minutes });
+        addToast(`平均每 ${minutes} 分钟醒一次`, 'success');
+        await refresh();
+    });
+
+    /** 「平均 60 分钟」实际是 30–90 之间随机——说清楚，免得看着像每小时整点报时。 */
+    const rangeText = (everyMin: number) =>
+        `${Math.max(1, Math.round(everyMin * (1 - jitterSpread)))}–${Math.round(everyMin * (1 + jitterSpread))} 分钟之间随机`;
+
     const backendOf = (charId: string) => backendChars.find(item => item.charId === charId);
 
     return <Modal isOpen={open} title={shadow ? '角色心跳 · 影子试跑' : '角色心跳'} onClose={onClose}>
@@ -167,8 +183,22 @@ export default function AgentHeartbeatPanel({ open, onClose }: Props) {
                             <p className="text-[10px] text-slate-400">
                                 {!connected ? '还没接到后端'
                                     : backend?.heartbeatPaused ? '已暂停'
-                                        : backend?.heartbeatEnabled ? `每 ${backend.heartbeatEveryMin} 分钟醒一次` : '心跳关着'}
+                                        : backend?.heartbeatEnabled ? `平均每 ${backend.heartbeatEveryMin} 分钟醒一次（${rangeText(backend.heartbeatEveryMin)}）` : '心跳关着'}
                             </p>
+                            {connected && (
+                                <select
+                                    value={backend?.heartbeatEveryMin}
+                                    disabled={busy}
+                                    onChange={event => void handleEveryMin(char.id, Number(event.target.value))}
+                                    aria-label="心跳间隔"
+                                    className="mt-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[10px] text-slate-500 outline-none"
+                                >
+                                    {/* 后端里可能还留着旧的 90 之外的自定义值，也要能显示出来，不然下拉会莫名跳档。 */}
+                                    {[...new Set([...EVERY_MIN_OPTIONS, backend?.heartbeatEveryMin ?? 60])].sort((a, b) => a - b).map(minutes => (
+                                        <option key={minutes} value={minutes}>平均每 {minutes} 分钟</option>
+                                    ))}
+                                </select>
+                            )}
                         </div>
                         <div className="flex shrink-0 gap-2">
                             <button disabled={busy} onClick={() => void handleConnect(char.id)} className={BTN}>

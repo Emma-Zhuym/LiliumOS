@@ -42,6 +42,16 @@ export const toCharacter = row => row && ({
 });
 
 /**
+ * 新角色的默认心跳节奏与预算。
+ *
+ * 迁移 1 里建表时写的是 90 分钟 / 12 次，迁移只增不改，所以这里在插入时显式给值。
+ * 平均 60 分钟一跳（实际 30–90 分钟，见 heartbeat.mjs 的抖动幅度），清醒 17 小时约 17 跳，
+ * 预算 24 次留出余量——预算是安全上限，不是目标；被闸门拦下的跳不计数。
+ */
+export const DEFAULT_HEARTBEAT_EVERY_MIN = 60;
+export const DEFAULT_DAILY_MODEL_BUDGET = 24;
+
+/**
  * 新建或更新角色。只写传进来的字段，没传的保持原样。
  *
  * 心跳开关与频率的换代规则见设计 3.3：开启 / 关闭 / 改频率都要 `heartbeat_generation + 1`，
@@ -57,13 +67,15 @@ export const upsertCharacter = (db, input, now = new Date()) => {
     const existing = getCharacter(db, charId);
     if (!existing) {
         db.prepare(
-            `INSERT INTO characters (char_id, display_name, runtime, cred_ref, updated_at)
-             VALUES (?, ?, ?, ?, ?)`,
+            `INSERT INTO characters (char_id, display_name, runtime, cred_ref, heartbeat_every_min, daily_model_budget, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
         ).run(
             charId,
             String(input.displayName || charId).slice(0, 60),
             input.runtime === 'codex' ? 'codex' : 'api',
             input.credRef ?? null,
+            DEFAULT_HEARTBEAT_EVERY_MIN,
+            DEFAULT_DAILY_MODEL_BUDGET,
             nowIso,
         );
         return toCharacter(getCharacter(db, charId));

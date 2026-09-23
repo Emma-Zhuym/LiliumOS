@@ -650,7 +650,7 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
 ### 4.3 心跳执行
 
 1. 代次检查：`job.generation != characters.heartbeat_generation` → `cancelled`，不续排。
-2. **先排下一跳**：`uuid = hb:<charId>:<generation>:<nominalRunAt>`，间隔加 **±20%** 确定性抖动（默认 90 分钟 → 72–108 分钟之间；抖动由 `charId + generation + 名义时刻` 算出，看起来随机，但重试时算出同一个时刻和 uuid，不会长出两条链）。下一跳若落在 quiet 时段，推到 `quiet_end + 抖动`。
+2. **先排下一跳**：`uuid = hb:<charId>:<generation>:<nominalRunAt>`，间隔加 **±50%** 确定性抖动（默认 60 分钟 → 30–90 分钟之间，区间内均匀；v0.8 前是 90 分钟 ±20%，太像整点报时。抖动由 `charId + generation + 名义时刻` 算出，看起来随机，但重试时算出同一个时刻和 uuid，不会长出两条链）。下一跳若落在 quiet 时段，推到 `quiet_end + 抖动`。
 3. 零模型闸（任一命中即 `done`，`outcome='skipped'`，不调模型）：
    - 角色在 `sleepWindow` 内；
    - 当日 `model_runs` 次数 ≥ `daily_model_budget`；
@@ -914,8 +914,9 @@ LaunchAgent: cc.liliumos.agent-backend.plist（RunAtLoad + KeepAlive）
 
 1. 配对只用 6 位数字码，不做二维码。
 2. 心跳影子运行期的记录在 LiliumOS 设置页查看（走 `GET /agent/v1/audit`）。
-3. 默认值：安静时段 0:00–7:00；心跳每 90 分钟 ±20%；每日模型预算 12 次；消息冷却 90 分钟。
-   换算：清醒 17 小时 ÷ 平均 1.5 小时 ≈ 11 次唤醒，刚好落在预算 12 次以内，一整天都不会提前用完。
+3. 默认值：安静时段 0:00–7:00；心跳平均每 60 分钟（30–90 随机）；每日模型预算 24 次；消息冷却 90 分钟。
+   换算：清醒 17 小时 ÷ 平均 1 小时 ≈ 17 次唤醒，预算 24 次留出余量（预算是安全上限，被闸门拦下的跳不计数）。
+   （v0.8 前是每 90 分钟 ±20%、预算 12 次；已有角色的设置不会被自动改，在设置里的「角色心跳」按角色调。）
 
 ---
 
@@ -1014,3 +1015,14 @@ LaunchAgent: cc.liliumos.agent-backend.plist（RunAtLoad + KeepAlive）
 | 从日程里认出空档（忙 → 有空，或标题是午休之类），只算开始后 90 分钟 | 4.3.2 |
 | 排跳时瞄准空档；空档里冷却缩到 30 分钟、开口底数 0.45 且不罚「刚说过话」 | 4.3.2 |
 | 不做：一个午休两跳（吃预算）、把「找你」的权重从别的类别里挤走 | 4.3.2 |
+
+## 16. v0.8 修订记录（2026-09-24）——心跳节奏调密
+
+阿萌实测盯着觉得「好久好久」，而且不是每跳都会发消息（抽签），所以整体调密。
+
+| 决定 | 落在哪 |
+|---|---|
+| 抖动从 ±20% 放宽到 ±50%：平均 60 分钟，实际 30–90 分钟均匀分布。区间宽比「60 ±20%」更像人（有时半小时又想起你，有时一个半小时），平均间隔不变 | 4.3 第 2 步；`HEARTBEAT_JITTER_SPREAD` |
+| 新角色默认 60 分钟 / 每日预算 24 次；迁移 1 的列默认值不改（迁移只增不改），改成插入时显式给值 | 9 节；`characters.mjs` |
+| 设置里「角色心跳」每个角色加一个间隔下拉（30–240 分钟），以后嫌烦了直接调久，不用改代码 | `AgentHeartbeatPanel.tsx`；`/status` 新增 `heartbeat.jitterSpread` |
+| 消息冷却（90 分钟）不动：它管的是「两条主动消息之间至少隔多久」，跟醒来的密度是两回事 | 4.3 第 3 步 |

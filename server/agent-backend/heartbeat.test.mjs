@@ -146,11 +146,11 @@ test('排下一跳：按角色频率走，试跑提速会整体接管', () => {
     const character = { charId: CHAR, heartbeatGeneration: 1, heartbeatEveryMin: 90 };
     const normal = nextRunAt(character, { now: AT });
     const gapMin = (normal.getTime() - AT.getTime()) / 60_000;
-    assert.ok(gapMin >= 72 && gapMin <= 108, `90 分钟 ±20% 应落在 72–108，实际 ${gapMin}`);
+    assert.ok(gapMin >= 45 && gapMin <= 135, `90 分钟 ±50% 应落在 45–135，实际 ${gapMin}`);
 
     const fast = nextRunAt(character, { now: AT, everyMinOverride: 2 });
     const fastGap = (fast.getTime() - AT.getTime()) / 60_000;
-    assert.ok(fastGap >= 1.6 && fastGap <= 2.4, `提速后应在 2 分钟上下，实际 ${fastGap}`);
+    assert.ok(fastGap >= 1 && fastGap <= 3, `提速后应在 2 分钟上下（±50%），实际 ${fastGap}`);
 });
 
 test('排下一跳：落在安静时段就推到 quiet_end 之后', () => {
@@ -729,4 +729,24 @@ test('抽签：午休里的意图会带上 inBreak 标记', () => {
         snapshot: workdaySnapshot, now: chicago(10), timezone: 'America/Chicago', minutesSinceContact: 30, rng: () => 0.3,
     });
     assert.equal(busy.intent, 'live');
+});
+
+test('排下一跳：60 分钟一跳落在 30–90 之间，而且真的散开，不是每次都差不多', () => {
+    const character = { charId: CHAR, heartbeatGeneration: 1, heartbeatEveryMin: 60 };
+    const gaps = [];
+    for (let step = 0; step < 200; step += 1) {
+        const now = new Date(AT.getTime() + step * 7 * 60_000);
+        gaps.push((nextRunAt(character, { now }).getTime() - now.getTime()) / 60_000);
+    }
+    assert.ok(gaps.every(gap => gap >= 30 - 1e-6 && gap <= 90 + 1e-6), `越界：${Math.min(...gaps)}–${Math.max(...gaps)}`);
+    assert.ok(Math.min(...gaps) < 38 && Math.max(...gaps) > 82, '200 次里应该既有很短的也有很长的');
+    const mean = gaps.reduce((sum, gap) => sum + gap, 0) / gaps.length;
+    assert.ok(Math.abs(mean - 60) < 4, `平均应接近 60，实际 ${mean}`);
+});
+
+test('新角色默认平均 60 分钟一跳、每日预算 24 次', () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    assert.equal(character.heartbeatEveryMin, 60);
+    assert.equal(character.dailyModelBudget, 24);
 });
