@@ -3817,7 +3817,19 @@ ${olderText}
                     {activeAppId === 'chronicle' && targetChar && (
                         <SubAppShell>
                             <TermHeader title="起居注" sub="daily record" accent="#c9683e" onBack={() => setActiveAppId('home')} />
-                            <ChronicleApp targetChar={targetChar} accent="#c9683e" />
+                            {/* 刷手机刷出来的记录也是 TA 做过的事，一并并进那条轴（本机数据，不用后台） */}
+                            <ChronicleApp
+                                targetChar={targetChar}
+                                accent="#c9683e"
+                                phoneEvents={records
+                                    .filter(record => Number.isFinite(record.timestamp))
+                                    .map(record => ({
+                                        id: record.id,
+                                        at: record.timestamp,
+                                        app: appLabel(record.type),
+                                        title: record.title,
+                                    }))}
+                            />
                         </SubAppShell>
                     )}
                     {/* [EM-END: agent-backend-chronicle] */}

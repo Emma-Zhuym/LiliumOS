@@ -8,9 +8,10 @@
  * 做成一条时间轴而不是一叠卡片：起居注记的是「一天是怎么过的」，
  * 顺序和间隔本身就是内容。
  *
- * 轴上有两种东西：
+ * 轴上有三种东西：
  * - **当天日程**（上班、逛街、打游戏……）是底子，说明这一天 TA 本来在做什么；
- * - **心跳条目**是 TA 自己想起阿萌的时刻，钉在对应的时间点上。
+ * - **心跳条目**是 TA 自己想起阿萌的时刻，钉在对应的时间点上；
+ * - **手机上的动静**（刷出来的朋友圈、短信、订单）也是 TA 做过的事，本机就有，不用后台。
  * 没有日程作底，那些时刻就成了悬空的碎片——「翻了会儿手机」发生在上班路上还是躺床上，
  * 读起来完全是两回事。日程取自本机 IndexedDB，跟聊天用的是同一份（角色时区算日期）。
  *
@@ -57,12 +58,28 @@ const fmtDay = (at: string) => {
     return date.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
 };
 
+/** 「查手机」刷出来的一条动静。由 CheckPhone 把 phoneState.records 整形后传进来。 */
+export interface PhoneEvent {
+    id: string;
+    at: number;
+    /** App 名，如「朋友圈」「淘宝」。 */
+    app: string;
+    /** 这条动静本身，如朋友圈正文或订单标题。 */
+    title: string;
+}
+
+type DayRow =
+    | { at: number; segment: ChronicleSegment }
+    | { at: number; phone: PhoneEvent }
+    | { at: number; slot: ScheduleSlot };
+
 interface Props {
     targetChar: CharacterProfile;
     accent: string;
+    phoneEvents?: PhoneEvent[];
 }
 
-export default function ChronicleApp({ targetChar, accent }: Props) {
+export default function ChronicleApp({ targetChar, accent, phoneEvents = [] }: Props) {
     const [entries, setEntries] = useState<ChronicleEntry[]>(() => loadChronicle(targetChar.id));
     const [slots, setSlots] = useState<ScheduleSlot[]>([]);
     const [loading, setLoading] = useState(false);
@@ -111,39 +128,49 @@ export default function ChronicleApp({ targetChar, accent }: Props) {
         return () => { alive = false; };
     }, [targetChar]);
 
-    /** 先按天分组，天内再折成轴上的段落；今天那一组把日程混进去当底子。 */
+    /**
+     * 按天分组，天内把三种东西按时间混在一条轴上。
+     *
+     * 日程只有「今天」那一份（IndexedDB 按天存），所以只给今天铺底；
+     * 心跳和手机动静各自带绝对时间，哪天的就落到哪天。
+     */
     const days = useMemo(() => {
         const sorted = [...entries].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
-        const grouped: { key: string; label: string; entries: ChronicleEntry[] }[] = [];
-        for (const entry of sorted) {
-            const key = dayKey(entry.at);
-            if (grouped[grouped.length - 1]?.key !== key) {
-                grouped.push({ key, label: fmtDay(entry.at), entries: [] });
+        const byDay = new Map<string, { label: string; entries: ChronicleEntry[]; phone: PhoneEvent[] }>();
+        const ensure = (at: string | number) => {
+            const key = dayKey(typeof at === 'number' ? new Date(at).toISOString() : at);
+            if (!byDay.has(key)) {
+                byDay.set(key, {
+                    label: fmtDay(typeof at === 'number' ? new Date(at).toISOString() : at),
+                    entries: [],
+                    phone: [],
+                });
             }
-            grouped[grouped.length - 1].entries.push(entry);
-        }
+            return byDay.get(key)!;
+        };
+        for (const entry of sorted) ensure(entry.at).entries.push(entry);
+        for (const event of phoneEvents) ensure(event.at).phone.push(event);
 
         const todayKey = new Date().toDateString();
-        return grouped.map(day => {
-            const segments = toSegments(day.entries);
-            // 日程只有「今天」这一份（IndexedDB 按天存），所以只给今天铺底。
-            if (day.key !== todayKey || slots.length === 0) {
-                return { ...day, rows: segments.map(segment => ({ at: Date.parse(segmentAt(segment)), segment })) };
-            }
-            const dayDate = new Date(day.entries[0].at);
-            const scheduleRows = slots.map((slot, index) => ({
-                at: slotTimestamp(dayDate, slot.startTime),
-                slot,
-                // 当前时段之后的日程还没发生，不该出现在「起居注」里——那是计划，不是记录。
-                index,
-            })).filter(row => row.at <= Date.now());
-            const entryRows = segments.map(segment => ({ at: Date.parse(segmentAt(segment)), segment }));
-            return {
-                ...day,
-                rows: [...scheduleRows, ...entryRows].sort((a, b) => b.at - a.at),
-            };
-        });
-    }, [entries, slots]);
+        return [...byDay.entries()]
+            .sort((a, b) => Date.parse(b[1].entries[0]?.at ?? new Date(b[1].phone[0]?.at ?? 0).toISOString())
+                - Date.parse(a[1].entries[0]?.at ?? new Date(a[1].phone[0]?.at ?? 0).toISOString()))
+            .map(([key, day]) => {
+                const rows: DayRow[] = [
+                    ...toSegments(day.entries).map(segment => ({ at: Date.parse(segmentAt(segment)), segment })),
+                    ...day.phone.map(event => ({ at: event.at, phone: event })),
+                ];
+                if (key === todayKey && slots.length > 0) {
+                    const dayDate = new Date(day.entries[0]?.at ?? day.phone[0]?.at ?? Date.now());
+                    for (const slot of slots) {
+                        const at = slotTimestamp(dayDate, slot.startTime);
+                        // 当前时段之后的日程还没发生，不该出现在起居注里——那是计划，不是记录。
+                        if (at <= Date.now()) rows.push({ at, slot });
+                    }
+                }
+                return { key, label: day.label, rows: rows.sort((a, b) => b.at - a.at) };
+            });
+    }, [entries, phoneEvents, slots]);
 
     return (
         <div className="flex-1 overflow-y-auto no-scrollbar px-5 pt-1 pb-28 overscroll-contain">
@@ -178,7 +205,21 @@ export default function ChronicleApp({ targetChar, accent }: Props) {
                         {/* 轴线：从第一个点延到最后一个点，不要在段落之间断开 */}
                         <div className="absolute left-[7px] top-2 bottom-2 w-px bg-gradient-to-b from-white/[0.14] via-white/[0.09] to-transparent" />
 
-                        {day.rows.map((row, index) => 'slot' in row ? (
+                        {day.rows.map((row, index) => 'phone' in row ? (
+                            /* 手机上的动静：TA 做过的事，但不是冲着阿萌来的 */
+                            <div key={`phone-${row.phone.id}`} className="relative py-1.5">
+                                <span className="absolute -left-[25px] top-[9px] w-[5px] h-[5px] rounded-[1px] bg-white/30" />
+                                <div className="flex items-baseline gap-2">
+                                    <span className="text-[10px] tabular-nums text-white/30 shrink-0">
+                                        {fmtClock(new Date(row.at).toISOString())}
+                                    </span>
+                                    <span className="text-[11px] text-white/45 min-w-0">
+                                        <span className="text-white/30">{row.phone.app}</span>
+                                        {row.phone.title && <> · {row.phone.title}</>}
+                                    </span>
+                                </div>
+                            </div>
+                        ) : 'slot' in row ? (
                             /* 日程：这一天的底子，淡一些——它是背景，不是 TA 主动做的事 */
                             <div key={`slot-${row.at}-${index}`} className="relative py-1.5">
                                 <span className="absolute -left-[24px] top-[10px] w-[3px] h-[3px] rounded-full bg-white/20" />
