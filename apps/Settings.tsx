@@ -2168,9 +2168,6 @@ const Settings: React.FC = () => {
       <div className="flex-1 overflow-y-auto p-5 space-y-6 no-scrollbar pb-20">
         
         <AppearanceEmergency />
-        {/* [EM-START: agent-backend-panel] */}
-        <AgentBackendSection />
-        {/* [EM-END: agent-backend-panel] */}
         {/* 数据备份区域 */}
         <SettingsSection
             title="备份与恢复 (ZIP)"
@@ -3910,6 +3907,10 @@ const Settings: React.FC = () => {
                 </p>
             </section>
         )}
+
+        {/* [EM-START: agent-backend-panel] 放在最后：日常用不到，不该挤在备份和 API 前面 */}
+        <AgentBackendSection />
+        {/* [EM-END: agent-backend-panel] */}
 
         <VersionInfo />
 

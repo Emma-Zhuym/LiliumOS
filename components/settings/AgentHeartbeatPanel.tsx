@@ -10,11 +10,9 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Brain, CheckCircle, MoonStars } from '@phosphor-icons/react';
 
 import { useOS } from '../../context/OSContext';
 import { DB } from '../../utils/db';
-import { F, R, S, STATUS } from '../../utils/clayTokens';
 import { resolveCharacterApiConfig } from '../../utils/characterApi';
 import { buildCharacterSnapshot } from '../../utils/emAgentSnapshot';
 import {
@@ -24,15 +22,10 @@ import {
     type AgentCharacter,
     type AgentModelRun,
 } from '../../utils/emAgentBackend';
-import ClayDialog from '../os/ClayDialog';
+import Modal from '../os/Modal';
 
-const buttonStyle = {
-    minHeight: 44,
-    background: F.surface,
-    color: F.textPrimary,
-    borderRadius: R.button,
-    boxShadow: S.raisedSoft,
-} as const;
+/** 与「Mac mini 后端」区块同一套按钮长相。 */
+const BTN = 'px-3 py-2 bg-white border border-slate-200 rounded-xl text-[11px] font-bold text-slate-600 shadow-sm active:scale-95 transition-all disabled:opacity-50';
 
 /** 闸门名字翻成人话：影子记录里最常看到的就是这些。 */
 const GATE_LABELS: Record<string, string> = {
@@ -142,44 +135,38 @@ export default function AgentHeartbeatPanel({ open, onClose }: Props) {
 
     const backendOf = (charId: string) => backendChars.find(item => item.charId === charId);
 
-    return <ClayDialog isOpen={open} title="角色心跳 · 影子试跑" onClose={onClose}>
+    return <Modal isOpen={open} title="角色心跳 · 影子试跑" onClose={onClose}>
         <div className="space-y-4">
-            <div className="flex items-start gap-2 p-3" style={{ background: F.surfaceSunken, borderRadius: R.input, boxShadow: S.sunken }}>
-                <Brain size={16} weight="bold" style={{ color: F.textSecondary, flexShrink: 0, marginTop: 2 }} />
-                <p className="text-xs leading-relaxed" style={{ color: F.textSecondary }}>
-                    {shadow
-                        ? '现在是试跑：角色会自己醒来、自己判断要不要找你，但不会真的发消息，只把想说的话记下来给你看。'
-                        : '真实执行已开启：角色判断要说话时会真的发给你。'}
-                </p>
-            </div>
+            <p className="text-[10px] text-slate-400 leading-relaxed rounded-2xl border border-slate-200/80 bg-slate-50/60 p-3">
+                {shadow
+                    ? '现在是试跑：角色会自己醒来、自己判断要不要找你，但不会真的发消息，只把想说的话记下来给你看。'
+                    : '真实执行已开启：角色判断要说话时会真的发给你。'}
+            </p>
 
             <div className="space-y-2">
-                <p className="text-xs font-semibold">角色</p>
-                {characters.length === 0 && (
-                    <p className="text-xs" style={{ color: F.textTertiary }}>还没有角色。</p>
-                )}
+                <p className="text-xs font-bold text-slate-500">角色</p>
+                {characters.length === 0 && <p className="text-[11px] text-slate-400">还没有角色。</p>}
                 {characters.map(char => {
                     const backend = backendOf(char.id);
                     const connected = Boolean(backend?.credRef);
-                    return <div key={char.id} className="flex items-center justify-between gap-3 p-3" style={{ background: F.surfaceWarm, borderRadius: R.input }}>
+                    return <div key={char.id} className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-slate-50/60 p-3">
                         <div className="min-w-0">
-                            <p className="truncate text-sm font-semibold">{char.name}</p>
-                            <p className="text-xs" style={{ color: F.textTertiary }}>
+                            <p className="truncate text-xs font-bold text-slate-600">{char.name}</p>
+                            <p className="text-[10px] text-slate-400">
                                 {!connected ? '还没接到后端'
                                     : backend?.heartbeatPaused ? '已暂停'
                                         : backend?.heartbeatEnabled ? `每 ${backend.heartbeatEveryMin} 分钟醒一次` : '心跳关着'}
                             </p>
                         </div>
                         <div className="flex shrink-0 gap-2">
-                            <button disabled={busy} onClick={() => void handleConnect(char.id)} className="px-3 text-xs" style={buttonStyle}>
+                            <button disabled={busy} onClick={() => void handleConnect(char.id)} className={BTN}>
                                 {connected ? '重新同步' : '接到后端'}
                             </button>
                             {connected && (
                                 <button
                                     disabled={busy}
                                     onClick={() => void handleToggle(char.id, !backend?.heartbeatEnabled)}
-                                    className="px-3 text-xs font-semibold"
-                                    style={{ ...buttonStyle, color: backend?.heartbeatEnabled ? STATUS.danger.ink : F.textPrimary }}
+                                    className={`${BTN} ${backend?.heartbeatEnabled ? 'text-red-500 border-red-200' : 'text-violet-600 border-violet-200'}`}
                                 >
                                     {backend?.heartbeatEnabled ? '关掉' : '开启'}
                                 </button>
@@ -191,50 +178,41 @@ export default function AgentHeartbeatPanel({ open, onClose }: Props) {
 
             <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold">试跑记录</p>
-                    <button disabled={busy} onClick={() => void refresh()} className="px-3 text-xs" style={buttonStyle}>刷新</button>
+                    <p className="text-xs font-bold text-slate-500">试跑记录</p>
+                    <button disabled={busy} onClick={() => void refresh()} className={BTN}>刷新</button>
                 </div>
                 {loaded && runs.length === 0 && (
-                    <p className="text-xs" style={{ color: F.textTertiary }}>还没有记录。角色第一次醒来之后这里就会有东西。</p>
+                    <p className="text-[11px] text-slate-400">还没有记录。角色第一次醒来之后这里就会有东西。</p>
                 )}
                 <ul className="space-y-2">
                     {runs.map(item => (
-                        <li key={item.id} className="p-3" style={{ background: F.surfaceWarm, borderRadius: R.input }}>
+                        <li key={item.id} className="rounded-2xl border border-slate-200/80 bg-slate-50/60 p-3">
                             <div className="flex items-center justify-between gap-2">
-                                <span className="text-xs font-semibold">
+                                <span className="text-xs font-bold text-slate-600">
                                     {characters.find(char => char.id === item.charId)?.name || item.charId}
                                 </span>
-                                <span className="flex items-center gap-1 text-xs" style={{ color: F.textTertiary }}>
-                                    {item.outcome === 'skipped'
-                                        ? <MoonStars size={12} weight="bold" />
-                                        : <CheckCircle size={12} weight="bold" />}
+                                <span className="text-[10px] text-slate-400">
                                     {OUTCOME_LABELS[item.outcome || ''] || item.outcome}
                                 </span>
                             </div>
                             {item.outcome === 'skipped' && item.skipGate && (
-                                <p className="mt-1 text-xs" style={{ color: F.textSecondary }}>
-                                    {GATE_LABELS[item.skipGate] || item.skipGate}
-                                </p>
+                                <p className="mt-1 text-[10px] text-slate-400">{GATE_LABELS[item.skipGate] || item.skipGate}</p>
                             )}
                             {item.proposedText && (
-                                <p className="mt-1 text-xs leading-relaxed" style={{ color: F.textPrimary }}>
+                                <p className="mt-1 text-[11px] leading-relaxed text-slate-600">
                                     「{item.proposedText}」{item.shadow ? '（试跑，没有真的发出去）' : ''}
                                 </p>
                             )}
                             {item.reason && (
-                                <p className="mt-1 text-xs leading-relaxed" style={{ color: F.textTertiary }}>{item.reason}</p>
+                                <p className="mt-1 text-[10px] leading-relaxed text-slate-400">{item.reason}</p>
                             )}
-                            {item.error && (
-                                <p className="mt-1 text-xs" style={{ color: STATUS.danger.ink }}>{item.error}</p>
-                            )}
-                            <p className="mt-1 text-xs" style={{ color: F.textTertiary }}>
-                                {new Date(item.startedAt).toLocaleString()}
-                            </p>
+                            {item.error && <p className="mt-1 text-[10px] text-red-500">{item.error}</p>}
+                            <p className="mt-1 text-[10px] text-slate-300">{new Date(item.startedAt).toLocaleString()}</p>
                         </li>
                     ))}
                 </ul>
             </div>
         </div>
-    </ClayDialog>;
+    </Modal>;
 }
 // [EM-END: agent-backend-heartbeat-panel]
