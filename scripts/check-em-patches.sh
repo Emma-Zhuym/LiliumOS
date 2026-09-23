@@ -121,6 +121,9 @@ echo "── 神经链接 · 日常节律草稿 ──"
 check "草稿生成 prompt 构建" utils/scheduleGenerator.ts "[EM-START: daily-rhythm-draft]"
 check "角色详情页生成入口" apps/Character.tsx "[EM-START: character-daily-rhythm-draft]"
 
+echo "── 查手机 · 手动添加联系人带描述 ──"
+check "关系备注/一句描述输入框" apps/CheckPhone.tsx "[EM-START: contacts-manual-detail]"
+
 echo "── EM 角色代记 ──"
 check "代记核心模块" utils/emScribe.ts "executeEmScribeDirectives"
 check "chatPrompts 注入" utils/chatPrompts.ts "[EM-START: em-scribe]"

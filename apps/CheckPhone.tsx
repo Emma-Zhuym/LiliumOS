@@ -352,6 +352,11 @@ const CheckPhone: React.FC = () => {
     const [ncName, setNcName] = useState('');
     const [ncKind, setNcKind] = useState<'real' | 'npc'>('npc');
     const [ncLinkedId, setNcLinkedId] = useState('');
+    // [EM-START: contacts-manual-detail] 手动添加联系人时也能顺手写清楚关系与备注——
+    // 之前只有名字/类型两个字段，手填的人在列表里全是「—」，反而比扫描出来的还空。
+    const [ncIdentity, setNcIdentity] = useState('');
+    const [ncNote, setNcNote] = useState('');
+    // [EM-END: contacts-manual-detail]
     // 改绑定弹窗（把联系人改绑到正确的真实角色 / 转为虚构）
     const [showRebindModal, setShowRebindModal] = useState(false);
     // 「允许虚构 NPC」开关的说明展开态
@@ -1750,9 +1755,16 @@ ${olderText}
         } else if (!name) {
             addToast('请填写联系人名字', 'error'); return;
         }
-        mutateContacts(cs => upsertContact(cs, { name, kind: ncKind, linkedCharId, affinity: 0, status: 'friend' }));
+        // [EM: contacts-manual-detail] identity/note 手填时就带上，不再是空白联系人；
+        // identityManual 锁住手填的关系备注，跟「联系人详情页手动编辑」用同一条保护，避免下次扫描把它覆盖掉。
+        const identity = ncIdentity.trim();
+        mutateContacts(cs => upsertContact(cs, {
+            name, kind: ncKind, linkedCharId, affinity: 0, status: 'friend',
+            identity: identity || undefined, identityManual: identity ? true : undefined,
+            note: ncNote.trim() || undefined,
+        }));
         setShowContactModal(false);
-        setNcName(''); setNcKind('npc'); setNcLinkedId('');
+        setNcName(''); setNcKind('npc'); setNcLinkedId(''); setNcIdentity(''); setNcNote('');
         addToast('已添加联系人', 'success');
     };
 
@@ -4103,6 +4115,17 @@ ${olderText}
                     ) : (
                         <input value={ncName} onChange={e => setNcName(e.target.value)} placeholder="联系人名字（虚构）" className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm" />
                     )}
+                    {/* [EM-START: contacts-manual-detail] */}
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">关系备注 <span className="normal-case font-normal">可选</span></label>
+                        <input value={ncIdentity} onChange={e => setNcIdentity(e.target.value)} placeholder="机主对 TA 的称呼，如「发小」「上司」「前任」" className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm" />
+                        <p className="text-[9px] text-slate-400 mt-1">会作为联系人列表里显示的备注名，也会告诉 TA 这个人是谁。</p>
+                    </div>
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">一句描述 <span className="normal-case font-normal">可选</span></label>
+                        <textarea value={ncNote} onChange={e => setNcNote(e.target.value)} placeholder="机主视角的一句话，比如「大学室友，毕业后还经常约饭」——这是已确立的事实，扫描/对话不会覆盖它" className="w-full h-16 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs resize-none" />
+                    </div>
+                    {/* [EM-END: contacts-manual-detail] */}
                 </div>
             </Modal>
 
