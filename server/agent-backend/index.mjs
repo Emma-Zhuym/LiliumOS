@@ -14,7 +14,9 @@ import { getSetting, openDb } from './db.mjs';
 import { listCharacters } from './characters.mjs';
 import {
     FIRST_BEAT_DELAY_MS, HEARTBEAT_TTL_MS, createHeartbeatHandler, heartbeatUuid, isShadowMode, nextRunAt,
+    upcomingBreakStarts,
 } from './heartbeat.mjs';
+import { getSnapshot } from './snapshots.mjs';
 import { createHaWatchdogHandler, createTestPingHandler, probeHomeAssistant } from './kinds.mjs';
 import { createApiRunner, createCodexRunnerStub } from './runner.mjs';
 import { createJob, inQuietWindow, recoverStaleLeases, runTick } from './jobs.mjs';
@@ -71,10 +73,14 @@ export const createContext = async (config = loadConfig()) => {
     /** 排下一跳。心跳链由服务端自己续，不靠 cron，进程重启也不会整条断掉。 */
     const scheduleNextHeartbeat = (character, now = new Date()) => {
         if (!character.heartbeatEnabled || character.heartbeatPaused) return null;
+        // 瞄准午休 / 下班这类空档：日程里有的话，把下一跳排进去（没有日程就照常随机）。
+        const snapshot = getSnapshot(db, character.charId);
+        const timezone = snapshot?.payload?.timezone || getSetting(db, 'timezone') || 'America/Chicago';
         const runAt = nextRunAt(character, {
             now,
             everyMinOverride: config.heartbeatEveryMinOverride,
             quiet: quietForScheduling,
+            breakStarts: upcomingBreakStarts(snapshot, now, timezone),
         });
         const { job } = createJob(db, {
             uuid: heartbeatUuid(character.charId, character.heartbeatGeneration, runAt),

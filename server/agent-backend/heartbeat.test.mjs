@@ -15,7 +15,7 @@ import { enqueue } from './outbox.mjs';
 import { putSnapshot, normalizeSnapshotPayload } from './snapshots.mjs';
 import {
     ACTIVE_CHAT_WINDOW_MS, buildPrompt, checkGates, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
-    currentSlot, decideIntent, formatGap, jitterRatio, lastRealInteractionAt, listModelRuns, messageChance,
+    BREAK_COOLDOWN_MIN, currentSlot, decideIntent, formatGap, inBreakWindow, upcomingBreakStarts, jitterRatio, lastRealInteractionAt, listModelRuns, messageChance,
     nextRunAt, recordModelRun, shouldCaptureRaw,
 } from './heartbeat.mjs';
 import { chatCompletionsUrl, createApiRunner, extractContentText, parseHeartbeatOutput } from './runner.mjs';
@@ -632,4 +632,101 @@ test('日常节律进提示词：跟聊天日程生成用的是同一份文本',
         'live',
     );
     assert.ok(prompt.includes('周二周四必须到公司开会'));
+});
+
+// ── 午休 / 下班这类「有空」的空档 ──────────────────────────────────────────
+// 芝加哥时间的一天：9 点上班（忙）→ 12 点午休（有空）→ 13 点下午（忙）→ 18 点下班（有空）
+const WORKDAY = [
+    { start: '09:00', end: '12:00', title: '上班', availability: 'busy' },
+    { start: '12:00', end: '13:00', title: '午休', availability: 'online' },
+    { start: '13:00', end: '18:00', title: '下午工作', availability: 'busy' },
+    { start: '18:00', end: '', title: '下班回家', availability: 'online' },
+];
+const chicago = (h, m = 0) => new Date(Date.UTC(2026, 8, 23, h + 5, m));   // 9 月是 CDT，UTC-5
+const workdaySnapshot = { payload: { timezone: 'America/Chicago', todaySchedule: WORKDAY } };
+
+test('空档：午休开始后 90 分钟内算，忙的时段和过了太久都不算', () => {
+    assert.equal(inBreakWindow(workdaySnapshot, chicago(12, 20), 'America/Chicago'), true);
+    assert.equal(inBreakWindow(workdaySnapshot, chicago(11, 30), 'America/Chicago'), false, '还在上班');
+    assert.equal(inBreakWindow(workdaySnapshot, chicago(14, 0), 'America/Chicago'), false, '下午又忙了');
+    assert.equal(inBreakWindow(workdaySnapshot, chicago(19, 45), 'America/Chicago'), false, '下班后整晚不能都当空档');
+    assert.equal(inBreakWindow({ payload: {} }, chicago(12, 20), 'America/Chicago'), false, '没日程就不认');
+});
+
+test('空档：没有从忙转闲，但标题写着午休，也认', () => {
+    const lazy = { payload: { todaySchedule: [
+        { start: '10:00', title: '打游戏', availability: 'online' },
+        { start: '12:00', title: '午休吃饭', availability: 'online' },
+    ] } };
+    assert.equal(inBreakWindow(lazy, chicago(12, 10), 'America/Chicago'), true);
+    assert.equal(inBreakWindow(lazy, chicago(10, 30), 'America/Chicago'), false, '一直闲着的时段不算空档');
+});
+
+test('空档：列出今天还没到的空档开头，升序', () => {
+    const starts = upcomingBreakStarts(workdaySnapshot, chicago(11, 20), 'America/Chicago');
+    assert.deepEqual(starts.map(date => date.toISOString()), [chicago(12).toISOString(), chicago(18).toISOString()]);
+    assert.equal(upcomingBreakStarts(workdaySnapshot, chicago(12, 5), 'America/Chicago').length, 1, '已经开始的不再算');
+    assert.deepEqual(upcomingBreakStarts({ payload: {} }, chicago(11), 'America/Chicago'), []);
+});
+
+test('排下一跳：自然下一跳会错过午休，就挪进午休开头几分钟内', () => {
+    const character = { charId: CHAR, heartbeatGeneration: 1, heartbeatEveryMin: 90 };
+    const now = chicago(11, 20);                       // 自然下一跳约在 12:32–13:08，已经过了午休开头
+    const breakStarts = upcomingBreakStarts(workdaySnapshot, now, 'America/Chicago');
+    const runAt = nextRunAt(character, { now, breakStarts });
+    const afterStart = (runAt.getTime() - chicago(12).getTime()) / 60_000;
+    assert.ok(afterStart >= 3 && afterStart <= 10, `应落在午休开头 3–10 分钟内，实际 ${afterStart}`);
+    assert.equal(nextRunAt(character, { now, breakStarts }).getTime(), runAt.getTime(), '同样输入必须同样结果，否则重试会长出两条链');
+});
+
+test('排下一跳：空档离得远就不动，试跑提速时也不被日程改写', () => {
+    const character = { charId: CHAR, heartbeatGeneration: 1, heartbeatEveryMin: 90 };
+    const now = chicago(9, 10);                        // 午休在近 3 小时后，自然下一跳 10:22–10:58，远不到
+    const plain = nextRunAt(character, { now });
+    assert.equal(nextRunAt(character, { now, breakStarts: upcomingBreakStarts(workdaySnapshot, now, 'America/Chicago') }).getTime(), plain.getTime());
+
+    const soon = chicago(11, 50);
+    const fast = nextRunAt(character, { now: soon, everyMinOverride: 2, breakStarts: [chicago(12)] });
+    assert.ok((fast.getTime() - soon.getTime()) / 60_000 < 3, '提速试跑不该被挪去午休');
+});
+
+test('闸门：午休里冷却缩短，上午那条不再挡住午休', () => {
+    const db = freshDb();
+    const character = seedCharacter(db, { messageCooldownMin: 90 });
+    const snapshot = { receivedAt: chicago(12, 20).toISOString(), payload: { timezone: 'America/Chicago', todaySchedule: WORKDAY } };
+    // 上午 11:20 发过一条：午休 12:20 距它 60 分钟——平时 90 分钟冷却会挡，午休里只要 30。
+    enqueue(db, { messageId: 'am', charId: CHAR, kind: 'chat_message', payload: { text: '早' } }, chicago(11, 20));
+    assert.equal(checkGates(db, { character, snapshot, now: chicago(12, 20) }), null);
+    // 而 12:35 距午休里刚发的 12:20 那条只有 15 分钟：冷却仍然生效，不会连发。
+    enqueue(db, { messageId: 'noon', charId: CHAR, kind: 'chat_message', payload: { text: '吃饭了吗' } }, chicago(12, 20));
+    assert.equal(checkGates(db, { character, snapshot, now: chicago(12, 35) }), 'message_cooldown');
+    assert.ok(BREAK_COOLDOWN_MIN < 90);
+});
+
+test('闸门：不在空档时冷却照旧', () => {
+    const db = freshDb();
+    const character = seedCharacter(db, { messageCooldownMin: 90 });
+    const snapshot = { receivedAt: chicago(15).toISOString(), payload: { timezone: 'America/Chicago', todaySchedule: WORKDAY } };
+    enqueue(db, { messageId: 'm', charId: CHAR, kind: 'chat_message', payload: { text: '在吗' } }, chicago(14, 0));
+    assert.equal(checkGates(db, { character, snapshot, now: chicago(15) }), 'message_cooldown');
+});
+
+test('开口概率：空档里更高，也不罚「刚说过话」', () => {
+    const normal = messageChance({ availability: 'online', minutesSinceContact: 40 });
+    const inBreak = messageChance({ availability: 'online', minutesSinceContact: 40, inBreak: true });
+    assert.ok(inBreak > normal * 3, `空档 ${inBreak} 应远高于平时 ${normal}`);
+    assert.equal(inBreak, 0.45);
+    assert.ok(messageChance({ availability: 'online', minutesSinceContact: 600, inBreak: true }) <= 0.6, '封顶不变');
+});
+
+test('抽签：午休里的意图会带上 inBreak 标记', () => {
+    const chosen = decideIntent({
+        snapshot: workdaySnapshot, now: chicago(12, 15), timezone: 'America/Chicago', minutesSinceContact: 30, rng: () => 0.3,
+    });
+    assert.equal(chosen.inBreak, true);
+    assert.equal(chosen.intent, 'reach_out', '0.3 < 0.45 该开口；换成平时的 0.25×0.4 就开不了口');
+    const busy = decideIntent({
+        snapshot: workdaySnapshot, now: chicago(10), timezone: 'America/Chicago', minutesSinceContact: 30, rng: () => 0.3,
+    });
+    assert.equal(busy.intent, 'live');
 });

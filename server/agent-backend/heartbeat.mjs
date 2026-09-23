@@ -45,6 +45,65 @@ export const jitterRatio = (charId, generation, nominalRunAt) => {
     return (unit - 0.5) * 0.4;
 };
 
+/**
+ * 「空档」= 从忙碌转成有空的那一刻起的一小段时间：午休、下班、茶歇。
+ *
+ * 真人上班谈恋爱，多半就在这种空档里多说两句。但心跳是 90 分钟一跳的随机节奏，
+ * 常常整个午休都碰不上一跳；碰上了，也可能因为「刚说过话」的冷却被挡回去。
+ * 所以这里把空档单独认出来：排跳时瞄准它，闸门和概率在里面放宽（见 nextRunAt / checkGates / messageChance）。
+ */
+export const BREAK_WINDOW_MAX_MIN = 90;
+const BREAK_TITLE = /午休|午饭|午餐|午间|吃饭|茶歇|下班|休息|课间/;
+/** 空档里冷却缩短到这么久：午休那点时间够说两三句，不该被上午那条挡住。 */
+export const BREAK_COOLDOWN_MIN = 30;
+
+const slotStartMinutes = slot => toMinutes(slot?.start ?? slot?.startTime);
+
+/** 这一段算不算「空档的开头」：有空，并且是刚忙完转过来的（或者标题本身就是午休之类）。 */
+const isBreakSlot = (slots, index) => {
+    const slot = slots[index];
+    if (!slot || slot.availability !== 'online') return false;
+    if (BREAK_TITLE.test(String(slot.title ?? slot.activity ?? ''))) return true;
+    return index > 0 && slots[index - 1]?.availability === 'busy';
+};
+
+/**
+ * 现在是否正处在空档里：某个空档段开始后的 BREAK_WINDOW_MAX_MIN 分钟内。
+ * 限时是因为「下班后整个晚上」也是 online，不能整晚都当空档放宽。
+ */
+export const inBreakWindow = (snapshot, now, timezone) => {
+    const slots = snapshot?.payload?.todaySchedule;
+    if (!Array.isArray(slots) || slots.length === 0) return false;
+    const minutes = localMinutes(now, timezone);
+    for (let index = 0; index < slots.length; index += 1) {
+        const start = slotStartMinutes(slots[index]);
+        if (start === null || !isBreakSlot(slots, index)) continue;
+        if (minutes >= start && minutes < start + BREAK_WINDOW_MAX_MIN) return true;
+    }
+    return false;
+};
+
+/** 今天还没到的空档开头（绝对时刻，升序）。没有日程就是空数组。 */
+export const upcomingBreakStarts = (snapshot, now, timezone) => {
+    const slots = snapshot?.payload?.todaySchedule;
+    if (!Array.isArray(slots) || slots.length === 0) return [];
+    const minutes = localMinutes(now, timezone);
+    const base = now.getTime() - (now.getSeconds() * 1000 + now.getMilliseconds());
+    const out = [];
+    for (let index = 0; index < slots.length; index += 1) {
+        const start = slotStartMinutes(slots[index]);
+        if (start === null || start <= minutes || !isBreakSlot(slots, index)) continue;
+        out.push(new Date(base + (start - minutes) * MINUTE));
+    }
+    return out.sort((a, b) => a - b);
+};
+
+/** 落进空档后再晚几分钟醒（3–10 分钟，确定性）：别整点踩线，也别落到空档快结束时。 */
+const breakOffsetMin = (charId, generation, breakStart) => {
+    const digest = createHash('sha256').update(`${charId}:${generation}:break:${breakStart.toISOString()}`).digest();
+    return 3 + (digest[0] / 255) * 7;
+};
+
 /** 这个角色这一跳实际隔多久：默认用角色自己的设置，试跑时由 override 统一接管。 */
 export const effectiveEveryMin = (character, { everyMinOverride = 0 } = {}) =>
     everyMinOverride > 0 ? everyMinOverride : character.heartbeatEveryMin;
@@ -57,11 +116,22 @@ export const nextRunAt = (character, {
     now = new Date(),
     everyMinOverride = 0,
     quiet = null,
+    breakStarts = [],
 } = {}) => {
     const everyMin = effectiveEveryMin(character, { everyMinOverride });
     const nominal = new Date(now.getTime() + everyMin * MINUTE);
     const ratio = jitterRatio(character.charId, character.heartbeatGeneration, nominal.toISOString());
     let runAt = new Date(nominal.getTime() + everyMin * MINUTE * ratio);
+    // 瞄准空档：有个空档开头落在「现在之后、自然下一跳之后不久」之间，就把这一跳挪进去。
+    // 试跑提速（everyMinOverride）时不挪——那是在测节奏，不该被日程改写。
+    if (!(everyMinOverride > 0)) {
+        const target = breakStarts.find(start =>
+            start.getTime() > now.getTime() + 10 * MINUTE && start.getTime() <= runAt.getTime() + 25 * MINUTE);
+        if (target) {
+            runAt = new Date(target.getTime()
+                + breakOffsetMin(character.charId, character.heartbeatGeneration, target) * MINUTE);
+        }
+    }
     if (quiet?.isQuiet?.(runAt)) {
         const wake = quiet.nextEndAfter(runAt);
         runAt = new Date(wake.getTime() + Math.abs(ratio) * everyMin * MINUTE);
@@ -157,8 +227,12 @@ export const checkGates = (db, { character, snapshot, now = new Date() }) => {
         return 'active_chat';
     }
 
+    // 空档里冷却缩短：午休本来就是多说两句的时候，不该被上午那条挡住。
+    const cooldownMin = inBreakWindow(snapshot, now, timezone)
+        ? Math.min(character.messageCooldownMin, BREAK_COOLDOWN_MIN)
+        : character.messageCooldownMin;
     const lastMessage = lastChatMessageAt(db, character.charId);
-    if (lastMessage && now.getTime() - Date.parse(lastMessage) < character.messageCooldownMin * MINUTE) {
+    if (lastMessage && now.getTime() - Date.parse(lastMessage) < cooldownMin * MINUTE) {
         return 'message_cooldown';
     }
 
@@ -303,13 +377,15 @@ export const currentSlot = (snapshot, now, timezone) => {
  * 权重跟着日程走：忙的时候本来就不该老找人；闲着的时候想起对方是自然的。
  * 再叠一层时间：越久没说话，越该开口——否则一周都碰不上一次高概率的时刻。
  */
-export const messageChance = ({ availability, minutesSinceContact }) => {
-    const base = availability === 'busy' ? 0.08
-        : availability === 'offline' ? 0.02
-            : availability === 'online' ? 0.25
-                : 0.15;
+export const messageChance = ({ availability, minutesSinceContact, inBreak = false }) => {
+    const base = inBreak ? 0.45
+        : availability === 'busy' ? 0.08
+            : availability === 'offline' ? 0.02
+                : availability === 'online' ? 0.25
+                    : 0.15;
     const hours = (minutesSinceContact ?? 0) / 60;
-    const gapBoost = hours >= 12 ? 3 : hours >= 6 ? 2.5 : hours >= 3 ? 1.8 : hours >= 1 ? 1 : 0.4;
+    // 空档里不罚「刚说过话」：午休本来就是想多聊两句的时候。
+    const gapBoost = hours >= 12 ? 3 : hours >= 6 ? 2.5 : hours >= 3 ? 1.8 : hours >= 1 || inBreak ? 1 : 0.4;
     // 封顶 0.6：再高就成了「每隔两跳必找你一次」，那是另一种不自然。
     return Math.min(0.6, Math.max(0, base * gapBoost));
 };
@@ -323,11 +399,13 @@ export const decideIntent = ({ snapshot, now, timezone, minutesSinceContact, car
     const availability = slot?.availability ?? null;
     // 上一跳自己说了「等会儿找 ta」：这一跳不再抽签，兑现它。
     // 冷却、每日上限这些闸在抽签之前已经过了，所以不会因此刷屏。
-    const chance = carried ? 1 : messageChance({ availability, minutesSinceContact });
+    const inBreak = inBreakWindow(snapshot, now, timezone);
+    const chance = carried ? 1 : messageChance({ availability, minutesSinceContact, inBreak });
     return {
         intent: rng() < chance ? 'reach_out' : 'live',
         chance,
         slot: slot ? { title: slot.title ?? slot.activity ?? '', availability } : null,
+        inBreak,
     };
 };
 
