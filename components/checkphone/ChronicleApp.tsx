@@ -5,28 +5,37 @@
  * 这一页天然契合「查手机」的设定：你看到的是 TA 的活动记录，
  * 不是 TA 特地发给你的消息。所以它不推送、不进聊天，只躺在这里等你翻。
  *
- * 试跑期（影子运行）的条目会标「试跑」：那些话角色想说，但没有真的发出来。
+ * 做成一条时间轴而不是一叠卡片：起居注记的是「一天是怎么过的」，
+ * 顺序和间隔本身就是内容。被闸门拦下的那些醒来不单独占一格，
+ * 而是缩成轴上的一段灰线（「醒了 3 次又睡回去」）——既保住了时序，
+ * 又不会让安静的一天刷满「没动静」。
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
-import { ArrowsClockwise, MoonStars, PencilSimpleLine } from '@phosphor-icons/react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ArrowsClockwise, PencilSimpleLine } from '@phosphor-icons/react';
 
 import type { CharacterProfile } from '../../types';
 import { AgentBackend, isAgentPaired } from '../../utils/emAgentBackend';
-import { loadChronicle, mergeChronicle, type ChronicleEntry } from '../../utils/emAgentActivity';
+import {
+    loadChronicle, mergeChronicle, toSegments,
+    type ChronicleEntry, type ChronicleSegment,
+} from '../../utils/emAgentActivity';
 
-/** 闸门名字翻成人话。起居注里最常见的就是这几条。 */
-const GATE_LABELS: Record<string, string> = {
-    paused: '被按了暂停',
-    no_snapshot: '还不知道最近怎么样',
-    sleeping: '在睡觉',
-    active_chat: '正和你说着话',
-    message_cooldown: '刚说过话，先歇着',
-    daily_budget: '今天想得够多了',
+const SERIF = "'Shippori Mincho','Noto Serif SC',serif";
+
+const fmtClock = (at: string) =>
+    new Date(at).toLocaleTimeString('zh-CN', { hour: 'numeric', minute: '2-digit', hour12: true });
+
+const dayKey = (at: string) => new Date(at).toDateString();
+
+const fmtDay = (at: string) => {
+    const date = new Date(at);
+    const today = new Date();
+    const yesterday = new Date(today.getTime() - 86_400_000);
+    if (date.toDateString() === today.toDateString()) return '今天';
+    if (date.toDateString() === yesterday.toDateString()) return '昨天';
+    return date.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
 };
-
-const fmtTime = (at: string) =>
-    new Date(at).toLocaleString('zh-CN', { month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
 
 interface Props {
     targetChar: CharacterProfile;
@@ -46,7 +55,7 @@ export default function ChronicleApp({ targetChar, accent }: Props) {
         setLoading(true);
         try {
             const runs = await AgentBackend.audit(targetChar.id, 100);
-            const incoming: ChronicleEntry[] = runs.map(run => ({
+            setEntries(mergeChronicle(targetChar.id, runs.map(run => ({
                 id: run.id,
                 charId: run.charId,
                 activity: run.activity,
@@ -55,8 +64,7 @@ export default function ChronicleApp({ targetChar, accent }: Props) {
                 proposedText: run.proposedText,
                 shadow: run.shadow,
                 at: run.startedAt,
-            }));
-            setEntries(mergeChronicle(targetChar.id, incoming));
+            }))));
             setOffline(false);
         } catch {
             // 取不到就翻本地那份副本：后台不在线是常态，不是故障。
@@ -68,23 +76,27 @@ export default function ChronicleApp({ targetChar, accent }: Props) {
 
     useEffect(() => { void refresh(); }, [refresh]);
 
-    // 被闸门拦下的那些不算「活动」：TA 只是醒了一下又睡回去，没做什么值得记的事。
-    // 但一条都不显示的话，这一页在角色安静的日子里会空得像坏了，所以单独排在后面。
-    const acted = entries.filter(entry => entry.outcome !== 'skipped' && entry.outcome !== 'error');
-    const skipped = entries.filter(entry => entry.outcome === 'skipped');
+    /** 先按天分组，天内再折成轴上的段落。 */
+    const days = useMemo(() => {
+        const sorted = [...entries].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+        const grouped: { key: string; label: string; segments: ChronicleSegment[] }[] = [];
+        for (const entry of sorted) {
+            const key = dayKey(entry.at);
+            if (grouped[grouped.length - 1]?.key !== key) {
+                grouped.push({ key, label: fmtDay(entry.at), segments: [] });
+            }
+            grouped[grouped.length - 1].segments.push({ kind: 'entry', entry });
+        }
+        return grouped.map(day => ({ ...day, segments: toSegments(day.segments.map(s => (s as { entry: ChronicleEntry }).entry)) }));
+    }, [entries]);
 
     return (
         <div className="flex-1 overflow-y-auto no-scrollbar px-5 pt-1 pb-28 overscroll-contain">
-            <div className="rounded-xl px-3 py-2 mb-3 bg-white/[0.04] border border-white/[0.07]">
-                <p className="text-[11px] text-white/55 leading-relaxed">
-                    TA 自己醒来的时候做了什么。不是发给你的消息——是你偷看到的。
-                </p>
-            </div>
-
+            <p className="text-[11px] text-white/45 leading-relaxed px-1 mb-1">
+                TA 自己醒来的时候做了什么。不是发给你的消息——是你偷看到的。
+            </p>
             {offline && (
-                <p className="text-[10px] text-white/30 mb-3 px-1">
-                    现在连不上后台，下面是上次看到的。
-                </p>
+                <p className="text-[10px] text-white/25 px-1 mb-2">连不上后台，下面是上次看到的。</p>
             )}
 
             {entries.length === 0 && (
@@ -97,52 +109,67 @@ export default function ChronicleApp({ targetChar, accent }: Props) {
                 </div>
             )}
 
-            <div className="space-y-2.5">
-                {acted.map(entry => (
-                    <div key={entry.id} className="rounded-2xl p-4 bg-white/[0.035] border border-white/[0.06] animate-fade-in">
-                        <div className="flex items-center justify-between mb-1.5 gap-2">
-                            {entry.shadow && (
-                                <span className="text-[9px] px-2 py-0.5 rounded-full tracking-wider shrink-0"
-                                    style={{ color: accent, background: `${accent}1f` }}>
-                                    试跑
-                                </span>
-                            )}
-                            <span className="text-[9px] text-white/30 tabular-nums ml-auto shrink-0">{fmtTime(entry.at)}</span>
-                        </div>
-                        <p className="text-[14px] font-light text-white leading-relaxed"
-                            style={{ fontFamily: "'Shippori Mincho','Noto Sans SC',serif" }}>
-                            {entry.activity || '（什么都没记下来）'}
-                        </p>
-                        {entry.proposedText && (
-                            <p className="mt-2 text-[12px] text-white/55 leading-relaxed border-l-2 pl-2.5"
-                                style={{ borderColor: `${accent}55` }}>
-                                想跟你说：「{entry.proposedText}」
-                                {entry.shadow && <span className="text-white/25">（没有真的发出去）</span>}
-                            </p>
-                        )}
+            {days.map(day => (
+                <section key={day.key} className="mt-4">
+                    {/* 日子：轴上的一个刻度，不是一张卡片 */}
+                    <div className="flex items-center gap-2.5 mb-1">
+                        <span className="text-[11px] tracking-[0.25em] text-white/40" style={{ fontFamily: SERIF }}>
+                            {day.label}
+                        </span>
+                        <div className="flex-1 h-px bg-white/[0.07]" />
                     </div>
-                ))}
 
-                {skipped.length > 0 && (
-                    <>
-                        <p className="text-[10px] text-white/25 pt-3 pb-1 px-1 tracking-wider">醒了一下，又睡回去了</p>
-                        {skipped.slice(0, 20).map(entry => (
-                            <div key={entry.id} className="flex items-center gap-2.5 px-1 py-1.5">
-                                <MoonStars size={12} weight="light" className="shrink-0 text-white/25" />
-                                <span className="text-[11px] text-white/35 flex-1 truncate">
-                                    {GATE_LABELS[entry.skipGate || ''] || entry.skipGate || '没动静'}
-                                </span>
-                                <span className="text-[9px] text-white/20 tabular-nums shrink-0">{fmtTime(entry.at)}</span>
+                    <div className="relative pl-[26px]">
+                        {/* 轴线：从第一个点延到最后一个点，不要在段落之间断开 */}
+                        <div className="absolute left-[7px] top-2 bottom-2 w-px bg-gradient-to-b from-white/[0.14] via-white/[0.09] to-transparent" />
+
+                        {day.segments.map((segment, index) => segment.kind === 'quiet' ? (
+                            <div key={`quiet-${segment.at}-${index}`} className="relative py-2">
+                                {/* 空心小点：醒过，但没做什么 */}
+                                <span className="absolute -left-[26px] top-[13px] w-[7px] h-[7px] rounded-full border border-white/20" />
+                                <p className="text-[10px] text-white/25 leading-relaxed">
+                                    醒了 {segment.count} 次又睡回去了
+                                    <span className="text-white/15">（{segment.gates.join('、')}）</span>
+                                </p>
+                            </div>
+                        ) : (
+                            <div key={segment.entry.id} className="relative pb-4 animate-fade-in">
+                                {/* 实心点：这次真做了什么 */}
+                                <span
+                                    className="absolute -left-[26px] top-[7px] w-[9px] h-[9px] rounded-full"
+                                    style={{ background: accent, boxShadow: `0 0 0 3px ${accent}22` }}
+                                />
+                                <div className="flex items-baseline gap-2">
+                                    <span className="text-[11px] tabular-nums text-white/40 shrink-0">
+                                        {fmtClock(segment.entry.at)}
+                                    </span>
+                                    {segment.entry.shadow && (
+                                        <span className="text-[9px] px-1.5 py-[1px] rounded-full tracking-wider shrink-0"
+                                            style={{ color: accent, background: `${accent}1a` }}>
+                                            试跑
+                                        </span>
+                                    )}
+                                </div>
+                                <p className="mt-1 text-[14px] font-light text-white/90 leading-relaxed" style={{ fontFamily: SERIF }}>
+                                    {segment.entry.activity || '（什么都没记下来）'}
+                                </p>
+                                {segment.entry.proposedText && (
+                                    <p className="mt-2 text-[12px] text-white/50 leading-relaxed pl-2.5 border-l"
+                                        style={{ borderColor: `${accent}44` }}>
+                                        想跟你说：「{segment.entry.proposedText}」
+                                        {segment.entry.shadow && <span className="text-white/25">　没有真的发出去</span>}
+                                    </p>
+                                )}
                             </div>
                         ))}
-                    </>
-                )}
-            </div>
+                    </div>
+                </section>
+            ))}
 
             <button
                 onClick={() => void refresh()}
                 disabled={loading}
-                className="mx-auto mt-5 flex items-center gap-1.5 px-4 py-2 rounded-full bg-white/[0.05] border border-white/[0.08] text-[11px] text-white/60 active:scale-95 transition disabled:opacity-40"
+                className="mx-auto mt-6 flex items-center gap-1.5 px-4 py-2 rounded-full bg-white/[0.05] border border-white/[0.08] text-[11px] text-white/60 active:scale-95 transition disabled:opacity-40"
             >
                 <ArrowsClockwise size={12} weight="bold" className={loading ? 'animate-spin' : ''} />
                 {loading ? '读取中' : '去后台看看新的'}

@@ -677,7 +677,7 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
 - 阿萌主动排的任务结果（`job_result`）不受此限：它们本来就是「办完了告诉我」，晚到也有效。
 - 与信箱保留期（已 ack 7 天 / 全部 28 天）是两回事：保留期管什么时候删，保质期管还要不要当成「刚说的话」送出去。
 
-### 4.4 查手机 · TA 的动态
+### 4.4 查手机 · TA 的动态（已实现，App 名「起居注」）
 
 > 🐾 **小帕讲人话**
 >
@@ -688,7 +688,13 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
 - 数据来源：每次**真正调用过模型**的心跳都产出一条 `activity_log`（被零模型闸拦下的那些不算活动，不记）。按每日预算 12 次算，一天最多 12 条。
 - 条目字段：`charId`、`activity`（角色第一人称那句话）、`at`、`usedTool`（工具的中文名，没用工具就没有）、`hasMessage`（这次是否也发了聊天消息，前端据此显示「并给你发了消息」的小标记）。
 - **不推送**（`notify: false`）：动态是给你翻的，不是来打扰你的。
-- 前端：`apps/CheckPhone.tsx` 里新增一页，条目存本地 IndexedDB（离线也能翻），随完整备份导出。
+- 前端：`apps/CheckPhone.tsx` 里新增一页（`components/checkphone/ChronicleApp.tsx`），做成一条时间轴——
+  起居注记的是「一天是怎么过的」，顺序和间隔本身就是内容。被闸门拦下的醒来不单独占一格，
+  折成轴上的一段「醒了 N 次又睡回去」，否则安静的一天会刷满「没动静」，真做过的事反而被埋掉。
+- 影子期（1c）条目来自 `GET /agent/v1/audit`（model_runs），**不经过 outbox**——4.3 第 9 步规定影子不写信箱。
+  1d 开启真实执行后再按本节改走 outbox 的 `activity_log`。
+- 本地副本存 localStorage（`utils/emAgentActivity.ts`，每角色 200 条）：mini 每天 4–7 点休眠时这一页照样能翻。
+  量级是几十个字一条，没必要为它开 IndexedDB；随完整备份导出仍是待办。
 - 保留：与 `model_runs` 的 30 天对齐，前端可以留得更久。
 - 影子运行期（阶段 1c）同样产出动态条目，但标记 `shadow: true`，前端用浅色显示并注明「试跑，没有真的执行」。阿萌正好靠这一页判断 Elias 的语气和判断合不合适，不用专门去设置页翻记录。
 
