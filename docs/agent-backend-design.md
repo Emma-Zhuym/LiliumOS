@@ -165,8 +165,8 @@ CREATE TABLE char_snapshots (
 
 > 🐾 「美术组交了第二版稿，配色顺眼了但领口还要改」——这句话要在下一次心跳里接得上，
 > 不能全靠模型自己记。所以每个角色最多留 **3 件正在推进的事**，心跳提示词里带给模型看，
-> 模型说「这件事翻篇了」才关掉，腾出位置给新的事。这是快照里的 `lifeProfile` 起作用的地方
-> （见 3.4）：档案定了「有哪些人、哪些群」，这张表记的是「跟他们之间正发展到哪一步」。
+> 模型说「这件事翻篇了」才关掉，腾出位置给新的事。快照里的 `dailyRhythm`（就是聊天「日程/情绪」
+> 面板里那个「日常节律」，见 3.4）定了「TA 平时在哪、跟谁打交道」，这张表记的是「正发展到哪一步」。
 
 ```sql
 CREATE TABLE life_threads (
@@ -526,15 +526,7 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
       { "text": "阿萌可能想换个工作日程", "source": "inferred", "confirmed": false }
     ],
     "mood": "有点委屈，想被哄",
-    "lifeProfile": {
-      "identity": "游戏公司美术组长",
-      "circle": [
-        { "name": "小林", "relation": "同事·程序组", "channel": "work_group" },
-        { "name": "阿泽", "relation": "同事·美术组", "channel": "work_group" }
-      ],
-      "groups": [ { "name": "美术组日常", "channel": "work_group" } ],
-      "obligations": [ "周一到周五 9:30–18:00 在公司，周三下午例会" ]
-    }
+    "dailyRhythm": "周一到周五 9:30-18:00 在公司美术组，周三下午例会\n晚上通常在家画稿或打游戏"
   }
 }
 ```
@@ -550,7 +542,7 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
 
 - `recentMessages` 最多 30 条，每条截断到 500 字；图片、语音只留占位描述。
 - `mood`：聊天里「情绪底色 Buff」注入用的那段叙事（`char.buffInjection`），情绪系统关着或没有 buff 时不带这个字段。心跳没有它就永远是出厂情绪，容易跟聊天里的样子对不上。
-- `lifeProfile`（阶段 1e）：**由角色设定生成一次的小档案，阿萌可编辑，不是每天重算**。`circle` 里的人尽量对应查手机通讯录里已有的联系人（`PhoneContact`），不再另建一套人物；`groups` 是固定的几个群名；`obligations` 是写死的义务，供每日日程生成器读取——`obligations` 缺了，日程只看当天人设临时编，容易出现「总裁角色天天闲逛」。没有工作/学业身份的角色这个字段整体省略。
+- `dailyRhythm`（阶段 1e 开始进快照）：**不是新字段，是 `char.dailyRhythm` 本人**——聊天「日程/情绪」面板里早就有的「日常节律」，自由文本、阿萌手写、日程生成器一直在用。以前只喂给前端的日程生成，心跳完全看不到；现在原样带上，心跳才知道「这段时间在忙工作」。`scheduleStyle === 'mindful'` 或字段为空时不带。**不新建结构化档案**：`with` 提到的人对不对得上，靠查手机现有的 `PhoneContact.identity` 标签去认，不再另起一份「同事名单」。
 - 另有**在场信号** `POST /agent/v1/characters/presence { charId, userAt }`：阿萌每发一条消息就发一次（不防抖、失败静默），服务端把**自己收到请求的时间**写入 `characters.last_user_interaction_at`（只增不减），忽略请求里的 `userAt`，不带正文。这样手机时间跑快也不会长期封住心跳。这样即使快照防抖还没上传，后端也知道阿萌刚说过话。
 - 触发时机：每轮聊天结束后 30s 防抖上传；打开 App 时补传一次。
 - 快照只是「最近的样子」，**不是记忆**。长期记忆、Continuity State 的确认流程在 Phase 2 另开文档。
@@ -763,7 +755,7 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
 
 ```ts
 interface HeartbeatEpisode {
-  /** 跟谁：优先用 lifeProfile.circle 里已有的名字，没有合适的人才现编一个泛称。 */
+  /** 跟谁：优先用查手机通讯录里已有的名字，没有合适的联系人才现编一个泛称。 */
   with: string;
   channel: 'work_group' | 'work_dm' | 'email' | 'friend' | 'delivery' | 'other';
   /** 最多 4 句往来，第一人称之外的话都算「对方」。 */
@@ -773,7 +765,7 @@ interface HeartbeatEpisode {
 }
 ```
 
-`with` / `channel` 不强制校验是否真的在 `lifeProfile.circle` 里——档案是草稿，模型偶尔提一个没录入的路人同事很正常，不必因此拦掉整条输出。真正要拦的只有一件事：**`thread.id` 引用了一个不存在或已经 `done` 的 `life_threads` 行时，当成开新线索处理**（不能覆盖历史）。
+`with` 不强制校验是否真的在通讯录里——模型偶尔提一个没录入的路人同事很正常，不必因此拦掉整条输出；前端落地时按名字去 `phoneState.contacts` 里找，找不到就留空 `contactId`，不强求匹配（见下）。真正要拦的只有一件事：**`thread.id` 引用了一个不存在或已经 `done` 的 `life_threads` 行时，当成开新线索处理**（不能覆盖历史）。
 
 **落地**：
 
@@ -787,7 +779,7 @@ interface HeartbeatEpisode {
 3. 起居注（4.4）的 `activity` 不重复 `episode` 的内容——一句话已经在概述了，起居注那条目**加一个可点的引用**，点开跳到对应的 `phone_record`，而不是把对话原文也堆进起居注。
 4. 聊天注入（`utils/chatPrompts.ts` 的 `buildChronicleInjection`）读的是本地起居注副本，**只读 `activity`/`reason`，不读 `episode` 原文**：TA 自己知道跟同事说过什么就够了，没必要把工作群聊天记录整段搬进聊天提示词，那不是给阿萌看的内容。
 
-**跟 `lifeProfile` 的关系**：`obligations` 决定日程生成器什么时候把这段时间标成「在忙工作」；`circle` / `groups` 给 `episode` 提供「跟谁」的候选。两者都在快照里（3.4），**由前端生成、阿萌editable，不是模型每天现编**——花花公子的档案里如果写了「周二周四必须到场」，日程和这里的 `episode` 才会一起认账，不会出现日程说他在开会、查手机里却没有任何工作往来的错位。
+**跟 `dailyRhythm` / 通讯录的关系**：`dailyRhythm` 决定日程生成器什么时候把这段时间标成「在忙工作」，心跳读的是同一份，两边才会认账——花花公子的「日常节律」里如果写了「周二周四必须到场」，日程和这里的 `episode` 才会一起排出上班时段，不会出现日程说他在开会、查手机里却没有任何工作往来的错位。`episode.with` 提到的人对得上 `phoneState.contacts` 就带 `contactId`，对不上也不强求——通讯录本来就是慢慢积累的，不必为了这一步现在就逼阿萌把每个同事都建档。
 
 **明确不做**（照抄第 13 节「暂时不做」的态度，别把这做重了）：
 
@@ -797,7 +789,7 @@ interface HeartbeatEpisode {
 
 ### 4.6 与 Calendar / Shared Life 设计的关系
 
-上面这节和 `codex/calendar-life-hub-plan` 分支的 `docs/calendar-shared-life-design.md` 出自同一批讨论，但**范围明确收窄**：那份文档设计的是完整的 Character Life Model / Runtime State / Pending Intentions 一整套状态机，这里只借了它的两条最基础的原则（3.2 计划不等于事实、3.3 状态由程序保存表达交给模型），没有采用它的日历整合、移动状态机、共同计划复核这些更重的部分。等日历整合真的启动时，`life_threads` 大概率会并入那份文档里的 `CharacterActivityEvent`，`lifeProfile` 会并入 `CharacterLifeModel`——但那是以后的事，不要现在就为了将来的合并而在这一版里预留没用上的字段。
+上面这节和 `codex/calendar-life-hub-plan` 分支的 `docs/calendar-shared-life-design.md` 出自同一批讨论，但**范围明确收窄**：那份文档设计的是完整的 Character Life Model / Runtime State / Pending Intentions 一整套状态机，这里只借了它的两条最基础的原则（3.2 计划不等于事实、3.3 状态由程序保存表达交给模型），没有采用它的日历整合、移动状态机、共同计划复核这些更重的部分。等日历整合真的启动时，`life_threads` 大概率会并入那份文档里的 `CharacterActivityEvent`，`char.dailyRhythm` 大概率会并入 `CharacterLifeModel`——但那是以后的事，不要现在就为了将来的合并另建一份重复的档案。
 
 ---
 
@@ -897,7 +889,7 @@ LaunchAgent: cc.liliumos.agent-backend.plist（RunAtLoad + KeepAlive）
 | **1b** | `ha.watchdog`、`status` 依赖检查、前端设置页 | HA 虚拟机关掉后 15 分钟内收到通知 |
 | **1c** | Codex 运行器实测与错误分类样本、对账函数实测、心跳影子运行一周、查手机「TA 的动态」页 | ① 人为制造「工具已执行、结果未记录」后重启，不产生重复提醒 / 日程；② 阿萌聊天中不触发心跳；③ 登出 Codex 后 Elias 心跳立即暂停并收到一次通知，断网不会误暂停；④ 阿萌在「TA 的动态」里看一周试跑记录，确认判断和语气可以接受 |
 | **1d** | 心跳真实推送、工具真实执行 | 按 4.3 全部闸门验收（已上线：真实执行 + 心跳自我回看 + `urge` 兑现 + 情绪底色进快照 + 聊天读起居注） |
-| **1e** | `lifeProfile` 生成与编辑、`life_threads`、心跳 `episode` 产出、查手机「工作」App | 阿萌能在查手机里翻到至少一件持续推进 3 跳以上的事，前后对得上；花花公子这类角色的固定义务能让日程真的排出上班时段 |
+| **1e** | `dailyRhythm` 进快照、`life_threads`、心跳 `episode` 产出、查手机「工作」App | 阿萌能在查手机里翻到至少一件持续推进 3 跳以上的事，前后对得上；花花公子这类角色写了固定上班时段的「日常节律」后，心跳真的会在那个时段产出工作 episode |
 | 2 | Continuity State、记忆确认流程、ChatGPT 侧 MCP、日历整合（`codex/calendar-life-hub-plan`） | 另开文档 |
 
 ---
@@ -977,8 +969,23 @@ LaunchAgent: cc.liliumos.agent-backend.plist（RunAtLoad + KeepAlive）
 
 | 决定 | 落在哪 |
 |---|---|
-| 每个角色一份小档案（身份、固定的人、固定的群、固定义务），阿萌可编辑，日程生成器读 `obligations`——这是解决「花花公子也要上班」的根 | 3.4 `lifeProfile` |
+| 「花花公子也要上班」不用新建档案——聊天「日程/情绪」面板里的「日常节律」（`char.dailyRhythm`）本来就是这个，只是以前没喂给心跳、大多数角色也没怎么填。把它接进快照，同事对不对得上直接查现有的 `PhoneContact.identity` | 3.4 `dailyRhythm` |
 | 正在推进的事最多 3 件，够心跳跨跳记住「领口还要改」就行，不做完整事项系统 | 2.4.1 `life_threads` |
 | 一次心跳的 `episode` 字段同时产出：工作群/朋友对话片段 + 线索更新，跟 `activity`/`reason` 出自同一次调用，天然对得上 | 4.5 |
 | 不做：审批状态机、日历联动、会议冲突协商、「翻看等于已读/已处理」 | 4.5「明确不做」 |
 | 试跑记录不能进心跳自我回看，也不能留下会被真跳兑现的 `urge` | 4.3 新增段落 |
+
+## 14. v0.6 修订记录（2026-09-23）——`lifeProfile` 是重复造轮子
+
+上一版 §3.4 给心跳发明了一个新的 `lifeProfile`（身份/circle/groups/obligations）。阿萌提醒：
+「日程/情绪」面板里早就有「日常节律」（`char.dailyRhythm`），生成日程时一直在用，只是很多角色没怎么填；
+查手机的联系人（`PhoneContact`）也早就有 `identity` 关系标签。两样东西分别就是 `obligations` 和
+`circle` 想要的东西，只是从没喂给过心跳。
+
+| 决定 | 落在哪 |
+|---|---|
+| 删掉 `lifeProfile`，快照直接带 `char.dailyRhythm` 原文 | 3.4 |
+| `episode.with` 对不对得上人，落地时查现有 `phoneState.contacts`，不新建通讯录 | 4.5 |
+| `life_threads`（正在推进的事）保留——这是真正没有地方能装的新状态，只有它需要新表 | 2.4.1 |
+
+教训：加新字段前先搜一遍现有的角色设置，尤其是「日程/情绪」这类已经承载了大量角色档案信息的地方。
