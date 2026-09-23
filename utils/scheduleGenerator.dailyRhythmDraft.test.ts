@@ -42,10 +42,17 @@ describe('buildDailyRhythmDraftPrompt', () => {
 describe('buildDailyRhythmDraftPrompt · 老角色的调整场景', () => {
     const char = { name: '陆时', systemPrompt: '项目经理，工作狂', description: '', worldview: '' } as CharacterProfile;
 
-    it('要求时间写具体，不能只写"白天/晚上"糊弄过去', () => {
+    it('要求分行的条目而不是连续叙事的文章，并给出格式范例', () => {
         const { system } = buildDailyRhythmDraftPrompt(char, user);
-        expect(system).toContain('时间要写具体');
-        expect(system).toContain('太模糊等于没写');
+        expect(system).toContain('绝不能写成连续叙事的文章');
+        expect(system).toContain('时间：内容');
+        expect(system).toContain('### 格式范例');
+    });
+
+    it('有固定钟点的事要求写具体钟点，不能只写"早晨/上午"糊弄过去', () => {
+        const { system } = buildDailyRhythmDraftPrompt(char, user);
+        expect(system).toContain('钟点必须具体');
+        expect(system).toContain('而不是"早晨起床"');
     });
 
     it('带上现有节律时，system 里出现"相处会改变作息"的规则，user 里带上现有节律原文', () => {
