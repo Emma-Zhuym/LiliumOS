@@ -102,3 +102,56 @@ test('refuses non-loopback listeners without a token', () => {
     /LILIUM_MCP_TOKEN is required/,
   );
 });
+
+test('reclaims sessions that have been idle past the timeout', async (t) => {
+  const { bridge, baseUrl } = await startBridge({ idleTimeoutMs: 30 * 60 * 1000 });
+  t.after(() => bridge.close());
+
+  const { sessionId } = await initialize(baseUrl);
+  assert.equal(bridge.sessions.size, 1);
+
+  assert.equal(bridge.sweepIdleSessions(Date.now() + 29 * 60 * 1000), 0);
+  assert.equal(bridge.sessions.size, 1);
+
+  assert.equal(bridge.sweepIdleSessions(Date.now() + 31 * 60 * 1000), 1);
+  assert.equal(bridge.sessions.size, 0);
+
+  const orphaned = await fetch(`${baseUrl}/mcp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Mcp-Session-Id': sessionId },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'tools/list', params: {} }),
+  });
+  assert.equal(orphaned.status, 400);
+});
+
+test('keeps a session alive while it is still being used', async (t) => {
+  const { bridge, baseUrl } = await startBridge({ idleTimeoutMs: 30 * 60 * 1000 });
+  t.after(() => bridge.close());
+
+  const { sessionId } = await initialize(baseUrl);
+  const madeUpNow = Date.now() + 31 * 60 * 1000;
+
+  await fetch(`${baseUrl}/mcp`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Mcp-Session-Id': sessionId },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'tools/list', params: {} }),
+  });
+
+  assert.equal(bridge.sweepIdleSessions(), 0);
+  assert.equal(bridge.sessions.size, 1);
+  assert.equal(bridge.sweepIdleSessions(madeUpNow), 1);
+});
+
+test('re-handshaking closes the session the client abandoned', async (t) => {
+  const { bridge, baseUrl } = await startBridge();
+  t.after(() => bridge.close());
+
+  const first = await initialize(baseUrl);
+  assert.equal(bridge.sessions.size, 1);
+
+  const second = await initialize(baseUrl, { 'Mcp-Session-Id': first.sessionId });
+  assert.equal(second.response.status, 200);
+  assert.notEqual(second.sessionId, first.sessionId);
+  assert.equal(bridge.sessions.size, 1);
+  assert.ok(bridge.sessions.has(second.sessionId));
+});

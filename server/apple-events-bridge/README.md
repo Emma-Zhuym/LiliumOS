@@ -11,6 +11,14 @@ the HTTP transport already supported by LiliumOS.
 - Refuses a non-loopback bind unless `LILIUM_MCP_TOKEN` is set.
 - Browser origins are denied unless listed in `LILIUM_ALLOWED_ORIGINS`.
 - `/health` reports process health only and does not expose calendar data.
+- Sessions idle for 30 minutes are closed and their child process reaped.
+  Override with `LILIUM_MCP_SESSION_IDLE_MS`.
+
+Each MCP session owns one `mcp-server-apple-events` child process. Clients are
+not required to send `DELETE /mcp`, and LiliumOS never does, so the bridge
+sweeps idle sessions itself once a minute. A client that re-runs `initialize`
+with a stale `Mcp-Session-Id` also has its abandoned session closed instead of
+leaving the child orphaned.
 
 ## Run
 
