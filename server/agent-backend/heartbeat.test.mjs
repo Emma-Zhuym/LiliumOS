@@ -15,7 +15,7 @@ import { enqueue } from './outbox.mjs';
 import { putSnapshot, normalizeSnapshotPayload } from './snapshots.mjs';
 import {
     ACTIVE_CHAT_WINDOW_MS, buildPrompt, checkGates, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
-    jitterRatio, lastRealInteractionAt, listModelRuns, nextRunAt, recordModelRun, shouldCaptureRaw,
+    formatGap, jitterRatio, lastRealInteractionAt, listModelRuns, nextRunAt, recordModelRun, shouldCaptureRaw,
 } from './heartbeat.mjs';
 import { chatCompletionsUrl, createApiRunner, parseHeartbeatOutput } from './runner.mjs';
 
@@ -377,4 +377,33 @@ test('起居注要的 activity 会被记下来', async () => {
     };
     await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration) });
     assert.equal(listModelRuns(db)[0].activity, '给窗台的花浇了水');
+});
+
+test('提示词写明上次说话隔了多久：不写的话角色会把旧对话当成刚刚发生', () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    const at = new Date('2026-09-23T02:19:00.000Z');
+    const snapshot = {
+        receivedAt: '2026-09-23T01:43:00.000Z',
+        payload: {
+            identity: { name: '露米' },
+            user: { name: '阿萌' },
+            timezone: 'America/Chicago',
+            lastInteraction: { userAt: '2026-09-23T01:42:00.000Z' },
+            recentMessages: [{ role: 'user', at: '2026-09-23T01:42:00.000Z', text: '我去洗澡了' }],
+        },
+    };
+    const prompt = buildPrompt(character, snapshot, at);
+    assert.ok(prompt.includes('37 分钟前'), `应写明间隔：${prompt.slice(-400)}`);
+    assert.ok(prompt.includes('不是刚刚'), '要说清那些对话不是刚发生的');
+});
+
+test('间隔文案：分钟、小时、天', () => {
+    const now = new Date('2026-09-23T12:00:00.000Z');
+    assert.equal(formatGap(new Date('2026-09-23T11:30:00.000Z'), now), '30 分钟前');
+    assert.equal(formatGap(new Date('2026-09-23T09:00:00.000Z'), now), '3 小时前');
+    assert.equal(formatGap(new Date('2026-09-23T08:40:00.000Z'), now), '3 小时 20 分钟前');
+    assert.equal(formatGap(new Date('2026-09-21T12:00:00.000Z'), now), '2 天前');
+    // 刚说完话时不写「0 分钟前」。
+    assert.equal(formatGap(new Date('2026-09-23T11:59:30.000Z'), now), '');
 });

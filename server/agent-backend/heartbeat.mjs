@@ -283,13 +283,21 @@ export const buildPrompt = (character, snapshot, now = new Date()) => {
         }
     }
     if (Array.isArray(p.recentMessages) && p.recentMessages.length) {
-        lines.push(`最近的对话：\n${p.recentMessages.slice(-12).map(m => `${m.role === 'user' ? '对方' : '你'}：${m.text}`).join('\n')}`);
+        // 必须写明「这是多久以前的」：近况快照只在对方发消息时才更新，
+        // 不标时间的话，角色会把三小时前的对话当成刚刚发生，于是永远觉得「人就在旁边，没必要说话」。
+        const gap = formatGap(lastRealInteractionAt(character, snapshot), now);
+        lines.push(
+            `${gap ? `你们上次说话是${gap}。下面这些对话发生在那时候，不是刚刚：` : '最近的对话：'}\n`
+            + p.recentMessages.slice(-12).map(m => `${m.role === 'user' ? '对方' : '你'}：${m.text}`).join('\n'),
+        );
     }
     lines.push(
         '现在你自己醒了一下。请判断这一刻要不要主动联系对方。\n'
         + '规则：做了什么就在 activity 里如实写一句（第一人称，40 字以内）；'
         + '只有真的有话要对对方说时才用 action="message"，那句话要自然地接住刚刚发生的事。'
         + '没什么可说的就 action="noop"——沉默是默认选项，不是失败。'
+        + '但也别把沉默当成唯一正确答案：隔了很久没说话、你这会儿手上正好空着、'
+        + '或者刚发生的事让你想起对方，那开口就是自然的。'
         + 'reason 写你这么判断的依据，对方看不到它。',
     );
     return lines.join('\n\n');
@@ -301,6 +309,18 @@ export const buildPrompt = (character, snapshot, now = new Date()) => {
  * 用中文 12 小时制（「晚上7:47」），不用 24 小时制：实测模型会把 `19:47` 读成 9 点多，
  * 一句话里的时间错两个小时，后面的判断全跟着歪。角色本来也该这么说话。
  */
+/** 「3 小时 20 分钟前」。太近（不到 1 分钟）就不写，免得出现「0 分钟前」。 */
+export const formatGap = (since, now) => {
+    if (!since) return '';
+    const minutes = Math.floor((now.getTime() - since.getTime()) / 60_000);
+    if (minutes < 1) return '';
+    if (minutes < 60) return `${minutes} 分钟前`;
+    const hours = Math.floor(minutes / 60);
+    const rest = minutes % 60;
+    if (hours < 24) return rest ? `${hours} 小时 ${rest} 分钟前` : `${hours} 小时前`;
+    return `${Math.floor(hours / 24)} 天前`;
+};
+
 const formatLocal = (date, timezone) => {
     try {
         return new Intl.DateTimeFormat('zh-CN', {

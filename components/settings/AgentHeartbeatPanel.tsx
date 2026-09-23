@@ -99,7 +99,16 @@ export default function AgentHeartbeatPanel({ open, onClose }: Props) {
         const char = characters.find(item => item.id === charId);
         if (!char) return;
 
-        const { apiConfig: resolved } = resolveCharacterApiConfig(char, apiConfig);
+        /**
+         * 心跳优先走「副 API」，和日程生成、情绪评估同一条便宜的路。
+         *
+         * 心跳绝大多数时候只换来一句「想了想，没说话」——每 15 分钟拿主模型买一次沉默太贵。
+         * 角色没配副 API 时才回退到它的聊天 API（预设优先，否则主 API）。
+         */
+        const { apiConfig: chatApi } = resolveCharacterApiConfig(char, apiConfig);
+        const secondary = char.proactiveConfig?.secondaryApi;
+        const usingSecondary = Boolean(secondary?.baseUrl && secondary?.apiKey && secondary?.model);
+        const resolved = usingSecondary ? secondary! : chatApi;
         if (!resolved.apiKey || !resolved.baseUrl || !resolved.model) {
             addToast('这个角色还没配好 API（地址 / Key / 模型）', 'error');
             return;
@@ -123,7 +132,10 @@ export default function AgentHeartbeatPanel({ open, onClose }: Props) {
         const ok = await flushSnapshotUpload(await buildCharacterSnapshot(char, messages, {
             userName: userProfile?.name,
         }));
-        addToast(ok ? '已接上，近况也传过去了' : '已接上，但近况没传成功', ok ? 'success' : 'error');
+        addToast(
+            ok ? `已接上（${usingSecondary ? '副 API' : '聊天 API'}），近况也传过去了` : '已接上，但近况没传成功',
+            ok ? 'success' : 'error',
+        );
         await refresh();
     });
 
