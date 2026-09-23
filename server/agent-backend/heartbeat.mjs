@@ -20,6 +20,13 @@ export const HEARTBEAT_TTL_MS = 15 * 60 * 1000;
 export const ACTIVE_CHAT_WINDOW_MS = 20 * 60 * 1000;
 /** 开启心跳后第一跳的延迟（设计 3.3）。 */
 export const FIRST_BEAT_DELAY_MS = 3 * 60 * 1000;
+/**
+ * 心跳消息的保质期（设计 4.3.1）。
+ *
+ * 推送没送到时（手机关机、没网），这条会躺在信箱里等下次打开 App。超过这个时间还没取走，
+ * 就不该再当成「刚说的话」送进聊天——三天前那句「突然想到你」原样冒出来很怪。
+ */
+export const MESSAGE_STALE_AFTER_MS = 6 * 60 * 60 * 1000;
 
 const MINUTE = 60_000;
 
@@ -408,7 +415,7 @@ const formatLocal = (date, timezone) => {
  * 「先排下一跳」不能挪到后面：模型那步一旦抛错，链子就断了，之后这个角色再也不会醒。
  */
 export const createHeartbeatHandler = ({
-    db, config, runners, scheduleNext, quiet = null, now = () => new Date(), rng = Math.random,
+    db, config, runners, scheduleNext, deliver = null, quiet = null, now = () => new Date(), rng = Math.random,
 }) => async job => {
     const row = getCharacter(db, job.charId);
     if (!row) return { skipped: 'unknown_character' };
@@ -512,6 +519,27 @@ export const createHeartbeatHandler = ({
     });
 
     // 影子期到此为止：不写 outbox、不推送、不执行工具（设计 4.3 第 9 步）。
-    // 真实执行是 1d，要动这里先把 heartbeat_shadow 关掉，并且补上 4.3.1 的保质期。
-    return { ok: true, shadow, intent, action: output.action, activity: output.activity, durationMs };
+    if (shadow || output.action !== 'message' || !deliver) {
+        return { ok: true, shadow, intent, action: output.action, activity: output.activity, durationMs };
+    }
+
+    // 真实执行（1d）：落信箱 + 推送。messageId 以任务 uuid 为幂等键——
+    // 同一跳重试或对账补记都不会变成两条消息。
+    const createdAt = now();
+    await deliver({
+        messageId: `hb:${job.uuid}`,
+        charId: character.charId,
+        jobUuid: job.uuid,
+        kind: 'chat_message',
+        title: character.displayName,
+        body: output.text,
+        payload: {
+            text: output.text,
+            source: 'heartbeat',
+            createdAt: createdAt.toISOString(),
+            // 过了保质期就不再当「刚说的话」送进聊天（设计 4.3.1），由前端据此分流。
+            staleAfter: new Date(createdAt.getTime() + MESSAGE_STALE_AFTER_MS).toISOString(),
+        },
+    });
+    return { ok: true, shadow: false, intent, action: 'message', activity: output.activity, delivered: true, durationMs };
 };

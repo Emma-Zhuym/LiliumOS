@@ -94,6 +94,8 @@ import { exportDesktopSkinLocal } from '../utils/desktopSkinBackup';
 import { assertSupportedSullyBackup } from '../utils/backupImportPolicy';
 import { createBuiltinSullyLive2DConfig, isBuiltinSullyLive2D, upgradeBuiltinSullyLive2DDefaults } from '../utils/builtinSullyLive2D';
 import { normalizeCharacterRoomAssetsInPlace } from '../utils/roomTemplateAssets';
+// [EM: agent-backend-inbox] 后端信箱 → 聊天，打开 App / 回前台各取一次
+import { syncAgentMessagesIntoChat } from '../utils/emAgentInbox';
 
 interface ProactiveQueueEntry {
   charId: string;
@@ -1946,6 +1948,31 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           document.removeEventListener('visibilitychange', onVisible);
       };
   }, [characters, sendProactiveNativeNotification]);
+
+  // [EM-START: agent-backend-inbox]
+  // Mac mini 后端信箱：打开 App 和每次回到前台各取一次。
+  //
+  // 推送只是「按门铃」，送达保证在信箱——不来这儿取的话，角色在 App 关着时说的话
+  // 会停在后端，你只看得到通知。全程静默：mini 每天 4–7 点休眠是正常状态。
+  useEffect(() => {
+      let alive = true;
+      const pull = async () => {
+          if (document.visibilityState !== 'visible') return;
+          const result = await syncAgentMessagesIntoChat();
+          if (!alive || result.delivered === 0) return;
+          // 落库了要让正在看的那个聊天刷新出来；复用主动消息那条既有广播。
+          for (const charId of result.charIds) {
+              window.dispatchEvent(new CustomEvent('proactive-message-sent', { detail: { charId } }));
+          }
+      };
+      void pull();
+      document.addEventListener('visibilitychange', pull);
+      return () => {
+          alive = false;
+          document.removeEventListener('visibilitychange', pull);
+      };
+  }, []);
+  // [EM-END: agent-backend-inbox]
 
   // ─── Global Proactive Message Handler ───
   // Registered at OS level so it works even when Chat is not open.

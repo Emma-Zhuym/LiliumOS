@@ -336,4 +336,31 @@ export const syncAgentInbox = async (): Promise<AgentMessage[]> => {
         return [];
     }
 };
+
+/**
+ * 这条心跳消息还能不能当「刚说的话」送进聊天（设计 4.3.1）。
+ *
+ * 推送没送到时它会在信箱里等着。等太久就不该再原样冒出来——三天前那句「突然想到你」
+ * 在你某次打开 App 时显示成刚发的，很怪。过期的只留在起居注里。
+ */
+export const isFreshChatMessage = (message: AgentMessage, now = Date.now()): boolean => {
+    const staleAfter = message.payload?.staleAfter;
+    if (typeof staleAfter !== 'string') return true;
+    const parsed = Date.parse(staleAfter);
+    return !Number.isFinite(parsed) || parsed > now;
+};
+
+/** 收到的一条后台消息该怎么处理。 */
+export interface InboxDelivery {
+    message: AgentMessage;
+    /** 'chat' = 进聊天；'stale' = 过期了，只留在起居注；'other' = 系统通知等。 */
+    route: 'chat' | 'stale' | 'other';
+}
+
+export const routeInboxMessages = (messages: AgentMessage[], now = Date.now()): InboxDelivery[] =>
+    messages.map(message => ({
+        message,
+        route: message.kind !== 'chat_message' ? 'other'
+            : isFreshChatMessage(message, now) ? 'chat' : 'stale',
+    }));
 // [EM-END: agent-backend-client]

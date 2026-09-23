@@ -202,7 +202,7 @@ test('暂停与恢复不换代', () => {
     assert.equal(resumed.heartbeatGeneration, character.heartbeatGeneration);
 });
 
-const runHandler = async (db, { runner, job, now = AT, scheduled = [], rng = () => 0.99 }) => {
+const runHandler = async (db, { runner, job, now = AT, scheduled = [], rng = () => 0.99, deliver = null }) => {
     const handler = createHeartbeatHandler({
         db,
         config: { heartbeatTimeoutMs: 1000 },
@@ -210,6 +210,7 @@ const runHandler = async (db, { runner, job, now = AT, scheduled = [], rng = () 
         scheduleNext: (character, at) => scheduled.push({ charId: character.charId, at }),
         now: () => now,
         rng,
+        deliver,
     });
     return handler(job);
 };
@@ -518,4 +519,38 @@ test('意图会记进账，好对照模型最后给了什么', async () => {
     const run = listModelRuns(db)[0];
     assert.equal(run.intent, 'reach_out');
     assert.equal(run.outcome, 'noop');
+});
+
+test('关掉影子后，message 会真的落信箱并带保质期', async () => {
+    const db = freshDb();
+    setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+    const character = seedCharacter(db);
+    seedSnapshot(db);
+    const sent = [];
+    const runner = {
+        run: async () => ({ ok: true, output: { action: 'message', activity: '想你了', reason: '很久没说话', text: '在干嘛' } }),
+    };
+    const result = await runHandler(db, {
+        runner, job: jobFor(character.heartbeatGeneration, 'hb:one'), rng: () => 0, deliver: async entry => sent.push(entry),
+    });
+    assert.equal(result.delivered, true);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].kind, 'chat_message');
+    assert.equal(sent[0].messageId, 'hb:hb:one', '以任务 uuid 为幂等键');
+    assert.equal(sent[0].payload.source, 'heartbeat');
+    assert.ok(sent[0].payload.staleAfter > sent[0].payload.createdAt, '要带保质期');
+});
+
+test('影子期仍然不发：开关是最后一道闸', async () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    seedSnapshot(db);
+    const sent = [];
+    const runner = {
+        run: async () => ({ ok: true, output: { action: 'message', activity: '想你了', reason: '', text: '在干嘛' } }),
+    };
+    await runHandler(db, {
+        runner, job: jobFor(character.heartbeatGeneration), rng: () => 0, deliver: async entry => sent.push(entry),
+    });
+    assert.equal(sent.length, 0);
 });

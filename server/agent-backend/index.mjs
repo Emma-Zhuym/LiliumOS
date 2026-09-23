@@ -100,7 +100,7 @@ export const createContext = async (config = loadConfig()) => {
         'test.ping': createTestPingHandler({ appleEvents, deliver }),
         'ha.watchdog': createHaWatchdogHandler({ db, config, deliver }),
         heartbeat: createHeartbeatHandler({
-            db, config, runners, scheduleNext: scheduleNextHeartbeat,
+            db, config, runners, scheduleNext: scheduleNextHeartbeat, deliver,
         }),
     };
 
