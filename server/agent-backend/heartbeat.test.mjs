@@ -407,3 +407,22 @@ test('间隔文案：分钟、小时、天', () => {
     // 刚说完话时不写「0 分钟前」。
     assert.equal(formatGap(new Date('2026-09-23T11:59:30.000Z'), now), '');
 });
+
+test('提示词写死「这段时间什么都没发生」：否则角色会把约定脑补成已完成', () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    const snapshot = {
+        receivedAt: '2026-09-23T02:00:00.000Z',
+        payload: {
+            identity: { name: '陈照' },
+            user: { name: '阿萌' },
+            timezone: 'America/Chicago',
+            lastInteraction: { userAt: '2026-09-23T02:00:00.000Z' },
+            recentMessages: [{ role: 'user', at: '2026-09-23T02:00:00.000Z', text: '我去洗澡了' }],
+        },
+    };
+    const prompt = buildPrompt(character, snapshot, new Date('2026-09-23T03:00:00.000Z'));
+    assert.ok(prompt.includes('没有发生过任何互动'), '必须说明这段时间没有互动');
+    assert.ok(prompt.includes('已经做完了'), '必须禁止把说好的事当成做完了');
+    assert.ok(prompt.includes('还没兑现的约定'), '久等的约定应该成为开口的理由');
+});
