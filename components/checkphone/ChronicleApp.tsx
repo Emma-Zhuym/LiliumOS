@@ -20,7 +20,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowsClockwise, PencilSimpleLine } from '@phosphor-icons/react';
+import { ArrowsClockwise, CaretDown, PencilSimpleLine } from '@phosphor-icons/react';
 
 import type { CharacterProfile, ScheduleSlot } from '../../types';
 import { getDailyScheduleForChar } from '../../utils/dailySchedule';
@@ -86,6 +86,8 @@ export default function ChronicleApp({ targetChar, accent, phoneEvents = [] }: P
     const [slots, setSlots] = useState<ScheduleSlot[]>([]);
     const [loading, setLoading] = useState(false);
     const [offline, setOffline] = useState(false);
+    // 心声默认收着：它比那句 activity 长得多，全展开的话一天就刷满一屏。
+    const [openInner, setOpenInner] = useState<Record<number, boolean>>({});
 
     const refresh = useCallback(async () => {
         if (!isAgentPaired()) {
@@ -102,6 +104,7 @@ export default function ChronicleApp({ targetChar, accent, phoneEvents = [] }: P
                 outcome: run.outcome,
                 skipGate: run.skipGate,
                 proposedText: run.proposedText,
+                reason: run.reason,
                 shadow: run.shadow,
                 at: run.startedAt,
             }))));
@@ -269,6 +272,24 @@ export default function ChronicleApp({ targetChar, accent, phoneEvents = [] }: P
                                         {row.segment.entry.shadow && <span className="text-white/25">　没有真的发出去</span>}
                                     </p>
                                 )}
+                                {row.segment.entry.reason && (() => {
+                                    const id = row.segment.entry.id;
+                                    const open = openInner[id] === true;
+                                    return <>
+                                        <button
+                                            onClick={() => setOpenInner(prev => ({ ...prev, [id]: !open }))}
+                                            className="mt-1.5 flex items-center gap-1 text-[10px] text-white/30 active:scale-95 transition"
+                                        >
+                                            <CaretDown size={9} weight="bold" className={open ? 'rotate-180 transition-transform' : 'transition-transform'} />
+                                            心声
+                                        </button>
+                                        {open && (
+                                            <p className="mt-1 text-[11px] text-white/45 leading-relaxed italic" style={{ fontFamily: SERIF }}>
+                                                {row.segment.entry.reason}
+                                            </p>
+                                        )}
+                                    </>;
+                                })()}
                             </div>
                         ))}
                     </div>

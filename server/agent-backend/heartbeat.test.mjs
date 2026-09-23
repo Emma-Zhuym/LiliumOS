@@ -15,7 +15,8 @@ import { enqueue } from './outbox.mjs';
 import { putSnapshot, normalizeSnapshotPayload } from './snapshots.mjs';
 import {
     ACTIVE_CHAT_WINDOW_MS, buildPrompt, checkGates, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
-    formatGap, jitterRatio, lastRealInteractionAt, listModelRuns, nextRunAt, recordModelRun, shouldCaptureRaw,
+    currentSlot, decideIntent, formatGap, jitterRatio, lastRealInteractionAt, listModelRuns, messageChance,
+    nextRunAt, recordModelRun, shouldCaptureRaw,
 } from './heartbeat.mjs';
 import { chatCompletionsUrl, createApiRunner, extractContentText, parseHeartbeatOutput } from './runner.mjs';
 
@@ -201,13 +202,14 @@ test('暂停与恢复不换代', () => {
     assert.equal(resumed.heartbeatGeneration, character.heartbeatGeneration);
 });
 
-const runHandler = async (db, { runner, job, now = AT, scheduled = [] }) => {
+const runHandler = async (db, { runner, job, now = AT, scheduled = [], rng = () => 0.99 }) => {
     const handler = createHeartbeatHandler({
         db,
         config: { heartbeatTimeoutMs: 1000 },
         runners: { api: runner },
         scheduleNext: (character, at) => scheduled.push({ charId: character.charId, at }),
         now: () => now,
+        rng,
     });
     return handler(job);
 };
@@ -443,4 +445,77 @@ test('正文是字符串或 {text} 对象时也照样取得到', () => {
     assert.equal(extractContentText('直接是字符串'), '直接是字符串');
     assert.equal(extractContentText({ text: '包一层' }), '包一层');
     assert.equal(extractContentText(null), '');
+});
+
+test('开口概率：忙的时候低、闲的时候高，越久没说话越高', () => {
+    const busy = messageChance({ availability: 'busy', minutesSinceContact: 120 });
+    const free = messageChance({ availability: 'online', minutesSinceContact: 120 });
+    assert.ok(free > busy, `闲着应该比忙着更容易开口：${free} vs ${busy}`);
+
+    // 刚说完话就压下去，久了就抬上来。
+    const justTalked = messageChance({ availability: 'online', minutesSinceContact: 10 });
+    const longGap = messageChance({ availability: 'online', minutesSinceContact: 8 * 60 });
+    assert.ok(longGap > justTalked * 3, `隔了 8 小时该明显更高：${longGap} vs ${justTalked}`);
+
+    // 封顶，避免变成「每两跳必找你一次」。
+    assert.ok(messageChance({ availability: 'online', minutesSinceContact: 3 * 24 * 60 }) <= 0.6);
+    // 睡着时几乎不开口（真正拦截由 sleeping 闸做，这里只是别再加码）。
+    assert.ok(messageChance({ availability: 'offline', minutesSinceContact: 600 }) < 0.1);
+});
+
+test('当前时段按日程取，取的是已经开始的最后一段', () => {
+    const snapshot = {
+        payload: {
+            timezone: 'America/Chicago',
+            todaySchedule: [
+                { start: '09:00', title: '上班', availability: 'busy' },
+                { start: '18:00', title: '在家', availability: 'online' },
+                { start: '23:00', title: '睡觉', availability: 'offline' },
+            ],
+        },
+    };
+    // 芝加哥时间 19:00。
+    const slot = currentSlot(snapshot, new Date('2026-09-24T00:00:00.000Z'), 'America/Chicago');
+    assert.equal(slot.title, '在家');
+});
+
+test('抽签决定开不开口：rng 钉死就能复现', () => {
+    const snapshot = {
+        payload: {
+            timezone: 'America/Chicago',
+            todaySchedule: [{ start: '09:00', title: '上班', availability: 'busy' }],
+        },
+    };
+    const args = { snapshot, now: new Date('2026-09-23T18:00:00.000Z'), timezone: 'America/Chicago', minutesSinceContact: 240 };
+    assert.equal(decideIntent({ ...args, rng: () => 0 }).intent, 'reach_out');
+    assert.equal(decideIntent({ ...args, rng: () => 0.99 }).intent, 'live');
+});
+
+test('抽中开口时，提示词让模型去说话而不是再判断一次', () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    const snapshot = {
+        receivedAt: AT.toISOString(),
+        payload: { identity: { name: '露米' }, user: { name: '阿萌' }, timezone: 'America/Chicago' },
+    };
+    const reach = buildPrompt(character, snapshot, AT, 'reach_out');
+    assert.ok(reach.includes('决定跟 ta 说句话'), '抽中开口就不该再问「要不要」');
+    assert.ok(!reach.includes('沉默是默认选项'));
+
+    const live = buildPrompt(character, snapshot, AT, 'live');
+    assert.ok(live.includes('过你自己的日子'), '没抽中就安心过日子');
+});
+
+test('意图会记进账，好对照模型最后给了什么', async () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    seedSnapshot(db);
+    const runner = {
+        run: async () => ({ ok: true, output: { action: 'noop', activity: '在忙', reason: '没什么' } }),
+    };
+    // rng=0 必定抽中开口，但模型退回了 noop——这种落差要看得见。
+    await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration), rng: () => 0 });
+    const run = listModelRuns(db)[0];
+    assert.equal(run.intent, 'reach_out');
+    assert.equal(run.outcome, 'noop');
 });

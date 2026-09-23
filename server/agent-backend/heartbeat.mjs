@@ -178,17 +178,18 @@ export const recordModelRun = (db, {
     error = null,
     activity = null,
     rawOutput = null,
+    intent = null,
 }) => {
     db.prepare(
         `INSERT INTO model_runs (job_uuid, char_id, runtime, started_at, duration_ms, ok, outcome,
                                  shadow, reason, proposed_text, proposed_tool, proposed_args_summary,
-                                 skip_gate, error, activity, raw_output)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                 skip_gate, error, activity, raw_output, intent)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
         jobUuid, charId, runtime, startedAt, durationMs, ok ? 1 : 0, outcome,
         shadow ? 1 : 0, truncate(reason, 500), truncate(proposedText, 2000), proposedTool,
         truncate(proposedArgsSummary, 500), skipGate, truncate(error, 500),
-        truncate(activity, 200), truncate(rawOutput, 2000),
+        truncate(activity, 200), truncate(rawOutput, 2000), intent,
     );
 };
 
@@ -219,6 +220,7 @@ export const listModelRuns = (db, { charId = null, limit = 50 } = {}) => {
         error: row.error,
         activity: row.activity,
         rawOutput: row.raw_output,
+        intent: row.intent,
     }));
 };
 
@@ -229,6 +231,58 @@ export const isShadowMode = db => {
         // 设置读坏了就按影子算：宁可少说话，也不要在没人看着的时候突然真发消息。
         return true;
     }
+};
+
+/**
+ * 当前落在日程的哪一段。没有日程就返回 null，权重按「不知道在忙什么」算。
+ */
+export const currentSlot = (snapshot, now, timezone) => {
+    const slots = snapshot?.payload?.todaySchedule;
+    if (!Array.isArray(slots) || slots.length === 0) return null;
+    const minutes = localMinutes(now, timezone);
+    let current = null;
+    for (const slot of slots) {
+        const start = toMinutes(slot.start ?? slot.startTime);
+        if (start === null || start > minutes) continue;
+        if (!current || start >= toMinutes(current.start ?? current.startTime)) current = slot;
+    }
+    return current;
+};
+
+/**
+ * 这一跳开口的概率。
+ *
+ * 为什么要抽签：让模型每次判断「要不要打扰对方」，它几乎永远能为沉默找到理由——
+ * 换了 Opus 和 Gemini 都一样，这是「判断题」式提示词的通病，不是哪家模型的问题。
+ * 所以把「这次开不开口」交给程序，模型只负责把定好的事说得自然（设计 3.3）。
+ *
+ * 权重跟着日程走：忙的时候本来就不该老找人；闲着的时候想起对方是自然的。
+ * 再叠一层时间：越久没说话，越该开口——否则一周都碰不上一次高概率的时刻。
+ */
+export const messageChance = ({ availability, minutesSinceContact }) => {
+    const base = availability === 'busy' ? 0.08
+        : availability === 'offline' ? 0.02
+            : availability === 'online' ? 0.25
+                : 0.15;
+    const hours = (minutesSinceContact ?? 0) / 60;
+    const gapBoost = hours >= 12 ? 3 : hours >= 6 ? 2.5 : hours >= 3 ? 1.8 : hours >= 1 ? 1 : 0.4;
+    // 封顶 0.6：再高就成了「每隔两跳必找你一次」，那是另一种不自然。
+    return Math.min(0.6, Math.max(0, base * gapBoost));
+};
+
+/**
+ * 决定这一跳的意图。reach_out = 去说句话；live = 过自己的日子。
+ * rng 可注入，测试里钉死。
+ */
+export const decideIntent = ({ snapshot, now, timezone, minutesSinceContact, rng = Math.random }) => {
+    const slot = currentSlot(snapshot, now, timezone);
+    const availability = slot?.availability ?? null;
+    const chance = messageChance({ availability, minutesSinceContact });
+    return {
+        intent: rng() < chance ? 'reach_out' : 'live',
+        chance,
+        slot: slot ? { title: slot.title ?? slot.activity ?? '', availability } : null,
+    };
 };
 
 /**
@@ -260,7 +314,7 @@ export const HEARTBEAT_SCHEMA = {
  * 拼提示词。「什么时候该说话」写死在这里，不交给模型自由发挥——
  * 没话找话是主动消息最容易翻车的地方（设计 4.3 第 4 步）。
  */
-export const buildPrompt = (character, snapshot, now = new Date()) => {
+export const buildPrompt = (character, snapshot, now = new Date(), intent = 'live') => {
     const p = snapshot.payload || {};
     const lines = [];
     lines.push(`你是「${p.identity?.name || character.displayName}」，正在自己的生活里过日子。`);
@@ -300,14 +354,20 @@ export const buildPrompt = (character, snapshot, now = new Date()) => {
             + '如果你们之间有还没兑现的约定，而时间已经过去不少，问一句正是此刻该做的事。',
         );
     }
+    // 开不开口已经定了，模型不再做判断题，只负责把它说得像这个人会说的话。
     lines.push(
-        '现在你自己醒了一下。请判断这一刻要不要主动联系对方。\n'
-        + '规则：做了什么就在 activity 里如实写一句（第一人称，40 字以内）；'
-        + '只有真的有话要对对方说时才用 action="message"，那句话要自然地接住刚刚发生的事。'
-        + '没什么可说的就 action="noop"——沉默是默认选项，不是失败。'
-        + '但也别把沉默当成唯一正确答案：隔了很久没说话、你这会儿手上正好空着、'
-        + '或者刚发生的事让你想起对方，那开口就是自然的。'
-        + 'reason 写你这么判断的依据，对方看不到它。',
+        intent === 'reach_out'
+            ? '现在你想起了对方，并且决定跟 ta 说句话。\n'
+                + '规则：activity 里用第一人称写你这会儿在做什么（40 字以内）；'
+                + 'action 填 "message"，text 写你要说的那句话——'
+                + '要贴着你此刻正在做的事和你们之间还没了结的话头，别写成万能问候。'
+                + '真的想不出任何自然的话头时才退回 action="noop"，那说明这一刻确实不合适。'
+                + 'reason 写你心里的想法，对方看不到它。'
+            : '现在你自己醒了一下，过你自己的日子，不必联系对方。\n'
+                + '规则：activity 里用第一人称写你这会儿在做什么（40 字以内），'
+                + '贴着你当下的时段——在上班就是工作里的事，闲着就是闲着的事。'
+                + 'action 填 "noop"。'
+                + 'reason 写你心里的想法，对方看不到它。',
     );
     return lines.join('\n\n');
 };
@@ -348,7 +408,7 @@ const formatLocal = (date, timezone) => {
  * 「先排下一跳」不能挪到后面：模型那步一旦抛错，链子就断了，之后这个角色再也不会醒。
  */
 export const createHeartbeatHandler = ({
-    db, config, runners, scheduleNext, quiet = null, now = () => new Date(),
+    db, config, runners, scheduleNext, quiet = null, now = () => new Date(), rng = Math.random,
 }) => async job => {
     const row = getCharacter(db, job.charId);
     if (!row) return { skipped: 'unknown_character' };
@@ -395,10 +455,20 @@ export const createHeartbeatHandler = ({
     }
 
     const shadow = isShadowMode(db);
+    const timezone = snapshot.payload?.timezone || getSetting(db, 'timezone') || 'America/Chicago';
+    const lastContact = lastRealInteractionAt(character, snapshot);
+    // 开不开口由程序抽签，不再让模型做判断题——它总能为沉默找到理由（设计 3.3）。
+    const { intent } = decideIntent({
+        snapshot,
+        now: startedAt,
+        timezone,
+        minutesSinceContact: lastContact ? (startedAt.getTime() - lastContact.getTime()) / 60_000 : null,
+        rng,
+    });
     const result = await runner.run({
         charId: character.charId,
         credRef: character.credRef,
-        system: buildPrompt(character, snapshot, startedAt),
+        system: buildPrompt(character, snapshot, startedAt, intent),
         user: '现在要做什么？只按 schema 回一个 JSON。',
         schema: HEARTBEAT_SCHEMA,
         timeoutMs: config.heartbeatTimeoutMs,
@@ -416,6 +486,7 @@ export const createHeartbeatHandler = ({
             outcome: 'error',
             error: result.error,
             shadow,
+            intent,
             rawOutput: shouldCaptureRaw(db) ? result.raw ?? null : null,
         });
         // 心跳 max_attempts=1：这里抛出去就是本次 failed，由已经排好的下一跳接续。
@@ -436,9 +507,11 @@ export const createHeartbeatHandler = ({
         activity: output.activity,
         proposedText: output.action === 'message' ? output.text : null,
         shadow,
+        // 抽中了开口、模型却退回 noop 的次数值得盯：多了说明提示词还是在劝它闭嘴。
+        intent,
     });
 
     // 影子期到此为止：不写 outbox、不推送、不执行工具（设计 4.3 第 9 步）。
     // 真实执行是 1d，要动这里先把 heartbeat_shadow 关掉，并且补上 4.3.1 的保质期。
-    return { ok: true, shadow, action: output.action, activity: output.activity, durationMs };
+    return { ok: true, shadow, intent, action: output.action, activity: output.activity, durationMs };
 };

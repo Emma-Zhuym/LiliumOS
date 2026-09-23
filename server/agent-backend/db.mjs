@@ -144,6 +144,11 @@ export const MIGRATIONS = [
     ALTER TABLE model_runs ADD COLUMN activity TEXT;
     ALTER TABLE model_runs ADD COLUMN raw_output TEXT;
     `,
+    // 4：这一跳「本来打算」做什么。抽签定的意图和模型最后给的结果要能对上账，
+    // 否则没法知道角色是真没话说，还是抽中了开口却又自己缩回去。
+    `
+    ALTER TABLE model_runs ADD COLUMN intent TEXT;
+    `,
 ];
 
 export const DEFAULT_SETTINGS = {

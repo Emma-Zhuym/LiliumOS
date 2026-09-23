@@ -25,6 +25,8 @@ export interface ChronicleEntry {
     skipGate: string | null;
     /** 这次是不是也（打算）给阿萌发了消息。 */
     proposedText: string | null;
+    /** 心声：TA 这么判断的依据。原本只在设置页的试跑记录里，其实是这一页最好看的部分。 */
+    reason?: string | null;
     /** true = 试跑，没有真的执行。 */
     shadow: boolean;
     at: string;
