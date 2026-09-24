@@ -390,14 +390,15 @@ export const currentSlot = (snapshot, now, timezone) => {
  * 再叠一层时间：越久没说话，越该开口——否则一周都碰不上一次高概率的时刻。
  */
 export const messageChance = ({ availability, minutesSinceContact, inBreak = false }) => {
-    const base = inBreak ? 0.45
-        : availability === 'busy' ? 0.08
+    // 阿萌定的比例（2026-09-24）：有空的时候醒来约 40% 会找她，其余的跳过自己的日子（工作往来 / 生活小事）。
+    // 忙的时候少一些但不是不找；睡着几乎不找（真正拦截由 sleeping 闸做）。
+    const base = inBreak ? 0.5
+        : availability === 'busy' ? 0.15
             : availability === 'offline' ? 0.02
-                : availability === 'online' ? 0.25
-                    : 0.15;
+                : 0.4;
     const hours = (minutesSinceContact ?? 0) / 60;
-    // 空档里不罚「刚说过话」：午休本来就是想多聊两句的时候。
-    const gapBoost = hours >= 12 ? 3 : hours >= 6 ? 2.5 : hours >= 3 ? 1.8 : hours >= 1 || inBreak ? 1 : 0.4;
+    // 只做温和的调整，不再大起大落：刚聊完稍低，很久没说话稍高。空档里不罚「刚说过话」。
+    const gapBoost = hours >= 6 ? 1.4 : hours >= 3 ? 1.2 : hours >= 1 || inBreak ? 1 : 0.75;
     // 封顶 0.6：再高就成了「每隔两跳必找你一次」，那是另一种不自然。
     return Math.min(0.6, Math.max(0, base * gapBoost));
 };
@@ -440,15 +441,16 @@ export const isWorkSlot = slot =>
  * 节外生枝写一段同事对话反而像心不在焉。
  */
 export const episodeChance = ({ workish, hasThreads }) => {
-    const base = workish ? 0.55 : 0.12;
-    return Math.min(0.75, base + (workish && hasThreads ? 0.15 : 0));
+    const base = workish ? 0.8 : 0.15;
+    return Math.min(0.85, base + (workish && hasThreads ? 0.05 : 0));
 };
 
 /**
  * 私人生活里的小事：下班后、周末写得多，上班时偶尔（比如午饭点个外卖）。
  * 和工作往来共用一次抽签：先看落不落在工作那一截，再看落不落在生活那一截，其余这一跳什么都不写。
  */
-export const lifeChance = ({ workish }) => (workish ? 0.08 : 0.45);
+// 不找阿萌的那些跳基本都要有点自己的事：上班时几乎全是工作，下班后几乎全是生活。
+export const lifeChance = ({ workish }) => (workish ? 0.15 : 0.85);
 
 export const decideEpisode = ({ snapshot, now, timezone, intent, threads = [], rng = Math.random }) => {
     if (intent !== 'live') return { kind: null, wanted: false, chance: 0, lifeChance: 0 };

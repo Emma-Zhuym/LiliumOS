@@ -454,10 +454,12 @@ test('开口概率：忙的时候低、闲的时候高，越久没说话越高',
     const free = messageChance({ availability: 'online', minutesSinceContact: 120 });
     assert.ok(free > busy, `闲着应该比忙着更容易开口：${free} vs ${busy}`);
 
-    // 刚说完话就压下去，久了就抬上来。
+    // 有空时约 40%；刚说完话略低，久了略高，但不大起大落。
+    assert.equal(free, 0.4);
     const justTalked = messageChance({ availability: 'online', minutesSinceContact: 10 });
     const longGap = messageChance({ availability: 'online', minutesSinceContact: 8 * 60 });
-    assert.ok(longGap > justTalked * 3, `隔了 8 小时该明显更高：${longGap} vs ${justTalked}`);
+    assert.ok(justTalked >= 0.25 && justTalked < free, `刚聊完不该压太狠：${justTalked}`);
+    assert.ok(longGap > free && longGap <= 0.6, `隔久了略高：${longGap}`);
 
     // 封顶，避免变成「每两跳必找你一次」。
     assert.ok(messageChance({ availability: 'online', minutesSinceContact: 3 * 24 * 60 }) <= 0.6);
@@ -715,8 +717,8 @@ test('闸门：不在空档时冷却照旧', () => {
 test('开口概率：空档里更高，也不罚「刚说过话」', () => {
     const normal = messageChance({ availability: 'online', minutesSinceContact: 40 });
     const inBreak = messageChance({ availability: 'online', minutesSinceContact: 40, inBreak: true });
-    assert.ok(inBreak > normal * 3, `空档 ${inBreak} 应远高于平时 ${normal}`);
-    assert.equal(inBreak, 0.45);
+    assert.ok(inBreak > normal, `空档 ${inBreak} 应高于平时 ${normal}`);
+    assert.equal(inBreak, 0.5);
     assert.ok(messageChance({ availability: 'online', minutesSinceContact: 600, inBreak: true }) <= 0.6, '封顶不变');
 });
 
@@ -725,7 +727,7 @@ test('抽签：午休里的意图会带上 inBreak 标记', () => {
         snapshot: workdaySnapshot, now: chicago(12, 15), timezone: 'America/Chicago', minutesSinceContact: 30, rng: () => 0.3,
     });
     assert.equal(chosen.inBreak, true);
-    assert.equal(chosen.intent, 'reach_out', '0.3 < 0.45 该开口；换成平时的 0.25×0.4 就开不了口');
+    assert.equal(chosen.intent, 'reach_out', '0.3 < 0.5 该开口；上班时 0.15×0.75 就开不了口');
     const busy = decideIntent({
         snapshot: workdaySnapshot, now: chicago(10), timezone: 'America/Chicago', minutesSinceContact: 30, rng: () => 0.3,
     });
@@ -820,7 +822,7 @@ test('抽签：工作时段概率高，别的时段留一点；找阿萌的那�
     assert.equal(isWorkSlot({ availability: 'online', title: '打游戏' }), false);
     assert.ok(episodeChance({ workish: true, hasThreads: false }) > episodeChance({ workish: false, hasThreads: false }) * 3);
     assert.ok(episodeChance({ workish: true, hasThreads: true }) > episodeChance({ workish: true, hasThreads: false }), '手头有事更该接着写');
-    assert.ok(episodeChance({ workish: true, hasThreads: true }) <= 0.75);
+    assert.ok(episodeChance({ workish: true, hasThreads: true }) <= 0.85);
 
     const args = { snapshot: workdaySnapshot, now: chicago(10), timezone: 'America/Chicago', rng: () => 0.3 };
     assert.equal(decideEpisode({ ...args, intent: 'live' }).wanted, true);
@@ -967,7 +969,7 @@ test('抽签：下班时段多半是生活，上班时段多半是工作；两�
     const pick = roll => decideEpisode({ snapshot: evening, now: at, timezone: 'America/Chicago', intent: 'live', rng: () => roll }).kind;
     assert.equal(pick(0.05), 'work', '下班后偶尔也回工作消息');
     assert.equal(pick(0.3), 'life');
-    assert.equal(pick(0.9), null, '也有什么都不写的时候');
+    assert.equal(pick(0.9), 'life', '下班后不找她的跳，基本都在过自己的日子');
     assert.equal(decideEpisode({ snapshot: evening, now: at, timezone: 'America/Chicago', intent: 'reach_out', rng: () => 0.3 }).kind, null);
 });
 
