@@ -12,6 +12,7 @@
 
 import { DB } from './db';
 import type { WorkEvent } from './emWork';
+import type { LifeEvent } from './emLife';
 import {
     AgentBackend,
     isAgentPaired,
@@ -26,13 +27,15 @@ export interface InboxSyncResult {
     stale: number;
     /** 交给「工作」App 落地的工作往来条数。 */
     work: number;
+    /** 落进查手机（联系人 / 外卖 / 淘宝 / 朋友圈）的生活小事条数。 */
+    life: number;
     /** 写进聊天的那些属于哪些角色，供调用方刷新界面 / 提示。 */
     charIds: string[];
     /** 写进聊天的每一句（角色 + 正文），供调用方做「角色名 + 内容预览」的通知，和上游主动消息一个样子。 */
     lines: { charId: string; text: string }[];
 }
 
-const EMPTY: InboxSyncResult = { delivered: 0, stale: 0, work: 0, charIds: [], lines: [] };
+const EMPTY: InboxSyncResult = { delivered: 0, stale: 0, work: 0, life: 0, charIds: [], lines: [] };
 
 export interface InboxSyncOptions {
     /**
@@ -41,6 +44,8 @@ export interface InboxSyncOptions {
      * 没给的话工作往来原样留在信箱里不 ack，等能接手的调用方来取，不会被悄悄吞掉。
      */
     onWorkEvent?: (event: { charId: string } & WorkEvent) => void | Promise<void>;
+    /** 落地一件私人生活里的小事（写进那个角色的 phoneState.records / contacts）。规则同上。 */
+    onLifeEvent?: (event: { charId: string } & LifeEvent) => void | Promise<void>;
 }
 
 /**
@@ -93,7 +98,7 @@ export const syncAgentMessagesIntoChat = async (
     }
     if (messages.length === 0) return EMPTY;
 
-    const result: InboxSyncResult = { delivered: 0, stale: 0, work: 0, charIds: [], lines: [] };
+    const result: InboxSyncResult = { delivered: 0, stale: 0, work: 0, life: 0, charIds: [], lines: [] };
     const acked: string[] = [];
     const landed: string[] = [];
     const alreadyDelivered = new Set(loadDelivered());
@@ -140,8 +145,27 @@ export const syncAgentMessagesIntoChat = async (
                     thread: (message.payload?.thread as WorkEvent['thread']) ?? null,
                 });
                 result.work += 1;
+                landed.push(message.messageId);
             } catch {
                 // 落不进去就别 ack，下次打开再试；幂等键在 applyWorkEpisode 里，重来不会重复。
+                continue;
+            }
+        } else if (route === 'life') {
+            const life = message.payload?.life as LifeEvent['life'] | undefined;
+            if (!options.onLifeEvent || !message.charId || !life) {
+                if (options.onLifeEvent && message.charId && !life) acked.push(message.messageId);
+                continue;
+            }
+            try {
+                await options.onLifeEvent({
+                    charId: message.charId,
+                    messageId: message.messageId,
+                    createdAt: String(message.payload?.createdAt ?? message.createdAt),
+                    life,
+                });
+                result.life += 1;
+                landed.push(message.messageId);
+            } catch {
                 continue;
             }
         } else if (route === 'stale') {

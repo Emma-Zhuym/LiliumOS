@@ -16,9 +16,9 @@ import { putSnapshot, normalizeSnapshotPayload } from './snapshots.mjs';
 import {
     ACTIVE_CHAT_WINDOW_MS, buildPrompt, checkGates, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
     BREAK_COOLDOWN_MIN, currentSlot, decideIntent, formatGap, inBreakWindow, upcomingBreakStarts, jitterRatio, lastRealInteractionAt, listModelRuns, messageChance,
-    nextRunAt, recordModelRun, shouldCaptureRaw, decideEpisode, episodeChance, isWorkSlot,
+    nextRunAt, recordModelRun, shouldCaptureRaw, decideEpisode, episodeChance, isWorkSlot, lifeChance, pickLifeKind,
 } from './heartbeat.mjs';
-import { chatCompletionsUrl, createApiRunner, extractContentText, parseEpisode, parseHeartbeatOutput } from './runner.mjs';
+import { chatCompletionsUrl, createApiRunner, extractContentText, parseEpisode, parseHeartbeatOutput, parseLife } from './runner.mjs';
 import { applyThread, closeStaleThreads, listOpenThreads } from './lifeThreads.mjs';
 
 const AT = new Date('2026-09-23T20:00:00.000Z');          // 芝加哥时间 15:00，醒着
@@ -941,4 +941,83 @@ test('解析：坏 JSON 里带 episode 时，不让嵌套的 text 冒充消息�
     assert.equal(result.output.action, 'noop');
     assert.equal(result.output.text, undefined);
     assert.equal(result.output.episode, undefined, '嵌套结构读不准，宁可丢');
+});
+
+// ── 私人生活里的小事（life） ─────────────────────────────────────────────────
+test('life 解析：四种小事各自的必填项，写坏只丢这一段', () => {
+    const chat = parseLife({ kind: 'chat', with: '老周', relation: '发小', group: 'friend', lines: [{ who: '老周', text: '周末打球？' }, { who: '我', text: '行' }] });
+    assert.equal(chat.with, '老周');
+    assert.equal(chat.group, 'friend');
+    assert.equal(parseLife({ kind: 'chat', with: '老周', lines: [] }), null, '聊天没有句子');
+    assert.equal(parseLife({ kind: 'chat', with: '老周', group: 'boss', lines: [{ who: '我', text: 'a' }] }).group, undefined, '不认识的分组丢掉');
+    assert.deepEqual(parseLife({ kind: 'delivery', with: '麻辣烫', detail: '加麻加辣', value: '¥32' }), { kind: 'delivery', with: '麻辣烫', detail: '加麻加辣', value: '¥32' });
+    assert.equal(parseLife({ kind: 'order', detail: '没有商品名' }), null);
+    assert.deepEqual(parseLife({ kind: 'moment', detail: '今天的云很好看' }), { kind: 'moment', detail: '今天的云很好看' });
+    assert.equal(parseLife({ kind: 'moment' }), null);
+    assert.equal(parseLife({ kind: 'dance', detail: 'x' }), null);
+    const whole = parseHeartbeatOutput(JSON.stringify({ action: 'noop', activity: 'a', reason: '', life: { kind: 'bad' } }));
+    assert.equal(whole.ok, true);
+    assert.equal(whole.output.life, undefined);
+});
+
+test('抽签：下班时段多半是生活，上班时段多半是工作；两者共用一次抽签', () => {
+    assert.ok(lifeChance({ workish: false }) > lifeChance({ workish: true }) * 4);
+    const evening = { payload: { todaySchedule: [{ start: '18:00', title: '在家', availability: 'online' }] } };
+    const at = chicago(20);
+    const pick = roll => decideEpisode({ snapshot: evening, now: at, timezone: 'America/Chicago', intent: 'live', rng: () => roll }).kind;
+    assert.equal(pick(0.05), 'work', '下班后偶尔也回工作消息');
+    assert.equal(pick(0.3), 'life');
+    assert.equal(pick(0.9), null, '也有什么都不写的时候');
+    assert.equal(decideEpisode({ snapshot: evening, now: at, timezone: 'America/Chicago', intent: 'reach_out', rng: () => 0.3 }).kind, null);
+});
+
+test('生活里做什么由程序定：饭点外卖多，别的时候聊天为主，四种都会出现', () => {
+    const count = minutes => {
+        const seen = {};
+        for (let i = 0; i < 100; i += 1) {
+            const kind = pickLifeKind(minutes, () => (i + 0.5) / 100);
+            seen[kind] = (seen[kind] ?? 0) + 1;
+        }
+        return seen;
+    };
+    const dinner = count(18 * 60 + 30);
+    const night = count(22 * 60);
+    assert.ok(dinner.delivery > night.delivery * 2);
+    assert.deepEqual(Object.keys(night).sort(), ['chat', 'delivery', 'moment', 'order']);
+    assert.ok(night.chat >= 40);
+});
+
+test('提示词：生活那段写明是自己的时间、不提对方，并列出认识的人', () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    const snapshot = { payload: { timezone: 'America/Chicago', circle: [{ name: '老周', relation: '发小' }] } };
+    const prompt = buildPrompt(character, snapshot, AT, 'live', { life: 'chat' });
+    assert.ok(prompt.includes('不要提到对方'));
+    assert.ok(prompt.includes('老周（发小）'));
+    assert.ok(prompt.includes('kind 填 "chat"'));
+    assert.ok(buildPrompt(character, snapshot, AT, 'live', { life: 'delivery' }).includes('kind 填 "delivery"'));
+    assert.ok(!buildPrompt(character, snapshot, AT, 'reach_out', { life: 'chat' }).includes('私人生活'));
+});
+
+test('真实执行：抽中生活 → 静默送去手机；聊天对象是阿萌本人就丢掉', async () => {
+    const db = freshDb();
+    setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+    const character = seedCharacter(db);
+    seedSnapshot(db, { todaySchedule: [{ start: '18:00', title: '在家', availability: 'online' }] });
+    const sent = [];
+    const life = { kind: 'chat', with: '老周', relation: '发小', lines: [{ who: '老周', text: '周末打球？' }, { who: '我', text: '行' }] };
+    const runner = { run: async () => ({ ok: true, output: { action: 'noop', activity: '和老周约球', reason: '', urge: 'none', life } }) };
+    // rng：意图（不开口）→ 抽签（0.3 落在生活）→ 做什么（0.1 → 聊天）
+    const seq = rolls => { let i = 0; return () => rolls[i++] ?? 0.99; };
+    const result = await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 'l1'), now: chicago(20), rng: seq([0.99, 0.3, 0.1]), deliver: async e => sent.push(e) });
+    assert.equal(result.lifeDelivered, true);
+    assert.equal(sent[0].messageId, 'hb:l1:life');
+    assert.equal(sent[0].notify, false);
+    assert.equal(sent[0].payload.type, 'life_episode');
+    assert.equal(sent[0].payload.life.with, '老周');
+    assert.equal(listModelRuns(db)[0].episode.life.kind, 'chat');
+
+    const selfChat = { run: async () => ({ ok: true, output: { action: 'noop', activity: 'x', reason: '', urge: 'none', life: { ...life, with: '阿萌' } } }) };
+    await runHandler(db, { runner: selfChat, job: jobFor(character.heartbeatGeneration, 'l2'), now: chicago(20), rng: seq([0.99, 0.3, 0.1]), deliver: async e => sent.push(e) });
+    assert.equal(sent.length, 1, '和阿萌的「聊天」不算私人生活');
 });

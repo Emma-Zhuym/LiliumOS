@@ -138,6 +138,12 @@ check "PhoneState.work 字段" types.ts "[EM-START: work-app]"
 check "信箱路由工作往来" utils/emAgentBackend.ts "isWorkEpisodeMessage"
 check "OSContext 落地工作往来" context/OSContext.tsx "[EM: work-app]"
 
+echo "── 心跳 · 私人生活里的小事 ──"
+check "生活小事落地" utils/emLife.ts "[EM-START: agent-life]"
+check "OSContext 落地生活小事" context/OSContext.tsx "[EM: agent-life]"
+check "信箱路由生活小事" utils/emAgentBackend.ts "isLifeEpisodeMessage"
+check "PhoneEvidence 来源 id" types.ts "[EM: agent-life]"
+
 echo "── EM 角色代记 ──"
 check "代记核心模块" utils/emScribe.ts "executeEmScribeDirectives"
 check "chatPrompts 注入" utils/chatPrompts.ts "[EM-START: em-scribe]"

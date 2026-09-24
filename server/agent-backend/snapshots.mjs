@@ -44,6 +44,18 @@ export const normalizeSnapshotPayload = payload => {
             }));
     }
 
+    // 私人生活里认识的人：只收名字、称呼、分组，最多 20 个。
+    if (Array.isArray(source.circle)) {
+        out.circle = source.circle
+            .filter(item => item && typeof item.name === 'string' && item.name.trim())
+            .slice(0, 20)
+            .map(item => ({
+                name: String(item.name).trim().slice(0, 40),
+                ...(item.relation ? { relation: String(item.relation).slice(0, 20) } : {}),
+                ...(item.group ? { group: String(item.group).slice(0, 12) } : {}),
+            }));
+    }
+
     if (Array.isArray(source.recentMessages)) {
         out.recentMessages = source.recentMessages
             .slice(-MAX_RECENT_MESSAGES)

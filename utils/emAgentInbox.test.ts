@@ -90,7 +90,7 @@ describe('后端信箱落地到聊天', () => {
 
     it('后端连不上就当没有，不抛错', async () => {
         inbox.mockRejectedValueOnce(new Error('连不上'));
-        await expect(syncAgentMessagesIntoChat(NOW)).resolves.toEqual({ delivered: 0, stale: 0, work: 0, charIds: [], lines: [] });
+        await expect(syncAgentMessagesIntoChat(NOW)).resolves.toEqual({ delivered: 0, stale: 0, work: 0, life: 0, charIds: [], lines: [] });
     });
 });
 
@@ -150,6 +150,39 @@ describe('工作往来', () => {
         expect(result.delivered).toBe(1);
         expect(result.work).toBe(1);
         expect(ackInbox).toHaveBeenCalledWith(expect.arrayContaining(['hb:4', 'hb:5:work']));
+    });
+});
+
+describe('生活小事', () => {
+    beforeEach(() => {
+        localStorage.clear();
+        saveMessage.mockClear();
+        ackInbox.mockClear();
+    });
+
+    const life = (id: string) => ({
+        id: 3, messageId: id, charId: 'lumi', jobUuid: 'hb:1', kind: 'job_result' as const,
+        payload: { type: 'life_episode', createdAt: '2026-09-23T11:00:00.000Z', life: { kind: 'delivery', with: '麻辣烫' } },
+        createdAt: '2026-09-23T11:00:00.000Z',
+    });
+
+    it('交给调用方落地，落成功才 ack，之后同一条只补 ack 不再落', async () => {
+        inbox.mockResolvedValueOnce([life('hb:9:life')]);
+        const onLifeEvent = vi.fn();
+        const result = await syncAgentMessagesIntoChat(NOW, { onLifeEvent });
+        expect(result.life).toBe(1);
+        expect(onLifeEvent).toHaveBeenCalledWith(expect.objectContaining({ charId: 'lumi', messageId: 'hb:9:life', life: expect.objectContaining({ kind: 'delivery' }) }));
+        expect(ackInbox).toHaveBeenCalledWith(['hb:9:life']);
+
+        inbox.mockResolvedValueOnce([life('hb:9:life')]);
+        await syncAgentMessagesIntoChat(NOW, { onLifeEvent });
+        expect(onLifeEvent).toHaveBeenCalledTimes(1);
+    });
+
+    it('没有人接手时留在信箱里', async () => {
+        inbox.mockResolvedValueOnce([life('hb:10:life')]);
+        await syncAgentMessagesIntoChat(NOW, { onWorkEvent: vi.fn() });
+        expect(ackInbox).not.toHaveBeenCalled();
     });
 });
 // [EM-END: agent-backend-inbox]

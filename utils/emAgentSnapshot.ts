@@ -17,6 +17,8 @@ import { getDailyScheduleForChar } from './dailySchedule';
 import { formatSleepTimelineTime } from './scheduleTime';
 import { resolveCharTimeZone } from './timezone';
 import { isScheduleFeatureOn } from './scheduleFeature';
+import { resolveContactGroup } from './contactGroups';
+import { normName } from './relationshipChat';
 
 export const SNAPSHOT_SCHEMA_VERSION = 1;
 
@@ -26,6 +28,26 @@ const MAX_MESSAGE_CHARS = 500;
 const MAX_PERSONA_CHARS = 4000;
 const MAX_MOOD_CHARS = 1500;
 const MAX_RHYTHM_CHARS = 3000;
+const MAX_CIRCLE = 12;
+/** 私人生活里的圈子：同事在工作 App 里，司机店家之类不算「会聊几句的人」。 */
+const PRIVATE_GROUPS = new Set(['friend', 'family', 'school', 'online', 'other']);
+
+/**
+ * 通讯录里能拿来「聊几句」的人。只要虚构联系人：真人角色之间的对话要两边手机同步，
+ * 心跳单方面写一段会让两边对不上（见 docs/relationship-system.md）。
+ */
+export const buildCircle = (char: CharacterProfile, userName?: string): NonNullable<CharacterSnapshot['payload']['circle']> =>
+    (char.phoneState?.contacts ?? [])
+        .filter(contact => contact.status === 'friend' && contact.kind === 'npc' && !contact.linkedCharId)
+        .filter(contact => !userName || normName(contact.name) !== normName(userName))
+        .filter(contact => PRIVATE_GROUPS.has(resolveContactGroup(contact)))
+        .sort((a, b) => (b.lastInteraction || b.createdAt) - (a.lastInteraction || a.createdAt))
+        .slice(0, MAX_CIRCLE)
+        .map(contact => ({
+            name: contact.name,
+            ...(contact.identity ? { relation: contact.identity } : {}),
+            group: resolveContactGroup(contact),
+        }));
 
 export interface SnapshotBoundary {
     text: string;
@@ -47,6 +69,8 @@ export interface CharacterSnapshot {
         mood?: string;
         /** 日常节律：聊天「日程/情绪」面板里的自由文本，日程生成器一直在用的那份。 */
         dailyRhythm?: string;
+        /** 私人生活里认识的人（通讯录里的虚构联系人），心跳写「和谁聊了几句」时优先从这里挑，名字才前后一致。 */
+        circle?: { name: string; relation?: string; group?: string }[];
         todaySchedule?: { start: string; end: string; title: string; availability?: string }[];
         lastInteraction?: { userAt?: string; charAt?: string };
         recentMessages?: { role: 'user' | 'char'; at: string | null; text: string }[];
@@ -178,6 +202,10 @@ export const buildCharacterSnapshot = async (
             ...(isScheduleFeatureOn(char) && char.emotionConfig?.enabled && char.buffInjection?.trim()
                 ? { mood: char.buffInjection.trim().slice(0, MAX_MOOD_CHARS) }
                 : {}),
+            ...(() => {
+                const circle = buildCircle(char, options.userName);
+                return circle.length ? { circle } : {};
+            })(),
             // 与日程生成同一个开关：'mindful' 角色没有物理生活，这份「上班/日常安排」对它没意义。
             ...(char.scheduleStyle !== 'mindful' && char.dailyRhythm?.trim()
                 ? { dailyRhythm: char.dailyRhythm.trim().slice(0, MAX_RHYTHM_CHARS) }

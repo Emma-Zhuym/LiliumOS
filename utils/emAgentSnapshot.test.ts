@@ -101,3 +101,31 @@ describe('dailyRhythm 进快照', () => {
         expect(snapshot.payload.dailyRhythm).toBeUndefined();
     });
 });
+
+describe('circle 进快照', () => {
+    it('只带虚构、还是好友、私人生活里的人；按最近联系排，不带阿萌本人', async () => {
+        const phoneChar = {
+            ...char,
+            phoneState: {
+                records: [],
+                contacts: [
+                    { id: '1', name: '老周', identity: '发小', kind: 'npc', affinity: 0, status: 'friend', createdAt: 1, lastInteraction: 5 },
+                    { id: '2', name: '表姐', identity: '表姐', kind: 'npc', affinity: 0, status: 'friend', createdAt: 1, lastInteraction: 9 },
+                    { id: '3', name: '小林', identity: '同事', kind: 'npc', affinity: 0, status: 'friend', createdAt: 1 },
+                    { id: '4', name: '陈照', kind: 'real', linkedCharId: 'x', affinity: 0, status: 'friend', createdAt: 1 },
+                    { id: '5', name: '前任', kind: 'npc', affinity: 0, status: 'blocked', createdAt: 1 },
+                    { id: '6', name: '阿萌', kind: 'npc', affinity: 0, status: 'friend', createdAt: 1 },
+                ],
+            },
+        } as unknown as CharacterProfile;
+        const snapshot = await buildCharacterSnapshot(phoneChar, [], { userName: '阿萌' });
+        expect(snapshot.payload.circle).toEqual([
+            { name: '表姐', relation: '表姐', group: 'family' },
+            { name: '老周', relation: '发小', group: 'friend' },
+        ]);
+    });
+
+    it('没人就不带这个字段', async () => {
+        expect((await buildCharacterSnapshot(char, [], {})).payload.circle).toBeUndefined();
+    });
+});

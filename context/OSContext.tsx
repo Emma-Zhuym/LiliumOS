@@ -98,6 +98,7 @@ import { normalizeCharacterRoomAssetsInPlace } from '../utils/roomTemplateAssets
 import { syncAgentMessagesIntoChat } from '../utils/emAgentInbox';
 import { refreshAllChronicles } from '../utils/emAgentActivity'; // [EM: agent-backend-chronicle]
 import { applyWorkEpisode } from '../utils/emWork'; // [EM: work-app]
+import { applyLifeEpisode } from '../utils/emLife'; // [EM: agent-life]
 
 interface ProactiveQueueEntry {
   charId: string;
@@ -1972,6 +1973,13 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                           work: applyWorkEpisode(cur.phoneState?.work, event),
                       },
                   }));
+              },
+              // [EM: agent-life] 私人生活里的小事落进查手机：联系人聊天 / 外卖 / 淘宝 / 朋友圈
+              onLifeEvent: ({ charId, ...event }) => {
+                  void updateCharacter(charId, cur => {
+                      const next = applyLifeEpisode(cur.phoneState, event, { userName: userProfileRef.current?.name });
+                      return next ? { phoneState: next } : {};
+                  });
               },
           });
           if (!alive || result.delivered === 0) return;

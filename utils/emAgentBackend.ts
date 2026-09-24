@@ -357,19 +357,23 @@ export const isFreshChatMessage = (message: AgentMessage, now = Date.now()): boo
 /** 收到的一条后台消息该怎么处理。 */
 export interface InboxDelivery {
     message: AgentMessage;
-    /** 'chat' = 进聊天；'stale' = 过期了，只留在起居注；'work' = 「工作」App 的往来；'other' = 系统通知等。 */
-    route: 'chat' | 'stale' | 'work' | 'other';
+    /** 'chat' = 进聊天；'stale' = 过期了，只留在起居注；'work' = 「工作」App 的往来；'life' = 私人生活里的小事；'other' = 系统通知等。 */
+    route: 'chat' | 'stale' | 'work' | 'life' | 'other';
 }
 
 /** 后端把心跳产出的工作往来装在 job_result 里，靠 payload.type 认（信箱的 kind 是固定几种，见设计 2.6）。 */
 export const WORK_EPISODE_TYPE = 'work_episode';
 export const isWorkEpisodeMessage = (message: AgentMessage): boolean =>
     message.kind === 'job_result' && message.payload?.type === WORK_EPISODE_TYPE;
+export const LIFE_EPISODE_TYPE = 'life_episode';
+export const isLifeEpisodeMessage = (message: AgentMessage): boolean =>
+    message.kind === 'job_result' && message.payload?.type === LIFE_EPISODE_TYPE;
 
 export const routeInboxMessages = (messages: AgentMessage[], now = Date.now()): InboxDelivery[] =>
     messages.map(message => ({
         message,
         route: isWorkEpisodeMessage(message) ? 'work'
+            : isLifeEpisodeMessage(message) ? 'life'
             : message.kind !== 'chat_message' ? 'other'
                 : isFreshChatMessage(message, now) ? 'chat' : 'stale',
     }));

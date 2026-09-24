@@ -3903,6 +3903,8 @@ ${olderText}
                                 accent="#c9683e"
                                 phoneEvents={records
                                     .filter(record => Number.isFinite(record.timestamp))
+                                    // [EM: agent-life] 心跳写进来的那几条，起居注里已经有那一跳的原话，不再重复一行
+                                    .filter(record => !record.agentSourceIds?.length)
                                     .map(record => ({
                                         id: record.id,
                                         at: record.timestamp,

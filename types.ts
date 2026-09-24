@@ -948,6 +948,7 @@ export interface PhoneEvidence {
     /** 人际关系系统：本条记录归属的联系人（phoneState.contacts 里的 id） */
     contactId?: string;
     topicStart?: number; // [EM: phone-topic-boundary] 当前话题在完整对话中的气泡起点
+    agentSourceIds?: string[]; // [EM: agent-life] 这条记录里有哪几段来自 Mac mini 心跳（幂等键；也用来在起居注里去重）
 }
 
 /**

@@ -444,13 +444,42 @@ export const episodeChance = ({ workish, hasThreads }) => {
     return Math.min(0.75, base + (workish && hasThreads ? 0.15 : 0));
 };
 
+/**
+ * 私人生活里的小事：下班后、周末写得多，上班时偶尔（比如午饭点个外卖）。
+ * 和工作往来共用一次抽签：先看落不落在工作那一截，再看落不落在生活那一截，其余这一跳什么都不写。
+ */
+export const lifeChance = ({ workish }) => (workish ? 0.08 : 0.45);
+
 export const decideEpisode = ({ snapshot, now, timezone, intent, threads = [], rng = Math.random }) => {
-    if (intent !== 'live') return { wanted: false, chance: 0 };
+    if (intent !== 'live') return { kind: null, wanted: false, chance: 0, lifeChance: 0 };
     const slot = currentSlot(snapshot, now, timezone);
-    if (slot?.availability === 'offline') return { wanted: false, chance: 0 };
-    const chance = episodeChance({ workish: isWorkSlot(slot), hasThreads: threads.length > 0 });
-    return { wanted: rng() < chance, chance };
+    if (slot?.availability === 'offline') return { kind: null, wanted: false, chance: 0, lifeChance: 0 };
+    const workish = isWorkSlot(slot);
+    const chance = episodeChance({ workish, hasThreads: threads.length > 0 });
+    const life = lifeChance({ workish });
+    const roll = rng();
+    const kind = roll < chance ? 'work' : roll < chance + life ? 'life' : null;
+    return { kind, wanted: kind === 'work', chance, lifeChance: life };
 };
+
+/**
+ * 生活里具体做哪件事，也由程序定：让模型自己挑，它会一直挑同一种（多半是找人聊天）。
+ * 饭点外卖多一些。
+ */
+export const pickLifeKind = (minutesOfDay, rng = Math.random) => {
+    const mealtime = (minutesOfDay >= 11 * 60 && minutesOfDay < 13 * 60 + 30) || (minutesOfDay >= 17 * 60 && minutesOfDay < 20 * 60 + 30);
+    const weights = mealtime
+        ? [['chat', 0.4], ['delivery', 0.35], ['order', 0.1], ['moment', 0.15]]
+        : [['chat', 0.5], ['delivery', 0.1], ['order', 0.2], ['moment', 0.2]];
+    let roll = rng();
+    for (const [kind, weight] of weights) {
+        if (roll < weight) return kind;
+        roll -= weight;
+    }
+    return 'chat';
+};
+
+export const localMinutesOf = (date, timezone) => localMinutes(date, timezone);
 
 /**
  * 排查开关：解析失败时要不要把模型原文留一段。
@@ -475,6 +504,30 @@ export const HEARTBEAT_SCHEMA = {
         reason: { type: 'string', maxLength: 500 },
         text: { type: 'string', maxLength: 2000 },
         urge: { type: 'string', enum: ['none', 'later', 'now'] },
+        // 私人生活里的一件小事：只有程序抽中「这一跳在过私人生活」时才会要求写，见 decideEpisode。
+        life: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['kind'],
+            properties: {
+                kind: { type: 'string', enum: ['chat', 'delivery', 'order', 'moment'] },
+                with: { type: 'string', maxLength: 40 },
+                relation: { type: 'string', maxLength: 20 },
+                group: { type: 'string', enum: ['friend', 'family', 'school', 'online', 'other'] },
+                lines: {
+                    type: 'array',
+                    maxItems: 8,
+                    items: {
+                        type: 'object',
+                        additionalProperties: false,
+                        required: ['who', 'text'],
+                        properties: { who: { type: 'string', maxLength: 24 }, text: { type: 'string', maxLength: 400 } },
+                    },
+                },
+                detail: { type: 'string', maxLength: 400 },
+                value: { type: 'string', maxLength: 20 },
+            },
+        },
         // 工作往来：只有程序抽中「这一跳在处理工作」时才会要求写，见 decideEpisode。
         episode: {
             type: 'object',
@@ -515,7 +568,7 @@ export const HEARTBEAT_SCHEMA = {
  * 没话找话是主动消息最容易翻车的地方（设计 4.3 第 4 步）。
  */
 export const buildPrompt = (character, snapshot, now = new Date(), intent = 'live', {
-    thoughts = [], carried = null, threads = [], episode = false,
+    thoughts = [], carried = null, threads = [], episode = false, life = null,
 } = {}) => {
     const p = snapshot.payload || {};
     const lines = [];
@@ -606,6 +659,30 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
             + '- 只写日常工作里的往来，不要在里面做出辞职、搬家、出事这类会改变你人生的大事。\n'
             + '- 如果你根本没有工作或学业，整段省略 episode。\n'
             + 'activity 仍然写你这会儿在做什么，要和 episode 对得上。',
+        );
+    }
+    // 抽中了「这一跳在过自己的私人生活」：做什么也是程序定的，模型只管写得像这个人。
+    if (life && intent !== 'reach_out') {
+        const circle = (Array.isArray(p.circle) ? p.circle : []).slice(0, 12);
+        const known = circle.length
+            ? `你私人生活里认识的人：${circle.map(c => `${c.name}${c.relation ? `（${c.relation}）` : ''}`).join('、')}。\n`
+            : '';
+        const how = {
+            chat: '你刚和一位朋友、家人或老同学聊了几句。kind 填 "chat"；with 写对方的名字，'
+                + (circle.length ? '优先从上面认识的人里选；' : '')
+                + '是新出现的人就再写 relation（你怎么称呼 ta，比如「发小」「表姐」）和 group'
+                + '（friend=朋友 / family=家人 / school=同学 / online=网友 / other=其他）。'
+                + 'lines 最多 6 句，who 写说话人的名字，你自己写「我」。聊的是你们之间的事，不是对方。',
+            delivery: '你刚点了外卖。kind 填 "delivery"；with 写店名，detail 写点了什么，value 写实付金额（比如 ¥38.50）。',
+            order: '你刚在网上下了一单。kind 填 "order"；with 写商品名，detail 写规格或物流状态，value 写价格。',
+            moment: '你刚发了一条朋友圈。kind 填 "moment"；detail 写正文。',
+        }[life];
+        lines.push(
+            '这一跳你在过自己的私人生活，跟对方无关。在 life 里写一件你刚做的小事：\n'
+            + known
+            + `${how}\n`
+            + '这是你自己的时间：不要提到对方，不要围着对方转；要贴着你此刻的时段和你的人设。'
+            + '也不要在里面做出会改变人生的大事。activity 要和这件事对得上。',
         );
     }
     return lines.join('\n\n');
@@ -714,13 +791,17 @@ export const createHeartbeatHandler = ({
     if (!shadow) closeStaleThreads(db, character.charId, startedAt);
     const threads = listOpenThreads(db, character.charId);
     // 这一跳要不要写一段工作往来：同样由程序抽签，抽中了才要求模型写。
-    const { wanted: wantsEpisode } = decideEpisode({
+    const { kind: sideKind } = decideEpisode({
         snapshot, now: startedAt, timezone, intent, threads, rng,
     });
+    const wantsEpisode = sideKind === 'work';
+    const lifeKind = sideKind === 'life' ? pickLifeKind(localMinutesOf(startedAt, timezone), rng) : null;
     const result = await runner.run({
         charId: character.charId,
         credRef: character.credRef,
-        system: buildPrompt(character, snapshot, startedAt, intent, { thoughts, carried, threads, episode: wantsEpisode }),
+        system: buildPrompt(character, snapshot, startedAt, intent, {
+            thoughts, carried, threads, episode: wantsEpisode, life: lifeKind,
+        }),
         user: '现在要做什么？只按 schema 回一个 JSON。',
         schema: HEARTBEAT_SCHEMA,
         timeoutMs: config.heartbeatTimeoutMs,
@@ -748,6 +829,10 @@ export const createHeartbeatHandler = ({
     const output = result.output;
     // 没被要求写的 episode 一律不收：写不写由程序抽签定，模型自己加戏不算数。
     const episode = wantsEpisode ? output.episode ?? null : null;
+    // 生活里的聊天对象不能是阿萌本人：那不是「自己的时间」，也会在通讯录里凭空多出一个她。
+    const userName = String(snapshot.payload?.user?.name ?? '').trim();
+    const rawLife = lifeKind ? output.life ?? null : null;
+    const life = rawLife && !(rawLife.kind === 'chat' && userName && rawLife.with === userName) ? rawLife : null;
     recordModelRun(db, {
         jobUuid: job.uuid,
         charId: character.charId,
@@ -765,7 +850,7 @@ export const createHeartbeatHandler = ({
         intent,
         // 开了口就不再欠着；没开口的「等会儿」留给下一跳兑现。
         urge: output.action === 'message' ? 'none' : output.urge,
-        episode,
+        episode: episode ?? (life ? { life } : null),
     });
 
     // 影子期到此为止：不写 outbox、不推送、不执行工具（设计 4.3 第 9 步）。
@@ -795,8 +880,21 @@ export const createHeartbeatHandler = ({
         });
         workDelivered = true;
     }
+    // 私人生活里的小事：落进查手机里对应的 App（联系人聊天 / 外卖 / 淘宝 / 朋友圈），同样静默。
+    let lifeDelivered = false;
+    if (life) {
+        await deliver({
+            messageId: `hb:${job.uuid}:life`,
+            charId: character.charId,
+            jobUuid: job.uuid,
+            kind: 'job_result',
+            notify: false,
+            payload: { type: 'life_episode', createdAt: startedAt.toISOString(), activity: output.activity, life },
+        });
+        lifeDelivered = true;
+    }
     if (output.action !== 'message') {
-        return { ok: true, shadow, intent, action: output.action, activity: output.activity, workDelivered, durationMs };
+        return { ok: true, shadow, intent, action: output.action, activity: output.activity, workDelivered, lifeDelivered, durationMs };
     }
 
     // 真实执行（1d）：落信箱 + 推送。messageId 以任务 uuid 为幂等键——
@@ -817,5 +915,5 @@ export const createHeartbeatHandler = ({
             staleAfter: new Date(createdAt.getTime() + MESSAGE_STALE_AFTER_MS).toISOString(),
         },
     });
-    return { ok: true, shadow: false, intent, action: 'message', activity: output.activity, delivered: true, workDelivered, durationMs };
+    return { ok: true, shadow: false, intent, action: 'message', activity: output.activity, delivered: true, workDelivered, lifeDelivered, durationMs };
 };

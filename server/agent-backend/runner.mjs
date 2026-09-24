@@ -50,6 +50,37 @@ export const parseEpisode = raw => {
 };
 
 /**
+ * 私人生活里的一件小事（life）：和朋友家人聊几句、点外卖、网购、发朋友圈。
+ * 和 episode 一样是附赠的：写坏了只丢这一段。
+ */
+const LIFE_KINDS = new Set(['chat', 'delivery', 'order', 'moment']);
+const LIFE_GROUPS = new Set(['friend', 'family', 'school', 'online', 'other']);
+
+export const parseLife = raw => {
+    if (!raw || typeof raw !== 'object' || !LIFE_KINDS.has(raw.kind)) return null;
+    const withWho = String(raw.with ?? '').trim().slice(0, 40);
+    const detail = String(raw.detail ?? '').trim().slice(0, 400);
+    const value = String(raw.value ?? '').trim().slice(0, 20);
+    if (raw.kind === 'chat') {
+        const lines = (Array.isArray(raw.lines) ? raw.lines : [])
+            .map(line => ({ who: String(line?.who ?? '').trim().slice(0, 24), text: String(line?.text ?? '').trim().slice(0, 400) }))
+            .filter(line => line.who && line.text)
+            .slice(0, 8);
+        if (!withWho || lines.length === 0) return null;
+        const relation = String(raw.relation ?? '').trim().slice(0, 20);
+        return {
+            kind: 'chat', with: withWho, lines,
+            ...(relation ? { relation } : {}),
+            ...(LIFE_GROUPS.has(raw.group) ? { group: raw.group } : {}),
+        };
+    }
+    if (raw.kind === 'moment') return detail ? { kind: 'moment', detail } : null;
+    // 外卖 / 网购：with 是店名或商品名
+    if (!withWho) return null;
+    return { kind: raw.kind, with: withWho, ...(detail ? { detail } : {}), ...(value ? { value } : {}) };
+};
+
+/**
  * 两层容错解析：先当整段 JSON 读，不行再从 ``` 代码块 / 第一个花括号里捞。
  * 各家模型对 response_format 的支持参差不齐，掉格式是常态，不是异常。
  */
@@ -72,8 +103,9 @@ const pickText = source => {
  */
 const FIELD_RE = /"(action|activity|reason|urge|text|message|content|reply)"\s*:\s*"/g;
 export const salvageFields = raw => {
-    const episodeAt = raw.indexOf('"episode"');
-    const text = episodeAt >= 0 ? raw.slice(0, episodeAt) : raw;
+    // 嵌套结构（episode / life）读不准，截掉不要；取两者里先出现的那个位置。
+    const cut = ['"episode"', '"life"'].map(key => raw.indexOf(key)).filter(at => at >= 0);
+    const text = cut.length ? raw.slice(0, Math.min(...cut)) : raw;
     const hits = [];
     FIELD_RE.lastIndex = 0;
     let match;
@@ -101,8 +133,10 @@ const toOutput = parsed => {
     const body = pickText(parsed);
     if (action === 'message' && !body.trim()) return null;
     const episode = parseEpisode(parsed.episode);
+    const life = parseLife(parsed.life);
     return {
         ...(episode ? { episode } : {}),
+        ...(life ? { life } : {}),
         action,
         activity: String(parsed.activity ?? '').slice(0, 120),
         reason: String(parsed.reason ?? '').slice(0, 500),
