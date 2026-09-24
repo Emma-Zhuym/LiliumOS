@@ -11,6 +11,7 @@
  */
 
 import { DB } from './db';
+import type { WorkEvent } from './emWork';
 import {
     AgentBackend,
     isAgentPaired,
@@ -23,11 +24,22 @@ export interface InboxSyncResult {
     delivered: number;
     /** 过了保质期、只留在起居注里的条数。 */
     stale: number;
+    /** 交给「工作」App 落地的工作往来条数。 */
+    work: number;
     /** 写进聊天的那些属于哪些角色，供调用方刷新界面 / 提示。 */
     charIds: string[];
 }
 
-const EMPTY: InboxSyncResult = { delivered: 0, stale: 0, charIds: [] };
+const EMPTY: InboxSyncResult = { delivered: 0, stale: 0, work: 0, charIds: [] };
+
+export interface InboxSyncOptions {
+    /**
+     * 落地一段工作往来（写进那个角色的 phoneState.work）。
+     * 这里只管取信、去重、ack，不认识角色数据放在哪——由调用方（OSContext）接手。
+     * 没给的话工作往来原样留在信箱里不 ack，等能接手的调用方来取，不会被悄悄吞掉。
+     */
+    onWorkEvent?: (event: { charId: string } & WorkEvent) => void | Promise<void>;
+}
 
 /**
  * 已经落进聊天的 messageId。
@@ -67,6 +79,7 @@ const rememberDelivered = (ids: string[]): void => {
  */
 export const syncAgentMessagesIntoChat = async (
     now = Date.now(),
+    options: InboxSyncOptions = {},
 ): Promise<InboxSyncResult> => {
     if (!isAgentPaired()) return EMPTY;
 
@@ -78,7 +91,7 @@ export const syncAgentMessagesIntoChat = async (
     }
     if (messages.length === 0) return EMPTY;
 
-    const result: InboxSyncResult = { delivered: 0, stale: 0, charIds: [] };
+    const result: InboxSyncResult = { delivered: 0, stale: 0, work: 0, charIds: [] };
     const acked: string[] = [];
     const landed: string[] = [];
     const alreadyDelivered = new Set(loadDelivered());
@@ -106,6 +119,26 @@ export const syncAgentMessagesIntoChat = async (
                 if (!result.charIds.includes(message.charId)) result.charIds.push(message.charId);
             } catch {
                 // 写不进去就别 ack，下次打开再试一遍。
+                continue;
+            }
+        } else if (route === 'work') {
+            const episode = message.payload?.episode as WorkEvent['episode'] | undefined;
+            if (!options.onWorkEvent || !message.charId || !episode) {
+                // 没人接手就别 ack：留在信箱里，比悄悄丢了强。episode 缺了则是坏数据，也别卡住后面的。
+                if (options.onWorkEvent && message.charId && !episode) acked.push(message.messageId);
+                continue;
+            }
+            try {
+                await options.onWorkEvent({
+                    charId: message.charId,
+                    messageId: message.messageId,
+                    createdAt: String(message.payload?.createdAt ?? message.createdAt),
+                    episode,
+                    thread: (message.payload?.thread as WorkEvent['thread']) ?? null,
+                });
+                result.work += 1;
+            } catch {
+                // 落不进去就别 ack，下次打开再试；幂等键在 applyWorkEpisode 里，重来不会重复。
                 continue;
             }
         } else if (route === 'stale') {

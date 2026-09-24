@@ -16,9 +16,10 @@ import { putSnapshot, normalizeSnapshotPayload } from './snapshots.mjs';
 import {
     ACTIVE_CHAT_WINDOW_MS, buildPrompt, checkGates, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
     BREAK_COOLDOWN_MIN, currentSlot, decideIntent, formatGap, inBreakWindow, upcomingBreakStarts, jitterRatio, lastRealInteractionAt, listModelRuns, messageChance,
-    nextRunAt, recordModelRun, shouldCaptureRaw,
+    nextRunAt, recordModelRun, shouldCaptureRaw, decideEpisode, episodeChance, isWorkSlot,
 } from './heartbeat.mjs';
-import { chatCompletionsUrl, createApiRunner, extractContentText, parseHeartbeatOutput } from './runner.mjs';
+import { chatCompletionsUrl, createApiRunner, extractContentText, parseEpisode, parseHeartbeatOutput } from './runner.mjs';
+import { applyThread, closeStaleThreads, listOpenThreads } from './lifeThreads.mjs';
 
 const AT = new Date('2026-09-23T20:00:00.000Z');          // 芝加哥时间 15:00，醒着
 const CHAR = 'lumi';
@@ -749,4 +750,153 @@ test('新角色默认平均 60 分钟一跳、每日预算 24 次', () => {
     const character = seedCharacter(db);
     assert.equal(character.heartbeatEveryMin, 60);
     assert.equal(character.dailyModelBudget, 24);
+});
+
+// ── 工作往来（episode）与「正在推进的事」 ────────────────────────────────────
+const EPISODE = {
+    channel: 'group', with: '美术组日常',
+    lines: [{ who: '小林', text: '第二版出了，看下？' }, { who: '我', text: '配色顺眼了，领口还要改。' }],
+    thread: { title: '角色设计修改', summary: '配色通过，领口待改', status: 'open' },
+};
+
+test('episode 解析：规整合法的，写坏的只丢这一段不连累整条输出', () => {
+    const ok = parseEpisode(EPISODE);
+    assert.equal(ok.channel, 'group');
+    assert.equal(ok.lines.length, 2);
+    assert.equal(ok.thread.status, 'open');
+    assert.equal(parseEpisode({ ...EPISODE, channel: 'wechat' }), null, '不认识的渠道');
+    assert.equal(parseEpisode({ ...EPISODE, lines: [{ who: '', text: '' }] }), null, '没有可用的句子');
+    assert.equal(parseEpisode({ ...EPISODE, thread: { title: '' } }).thread, undefined, '事项写坏了只丢事项');
+    assert.equal(parseEpisode({ ...EPISODE, subject: '不该出现' }).subject, undefined, '只有邮件才有主题');
+    assert.equal(parseEpisode({ ...EPISODE, channel: 'email', subject: '排期确认' }).subject, '排期确认');
+    assert.equal(parseEpisode({ ...EPISODE, lines: Array.from({ length: 20 }, () => ({ who: 'a', text: 'b' })) }).lines.length, 8);
+
+    const whole = parseHeartbeatOutput(JSON.stringify({ action: 'noop', activity: '开会', reason: '', episode: { channel: 'bad' } }));
+    assert.equal(whole.ok, true, 'episode 坏了整跳仍然成立');
+    assert.equal(whole.output.episode, undefined);
+    assert.equal(parseHeartbeatOutput(JSON.stringify({ action: 'noop', activity: 'a', reason: '', episode: EPISODE })).output.episode.with, '美术组日常');
+});
+
+test('正在推进的事：最多三件，第四件把最久没动的收掉；对不上的 id 当新事，不覆盖已收尾的', () => {
+    const db = freshDb();
+    seedCharacter(db);
+    const t = minutes => new Date(AT.getTime() + minutes * 60_000);
+    const a = applyThread(db, CHAR, { title: 'A', summary: 'a1', status: 'open' }, t(0));
+    applyThread(db, CHAR, { title: 'B', summary: 'b1', status: 'open' }, t(1));
+    applyThread(db, CHAR, { title: 'C', summary: 'c1', status: 'open' }, t(2));
+    assert.equal(listOpenThreads(db, CHAR).length, 3);
+    applyThread(db, CHAR, { title: 'D', summary: 'd1', status: 'open' }, t(3));
+    const open = listOpenThreads(db, CHAR);
+    assert.deepEqual(open.map(x => x.title).sort(), ['B', 'C', 'D'], 'A 最久没动，被收掉');
+    assert.equal(db.prepare('SELECT status FROM life_threads WHERE id = ?').get(a.id).status, 'done', '是收掉不是删除');
+
+    // 用 8 位短 id 接着写
+    const b = open.find(x => x.title === 'B');
+    const updated = applyThread(db, CHAR, { id: b.id.slice(0, 8), title: 'B', summary: 'b2', status: 'open' }, t(4));
+    assert.equal(updated.id, b.id);
+    assert.equal(updated.summary, 'b2');
+    // 收尾
+    applyThread(db, CHAR, { id: b.id.slice(0, 8), title: 'B', summary: '搞定', status: 'done' }, t(5));
+    assert.equal(listOpenThreads(db, CHAR).some(x => x.title === 'B'), false);
+    // 已经收尾的 id 再来：当新事开，不复活旧的
+    const again = applyThread(db, CHAR, { id: b.id.slice(0, 8), title: 'B2', summary: '又来了', status: 'open' }, t(6));
+    assert.notEqual(again.id, b.id);
+    // 新的一件本身就写着 done：没什么可收的
+    assert.equal(applyThread(db, CHAR, { title: 'Z', summary: '', status: 'done' }, t(7)), null);
+});
+
+test('正在推进的事：30 天没动静就静默收掉', () => {
+    const db = freshDb();
+    seedCharacter(db);
+    applyThread(db, CHAR, { title: '旧事', summary: '', status: 'open' }, new Date(AT.getTime() - 31 * 24 * 3600_000));
+    applyThread(db, CHAR, { title: '新事', summary: '', status: 'open' }, new Date(AT.getTime() - 3600_000));
+    assert.equal(closeStaleThreads(db, CHAR, AT), 1);
+    assert.deepEqual(listOpenThreads(db, CHAR).map(x => x.title), ['新事']);
+});
+
+test('抽签：工作时段概率高，别的时段留一点；找阿萌的那一跳不写，offline 不写', () => {
+    assert.equal(isWorkSlot({ availability: 'busy', title: '发呆' }), true);
+    assert.equal(isWorkSlot({ availability: 'online', title: '下午在公司开会' }), true);
+    assert.equal(isWorkSlot({ availability: 'online', title: '打游戏' }), false);
+    assert.ok(episodeChance({ workish: true, hasThreads: false }) > episodeChance({ workish: false, hasThreads: false }) * 3);
+    assert.ok(episodeChance({ workish: true, hasThreads: true }) > episodeChance({ workish: true, hasThreads: false }), '手头有事更该接着写');
+    assert.ok(episodeChance({ workish: true, hasThreads: true }) <= 0.75);
+
+    const args = { snapshot: workdaySnapshot, now: chicago(10), timezone: 'America/Chicago', rng: () => 0.3 };
+    assert.equal(decideEpisode({ ...args, intent: 'live' }).wanted, true);
+    assert.equal(decideEpisode({ ...args, intent: 'reach_out' }).wanted, false);
+    const night = { payload: { todaySchedule: [{ start: '00:00', title: '睡觉', availability: 'offline' }] } };
+    assert.equal(decideEpisode({ ...args, snapshot: night, intent: 'live', rng: () => 0 }).wanted, false);
+});
+
+test('提示词：手头有事就列出来（带短 id），抽中了才附上写作要求，找阿萌那一跳永远没有', () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    const snapshot = { payload: { timezone: 'America/Chicago' } };
+    const threads = [{ id: 'abcdef1234567890', title: '角色设计修改', summary: '领口待改' }];
+    const withEpisode = buildPrompt(character, snapshot, AT, 'live', { threads, episode: true });
+    assert.ok(withEpisode.includes('角色设计修改') && withEpisode.includes('abcdef12') && !withEpisode.includes('abcdef1234'));
+    assert.ok(withEpisode.includes('episode'));
+    assert.ok(withEpisode.includes('不要在里面做出辞职'));
+    assert.ok(!buildPrompt(character, snapshot, AT, 'live', { threads, episode: false }).includes('这一跳你正好在处理工作'));
+    assert.ok(buildPrompt(character, snapshot, AT, 'live', { threads, episode: false }).includes('角色设计修改'), '不写 episode 也要让 TA 知道手头有事');
+    assert.ok(!buildPrompt(character, snapshot, AT, 'reach_out', { threads, episode: true }).includes('这一跳你正好在处理工作'));
+});
+
+test('真实执行：抽中且写出 episode → 记事项、静默送去手机；下一跳能接着写这件事', async () => {
+    const db = freshDb();
+    setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+    const character = seedCharacter(db);
+    seedSnapshot(db, { todaySchedule: WORKDAY });
+    const sent = [];
+    const prompts = [];
+    const runner = { run: async ({ system }) => {
+        prompts.push(system);
+        return { ok: true, output: { action: 'noop', activity: '在看第二版稿子', reason: '', urge: 'none', episode: parseEpisode(EPISODE) } };
+    } };
+    // 芝加哥 10 点：上班时段；rng 0.99 抽不中开口，但 0.99 也抽不中 episode——所以给 0.3：live + 抽中工作往来。
+    let call = 0;
+    const rng = () => (call++ === 0 ? 0.99 : 0.1);   // 第一次给意图（不开口），第二次给 episode（抽中）
+    const result = await runHandler(db, {
+        runner, job: jobFor(character.heartbeatGeneration, 'w1'), now: chicago(10), rng, deliver: async entry => sent.push(entry),
+    });
+    assert.equal(result.workDelivered, true);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].messageId, 'hb:w1:work');
+    assert.equal(sent[0].kind, 'job_result');
+    assert.equal(sent[0].notify, false, '静默：不按门铃');
+    assert.equal(sent[0].payload.type, 'work_episode');
+    assert.equal(sent[0].payload.episode.with, '美术组日常');
+    assert.equal(sent[0].payload.episode.thread, undefined, '事项走顶层 thread，不重复挂在 episode 上');
+    assert.equal(sent[0].payload.thread.title, '角色设计修改');
+    assert.equal(listOpenThreads(db, CHAR).length, 1);
+    assert.equal(listModelRuns(db)[0].episode.channel, 'group', '审计里留了一份');
+
+    // 下一跳：提示词里带着这件事，并且用短 id 接着写
+    call = 0;
+    await runHandler(db, {
+        runner, job: jobFor(character.heartbeatGeneration, 'w2'), now: chicago(11), rng, deliver: async entry => sent.push(entry),
+    });
+    assert.ok(prompts[1].includes('角色设计修改') && prompts[1].includes('领口待改'));
+});
+
+test('episode：没被要求写就不收；试跑期不落库不送出', async () => {
+    const db = freshDb();
+    setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+    const character = seedCharacter(db);
+    seedSnapshot(db, { todaySchedule: WORKDAY });
+    const sent = [];
+    const runner = { run: async () => ({ ok: true, output: { action: 'noop', activity: 'x', reason: '', urge: 'none', episode: parseEpisode(EPISODE) } }) };
+    // rng 恒 0.99：意图不开口、episode 也抽不中 → 模型自己加的 episode 不算数
+    await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 'n1'), now: chicago(10), rng: () => 0.99, deliver: async e => sent.push(e) });
+    assert.equal(sent.length, 0);
+    assert.equal(listOpenThreads(db, CHAR).length, 0);
+
+    // 试跑期：抽中了也只记审计
+    setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: true }));
+    let call = 0;
+    await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 'n2'), now: chicago(10), rng: () => (call++ === 0 ? 0.99 : 0.1), deliver: async e => sent.push(e) });
+    assert.equal(sent.length, 0);
+    assert.equal(listOpenThreads(db, CHAR).length, 0);
+    assert.equal(listModelRuns(db)[0].episode.with, '美术组日常');
 });

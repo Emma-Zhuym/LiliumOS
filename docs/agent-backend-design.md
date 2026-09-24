@@ -182,7 +182,7 @@ CREATE INDEX idx_life_threads_open ON life_threads (char_id, status, updated_at)
 ```
 
 - 每个角色最多 3 条 `open`：心跳想开一件新的，且已经满了，就先顶掉 `updated_at` 最旧的那条（自动 `done`，不是删除，起居注回看时还找得到它怎么收尾的）。
-- 只存一句话，不是完整聊天记录——「发展到哪一步」够写提示词就行，来龙去脉留在已经生成过的 `phone_record`（见 4.5）里，要细节回去翻那些。
+- 只存一句话，不是完整聊天记录——「发展到哪一步」够写提示词就行，来龙去脉留在已经送到手机上的工作往来（`phoneState.work`，见 4.5）里，要细节回去翻那些。
 - 30 天没更新的 `open` 线索视为不了了之，巡逻时静默转 `done`，不通知、不写起居注。
 
 ### 2.5 `jobs` — 任务队列（核心）
@@ -247,7 +247,7 @@ CREATE TABLE outbox (
   message_id  TEXT NOT NULL UNIQUE,               -- UUID，前端据此去重写入聊天
   char_id     TEXT,
   job_uuid    TEXT,
-  kind        TEXT NOT NULL CHECK (kind IN ('chat_message','job_result','system_notice','activity_log','phone_record')),
+  kind        TEXT NOT NULL CHECK (kind IN ('chat_message','job_result','system_notice')),
   payload     TEXT NOT NULL,                      -- JSON，见 3.6
   notify      INTEGER NOT NULL DEFAULT 1,         -- 0 = 只进信箱，不按门铃
   created_at  TEXT NOT NULL,
@@ -265,6 +265,10 @@ CREATE TABLE deliveries (
   PRIMARY KEY (message_id, device_id)
 );
 ```
+
+> **心跳的工作往来（4.5）走 `job_result`，靠 `payload.type = 'work_episode'` 认。** 起居注（4.4）最终没有改走 outbox，
+> 所以设计早期写的 `activity_log` 种类并没有落地；给 CHECK 加新种类要重建 outbox 表（SQLite 改不了 CHECK，
+> 重建时 `DROP TABLE` 会因外键把 `deliveries` 连带清空），得不偿失。心跳本来就是一个 job，它的产出叫 job_result 名副其实。
 
 一条消息被**任意一台**设备 ack 即视为送达（聊天记录会在设备间经 LiliumOS 自己的同步 / 备份流转，不在本服务范围）。推送返回 404 / 410 → 该设备 `push_status='gone'`。保留期：已 ack 7 天、全部 28 天（与 amsg 一致）。
 
@@ -747,59 +751,60 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
 - 影子运行期（阶段 1c）同样产出动态条目，但标记 `shadow: true`，前端用浅色显示并注明「试跑，没有真的执行」。阿萌正好靠这一页判断 Elias 的语气和判断合不合适，不用专门去设置页翻记录。
 - 试跑记录不算 TA 真实经历过的事：`shadow: true` 的条目**只出现在起居注，不进心跳的自我回看（4.3 第 4 步），也不能留下会被下一跳兑现的「等会儿」**（4.3 新增的 `urge` 字段）。试跑期间模型说的每一句「等会儿找你」都必须留在试跑里，绝不能变成真跳里的行动。
 
-### 4.5 生活轨迹 · 工作与日常（阶段 1e）
+### 4.5 工作 App · TA 的工作往来（阶段 1e，已实现第一版）
 
 > 🐾 **小帕讲人话**
 >
-> 起居注（4.4）解决的是「TA 做了什么」，一句话，写给你看。这一节解决的是「TA 的生活里
-> 还有别人」——同事、朋友、外卖小哥。一开始想把这做成一个完整的小型职场模拟（谁审批了谁、
-> 会议改期怎么联动日历），阿萌看完直呼「太重了，像游戏不像恋爱手机模拟」，收回来收成这样：
+> 起居注（4.4）解决的是「TA 做了什么」，一句话。这一节解决的是「TA 的生活里还有别人」——
+> 同事、群、邮件、手头那件正在推进的事。一开始想做成完整的职场模拟（谁审批了谁、会议改期怎么联动日历），
+> 阿萌看完说「太重了，像游戏不像恋爱手机模拟」，收成了这样：
 >
-> **一次心跳生成一小段"接下来发生的事"，起居注的那句话、发在工作群里的对话、正在推进的
-> 那件事的新进展，全部来自同一次生成**，所以打开查手机翻到的，跟 TA 心里想的对得上——
-> 不需要另建一套「事情办没办成」的校验机制，模型说发生了，就是发生了，跟起居注的
-> `activity` 字段是一回事，只是这次多顺手带了几件「查手机翻得到」的东西。
+> **一次心跳生成一小段工作往来，起居注那句话、群里的对话、那件事的新进展全部来自同一次生成**，
+> 所以打开查手机翻到的，跟 TA 心里想的对得上——不建「事情办没办成」的校验机制，
+> 模型说发生了就是发生了，和起居注的 `activity` 是同一级别的信任。
+>
+> **工作往来只在「工作」App 里，不进短信、不自动进通讯录。** 现实里同事大多在飞书 / 企业微信里聊，
+> 关系好到私下也联系的才会加进通讯录；如果做进短信，工作群聊和私人短信就混在一起分不开了。
+> 同事要不要进通讯录，是阿萌自己的决定（通讯录里有「工作」分组可以归）。
 
-**触发时机**：`intent` 为 `live` 的那些跳（真在过日子，不是抽中开口去找阿萌），
-且当前 `todaySchedule` 时段的 `availability` 不是 `offline`（睡觉、请假之类的空档不生成）。
-`reach_out`（决定去找阿萌）的跳不带 `episode`——那一跳的注意力全在阿萌身上，
-节外生枝的同事对话反而显得心不在焉。
+**什么时候写**（`decideEpisode`，程序抽签，模型只负责写）：
 
-**输出**：`HEARTBEAT_SCHEMA` 新增一个可选字段，任何 `action` 都可以带：
+- 只在 `intent = live` 的跳里抽（去找阿萌的那一跳注意力在 ta 身上，节外生枝写同事对话像心不在焉）；当前日程时段 `availability = offline` 不抽。
+- 概率：这一段是工作时段（标了 `busy`，或标题里带 上班 / 开会 / 项目 / 上课 … 这类通用说法，`isWorkSlot`）→ 0.55，手头还有没完的事再 +0.15，封顶 0.75；不是工作时段留 0.12（真人下班后偶尔也回一条工作消息）。
+- 抽中了，提示词才附上写作要求；**没被要求写的 `episode` 一律不收**，模型自己加戏不算数。没有工作或学业的角色，提示词允许它整段省略。
+- 每一跳都把「手头正在推进的事」（最多三件，带 8 位短 id）列给模型，不管这一跳写不写往来，TA 都知道自己手头有什么。
+
+**输出**（`HEARTBEAT_SCHEMA.episode`，可选；`parseEpisode` 规整）：
 
 ```ts
 interface HeartbeatEpisode {
-  /** 跟谁：优先用查手机通讯录里已有的名字，没有合适的联系人才现编一个泛称。 */
-  with: string;
-  channel: 'work_group' | 'work_dm' | 'email' | 'friend' | 'delivery' | 'other';
-  /** 最多 4 句往来，第一人称之外的话都算「对方」。 */
-  lines: { speaker: 'them' | 'me'; text: string }[];
-  /** 有就带：这件事要不要继续追。省略 = 就这一下，不用记着。 */
-  thread?: { id?: string; title: string; status: 'open' | 'done' };
+  channel: 'group' | 'dm' | 'email';   // 工作群 / 和某个同事私聊 / 邮件
+  with: string;                         // 群名，或对方的名字
+  subject?: string;                     // 只有邮件才有
+  lines: { who: string; text: string }[];   // 最多 8 句；who 是说话人的名字，机主自己写「我」
+  thread?: { id?: string; title: string; summary: string; status: 'open' | 'done' };
 }
 ```
 
-`with` 不强制校验是否真的在通讯录里——模型偶尔提一个没录入的路人同事很正常，不必因此拦掉整条输出；前端落地时按名字去 `phoneState.contacts` 里找，找不到就留空 `contactId`，不强求匹配（见下）。真正要拦的只有一件事：**`thread.id` 引用了一个不存在或已经 `done` 的 `life_threads` 行时，当成开新线索处理**（不能覆盖历史）。
+写坏了**只丢这一段**，不连累这一跳原本的 `action / activity / reason`（渠道不认识、没有可用的句子、事项没标题，都按缺省处理）。
 
-**落地**：
+**落地**（真实执行、非影子期）：
 
-1. 后端按 4.5 的规则把 `episode` 拆成两份写入：
-   - `life_threads` upsert（2.4.1）：有 `thread` 就更新/新建；超过 3 条 `open` 顶掉最旧的。
-   - `outbox` 一条 `kind='phone_record'`（2.6），`notify: false`，`messageId = hb:<job.uuid>:episode`（与同一跳的 `chat_message` 用不同 messageId，互不冲突）；`payload` 就是整个 `HeartbeatEpisode` 加 `at`。
-2. 前端（新起一个 `utils/emAgentPhoneSync.ts`，与 `emAgentInbox.ts` 并列而不是塞进去——两者都读 outbox、写法却完全不同）拉到 `phone_record` 后：
-   - `channel` 映射到 `PhoneEvidence.type`（`work_group`/`work_dm`→`'chat'`、`email`→`'chat'` 但 `title` 前缀「[邮件]」、`friend`→`'chat'`、`delivery`→`'delivery'`），`detail` 是 `lines` 拼成的一小段对话；
-   - `with` 能在该角色 `phoneState.contacts` 里找到同名联系人就带上 `contactId`；找不到就**新建一个 NPC 联系人**，`channel` 决定它的分组（`work_group`/`work_dm`/`email` → `work`，`friend` → `friend`，`delivery` → `service`，其余按关系备注推断），这样通讯录会随着心跳自己长出关系网。分组清单是固定的七类（见 `docs/relationship-system.md`），不为哪个角色定制；
-   - 与 `emAgentInbox.ts` 共用同一条 ack、同一份「已落地 messageId」去重（3.6 那套幂等键前缀不同，逻辑一样，不必抄两份）。
-3. 起居注（4.4）的 `activity` 不重复 `episode` 的内容——一句话已经在概述了，起居注那条目**加一个可点的引用**，点开跳到对应的 `phone_record`，而不是把对话原文也堆进起居注。
-4. 聊天注入（`utils/chatPrompts.ts` 的 `buildChronicleInjection`）读的是本地起居注副本，**只读 `activity`/`reason`，不读 `episode` 原文**：TA 自己知道跟同事说过什么就够了，没必要把工作群聊天记录整段搬进聊天提示词，那不是给阿萌看的内容。
+1. `life_threads`（2.4.1，`lifeThreads.mjs`）：有 `thread` 就 upsert。带 id 且对得上一件还开着的事 → 更新（`done` 即收尾）；对不上（抄错、已收尾、没带）→ 当新事开，**绝不覆盖已收尾的历史**；开新事时手上已经三件 → 把最久没动的收掉（`done`，不是删除）；30 天没动静的静默收掉。
+2. `outbox` 一条 `kind = 'job_result'`、`payload.type = 'work_episode'`、`notify: false`（静默，不按门铃：这是给阿萌翻的记录，不是来打扰她的），`messageId = hb:<job.uuid>:work`（幂等键）。`payload` = `{ type, createdAt, activity, episode（不含 thread）, thread（落库后带完整 id） }`。
+3. `model_runs.episode`（迁移 6）留一份审计副本；影子期只记这一份，不落库、不送出。
+4. 前端取信（`syncAgentMessagesIntoChat` 的 `onWorkEvent`，和聊天消息同一次取回、同一次 ack）：调用方（OSContext）把它并进那个角色的 `phoneState.work`（`utils/emWork.ts` 的 `applyWorkEpisode`）。**落地成功才 ack；没人接手的往来原样留在信箱里，不会被悄悄 ack 掉。** 重复取回靠 messageId 去重，不会变成两段。
+5. 上限：每个会话 120 句、整个 App 500 句、事项 40 件；事项超限先丢做完的最旧的。
 
-**跟 `dailyRhythm` / 通讯录的关系**：`dailyRhythm` 决定日程生成器什么时候把这段时间标成「在忙工作」，心跳读的是同一份，两边才会认账——花花公子的「日常节律」里如果写了「周二周四必须到场」，日程和这里的 `episode` 才会一起排出上班时段，不会出现日程说他在开会、查手机里却没有任何工作往来的错位。`episode.with` 提到的人对得上 `phoneState.contacts` 就带 `contactId`，对不上也不强求——通讯录本来就是慢慢积累的，不必为了这一步现在就逼阿萌把每个同事都建档。
+**界面**（`components/checkphone/WorkApp.tsx`，查手机首页「工作」）：「消息」按会话（群 / 私聊 / 邮件）列出，最近的在上；点进去是气泡（邮件是一封封的信）；「事项」列出正在推进和已完成的，点进去看一路走来的进展。**只读**——阿萌是翻 TA 手机的人：打开一封邮件不等于 TA 读过，看完一件事不等于 TA 处理了，所以没有回复框、没有已读回执。
 
-**明确不做**（照抄第 13 节「暂时不做」的态度，别把这做重了）：
+**和别的部分的边界**：
 
-- 不做审批状态机、不校验「这件事现在能不能被处理」——`thread.status` 由模型直接说了算，跟 `outcome`/`activity` 同一套信任级别；
-- 不联动日历、不产生会议邀约、不检测跟阿萌约定的时间冲突——这些留给 Calendar / Shared Life 整合（`codex/calendar-life-hub-plan`）如果将来真的要做；
-- 不让阿萌在查手机里对 `episode` 做任何会反过来影响角色状态的操作（比如点了某条工作消息就算「TA 已读」）——阿萌在这里始终只是**翻 TA 手机的人**，翻看本身不产生任何事实。
+- 起居注的 `activity` 不重复往来内容；聊天注入（`buildChronicleInjection`）只读 `activity / reason`，不读往来原文——TA 自己知道跟同事说过什么就够了，工作群聊天记录整段搬进聊天提示词不是给阿萌看的内容。
+- 联系人 / 短信是另一条线（`docs/relationship-system.md`）。同事**不会**自动进通讯录。
+- **还没做**：起居注里点一句跳到对应的群 / 事项；「安排」（会议、出差，等接日历时做）；下班后的生活往来（朋友、外卖）——同一个 `episode` 机制，以后加渠道即可；工作 App 里「把这位同事加进通讯录」。
+
+**明确不做**（别把这做重了）：审批状态机、校验「这件事现在能不能被处理」、会议改期联动日历、检测跟阿萌约定的时间冲突、让阿萌在这里做任何会反过来影响角色状态的操作。
 
 ### 4.6 与 Calendar / Shared Life 设计的关系
 
@@ -903,7 +908,7 @@ LaunchAgent: cc.liliumos.agent-backend.plist（RunAtLoad + KeepAlive）
 | **1b** | `ha.watchdog`、`status` 依赖检查、前端设置页 | HA 虚拟机关掉后 15 分钟内收到通知 |
 | **1c** | Codex 运行器实测与错误分类样本、对账函数实测、心跳影子运行一周、查手机「TA 的动态」页 | ① 人为制造「工具已执行、结果未记录」后重启，不产生重复提醒 / 日程；② 阿萌聊天中不触发心跳；③ 登出 Codex 后 Elias 心跳立即暂停并收到一次通知，断网不会误暂停；④ 阿萌在「TA 的动态」里看一周试跑记录，确认判断和语气可以接受 |
 | **1d** | 心跳真实推送、工具真实执行 | 按 4.3 全部闸门验收（已上线：真实执行 + 心跳自我回看 + `urge` 兑现 + 情绪底色进快照 + 聊天读起居注） |
-| **1e** | `dailyRhythm` 进快照、`life_threads`、心跳 `episode` 产出、查手机「工作」App | 阿萌能在查手机里翻到至少一件持续推进 3 跳以上的事，前后对得上；花花公子这类角色写了固定上班时段的「日常节律」后，心跳真的会在那个时段产出工作 episode |
+| **1e** | `dailyRhythm` 进快照、`life_threads`、心跳工作往来（`episode`）、查手机「工作」App（第一版已实现，见 4.5）| 阿萌能在查手机里翻到至少一件持续推进 3 跳以上的事，前后对得上；花花公子这类角色写了固定上班时段的「日常节律」后，心跳真的会在那个时段产出工作 episode |
 | 2 | Continuity State、记忆确认流程、ChatGPT 侧 MCP、日历整合（`codex/calendar-life-hub-plan`） | 另开文档 |
 
 ---
@@ -1026,3 +1031,18 @@ LaunchAgent: cc.liliumos.agent-backend.plist（RunAtLoad + KeepAlive）
 | 新角色默认 60 分钟 / 每日预算 24 次；迁移 1 的列默认值不改（迁移只增不改），改成插入时显式给值 | 9 节；`characters.mjs` |
 | 设置里「角色心跳」每个角色加一个间隔下拉（30–240 分钟），以后嫌烦了直接调久，不用改代码 | `AgentHeartbeatPanel.tsx`；`/status` 新增 `heartbeat.jitterSpread` |
 | 消息冷却（90 分钟）不动：它管的是「两条主动消息之间至少隔多久」，跟醒来的密度是两回事 | 4.3 第 3 步 |
+
+## 17. v0.9 修订记录（2026-09-24）——工作 App 做成独立的一条线
+
+阿萌定：不加「感情」分组，直接做工作 App；同事的聊天大部分在飞书里，关系好的才进通讯录，
+做进短信的话工作群和短信就分不开了。这推翻了 v0.5 里「同事作为 NPC 联系人落进通讯录」的写法。
+
+| 决定 | 落在哪 |
+|---|---|
+| 工作往来只在「工作」App 里，不进短信、不自动进通讯录；同事进不进通讯录由阿萌决定 | 4.5 |
+| 数据存 `phoneState.work`（随角色一起备份），不复用 `phoneState.records`，免得混进各个 App 按类型过滤的记录里 | `types.ts` / `utils/emWork.ts` |
+| 心跳的工作往来走 outbox 的 `job_result`（`payload.type = 'work_episode'`），不新增种类：改 CHECK 要重建表，重建会因外键清掉 `deliveries` | 2.6 |
+| 写不写往来由程序抽签，工作时段概率高；没被要求写的不收；写坏只丢这一段 | 4.5 `decideEpisode` / `parseEpisode` |
+| 手头正在推进的事最多三件，每一跳都带给模型，才接得上「领口还要改」 | 2.4.1 / `lifeThreads.mjs` |
+| 界面只读：翻看不等于已读、不等于处理 | `WorkApp.tsx` |
+| 收信侧：工作往来落地成功才 ack，没人接手就留在信箱里 | `emAgentInbox.ts` |

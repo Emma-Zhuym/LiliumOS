@@ -88,7 +88,66 @@ describe('后端信箱落地到聊天', () => {
 
     it('后端连不上就当没有，不抛错', async () => {
         inbox.mockRejectedValueOnce(new Error('连不上'));
-        await expect(syncAgentMessagesIntoChat(NOW)).resolves.toEqual({ delivered: 0, stale: 0, charIds: [] });
+        await expect(syncAgentMessagesIntoChat(NOW)).resolves.toEqual({ delivered: 0, stale: 0, work: 0, charIds: [] });
+    });
+});
+
+describe('工作往来', () => {
+    beforeEach(() => {
+        localStorage.clear();
+        saveMessage.mockClear();
+        ackInbox.mockClear();
+    });
+
+    const work = (id: string, overrides: Record<string, unknown> = {}) => ({
+        id: 2,
+        messageId: id,
+        charId: 'lumi',
+        jobUuid: 'hb:1',
+        kind: 'job_result' as const,
+        payload: {
+            type: 'work_episode',
+            createdAt: '2026-09-23T11:00:00.000Z',
+            episode: { channel: 'group', with: '美术组', lines: [{ who: '小林', text: '稿子好了' }] },
+            thread: { id: 't1', title: '角色设计', summary: '配色通过', status: 'open' },
+            ...(overrides.payload as object ?? {}),
+        },
+        createdAt: '2026-09-23T11:00:00.000Z',
+    });
+
+    it('交给调用方落地，落成功才 ack；不进聊天', async () => {
+        inbox.mockResolvedValueOnce([work('hb:1:work')]);
+        const onWorkEvent = vi.fn();
+        const result = await syncAgentMessagesIntoChat(NOW, { onWorkEvent });
+        expect(result.work).toBe(1);
+        expect(result.delivered).toBe(0);
+        expect(saveMessage).not.toHaveBeenCalled();
+        expect(onWorkEvent).toHaveBeenCalledWith(expect.objectContaining({
+            charId: 'lumi', messageId: 'hb:1:work', episode: expect.objectContaining({ with: '美术组' }),
+            thread: expect.objectContaining({ id: 't1' }),
+        }));
+        expect(ackInbox).toHaveBeenCalledWith(['hb:1:work']);
+    });
+
+    it('落地失败就不 ack，下次还能取回来', async () => {
+        inbox.mockResolvedValueOnce([work('hb:2:work')]);
+        const result = await syncAgentMessagesIntoChat(NOW, { onWorkEvent: () => { throw new Error('写不进去'); } });
+        expect(result.work).toBe(0);
+        expect(ackInbox).not.toHaveBeenCalled();
+    });
+
+    it('没有人接手时原样留在信箱里，不被悄悄 ack 掉', async () => {
+        inbox.mockResolvedValueOnce([work('hb:3:work')]);
+        await syncAgentMessagesIntoChat(NOW);
+        expect(ackInbox).not.toHaveBeenCalled();
+    });
+
+    it('聊天消息和工作往来同一次取回，各走各的', async () => {
+        inbox.mockResolvedValueOnce([msg('hb:4'), work('hb:5:work')]);
+        const result = await syncAgentMessagesIntoChat(NOW, { onWorkEvent: vi.fn() });
+        expect(result.delivered).toBe(1);
+        expect(result.work).toBe(1);
+        expect(ackInbox).toHaveBeenCalledWith(expect.arrayContaining(['hb:4', 'hb:5:work']));
     });
 });
 // [EM-END: agent-backend-inbox]

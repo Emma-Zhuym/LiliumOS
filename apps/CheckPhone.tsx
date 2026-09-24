@@ -19,6 +19,8 @@ import { CONTACT_GROUPS, CONTACT_GROUP_PROMPT, groupContacts, normalizeContactGr
 import PersonaSim, { LifeLog, generatePersonaScript } from './PersonaSim';
 // [EM: agent-backend-chronicle] 起居注：TA 自己醒来做了什么
 import ChronicleApp from '../components/checkphone/ChronicleApp';
+// [EM: work-app] 工作：TA 的工作群 / 私聊 / 邮件 / 正在推进的事（和短信、通讯录是两条独立的线）
+import WorkApp from '../components/checkphone/WorkApp';
 import { usePersonaSim, personaSimStore } from '../utils/personaSimStore';
 import { getLastInnerState } from '../utils/emotionApply';
 import { normalizePhoneEvidence, phoneFieldToText } from '../utils/phoneEvidence';
@@ -29,7 +31,8 @@ import {
     Plus, SignOut, CaretLeft, CaretRight, Cloud, ImagesSquare, LockSimple, Package,
     Storefront, Heart, ArrowsClockwise, Tray, DotsThree, ClockCounterClockwise, Sparkle,
     UsersThree, UserPlus, Prohibit, LinkSimple, PaperPlaneTilt, PencilSimple, Trash,
-    Robot, Brain, MaskHappy, Question, PaintBrush, PencilSimpleLine
+    Robot, Brain, MaskHappy, Question, PaintBrush, PencilSimpleLine,
+    Briefcase // [EM: work-app]
 } from '@phosphor-icons/react';
 
 type LayoutId = NonNullable<PhoneCustomApp['layout']>;
@@ -3491,6 +3494,7 @@ ${olderText}
         { id: 'chat', icon: <ChatCircleDots size={cpIconSize} weight="light" />, label: '短信', bg: '#e7decd' },
         { id: 'aiagent', icon: <Robot size={cpIconSize} weight="light" />, label: '智能体', bg: '#e2ddd4' },
         { id: 'persona', icon: <MaskHappy size={cpIconSize} weight="light" />, label: '人格', bg: '#ede6da' },
+        { id: 'work', icon: <Briefcase size={cpIconSize} weight="light" />, label: '工作', bg: '#e4eaf3' }, // [EM: work-app]
         // [EM: agent-backend-chronicle]
         { id: 'chronicle', icon: <PencilSimpleLine size={cpIconSize} weight="light" />, label: '起居注', bg: '#eee7d9' },
         ...(customApps.length > 0 ? [{ id: '__myapps__', icon: <DotsThree size={cpIconSize} weight="bold" />, label: '更多', bg: '#e8e2d6' }] : []),
@@ -3881,6 +3885,14 @@ ${olderText}
                         <PersonaSim targetChar={targetChar} onExit={() => setActiveAppId('home')} openLifeLog={() => setActiveAppId('lifelog')}
                             sim={sim} onStart={runSim} onConsumed={() => personaSimStore.reset()} />
                     )}
+                    {/* [EM-START: work-app] */}
+                    {activeAppId === 'work' && targetChar && (
+                        <SubAppShell>
+                            <TermHeader title="工作" sub="work" accent="#6ea8ff" onBack={() => setActiveAppId('home')} />
+                            <WorkApp work={targetChar.phoneState?.work} accent="#6ea8ff" charName={targetChar.name} />
+                        </SubAppShell>
+                    )}
+                    {/* [EM-END: work-app] */}
                     {/* [EM-START: agent-backend-chronicle] */}
                     {activeAppId === 'chronicle' && targetChar && (
                         <SubAppShell>

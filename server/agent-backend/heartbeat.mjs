@@ -13,6 +13,7 @@ import { createHash } from 'node:crypto';
 import { getSetting } from './db.mjs';
 import { getCharacter, toCharacter } from './characters.mjs';
 import { getSnapshot } from './snapshots.mjs';
+import { SHORT_ID_LENGTH, applyThread, closeStaleThreads, listOpenThreads } from './lifeThreads.mjs';
 
 /** 心跳最晚执行时间：过了就 expired，mini 睡醒后不会补跑一堆旧心跳（设计 4.1）。 */
 export const HEARTBEAT_TTL_MS = 15 * 60 * 1000;
@@ -269,17 +270,19 @@ export const recordModelRun = (db, {
     rawOutput = null,
     intent = null,
     urge = null,
+    episode = null,
 }) => {
     db.prepare(
         `INSERT INTO model_runs (job_uuid, char_id, runtime, started_at, duration_ms, ok, outcome,
                                  shadow, reason, proposed_text, proposed_tool, proposed_args_summary,
-                                 skip_gate, error, activity, raw_output, intent, urge)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                 skip_gate, error, activity, raw_output, intent, urge, episode)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
         jobUuid, charId, runtime, startedAt, durationMs, ok ? 1 : 0, outcome,
         shadow ? 1 : 0, truncate(reason, 500), truncate(proposedText, 2000), proposedTool,
         truncate(proposedArgsSummary, 500), skipGate, truncate(error, 500),
         truncate(activity, 200), truncate(rawOutput, 2000), intent, urge,
+        episode ? truncate(JSON.stringify(episode), 4000) : null,
     );
 };
 
@@ -347,6 +350,7 @@ export const listModelRuns = (db, { charId = null, limit = 50 } = {}) => {
         rawOutput: row.raw_output,
         intent: row.intent,
         urge: row.urge,
+        episode: (() => { try { return row.episode ? JSON.parse(row.episode) : null; } catch { return null; } })(),
     }));
 };
 
@@ -418,6 +422,37 @@ export const decideIntent = ({ snapshot, now, timezone, minutesSinceContact, car
 };
 
 /**
+ * 这一段日程算不算「在忙工作 / 学业」：标了忙，或者标题里带这些词。
+ * 不认某个角色的具体职业——只认通用的「上班 / 开会 / 上课」这类说法，人设不同、措辞不同也都够用。
+ */
+const WORK_TITLE = /上班|工作|开会|会议|办公|公司|项目|审批|加班|出差|谈判|应酬|上课|课程|自习|实验|论文|考试/;
+export const isWorkSlot = slot =>
+    Boolean(slot) && (slot.availability === 'busy' || WORK_TITLE.test(String(slot.title ?? slot.activity ?? '')));
+
+/**
+ * 这一跳要不要产出一段工作往来。
+ *
+ * 和「开不开口」同一个道理：让模型自己决定要不要写，它会选最省事的那个（不写）。
+ * 所以由程序抽签，抽中了才把要求交给模型。工作时段概率高，别的时段也留一点——
+ * 真人下班后偶尔也会回一条工作消息；手头有正在推进的事时更该接着写。
+ *
+ * 只在「过自己的日子」的跳里抽：去找阿萌的那一跳，注意力全在 ta 身上，
+ * 节外生枝写一段同事对话反而像心不在焉。
+ */
+export const episodeChance = ({ workish, hasThreads }) => {
+    const base = workish ? 0.55 : 0.12;
+    return Math.min(0.75, base + (workish && hasThreads ? 0.15 : 0));
+};
+
+export const decideEpisode = ({ snapshot, now, timezone, intent, threads = [], rng = Math.random }) => {
+    if (intent !== 'live') return { wanted: false, chance: 0 };
+    const slot = currentSlot(snapshot, now, timezone);
+    if (slot?.availability === 'offline') return { wanted: false, chance: 0 };
+    const chance = episodeChance({ workish: isWorkSlot(slot), hasThreads: threads.length > 0 });
+    return { wanted: rng() < chance, chance };
+};
+
+/**
  * 排查开关：解析失败时要不要把模型原文留一段。
  * 默认关。原文里有角色的话，只落在 mini 的库里，不进日志、不进推送。
  */
@@ -440,6 +475,38 @@ export const HEARTBEAT_SCHEMA = {
         reason: { type: 'string', maxLength: 500 },
         text: { type: 'string', maxLength: 2000 },
         urge: { type: 'string', enum: ['none', 'later', 'now'] },
+        // 工作往来：只有程序抽中「这一跳在处理工作」时才会要求写，见 decideEpisode。
+        episode: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['channel', 'with', 'lines'],
+            properties: {
+                channel: { type: 'string', enum: ['group', 'dm', 'email'] },
+                with: { type: 'string', maxLength: 40 },
+                subject: { type: 'string', maxLength: 80 },
+                lines: {
+                    type: 'array',
+                    maxItems: 8,
+                    items: {
+                        type: 'object',
+                        additionalProperties: false,
+                        required: ['who', 'text'],
+                        properties: { who: { type: 'string', maxLength: 24 }, text: { type: 'string', maxLength: 400 } },
+                    },
+                },
+                thread: {
+                    type: 'object',
+                    additionalProperties: false,
+                    required: ['title', 'summary', 'status'],
+                    properties: {
+                        id: { type: 'string', maxLength: 64 },
+                        title: { type: 'string', maxLength: 40 },
+                        summary: { type: 'string', maxLength: 200 },
+                        status: { type: 'string', enum: ['open', 'done'] },
+                    },
+                },
+            },
+        },
     },
 };
 
@@ -447,7 +514,9 @@ export const HEARTBEAT_SCHEMA = {
  * 拼提示词。「什么时候该说话」写死在这里，不交给模型自由发挥——
  * 没话找话是主动消息最容易翻车的地方（设计 4.3 第 4 步）。
  */
-export const buildPrompt = (character, snapshot, now = new Date(), intent = 'live', { thoughts = [], carried = null } = {}) => {
+export const buildPrompt = (character, snapshot, now = new Date(), intent = 'live', {
+    thoughts = [], carried = null, threads = [], episode = false,
+} = {}) => {
     const p = snapshot.payload || {};
     const lines = [];
     lines.push(`你是「${p.identity?.name || character.displayName}」，正在自己的生活里过日子。`);
@@ -501,6 +570,13 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
     if (carried) {
         lines.push(`你上一次醒来时心里想的是：「${carried.reason}」。现在就是那个「等会儿」了。`);
     }
+    // 手头正在推进的事：每一跳都带上，「领口还要改」下一跳才接得上。
+    if (threads.length) {
+        lines.push(
+            '你手头正在推进的事（这是你真实在做的，对方并不知道细节）：\n'
+            + threads.map(t => `- 「${t.title}」${t.summary ? `：${t.summary}` : ''}（id：${String(t.id).slice(0, SHORT_ID_LENGTH)}）`).join('\n'),
+        );
+    }
     // 开不开口已经定了，模型不再做判断题，只负责把它说得像这个人会说的话。
     lines.push(
         intent === 'reach_out'
@@ -518,6 +594,20 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
                 + 'reason 写你心里的想法，对方看不到它。'
                 + 'urge：你打算过一阵再找 ta 就填 "later"（下次醒来你就会去找），没这个打算填 "none"。',
     );
+    // 抽中了「这一跳在处理工作」：把要求交给模型，让它写一小段真实的往来。
+    if (episode && intent !== 'reach_out') {
+        lines.push(
+            '这一跳你正好在处理工作（或学业）上的事。在 episode 里写一小段真实的往来：\n'
+            + '- channel：group = 工作群，dm = 和某个同事私聊，email = 邮件；with 写群名或对方的名字。'
+            + '同事的名字前后要一致，别每次换人；email 再写 subject。\n'
+            + '- lines：最多 6 句，who 写说话人的名字，你自己写「我」。只写工作里的话，别提对方。\n'
+            + '- 上面有正在推进的事就接着写它的下一步：thread.id 照抄括号里的 id，summary 写这一步之后的进展。'
+            + '开一件新事就不填 id。事情办完了 status 填 "done"，否则 "open"。\n'
+            + '- 只写日常工作里的往来，不要在里面做出辞职、搬家、出事这类会改变你人生的大事。\n'
+            + '- 如果你根本没有工作或学业，整段省略 episode。\n'
+            + 'activity 仍然写你这会儿在做什么，要和 episode 对得上。',
+        );
+    }
     return lines.join('\n\n');
 };
 
@@ -620,10 +710,17 @@ export const createHeartbeatHandler = ({
     const thoughts = recentThoughts(db, character.charId, {
         since: new Date(startedAt.getTime() - 12 * 60 * 60_000),
     });
+    // 手头正在推进的事：先把久没动静的收掉，再交给模型接着做。试跑期不动库，只是看看。
+    if (!shadow) closeStaleThreads(db, character.charId, startedAt);
+    const threads = listOpenThreads(db, character.charId);
+    // 这一跳要不要写一段工作往来：同样由程序抽签，抽中了才要求模型写。
+    const { wanted: wantsEpisode } = decideEpisode({
+        snapshot, now: startedAt, timezone, intent, threads, rng,
+    });
     const result = await runner.run({
         charId: character.charId,
         credRef: character.credRef,
-        system: buildPrompt(character, snapshot, startedAt, intent, { thoughts, carried }),
+        system: buildPrompt(character, snapshot, startedAt, intent, { thoughts, carried, threads, episode: wantsEpisode }),
         user: '现在要做什么？只按 schema 回一个 JSON。',
         schema: HEARTBEAT_SCHEMA,
         timeoutMs: config.heartbeatTimeoutMs,
@@ -649,6 +746,8 @@ export const createHeartbeatHandler = ({
     }
 
     const output = result.output;
+    // 没被要求写的 episode 一律不收：写不写由程序抽签定，模型自己加戏不算数。
+    const episode = wantsEpisode ? output.episode ?? null : null;
     recordModelRun(db, {
         jobUuid: job.uuid,
         charId: character.charId,
@@ -666,11 +765,38 @@ export const createHeartbeatHandler = ({
         intent,
         // 开了口就不再欠着；没开口的「等会儿」留给下一跳兑现。
         urge: output.action === 'message' ? 'none' : output.urge,
+        episode,
     });
 
     // 影子期到此为止：不写 outbox、不推送、不执行工具（设计 4.3 第 9 步）。
-    if (shadow || output.action !== 'message' || !deliver) {
+    if (shadow || !deliver) {
         return { ok: true, shadow, intent, action: output.action, activity: output.activity, durationMs };
+    }
+
+    // 工作往来：先记「正在推进的事」，再送去手机。静默送达（notify:false）：
+    // 这是给阿萌翻的记录，不是来打扰她的消息。messageId 以任务 uuid 为幂等键。
+    let workDelivered = false;
+    if (episode) {
+        const thread = episode.thread ? applyThread(db, character.charId, episode.thread, startedAt) : null;
+        const { thread: _draft, ...rest } = episode;
+        await deliver({
+            messageId: `hb:${job.uuid}:work`,
+            charId: character.charId,
+            jobUuid: job.uuid,
+            kind: 'job_result',
+            notify: false,
+            payload: {
+                type: 'work_episode',
+                createdAt: startedAt.toISOString(),
+                activity: output.activity,
+                episode: rest,
+                thread,
+            },
+        });
+        workDelivered = true;
+    }
+    if (output.action !== 'message') {
+        return { ok: true, shadow, intent, action: output.action, activity: output.activity, workDelivered, durationMs };
     }
 
     // 真实执行（1d）：落信箱 + 推送。messageId 以任务 uuid 为幂等键——
@@ -691,5 +817,5 @@ export const createHeartbeatHandler = ({
             staleAfter: new Date(createdAt.getTime() + MESSAGE_STALE_AFTER_MS).toISOString(),
         },
     });
-    return { ok: true, shadow: false, intent, action: 'message', activity: output.activity, delivered: true, durationMs };
+    return { ok: true, shadow: false, intent, action: 'message', activity: output.activity, delivered: true, workDelivered, durationMs };
 };

@@ -100,6 +100,8 @@ export interface AgentModelRun {
     rawOutput?: string | null;
     /** 这一跳有没有「过会儿找 ta」的念头；有的话下一跳会兑现。 */
     urge?: 'none' | 'later' | 'now' | null;
+    /** 这一跳产出的工作往来（审计副本；手机上看的那份在信箱里）。 */
+    episode?: { channel: string; with: string } | null;
 }
 
 export interface AgentDevice {
@@ -355,14 +357,20 @@ export const isFreshChatMessage = (message: AgentMessage, now = Date.now()): boo
 /** 收到的一条后台消息该怎么处理。 */
 export interface InboxDelivery {
     message: AgentMessage;
-    /** 'chat' = 进聊天；'stale' = 过期了，只留在起居注；'other' = 系统通知等。 */
-    route: 'chat' | 'stale' | 'other';
+    /** 'chat' = 进聊天；'stale' = 过期了，只留在起居注；'work' = 「工作」App 的往来；'other' = 系统通知等。 */
+    route: 'chat' | 'stale' | 'work' | 'other';
 }
+
+/** 后端把心跳产出的工作往来装在 job_result 里，靠 payload.type 认（信箱的 kind 是固定几种，见设计 2.6）。 */
+export const WORK_EPISODE_TYPE = 'work_episode';
+export const isWorkEpisodeMessage = (message: AgentMessage): boolean =>
+    message.kind === 'job_result' && message.payload?.type === WORK_EPISODE_TYPE;
 
 export const routeInboxMessages = (messages: AgentMessage[], now = Date.now()): InboxDelivery[] =>
     messages.map(message => ({
         message,
-        route: message.kind !== 'chat_message' ? 'other'
-            : isFreshChatMessage(message, now) ? 'chat' : 'stale',
+        route: isWorkEpisodeMessage(message) ? 'work'
+            : message.kind !== 'chat_message' ? 'other'
+                : isFreshChatMessage(message, now) ? 'chat' : 'stale',
     }));
 // [EM-END: agent-backend-client]

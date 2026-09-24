@@ -11,6 +11,45 @@ import { readCredential } from './credentials.mjs';
 const JSON_BLOCK = /```(?:json)?\s*([\s\S]*?)```/i;
 
 /**
+ * 工作往来（episode）：一小段和同事的对话，外加「手头正在推进的事」的一句进展。
+ *
+ * 它是**附赠**的：写坏了只丢这一段，不能连累这一跳原本的 action / activity / reason
+ * ——模型多带一层嵌套结构，偶尔掉格式是常态，不该因此整跳作废。
+ */
+const EPISODE_CHANNELS = new Set(['group', 'dm', 'email']);
+
+export const parseEpisode = raw => {
+    if (!raw || typeof raw !== 'object') return null;
+    if (!EPISODE_CHANNELS.has(raw.channel)) return null;
+    const withWho = String(raw.with ?? '').trim().slice(0, 40);
+    if (!withWho) return null;
+    const lines = (Array.isArray(raw.lines) ? raw.lines : [])
+        .map(line => ({ who: String(line?.who ?? '').trim().slice(0, 24), text: String(line?.text ?? '').trim().slice(0, 400) }))
+        .filter(line => line.who && line.text)
+        .slice(0, 8);
+    if (lines.length === 0) return null;
+
+    const episode = { channel: raw.channel, with: withWho, lines };
+    if (raw.channel === 'email') {
+        const subject = String(raw.subject ?? '').trim().slice(0, 80);
+        if (subject) episode.subject = subject;
+    }
+    const thread = raw.thread;
+    if (thread && typeof thread === 'object') {
+        const title = String(thread.title ?? '').trim().slice(0, 40);
+        if (title) {
+            episode.thread = {
+                ...(thread.id ? { id: String(thread.id).trim().slice(0, 64) } : {}),
+                title,
+                summary: String(thread.summary ?? '').trim().slice(0, 200),
+                status: thread.status === 'done' ? 'done' : 'open',
+            };
+        }
+    }
+    return episode;
+};
+
+/**
  * 两层容错解析：先当整段 JSON 读，不行再从 ``` 代码块 / 第一个花括号里捞。
  * 各家模型对 response_format 的支持参差不齐，掉格式是常态，不是异常。
  */
@@ -34,9 +73,11 @@ export const parseHeartbeatOutput = raw => {
         const action = parsed?.action;
         if (action !== 'noop' && action !== 'message') continue;
         if (action === 'message' && !String(parsed.text || '').trim()) continue;
+        const episode = parseEpisode(parsed.episode);
         return {
             ok: true,
             output: {
+                ...(episode ? { episode } : {}),
                 action,
                 activity: String(parsed.activity ?? '').slice(0, 120),
                 reason: String(parsed.reason ?? '').slice(0, 500),

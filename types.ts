@@ -964,6 +964,40 @@ export interface ConvTopic {
     span?: number;
 }
 
+// [EM-START: work-app]
+/** 「工作」App 里的一句话（群聊 / 私聊 / 邮件）。来自 Mac mini 上心跳的工作往来，只增不改。 */
+export interface WorkMessage {
+    id: string;
+    /** 后端 outbox 的 messageId，用来幂等：同一段往来被取回两次不会重复写。 */
+    sourceId: string;
+    at: number;
+    /** 会话键：g:群名 / d:人名 / e:邮件主题。同一个键的消息落在同一个会话里。 */
+    channel: string;
+    channelTitle: string;
+    kind: 'group' | 'dm' | 'email';
+    /** 说话人的名字；机主自己是「我」。 */
+    from: string;
+    mine: boolean;
+    text: string;
+    subject?: string;
+}
+
+/** 正在推进的事：标题 + 最新进展 + 一路走来的进展记录。 */
+export interface WorkThread {
+    id: string;
+    title: string;
+    summary: string;
+    status: 'open' | 'done';
+    updatedAt: number;
+    history: { at: number; text: string }[];
+}
+
+export interface CharacterWorkState {
+    messages: WorkMessage[];
+    threads: WorkThread[];
+}
+// [EM-END: work-app]
+
 // [EM-START: contact-groups]
 /** 联系人分组。固定这几类，方便模型输出稳定；缺省时按关系备注关键词推断，见 utils/contactGroups.ts。 */
 export type ContactGroupId = 'family' | 'friend' | 'work' | 'school' | 'service' | 'online' | 'other';
@@ -2901,6 +2935,7 @@ export interface CharacterProfile {
 
   phoneState?: {
       records: PhoneEvidence[];
+      work?: CharacterWorkState; // [EM: work-app] 「工作」App：同事往来与正在推进的事
       customApps?: PhoneCustomApp[];
       simLogs?: PhoneSimLog[]; // 「生活记录」：人格模拟演出留存
       chatReadAt?: number;     // 上次打开 Messages 的时间戳，用于计算未读

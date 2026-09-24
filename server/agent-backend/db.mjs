@@ -154,6 +154,20 @@ export const MIGRATIONS = [
     `
     ALTER TABLE model_runs ADD COLUMN urge TEXT;
     `,
+    // 6：工作 App 的「正在推进的事」，以及每一跳产出的那段工作往来（审计用，前端拿到的副本在 outbox 里）。
+    `
+    CREATE TABLE life_threads (
+      id          TEXT PRIMARY KEY,
+      char_id     TEXT NOT NULL REFERENCES characters(char_id) ON DELETE CASCADE,
+      title       TEXT NOT NULL,
+      summary     TEXT NOT NULL,
+      status      TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','done')),
+      created_at  TEXT NOT NULL,
+      updated_at  TEXT NOT NULL
+    );
+    CREATE INDEX idx_life_threads_open ON life_threads (char_id, status, updated_at);
+    ALTER TABLE model_runs ADD COLUMN episode TEXT;
+    `,
 ];
 
 export const DEFAULT_SETTINGS = {
