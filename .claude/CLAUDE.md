@@ -163,6 +163,7 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - `apps/ShoppingApp.tsx` — 网购/外卖；整页、店铺目录与折叠店内商品列表都必须可滚动
 - `context/OSContext.tsx` — 商品、店铺、订单、Wish 等 Shopping 数据随全量备份
 - `constants.tsx` 中 Shopping 使用 `Storefront` 图标，不得回退为齿轮
+- `utils/shoppingFamily.ts` — 四种订单互通：我给 TA / TA 给我自动进 TA 查手机的淘宝和外卖（只读映射）；「给自己」与家属关联角色心跳下的单只在关联后互相可见；惊喜礼物送到前对收礼一方隐藏内容
 
 ### 17. EM 角色代记
 - `utils/emScribe.ts` — 代记指令执行与去重

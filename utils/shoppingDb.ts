@@ -40,6 +40,14 @@ export interface ShopOrder {
   isGiftFromChar?: boolean;
   awaitingReply?: boolean;
   charReply?: string;
+  // [EM-START: shopping-family]
+  /** 'user' = 我给自己买；'char' = 家属关联角色在心跳里给自己买（只读映射，不入库）。 */
+  selfOrder?: 'user' | 'char';
+  /** 不在商品目录里的订单（心跳订单）：直接存名称、规格和价格文字。 */
+  custom?: { title: string; detail?: string; price?: string };
+  /** 惊喜礼物：送到之前收礼的一方不知道里面是什么。 */
+  surprise?: boolean;
+  // [EM-END: shopping-family]
 }
 
 // Physical name stays for existing installations; migrate it only with a dedicated IndexedDB copy step.
@@ -137,6 +145,7 @@ export const ShoppingDB = {
 
   getOrders: () => getAll<ShopOrder>(STORE_ORDERS),
   saveOrder: (o: ShopOrder) => put(STORE_ORDERS, o),
+  deleteOrder: (id: string) => del(STORE_ORDERS, id), // [EM: shopping-family]
 
   captureReply: async (charId: string, reply: string) => {
     const orders = await getAll<ShopOrder>(STORE_ORDERS);
@@ -148,6 +157,14 @@ export const ShoppingDB = {
   },
 
   getShopEta: (shop: string) => SHOP_ETA[shop] ?? 30,
+
+  // [EM-START: shopping-family]
+  getSetting: async <T>(key: string): Promise<T | undefined> => {
+    const all = await getAll<{ key: string; value: T }>(STORE_SETTINGS);
+    return all.find(s => s.key === key)?.value;
+  },
+  saveSetting: (key: string, value: unknown) => put(STORE_SETTINGS, { key, value }),
+  // [EM-END: shopping-family]
 
   exportAll: async () => {
     const [products, cart, orders, settings] = await Promise.all([

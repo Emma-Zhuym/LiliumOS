@@ -24,6 +24,8 @@ import WorkApp from '../components/checkphone/WorkApp';
 import { usePersonaSim, personaSimStore } from '../utils/personaSimStore';
 import { getLastInnerState } from '../utils/emotionApply';
 import { normalizePhoneEvidence, phoneFieldToText } from '../utils/phoneEvidence';
+import { ShoppingDB } from '../utils/shoppingDb'; // [EM: shopping-family]
+import { isShopRecord, shopOrdersAsPhoneRecords } from '../utils/shoppingFamily'; // [EM: shopping-family]
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
 import { CHECK_PHONE_API_CHANGED_EVENT, getCheckPhoneApi, resolveCheckPhoneApi, setCheckPhoneApi } from '../utils/checkPhoneApi';
 import {
@@ -437,6 +439,20 @@ const CheckPhone: React.FC = () => {
 
     // Derived state for evidence records
     const records = (targetChar?.phoneState?.records || []).map(normalizePhoneEvidence);
+    // [EM-START: shopping-family] 投喂站里我给 TA / TA 给我的单，只读混进淘宝和外卖
+    const [shopRecords, setShopRecords] = useState<PhoneEvidence[]>([]);
+    useEffect(() => {
+        const charId = targetChar?.id;
+        if (!charId) { setShopRecords([]); return; }
+        let cancelled = false;
+        Promise.all([ShoppingDB.getOrders(), ShoppingDB.getProducts()])
+            .then(([orders, products]) => {
+                if (!cancelled) setShopRecords(shopOrdersAsPhoneRecords(orders, products, charId, userProfile?.name || ''));
+            })
+            .catch(() => { if (!cancelled) setShopRecords([]); });
+        return () => { cancelled = true; };
+    }, [targetChar?.id, activeAppId, userProfile?.name]);
+    // [EM-END: shopping-family]
     const customApps = targetChar?.phoneState?.customApps || [];
     const contacts = targetChar?.phoneState?.contacts || [];
     const allowFictional = targetChar?.phoneState?.allowFictionalContacts !== false;
@@ -2450,12 +2466,14 @@ ${olderText}
                         <div className="flex justify-between gap-4"><dt className="text-white/30">记录编号</dt><dd className="text-white/40 text-right font-mono">#{r.id.slice(-8).toUpperCase()}</dd></div>
                     </dl>
 
+                    {!isShopRecord(r) && ( // [EM: shopping-family] 投喂站的单去投喂站管
                     <button onClick={() => askConfirm({
                         title: '删除这条记录？', desc: '删除「' + r.title + '」后无法恢复。', confirmLabel: '删除', danger: true,
                         onConfirm: () => handleDeleteRecord(r),
                     })} className="w-full mt-2 py-3 rounded-2xl text-[12px] font-semibold text-rose-200 bg-rose-400/10 border border-rose-400/20 active:scale-[0.99] transition flex items-center justify-center gap-2">
                         <Trash size={15} weight="bold" /> 删除记录
                     </button>
+                    )}
                 </div>
             </SubAppShell>
         );
@@ -2501,7 +2519,7 @@ ${olderText}
 
     const renderShop = () => {
         const accent = '#ff7a45';
-        const list = records.filter(r => r.type === 'order').sort((a, b) => b.timestamp - a.timestamp);
+        const list = [...records, ...shopRecords].filter(r => r.type === 'order').sort((a, b) => b.timestamp - a.timestamp); // [EM: shopping-family]
         return (
             <SubAppShell>
                 <TermHeader title="淘宝" sub="my orders" accent={accent} onBack={() => setActiveAppId('home')}
@@ -2534,7 +2552,7 @@ ${olderText}
                                     <span className="text-[9px] px-2 py-0.5 rounded-full bg-white/[0.06] text-white/50 tracking-wider flex items-center gap-0.5">已下单 <CaretRight size={10} /></span>
                                 </div>
                             </div>
-                            <DelBtn onDelete={() => handleDeleteRecord(r)} />
+                            {!isShopRecord(r) && <DelBtn onDelete={() => handleDeleteRecord(r)} />}{/* [EM: shopping-family] 投喂站的单去投喂站管 */}
                         </div>
                     ))}
                 </div>
@@ -2545,7 +2563,7 @@ ${olderText}
 
     const renderFood = () => {
         const accent = '#fbbf24';
-        const list = records.filter(r => r.type === 'delivery').sort((a, b) => b.timestamp - a.timestamp);
+        const list = [...records, ...shopRecords].filter(r => r.type === 'delivery').sort((a, b) => b.timestamp - a.timestamp); // [EM: shopping-family]
         return (
             <SubAppShell>
                 <TermHeader title="外卖" sub="recent orders" accent={accent} onBack={() => setActiveAppId('home')}
@@ -2569,7 +2587,7 @@ ${olderText}
                             <div className="text-[11.5px] text-white/50 mt-2.5 leading-relaxed pl-1 border-l-2" style={{ borderColor: `${accent}55` }}>
                                 <span className="pl-2">{r.detail}</span>
                             </div>
-                            <DelBtn onDelete={() => handleDeleteRecord(r)} />
+                            {!isShopRecord(r) && <DelBtn onDelete={() => handleDeleteRecord(r)} />}{/* [EM: shopping-family] 投喂站的单去投喂站管 */}
                         </div>
                     ))}
                 </div>
