@@ -47,6 +47,8 @@ export interface ShopOrder {
   custom?: { title: string; detail?: string; price?: string };
   /** 惊喜礼物：送到之前收礼的一方不知道里面是什么。 */
   surprise?: boolean;
+  /** TA 在心跳里下的单：来源 messageId（幂等键） */
+  agentSourceId?: string;
   // [EM-END: shopping-family]
 }
 

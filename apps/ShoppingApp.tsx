@@ -13,14 +13,14 @@ import { ShoppingDB, type ShopProduct, type CartItem, type ShopOrder } from '../
 import { sweepFoodDeliveries } from '../utils/shoppingDeliverySweep';
 import { DB } from '../utils/db';
 import { F, S, R, HUE, STATUS } from '../utils/clayTokens';
-import { charSelfOrders, FAMILY_LINKS_KEY, isHiddenFromUser, normalizeFamilyLinks, orderPriceText } from '../utils/shoppingFamily'; // [EM: shopping-family]
+import { charSelfOrders, FAMILY_LINKS_KEY, formatYuan, isHiddenFromUser, normalizeFamilyLinks, orderCardLines, orderPriceText } from '../utils/shoppingFamily'; // [EM: shopping-family]
 
 const LAST_RECEIVER_KEY = 'lastReceiverCharId';
 const FOOD_ETA_OPTIONS = [15, 20, 25, 30, 45, 60];
 const NET_DAY_OPTIONS = [1, 2, 3, 5, 7, 14];
 
-type OrderDirection = 'toChar' | 'fromChar' | 'self'; // [EM: shopping-family]
-type Screen = 'home' | 'net' | 'food' | 'cart' | 'checkout' | 'orders' | 'detail' | 'add' | 'family'; // [EM: shopping-family]
+type OrderDirection = 'toChar' | 'self'; // [EM: shopping-family] TA 送我的由 TA 在心跳里自己下单
+type Screen = 'home' | 'netOrder' | 'food' | 'cart' | 'checkout' | 'orders' | 'detail' | 'add' | 'family'; // [EM: shopping-family]
 
 const TEAL = HUE.teal;
 const AMBER = HUE.amber;
@@ -142,7 +142,11 @@ const ShoppingApp: React.FC = () => {
   const [surprise, setSurprise] = useState(false);
   const [familyLinks, setFamilyLinks] = useState<string[]>([]);
   const forSelf = direction === 'self';
-  const isGiftFromChar = direction === 'fromChar';
+  // 网购直接填单：网购的东西很少回购，不用先建商品再加购物车
+  const [nName, setNName] = useState('');
+  const [nPrice, setNPrice] = useState('');
+  const [nSpec, setNSpec] = useState('');
+  const [nDays, setNDays] = useState(3);
   // [EM-END: shopping-family]
 
   // add/edit form
@@ -181,7 +185,7 @@ const ShoppingApp: React.FC = () => {
   const go = (s: Screen) => {
     screenStack.current.push(s);
     setScreen(s);
-    if (s === 'checkout') { setCustomEta({}); setEtaPickerType(null); setDirection('toChar'); setSurprise(false); } // [EM: shopping-family]
+    if (s === 'checkout' || s === 'netOrder') { setCustomEta({}); setEtaPickerType(null); setDirection('toChar'); setSurprise(false); } // [EM: shopping-family]
   };
   const back = () => {
     screenStack.current.pop();
@@ -249,7 +253,7 @@ const ShoppingApp: React.FC = () => {
       etaTimestamp: now + (customEta[g.type] ?? defaultEtaMin(g.type, g.items[0].p.shop)) * 60 * 1000,
       lines: g.items.map(({ c }) => ({ id: c.id, qty: c.qty, ...(c.note ? { note: c.note } : {}) })),
       // [EM-START: shopping-family]
-      ...(forSelf ? { selfOrder: 'user' as const } : isGiftFromChar ? { isGiftFromChar: true } : {}),
+      ...(forSelf ? { selfOrder: 'user' as const } : {}),
       ...(surprise && !forSelf ? { surprise: true } : {}),
       // [EM-END: shopping-family]
     }));
@@ -267,7 +271,7 @@ const ShoppingApp: React.FC = () => {
       setScreen('orders');
       setOrdersTab('active');
     }
-    const who = forSelf ? '给自己' : isGiftFromChar ? `${receiver} 送的${surprise ? '惊喜' : '礼物'}` : `送给 ${receiver}${surprise ? '（惊喜）' : ''}`;
+    const who = forSelf ? '给自己' : `送给 ${receiver}${surprise ? '（惊喜）' : ''}`;
     flash(created.length > 1 ? `已下单 · 网购和外卖分成两单` : `已下单 · ${who}`);
   };
 
@@ -282,7 +286,57 @@ const ShoppingApp: React.FC = () => {
     flash('订单已取消');
   };
 
+  const clearNetForm = () => { setNName(''); setNPrice(''); setNSpec(''); setNDays(3); };
+
+  const placeNetOrder = async () => {
+    const price = parseFloat(nPrice);
+    if (!nName.trim() || !Number.isFinite(price)) { flash('填上商品名和价格'); return; }
+    if (!forSelf && !receiverCharId) { flash('先选一位角色'); return; }
+    const now = Date.now();
+    const order: ShopOrder = {
+      id: 'o' + now,
+      type: 'net',
+      receiver: forSelf ? (userProfile?.name || '我') : receiver,
+      receiverCharId: forSelf ? undefined : receiverCharId,
+      status: 'active',
+      note: noteText.trim(),
+      placedAt: now,
+      etaTimestamp: now + nDays * 24 * 60 * 60 * 1000,
+      lines: [],
+      custom: { title: nName.trim(), ...(nSpec.trim() ? { detail: nSpec.trim() } : {}), price: formatYuan(price) },
+      ...(forSelf ? { selfOrder: 'user' as const } : {}),
+      ...(surprise && !forSelf ? { surprise: true } : {}),
+    };
+    await ShoppingDB.saveOrder(order);
+    if (!forSelf) await ShoppingDB.saveSetting(LAST_RECEIVER_KEY, receiverCharId);
+    clearNetForm();
+    setNoteText('');
+    await refresh();
+    setCurrentOrderId(order.id);
+    screenStack.current = ['home', 'orders', 'detail'];
+    setScreen('detail');
+    flash(forSelf ? '已下单 · 给自己' : `已下单 · 送给 ${receiver}${surprise ? '（惊喜）' : ''}`);
+  };
+
+  /** 买过的网购：来自以前的填单和旧的网购商品，按名字去重，最近的在前 */
+  const pastNetItems = (() => {
+    const seen = new Set<string>();
+    const fromOrders = orders
+      .filter(o => o.type === 'net' && o.custom && !o.agentSourceId)
+      .map(o => ({ name: o.custom!.title, price: String(parseFloat((o.custom!.price ?? '').replace(/[^0-9.]/g, '')) || ''), spec: o.custom!.detail ?? '' }));
+    const fromProducts = products.filter(p => p.type === 'net').map(p => ({ name: p.name, price: String(p.price), spec: p.note || p.brand }));
+    return [...fromOrders, ...fromProducts].filter(item => item.name && !seen.has(item.name) && seen.add(item.name)).slice(0, 10);
+  })();
+
   const reorder = async (o: ShopOrder) => {
+    if (o.custom) {
+      setNName(o.custom.title);
+      setNPrice(String(parseFloat((o.custom.price ?? '').replace(/[^0-9.]/g, '')) || ''));
+      setNSpec(o.custom.detail ?? '');
+      screenStack.current = ['home'];
+      go('netOrder');
+      return;
+    }
     const existing = await ShoppingDB.getCart();
     for (const l of o.lines) {
       if (!products.some(p => p.id === l.id)) continue;
@@ -349,7 +403,6 @@ const ShoppingApp: React.FC = () => {
     const p = products.find(x => x.id === c.id);
     return a + (p ? p.price * c.qty : 0);
   }, 0);
-  const netProducts = products.filter(p => p.type === 'net');
   const foodItems = products.filter(p => p.type === 'food');
   const shopOrder: string[] = [];
   foodItems.forEach(p => { if (p.shop && !shopOrder.includes(p.shop)) shopOrder.push(p.shop); });
@@ -360,7 +413,8 @@ const ShoppingApp: React.FC = () => {
   }));
   const findAvatar = (name: string) => roles.find(r => r.name === name)?.avatar;
   // [EM-START: shopping-family]
-  const allOrders = [...orders, ...charSelfOrders(characters, familyLinks)].sort((a, b) => b.placedAt - a.placedAt);
+  const giftSourceIds = orders.map(o => o.agentSourceId).filter((id): id is string => !!id);
+  const allOrders = [...orders, ...charSelfOrders(characters, familyLinks, Date.now(), giftSourceIds)].sort((a, b) => b.placedAt - a.placedAt);
   const orderAvatar = (o: ShopOrder) => o.selfOrder === 'user' ? userProfile?.avatar : findAvatar(o.receiver);
   const directionLabel = (o: ShopOrder) =>
     (o.selfOrder === 'user' ? '给自己'
@@ -373,7 +427,7 @@ const ShoppingApp: React.FC = () => {
     await ShoppingDB.saveSetting(FAMILY_LINKS_KEY, next);
   };
   // [EM-END: shopping-family]
-  const favProducts = products.filter(p => p.fav).slice(0, 4);
+  const favProducts = products.filter(p => p.fav && p.type === 'food').slice(0, 4); // 网购改成填单，常点只放外卖
   const activeOrders = allOrders.filter(o => o.status === 'active'); // [EM: shopping-family]
   const doneOrders = allOrders.filter(o => o.status === 'done'); // [EM: shopping-family]
   const shownOrders = ordersTab === 'active' ? activeOrders : doneOrders;
@@ -446,12 +500,12 @@ const ShoppingApp: React.FC = () => {
     <>
       {/* 网购 / 外卖 入口 */}
       <div className="grid grid-cols-2 gap-3">
-        <button onClick={() => go('net')} className="flex flex-col gap-2.5 active:scale-[.98] transition-transform text-left"
+        <button onClick={() => { clearNetForm(); go('netOrder'); }} className="flex flex-col gap-2.5 active:scale-[.98] transition-transform text-left"
           style={{ borderRadius: R.bigCard, background: TEAL.tint, padding: 16, boxShadow: S.raisedSoft }}>
           <div className="flex items-center justify-center" style={{ width: 44, height: 44, borderRadius: R.medium, background: TEAL.main, boxShadow: S.raisedSoft }}>
             <ShoppingCart size={24} weight="bold" color={F.surfaceRaised} />
           </div>
-          <div><div style={{ fontSize: 16, fontWeight: 600, color: TEAL.ink }}>网购</div><div style={{ fontSize: 12, color: TEAL.ink, opacity: 0.7, marginTop: 2 }}>按日期送达</div></div>
+          <div><div style={{ fontSize: 16, fontWeight: 600, color: TEAL.ink }}>网购</div><div style={{ fontSize: 12, color: TEAL.ink, opacity: 0.7, marginTop: 2 }}>填好就下单</div></div>
         </button>
         <button onClick={() => go('food')} className="flex flex-col gap-2.5 active:scale-[.98] transition-transform text-left"
           style={{ borderRadius: R.bigCard, background: AMBER.tint, padding: 16, boxShadow: S.raisedSoft }}>
@@ -515,7 +569,7 @@ const ShoppingApp: React.FC = () => {
       {/* 常送给 TA */}
       {favProducts.length > 0 && (
         <>
-          <div className="px-1 pt-1.5" style={{ fontSize: 16, fontWeight: 600, color: F.textPrimary }}>常送给 TA</div>
+          <div className="px-1 pt-1.5" style={{ fontSize: 16, fontWeight: 600, color: F.textPrimary }}>常点</div>
           <div className="grid grid-cols-2 gap-3">
             {favProducts.map(p => {
               const c = pal(p.type);
@@ -550,37 +604,6 @@ const ShoppingApp: React.FC = () => {
   );
 
   // ── SCREEN: Net List ──
-  const renderNetList = () => (
-    <>
-      <div className="grid grid-cols-2 gap-3">
-        {netProducts.map(p => (
-          <div key={p.id} className="relative" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.large, overflow: 'hidden', boxShadow: S.raisedSoft }}>
-            <button onClick={() => startEdit(p)} className="absolute top-2 right-2 flex items-center justify-center active:scale-90 transition-transform"
-              style={{ width: 28, height: 28, borderRadius: R.tiny, background: `${F.surface}cc`, backdropFilter: 'blur(4px)' }}>
-              <PencilSimple size={14} weight="bold" color={F.textTertiary} />
-            </button>
-            <div className="flex items-center justify-center" style={{ height: 104, background: TEAL.tint }}>
-              <CatIcon cat={p.cat} color={TEAL.ink} size={34} />
-            </div>
-            <div style={{ padding: '10px 12px' }}>
-              <div style={{ fontSize: 11, color: F.textTertiary }}>{p.brand}</div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: F.textPrimary }}>{p.name}</div>
-              <div className="flex items-center justify-between" style={{ marginTop: 6 }}>
-                <span style={{ fontSize: 15, fontWeight: 700, color: TEAL.ink }}>{yuan(p.price)}</span>
-                <AddBtn onClick={() => addToCart(p.id)} color={TEAL.main} />
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-      <button onClick={() => { clearForm(); setFType('net'); setFCat('toy'); go('add'); }}
-        className="flex items-center justify-center gap-2 active:scale-[.99] transition-transform"
-        style={{ height: 52, borderRadius: R.smallCard, border: `1.5px dashed ${TEAL.soft}`, background: 'transparent', color: TEAL.ink, fontSize: 15, fontWeight: 600 }}>
-        <Plus size={18} weight="bold" />新增网购商品
-      </button>
-    </>
-  );
-
   // ── SCREEN: Food List (shop grouped, collapsible) ──
   // [EM-START: shopping-scroll]
   const toggleShop = (shop: string) => {
@@ -710,46 +733,31 @@ const ShoppingApp: React.FC = () => {
     );
   };
 
-  // ── SCREEN: Checkout ──
-  // 顺序：先定这单是谁买给谁（三选一），再选角色、看商品、定送达时间、写留言
-  const renderCheckout = () => {
-    const cartLines = cart.map(c => {
-      const p = products.find(x => x.id === c.id);
-      if (!p) return null;
-      const cp = pal(p.type);
-      return { ...c, p, cp };
-    }).filter(Boolean) as { id: string; qty: number; note?: string; p: ShopProduct; cp: typeof TEAL }[];
+  // ── 下单共用：送给谁 / 惊喜 / 留言（外卖结账和网购填单都用） ──
+  const Toggle: React.FC<{ on: boolean; color: string }> = ({ on, color }) => (
+    <div className="shrink-0" style={{
+      width: 36, height: 20, borderRadius: R.pill, padding: 2,
+      background: on ? color : F.surfaceSunken, boxShadow: on ? S.raisedSoft : S.sunken,
+      transition: 'background 0.2s, box-shadow 0.2s',
+    }}>
+      <div style={{
+        width: 16, height: 16, borderRadius: '50%', background: F.surfaceRaised, boxShadow: S.raisedSoft,
+        transform: on ? 'translateX(16px)' : 'translateX(0)', transition: 'transform 0.2s',
+      }} />
+    </div>
+  );
 
-    const groups = (['food', 'net'] as const)
-      .map(type => ({ type, lines: cartLines.filter(l => l.p.type === type) }))
-      .filter(g => g.lines.length > 0);
-    const mixed = groups.length > 1;
-    const C = groups[0]?.type === 'food' ? AMBER : TEAL;
+  const label = (text: string) => (
+    <div style={{ fontSize: 13, fontWeight: 600, color: F.textSecondary, paddingLeft: 4 }}>{text}</div>
+  );
+
+  const renderRecipient = (C: typeof TEAL | typeof AMBER) => {
     const linkedNames = roles.filter(r => familyLinks.includes(r.id)).map(r => r.name).join('、');
-
-    const Toggle: React.FC<{ on: boolean; color: string }> = ({ on, color }) => (
-      <div className="shrink-0" style={{
-        width: 36, height: 20, borderRadius: R.pill, padding: 2,
-        background: on ? color : F.surfaceSunken, boxShadow: on ? S.raisedSoft : S.sunken,
-        transition: 'background 0.2s, box-shadow 0.2s',
-      }}>
-        <div style={{
-          width: 16, height: 16, borderRadius: '50%', background: F.surfaceRaised, boxShadow: S.raisedSoft,
-          transform: on ? 'translateX(16px)' : 'translateX(0)', transition: 'transform 0.2s',
-        }} />
-      </div>
-    );
-
-    const label = (text: string) => (
-      <div style={{ fontSize: 13, fontWeight: 600, color: F.textSecondary, paddingLeft: 4 }}>{text}</div>
-    );
-
     return (
       <>
         {/* 谁买给谁 */}
         <SunkenBox>
           <SegBtn label="送给 TA" active={direction === 'toChar'} onClick={() => setDirection('toChar')} />
-          <SegBtn label="TA 送我" active={direction === 'fromChar'} onClick={() => setDirection('fromChar')} />
           <SegBtn label="给自己" active={direction === 'self'} onClick={() => { setDirection('self'); setSurprise(false); }} />
         </SunkenBox>
 
@@ -759,7 +767,7 @@ const ShoppingApp: React.FC = () => {
           </div>
         ) : (
           <>
-            {label(isGiftFromChar ? '谁送的' : '送给谁')}
+            {label('送给谁')}
             <div className="flex gap-2.5 overflow-x-auto" style={{ paddingBottom: 4 }}>
               {roles.map(r => {
                 const active = receiverCharId === r.id;
@@ -789,12 +797,92 @@ const ShoppingApp: React.FC = () => {
               <div className="flex-1 min-w-0">
                 <div style={{ fontSize: 14, fontWeight: 600, color: surprise ? C.ink : F.textSecondary }}>惊喜礼物</div>
                 <div style={{ fontSize: 12, color: F.textTertiary, marginTop: 1 }}>
-                  {isGiftFromChar ? '送到之前不显示是什么，到了才揭晓' : `送到之前 ${receiver || 'TA'} 不知道里面是什么`}
+                  送到之前 {receiver || 'TA'} 不知道里面是什么
                 </div>
               </div>
             </button>
           </>
         )}
+      </>
+    );
+  };
+
+  const renderNoteField = () => (
+    <>
+      {label(forSelf ? '备注' : '写给 TA 的话')}
+      <InputField value={noteText} onChange={e => setNoteText(e.target.value)}
+        placeholder={forSelf ? '犒劳一下自己' : '记得趁热喝，爱你 ♡'} />
+    </>
+  );
+
+  // ── SCREEN: Net Order（网购直接填单） ──
+  const renderNetOrder = () => (
+    <>
+      {renderRecipient(TEAL)}
+
+      {label('买什么')}
+      <InputField value={nName} onChange={e => setNName(e.target.value)} placeholder="比如：羊毛围巾" />
+      {pastNetItems.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto" style={{ paddingBottom: 2 }}>
+          {pastNetItems.map(item => (
+            <button key={item.name} onClick={() => { setNName(item.name); setNPrice(item.price); setNSpec(item.spec); }}
+              className="shrink-0 active:scale-95 transition-transform"
+              style={{ height: 34, padding: '0 12px', borderRadius: R.pill, fontSize: 13, fontWeight: 600, background: F.surface, border: `1px solid ${F.borderSoft}`, color: F.textSecondary }}>
+              {item.name}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="flex flex-col gap-2">
+          {label('价格')}
+          <InputField value={nPrice} onChange={e => setNPrice(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="129" inputMode="decimal" />
+        </div>
+        <div className="flex flex-col gap-2">
+          {label('规格（可不填）')}
+          <InputField value={nSpec} onChange={e => setNSpec(e.target.value)} placeholder="灰色 / 均码" />
+        </div>
+      </div>
+
+      {label('几天送到')}
+      <div className="flex flex-wrap gap-2">
+        {NET_DAY_OPTIONS.map(v => {
+          const active = nDays === v;
+          return (
+            <button key={v} onClick={() => setNDays(v)} className="active:scale-95 transition-transform"
+              style={{
+                height: 36, padding: '0 16px', borderRadius: R.button, fontSize: 13, fontWeight: 600,
+                background: active ? TEAL.main : F.surfaceRaised, color: active ? F.surfaceRaised : F.textSecondary, boxShadow: S.raisedSoft,
+              }}>
+              {v} 天
+            </button>
+          );
+        })}
+      </div>
+
+      {renderNoteField()}
+    </>
+  );
+
+  // ── SCREEN: Checkout ──
+  // 顺序：先定这单是谁买给谁（三选一），再选角色、看商品、定送达时间、写留言
+  const renderCheckout = () => {
+    const cartLines = cart.map(c => {
+      const p = products.find(x => x.id === c.id);
+      if (!p) return null;
+      const cp = pal(p.type);
+      return { ...c, p, cp };
+    }).filter(Boolean) as { id: string; qty: number; note?: string; p: ShopProduct; cp: typeof TEAL }[];
+
+    const groups = (['food', 'net'] as const)
+      .map(type => ({ type, lines: cartLines.filter(l => l.p.type === type) }))
+      .filter(g => g.lines.length > 0);
+    const mixed = groups.length > 1;
+    const C = groups[0]?.type === 'food' ? AMBER : TEAL;
+
+    return (
+      <>
+        {renderRecipient(C)}
 
         {/* 商品：网购和外卖混在一起时分组显示，下单会拆成两单 */}
         {groups.map(g => {
@@ -872,9 +960,7 @@ const ShoppingApp: React.FC = () => {
         })}
 
         {/* 留言 */}
-        {label(forSelf ? '备注' : isGiftFromChar ? `${receiver} 的留言` : '写给 TA 的话')}
-        <InputField value={noteText} onChange={e => setNoteText(e.target.value)}
-          placeholder={forSelf ? '犒劳一下自己' : isGiftFromChar ? '给你买的，不用谢~' : '记得趁热喝，爱你 ♡'} />
+        {renderNoteField()}
       </>
     );
   };
@@ -1044,12 +1130,23 @@ const ShoppingApp: React.FC = () => {
             <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={c.main} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
             <span style={{ fontSize: 15, fontWeight: 600, color: F.textPrimary }}>留言</span>
           </div>
-          {/* user bubble - right */}
+          {/* user bubble - right；TA 送的礼物，留言是 TA 写的，放左边 */}
+          {o.isGiftFromChar ? (o.note ? (
+            <div className="flex gap-2.5 items-end">
+              <div className="shrink-0" style={{ width: 32, height: 32, borderRadius: '50%', overflow: 'hidden' }}>
+                <CharAvatar name={o.receiver} avatar={findAvatar(o.receiver)} size={32} bg={c.tint} />
+              </div>
+              <div style={{ maxWidth: '78%', padding: '10px 14px', borderRadius: `4px ${R.medium}px ${R.medium}px ${R.medium}px`, background: c.tint }}>
+                <span style={{ fontSize: 14, color: c.ink, lineHeight: 1.5 }}>{o.note}</span>
+              </div>
+            </div>
+          ) : null) : (
           <div className="flex justify-end">
             <div style={{ maxWidth: '78%', padding: '10px 14px', borderRadius: `${R.medium}px ${R.medium}px 4px ${R.medium}px`, background: c.main, boxShadow: S.raisedSoft }}>
               <span style={{ fontSize: 14, color: F.surfaceRaised, lineHeight: 1.5 }}>{o.note}</span>
             </div>
           </div>
+          )}
           {/* char reply - left */}
           <div className="flex gap-2.5 items-end">
             <div className="shrink-0" style={{ width: 32, height: 32, borderRadius: '50%', overflow: 'hidden' }}>
@@ -1077,11 +1174,13 @@ const ShoppingApp: React.FC = () => {
       <InputField value={fBrand} onChange={e => setFBrand(e.target.value)} placeholder="奈雪的茶" />
       <div style={{ fontSize: 13, fontWeight: 600, color: F.textSecondary, paddingLeft: 4 }}>价格</div>
       <InputField value={fPrice} onChange={e => setFPrice(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="38" inputMode="numeric" />
-      <div style={{ fontSize: 13, fontWeight: 600, color: F.textSecondary, paddingLeft: 4 }}>类型</div>
-      <SunkenBox>
-        <SegBtn label="外卖(按时长)" active={fType === 'food'} onClick={() => setFType('food')} />
-        <SegBtn label="网购(按日期)" active={fType === 'net'} onClick={() => setFType('net')} />
-      </SunkenBox>
+      {fType === 'net' && <div style={{ fontSize: 13, fontWeight: 600, color: F.textSecondary, paddingLeft: 4 }}>类型</div>}
+      {fType === 'net' && ( // 旧的网购商品还能改；新建的都是外卖
+        <SunkenBox>
+          <SegBtn label="外卖(按时长)" active={false} onClick={() => setFType('food')} />
+          <SegBtn label="网购(按日期)" active onClick={() => setFType('net')} />
+        </SunkenBox>
+      )}
       <div style={{ fontSize: 13, fontWeight: 600, color: F.textSecondary, paddingLeft: 4 }}>类目</div>
       <div className="flex flex-wrap gap-2">
         {ALL_CATS.map(([key, label]) => {
@@ -1162,7 +1261,7 @@ const ShoppingApp: React.FC = () => {
   // Screen-specific TopBar config (rendered outside scroll container)
   const topBarConfig: Record<Screen, { title: string; onBack: () => void; right?: React.ReactNode } | null> = {
     home: { title: '投喂站', onBack: closeApp, right: <div className="relative"><CartBtn /></div> },
-    net: { title: '网购', onBack: back, right: <div className="relative"><CartBtn /></div> },
+    netOrder: { title: '网购下单', onBack: back },
     food: { title: '外卖', onBack: back, right: <div className="relative"><CartBtn /></div> },
     cart: { title: '购物车', onBack: back },
     checkout: { title: '确认订单', onBack: back },
@@ -1198,7 +1297,7 @@ const ShoppingApp: React.FC = () => {
         }}
       >
         {screen === 'home' && renderHome()}
-        {screen === 'net' && renderNetList()}
+        {screen === 'netOrder' && renderNetOrder()}
         {screen === 'food' && renderFoodList()}
         {screen === 'cart' && renderCart()}
         {screen === 'checkout' && renderCheckout()}
@@ -1219,6 +1318,18 @@ const ShoppingApp: React.FC = () => {
             <button onClick={() => go('checkout')} className="inline-flex items-center active:translate-y-[1px] transition-transform"
               style={{ height: 44, padding: '0 24px', borderRadius: R.button, background: F.textPrimary, color: F.surfaceRaised, fontSize: 15, fontWeight: 600, boxShadow: S.raisedSoft }}>
               去结算
+            </button>
+          </div>
+        )}
+        {screen === 'netOrder' && (
+          <div className="flex items-center gap-3.5">
+            <div className="flex-1">
+              <span style={{ fontSize: 13, color: F.textTertiary }}>合计</span>
+              <div style={{ fontSize: 22, fontWeight: 700, color: TEAL.ink }}>{nPrice ? formatYuan(parseFloat(nPrice) || 0) : '¥ --'}</div>
+            </div>
+            <button onClick={placeNetOrder} className="inline-flex items-center active:translate-y-[1px] transition-transform"
+              style={{ height: 52, padding: '0 32px', borderRadius: R.button, background: TEAL.main, color: F.surfaceRaised, fontSize: 16, fontWeight: 600, boxShadow: S.raisedMedium }}>
+              下单
             </button>
           </div>
         )}
@@ -1250,10 +1361,7 @@ const ShoppingApp: React.FC = () => {
             {currentOrder.status === 'active' && (
               <button onClick={async () => {
                 const o = currentOrder!;
-                const orderLines = o.lines.map(l => {
-                  const p = products.find(x => x.id === l.id);
-                  return p ? { name: p.name, qty: l.qty, price: p.price } : null;
-                }).filter(Boolean) as { name: string; qty: number; price: number }[];
+                const orderLines = orderCardLines(o, products); // [EM: shopping-family]
                 const items = orderLines.map(l => l.name);
                 const total = orderLines.reduce((s, l) => s + l.price * l.qty, 0);
                 const typeLabel = o.type === 'food' ? '外卖' : '快递';
@@ -1270,7 +1378,7 @@ const ShoppingApp: React.FC = () => {
                 确认收货
               </button>
             )}
-            {currentOrder.status === 'done' && currentOrder.lines.some(l => products.some(p => p.id === l.id)) && (
+            {currentOrder.status === 'done' && !currentOrder.isGiftFromChar && (currentOrder.custom || currentOrder.lines.some(l => products.some(p => p.id === l.id))) && (
               <button onClick={() => reorder(currentOrder)} className="flex-1 flex items-center justify-center gap-2 active:translate-y-[1px] transition-transform"
                 style={{ height: 48, borderRadius: R.button, background: F.surface, border: `1px solid ${F.borderSoft}`, color: F.textPrimary, fontSize: 15, fontWeight: 600, boxShadow: S.raisedSoft }}>
                 <ShoppingCart size={18} weight="bold" />

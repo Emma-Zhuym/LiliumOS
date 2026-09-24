@@ -959,6 +959,12 @@ test('life 解析：四种小事各自的必填项，写坏只丢这一段', () 
     assert.deepEqual(parseLife({ kind: 'moment', detail: '今天的云很好看' }), { kind: 'moment', detail: '今天的云很好看' });
     assert.equal(parseLife({ kind: 'moment' }), null);
     assert.equal(parseLife({ kind: 'dance', detail: 'x' }), null);
+    assert.deepEqual(
+        parseLife({ kind: 'gift', with: '奶茶店', via: 'food', surprise: true, detail: '她爱喝的', value: '¥18', note: '趁热' }),
+        { kind: 'gift', with: '奶茶店', via: 'food', surprise: true, detail: '她爱喝的', value: '¥18', note: '趁热' },
+    );
+    assert.deepEqual(parseLife({ kind: 'gift', with: '围巾', via: 'boat' }), { kind: 'gift', with: '围巾', via: 'net', surprise: false }, '不认识的 via 当网购；没说惊喜就不是');
+    assert.equal(parseLife({ kind: 'gift', detail: '没写买了啥' }), null);
     const whole = parseHeartbeatOutput(JSON.stringify({ action: 'noop', activity: 'a', reason: '', life: { kind: 'bad' } }));
     assert.equal(whole.ok, true);
     assert.equal(whole.output.life, undefined);
@@ -975,7 +981,7 @@ test('抽签：下班时段多半是生活，上班时段多半是工作；两�
     assert.equal(decideEpisode({ snapshot: evening, now: at, timezone: 'America/Chicago', intent: 'reach_out', rng: () => 0.3 }).kind, null);
 });
 
-test('生活里做什么由程序定：饭点外卖多，别的时候聊天为主，四种都会出现', () => {
+test('生活里做什么由程序定：饭点外卖多，别的时候聊天为主，五种都会出现（含给她买东西）', () => {
     const count = minutes => {
         const seen = {};
         for (let i = 0; i < 100; i += 1) {
@@ -987,7 +993,7 @@ test('生活里做什么由程序定：饭点外卖多，别的时候聊天为�
     const dinner = count(18 * 60 + 30);
     const night = count(22 * 60);
     assert.ok(dinner.delivery > night.delivery * 2);
-    assert.deepEqual(Object.keys(night).sort(), ['chat', 'delivery', 'moment', 'order']);
+    assert.deepEqual(Object.keys(night).sort(), ['chat', 'delivery', 'gift', 'moment', 'order']);
     assert.ok(night.chat >= 40);
 });
 

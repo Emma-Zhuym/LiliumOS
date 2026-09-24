@@ -6,6 +6,8 @@ import type { ShopOrder, ShopProduct } from './shoppingDb';
 import {
     buildFamilyShoppingContext,
     charSelfOrders,
+    giftOrderFromLife,
+    orderCardLines,
     isHiddenFromChar,
     isHiddenFromUser,
     isShopRecord,
@@ -128,6 +130,31 @@ describe('惊喜礼物', () => {
         expect(isHiddenFromChar(gift, NOW)).toBe(false);
         const [rec] = shopOrdersAsPhoneRecords([gift], products, 'c1', '阿萌', NOW);
         expect(rec.detail).toContain('给阿萌买的惊喜，没告诉TA');
+    });
+});
+
+describe('TA 在心跳里给我买', () => {
+    const event = { messageId: 'hb:9:life', createdAt: new Date(NOW).toISOString(), life: { with: '奶茶店', via: 'food' as const, detail: '杨枝甘露', value: '¥19', note: '趁热', surprise: true } };
+
+    it('变成「来自 TA」的投喂站订单：外卖 40 分钟到，惊喜由 TA 定', () => {
+        const o = giftOrderFromLife(event, { id: 'c1', name: '沈砚' })!;
+        expect(o).toMatchObject({
+            id: 'hb-gift-hb:9:life', type: 'food', receiver: '沈砚', receiverCharId: 'c1', isGiftFromChar: true, surprise: true,
+            note: '趁热', agentSourceId: 'hb:9:life', etaTimestamp: NOW + 40 * MIN, custom: { title: '奶茶店', detail: '杨枝甘露', price: '¥19' },
+        });
+        expect(isHiddenFromUser(o, NOW)).toBe(true);
+        expect(orderCardLines(o, products)).toEqual([{ name: '奶茶店', qty: 1, price: 19 }]);
+    });
+
+    it('TA 手机里那条礼物记录不会被当成「TA 给自己买的」，也不会被投喂站再映射一遍', () => {
+        const gift = giftOrderFromLife(event, { id: 'c1', name: '沈砚' })!;
+        const chars = [char('c1', [record({ id: 'ag-hb:9:life', agentSourceIds: ['hb:9:life'] }), record({})])];
+        expect(charSelfOrders(chars, ['c1'], NOW, ['hb:9:life']).map(o => o.id)).toEqual(['hb-c1-ag-hb:1:life']);
+        expect(shopOrdersAsPhoneRecords([gift], products, 'c1', '阿萌', NOW)).toEqual([]);
+    });
+
+    it('没写买了什么就不落单', () => {
+        expect(giftOrderFromLife({ ...event, life: { via: 'net' } }, { id: 'c1', name: '沈砚' })).toBeNull();
     });
 });
 

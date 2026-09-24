@@ -484,9 +484,10 @@ export const decideEpisode = ({ snapshot, now, timezone, intent, threads = [], r
  */
 export const pickLifeKind = (minutesOfDay, rng = Math.random) => {
     const mealtime = (minutesOfDay >= 11 * 60 && minutesOfDay < 13 * 60 + 30) || (minutesOfDay >= 17 * 60 && minutesOfDay < 20 * 60 + 30);
+    // gift = 给阿萌买点东西（网购或外卖，TA 自己定要不要当惊喜）；少见才珍贵
     const weights = mealtime
-        ? [['chat', 0.4], ['delivery', 0.35], ['order', 0.1], ['moment', 0.15]]
-        : [['chat', 0.5], ['delivery', 0.1], ['order', 0.2], ['moment', 0.2]];
+        ? [['chat', 0.38], ['delivery', 0.35], ['order', 0.09], ['moment', 0.14], ['gift', 0.04]]
+        : [['chat', 0.48], ['delivery', 0.1], ['order', 0.18], ['moment', 0.2], ['gift', 0.04]];
     let roll = rng();
     for (const [kind, weight] of weights) {
         if (roll < weight) return kind;
@@ -526,7 +527,7 @@ export const HEARTBEAT_SCHEMA = {
             additionalProperties: false,
             required: ['kind'],
             properties: {
-                kind: { type: 'string', enum: ['chat', 'delivery', 'order', 'moment'] },
+                kind: { type: 'string', enum: ['chat', 'delivery', 'order', 'moment', 'gift'] },
                 with: { type: 'string', maxLength: 40 },
                 relation: { type: 'string', maxLength: 20 },
                 group: { type: 'string', enum: ['friend', 'family', 'school', 'online', 'other'] },
@@ -542,6 +543,9 @@ export const HEARTBEAT_SCHEMA = {
                 },
                 detail: { type: 'string', maxLength: 400 },
                 value: { type: 'string', maxLength: 20 },
+                via: { type: 'string', enum: ['net', 'food'] },
+                surprise: { type: 'boolean' },
+                note: { type: 'string', maxLength: 120 },
             },
         },
         // 工作往来：只有程序抽中「这一跳在处理工作」时才会要求写，见 decideEpisode。
@@ -694,7 +698,18 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
             delivery: '你刚点了外卖。kind 填 "delivery"；with 写店名，detail 写点了什么，value 写实付金额（比如 ¥38.50）。',
             order: '你刚在网上下了一单。kind 填 "order"；with 写商品名，detail 写规格或物流状态，value 写价格。',
             moment: '你刚发了一条朋友圈。kind 填 "moment"；detail 写正文。',
+            gift: '你刚给对方买了点东西。kind 填 "gift"；via 填 "net"（网购，几天后到）或 "food"（给对方点外卖，半小时左右到）；'
+                + 'with 写商品名或店名，detail 写买了什么、为什么挑这个，value 写价格；note 可以写一句附言（对方收到时能看到）。'
+                + '想不想让对方提前知道是什么由你定：想当惊喜就把 surprise 设为 true，送到之前对方看不到内容，你也别在聊天里说漏。',
         }[life];
+        if (life === 'gift') {
+            lines.push(
+                '这一跳你想到了对方，顺手给对方买了点东西。在 life 里写这一单：\n'
+                + `${how}\n`
+                + '要贴着你的人设、你们的关系和你此刻的时段，价钱和你的日常消费差不多，不要一出手就是大件。activity 要和这件事对得上。',
+            );
+            return lines.join('\n\n');
+        }
         lines.push(
             '这一跳你在过自己的私人生活，跟对方无关。在 life 里写一件你刚做的小事：\n'
             + known

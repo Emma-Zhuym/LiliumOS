@@ -99,6 +99,8 @@ import { syncAgentMessagesIntoChat } from '../utils/emAgentInbox';
 import { refreshAllChronicles } from '../utils/emAgentActivity'; // [EM: agent-backend-chronicle]
 import { applyWorkEpisode } from '../utils/emWork'; // [EM: work-app]
 import { applyLifeEpisode } from '../utils/emLife'; // [EM: agent-life]
+import { ShoppingDB } from '../utils/shoppingDb'; // [EM: shopping-family]
+import { giftOrderFromLife } from '../utils/shoppingFamily'; // [EM: shopping-family]
 
 interface ProactiveQueueEntry {
   charId: string;
@@ -1975,11 +1977,18 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   }));
               },
               // [EM: agent-life] 私人生活里的小事落进查手机：联系人聊天 / 外卖 / 淘宝 / 朋友圈
-              onLifeEvent: ({ charId, ...event }) => {
+              onLifeEvent: async ({ charId, ...event }) => {
                   void updateCharacter(charId, cur => {
                       const next = applyLifeEpisode(cur.phoneState, event, { userName: userProfileRef.current?.name });
                       return next ? { phoneState: next } : {};
                   });
+                  // [EM-START: shopping-family] TA 给阿萌买的东西同时进投喂站；落库失败就抛出，不 ack，下次再收
+                  if (event.life.kind === 'gift') {
+                      const char = charactersRef.current.find(c => c.id === charId);
+                      const order = char ? giftOrderFromLife(event, char) : null;
+                      if (order && !(await ShoppingDB.getOrders()).some(o => o.id === order.id)) await ShoppingDB.saveOrder(order);
+                  }
+                  // [EM-END: shopping-family]
               },
           });
           if (!alive || result.delivered === 0) return;

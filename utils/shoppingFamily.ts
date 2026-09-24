@@ -3,8 +3,9 @@
  * 投喂站 × 查手机互通，外加「家属关联」。
  *
  * 四种订单：
- * - 我给 TA 买 / TA 给我买 —— 投喂站里原有的两种，TA 是收货人或付款人，所以不论关联与否
- *   都会出现在 TA 查手机的淘宝 / 外卖里（`shopOrdersAsPhoneRecords`）。
+ * - 我给 TA 买 —— 投喂站下单，不论关联与否都会出现在 TA 查手机的淘宝 / 外卖里（`shopOrdersAsPhoneRecords`）。
+ * - TA 给我买 —— 由 TA 在心跳里自己下单（`giftOrderFromLife`），惊喜不惊喜也是 TA 定的；
+ *   TA 手机里那条由 emLife 直接写，所以这里不再映射一份。
  * - 我给我买 —— 投喂站新下单方式（`selfOrder: 'user'`），只有家属关联的角色才知道
  *   （`buildFamilyShoppingContext`）。
  * - TA 给 TA 买 —— 心跳里 TA 真实下的网购 / 外卖（查手机里带 `agentSourceIds` 的记录），
@@ -40,10 +41,14 @@ export const charSelfOrders = (
     characters: Pick<CharacterProfile, 'id' | 'name' | 'phoneState'>[],
     linkedIds: string[],
     now = Date.now(),
+    /** 心跳里给我买的礼物也记在 TA 手机里，但那是「TA 给我」，不是「TA 给 TA」 */
+    giftSourceIds: Iterable<string> = [],
 ): ShopOrder[] => {
     const linked = new Set(linkedIds);
+    const gifts = new Set(giftSourceIds);
     return characters.filter(char => linked.has(char.id)).flatMap(char =>
-        (char.phoneState?.records ?? []).filter(isHeartbeatPurchase).map(record => {
+        (char.phoneState?.records ?? []).filter(isHeartbeatPurchase)
+            .filter(record => !record.agentSourceIds?.some(id => gifts.has(id))).map(record => {
             const type = record.type === 'delivery' ? 'food' : 'net';
             const etaTimestamp = record.timestamp + (type === 'food' ? CHAR_FOOD_ETA_MS : CHAR_NET_ETA_MS);
             const detail = record.detail?.trim();
@@ -71,6 +76,47 @@ const productLines = (order: ShopOrder, products: ShopProduct[]) =>
     order.lines.map(line => ({ line, product: products.find(p => p.id === line.id) }))
         .filter((item): item is { line: ShopOrder['lines'][number]; product: ShopProduct } => !!item.product);
 
+/** 送达卡片要的逐行商品：目录商品按行，填单 / 心跳订单算一行。 */
+export const orderCardLines = (order: ShopOrder, products: ShopProduct[]) =>
+    order.custom
+        ? [{ name: order.custom.title, qty: 1, price: parsePrice(order.custom.price) }]
+        : productLines(order, products).map(({ line, product }) => ({ name: product.name, qty: line.qty, price: product.price }));
+
+export const parsePrice = (text?: string) => {
+    const n = parseFloat(String(text ?? '').replace(/[^0-9.]/g, ''));
+    return Number.isFinite(n) ? n : 0;
+};
+
+export const formatYuan = (n: number) => '¥' + (Math.round(n * 100) / 100).toString().replace(/\.00$/, '');
+
+/** 心跳里 TA 给我买的东西 → 投喂站订单。外卖 40 分钟到，网购 3 天到。 */
+export const giftOrderFromLife = (
+    event: { messageId: string; createdAt: string; life: { with?: string; detail?: string; value?: string; via?: 'net' | 'food'; surprise?: boolean; note?: string } },
+    char: Pick<CharacterProfile, 'id' | 'name'>,
+): ShopOrder | null => {
+    const title = event.life.with?.trim();
+    if (!title) return null;
+    const placedAt = Date.parse(event.createdAt) || Date.now();
+    const type = event.life.via === 'food' ? 'food' : 'net';
+    const detail = event.life.detail?.trim();
+    const price = event.life.value?.trim();
+    return {
+        id: `hb-gift-${event.messageId}`,
+        type,
+        receiver: char.name,
+        receiverCharId: char.id,
+        status: 'active',
+        note: event.life.note?.trim() ?? '',
+        placedAt,
+        etaTimestamp: placedAt + (type === 'food' ? 40 * 60 * 1000 : CHAR_NET_ETA_MS),
+        lines: [],
+        isGiftFromChar: true,
+        agentSourceId: event.messageId,
+        ...(event.life.surprise ? { surprise: true } : {}),
+        custom: { title, ...(detail ? { detail } : {}), ...(price ? { price } : {}) },
+    };
+};
+
 export const orderItemsText = (order: ShopOrder, products: ShopProduct[]) =>
     order.custom
         ? order.custom.title
@@ -79,8 +125,7 @@ export const orderItemsText = (order: ShopOrder, products: ShopProduct[]) =>
 /** 订单金额文字：目录商品按单价合计，心跳订单原样用它写的价格。 */
 export const orderPriceText = (order: ShopOrder, products: ShopProduct[]) => {
     if (order.custom) return order.custom.price ?? '';
-    const total = productLines(order, products).reduce((sum, { line, product }) => sum + product.price * line.qty, 0);
-    return '¥' + (Math.round(total * 100) / 100).toString().replace(/\.00$/, '');
+    return formatYuan(productLines(order, products).reduce((sum, { line, product }) => sum + product.price * line.qty, 0));
 };
 
 /** 惊喜礼物还没送到：收礼的一方看不到里面是什么。 */
@@ -100,7 +145,8 @@ export const shopOrdersAsPhoneRecords = (
     userName: string,
     now = Date.now(),
 ): PhoneEvidence[] =>
-    orders.filter(order => !order.selfOrder && order.receiverCharId === charId).flatMap(order => {
+    // 心跳下的礼物单（agentSourceId）TA 手机里已经有一条了，不重复映射
+    orders.filter(order => !order.selfOrder && !order.agentSourceId && order.receiverCharId === charId).flatMap(order => {
         const items = orderItemsText(order, products);
         if (!items) return [];
         const who = userName || '用户';

@@ -13,6 +13,7 @@
 
 import { ShoppingDB } from './shoppingDb';
 import { DB } from './db';
+import { orderCardLines } from './shoppingFamily'; // [EM: shopping-family]
 
 export async function sweepFoodDeliveries(): Promise<void> {
   try {
@@ -27,10 +28,7 @@ export async function sweepFoodDeliveries(): Promise<void> {
 
       if (!o.receiverCharId) continue;
 
-      const orderLines = o.lines.map(l => {
-        const p = products.find(x => x.id === l.id);
-        return p ? { name: p.name, qty: l.qty, price: p.price } : null;
-      }).filter(Boolean) as { name: string; qty: number; price: number }[];
+      const orderLines = orderCardLines(o, products); // [EM: shopping-family]
       const items = orderLines.map(l => l.name);
       const total = orderLines.reduce((s, l) => s + l.price * l.qty, 0);
       const kind = o.isGiftFromChar ? 'gift_delivered' : 'delivery_arrived';

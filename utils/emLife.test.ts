@@ -75,4 +75,23 @@ describe('applyLifeEpisode · 外卖 / 网购 / 朋友圈', () => {
         expect(next.contacts).toBe(phone.contacts);
     });
 });
+describe('applyLifeEpisode · 给阿萌买东西', () => {
+    it('记进 TA 自己的淘宝 / 外卖，写明是送给谁的、是不是惊喜', () => {
+        const next = applyLifeEpisode(undefined, {
+            messageId: 'hb:7:life', createdAt: AT,
+            life: { kind: 'gift', with: '羊毛围巾', via: 'net', detail: '灰色的，她怕冷', value: '¥129', surprise: true },
+        }, { userName: '阿萌' })!;
+        expect(next.records[0]).toMatchObject({
+            id: 'ag-hb:7:life', type: 'order', title: '羊毛围巾', value: '¥129', agentSourceIds: ['hb:7:life'],
+            detail: '灰色的，她怕冷 · 送给阿萌的惊喜，还没告诉阿萌',
+        });
+    });
+
+    it('点外卖送过去记在外卖里；重复送达不重复记', () => {
+        const event: LifeEvent = { messageId: 'hb:8:life', createdAt: AT, life: { kind: 'gift', with: '老乡鸡', via: 'food' } };
+        const once = applyLifeEpisode(undefined, event, { userName: '阿萌' })!;
+        expect(once.records[0]).toMatchObject({ type: 'delivery', detail: '送给阿萌' });
+        expect(applyLifeEpisode(once, event, { userName: '阿萌' })).toBeNull();
+    });
+});
 // [EM-END: agent-life]

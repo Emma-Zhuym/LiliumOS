@@ -53,7 +53,7 @@ export const parseEpisode = raw => {
  * 私人生活里的一件小事（life）：和朋友家人聊几句、点外卖、网购、发朋友圈。
  * 和 episode 一样是附赠的：写坏了只丢这一段。
  */
-const LIFE_KINDS = new Set(['chat', 'delivery', 'order', 'moment']);
+const LIFE_KINDS = new Set(['chat', 'delivery', 'order', 'moment', 'gift']);
 const LIFE_GROUPS = new Set(['friend', 'family', 'school', 'online', 'other']);
 
 export const parseLife = raw => {
@@ -75,6 +75,15 @@ export const parseLife = raw => {
         };
     }
     if (raw.kind === 'moment') return detail ? { kind: 'moment', detail } : null;
+    // 给阿萌买东西：with 是店名或商品名；via 分网购 / 外卖；惊喜不惊喜由 TA 自己定
+    if (raw.kind === 'gift') {
+        if (!withWho) return null;
+        const note = String(raw.note ?? '').trim().slice(0, 120);
+        return {
+            kind: 'gift', with: withWho, via: raw.via === 'food' ? 'food' : 'net', surprise: raw.surprise === true,
+            ...(detail ? { detail } : {}), ...(value ? { value } : {}), ...(note ? { note } : {}),
+        };
+    }
     // 外卖 / 网购：with 是店名或商品名
     if (!withWho) return null;
     return { kind: raw.kind, with: withWho, ...(detail ? { detail } : {}), ...(value ? { value } : {}) };

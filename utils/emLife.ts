@@ -14,13 +14,17 @@ import { normName, upsertContact } from './relationshipChat';
 type PhoneState = NonNullable<CharacterProfile['phoneState']>;
 
 export interface LifeEpisode {
-    kind: 'chat' | 'delivery' | 'order' | 'moment';
+    kind: 'chat' | 'delivery' | 'order' | 'moment' | 'gift';
     with?: string;
     relation?: string;
     group?: string;
     lines?: { who: string; text: string }[];
     detail?: string;
     value?: string;
+    /** gift：网购还是点外卖、要不要当惊喜、附言 */
+    via?: 'net' | 'food';
+    surprise?: boolean;
+    note?: string;
 }
 
 export interface LifeEvent {
@@ -33,7 +37,7 @@ const MINE = '我';
 /** 一条记录里最多记多少个来源 id：只用来去重，太旧的不可能再被取回来。 */
 const MAX_SOURCE_IDS = 50;
 
-const RECORD_TYPE: Record<Exclude<LifeEpisode['kind'], 'chat'>, string> = {
+const RECORD_TYPE: Record<Exclude<LifeEpisode['kind'], 'chat' | 'gift'>, string> = {
     delivery: 'delivery',
     order: 'order',
     moment: 'social',
@@ -103,6 +107,26 @@ export const applyLifeEpisode = (
                 agentSourceIds: [event.messageId],
             }];
         return { ...phone, records: nextRecords, contacts: nextContacts };
+    }
+
+    // 给阿萌买的东西：记在 TA 自己手机的淘宝 / 外卖里（TA 付的钱），投喂站那一单由 OSContext 另外落
+    if (life.kind === 'gift') {
+        const title = life.with?.trim();
+        if (!title) return null;
+        const who = userName || 'TA';
+        const detail = [life.detail?.trim(), `送给${who}${life.surprise ? '的惊喜，还没告诉' + who : ''}`].filter(Boolean).join(' · ');
+        return {
+            ...phone,
+            records: [...records, {
+                id: `ag-${event.messageId}`,
+                type: life.via === 'food' ? 'delivery' : 'order',
+                title,
+                detail,
+                timestamp: at,
+                ...(life.value?.trim() ? { value: life.value.trim() } : {}),
+                agentSourceIds: [event.messageId],
+            }],
+        };
     }
 
     const type = RECORD_TYPE[life.kind];

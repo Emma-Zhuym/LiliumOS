@@ -7,7 +7,7 @@
 
 import { ShoppingDB, type ShopOrder } from './shoppingDb';
 import { sweepFoodDeliveries } from './shoppingDeliverySweep';
-import { buildFamilyShoppingContext, FAMILY_LINKS_KEY, isHiddenFromChar, normalizeFamilyLinks } from './shoppingFamily'; // [EM: shopping-family]
+import { buildFamilyShoppingContext, FAMILY_LINKS_KEY, isHiddenFromChar, normalizeFamilyLinks, orderItemsText } from './shoppingFamily'; // [EM: shopping-family]
 
 function isEtaDateReached(etaTimestamp: number): boolean {
   const eta = new Date(etaTimestamp);
@@ -36,10 +36,7 @@ export async function buildShoppingDeliveryContext(charId: string): Promise<stri
       if (!o.receiverCharId || o.receiverCharId !== charId) continue;
       if (o.selfOrder) continue; // [EM: shopping-family] 自己给自己买的不是投喂
 
-      const items = o.lines.map(l => {
-        const p = products.find(x => x.id === l.id);
-        return p ? `${p.name}×${l.qty}` : '';
-      }).filter(Boolean).join('、');
+      const items = orderItemsText(o, products); // [EM: shopping-family] 填单 / 心跳订单不在商品目录里
 
       if (!items) continue;
       // [EM-START: shopping-family] 惊喜礼物：送到前收礼一方不知道内容，送达那轮正常揭晓
