@@ -170,3 +170,34 @@ describe('短信话题范围', () => {
         expect(archived.topicStart).toBe(2);
     });
 });
+
+// [EM-START: contact-groups]
+describe('upsertContact · 分组', () => {
+    it('新联系人带上分组和手动标记', () => {
+        const next = upsertContact([], { name: '小林', group: 'work', groupManual: true });
+        expect(next[0].group).toBe('work');
+        expect(next[0].groupManual).toBe(true);
+    });
+
+    it('已有分组的联系人，扫描/回填带来的新分组不覆盖', () => {
+        const base = upsertContact([], { name: '小林', group: 'work' });
+        const next = upsertContact(base, { name: '小林', group: 'friend', affinity: 10 });
+        expect(next[0].group).toBe('work');
+        expect(next[0].affinity).toBe(10);
+    });
+
+    it('用户手动指定（groupManual）可以改，并且从此锁住', () => {
+        const base = upsertContact([], { name: '小林', group: 'work' });
+        const changed = upsertContact(base, { name: '小林', group: 'friend', groupManual: true });
+        expect(changed[0].group).toBe('friend');
+        const scanned = upsertContact(changed, { name: '小林', group: 'work' });
+        expect(scanned[0].group).toBe('friend');
+        expect(scanned[0].groupManual).toBe(true);
+    });
+
+    it('原来没有分组的老联系人，扫描可以补上一个', () => {
+        const base = upsertContact([], { name: '小林' });
+        expect(upsertContact(base, { name: '小林', group: 'school' })[0].group).toBe('school');
+    });
+});
+// [EM-END: contact-groups]

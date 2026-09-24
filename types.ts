@@ -964,9 +964,18 @@ export interface ConvTopic {
     span?: number;
 }
 
+// [EM-START: contact-groups]
+/** 联系人分组。固定这几类，方便模型输出稳定；缺省时按关系备注关键词推断，见 utils/contactGroups.ts。 */
+export type ContactGroupId = 'family' | 'friend' | 'work' | 'school' | 'service' | 'online' | 'other';
+// [EM-END: contact-groups]
+
 export interface PhoneContact {
     id: string;
     name: string;
+    /** [EM: contact-groups] 分组；缺省时按 identity 推断成某一组，都对不上就是「其他」。 */
+    group?: ContactGroupId;
+    /** [EM: contact-groups] 分组是用户手动指定的：之后扫描/对话回填不得改回去。 */
+    groupManual?: boolean;
     /** 身份/关系标签，如「辅导员」「中间人」 */
     identity?: string;
     /** 置顶：每次「刷新消息列表」时保证抽中该联系人（0~3 个置顶联系人 + 其余随机），不被随机生成漏掉 */

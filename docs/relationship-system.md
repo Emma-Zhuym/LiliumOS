@@ -15,6 +15,11 @@
   - `learned`：**机主相处中「逐渐了解到」的认识**——由对话里 `[[了解:…]]` 累积而来。**和 note 分开**：这是「印象/判断」，来源是对方在聊天里自己说的，**未必属实**（对方可能在编）。
   - `topicBox?: ConvTopic[]`：**聊天话题盒**——这一侧第一人称、带主观色彩的「聊天记忆」，每聊满 100 条浓缩出一条；用作上下文（替代被归档的原文）。可长按改/删。
   - `archivedThru?: number`：**已归档原文条数水位线**——`record.detail` 里这之前的内容不再进上下文（只由话题盒代表），但原文仍保留供用户查看。
+- `PhoneContact.group?: ContactGroupId` / `groupManual?`：**分组**——家人 / 朋友 / 工作 / 学校 / 生活服务 / 网友 / 其他（`utils/contactGroups.ts`，固定这七类，不为哪个角色定制）。和 `kind`（真人 / 虚构）是两回事：真人角色可以是 TA 的同事，虚构 NPC 可以是 TA 的发小。
+  - **缺省时按 `identity` 关键词推断**（`inferContactGroup`），所以老联系人不用迁移、不用重新生成就有分组；对不上就是「其他」。
+  - 生成通讯录 / 聊天时，模型每个联系人多输出一个 `group`（`normalizeContactGroup` 收下中文和近义词）。
+  - **已有分组的联系人，扫描 / 对话回填不会改它**（`upsertContact`）；用户在联系人页或「添加联系人」里手动指定会置 `groupManual`，从此锁住。
+  - 联系人列表按组分段（空组不显示），组内仍按最近联系排。
 - `ConvTopic`：话题盒一条记忆（`text` 第一人称总结 / `createdAt` / `span` 浓缩了多少条原文）。
 - `PhoneEvidence.contactId?`：聊天记录归属的联系人。
 - `CharacterProfile.phoneState.contacts?: PhoneContact[]`：机主通讯录。

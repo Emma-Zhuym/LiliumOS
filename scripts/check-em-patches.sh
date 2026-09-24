@@ -124,6 +124,12 @@ check "角色详情页生成入口" apps/Character.tsx "[EM-START: character-dai
 echo "── 查手机 · 手动添加联系人带描述 ──"
 check "关系备注/一句描述输入框" apps/CheckPhone.tsx "[EM-START: contacts-manual-detail]"
 
+echo "── 查手机 · 联系人分组 ──"
+check "分组清单与推断" utils/contactGroups.ts "[EM-START: contact-groups]"
+check "PhoneContact.group 字段" types.ts "[EM-START: contact-groups]"
+check "upsertContact 保护已有分组" utils/relationshipChat.ts "[EM-START: contact-groups]"
+check "联系人列表按组分段" apps/CheckPhone.tsx "[EM-START: contact-groups]"
+
 echo "── EM 角色代记 ──"
 check "代记核心模块" utils/emScribe.ts "executeEmScribeDirectives"
 check "chatPrompts 注入" utils/chatPrompts.ts "[EM-START: em-scribe]"

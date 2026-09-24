@@ -788,7 +788,7 @@ interface HeartbeatEpisode {
    - `outbox` 一条 `kind='phone_record'`（2.6），`notify: false`，`messageId = hb:<job.uuid>:episode`（与同一跳的 `chat_message` 用不同 messageId，互不冲突）；`payload` 就是整个 `HeartbeatEpisode` 加 `at`。
 2. 前端（新起一个 `utils/emAgentPhoneSync.ts`，与 `emAgentInbox.ts` 并列而不是塞进去——两者都读 outbox、写法却完全不同）拉到 `phone_record` 后：
    - `channel` 映射到 `PhoneEvidence.type`（`work_group`/`work_dm`→`'chat'`、`email`→`'chat'` 但 `title` 前缀「[邮件]」、`friend`→`'chat'`、`delivery`→`'delivery'`），`detail` 是 `lines` 拼成的一小段对话；
-   - `with` 能在该角色 `phoneState.contacts` 里找到同名联系人就带上 `contactId`，找不到不强求匹配、留空；
+   - `with` 能在该角色 `phoneState.contacts` 里找到同名联系人就带上 `contactId`；找不到就**新建一个 NPC 联系人**，`channel` 决定它的分组（`work_group`/`work_dm`/`email` → `work`，`friend` → `friend`，`delivery` → `service`，其余按关系备注推断），这样通讯录会随着心跳自己长出关系网。分组清单是固定的七类（见 `docs/relationship-system.md`），不为哪个角色定制；
    - 与 `emAgentInbox.ts` 共用同一条 ack、同一份「已落地 messageId」去重（3.6 那套幂等键前缀不同，逻辑一样，不必抄两份）。
 3. 起居注（4.4）的 `activity` 不重复 `episode` 的内容——一句话已经在概述了，起居注那条目**加一个可点的引用**，点开跳到对应的 `phone_record`，而不是把对话原文也堆进起居注。
 4. 聊天注入（`utils/chatPrompts.ts` 的 `buildChronicleInjection`）读的是本地起居注副本，**只读 `activity`/`reason`，不读 `episode` 原文**：TA 自己知道跟同事说过什么就够了，没必要把工作群聊天记录整段搬进聊天提示词，那不是给阿萌看的内容。

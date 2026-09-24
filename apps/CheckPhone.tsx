@@ -2,7 +2,7 @@ import { loadCharacterContextMessages } from '../utils/chatContextRange';
 import React, { useState, useEffect, useRef } from 'react';
 import { useOS } from '../context/OSContext';
 import { DB } from '../utils/db';
-import { CharacterProfile, PhoneEvidence, PhoneCustomApp, PhoneContact, PhoneSimLog, ConvTopic, AiSession, AiServiceKind, TavernCard, GalleryImage, APIConfig } from '../types';
+import { CharacterProfile, PhoneEvidence, PhoneCustomApp, PhoneContact, PhoneSimLog, ConvTopic, AiSession, AiServiceKind, TavernCard, GalleryImage, APIConfig, ContactGroupId } from '../types';
 import { ContextBuilder } from '../utils/context';
 import Modal from '../components/os/Modal';
 import TokenImg from '../components/os/TokenImg';
@@ -14,6 +14,8 @@ import {
     clampAffinity, normName, flipTranscript, parseTranscript, serializeTurns, appendLearned,
     phoneConversationContext, topicText, summarizeConversation, applyRealConversationToPhoneState, mergePhoneScanResults,
 } from '../utils/relationshipChat';
+// [EM: contact-groups] 联系人分组：家人 / 朋友 / 工作 / 学校 / 生活服务 / 网友 / 其他
+import { CONTACT_GROUPS, CONTACT_GROUP_PROMPT, groupContacts, normalizeContactGroup, resolveContactGroup } from '../utils/contactGroups';
 import PersonaSim, { LifeLog, generatePersonaScript } from './PersonaSim';
 // [EM: agent-backend-chronicle] 起居注：TA 自己醒来做了什么
 import ChronicleApp from '../components/checkphone/ChronicleApp';
@@ -357,6 +359,7 @@ const CheckPhone: React.FC = () => {
     const [ncIdentity, setNcIdentity] = useState('');
     const [ncNote, setNcNote] = useState('');
     // [EM-END: contacts-manual-detail]
+    const [ncGroup, setNcGroup] = useState<ContactGroupId | ''>(''); // [EM: contact-groups] 空 = 按关系备注自动归
     // 改绑定弹窗（把联系人改绑到正确的真实角色 / 转为虚构）
     const [showRebindModal, setShowRebindModal] = useState(false);
     // 「允许虚构 NPC」开关的说明展开态
@@ -869,7 +872,8 @@ ${pinnedSection}
 2. **对话感**: 有来有回的对话脚本（3-4句），体现真实的关系。
 3. **格式**: 严格用 "我:..." 代表主角(你)，"对方:..." 代表联系人。
 4. **好感**: 给出该角色对此联系人的好感度 "affinity"（-100~100）。
-格式JSON数组: [{ "title": "真实角色填原名/虚构填名字", "kind": "real|npc", "linkedName": "若 real 填真实角色原名否则留空", "identity": "机主对 TA 的称呼/关系备注", "affinity": 30, "detail": "对方: 最近怎么样？\\n我: 还活着。\\n对方: 那就好。" }, ...]`;
+5. **分组**: ${CONTACT_GROUP_PROMPT}。按这个人和你的真实关系归，别都堆在同一组。
+格式JSON数组: [{ "title": "真实角色填原名/虚构填名字", "kind": "real|npc", "linkedName": "若 real 填真实角色原名否则留空", "identity": "机主对 TA 的称呼/关系备注", "group": "friend", "affinity": 30, "detail": "对方: 最近怎么样？\\n我: 还活着。\\n对方: 那就好。" }, ...]`;
                     logPrefix = "聊天软件";
                 } else if (type === 'contacts') {
                     promptInstruction = `扫描并生成**你（${targetChar.name}）自己**手机通讯录里的${myContacts.length ? ' 0-2 个新' : ' 4-6 个'}**联系人**（你自己的社交圈，第一人称，不是用户的人脉；不要对话，只要联系人本身）。
@@ -877,8 +881,8 @@ ${pinnedSection}
 ${realCharRule}
 
 已有联系人（固定保留，禁止重新生成或改写他们）：${myContacts.map(c => c.name).join('、') || '暂无'}。只补充合理的新联系人，没有新人就返回 []。
-每个联系人给出：姓名、关系备注(identity)、机主对 TA 的好感度(-100~100)、一句机主视角的备注(detail)。真实角色要符合上面的设定与已知关系，别瞎安。
-格式JSON数组: [{ "title": "真实角色填原名/虚构填名字", "kind": "real|npc", "linkedName": "若 real 填真实角色原名否则留空", "identity": "机主对 TA 的称呼/关系，如 学长/前任/彼方网友", "affinity": 20, "detail": "一句备注，比如：在彼方认识的，聊得来；或：欠我一顿饭，最近老已读不回。" }, ...]`;
+每个联系人给出：姓名、关系备注(identity)、分组(group)、机主对 TA 的好感度(-100~100)、一句机主视角的备注(detail)。${CONTACT_GROUP_PROMPT}。按这个人和你的真实关系归，别都堆在同一组。真实角色要符合上面的设定与已知关系，别瞎安。
+格式JSON数组: [{ "title": "真实角色填原名/虚构填名字", "kind": "real|npc", "linkedName": "若 real 填真实角色原名否则留空", "identity": "机主对 TA 的称呼/关系，如 学长/前任/彼方网友", "group": "school", "affinity": 20, "detail": "一句备注，比如：在彼方认识的，聊得来；或：欠我一顿饭，最近老已读不回。" }, ...]`;
                     logPrefix = "通讯录";
                 } else if (type === 'call') {
                     promptInstruction = `生成 3 条该角色的近期**通话记录**。
@@ -966,6 +970,7 @@ ${realCharRule}
                         contactsAcc = upsertContact(contactsAcc, {
                             name: contactName,
                             identity: item.identity,
+                            group: normalizeContactGroup(item.group), // [EM: contact-groups]
                             kind,
                             linkedCharId: linkedId,
                             avatar: linkedId ? realChar?.avatar : undefined,
@@ -1580,6 +1585,11 @@ ${olderText}
         mutateContacts(cs => cs.map(c => c.id === contact.id ? { ...c, affinity: clampAffinity(value) } : c));
     };
 
+    // [EM: contact-groups] 手动换分组会锁住，之后扫描/对话回填不会改回去
+    const handleSetContactGroup = (contact: PhoneContact, group: ContactGroupId) => {
+        mutateContacts(cs => cs.map(c => c.id === contact.id ? { ...c, group, groupManual: true } : c));
+    };
+
     const handleSaveNote = (contact: PhoneContact) => {
         mutateContacts(cs => cs.map(c => c.id === contact.id ? { ...c, note: noteDraft } : c));
         setEditingNote(false);
@@ -1762,9 +1772,10 @@ ${olderText}
             name, kind: ncKind, linkedCharId, affinity: 0, status: 'friend',
             identity: identity || undefined, identityManual: identity ? true : undefined,
             note: ncNote.trim() || undefined,
+            group: ncGroup || undefined, groupManual: ncGroup ? true : undefined, // [EM: contact-groups]
         }));
         setShowContactModal(false);
-        setNcName(''); setNcKind('npc'); setNcLinkedId(''); setNcIdentity(''); setNcNote('');
+        setNcName(''); setNcKind('npc'); setNcLinkedId(''); setNcIdentity(''); setNcNote(''); setNcGroup('');
         addToast('已添加联系人', 'success');
     };
 
@@ -2613,6 +2624,7 @@ ${olderText}
         const accent = '#f472b6';
         // 人际关系里不出现用户自己
         const list = contacts.filter(c => !isUserName(c.name)).sort((a, b) => (b.lastInteraction || b.createdAt) - (a.lastInteraction || a.createdAt));
+        const sections = groupContacts(list); // [EM: contact-groups] 家人 / 朋友 / 工作…，组内仍按最近联系排
         return (
             <SubAppShell>
                 <TermHeader title={contactSelectMode ? `已选 ${selectedContactIds.length}` : '联系人'} sub={contactSelectMode ? '长按进入了多选' : `${list.length} contacts`} accent={accent}
@@ -2650,7 +2662,16 @@ ${olderText}
                 </div>
                 <div className="flex-1 overflow-y-auto px-4 pt-2 space-y-2.5 no-scrollbar pb-28 overscroll-contain">
                     {list.length === 0 && <EmptyState text="还没有联系人 · 在下面生成通讯录" />}
-                    {list.map(c => {
+                    {sections.map(section => (
+                    <React.Fragment key={section.group.id}>
+                    {/* [EM-START: contact-groups] */}
+                    <div className="flex items-center gap-2 px-1 pt-2 -mb-0.5">
+                        <span className="text-[10px] tracking-[0.2em] uppercase text-white/45">{section.group.label}</span>
+                        <span className="text-[9px] tabular-nums text-white/25">{section.contacts.length}</span>
+                        <div className="flex-1 h-px bg-white/[0.06]" />
+                    </div>
+                    {/* [EM-END: contact-groups] */}
+                    {section.contacts.map(c => {
                         const badge = kindBadge(c);
                         const dimmed = c.status === 'deleted' || c.status === 'blocked';
                         const av = contactAvatar(c);
@@ -2693,6 +2714,8 @@ ${olderText}
                             </div>
                         );
                     })}
+                    </React.Fragment>
+                    ))}
                 </div>
                 {contactSelectMode ? (
                     <div className="absolute bottom-7 inset-x-0 flex justify-center gap-2 px-6 z-30 pointer-events-none">
@@ -3191,6 +3214,27 @@ ${olderText}
                                     <span className="text-[12px] font-bold tabular-nums shrink-0 w-9 text-right" style={{ color: affColor(aff) }}>{aff > 0 ? '+' : ''}{aff}</span>
                                 </div>
                             </div>
+
+                            {/* [EM-START: contact-groups] 分组：没手动选过就是按关系备注自动归的 */}
+                            <div className="rounded-2xl p-4 bg-white/[0.04] border border-white/[0.06]">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-[10px] tracking-[0.2em] uppercase text-white/40">分组</span>
+                                    <span className="text-[9px] text-white/30">{c.groupManual ? '已手动指定' : '自动归类，点一下可改'}</span>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {CONTACT_GROUPS.map(g => {
+                                        const active = resolveContactGroup(c) === g.id;
+                                        return (
+                                            <button key={g.id} onClick={() => handleSetContactGroup(c, g.id)}
+                                                className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition active:scale-95 ${active ? 'text-white border-transparent' : 'text-white/55 border-white/10 bg-white/[0.03]'}`}
+                                                style={active ? { background: accent } : undefined}>
+                                                {g.label}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                            {/* [EM-END: contact-groups] */}
 
                             {/* 真人联系人列表里显示的备注名 / 关系（可人工锁定，后续扫描不覆盖） */}
                             {isReal && (
@@ -4126,6 +4170,19 @@ ${olderText}
                         <textarea value={ncNote} onChange={e => setNcNote(e.target.value)} placeholder="机主视角的一句话，比如「大学室友，毕业后还经常约饭」——这是已确立的事实，扫描/对话不会覆盖它" className="w-full h-16 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs resize-none" />
                     </div>
                     {/* [EM-END: contacts-manual-detail] */}
+                    {/* [EM-START: contact-groups] */}
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1.5">分组 <span className="normal-case font-normal">可选，不选就按关系备注自动归</span></label>
+                        <div className="flex flex-wrap gap-1.5">
+                            {CONTACT_GROUPS.map(g => (
+                                <button key={g.id} type="button" onClick={() => setNcGroup(ncGroup === g.id ? '' : g.id)}
+                                    className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition ${ncGroup === g.id ? 'bg-pink-500 text-white border-transparent' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
+                                    {g.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    {/* [EM-END: contact-groups] */}
                 </div>
             </Modal>
 
