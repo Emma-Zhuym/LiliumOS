@@ -17,8 +17,11 @@ import { SHORT_ID_LENGTH, applyThread, closeStaleThreads, listOpenThreads } from
 
 /** 心跳最晚执行时间：过了就 expired，mini 睡醒后不会补跑一堆旧心跳（设计 4.1）。 */
 export const HEARTBEAT_TTL_MS = 15 * 60 * 1000;
-/** 「阿萌正在和这个角色聊天」的判定窗口。 */
-export const ACTIVE_CHAT_WINDOW_MS = 20 * 60 * 1000;
+/**
+ * 「刚聊过」的判定窗口：这段时间里醒来照样过自己的日子，只是不主动开口。
+ * 原来是 20 分钟、而且整跳不动脑；阿萌觉得 20 分钟后再来一句并不离谱，醒了也可以做别的（2026-09-24）。
+ */
+export const ACTIVE_CHAT_WINDOW_MS = 10 * 60 * 1000;
 /** 开启心跳后第一跳的延迟（设计 3.3）。 */
 export const FIRST_BEAT_DELAY_MS = 3 * 60 * 1000;
 /**
@@ -231,11 +234,25 @@ export const checkGates = (db, { character, snapshot, now = new Date() }) => {
     const timezone = snapshot.payload?.timezone || getSetting(db, 'timezone') || 'America/Chicago';
     if (inSleepWindow(now, snapshot.payload?.sleepWindow, timezone)) return 'sleeping';
 
+    if (modelRunsToday(db, character.charId, now, timezone) >= character.dailyModelBudget) {
+        return 'daily_budget';
+    }
+    return null;
+};
+
+/**
+ * 「这一跳不开口」的两个原因。和上面的闸不同，命中了**照样醒、照样动脑**，
+ * 只是不主动找阿萌——工作往来、生活小事照常写，TA 还是在过自己的日子。
+ *
+ * - active_chat：10 分钟内聊过（任意一方说过话），人就在跟前，不必另起话头；
+ * - message_cooldown：离上一条主动消息太近（空档里缩到 30 分钟）。
+ */
+export const speakBlock = (db, { character, snapshot, now = new Date() }) => {
+    const timezone = snapshot?.payload?.timezone || getSetting(db, 'timezone') || 'America/Chicago';
     const lastInteraction = lastRealInteractionAt(character, snapshot);
     if (lastInteraction && now.getTime() - lastInteraction.getTime() < ACTIVE_CHAT_WINDOW_MS) {
         return 'active_chat';
     }
-
     // 空档里冷却缩短：午休本来就是多说两句的时候，不该被上午那条挡住。
     const cooldownMin = inBreakWindow(snapshot, now, timezone)
         ? Math.min(character.messageCooldownMin, BREAK_COOLDOWN_MIN)
@@ -243,10 +260,6 @@ export const checkGates = (db, { character, snapshot, now = new Date() }) => {
     const lastMessage = lastChatMessageAt(db, character.charId);
     if (lastMessage && now.getTime() - Date.parse(lastMessage) < cooldownMin * MINUTE) {
         return 'message_cooldown';
-    }
-
-    if (modelRunsToday(db, character.charId, now, timezone) >= character.dailyModelBudget) {
-        return 'daily_budget';
     }
     return null;
 };
@@ -407,13 +420,14 @@ export const messageChance = ({ availability, minutesSinceContact, inBreak = fal
  * 决定这一跳的意图。reach_out = 去说句话；live = 过自己的日子。
  * rng 可注入，测试里钉死。
  */
-export const decideIntent = ({ snapshot, now, timezone, minutesSinceContact, carried = null, rng = Math.random }) => {
+export const decideIntent = ({ snapshot, now, timezone, minutesSinceContact, carried = null, canSpeak = true, rng = Math.random }) => {
     const slot = currentSlot(snapshot, now, timezone);
     const availability = slot?.availability ?? null;
     // 上一跳自己说了「等会儿找 ta」：这一跳不再抽签，兑现它。
     // 冷却、每日上限这些闸在抽签之前已经过了，所以不会因此刷屏。
     const inBreak = inBreakWindow(snapshot, now, timezone);
-    const chance = carried ? 1 : messageChance({ availability, minutesSinceContact, inBreak });
+    // 这一跳不能开口时照样抽一次（保持随机序列不变），只是概率为 0；欠着的「等会儿」留到下一跳。
+    const chance = !canSpeak ? 0 : carried ? 1 : messageChance({ availability, minutesSinceContact, inBreak });
     return {
         intent: rng() < chance ? 'reach_out' : 'live',
         chance,
@@ -570,7 +584,7 @@ export const HEARTBEAT_SCHEMA = {
  * 没话找话是主动消息最容易翻车的地方（设计 4.3 第 4 步）。
  */
 export const buildPrompt = (character, snapshot, now = new Date(), intent = 'live', {
-    thoughts = [], carried = null, threads = [], episode = false, life = null,
+    thoughts = [], carried = null, threads = [], episode = false, life = null, canSpeak = true,
 } = {}) => {
     const p = snapshot.payload || {};
     const lines = [];
@@ -644,8 +658,10 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
             : '现在你自己醒了一下，过你自己的日子。\n'
                 + '规则：activity 里用第一人称写你这会儿在做什么（40 字以内），'
                 + '贴着你当下的时段——在上班就是工作里的事，闲着就是闲着的事。'
-                + '一般 action 填 "noop"；但如果你心里正放不下 ta、此刻就想说（比如 ta 刚才在难过），'
-                + '那就别等：action 填 "message"，text 写你要说的话。'
+                + (canSpeak
+                    ? '一般 action 填 "noop"；但如果你心里正放不下 ta、此刻就想说（比如 ta 刚才在难过），'
+                        + '那就别等：action 填 "message"，text 写你要说的话。'
+                    : '你们刚说过话，这一跳 action 只能填 "noop"；心里想说的话先留着，想过一阵再说就把 urge 填 "later"。')
                 + 'reason 写你心里的想法，对方看不到它。'
                 + 'urge：你打算过一阵再找 ta 就填 "later"（下次醒来你就会去找），没这个打算填 "none"。',
     );
@@ -776,6 +792,8 @@ export const createHeartbeatHandler = ({
     const timezone = snapshot.payload?.timezone || getSetting(db, 'timezone') || 'America/Chicago';
     const lastContact = lastRealInteractionAt(character, snapshot);
     const carried = pendingUrge(db, character.charId, { since: lastContact });
+    // 刚聊过 / 刚发过：这一跳不开口，但照样醒、照样过自己的日子。
+    const hush = speakBlock(db, { character, snapshot, now: startedAt });
     // 开不开口由程序抽签，不再让模型做判断题——它总能为沉默找到理由（设计 3.3）。
     const { intent } = decideIntent({
         snapshot,
@@ -783,6 +801,7 @@ export const createHeartbeatHandler = ({
         timezone,
         minutesSinceContact: lastContact ? (startedAt.getTime() - lastContact.getTime()) / 60_000 : null,
         carried,
+        canSpeak: !hush,
         rng,
     });
     // 只回看最近 12 小时：更早的那些，今天的聊天多半已经盖过去了。
@@ -802,7 +821,7 @@ export const createHeartbeatHandler = ({
         charId: character.charId,
         credRef: character.credRef,
         system: buildPrompt(character, snapshot, startedAt, intent, {
-            thoughts, carried, threads, episode: wantsEpisode, life: lifeKind,
+            thoughts, carried: hush ? null : carried, threads, episode: wantsEpisode, life: lifeKind, canSpeak: !hush,
         }),
         user: '现在要做什么？只按 schema 回一个 JSON。',
         schema: HEARTBEAT_SCHEMA,
@@ -828,7 +847,10 @@ export const createHeartbeatHandler = ({
         throw new Error(result.error);
     }
 
-    const output = result.output;
+    // 不能开口的一跳，模型还是写了 message：不发，当成「想说但先留着」，下一跳再兑现。
+    const output = hush && result.output.action === 'message'
+        ? { ...result.output, action: 'noop', urge: 'later' }
+        : result.output;
     // 没被要求写的 episode 一律不收：写不写由程序抽签定，模型自己加戏不算数。
     const episode = wantsEpisode ? output.episode ?? null : null;
     // 生活里的聊天对象不能是阿萌本人：那不是「自己的时间」，也会在通讯录里凭空多出一个她。
@@ -846,12 +868,15 @@ export const createHeartbeatHandler = ({
         reason: output.reason,
         // activity 是「这次醒来我做了什么」，起居注列的就是它。
         activity: output.activity,
-        proposedText: output.action === 'message' ? output.text : null,
         shadow,
         // 抽中了开口、模型却退回 noop 的次数值得盯：多了说明提示词还是在劝它闭嘴。
         intent,
-        // 开了口就不再欠着；没开口的「等会儿」留给下一跳兑现。
-        urge: output.action === 'message' ? 'none' : output.urge,
+        // 开了口就不再欠着；没开口的「等会儿」留给下一跳兑现。上一跳欠下的，这一跳不能开口时继续欠着。
+        urge: output.action === 'message' ? 'none' : (hush && carried ? 'later' : output.urge),
+        // 这一跳为什么没开口（审计用）；outcome 不是 skipped，界面不会当成「被拦下」显示。
+        skipGate: hush,
+        // 不能开口时模型写下的那句也留着，排查时能看到 TA 本来想说什么。
+        proposedText: result.output.action === 'message' ? result.output.text : null,
         episode: episode ?? (life ? { life } : null),
     });
 

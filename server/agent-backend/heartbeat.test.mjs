@@ -14,7 +14,7 @@ import { createJob, listJobs } from './jobs.mjs';
 import { enqueue } from './outbox.mjs';
 import { putSnapshot, normalizeSnapshotPayload } from './snapshots.mjs';
 import {
-    ACTIVE_CHAT_WINDOW_MS, buildPrompt, checkGates, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
+    ACTIVE_CHAT_WINDOW_MS, buildPrompt, checkGates, speakBlock, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
     BREAK_COOLDOWN_MIN, currentSlot, decideIntent, formatGap, inBreakWindow, upcomingBreakStarts, jitterRatio, lastRealInteractionAt, listModelRuns, messageChance,
     nextRunAt, recordModelRun, shouldCaptureRaw, decideEpisode, episodeChance, isWorkSlot, lifeChance, pickLifeKind,
 } from './heartbeat.mjs';
@@ -74,19 +74,20 @@ test('闸门：角色在睡觉时安静跳过', () => {
     assert.equal(checkGates(db, { character, snapshot, now: night }), 'sleeping');
 });
 
-test('闸门：阿萌正在聊天时绝不插话', () => {
+test('10 分钟内聊过：照样醒，只是这一跳不开口；过了窗口就能开口', () => {
     const db = freshDb();
     seedCharacter(db);
-    // 在场信号写的是服务端时间，10 分钟前刚聊过。
+    // 在场信号写的是服务端时间，5 分钟前刚聊过。
     db.prepare('UPDATE characters SET last_user_interaction_at = ? WHERE char_id = ?')
-        .run(new Date(AT.getTime() - 10 * 60_000).toISOString(), CHAR);
+        .run(new Date(AT.getTime() - 5 * 60_000).toISOString(), CHAR);
     const character = toCharacter(db.prepare('SELECT * FROM characters WHERE char_id = ?').get(CHAR));
     const snapshot = { receivedAt: AT.toISOString(), payload: { timezone: 'America/Chicago' } };
-    assert.equal(checkGates(db, { character, snapshot, now: AT }), 'active_chat');
+    assert.equal(checkGates(db, { character, snapshot, now: AT }), null, '不再整跳拦下');
+    assert.equal(speakBlock(db, { character, snapshot, now: AT }), 'active_chat');
+    assert.equal(ACTIVE_CHAT_WINDOW_MS, 10 * 60_000);
 
-    // 超过窗口就不再拦。
-    const later = new Date(AT.getTime() + ACTIVE_CHAT_WINDOW_MS + 60_000);
-    assert.equal(checkGates(db, { character, snapshot, now: later }), null);
+    const later = new Date(AT.getTime() + ACTIVE_CHAT_WINDOW_MS);
+    assert.equal(speakBlock(db, { character, snapshot, now: later }), null);
 });
 
 test('闸门：手机时钟跑快也封不死心跳（快照时间夹到 received_at）', () => {
@@ -99,14 +100,15 @@ test('闸门：手机时钟跑快也封不死心跳（快照时间夹到 receive
     assert.equal(lastRealInteractionAt(character, snapshot).toISOString(), '2026-09-23T20:00:00.000Z');
 });
 
-test('闸门：距上一条主动消息不足冷却时间就跳过', () => {
+test('离上一条主动消息太近：照样醒，只是不开口', () => {
     const db = freshDb();
     const character = seedCharacter(db, { messageCooldownMin: 90 });
     const snapshot = { receivedAt: AT.toISOString(), payload: { timezone: 'America/Chicago' } };
     enqueue(db, {
         messageId: 'm1', charId: CHAR, kind: 'chat_message', payload: { text: '在吗' },
     }, new Date(AT.getTime() - 30 * 60_000));
-    assert.equal(checkGates(db, { character, snapshot, now: AT }), 'message_cooldown');
+    assert.equal(checkGates(db, { character, snapshot, now: AT }), null);
+    assert.equal(speakBlock(db, { character, snapshot, now: AT }), 'message_cooldown');
 });
 
 test('闸门：今天动脑次数用完就跳过，skipped 的不算数', () => {
@@ -699,10 +701,10 @@ test('闸门：午休里冷却缩短，上午那条不再挡住午休', () => {
     const snapshot = { receivedAt: chicago(12, 20).toISOString(), payload: { timezone: 'America/Chicago', todaySchedule: WORKDAY } };
     // 上午 11:20 发过一条：午休 12:20 距它 60 分钟——平时 90 分钟冷却会挡，午休里只要 30。
     enqueue(db, { messageId: 'am', charId: CHAR, kind: 'chat_message', payload: { text: '早' } }, chicago(11, 20));
-    assert.equal(checkGates(db, { character, snapshot, now: chicago(12, 20) }), null);
+    assert.equal(speakBlock(db, { character, snapshot, now: chicago(12, 20) }), null);
     // 而 12:35 距午休里刚发的 12:20 那条只有 15 分钟：冷却仍然生效，不会连发。
     enqueue(db, { messageId: 'noon', charId: CHAR, kind: 'chat_message', payload: { text: '吃饭了吗' } }, chicago(12, 20));
-    assert.equal(checkGates(db, { character, snapshot, now: chicago(12, 35) }), 'message_cooldown');
+    assert.equal(speakBlock(db, { character, snapshot, now: chicago(12, 35) }), 'message_cooldown');
     assert.ok(BREAK_COOLDOWN_MIN < 90);
 });
 
@@ -711,7 +713,7 @@ test('闸门：不在空档时冷却照旧', () => {
     const character = seedCharacter(db, { messageCooldownMin: 90 });
     const snapshot = { receivedAt: chicago(15).toISOString(), payload: { timezone: 'America/Chicago', todaySchedule: WORKDAY } };
     enqueue(db, { messageId: 'm', charId: CHAR, kind: 'chat_message', payload: { text: '在吗' } }, chicago(14, 0));
-    assert.equal(checkGates(db, { character, snapshot, now: chicago(15) }), 'message_cooldown');
+    assert.equal(speakBlock(db, { character, snapshot, now: chicago(15) }), 'message_cooldown');
 });
 
 test('开口概率：空档里更高，也不罚「刚说过话」', () => {
@@ -1022,4 +1024,61 @@ test('真实执行：抽中生活 → 静默送去手机；聊天对象是阿萌
     const selfChat = { run: async () => ({ ok: true, output: { action: 'noop', activity: 'x', reason: '', urge: 'none', life: { ...life, with: '阿萌' } } }) };
     await runHandler(db, { runner: selfChat, job: jobFor(character.heartbeatGeneration, 'l2'), now: chicago(20), rng: seq([0.99, 0.3, 0.1]), deliver: async e => sent.push(e) });
     assert.equal(sent.length, 1, '和阿萌的「聊天」不算私人生活');
+});
+
+test('刚聊过的一跳：抽签不开口、提示词写明只能 noop；模型硬写了 message 也不发，留成「等会儿」', async () => {
+    const db = freshDb();
+    setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+    const character = seedCharacter(db);
+    seedSnapshot(db, { todaySchedule: [{ start: '18:00', title: '在家', availability: 'online' }] });
+    db.prepare('UPDATE characters SET last_user_interaction_at = ? WHERE char_id = ?')
+        .run(new Date(chicago(20).getTime() - 3 * 60_000).toISOString(), CHAR);
+    const sent = [];
+    const prompts = [];
+    const runner = { run: async ({ system }) => {
+        prompts.push(system);
+        return { ok: true, output: { action: 'message', activity: '在沙发上刷手机', reason: '', urge: 'none', text: '还在吗' } };
+    } };
+    // rng 0：平时必定开口；这里因为刚聊过，概率被压成 0
+    const result = await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 'q1'), now: chicago(20), rng: () => 0, deliver: async e => sent.push(e) });
+    assert.equal(result.intent, 'live');
+    assert.equal(result.action, 'noop');
+    assert.equal(sent.filter(e => e.kind === 'chat_message').length, 0, '不发消息');
+    assert.ok(prompts[0].includes('只能填 "noop"'));
+    assert.ok(!prompts[0].includes('那就别等'));
+    const run = listModelRuns(db)[0];
+    assert.equal(run.outcome, 'noop');
+    assert.equal(run.skipGate, 'active_chat');
+    assert.equal(run.urge, 'later', '想说的话留到下一跳');
+    assert.equal(run.proposedText, '还在吗', '留底：TA 本来想说什么');
+});
+
+test('刚聊过的一跳照样写自己的事（这里是生活小事）', async () => {
+    const db = freshDb();
+    setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+    const character = seedCharacter(db);
+    seedSnapshot(db, { todaySchedule: [{ start: '18:00', title: '在家', availability: 'online' }] });
+    db.prepare('UPDATE characters SET last_user_interaction_at = ? WHERE char_id = ?')
+        .run(new Date(chicago(20).getTime() - 3 * 60_000).toISOString(), CHAR);
+    const sent = [];
+    const runner = { run: async () => ({ ok: true, output: { action: 'noop', activity: '点外卖', reason: '', urge: 'none', life: { kind: 'delivery', with: '麻辣烫' } } }) };
+    const seq = [0.5, 0.3, 0.9];     // 意图（被压成 0，不开口）→ 抽中生活 → 外卖以外的某种
+    let i = 0;
+    await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 'q2'), now: chicago(20), rng: () => seq[i++] ?? 0.5, deliver: async e => sent.push(e) });
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].payload.type, 'life_episode');
+});
+
+test('刚聊过时，上一跳欠下的「等会儿」继续欠着，不在这一跳强行兑现', async () => {
+    const db = freshDb();
+    setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+    const character = seedCharacter(db);
+    seedSnapshot(db);
+    recordModelRun(db, { charId: CHAR, runtime: 'api', startedAt: new Date(AT.getTime() - 2 * 60_000).toISOString(), ok: true, outcome: 'noop', reason: '等会儿找她', urge: 'later' });
+    db.prepare('UPDATE characters SET last_user_interaction_at = ? WHERE char_id = ?')
+        .run(new Date(AT.getTime() - 5 * 60_000).toISOString(), CHAR);
+    const runner = { run: async () => ({ ok: true, output: { action: 'noop', activity: 'x', reason: '', urge: 'none' } }) };
+    const result = await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 'q3'), rng: () => 0.99 });
+    assert.equal(result.intent, 'live');
+    assert.equal(listModelRuns(db)[0].urge, 'later');
 });

@@ -658,12 +658,14 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
 3. 零模型闸（任一命中即 `done`，`outcome='skipped'`，不调模型）：
    - 角色在 `sleepWindow` 内；
    - 当日 `model_runs` 次数 ≥ `daily_model_budget`；
-   - 距上次该角色 `chat_message` 不足 `message_cooldown_min`；
-   - 阿萌正在和这个角色聊天：「最近真实互动时间」距今不足 20 分钟。它取以下两者的较大值，**都以服务端时钟为准**：
-     - `characters.last_user_interaction_at`（在场信号的服务端接收时间）；
-     - 快照里的 `lastInteraction.userAt` / `charAt`，但先夹到不晚于该快照的 `received_at`（手机时间跑快时，最多只能算作「上传那一刻刚聊过」）。
    - `heartbeat_paused` 非空；
    - 没有快照。
+
+   **不开口的两种情况不再整跳拦下**（v1.2，`speakBlock`）：命中时照样醒、照样动脑、照样写工作往来和生活小事，只是这一跳抽签概率为 0、提示词写明只能 `noop`；模型硬写了 `message` 也不发，改记成 `urge = later` 留到下一跳，原话存进 `proposed_text`。`skip_gate` 记下原因（`outcome` 不是 `skipped`，界面不当成「被拦下」）。上一跳欠下的「等会儿」这一跳继续欠着。
+   - 离上一条主动消息不足冷却（`message_cooldown_min`，空档里缩到 30 分钟，见 4.3.2）；
+   - 刚聊过：「最近真实互动时间」距今不足 **10 分钟**（原 20 分钟）。它取以下两者的较大值，**都以服务端时钟为准**：
+     - `characters.last_user_interaction_at`（在场信号的服务端接收时间）；
+     - 快照里的 `lastInteraction.userAt` / `charAt`，但先夹到不晚于该快照的 `received_at`（手机时间跑快时，最多只能算作「上传那一刻刚聊过」）。
 4. 调模型：见第 5 节；输出必须符合：
 
    ```ts
@@ -1081,3 +1083,13 @@ LaunchAgent: cc.liliumos.agent-backend.plist（RunAtLoad + KeepAlive）
 | 不找她的跳基本都有事做：工作时段 工作 0.8–0.85 / 生活 0.15；其余时段 工作 0.15 / 生活 0.85 | 4.5.1 `decideEpisode` |
 
 换算：晚上每小时醒一次，约 4 成去找她（仍受 90 分钟消息冷却约束，实际发出会少一些），6 成里几乎每次都留下一件小事。
+
+## 20. v1.2 修订记录（2026-09-24）——刚聊过也照样醒
+
+阿萌：「20 分钟内再发条消息也不是很离谱；唤醒了也可以做别的。改成 10 分钟内聊过的话，这次唤醒就不发消息、做别的。」
+
+| 决定 | 落在哪 |
+|---|---|
+| 「刚聊过」从 20 分钟缩到 10 分钟 | 4.3 第 3 步 `ACTIVE_CHAT_WINDOW_MS` |
+| 刚聊过、消息冷却不再整跳不动脑，改成「这一跳不开口」：照样写工作往来和生活小事 | 4.3 第 3 步 `speakBlock` |
+| 模型硬写了 message 也不发，留成「等会儿」，原话留底 | 同上 |
