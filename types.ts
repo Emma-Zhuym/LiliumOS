@@ -43,6 +43,7 @@ export enum AppID {
   WorldHome = 'world_home', // 家园 — 同世界观多角色共同生活的大世界（观测驱动演绎，每角色独立 LLM 调用 + NPC 世界引擎）
   Shopping = 'shopping', // EM: 投喂站 — 角色扮演购物模块（网购+外卖）
   SmartHome = 'smart_home', // EM: 共栖舱 — Home Assistant 统一设备控制
+  Moments = 'moments', // [EM: moments] 朋友圈 — 所有人的动态汇总，用户可发图文、点赞评论
 }
 
 export interface SystemLog {
@@ -949,6 +950,14 @@ export interface PhoneEvidence {
     contactId?: string;
     topicStart?: number; // [EM: phone-topic-boundary] 当前话题在完整对话中的气泡起点
     agentSourceIds?: string[]; // [EM: agent-life] 这条记录里有哪几段来自 Mac mini 心跳（幂等键；也用来在起居注里去重）
+    // [EM-START: moments] 朋友圈：和动态同一次生成的亲友评论（3–5 条）、虚拟点赞数、屏蔽的通讯录分组、配图
+    moment?: {
+        comments?: { who: string; relation?: string; text: string }[];
+        likes?: number;
+        hide?: string[];
+        images?: string[];
+    };
+    // [EM-END: moments]
 }
 
 /**
@@ -4399,6 +4408,7 @@ export interface FullBackupData {
     emShoppingCart?: any[];
     emShoppingOrders?: any[];
     emShoppingSettings?: { key: string; value: unknown }[];
+    emMoments?: import('./utils/momentsDb').MomentsBackup; // [EM: moments] 朋友圈（文字备份不带图）
     emMapWorlds?: any[];
     // [EM-END: finance-backup-types]
     gotchiAccentHue?: string;  // 桌面电子宠物主题主色调偏好（tama_accent_hue，账号级 localStorage）

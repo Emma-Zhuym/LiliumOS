@@ -546,6 +546,19 @@ export const HEARTBEAT_SCHEMA = {
                 via: { type: 'string', enum: ['net', 'food'] },
                 surprise: { type: 'boolean' },
                 note: { type: 'string', maxLength: 120 },
+                // moment：亲友评论、虚拟赞数、不给哪些分组看
+                comments: {
+                    type: 'array',
+                    maxItems: 5,
+                    items: {
+                        type: 'object',
+                        additionalProperties: false,
+                        required: ['who', 'text'],
+                        properties: { who: { type: 'string', maxLength: 24 }, relation: { type: 'string', maxLength: 12 }, text: { type: 'string', maxLength: 200 } },
+                    },
+                },
+                likes: { type: 'integer', minimum: 0, maximum: 999 },
+                hide: { type: 'array', items: { type: 'string', enum: ['family', 'friend', 'work', 'school', 'service', 'online', 'other'] } },
             },
         },
         // 工作往来：只有程序抽中「这一跳在处理工作」时才会要求写，见 decideEpisode。
@@ -689,6 +702,11 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
         const known = circle.length
             ? `你私人生活里认识的人：${circle.map(c => `${c.name}${c.relation ? `（${c.relation}）` : ''}`).join('、')}。\n`
             : '';
+        // 发朋友圈时同事也会来评论；分组给模型看，它才知道「屏蔽家人」屏蔽的是谁
+        const coworkers = (Array.isArray(p.coworkers) ? p.coworkers : []).slice(0, 6);
+        const momentCircle = life === 'moment' && (circle.length || coworkers.length)
+            ? `能来评论的人（括号里是关系，方括号是分组）：${[...circle, ...coworkers].map(c => `${c.name}${c.relation ? `（${c.relation}）` : ''}[${c.group ?? 'other'}]`).join('、')}。\n`
+            : '';
         const how = {
             chat: '你刚和一位朋友、家人或老同学聊了几句。kind 填 "chat"；with 写对方的名字，'
                 + (circle.length ? '优先从上面认识的人里选；' : '')
@@ -697,7 +715,9 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
                 + 'lines 最多 6 句，who 写说话人的名字，你自己写「我」。聊的是你们之间的事，不是对方。',
             delivery: '你刚点了外卖。kind 填 "delivery"；with 写店名，detail 写点了什么，value 写实付金额（比如 ¥38.50）。',
             order: '你刚在网上下了一单。kind 填 "order"；with 写商品名，detail 写规格或物流状态，value 写价格。',
-            moment: '你刚发了一条朋友圈。kind 填 "moment"；detail 写正文。',
+            moment: '你刚发了一条朋友圈。kind 填 "moment"；detail 写正文。'
+                + '再替你通讯录里的亲友写下反应：comments 写 3–5 条评论（who 用上面认识的人的名字，relation 写 TA 是你的谁，语气贴着各自身份）；'
+                + 'likes 写点赞数（按你的人缘，一般 5–60）；不想给某些人看就在 hide 里写分组（family / friend / work / school / online / other），被屏蔽的人不能出现在评论里，不屏蔽就省略。',
             gift: '你刚给对方买了点东西。kind 填 "gift"；via 填 "net"（网购，几天后到）或 "food"（给对方点外卖，半小时左右到）；'
                 + 'with 写商品名或店名，detail 写买了什么、为什么挑这个，value 写价格；note 可以写一句附言（对方收到时能看到）。'
                 + '想不想让对方提前知道是什么由你定：想当惊喜就把 surprise 设为 true，送到之前对方看不到内容，你也别在聊天里说漏。',
@@ -713,6 +733,7 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
         lines.push(
             '这一跳你在过自己的私人生活，跟对方无关。在 life 里写一件你刚做的小事：\n'
             + known
+            + momentCircle
             + `${how}\n`
             + '这是你自己的时间：不要提到对方，不要围着对方转；要贴着你此刻的时段和你的人设。'
             + '也不要在里面做出会改变人生的大事。activity 要和这件事对得上。',

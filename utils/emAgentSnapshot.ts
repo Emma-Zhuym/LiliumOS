@@ -49,6 +49,16 @@ export const buildCircle = (char: CharacterProfile, userName?: string): NonNulla
             group: resolveContactGroup(contact),
         }));
 
+/** [EM: moments] 同事：不拿来私聊，只在 TA 发朋友圈时出来评论几句。 */
+export const buildCoworkers = (char: CharacterProfile, userName?: string): NonNullable<CharacterSnapshot['payload']['coworkers']> =>
+    (char.phoneState?.contacts ?? [])
+        .filter(contact => contact.status === 'friend' && contact.kind === 'npc' && !contact.linkedCharId)
+        .filter(contact => !userName || normName(contact.name) !== normName(userName))
+        .filter(contact => resolveContactGroup(contact) === 'work')
+        .sort((a, b) => (b.lastInteraction || b.createdAt) - (a.lastInteraction || a.createdAt))
+        .slice(0, 6)
+        .map(contact => ({ name: contact.name, ...(contact.identity ? { relation: contact.identity } : {}), group: 'work' }));
+
 export interface SnapshotBoundary {
     text: string;
     kind?: 'preference' | 'relationship';
@@ -71,6 +81,7 @@ export interface CharacterSnapshot {
         dailyRhythm?: string;
         /** 私人生活里认识的人（通讯录里的虚构联系人），心跳写「和谁聊了几句」时优先从这里挑，名字才前后一致。 */
         circle?: { name: string; relation?: string; group?: string }[];
+        coworkers?: { name: string; relation?: string; group?: string }[]; // [EM: moments]
         todaySchedule?: { start: string; end: string; title: string; availability?: string }[];
         lastInteraction?: { userAt?: string; charAt?: string };
         recentMessages?: { role: 'user' | 'char'; at: string | null; text: string }[];
@@ -205,6 +216,10 @@ export const buildCharacterSnapshot = async (
             ...(() => {
                 const circle = buildCircle(char, options.userName);
                 return circle.length ? { circle } : {};
+            })(),
+            ...(() => { // [EM: moments]
+                const coworkers = buildCoworkers(char, options.userName);
+                return coworkers.length ? { coworkers } : {};
             })(),
             // 与日程生成同一个开关：'mindful' 角色没有物理生活，这份「上班/日常安排」对它没意义。
             ...(char.scheduleStyle !== 'mindful' && char.dailyRhythm?.trim()

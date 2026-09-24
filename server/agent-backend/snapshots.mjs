@@ -44,9 +44,10 @@ export const normalizeSnapshotPayload = payload => {
             }));
     }
 
-    // 私人生活里认识的人：只收名字、称呼、分组，最多 20 个。
-    if (Array.isArray(source.circle)) {
-        out.circle = source.circle
+    // 私人生活里认识的人（circle）和同事（coworkers，只用于朋友圈评论）：只收名字、称呼、分组，最多 20 个。
+    for (const key of ['circle', 'coworkers']) {
+        if (!Array.isArray(source[key])) continue;
+        out[key] = source[key]
             .filter(item => item && typeof item.name === 'string' && item.name.trim())
             .slice(0, 20)
             .map(item => ({

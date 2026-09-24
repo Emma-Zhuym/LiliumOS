@@ -4242,6 +4242,18 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   }
               })(),
               // [EM-END: shopping-backup-export]
+              // [EM-START: moments] 朋友圈：自己发的动态 + 所有点赞评论；文字备份不带图
+              ...await (async () => {
+                  if (mode !== 'text_only' && mode !== 'full') return {};
+                  try {
+                      const { MomentsDB } = await import('../utils/momentsDb');
+                      return { emMoments: await MomentsDB.exportAll(mode === 'full') };
+                  } catch (error) {
+                      console.warn('EM MomentsDB backup failed:', error);
+                      return {};
+                  }
+              })(),
+              // [EM-END: moments]
 
               // [EM-START: map-backup-export] LiliumOS 地图系统（legacy IndexedDB: SullyEM_Map）
               ...await (async () => {
@@ -5199,6 +5211,14 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               } catch (e) { console.warn('EM ShoppingDB restore failed:', e); }
           }
           // [EM-END: shopping-backup-restore]
+          // [EM-START: moments]
+          if (data.emMoments !== undefined) {
+              try {
+                  const { MomentsDB } = await import('../utils/momentsDb');
+                  await MomentsDB.importAll(data.emMoments);
+              } catch (e) { console.warn('EM MomentsDB restore failed:', e); }
+          }
+          // [EM-END: moments]
 
           // [EM-START: map-backup-restore] LiliumOS 地图系统（legacy IndexedDB: SullyEM_Map）
           if (data.emMapWorlds !== undefined) {

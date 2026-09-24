@@ -10,6 +10,7 @@
 import type { CharacterProfile, PhoneContact, PhoneEvidence } from '../types';
 import { normalizeContactGroup } from './contactGroups';
 import { normName, upsertContact } from './relationshipChat';
+import { normalizeMomentExtras } from './moments'; // [EM: moments]
 
 type PhoneState = NonNullable<CharacterProfile['phoneState']>;
 
@@ -25,6 +26,10 @@ export interface LifeEpisode {
     via?: 'net' | 'food';
     surprise?: boolean;
     note?: string;
+    /** moment：亲友评论、虚拟赞数、不给哪些分组看 */
+    comments?: { who: string; relation?: string; text: string }[];
+    likes?: number;
+    hide?: string[];
 }
 
 export interface LifeEvent {
@@ -142,6 +147,8 @@ export const applyLifeEpisode = (
         timestamp: at,
         ...(life.value?.trim() && life.kind !== 'moment' ? { value: life.value.trim() } : {}),
         agentSourceIds: [event.messageId],
+        // [EM: moments] 亲友评论和动态同一跳写出来，挂在这条记录上，朋友圈 App 直接读
+        ...(life.kind === 'moment' && normalizeMomentExtras(life) ? { moment: normalizeMomentExtras(life) } : {}),
     };
     return { ...phone, records: [...records, record] };
 };

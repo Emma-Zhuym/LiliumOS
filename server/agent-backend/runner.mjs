@@ -55,6 +55,7 @@ export const parseEpisode = raw => {
  */
 const LIFE_KINDS = new Set(['chat', 'delivery', 'order', 'moment', 'gift']);
 const LIFE_GROUPS = new Set(['friend', 'family', 'school', 'online', 'other']);
+const MOMENT_GROUPS = new Set(['family', 'friend', 'work', 'school', 'service', 'online', 'other']);
 
 export const parseLife = raw => {
     if (!raw || typeof raw !== 'object' || !LIFE_KINDS.has(raw.kind)) return null;
@@ -74,7 +75,23 @@ export const parseLife = raw => {
             ...(LIFE_GROUPS.has(raw.group) ? { group: raw.group } : {}),
         };
     }
-    if (raw.kind === 'moment') return detail ? { kind: 'moment', detail } : null;
+    if (raw.kind === 'moment') {
+        if (!detail) return null;
+        // 亲友的评论、虚拟赞数、屏蔽分组和动态一起写（设计 4.5.1）；写坏的字段丢掉，不连累动态本身
+        const comments = (Array.isArray(raw.comments) ? raw.comments : [])
+            .map(c => ({ who: String(c?.who ?? '').trim().slice(0, 24), relation: String(c?.relation ?? '').trim().slice(0, 12), text: String(c?.text ?? '').trim().slice(0, 200) }))
+            .filter(c => c.who && c.text)
+            .slice(0, 5)
+            .map(c => (c.relation ? c : { who: c.who, text: c.text }));
+        const likes = Number(raw.likes);
+        const hide = [...new Set((Array.isArray(raw.hide) ? raw.hide : []).map(String).filter(g => MOMENT_GROUPS.has(g)))];
+        return {
+            kind: 'moment', detail,
+            ...(comments.length ? { comments } : {}),
+            ...(raw.likes !== undefined && Number.isFinite(likes) && likes >= 0 ? { likes: Math.min(999, Math.round(likes)) } : {}),
+            ...(hide.length ? { hide } : {}),
+        };
+    }
     // 给阿萌买东西：with 是店名或商品名；via 分网购 / 外卖；惊喜不惊喜由 TA 自己定
     if (raw.kind === 'gift') {
         if (!withWho) return null;

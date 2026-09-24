@@ -62,6 +62,13 @@ check "外卖店铺与店内双层滚动" apps/ShoppingApp.tsx "[EM-START: shopp
 check "投喂站整页触摸滚动" apps/ShoppingApp.tsx "[EM: shopping-page-scroll]"
 check "投喂站订单进 TA 查手机淘宝/外卖" apps/CheckPhone.tsx "[EM-START: shopping-family]"
 check "家属关联与惊喜礼物进聊天购物感知" utils/shoppingContextBuilder.ts "[EM-START: shopping-family]"
+check "朋友圈 App 注册" components/PhoneShell.tsx "case AppID.Moments: return <MomentsApp />"
+check "朋友圈图标" constants.tsx "Moments: ({ className }) => <Aperture"
+check "朋友圈顶栏自理安全区" utils/safeAreaApps.ts "AppID.Moments, // [EM: moments]"
+check "查手机条目带日期" apps/CheckPhone.tsx "const fmtWhen = (t: number) => formatMomentTime(t)"
+check "查手机刷新朋友圈带亲友评论" apps/CheckPhone.tsx "buildMomentExtrasPrompt(targetChar)"
+check "朋友圈备份" context/OSContext.tsx "emMoments: await MomentsDB.exportAll"
+check "查手机记录的 moment 字段" types.ts "[EM-START: moments]"
 
 echo "── PhoneShell / ChatHeaderShell ──"
 check "Chat 页 subView 切换（丢了会白屏）" components/PhoneShell.tsx "messageSubView === 'contacts'"

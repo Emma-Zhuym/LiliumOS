@@ -26,6 +26,8 @@ import { getLastInnerState } from '../utils/emotionApply';
 import { normalizePhoneEvidence, phoneFieldToText } from '../utils/phoneEvidence';
 import { ShoppingDB } from '../utils/shoppingDb'; // [EM: shopping-family]
 import { isShopRecord, shopOrdersAsPhoneRecords } from '../utils/shoppingFamily'; // [EM: shopping-family]
+import { buildMomentExtrasPrompt, formatMomentTime, normalizeMomentExtras, recordPostId } from '../utils/moments'; // [EM: moments]
+import { MomentsDB } from '../utils/momentsDb'; // [EM: moments]
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
 import { CHECK_PHONE_API_CHANGED_EVENT, getCheckPhoneApi, resolveCheckPhoneApi, setCheckPhoneApi } from '../utils/checkPhoneApi';
 import {
@@ -453,6 +455,21 @@ const CheckPhone: React.FC = () => {
         return () => { cancelled = true; };
     }, [targetChar?.id, activeAppId, userProfile?.name]);
     // [EM-END: shopping-family]
+    // [EM-START: moments] 朋友圈的赞和评论是真的（来自朋友圈 App），不再用假数字
+    const [momentCounts, setMomentCounts] = useState<Record<string, { likes: number; comments: number }>>({});
+    useEffect(() => {
+        let cancelled = false;
+        MomentsDB.getInteractions()
+            .then(all => { if (!cancelled) setMomentCounts(Object.fromEntries(all.map(i => [i.postId, { likes: i.likes.length, comments: i.comments.length }]))); })
+            .catch(() => {});
+        return () => { cancelled = true; };
+    }, [activeAppId]);
+    // 亲友评论 / 虚拟赞随动态一起生成（record.moment），加上朋友圈 App 里大家后来的点赞评论
+    const momentCountOf = (r: PhoneEvidence) => {
+        const live = (targetChar && momentCounts[recordPostId(targetChar.id, r.id)]) || { likes: 0, comments: 0 };
+        return { likes: live.likes + (r.moment?.likes ?? 0), comments: live.comments + (r.moment?.comments?.length ?? 0) };
+    };
+    // [EM-END: moments]
     const customApps = targetChar?.phoneState?.customApps || [];
     const contacts = targetChar?.phoneState?.contacts || [];
     const allowFictional = targetChar?.phoneState?.allowFictionalContacts !== false;
@@ -918,10 +935,13 @@ ${realCharRule}
                 } else if (type === 'social') {
                     promptInstruction = `生成 2 条该角色的朋友圈/社交媒体动态。
     格式JSON数组: [{ "title": "时间/状态", "detail": "正文内容" }, ...]`;
+                    // [EM-START: moments] 亲友评论、虚拟赞数、屏蔽分组和动态一起写出来
+                    promptInstruction += `\n\n${buildMomentExtrasPrompt(targetChar)}\n格式JSON数组: [{ "title": "时间/状态", "detail": "正文内容", "comments": [{ "who": "通讯录里的名字", "relation": "同事", "text": "评论" }], "likes": 18, "hide": ["family"] }, ...]`;
+                    // [EM-END: moments]
                     logPrefix = "朋友圈";
                 }
             }
-            promptInstruction += `\n\n**JSON 字段类型硬约束**：每条记录的 "title"、"detail"、"value" 只能是字符串（value 可省略），绝不能返回对象或数组；标签、阅读进度、摘录、批注等结构请先整理成 detail 中的普通文本。`;
+            promptInstruction += `\n\n**JSON 字段类型硬约束**：每条记录的 "title"、"detail"、"value" 只能是字符串（value 可省略），绝不能返回对象或数组${type === 'social' ? '（朋友圈的 comments / likes / hide 按上面的格式写）' : ''}；标签、阅读进度、摘录、批注等结构请先整理成 detail 中的普通文本。`;
 
             const perspectiveLock = `### [视角锁定 · 极重要]
 接下来要生成的是**你（${targetChar.name}）自己手机里的东西**——你自己的生活、社交、记录。
@@ -1032,6 +1052,7 @@ ${realCharRule}
                         timestamp: Date.now(),
                         systemMessageId: savedMsgId,
                         contactId,
+                        ...(type === 'social' && normalizeMomentExtras(item) ? { moment: normalizeMomentExtras(item) } : {}), // [EM: moments]
                     });
 
                     await new Promise(r => setTimeout(r, 50));
@@ -2174,6 +2195,7 @@ ${olderText}
     };
 
     const fmtClock = (t: number) => new Date(t).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    const fmtWhen = (t: number) => formatMomentTime(t); // [EM: moments] 列表条目带日期：今天 / 昨天 / 9月24日
 
     /** [EM: agent-backend-chronicle] 起居注只记「几点看了看什么」，正文留在各自 App 里。 */
     const phoneActionLabel = (type: string): string => {
@@ -2280,7 +2302,7 @@ ${olderText}
                                 <div className="flex-1 min-w-0">
                                     <div className="flex justify-between items-baseline gap-2">
                                         <span className="font-semibold text-[13.5px] text-white/95 truncate">{r.title}</span>
-                                        <span className="text-[10px] text-white/35 tabular-nums shrink-0">{fmtClock(r.timestamp)}</span>
+                                        <span className="text-[10px] text-white/35 tabular-nums shrink-0">{fmtWhen(r.timestamp)}</span>
                                     </div>
                                     <div className="text-[11.5px] text-white/45 truncate mt-0.5">{last}</div>
                                 </div>
@@ -2411,8 +2433,8 @@ ${olderText}
                                 {r.detail || '这条动态没有文字内容。'}
                             </div>
                             <div className="flex items-center gap-7 py-3 border-y border-white/[0.07] text-white/45">
-                                <span className="flex items-center gap-2 text-[12px]"><Heart size={16} weight="fill" style={{ color: accent }} /> {3 + (r.id.length % 30)} 个赞</span>
-                                <span className="flex items-center gap-2 text-[12px]"><ChatCircle size={16} /> {1 + (r.id.length % 9)} 条互动</span>
+                                <span className="flex items-center gap-2 text-[12px]"><Heart size={16} weight="fill" style={{ color: accent }} /> {r.type === 'social' ? momentCountOf(r).likes : 3 + (r.id.length % 30)} 个赞</span>{/* [EM: moments] */}
+                                <span className="flex items-center gap-2 text-[12px]"><ChatCircle size={16} /> {r.type === 'social' ? momentCountOf(r).comments : 1 + (r.id.length % 9)} 条互动</span>
                             </div>
                         </article>
                     ) : (
@@ -2506,7 +2528,7 @@ ${olderText}
                                     </div>
                                     {r.detail && <div className="text-[10.5px] text-white/30 mt-1 italic truncate">“{r.detail}”</div>}
                                 </div>
-                                <span className="text-[10px] text-white/30 tabular-nums shrink-0">{fmtClock(r.timestamp)}</span>
+                                <span className="text-[10px] text-white/30 tabular-nums shrink-0">{fmtWhen(r.timestamp)}</span>
                                 <DelBtn onDelete={() => handleDeleteRecord(r)} />
                             </div>
                         );
@@ -2580,7 +2602,7 @@ ${olderText}
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <div className="text-[13.5px] font-semibold text-white/95 truncate">{r.title}</div>
-                                    <div className="text-[10px] text-white/35 mt-0.5">{fmtClock(r.timestamp)} · 已送达</div>
+                                    <div className="text-[10px] text-white/35 mt-0.5">{fmtWhen(r.timestamp)} · 已送达</div>
                                 </div>
                                 {r.value && <span className="text-[14px] font-bold shrink-0" style={{ color: accent }}>{r.value}</span>}
                             </div>
@@ -2614,13 +2636,13 @@ ${olderText}
                                     : <div className="w-9 h-9 rounded-full" style={{ background: accent }} />}
                                 <div className="min-w-0">
                                     <div className="text-[13px] font-semibold text-white/95">{charName}</div>
-                                    <div className="text-[10px] text-white/35">{r.title || fmtClock(r.timestamp)}</div>
+                                    <div className="text-[10px] text-white/35">{fmtWhen(r.timestamp)}</div>
                                 </div>
                             </div>
                             <div className="text-[13px] text-white/80 leading-relaxed whitespace-pre-wrap">{r.detail}</div>
                             <div className="flex items-center gap-5 mt-3 pt-2.5 border-t border-white/[0.06] text-white/40">
-                                <span className="flex items-center gap-1.5 text-[11px]"><Heart size={14} weight="fill" style={{ color: accent }} /> {3 + (r.id.length % 30)}</span>
-                                <span className="flex items-center gap-1.5 text-[11px]"><ChatCircle size={14} /> {1 + (r.id.length % 9)}</span>
+                                <span className="flex items-center gap-1.5 text-[11px]"><Heart size={14} weight="fill" style={{ color: accent }} /> {momentCountOf(r).likes}</span>{/* [EM: moments] */}
+                                <span className="flex items-center gap-1.5 text-[11px]"><ChatCircle size={14} /> {momentCountOf(r).comments}</span>
                                 <span className="ml-auto flex items-center gap-0.5 text-[10px]" style={{ color: accent }}>查看详情 <CaretRight size={10} /></span>
                             </div>
                             <DelBtn onDelete={() => handleDeleteRecord(r)} />
@@ -2832,7 +2854,7 @@ ${olderText}
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center justify-between gap-2">
                                         <div className="font-semibold text-[13.5px] text-white/95 truncate">{s.title}</div>
-                                        <span className="text-[10px] text-white/30 tabular-nums shrink-0">{fmtClock(s.updatedAt)}</span>
+                                        <span className="text-[10px] text-white/30 tabular-nums shrink-0">{fmtWhen(s.updatedAt)}</span>
                                     </div>
                                     <div className="text-[10.5px] text-white/40 mt-0.5">{s.serviceName} · {lines.length} 条</div>
                                     {last && <div className="text-[11px] text-white/55 mt-1 truncate italic">「{last.text}」</div>}
@@ -3416,7 +3438,7 @@ ${olderText}
                             <div className="w-9 h-9 rounded-full flex items-center justify-center text-lg" style={{ background: `linear-gradient(135deg, ${accent}55, ${accent}15)` }}>{app.icon}</div>
                             <div className="min-w-0">
                                 <div className="text-[13px] font-semibold text-white/95">{charName}</div>
-                                <div className="text-[10px] text-white/35">{r.title || fmtClock(r.timestamp)}</div>
+                                <div className="text-[10px] text-white/35">{fmtWhen(r.timestamp)}</div>
                             </div>
                         </div>
                         <div className="text-[13px] text-white/80 leading-relaxed whitespace-pre-wrap">{r.detail}</div>
@@ -3439,7 +3461,7 @@ ${olderText}
                         <div className="flex items-center gap-3 mt-2.5 text-[10px] text-white/35">
                             <span className="flex items-center gap-1">{app.icon} {charName}</span>
                             <span>· {1 + (r.id.length % 200)} 回复</span>
-                            <span>· {fmtClock(r.timestamp)}</span>
+                            <span>· {fmtWhen(r.timestamp)}</span>
                         </div>
                         <DelBtn onDelete={() => handleDeleteRecord(r)} />
                     </div>
@@ -3453,7 +3475,7 @@ ${olderText}
                         <div className="text-[12.5px] text-white/60 leading-loose line-clamp-4 whitespace-pre-wrap" style={{ fontFamily: "'Shippori Mincho','Noto Sans SC',serif" }}>{r.detail}</div>
                         <div className="flex items-center justify-between mt-3 pt-2 border-t border-white/[0.06] text-[10px] text-white/30">
                             <span>{r.value || '连载中'}</span>
-                            <span className="tabular-nums">{fmtClock(r.timestamp)}</span>
+                            <span className="tabular-nums">{fmtWhen(r.timestamp)}</span>
                         </div>
                         <DelBtn onDelete={() => handleDeleteRecord(r)} />
                     </div>
@@ -3467,7 +3489,7 @@ ${olderText}
                             {r.value && <span className="text-[12px] font-bold px-2 py-0.5 rounded-full shrink-0" style={{ color: accent, background: `${accent}1f` }}>{r.value}</span>}
                         </div>
                         <div className="text-[12px] text-white/55 leading-relaxed whitespace-pre-wrap">{r.detail}</div>
-                        <div className="text-[9.5px] text-white/25 mt-2 text-right tabular-nums">{fmtClock(r.timestamp)}</div>
+                        <div className="text-[9.5px] text-white/25 mt-2 text-right tabular-nums">{fmtWhen(r.timestamp)}</div>
                         <DelBtn onDelete={() => handleDeleteRecord(r)} />
                     </div>
                 );
@@ -4098,7 +4120,7 @@ ${olderText}
                                         <button key={s.id} onClick={() => { setAiCardView(null); setSelectedAiSessionId(s.id); setActiveAppId('ai_session'); }}
                                             className="w-full text-left rounded-xl p-2.5 bg-slate-50 active:bg-slate-100 transition">
                                             <div className="text-[13px] font-semibold text-slate-700 truncate">{s.title}</div>
-                                            <div className="text-[10px] text-slate-400">{parseTranscript(s.transcript).length} 条 · {fmtClock(s.updatedAt)}</div>
+                                            <div className="text-[10px] text-slate-400">{parseTranscript(s.transcript).length} 条 · {fmtWhen(s.updatedAt)}</div>
                                         </button>
                                     ))}
                                 </div>

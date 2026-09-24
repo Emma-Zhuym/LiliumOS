@@ -220,6 +220,12 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - `utils/mcpFireCore.ts` 的模型 schema 归一化必须同时供前台和 amsg worker 使用：非字符串 enum 只从模型声明副本移除，原始 MCP schema 与真实调用参数不得改写
 - 该能力依赖 mini 在线且用户已登录；不能写成完整 Agent Backend、主动心跳或 Apple Health 已完成
 - 详细部署与边界见 `server/apple-events-bridge/README.md`、`docs/mcp-client.md`
+### 25. 朋友圈 App
+- `apps/MomentsApp.tsx` / `utils/moments.ts` / `utils/momentsDb.ts` / `utils/momentsLook.ts` — 所有人的动态汇总：角色动态直接读查手机 `type: 'social'` 记录，用户动态、点赞评论存 `LiliumOS_Moments`
+- 亲友评论（3–5 条）、虚拟赞数、屏蔽分组与动态**同一次生成**，存在 `PhoneEvidence.moment`（查手机刷新和心跳 `life.moment` 两处都写）；npc 不接话
+- 用户动态可选「谁可以看」；「让大家看看」用各角色自己的 API 立即刷一遍（带图识图）；平时由心跳刷（待做）
+- `context/OSContext.tsx` 的 `emMoments` 随备份导出/恢复，文字备份不带图且恢复时保留本机图片
+
 ## 合并时常见坑（踩过的 bug）
 
 ### PhoneShell.tsx — messageSubView 必须解构

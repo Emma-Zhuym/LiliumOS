@@ -957,6 +957,11 @@ test('life 解析：四种小事各自的必填项，写坏只丢这一段', () 
     assert.deepEqual(parseLife({ kind: 'delivery', with: '麻辣烫', detail: '加麻加辣', value: '¥32' }), { kind: 'delivery', with: '麻辣烫', detail: '加麻加辣', value: '¥32' });
     assert.equal(parseLife({ kind: 'order', detail: '没有商品名' }), null);
     assert.deepEqual(parseLife({ kind: 'moment', detail: '今天的云很好看' }), { kind: 'moment', detail: '今天的云很好看' });
+    assert.deepEqual(
+        parseLife({ kind: 'moment', detail: '加班', comments: [{ who: '王总', relation: '领导', text: '辛苦' }, { who: '', text: 'x' }], likes: 12.4, hide: ['family', 'boss'] }),
+        { kind: 'moment', detail: '加班', comments: [{ who: '王总', relation: '领导', text: '辛苦' }], likes: 12, hide: ['family'] },
+        '朋友圈带亲友评论、赞数、屏蔽分组；坏的丢掉',
+    );
     assert.equal(parseLife({ kind: 'moment' }), null);
     assert.equal(parseLife({ kind: 'dance', detail: 'x' }), null);
     assert.deepEqual(

@@ -94,4 +94,13 @@ describe('applyLifeEpisode · 给阿萌买东西', () => {
         expect(applyLifeEpisode(once, event, { userName: '阿萌' })).toBeNull();
     });
 });
+describe('applyLifeEpisode · 朋友圈带亲友评论', () => {
+    it('评论、赞数、屏蔽分组挂在记录的 moment 上', () => {
+        const next = applyLifeEpisode(undefined, {
+            messageId: 'hb:5:life', createdAt: AT,
+            life: { kind: 'moment', detail: '下雨了', comments: [{ who: '老周', relation: '发小', text: '带伞没' }], likes: 9, hide: ['work'] },
+        })!;
+        expect(next.records[0]).toMatchObject({ type: 'social', detail: '下雨了', moment: { comments: [{ who: '老周', relation: '发小', text: '带伞没' }], likes: 9, hide: ['work'] } });
+    });
+});
 // [EM-END: agent-life]
