@@ -53,6 +53,64 @@ export const parseEpisode = raw => {
  * 两层容错解析：先当整段 JSON 读，不行再从 ``` 代码块 / 第一个花括号里捞。
  * 各家模型对 response_format 的支持参差不齐，掉格式是常态，不是异常。
  */
+/** 消息正文该叫 text，但实测各家模型常写成 message / content / reply——意思明明白白，不该因此把想发的话丢掉。 */
+const TEXT_KEYS = ['text', 'message', 'content', 'reply'];
+const pickText = source => {
+    for (const key of TEXT_KEYS) {
+        const value = source?.[key];
+        if (typeof value === 'string' && value.trim()) return value;
+    }
+    return '';
+};
+
+/**
+ * 整段 JSON 解析失败后的兜底：直接按字段名把值抠出来。
+ *
+ * 实测最常见的坏法是值里带了没转义的英文双引号——「她发了个"蹭"过来」——整段 JSON 就作废了，
+ * 可里面的内容其实完整。这里不去「修 JSON」，而是认准已知的几个字段名，
+ * 每个字段的值取到下一个字段名出现之前。episode 是嵌套结构，读不准，直接不要（它本来就是附赠的）。
+ */
+const FIELD_RE = /"(action|activity|reason|urge|text|message|content|reply)"\s*:\s*"/g;
+export const salvageFields = raw => {
+    const episodeAt = raw.indexOf('"episode"');
+    const text = episodeAt >= 0 ? raw.slice(0, episodeAt) : raw;
+    const hits = [];
+    FIELD_RE.lastIndex = 0;
+    let match;
+    while ((match = FIELD_RE.exec(text))) {
+        hits.push({ key: match[1], keyStart: match.index, valueStart: match.index + match[0].length });
+    }
+    if (hits.length === 0) return null;
+    const out = {};
+    hits.forEach((hit, index) => {
+        const next = hits[index + 1];
+        const closing = text.lastIndexOf('}');
+        const end = next ? next.keyStart : (closing > hit.valueStart ? closing : text.length);
+        out[hit.key] = text.slice(hit.valueStart, end)
+            .replace(/"\s*,?\s*$/, '')
+            .replace(/\\n/g, '\n')
+            .replace(/\\"/g, '"')
+            .trim();
+    });
+    return out;
+};
+
+const toOutput = parsed => {
+    const action = parsed?.action;
+    if (action !== 'noop' && action !== 'message') return null;
+    const body = pickText(parsed);
+    if (action === 'message' && !body.trim()) return null;
+    const episode = parseEpisode(parsed.episode);
+    return {
+        ...(episode ? { episode } : {}),
+        action,
+        activity: String(parsed.activity ?? '').slice(0, 120),
+        reason: String(parsed.reason ?? '').slice(0, 500),
+        urge: parsed.urge === 'later' || parsed.urge === 'now' ? parsed.urge : 'none',
+        ...(action === 'message' ? { text: body.slice(0, 2000) } : {}),
+    };
+};
+
 export const parseHeartbeatOutput = raw => {
     const text = String(raw ?? '').trim();
     if (!text) return { ok: false, error: '模型没有返回内容' };
@@ -70,22 +128,13 @@ export const parseHeartbeatOutput = raw => {
         } catch {
             continue;
         }
-        const action = parsed?.action;
-        if (action !== 'noop' && action !== 'message') continue;
-        if (action === 'message' && !String(parsed.text || '').trim()) continue;
-        const episode = parseEpisode(parsed.episode);
-        return {
-            ok: true,
-            output: {
-                ...(episode ? { episode } : {}),
-                action,
-                activity: String(parsed.activity ?? '').slice(0, 120),
-                reason: String(parsed.reason ?? '').slice(0, 500),
-                urge: parsed.urge === 'later' || parsed.urge === 'now' ? parsed.urge : 'none',
-                ...(action === 'message' ? { text: String(parsed.text).slice(0, 2000) } : {}),
-            },
-        };
+        const output = toOutput(parsed);
+        if (output) return { ok: true, output };
     }
+    // 整段读不了：按字段名把值抠出来（多半是值里有没转义的引号）。
+    const salvaged = salvageFields(text);
+    const output = salvaged && toOutput(salvaged);
+    if (output) return { ok: true, output };
     // 带上原文：调用方在排查开关打开时才会落库，平时直接丢掉。
     return { ok: false, error: '模型输出解析不出合法的心跳结果', raw: text };
 };

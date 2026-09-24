@@ -900,3 +900,45 @@ test('episode：没被要求写就不收；试跑期不落库不送出', async (
     assert.equal(listOpenThreads(db, CHAR).length, 0);
     assert.equal(listModelRuns(db)[0].episode.with, '美术组日常');
 });
+
+// ── 实测里丢过的三种输出（库里 raw_output 抓到的原样） ─────────────────────────
+test('解析：消息正文写成 message 而不是 text，照样收（实测丢过两条想发的话）', () => {
+    const result = parseHeartbeatOutput('```json\n{\n  "action": "message",\n  "activity": "刚醒，还赖在床上看手机。",\n  "reason": "隔了十个小时没说话。",\n  "message": "早安宝宝☀️ 昨晚睡得好不好？"\n}\n```');
+    assert.equal(result.ok, true);
+    assert.equal(result.output.action, 'message');
+    assert.equal(result.output.text, '早安宝宝☀️ 昨晚睡得好不好？');
+    assert.equal(parseHeartbeatOutput('{"action":"message","activity":"a","reason":"","content":"睡了没？"}').output.text, '睡了没？');
+    assert.equal(parseHeartbeatOutput('{"action":"message","activity":"a","reason":"","text":"","message":"  "}').ok, false, '空话仍然不算');
+});
+
+test('解析：值里有没转义的英文引号，整段 JSON 作废了，也把内容抠回来', () => {
+    const raw = '```json\n{\n  "activity": "站在书房门口，手搭在门把上",\n  "reason": "她发了个"蹭"过来，我说了先来领一个。现在七点四十五，我想进去看看她。",\n  "action": "noop",\n  "urge": "none"\n}\n```';
+    assert.throws(() => JSON.parse(raw.replace(/```(json)?/g, '')), '前提：确实是坏 JSON');
+    const result = parseHeartbeatOutput(raw);
+    assert.equal(result.ok, true);
+    assert.equal(result.output.action, 'noop');
+    assert.equal(result.output.activity, '站在书房门口，手搭在门把上');
+    assert.ok(result.output.reason.includes('"蹭"'), '引号原样保住');
+    assert.ok(result.output.reason.endsWith('看看她。'));
+    assert.equal(result.output.urge, 'none');
+});
+
+test('解析：想说的话里有引号、又是 message 键，也抠得回来', () => {
+    const result = parseHeartbeatOutput('{"action":"message","activity":"在阳台喝酒","reason":"想起她说"困了"","message":"睡了没？说好的"二十分钟"到了"}');
+    assert.equal(result.ok, true);
+    assert.equal(result.output.text, '睡了没？说好的"二十分钟"到了');
+});
+
+test('解析：抠回来的也要过关——不认识的 action、要发消息却没有正文，仍然算失败', () => {
+    assert.equal(parseHeartbeatOutput('{"action":"sleep","activity":"a","reason":"含"引号""}').ok, false);
+    assert.equal(parseHeartbeatOutput('{"action":"message","activity":"a","reason":"含"引号""}').ok, false);
+    assert.equal(parseHeartbeatOutput('完全不是 JSON 的一段话').ok, false);
+});
+
+test('解析：坏 JSON 里带 episode 时，不让嵌套的 text 冒充消息正文', () => {
+    const result = parseHeartbeatOutput('{"action":"noop","activity":"开会","reason":"他说"晚点"","episode":{"channel":"group","with":"组","lines":[{"who":"小林","text":"看下"}]}}');
+    assert.equal(result.ok, true);
+    assert.equal(result.output.action, 'noop');
+    assert.equal(result.output.text, undefined);
+    assert.equal(result.output.episode, undefined, '嵌套结构读不准，宁可丢');
+});
