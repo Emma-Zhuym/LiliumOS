@@ -1976,8 +1976,14 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           });
           if (!alive || result.delivered === 0) return;
           // 落库了要让正在看的那个聊天刷新出来；复用主动消息那条既有广播。
+          // 监听方要的是 { charId, charName, body }：少了名字通知就成了「undefined sent a proactive message」，
+          // 少了正文就看不到说了什么。每个角色一次，正文取这次收到的最后一句（跟上游一样是内容预览）。
           for (const charId of result.charIds) {
-              window.dispatchEvent(new CustomEvent('proactive-message-sent', { detail: { charId } }));
+              const charName = charactersRef.current.find(c => c.id === charId)?.name ?? '';
+              const spoken = result.lines.filter(line => line.charId === charId).map(line => line.text);
+              window.dispatchEvent(new CustomEvent('proactive-message-sent', {
+                  detail: { charId, charName, body: (spoken[spoken.length - 1] ?? '').slice(0, 120) },
+              }));
           }
       };
       void pull();

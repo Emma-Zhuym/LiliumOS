@@ -28,9 +28,11 @@ export interface InboxSyncResult {
     work: number;
     /** 写进聊天的那些属于哪些角色，供调用方刷新界面 / 提示。 */
     charIds: string[];
+    /** 写进聊天的每一句（角色 + 正文），供调用方做「角色名 + 内容预览」的通知，和上游主动消息一个样子。 */
+    lines: { charId: string; text: string }[];
 }
 
-const EMPTY: InboxSyncResult = { delivered: 0, stale: 0, work: 0, charIds: [] };
+const EMPTY: InboxSyncResult = { delivered: 0, stale: 0, work: 0, charIds: [], lines: [] };
 
 export interface InboxSyncOptions {
     /**
@@ -91,7 +93,7 @@ export const syncAgentMessagesIntoChat = async (
     }
     if (messages.length === 0) return EMPTY;
 
-    const result: InboxSyncResult = { delivered: 0, stale: 0, work: 0, charIds: [] };
+    const result: InboxSyncResult = { delivered: 0, stale: 0, work: 0, charIds: [], lines: [] };
     const acked: string[] = [];
     const landed: string[] = [];
     const alreadyDelivered = new Set(loadDelivered());
@@ -115,6 +117,7 @@ export const syncAgentMessagesIntoChat = async (
                     metadata: { fromAgentBackend: true, source: message.payload?.source ?? 'heartbeat' },
                 } as never);
                 result.delivered += 1;
+                result.lines.push({ charId: message.charId, text });
                 landed.push(message.messageId);
                 if (!result.charIds.includes(message.charId)) result.charIds.push(message.charId);
             } catch {

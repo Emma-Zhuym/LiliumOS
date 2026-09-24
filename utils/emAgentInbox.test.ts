@@ -48,6 +48,8 @@ describe('后端信箱落地到聊天', () => {
         const result = await syncAgentMessagesIntoChat(NOW);
         expect(result.delivered).toBe(1);
         expect(result.charIds).toEqual(['lumi']);
+        // 通知要用：角色 + 正文，不是只有 id
+        expect(result.lines).toEqual([{ charId: 'lumi', text: '在干嘛' }]);
         expect(saveMessage).toHaveBeenCalledWith(expect.objectContaining({
             charId: 'lumi',
             role: 'assistant',
@@ -88,7 +90,7 @@ describe('后端信箱落地到聊天', () => {
 
     it('后端连不上就当没有，不抛错', async () => {
         inbox.mockRejectedValueOnce(new Error('连不上'));
-        await expect(syncAgentMessagesIntoChat(NOW)).resolves.toEqual({ delivered: 0, stale: 0, work: 0, charIds: [] });
+        await expect(syncAgentMessagesIntoChat(NOW)).resolves.toEqual({ delivered: 0, stale: 0, work: 0, charIds: [], lines: [] });
     });
 });
 
