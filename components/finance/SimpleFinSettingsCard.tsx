@@ -128,10 +128,10 @@ export const SimpleFinSettingsCard: React.FC<SimpleFinSettingsCardProps> = ({ on
                 onClick={handleSync}
                 disabled={busy}
                 title="立即同步"
-                className="shrink-0 flex items-center justify-center active:translate-y-[1px] disabled:opacity-50"
-                style={{ width: 38, height: 38, borderRadius: R.pill, background: F.surfaceRaised, boxShadow: S.raisedSoft, color: HUE.teal.ink }}
+                className="shrink-0 flex items-center justify-center active:opacity-40 transition-opacity disabled:opacity-50"
+                style={{ width: 44, height: 44, marginRight: -10, borderRadius: R.pill, background: 'transparent', color: HUE.teal.ink }}
               >
-                <ArrowsClockwise size={18} weight="bold" className={busy ? 'animate-spin' : ''} />
+                <ArrowsClockwise size={21} weight="bold" className={busy ? 'animate-spin' : ''} />
               </button>
             </div>
           </div>

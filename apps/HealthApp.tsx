@@ -1795,10 +1795,10 @@ const HealthApp: React.FC = () => {
             )}
 
             <div className="flex items-center justify-between mb-4 shrink-0">
-            <span className="text-base font-bold" style={{ color: F.textPrimary }}>{editingId ? '编辑记录' : '新记录'}</span>
-              <button onClick={closeRecord} className={`w-7 h-7 flex items-center justify-center ${clay.pressSmall}`}
-                style={{ background: F.surfaceRaised, borderRadius: R.pill, boxShadow: S.raisedSoft }}>
-                <X size={14} style={{ color: F.textTertiary }} />
+            <span style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: F.textPrimary }}>{editingId ? '编辑记录' : '新记录'}</span>
+              <button onClick={closeRecord} aria-label="关闭" className="w-11 h-11 -mr-2.5 flex items-center justify-center active:opacity-40 transition-opacity"
+                style={{ background: 'transparent', borderRadius: R.pill }}>
+                <X size={21} weight="bold" style={{ color: F.textPrimary }} />
               </button>
             </div>
 
@@ -2240,7 +2240,7 @@ const HealthApp: React.FC = () => {
 
             <button onClick={handleSyncExternalHealth} disabled={isSyncingExternalHealth}
               className={`w-full font-medium py-2.5 text-xs ${clay.pressSmall}`}
-              style={{ color: F.textSecondary, background: F.surfaceRaised, borderRadius: R.pill, boxShadow: S.raisedSoft }}>
+              style={{ color: F.textSecondary, background: F.surfaceRaised, borderRadius: R.pill, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}>
               {isSyncingExternalHealth ? '正在从 Home Assistant 同步…' : '同步 Apple Health 数据'}
             </button>
           </div>
