@@ -16,7 +16,10 @@ import { listCredentials, putCredential } from './credentials.mjs';
 import { listModelRuns } from './heartbeat.mjs';
 import { listSnapshotMeta, putSnapshot } from './snapshots.mjs';
 import { getSetting, setSetting } from './db.mjs';
-import { listTemporalItems, readVisibility, veilForCharacter, VISIBILITY, SOURCES_TIMEOUT_MS } from './temporal.mjs';
+import {
+    createReminder, listTemporalItems, readVisibility, removeTemporalItems, setReminderCompleted,
+    upsertTemporalItem, veilForCharacter, VISIBILITY, SOURCES_TIMEOUT_MS,
+} from './temporal.mjs';
 import { syncState } from './kinds.mjs';
 import { flattenContent } from './mcp.mjs';
 
@@ -242,6 +245,41 @@ export const createRouter = ctx => {
                 const next = { calendars: clean(body.calendars), lists: clean(body.lists) };
                 setSetting(db, 'temporal_visibility', JSON.stringify(next));
                 return { visibility: next };
+            },
+        },
+
+        // ── 写回 Apple 提醒事项 ───────────────────────────────────────
+        // 建 / 勾完成都是阿萌在界面上等着的，所以同步做（桥接约一秒），不走任务队列。
+        'POST /temporal/reminders': {
+            handle: async ({ body, db }) => {
+                const title = String(body.title ?? '').trim().slice(0, 200);
+                const list = String(body.list ?? '').trim().slice(0, 80);
+                if (!title) throw Object.assign(new Error('提醒得有个标题'), { status: 400, code: 'BAD_TITLE' });
+                if (!list) throw Object.assign(new Error('要放进哪个提醒清单'), { status: 400, code: 'BAD_LIST' });
+                const item = await createReminder({
+                    appleEvents: ctx.appleEvents,
+                    list,
+                    title,
+                    dueAt: body.dueAt ?? null,
+                    note: body.note ? String(body.note).slice(0, 1000) : null,
+                    priority: body.priority ?? null,
+                    timeZone: getSetting(db, 'timezone') || 'America/Chicago',
+                });
+                // 不给角色看的清单，建出来的条目也不该进缓存——缓存是喂提示词的那一份。
+                const visibility = readVisibility(getSetting(db, 'temporal_visibility'));
+                if (visibility.lists[list] && visibility.lists[list] !== 'hidden') upsertTemporalItem(db, item);
+                return { item };
+            },
+        },
+        'POST /temporal/reminders/complete': {
+            handle: async ({ body, db }) => {
+                const sourceId = String(body.sourceId ?? '').trim();
+                if (!sourceId) throw Object.assign(new Error('要勾哪一条'), { status: 400, code: 'BAD_ID' });
+                const completed = body.completed !== false;
+                await setReminderCompleted({ appleEvents: ctx.appleEvents, sourceId, completed });
+                // 缓存里只存没完成的，勾掉就从缓存里拿走；取消勾选等明天那次同步补回来。
+                if (completed) removeTemporalItems(db, sourceId);
+                return { sourceId, completed };
             },
         },
 

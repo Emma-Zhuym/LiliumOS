@@ -74,6 +74,53 @@ export const saveTemporalCache = (snapshot: TemporalSnapshot, now = Date.now()):
     return cache;
 };
 
+/** 刚建的那条立刻进缓存，不用等下一次同步；已有的同一条按 sourceId 换掉。 */
+export const cacheItem = (item: TemporalItem, now = Date.now()): TemporalCache | null => {
+    const cache = loadTemporalCache();
+    if (!cache) return null;
+    return saveTemporalCache({
+        ...cache,
+        items: [...cache.items.filter(existing => existing.sourceId !== item.sourceId), item],
+    }, now);
+};
+
+/** 勾掉之后从缓存里拿走（缓存里本来就只存没完成的）。 */
+export const uncacheItem = (sourceId: string, now = Date.now()): TemporalCache | null => {
+    const cache = loadTemporalCache();
+    if (!cache) return null;
+    return saveTemporalCache({ ...cache, items: cache.items.filter(item => item.sourceId !== sourceId) }, now);
+};
+
+/** 能往里写的提醒清单：设置里开过的那些（不给看的既列不出来，写进去角色也看不到）。 */
+export const writableLists = (visibility: TemporalVisibility | undefined): string[] =>
+    Object.entries(visibility?.lists ?? {}).filter(([, level]) => level !== 'hidden').map(([name]) => name);
+
+/** 还没完成的提醒：按截止时间排（逾期的自然排最前），没写时间的垫底。 */
+export const openReminders = (items: TemporalItem[]): TemporalItem[] =>
+    items.filter(item => item.kind === 'reminder' && !item.completed)
+        .sort((a, b) => {
+            const at = a.dueAt ? Date.parse(a.dueAt) : Infinity;
+            const bt = b.dueAt ? Date.parse(b.dueAt) : Infinity;
+            return at - bt || a.title.localeCompare(b.title);
+        });
+
+export const isOverdue = (item: TemporalItem, now = Date.now()): boolean =>
+    !!item.dueAt && Date.parse(item.dueAt) < now;
+
+/** 「逾期 / 今天 18:00 / 明天 / 周六」这一句。 */
+export const dueText = (item: TemporalItem, now = new Date()): string => {
+    if (!item.dueAt) return '';
+    const due = new Date(item.dueAt);
+    if (Number.isNaN(due.getTime())) return '';
+    const time = `${due.getHours()}:${String(due.getMinutes()).padStart(2, '0')}`;
+    const days = Math.round((new Date(dayKey(due) + 'T00:00:00').getTime() - new Date(dayKey(now) + 'T00:00:00').getTime()) / 86400_000);
+    if (due.getTime() < now.getTime()) return `逾期 · ${due.getMonth() + 1}月${due.getDate()}日`;
+    if (days === 0) return `今天 ${time}`;
+    if (days === 1) return `明天 ${time}`;
+    if (days < 7) return `周${'日一二三四五六'[due.getDay()]} ${time}`;
+    return `${due.getMonth() + 1}月${due.getDate()}日 ${time}`;
+};
+
 // ── 日期 ────────────────────────────────────────────────────────
 /** 本地时区的 YYYY-MM-DD。日历格子按阿萌自己的时区分天，不按 UTC。 */
 export const dayKey = (value: Date | string | number): string => {

@@ -99,7 +99,10 @@ export const normalizeReminders = (text, timeZone) => parseAppleList(text).map(i
     const f = item.fields;
     const { completed, title } = splitCheckbox(item.title);
     if (!f.ID) return null;
-    const due = f['Due Date'] ? parseAppleDate(f['Due Date'], timeZone) : null;
+    // 桥接真吐出来的是 `Due:`；`Due Date:` 是读单条时的写法。两个都认，
+    // 只认一个的话所有提醒都会变成「没写截止时间」。
+    const dueText = f['Due Date'] || f.Due;
+    const due = dueText ? parseAppleDate(dueText, timeZone) : null;
     return {
         kind: 'reminder',
         sourceId: f.ID,
@@ -150,6 +153,68 @@ export const fetchTemporal = async ({ appleEvents, visibility, timeZone, now = n
 
 const flatten = result => (Array.isArray(result?.content) ? result.content : [])
     .map(block => (block?.type === 'text' ? block.text : '')).join('\n');
+
+// ── 写回 Apple ───────────────────────────────────────────────────
+/** 优先级：缓存里存的是英文档名，桥接要的是数字。 */
+export const PRIORITY_CODES = { high: 1, medium: 5, low: 9, none: 0 };
+
+/**
+ * 建一条提醒。
+ *
+ * 写是阿萌在界面上点了「保存」等着的，所以同步做、不排队（桥接建一条约一秒）。
+ * 写完不整表重同步——那要按清单一个个读，好几秒；这里只把新建的这一条塞进缓存，
+ * 对账留给每天那次同步。
+ */
+export const createReminder = async ({ appleEvents, list, title, dueAt = null, note = null, priority = null, timeZone }) => {
+    const due = dueAt ? new Date(dueAt) : null;
+    const result = await appleEvents.callTool('reminders_tasks', {
+        action: 'create',
+        title,
+        targetList: list,
+        ...(due && !Number.isNaN(due.getTime()) ? { dueDate: appleDateText(due, timeZone) } : {}),
+        ...(note ? { note } : {}),
+        ...(PRIORITY_CODES[priority] !== undefined ? { priority: PRIORITY_CODES[priority] } : {}),
+    });
+    // 建完那一下只回一句话加一行 ID，不是条目清单，所以单独抠一次。
+    const sourceId = flatten(result).match(/^-\s*ID:\s*(\S+)/m)?.[1] ?? null;
+    if (!sourceId) throw Object.assign(new Error('建好了，但没拿到这条提醒的 ID'), { status: 502, code: 'NO_ID' });
+    return {
+        kind: 'reminder',
+        sourceId,
+        source: list,
+        title,
+        dueAt: due && !Number.isNaN(due.getTime()) ? due.toISOString() : null,
+        completed: false,
+        priority: priority ?? null,
+    };
+};
+
+/** 勾掉（或取消勾掉）一条提醒。 */
+export const setReminderCompleted = async ({ appleEvents, sourceId, completed = true }) =>
+    appleEvents.callTool('reminders_tasks', { action: 'update', id: sourceId, completed });
+
+/**
+ * 往缓存里塞 / 更新一条。整表重写那条路是给每天同步用的，
+ * 刚建的这一条不该等到明天才让角色知道。
+ */
+export const upsertTemporalItem = (db, item, now = new Date()) => {
+    db.prepare(
+        `INSERT INTO temporal_items (occurrence_key, source_id, kind, source, title, start_at, end_at, all_day, due_at, completed, priority, location, repeats, fetched_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(occurrence_key) DO UPDATE SET
+           title = excluded.title, due_at = excluded.due_at, completed = excluded.completed,
+           priority = excluded.priority, fetched_at = excluded.fetched_at`,
+    ).run(
+        occurrenceKey(item), item.sourceId, item.kind, item.source, item.title,
+        item.startAt ?? null, item.endAt ?? null, item.allDay ? 1 : 0,
+        item.dueAt ?? null, item.completed ? 1 : 0, item.priority ?? null,
+        item.location ?? null, item.repeats ?? null, now.toISOString(),
+    );
+};
+
+/** 从缓存里拿掉某条（勾完成的提醒就该消失——缓存里本来就只存没完成的）。 */
+export const removeTemporalItems = (db, sourceId) =>
+    db.prepare('DELETE FROM temporal_items WHERE source_id = ?').run(sourceId).changes;
 
 /**
  * 一条缓存行的键：同一个 ID 的重复事件，每一次上课都是单独一行。

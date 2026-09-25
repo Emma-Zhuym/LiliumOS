@@ -1116,4 +1116,15 @@ LaunchAgent: cc.liliumos.agent-backend.plist（RunAtLoad + KeepAlive）
 | 裁剪和格式化在前端再写了一份：`GET /temporal` 回的是没裁过的原件（日历 App 是阿萌自己在看，要看全），给角色的那份必须另裁 | `emTemporal.ts` `veilForCharacter` / `formatTemporalForPrompt`（与 `temporal.mjs` 的同名函数须同步改） |
 | fire_pack 不烤这一段：里面有「此刻在忙什么」，打包那一刻算的到点就过期了 | `chatPrompts.ts` `!forFirePack` |
 
-还没做：建事件 / 建提醒 / 勾完成的写接口。
+## 22. v1.4 修订记录（2026-09-25）——日历能写了（提醒那一半）
+
+| 决定 | 落在哪 |
+|---|---|
+| 写是阿萌点了「保存」站着等的，所以同步做、不排队（桥接建一条约一秒） | `POST /temporal/reminders`、`/temporal/reminders/complete` |
+| 写完不整表重同步（那要按清单挨个读、好几秒），只把这一条塞进缓存，对账留给每天那次 | `upsertTemporalItem` / `removeTemporalItems` |
+| 不给角色看的清单，建出来的条目也不进缓存——缓存就是喂提示词的那一份 | 同上 |
+| 真机上撞见的：桥接吐的是 `Due:`，只认 `Due Date:` 的话**所有**提醒都成了「没写截止时间」 | `normalizeReminders` |
+| 接口用 POST 不用 PUT：外面那层网关（`scripts/home-assistant-proxy.mjs`）只放行 GET / POST | `server.mjs` |
+
+还没做：建 / 改日历事件。另外桥接**建不了重复规则**（`mcp-server-apple-events` 的边界），
+「每周二四上午八点」这种只能在苹果日历里建。

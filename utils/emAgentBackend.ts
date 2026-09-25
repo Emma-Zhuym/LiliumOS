@@ -320,6 +320,22 @@ export const AgentBackend = {
         request<{ visibility: TemporalVisibility }>('/temporal/visibility', { method: 'POST', body: visibility })
             .then(data => data.visibility),
 
+    /**
+     * 建一条提醒，直接写回 Apple 提醒事项。
+     *
+     * 同步等结果（后端转给桥接约一秒）：这是你点了「保存」站在那儿等的动作，
+     * 排队排到明天才出现的话跟没建一样。
+     */
+    createReminder: (input: { list: string; title: string; dueAt?: string | null; note?: string; priority?: string }) =>
+        request<{ item: TemporalItem }>('/temporal/reminders', { method: 'POST', body: input })
+            .then(data => data.item),
+
+    /** 勾掉一条提醒（`completed: false` 就是取消勾选）。 */
+    completeReminder: (sourceId: string, completed = true) =>
+        request<{ sourceId: string; completed: boolean }>('/temporal/reminders/complete', {
+            method: 'POST', body: { sourceId, completed },
+        }),
+
     /** 排一次立刻同步（平时后端每天自己跑一次）。 */
     refreshTemporal: () => request<{ job: { uuid: string } }>('/jobs', {
         method: 'POST',

@@ -8,8 +8,9 @@ import test from 'node:test';
 
 import { openDb } from './db.mjs';
 import {
-    appleDateText, fetchTemporal, formatTemporalForPrompt, listTemporalItems, normalizeEvents, normalizeReminders,
-    parseAppleDate, parseAppleList, readVisibility, replaceTemporalItems, veilForCharacter, visibilityOf,
+    appleDateText, createReminder, fetchTemporal, formatTemporalForPrompt, listTemporalItems, normalizeEvents,
+    normalizeReminders, parseAppleDate, parseAppleList, readVisibility, removeTemporalItems, replaceTemporalItems,
+    setReminderCompleted, upsertTemporalItem, veilForCharacter, visibilityOf,
 } from './temporal.mjs';
 
 const TZ = 'America/Chicago';
@@ -88,6 +89,76 @@ test('提醒：[ ] / [x] 拆成完成状态，优先级 none 不留', () => {
     assert.equal(tuition.completed, true);
     assert.equal(tuition.priority, null);
     assert.equal(tuition.dueAt, null);
+});
+
+test('提醒：桥接真吐的是 `Due:`，不能只认 `Due Date:`', () => {
+    // 这段是建完一条之后读回来的原样，字段名跟批量读那份不一样
+    const [item] = normalizeReminders(`- [ ] 交学费
+  - List: 学业
+  - ID: R-9
+  - Start: 2026-09-26 18:00:00
+  - Due: 2026-09-26 18:00:00`, TZ);
+    assert.equal(item.dueAt, '2026-09-26T23:00:00.000Z', '只认 Due Date 的话所有提醒都成了「没写截止时间」');
+});
+
+test('建提醒：拿本地墙钟时间写给桥接，回来的 ID 存进条目', async () => {
+    const calls = [];
+    const appleEvents = {
+        callTool: async (name, args) => {
+            calls.push({ name, args });
+            return { content: [{ type: 'text', text: '成功。\n- ID: R-NEW' }] };
+        },
+    };
+    const item = await createReminder({
+        appleEvents, list: '学业', title: '交 BST631 作业',
+        dueAt: '2026-09-27T04:59:00.000Z', note: '别忘了附代码', priority: 'high', timeZone: TZ,
+    });
+    assert.deepEqual(calls[0].args, {
+        action: 'create', title: '交 BST631 作业', targetList: '学业',
+        dueDate: '2026-09-26 23:59:00', note: '别忘了附代码', priority: 1,
+    });
+    assert.deepEqual(item, {
+        kind: 'reminder', sourceId: 'R-NEW', source: '学业', title: '交 BST631 作业',
+        dueAt: '2026-09-27T04:59:00.000Z', completed: false, priority: 'high',
+    });
+});
+
+test('建提醒：没有截止时间就不传 dueDate；拿不到 ID 要报错而不是悄悄成功', async () => {
+    const plain = await createReminder({
+        appleEvents: { callTool: async () => ({ content: [{ type: 'text', text: '- ID: R-2' }] }) },
+        list: '杂务', title: '倒垃圾', timeZone: TZ,
+    });
+    assert.equal(plain.dueAt, null);
+    await assert.rejects(
+        createReminder({
+            appleEvents: { callTool: async () => ({ content: [{ type: 'text', text: '好了' }] }) },
+            list: '杂务', title: 'x', timeZone: TZ,
+        }),
+        error => error.code === 'NO_ID',
+    );
+});
+
+test('勾完成：告诉桥接哪一条，并把它从缓存里拿走', async () => {
+    const calls = [];
+    await setReminderCompleted({ appleEvents: { callTool: async (name, args) => calls.push(args) }, sourceId: 'R-1' });
+    assert.deepEqual(calls[0], { action: 'update', id: 'R-1', completed: true });
+
+    const db = openDb(':memory:');
+    replaceTemporalItems(db, normalizeReminders(REMINDERS_TEXT, TZ));
+    assert.equal(removeTemporalItems(db, 'R-1'), 1);
+    assert.equal(listTemporalItems(db).some(item => item.sourceId === 'R-1'), false);
+});
+
+test('单条塞进缓存：刚建的提醒不用等到明天那次同步', () => {
+    const db = openDb(':memory:');
+    const item = { kind: 'reminder', sourceId: 'R-3', source: '学业', title: '写摘要', dueAt: '2026-09-26T23:00:00.000Z', completed: false, priority: null };
+    upsertTemporalItem(db, item);
+    assert.equal(listTemporalItems(db).length, 1);
+    // 同一条再塞一次是更新，不是多一行
+    upsertTemporalItem(db, { ...item, title: '写摘要（改）' });
+    const rows = listTemporalItems(db);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].title, '写摘要（改）');
 });
 
 test('可见性：默认什么都不给看；坏设置不会让它变宽松', () => {

@@ -3,9 +3,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { TemporalItem } from './emAgentBackend';
 import {
-    buildTemporalInjection, dayKey, emptyVisibility, formatTemporalForPrompt, groupByDay, hasOpenSource,
-    itemTimeText, levelOf, loadTemporalCache, monthGrid, saveTemporalCache, shiftMonth, sortItems, syncText,
-    veilForCharacter,
+    buildTemporalInjection, cacheItem, dayKey, dueText, emptyVisibility, formatTemporalForPrompt, groupByDay,
+    hasOpenSource, isOverdue, itemTimeText, levelOf, loadTemporalCache, monthGrid, openReminders, saveTemporalCache,
+    shiftMonth, sortItems, syncText, uncacheItem, veilForCharacter, writableLists,
 } from './emTemporal';
 
 const event = (over: Partial<TemporalItem>): TemporalItem => ({
@@ -127,6 +127,48 @@ describe('给角色看的那一份', () => {
         const text = buildTemporalInjection('阿萌', new Date('2026-09-24T13:30:00.000Z'));
         expect(text).toContain('BST 631');
         expect(text).not.toContain('看牙');
+    });
+});
+
+describe('提醒：记下来和勾掉', () => {
+    beforeEach(() => localStorage.clear());
+
+    it('能写进去的清单 = 设置里开过的；一个都没开就不能建', () => {
+        expect(writableLists({ calendars: {}, lists: { 学业: 'title', 私事: 'busy', 杂务: 'hidden' } })).toEqual(['学业', '私事']);
+        expect(writableLists(emptyVisibility())).toEqual([]);
+    });
+
+    it('排序：逾期的在最前，没写截止时间的垫底；已完成的不列', () => {
+        const items = [
+            reminder({ sourceId: 'none', dueAt: null, title: '买菜' }),
+            reminder({ sourceId: 'late', dueAt: '2026-09-20T18:00:00.000Z', title: '交表' }),
+            reminder({ sourceId: 'soon', dueAt: '2026-09-26T18:00:00.000Z', title: '写作业' }),
+            reminder({ sourceId: 'done', dueAt: '2026-09-21T18:00:00.000Z', completed: true }),
+            event({}),
+        ];
+        expect(openReminders(items).map(i => i.sourceId)).toEqual(['late', 'soon', 'none']);
+        expect(isOverdue(items[1], Date.parse('2026-09-24T12:00:00.000Z'))).toBe(true);
+        expect(isOverdue(items[0], Date.parse('2026-09-24T12:00:00.000Z'))).toBe(false);
+    });
+
+    it('截止时间那一句分逾期 / 今天 / 明天 / 本周', () => {
+        const now = new Date('2026-09-24T12:00:00.000Z'); // 芝加哥 9/24 07:00 周四
+        expect(dueText(reminder({ dueAt: '2026-09-20T18:00:00.000Z' }), now)).toContain('逾期');
+        expect(dueText(reminder({ dueAt: '2026-09-24T18:00:00.000Z' }), now)).toMatch(/^今天 /);
+        expect(dueText(reminder({ dueAt: '2026-09-25T18:00:00.000Z' }), now)).toMatch(/^明天 /);
+        expect(dueText(reminder({ dueAt: '2026-09-27T18:00:00.000Z' }), now)).toMatch(/^周日 /);
+        expect(dueText(reminder({ dueAt: null }), now)).toBe('');
+    });
+
+    it('刚建的立刻进缓存，勾掉就从缓存里拿走；没缓存时不假装成功', () => {
+        expect(cacheItem(reminder({}))).toBeNull();
+        saveTemporalCache({ items: [event({})], visibility: emptyVisibility(), sync: {} });
+        const added = cacheItem(reminder({ sourceId: 'R-NEW' }))!;
+        expect(added.items.map(i => i.sourceId)).toEqual(['e1', 'R-NEW']);
+        // 同一条再来一次是替换，不是多一条
+        expect(cacheItem(reminder({ sourceId: 'R-NEW', title: '改过的' }))!.items).toHaveLength(2);
+        expect(loadTemporalCache()!.items.find(i => i.sourceId === 'R-NEW')!.title).toBe('改过的');
+        expect(uncacheItem('R-NEW')!.items.map(i => i.sourceId)).toEqual(['e1']);
     });
 });
 
