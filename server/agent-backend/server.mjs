@@ -40,7 +40,7 @@ const fail = (res, status, code, message, origin) =>
 
 const corsHeaders = origin => (origin ? {
     'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Authorization, Content-Type',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
@@ -230,7 +230,9 @@ export const createRouter = ctx => {
                 return { calendars: names(calendars), lists: names(lists) };
             },
         },
-        'PUT /temporal/visibility': {
+        // 用 POST 不用 PUT：外面那层网关（scripts/home-assistant-proxy.mjs）只放行 GET / POST，
+        // 而且这个后端其余的写接口（characters/upsert、outbox/ack…）也全是 POST。
+        'POST /temporal/visibility': {
             handle: ({ body }) => {
                 const clean = source => Object.fromEntries(
                     Object.entries(source ?? {})
@@ -290,7 +292,7 @@ export const createApp = ctx => {
         }
 
         try {
-            const body = req.method === 'POST' || req.method === 'PUT' ? await readBody(req) : {};
+            const body = req.method === 'POST' ? await readBody(req) : {};
             const data = await route.handle({ db, body, query: url.searchParams, device, ctx });
             ok(res, data, origin);
         } catch (error) {

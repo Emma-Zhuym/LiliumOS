@@ -176,7 +176,7 @@ const REQUEST_TIMEOUT_MS = 15_000;
 
 const request = async <T>(
     path: string,
-    init: { method?: 'GET' | 'POST' | 'PUT'; body?: unknown; config?: AgentBackendConfig; auth?: boolean; timeoutMs?: number } = {},
+    init: { method?: 'GET' | 'POST'; body?: unknown; config?: AgentBackendConfig; auth?: boolean; timeoutMs?: number } = {},
 ): Promise<T> => {
     const config = init.config ?? loadAgentConfig();
     if (!config.baseUrl) throw new AgentBackendError('还没填后端地址', 'NO_BASE_URL', 0);
@@ -317,7 +317,7 @@ export const AgentBackend = {
     temporalSources: () => request<{ calendars: string[]; lists: string[] }>('/temporal/sources', { timeoutMs: 45_000 }),
 
     putTemporalVisibility: (visibility: TemporalVisibility) =>
-        request<{ visibility: TemporalVisibility }>('/temporal/visibility', { method: 'PUT', body: visibility })
+        request<{ visibility: TemporalVisibility }>('/temporal/visibility', { method: 'POST', body: visibility })
             .then(data => data.visibility),
 
     /** 排一次立刻同步（平时后端每天自己跑一次）。 */

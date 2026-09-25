@@ -353,7 +353,7 @@ test('HTTP：客户端不能创建心跳这类任务', async t => {
     assert.equal(allowed.status, 200);
 });
 
-test('HTTP：PUT 的请求体要真读进来（改日历可见性走的就是 PUT）', async t => {
+test('HTTP：改日历可见性走 POST——外面那层网关只放行 GET / POST', async t => {
     const app = await startTestServer();
     t.after(() => app.close());
     resetPairingFailures();
@@ -364,16 +364,16 @@ test('HTTP：PUT 的请求体要真读进来（改日历可见性走的就是 PU
     })).json();
     const headers = { Authorization: `Bearer ${paired.data.deviceToken}`, 'Content-Type': 'application/json' };
     const saved = await (await fetch(`${app.base}/temporal/visibility`, {
-        method: 'PUT', headers, body: JSON.stringify({ calendars: { Learning: 'title' }, lists: {} }),
+        method: 'POST', headers, body: JSON.stringify({ calendars: { Learning: 'title' }, lists: {} }),
     })).json();
     assert.deepEqual(saved.data.visibility, { calendars: { Learning: 'title' }, lists: {} });
     const read = await (await fetch(`${app.base}/temporal`, { headers })).json();
     assert.deepEqual(read.data.visibility.calendars, { Learning: 'title' });
-    // 浏览器要先问过 PUT 能不能发
+    // 预检里报出去的方法必须和网关放行的一致，否则浏览器连发都不发
     const preflight = await fetch(`${app.base}/temporal/visibility`, {
         method: 'OPTIONS', headers: { Origin: 'https://emma-zhuym.github.io' },
     });
-    assert.match(preflight.headers.get('access-control-allow-methods'), /PUT/);
+    assert.equal(preflight.headers.get('access-control-allow-methods'), 'GET, POST, OPTIONS');
 });
 
 test('HTTP：只给白名单里的来源回 CORS 头', async t => {
