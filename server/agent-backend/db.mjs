@@ -188,6 +188,29 @@ export const MIGRATIONS = [
     );
     CREATE INDEX idx_temporal_when ON temporal_items (start_at, due_at);
     `,
+    // 8：重复事件的每一次都要单独留一行。Apple 给每次上课的 ID 是同一个，
+    // 拿 source_id 当主键的话一门课只剩第一次——月历上周二周四那几节就凭空不见了。
+    // 这是缓存表，直接推倒重来，下一次同步就补回来。
+    `
+    DROP TABLE IF EXISTS temporal_items;
+    CREATE TABLE temporal_items (
+      occurrence_key TEXT PRIMARY KEY,
+      source_id   TEXT NOT NULL,
+      kind        TEXT NOT NULL CHECK (kind IN ('event','reminder')),
+      source      TEXT NOT NULL,
+      title       TEXT NOT NULL,
+      start_at    TEXT,
+      end_at      TEXT,
+      all_day     INTEGER NOT NULL DEFAULT 0,
+      due_at      TEXT,
+      completed   INTEGER NOT NULL DEFAULT 0,
+      priority    TEXT,
+      location    TEXT,
+      repeats     TEXT,
+      fetched_at  TEXT NOT NULL
+    );
+    CREATE INDEX idx_temporal_when ON temporal_items (start_at, due_at);
+    `,
 ];
 
 export const DEFAULT_SETTINGS = {

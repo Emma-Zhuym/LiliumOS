@@ -13,6 +13,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useOS } from '../../context/OSContext';
 import Modal from '../os/Modal';
 import AgentHeartbeatPanel from './AgentHeartbeatPanel';
+import AgentTemporalPanel from './AgentTemporalPanel'; // [EM: calendar-temporal]
 import {
     AgentBackend,
     AgentBackendError,
@@ -49,6 +50,7 @@ export default function AgentBackendSection() {
     const [open, setOpen] = useState(false);
     const [form, setForm] = useState({ baseUrl: '', code: '', deviceName: '' });
     const [heartbeatOpen, setHeartbeatOpen] = useState(false);
+    const [temporalOpen, setTemporalOpen] = useState(false); // [EM: calendar-temporal]
     const version = useRef(0);
 
     const paired = isAgentPaired(config);
@@ -245,6 +247,9 @@ export default function AgentBackendSection() {
                         <button disabled={busy} onClick={handleFetchInbox} className={BTN}>收取消息</button>
                         <button disabled={busy} onClick={handleOpenDevices} className={BTN}>设备列表</button>
                         <button disabled={busy} onClick={() => setHeartbeatOpen(true)} className={`${BTN} text-violet-600 border-violet-200`}>角色心跳</button>
+                        {/* [EM-START: calendar-temporal] */}
+                        <button disabled={busy} onClick={() => setTemporalOpen(true)} className={`${BTN} col-span-2 text-violet-600 border-violet-200`}>角色能看到我哪些日历</button>
+                        {/* [EM-END: calendar-temporal] */}
                     </div>
                     <button disabled={busy} onClick={handleUnpair} className="w-full py-2 text-[10px] font-bold text-slate-400 active:scale-95 transition-all">
                         解除本机绑定
@@ -260,6 +265,7 @@ export default function AgentBackendSection() {
             </div>}
 
             <AgentHeartbeatPanel open={heartbeatOpen} onClose={() => setHeartbeatOpen(false)} />
+            <AgentTemporalPanel open={temporalOpen} onClose={() => setTemporalOpen(false)} />{/* [EM: calendar-temporal] */}
 
             <Modal
                 isOpen={pairing}

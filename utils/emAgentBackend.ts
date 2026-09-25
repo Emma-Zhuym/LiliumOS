@@ -123,6 +123,48 @@ export interface AgentMessage {
     createdAt: string;
 }
 
+// ── 阿萌的现实时间（Apple 日历 / 提醒）──────────────────────────────
+/** 给角色看到多少：不给看 / 只知道我在忙 / 能看到标题。 */
+export type TemporalLevel = 'hidden' | 'busy' | 'title';
+
+/** 后端缓存里的一条现实安排。事件有 startAt，提醒有 dueAt。 */
+export interface TemporalItem {
+    kind: 'event' | 'reminder';
+    sourceId: string;
+    /** 来自哪个日历 / 哪个提醒清单。 */
+    source: string;
+    title: string;
+    startAt: string | null;
+    endAt: string | null;
+    allDay: boolean;
+    dueAt: string | null;
+    completed: boolean;
+    priority: string | null;
+    location: string | null;
+    /** Apple 那边的重复描述，原样带着，前端只做显示。 */
+    repeats: string | null;
+    fetchedAt: string;
+}
+
+export interface TemporalVisibility {
+    calendars: Record<string, TemporalLevel>;
+    lists: Record<string, TemporalLevel>;
+}
+
+export interface TemporalSyncState {
+    lastAt?: string;
+    count?: number;
+    lastError?: string | null;
+    lastErrorAt?: string;
+    everyHours?: number;
+}
+
+export interface TemporalSnapshot {
+    items: TemporalItem[];
+    visibility: TemporalVisibility;
+    sync: TemporalSyncState;
+}
+
 export class AgentBackendError extends Error {
     constructor(message: string, readonly code: string, readonly status: number) {
         super(message);
@@ -134,7 +176,7 @@ const REQUEST_TIMEOUT_MS = 15_000;
 
 const request = async <T>(
     path: string,
-    init: { method?: 'GET' | 'POST'; body?: unknown; config?: AgentBackendConfig; auth?: boolean } = {},
+    init: { method?: 'GET' | 'POST' | 'PUT'; body?: unknown; config?: AgentBackendConfig; auth?: boolean; timeoutMs?: number } = {},
 ): Promise<T> => {
     const config = init.config ?? loadAgentConfig();
     if (!config.baseUrl) throw new AgentBackendError('还没填后端地址', 'NO_BASE_URL', 0);
@@ -142,7 +184,7 @@ const request = async <T>(
     if (needsAuth && !config.deviceToken) throw new AgentBackendError('这台设备还没配对', 'NOT_PAIRED', 0);
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), init.timeoutMs ?? REQUEST_TIMEOUT_MS);
     let response: Response;
     try {
         response = await fetch(`${config.baseUrl}/agent/v1${path}`, {
@@ -256,6 +298,37 @@ export const AgentBackend = {
         request<{ modelRuns: AgentModelRun[] }>(
             `/audit?limit=${limit}${charId ? `&charId=${encodeURIComponent(charId)}` : ''}`,
         ).then(data => data.modelRuns),
+
+    /** 后端缓存里的现实安排（日历 App 读这个，不直接连桥接）。 */
+    temporal: (range?: { from?: string; to?: string }) => {
+        const query = new URLSearchParams();
+        if (range?.from) query.set('from', range.from);
+        if (range?.to) query.set('to', range.to);
+        const qs = query.toString();
+        return request<TemporalSnapshot>(`/temporal${qs ? `?${qs}` : ''}`);
+    },
+
+    /**
+     * 有哪些日历 / 提醒清单可选。
+     *
+     * 这一下会真去问 macOS：EventKit 列日历要 20 多秒，所以超时单独放宽，
+     * 而且只在打开设置页时调一次。
+     */
+    temporalSources: () => request<{ calendars: string[]; lists: string[] }>('/temporal/sources', { timeoutMs: 45_000 }),
+
+    putTemporalVisibility: (visibility: TemporalVisibility) =>
+        request<{ visibility: TemporalVisibility }>('/temporal/visibility', { method: 'PUT', body: visibility })
+            .then(data => data.visibility),
+
+    /** 排一次立刻同步（平时后端每天自己跑一次）。 */
+    refreshTemporal: () => request<{ job: { uuid: string } }>('/jobs', {
+        method: 'POST',
+        body: {
+            kind: 'temporal.refresh',
+            runAt: new Date().toISOString(),
+            expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
+        },
+    }),
 
     inbox: () => request<{ messages: AgentMessage[] }>('/outbox').then(data => data.messages),
     ackInbox: (messageIds: string[]) => request<{ acked: number }>('/outbox/ack', {

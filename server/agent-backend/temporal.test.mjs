@@ -149,6 +149,11 @@ test('落库：整表重写，不留上一次同步的残留', () => {
     assert.equal(items[0].title, 'BST 631 Stat Theory');
     assert.equal(items[0].fetchedAt, '2026-09-25T12:00:00.000Z');
 
+    // 同一门课的下一次上课是另一行：Apple 给的 ID 一样，不能把它当成同一条
+    const nextWeek = { ...first[0], startAt: '2026-10-01T13:00:00.000Z', endAt: '2026-10-01T14:15:00.000Z' };
+    replaceTemporalItems(db, [first[0], nextWeek]);
+    assert.equal(listTemporalItems(db).length, 2, '周四和下周四各留一行');
+
     // 按窗口筛：正在进行的算「还没结束」
     replaceTemporalItems(db, first);
     assert.equal(listTemporalItems(db, { from: '2026-09-24T14:00:00.000Z' }).length, 2, '课还没下课 + 后天的牙医');

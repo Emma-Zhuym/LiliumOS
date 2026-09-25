@@ -32,12 +32,12 @@ export const createMcpClient = ({ url, token, fetchImpl = fetch, timeoutMs = 25_
     let sessionId = null;
     let nextId = 1;
 
-    const call = async (method, params, { notification = false } = {}) => {
+    const call = async (method, params, { notification = false, timeoutMs: callTimeoutMs = timeoutMs } = {}) => {
         const body = notification
             ? { jsonrpc: '2.0', method, params }
             : { jsonrpc: '2.0', id: nextId++, method, params };
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        const timer = setTimeout(() => controller.abort(), callTimeoutMs);
         try {
             let response;
             try {
@@ -55,7 +55,7 @@ export const createMcpClient = ({ url, token, fetchImpl = fetch, timeoutMs = 25_
                 });
             } catch (error) {
                 // 裸 fetch 的错误只有一句 "fetch failed"，隔着日志根本看不出是哪个服务没起来。
-                const reason = controller.signal.aborted ? `超过 ${timeoutMs}ms 没响应` : String(error?.message || error);
+                const reason = controller.signal.aborted ? `超过 ${callTimeoutMs}ms 没响应` : String(error?.message || error);
                 throw new Error(`连不上 MCP 服务（${url}，${method}）：${reason}`);
             }
             const newSession = response.headers.get('mcp-session-id');
@@ -98,9 +98,10 @@ export const createMcpClient = ({ url, token, fetchImpl = fetch, timeoutMs = 25_
             const result = await call('tools/list', {});
             return result?.tools ?? [];
         },
-        async callTool(name, args) {
+        /** `timeoutMs` 单独放宽某一次调用：列日历（calendar_calendars）要二十多秒，默认那档等不到。 */
+        async callTool(name, args, { timeoutMs: callTimeoutMs } = {}) {
             await ensureReady();
-            return call('tools/call', { name, arguments: args ?? {} });
+            return call('tools/call', { name, arguments: args ?? {} }, callTimeoutMs ? { timeoutMs: callTimeoutMs } : {});
         },
         get sessionId() { return sessionId; },
     };

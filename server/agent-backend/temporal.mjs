@@ -151,19 +151,25 @@ export const fetchTemporal = async ({ appleEvents, visibility, timeZone, now = n
 const flatten = result => (Array.isArray(result?.content) ? result.content : [])
     .map(block => (block?.type === 'text' ? block.text : '')).join('\n');
 
+/**
+ * 一条缓存行的键：同一个 ID 的重复事件，每一次上课都是单独一行。
+ * Apple 给每次的 ID 都一样，只用 ID 当键的话一门课只会留下第一次。
+ */
+export const occurrenceKey = item => `${item.sourceId}@${item.startAt ?? item.dueAt ?? ''}`;
+
 export const replaceTemporalItems = (db, items, now = new Date()) => {
     const nowIso = now.toISOString();
     db.exec('BEGIN');
     try {
         db.prepare('DELETE FROM temporal_items').run();
         const insert = db.prepare(
-            `INSERT INTO temporal_items (source_id, kind, source, title, start_at, end_at, all_day, due_at, completed, priority, location, repeats, fetched_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT(source_id) DO NOTHING`,
+            `INSERT INTO temporal_items (occurrence_key, source_id, kind, source, title, start_at, end_at, all_day, due_at, completed, priority, location, repeats, fetched_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             ON CONFLICT(occurrence_key) DO NOTHING`,
         );
         for (const item of items) {
             insert.run(
-                item.sourceId, item.kind, item.source, item.title,
+                occurrenceKey(item), item.sourceId, item.kind, item.source, item.title,
                 item.startAt ?? null, item.endAt ?? null, item.allDay ? 1 : 0,
                 item.dueAt ?? null, item.completed ? 1 : 0, item.priority ?? null,
                 item.location ?? null, item.repeats ?? null, nowIso,

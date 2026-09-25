@@ -48,6 +48,7 @@ export const SELF_SAFE_AREA_APPS: ReadonlySet<AppID> = new Set<AppID>([
     AppID.Shopping,
     AppID.SmartHome,
     AppID.Moments, // [EM: moments]
+    AppID.Calendar, // [EM: calendar-temporal]
     AppID.Map, // [EM: map-schedule-clay] 地图×日程 Clay 版顶栏自理 chrome-top
 ]);
 

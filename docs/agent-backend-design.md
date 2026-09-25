@@ -1095,3 +1095,21 @@ LaunchAgent: cc.liliumos.agent-backend.plist（RunAtLoad + KeepAlive）
 | 「刚聊过」从 20 分钟缩到 10 分钟 | 4.3 第 3 步 `ACTIVE_CHAT_WINDOW_MS` |
 | 刚聊过、消息冷却不再整跳不动脑，改成「这一跳不开口」：照样写工作往来和生活小事 | 4.3 第 3 步 `speakBlock` |
 | 模型硬写了 message 也不发，留成「等会儿」，原话留底 | 同上 |
+
+## 21. v1.3 修订记录（2026-09-24）——角色知道阿萌周几上课
+
+阿萌：「角色老记不得我周几上课有点难受……mini 那边每天自动同步一次就够了，想直接做成手动选择某个日历可见。」
+
+之前角色**根本没有渠道**知道用户的日程：ScheduleApp 的待办从不进提示词，心跳也从不读日历。不是记不住，是从来不知道。
+
+| 决定 | 落在哪 |
+|---|---|
+| mini 每天读一次 Apple 日历 / 提醒，存 −1 天 ~ +14 天的缓存；聊天路径永不直连桥接（列日历要三十秒） | `temporal.mjs`、`kinds.mjs` `temporal.refresh`、`index.mjs` `ensureTemporalJob` |
+| 逐个日历 / 清单选可见性：不给看 / 只知道我在忙 / 能看到标题，**默认全是不给看** | `temporal_visibility` 设置、`components/settings/AgentTemporalPanel.tsx` |
+| 重复事件的每一次单独存一行（`occurrence_key`）：拿事件 ID 当主键的话一门课只剩第一次 | 迁移 8、`occurrenceKey` |
+| 提醒清单名要剥掉 `(Color: …) (ID: …)`，否则跟条目里的 `List:` 对不上、筛选筛不出东西 | `GET /temporal/sources` |
+| 写可见性走 PUT：CORS 要放行 PUT，请求体也得真读进来（原来只给 POST 读） | `server.mjs` |
+| 桥接的 `EVENTKIT_CLI_TIMEOUT_MS` 抬到 90 秒：`calendar_calendars` 在 EventKit 那边就要三十秒，默认 30s 刚好卡死 | `server/apple-events-bridge/run-macos.sh` |
+| 手机上新开一个「日历」App 读缓存（月历 + 当天清单），mini 睡着时显示上次缓存 | `apps/CalendarApp.tsx`、`utils/emTemporal.ts` |
+
+还没做：建事件 / 建提醒 / 勾完成的写接口，聊天提示词那一侧的前端注入。

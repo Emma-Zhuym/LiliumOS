@@ -40,7 +40,7 @@ const fail = (res, status, code, message, origin) =>
 
 const corsHeaders = origin => (origin ? {
     'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
     'Access-Control-Allow-Headers': 'Authorization, Content-Type',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
@@ -219,11 +219,13 @@ export const createRouter = ctx => {
             // 列日历那一下要 20 多秒（EventKit 慢），所以只在打开设置页时调。
             handle: async () => {
                 const [calendars, lists] = await Promise.all([
-                    ctx.appleEvents.callTool('calendar_calendars', { action: 'read' }),
-                    ctx.appleEvents.callTool('reminders_lists', { action: 'read' }),
+                    ctx.appleEvents.callTool('calendar_calendars', { action: 'read' }, { timeoutMs: SOURCES_TIMEOUT_MS }),
+                    ctx.appleEvents.callTool('reminders_lists', { action: 'read' }, { timeoutMs: SOURCES_TIMEOUT_MS }),
                 ]);
+                // 提醒清单那一行后面还挂着 (Color: …) (ID: …)，得剥干净：
+                // 这个名字既要当 filterList 传回去，又要跟条目里的 List: 对上。
                 const names = result => flattenContent(result, 8000).split('\n')
-                    .map(line => line.match(/^- (.+)$/)?.[1]?.trim())
+                    .map(line => line.match(/^- (.+)$/)?.[1]?.replace(/\s*\((?:Color|ID):[^)]*\)/g, '').trim())
                     .filter(Boolean);
                 return { calendars: names(calendars), lists: names(lists) };
             },
@@ -288,7 +290,7 @@ export const createApp = ctx => {
         }
 
         try {
-            const body = req.method === 'POST' ? await readBody(req) : {};
+            const body = req.method === 'POST' || req.method === 'PUT' ? await readBody(req) : {};
             const data = await route.handle({ db, body, query: url.searchParams, device, ctx });
             ok(res, data, origin);
         } catch (error) {

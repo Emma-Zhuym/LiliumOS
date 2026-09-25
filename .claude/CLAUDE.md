@@ -227,6 +227,13 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - 用户动态可选「谁可以看」；「让大家看看」用各角色自己的 API 立即刷一遍（带图识图）；平时由心跳刷（待做）
 - `context/OSContext.tsx` 的 `emMoments` 随备份导出/恢复，文字备份不带图且恢复时保留本机图片
 
+### 26. 日历（现实时间接入）
+- `apps/CalendarApp.tsx` / `utils/emTemporal.ts` / `components/settings/AgentTemporalPanel.tsx` — 阿萌真实的 Apple 日历与提醒，mini 每天同步一次到后端缓存，手机只读缓存
+- **手机端永远不直连桥接**：列日历（`calendar_calendars`）在 EventKit 那边就要三十秒，只有设置页那一下允许等，聊天和 App 路径一律读缓存
+- 可见性默认**全部不给看**，逐个日历 / 提醒清单选 不给看 / 只知道我在忙 / 能看到标题；`busy` 档进角色上下文时只剩「有安排」，地点一律不进
+- 重复事件按 `occurrence_key`（事件 ID + 开始时间）存，别退回拿事件 ID 当主键——那样一门课只剩第一次
+- 日历内容和桥接 Token 一样不得进日志、文档、Engram 或备份
+
 ## 合并时常见坑（踩过的 bug）
 
 ### PhoneShell.tsx — messageSubView 必须解构

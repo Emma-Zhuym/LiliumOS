@@ -427,7 +427,6 @@ const ShoppingApp: React.FC = () => {
     await ShoppingDB.saveSetting(FAMILY_LINKS_KEY, next);
   };
   // [EM-END: shopping-family]
-  const favProducts = products.filter(p => p.fav && p.type === 'food').slice(0, 4); // 网购改成填单，常点只放外卖
   const activeOrders = allOrders.filter(o => o.status === 'active'); // [EM: shopping-family]
   const doneOrders = allOrders.filter(o => o.status === 'done'); // [EM: shopping-family]
   const shownOrders = ordersTab === 'active' ? activeOrders : doneOrders;
@@ -563,33 +562,6 @@ const ShoppingApp: React.FC = () => {
               </button>
             );
           })}
-        </>
-      )}
-
-      {/* 常送给 TA */}
-      {favProducts.length > 0 && (
-        <>
-          <div className="px-1 pt-1.5" style={{ fontSize: 16, fontWeight: 600, color: F.textPrimary }}>常点</div>
-          <div className="grid grid-cols-2 gap-3">
-            {favProducts.map(p => {
-              const c = pal(p.type);
-              return (
-                <div key={p.id} style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.large, overflow: 'hidden', boxShadow: S.raisedSoft }}>
-                  <div className="flex items-center justify-center" style={{ height: 76, background: c.tint }}>
-                    <CatIcon cat={p.cat} color={c.ink} size={34} />
-                  </div>
-                  <div style={{ padding: '10px 12px' }}>
-                    <div style={{ fontSize: 11, color: F.textTertiary }}>{p.brand}</div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: F.textPrimary }}>{p.name}</div>
-                    <div className="flex items-center justify-between" style={{ marginTop: 6 }}>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: c.ink }}>{yuan(p.price)}</span>
-                      <AddBtn onClick={() => addToCart(p.id)} color={c.main} />
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
         </>
       )}
 

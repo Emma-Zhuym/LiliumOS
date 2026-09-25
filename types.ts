@@ -43,6 +43,7 @@ export enum AppID {
   WorldHome = 'world_home', // 家园 — 同世界观多角色共同生活的大世界（观测驱动演绎，每角色独立 LLM 调用 + NPC 世界引擎）
   Shopping = 'shopping', // EM: 投喂站 — 角色扮演购物模块（网购+外卖）
   SmartHome = 'smart_home', // EM: 共栖舱 — Home Assistant 统一设备控制
+  Calendar = 'calendar', // [EM: calendar-temporal] 日历 — 阿萌真实的 Apple 日历 / 提醒（mini 每天同步）
   Moments = 'moments', // [EM: moments] 朋友圈 — 所有人的动态汇总，用户可发图文、点赞评论
 }
 
