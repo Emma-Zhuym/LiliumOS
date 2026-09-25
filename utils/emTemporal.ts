@@ -11,6 +11,7 @@
  * 缓存存本机 localStorage：mini 不在线（每天 4–7 点休眠）时，日历 App 仍该显示上次看到的样子。
  */
 
+import { AgentBackend, isAgentPaired } from './emAgentBackend';
 import type { TemporalItem, TemporalLevel, TemporalSnapshot, TemporalVisibility } from './emAgentBackend';
 
 export type { TemporalItem, TemporalLevel, TemporalSnapshot, TemporalVisibility };
@@ -140,6 +141,111 @@ export const monthGrid = (year: number, month: number): MonthCell[] => {
 export const shiftMonth = (year: number, month: number, delta: number): { year: number; month: number } => {
     const date = new Date(year, month + delta, 1);
     return { year: date.getFullYear(), month: date.getMonth() };
+};
+
+/** 隔多久才值得再问一次后端。mini 每天才同步一次，一小时一问已经很勤快了。 */
+export const CACHE_REFRESH_MS = 60 * 60 * 1000;
+
+/**
+ * 顺手把缓存刷新一下（打开 App、回到前台时调）。全程静默：
+ * 没配对、后端休眠、网络不通都直接返回上一次的缓存——后台服务不在线是常态，不是故障。
+ */
+export const refreshTemporalCache = async (options: { force?: boolean; now?: number } = {}): Promise<TemporalCache | null> => {
+    const now = options.now ?? Date.now();
+    const cached = loadTemporalCache();
+    if (!isAgentPaired()) return cached;
+    if (!options.force && cached && now - cached.cachedAt < CACHE_REFRESH_MS) return cached;
+    try {
+        return saveTemporalCache(await AgentBackend.temporal(), now);
+    } catch {
+        return cached;
+    }
+};
+
+// ── 给角色看的那一份 ─────────────────────────────────────────────
+/**
+ * 按可见性裁一遍：`hidden` 整条不给，`busy` 只剩「有安排」，地点一律抹掉。
+ *
+ * 后端 `server/agent-backend/temporal.mjs` 里有一份同样的（心跳用那份）。这里再写一遍，
+ * 是因为 `GET /temporal` 回的是**没裁过**的原件——日历 App 是阿萌自己在看，当然要看全。
+ * 改这里记得同步改那边，两边的档位语义必须一样。
+ */
+export const veilForCharacter = (items: TemporalItem[], visibility: TemporalVisibility | undefined): TemporalItem[] =>
+    items.flatMap(item => {
+        const level = levelOf(visibility, item.kind, item.source);
+        if (level === 'hidden') return [];
+        if (level === 'title') return [{ ...item, location: null }];
+        return [{
+            ...item,
+            title: item.kind === 'event' ? '有安排' : '有件事要做',
+            location: null,
+        }];
+    });
+
+/**
+ * 写进聊天提示词的那一段。
+ *
+ * 只写角色真用得上的几件事：ta 现在忙不忙、接下来有什么、每周固定的那些（课表）、
+ * 快到期的提醒。窗口里其余条目不写——角色不需要知道她下周二几点看牙。
+ *
+ * 时间一律按**阿萌自己**的时区读（设备时区）：这是她的日历，不是角色的作息，
+ * 不走 `docs/character-timezone.md` 里那套角色时区换算。
+ */
+export const formatTemporalForPrompt = (
+    items: TemporalItem[],
+    now: Date,
+    userName = '对方',
+    timeZone?: string,
+): string => {
+    if (items.length === 0) return '';
+    const nowMs = now.getTime();
+    const dayEnd = new Date(nowMs + 36 * 3600_000).toISOString();
+    const clock = (at: string) => new Intl.DateTimeFormat('zh-CN', {
+        timeZone, hour12: true, hour: 'numeric', minute: '2-digit',
+    }).format(new Date(at));
+    const dayName = (at: string) => new Intl.DateTimeFormat('zh-CN', { timeZone, weekday: 'short' }).format(new Date(at));
+
+    const events = items.filter(item => item.kind === 'event' && item.startAt);
+    const nowBusy = events.find(item =>
+        Date.parse(item.startAt!) <= nowMs && Date.parse(item.endAt ?? item.startAt!) > nowMs);
+    const soon = events
+        .filter(item => Date.parse(item.startAt!) > nowMs && item.startAt! <= dayEnd)
+        .slice(0, 4)
+        .map(item => `${dayName(item.startAt!)} ${clock(item.startAt!)} ${item.title}`);
+    // 每周固定的（课表）：同一个标题重复出现的，按星期几归成一句
+    const weekly = new Map<string, string[]>();
+    for (const item of events.filter(item => item.repeats)) {
+        const slot = `${dayName(item.startAt!)}${clock(item.startAt!)}`;
+        weekly.set(item.title, [...new Set([...(weekly.get(item.title) ?? []), slot])]);
+    }
+
+    const lines: string[] = [];
+    if (nowBusy) lines.push(`- 此刻：${nowBusy.title}${nowBusy.endAt ? `，到 ${clock(nowBusy.endAt)}` : ''}`);
+    if (soon.length > 0) lines.push(`- 接下来：${soon.join('；')}`);
+    if (weekly.size > 0) {
+        lines.push(`- 每周固定：${[...weekly].slice(0, 6).map(([title, slots]) => `${slots.join('、')} ${title}`).join('；')}`);
+    }
+    const due = items
+        .filter(item => item.kind === 'reminder' && !item.completed && item.dueAt && Date.parse(item.dueAt) > nowMs)
+        .slice(0, 3)
+        .map(item => `${dayName(item.dueAt!)}前 ${item.title}`);
+    if (due.length > 0) lines.push(`- 记着的事：${due.join('；')}`);
+    if (lines.length === 0) return '';
+
+    return `🗓 ${userName}的安排（你知道这些，但这是 ta 的日历，不是 ta 特地告诉你的）：\n${lines.join('\n')}\n`
+        + '别一见面就报菜单式地复述这些；该体谅的时候体谅（ta 在忙就别追着问），'
+        + '该记得的时候记得（快到期的事可以问一句）。';
+};
+
+/**
+ * 每轮聊天调这个：从本机缓存里取一段提示词。**不发网络请求**——
+ * mini 每天才同步一次，为拼一句提示词去等一个可能在休眠的后端不值当。
+ * 缓存由 `refreshTemporalCache()` 在打开 App 时顺手更新。
+ */
+export const buildTemporalInjection = (userName: string, now = new Date()): string => {
+    const cache = loadTemporalCache();
+    if (!cache || cache.items.length === 0) return '';
+    return formatTemporalForPrompt(veilForCharacter(cache.items, cache.visibility), now, userName);
 };
 
 // ── 同步状态 ────────────────────────────────────────────────────

@@ -1112,4 +1112,8 @@ LaunchAgent: cc.liliumos.agent-backend.plist（RunAtLoad + KeepAlive）
 | 桥接的 `EVENTKIT_CLI_TIMEOUT_MS` 抬到 90 秒：`calendar_calendars` 在 EventKit 那边就要三十秒，默认 30s 刚好卡死 | `server/apple-events-bridge/run-macos.sh` |
 | 手机上新开一个「日历」App 读缓存（月历 + 当天清单），mini 睡着时显示上次缓存 | `apps/CalendarApp.tsx`、`utils/emTemporal.ts` |
 
-还没做：建事件 / 建提醒 / 勾完成的写接口，聊天提示词那一侧的前端注入。
+| 聊天提示词读**本机缓存**、不等网络；缓存在打开 App / 回到前台时顺手续（一小时才真去问一次） | `utils/emTemporal.ts` `buildTemporalInjection` / `refreshTemporalCache`、`chatPrompts.ts` |
+| 裁剪和格式化在前端再写了一份：`GET /temporal` 回的是没裁过的原件（日历 App 是阿萌自己在看，要看全），给角色的那份必须另裁 | `emTemporal.ts` `veilForCharacter` / `formatTemporalForPrompt`（与 `temporal.mjs` 的同名函数须同步改） |
+| fire_pack 不烤这一段：里面有「此刻在忙什么」，打包那一刻算的到点就过期了 | `chatPrompts.ts` `!forFirePack` |
+
+还没做：建事件 / 建提醒 / 勾完成的写接口。
