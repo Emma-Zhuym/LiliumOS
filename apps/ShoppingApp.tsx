@@ -12,7 +12,7 @@ import { useOS } from '../context/OSContext';
 import { ShoppingDB, type ShopProduct, type CartItem, type ShopOrder } from '../utils/shoppingDb';
 import { sweepFoodDeliveries } from '../utils/shoppingDeliverySweep';
 import { DB } from '../utils/db';
-import { F, S, R, HUE, STATUS } from '../utils/clayTokens';
+import { F, FONT, S, R, HUE, STATUS } from '../utils/clayTokens';
 import { charSelfOrders, FAMILY_LINKS_KEY, formatYuan, isHiddenFromUser, normalizeFamilyLinks, orderCardLines, orderPriceText } from '../utils/shoppingFamily'; // [EM: shopping-family]
 
 const LAST_RECEIVER_KEY = 'lastReceiverCharId';
@@ -72,8 +72,8 @@ const yuan = (n: number) => '¥' + (Math.round(n * 100) / 100).toString().replac
 // ── Shared UI Components ──
 
 const IconBtn: React.FC<{ onClick: () => void; children: React.ReactNode }> = ({ onClick, children }) => (
-  <button onClick={onClick} className="flex items-center justify-center active:translate-y-[1px] transition-transform"
-    style={{ width: 44, height: 44, borderRadius: R.pill, background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}>
+  <button onClick={onClick} className="flex items-center justify-center active:opacity-40 transition-opacity"
+    style={{ width: 44, height: 44, borderRadius: R.pill, background: 'transparent', border: 'none', boxShadow: 'none' }}>
     {children}
   </button>
 );
@@ -1250,9 +1250,9 @@ const ShoppingApp: React.FC = () => {
         <div className="shrink-0" style={{ paddingTop: 'var(--chrome-top)' }}>
           <div className="relative flex items-center justify-between py-3" style={{ minHeight: 44, padding: '0 20px' }}>
             <IconBtn onClick={topBarConfig[screen]!.onBack}>
-              <CaretLeft size={20} weight="bold" color={F.textSecondary} />
+              <CaretLeft size={22} weight="bold" color={F.textPrimary} />
             </IconBtn>
-            <span className="absolute left-0 right-0 flex justify-center font-semibold pointer-events-none" style={{ fontSize: 16, color: F.textPrimary }}>{topBarConfig[screen]!.title}</span>
+            <span className="absolute left-0 right-0 flex justify-center pointer-events-none" style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: F.textPrimary }}>{topBarConfig[screen]!.title}</span>
             {topBarConfig[screen]!.right || <div style={{ width: 44 }} />}
           </div>
         </div>

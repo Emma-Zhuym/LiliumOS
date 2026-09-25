@@ -8,7 +8,7 @@ import { VOICE_FAVORITES_CHANGED_EVENT, getVoiceFavoriteBlob, listVoiceFavorites
 const PAGE_SIZE = 10;
 const filters = [{ value: 'all', label: '全部' }, { value: 'chat', label: '聊天' }, { value: 'call', label: '通话' }, { value: 'date', label: '见面' }] as const;
 const time = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-const roundButton: React.CSSProperties = { width: 44, height: 44, borderRadius: R.pill, background: F.surface, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft, color: F.textSecondary };
+const roundButton: React.CSSProperties = { width: 44, height: 44, borderRadius: R.pill, background: 'transparent', border: 'none', boxShadow: 'none', color: F.textPrimary };
 
 /** This reader only plays saved attachments. Text-only entries never synthesize audio. */
 export default function VoiceFavoritesList({ query }: { query: string }) {

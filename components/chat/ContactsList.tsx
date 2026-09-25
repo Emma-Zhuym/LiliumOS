@@ -6,7 +6,7 @@ import { useContactRemark } from '../../utils/contactRemarks';
 import { DB } from '../../utils/db';
 import { CharacterProfile, DailySchedule } from '../../types';
 import { useCharStatus } from '../../hooks/useCharStatus';
-import { F, MOTION, R, S } from '../../utils/clayTokens';
+import { F, FONT, MOTION, R, S } from '../../utils/clayTokens';
 
 type RowMeta = {
   char: CharacterProfile;
@@ -157,13 +157,13 @@ const ContactsList: React.FC = () => {
           <button
             type="button"
             onClick={handleClose}
-            className="flex items-center justify-center active:translate-y-[1px] transition-transform"
-            style={{ width: 44, height: 44, borderRadius: R.pill, background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft, transitionDuration: MOTION.tap }}
+            className="flex items-center justify-center active:opacity-40 transition-opacity"
+            style={{ width: 44, height: 44, borderRadius: R.pill, background: 'transparent', border: 'none', boxShadow: 'none', transitionDuration: MOTION.tap }}
             aria-label="返回"
           >
-            <CaretLeft size={20} weight="bold" style={{ color: F.textSecondary }} />
+            <CaretLeft size={22} weight="bold" style={{ color: F.textPrimary }} />
           </button>
-          <span className="absolute left-0 right-0 flex justify-center text-[16px] font-semibold pointer-events-none" style={{ color: F.textPrimary }}>通讯录</span>
+          <span className="absolute left-0 right-0 flex justify-center pointer-events-none" style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: F.textPrimary }}>通讯录</span>
         </div>
       </div>
 

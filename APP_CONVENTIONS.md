@@ -1,4 +1,10 @@
-# Emma Soft Clay UI — App Conventions (v0.2)
+# Emma Soft Clay UI — App Conventions (v1.0「F」)
+
+> **v1.0 换皮「F」（2026-09-25 Emma 定稿）**：全平——没有投影、没有凹陷内阴影；分层靠 1px borderSoft
+> 和 surface/appBg 的明度差；图标钮去掉外圈（裸 icon，触控区仍 44）；标题用衬线；浮在内容上面的
+> sheet / 提示条用 iOS 18 雾面材质（`OVERLAY`）；深度靠动效表达（见 N 节）。
+> 下文里的「凹槽 / 凹陷」一律指 surfaceSunken 平底色块，「凸起 / 白块」指 surfaceRaised 平底白块，都不再带阴影。
+> 取舍过程与备选方案见实验台：https://claude.ai/artifact/4WQXnVEqsbsGbhGcuWbmD3
 
 > **Binding rules for EVERY app on this system** — 现有的和以后的(购物、数据库工具、任何)。
 > tokens.json 管取值;本文件管"什么角色的 UI 用什么形态"。
@@ -14,20 +20,23 @@
 
 **顶栏**:`[返回] [标题/上下文控件] [动作×≤2]`,无背景无分割线,坐在 appBackground 上。
 - **中段绝对居中**:标题/上下文 pill 用绝对定位居中(或左右槽等宽),不随两侧按钮数量偏移。
-- **返回/关闭/动作键 = 44px 圆形凸起图标钮**(surface 底 + 1px borderSoft + raisedSoft)。
-  禁止裸箭头/裸 icon。整个系统里"可点的独立 icon"只有这一种形态。
-- 标题二选一并全 app 一致:居中 title(24/600),或内容区左对齐大标题(display)。
-- 中间上下文控件(月份切换、面包屑、搜索入口等)= 44 高 pill 凸起条。
-- **底部主导航 = 悬浮 pill tab bar**:radius 24 容器 + raisedMedium;选中 = 凸起白 pill,
-  icon 用 Product Main、label 暖黑;未选中无底 + tertiary。2–5 个 tab。
+- **返回/关闭/动作键 = 裸 icon 钮**:无底、无描边、无投影;icon 21px(返回箭头 22px)、bold、textPrimary;
+  **触控区必须仍是 44×44**(外观不要求有底,触控区不能缩)。按下 = 透明度 .4。
+  写法见 `clayTokens.iconButtonBare`。唯一例外:图标压在图片 / 地图 / 壁纸上看不清时,可以垫 surface 圆底。
+- 居中顶栏标题 = **衬线** `FONT.heading` + `FONT.navTitle`(17/700);或内容区左对齐大标题(display)。全 app 一致。
+- 中间上下文控件(月份切换、面包屑、搜索入口等)= 44 高 pill 条:surfaceRaised 底 + 1px borderSoft,不加投影。
+- **底部主导航 = 悬浮 pill tab bar**:radius 14 容器,surface 底 + 1px borderSoft;选中 = 白块滑到位
+  (见 B),icon 用 Product Main、label 暖黑;未选中无底 + tertiary。2–5 个 tab。
 - 层级导航(进入详情/子页)一律推入新页 + 返回键,不用横向 tab 套 tab。
 
 ## B. 选择 (Selection) — 互斥选一
 
-**任何"N 选 1"控件只有一种形态:凹槽底座 + 凸起白选中项**(radius 18/14)。
+**任何"N 选 1"控件只有一种形态:凹槽底座 + 白色选中块**(容器 radius 10、padding 2;选中块 radius 8)。
+选中块是一个绝对定位的白块,切换时 **transform 滑过去**(340ms `MOTION.easeSheet`),不要切换背景跳过去。
+选项高度约 32px,别做成 42px 的粗条。
 适用于:视图切换、周期切换、筛选档位、表单单选、商品规格选择、排序方式……
 - 禁止实心 Main 色 pill 表示选中;禁止无底座的文字变灰。
-- 选项 >5 个或动态数量 → 用凹槽容器包裹的可横滚 chips,选中仍是凸起白。
+- 选项 >5 个或动态数量 → 用凹槽容器包裹的可横滚 chips,选中仍是白块。
 - **多选** chips:未选 = Tint 底 + Ink 字;选中 = Main 底白字(小面积允许)。
 
 ## C. 集合 (Collections) — 列表/网格/表格
@@ -36,31 +45,36 @@
   多行共用一张卡、行间 divider hairline;不要一行一卡堆叠。
 - **图标底座统一:44×44、radius 12、Hue Main 实心底 + 2px 白描边 icon**。
   禁止圆形底、禁止底里放文字/字母/数字。头像是唯一允许的圆形(因为是图片)。
-- **网格卡**(商品、相册这类):surface 底 radius 16–20 + raisedSoft,图占上、文字区在下;
+- **网格卡**(商品、相册这类):surface 底 radius 12 + 1px borderSoft,图占上、文字区在下;
   价格/关键值用 bodyStrong,次要信息 caption tertiary。
 - **数据表格**:表头 caption tertiary + divider 分隔;行 hover = surfaceWarm;
-  选中行 = 凹陷槽(sunken);数字右对齐用 tabular-nums。
+  选中行 = surfaceSunken 底;数字右对齐用 tabular-nums。
 
 ## D. 录入 (Data Entry)
 
-- 输入框/搜索框/文本域 = 凹陷(surfaceSunken + sunken),focus = accent 1px 边线,无发光。
-- 步进器、数量选择 = 凹槽底座 + 两侧 32px 凸起圆钮。
-- 开关 = 凹槽轨道 + 凸起白圆钮;开 = 轨道变 Product Main。
-- 提交主按钮 h48 radius 14(暖黑或 accent 底);一屏一个主按钮。
+- 输入框/搜索框/文本域 = surfaceSunken 平底(浮层里用 `OVERLAY.well`),focus = accent 1px 边线,无发光。
+- 步进器、数量选择 = 凹槽底座 + 两侧 32px 裸 icon 钮。
+- 开关 = 凹槽轨道 + 白圆钮;开 = 轨道变 Product Main。
+- 提交主按钮 h46 radius 10(暖黑、accent 或 Product Main 底,白字);一屏一个主按钮。
+  **amber / yellow / lime 不能做白字按钮底**(太亮压不住),暖色按钮一律用 orange。
 
 ## E. 状态与反馈 (Status & Feedback)
 
 - 语义色只用固定状态色(success/warning/danger/info),Tint 底 + Ink 字的小徽章,
   不占用 Product/辅助色名额。涨跌、库存、同步状态、校验错误都算这类。
 - 空状态 = 凹槽容器 + 18px 描边 icon + tertiary 文案;不用插画不用 emoji。
-- 进度(线性/圆环)遵循 DESIGN_SYSTEM.md §7:凹陷轨道 + Main 填充。
-- Toast = 浮起小卡(floating),顶部滑入;不全屏遮罩。
+- 进度(线性/圆环)遵循 DESIGN_SYSTEM.md §7:平底凹槽轨道 + Main 填充。
+- 提示条 = `components/os/ClayToast`(PhoneShell 统一渲染):`OVERLAY.toastBg` 雾面底(比背景深一档)+
+  `OVERLAY.toastEdge` 1px 墨色边,不靠投影;从顶上带过冲弹下(`clay-toast-in`);不全屏遮罩。
 
 ## F. 浮层 (Overlays)
 
-- 移动端一律**底部 sheet**:radius 28 顶圆角、floating、36×4 把手;主按钮固定底部。
-- 桌面端居中对话框:radius 24 + floating。遮罩 = rgba(46,42,40,.35)。
-- 确认破坏性操作:danger 状态色只出现在确认按钮上。
+- 移动端一律**底部 sheet**(`ClayDialog` 或同款写法):`OVERLAY.bg` + `OVERLAY.blur` 雾面、顶边 `OVERLAY.edge`
+  + `OVERLAY.hairline`,radius 16 顶圆角,36×4 把手(`OVERLAY.grab`),**不压暗背景**;主按钮固定底部。
+  入场 `clay-sheet-in`。sheet 打开时自动聚焦必须 `focus({ preventScroll: true })`——sheet 还在屏幕外滑入,
+  普通 focus 会把外层整页往上滚。
+- 桌面端居中对话框:radius 14,同样雾面;这时才加遮罩 `OVERLAY.scrimModal`。
+- 确认破坏性操作:要打断用户的确认框用 `OVERLAY.scrimModal` 压暗;danger 状态色只出现在确认按钮上。
 
 ## G0. Hero 卡底色恒定(同组件不换色)
 
@@ -78,8 +92,9 @@
 
 ## H. FAB 与渐变禁令
 
-- FAB = **56px 圆、Product Main 实心或暖黑底、白色 2px 描边 icon、floating 阴影**,右下角距边 20。
+- FAB = **56px 圆、Product Main 实心或暖黑底、白色 2px 描边 icon、无投影**,右下角距边 20。
 - **全系统禁止渐变填充**(按钮、FAB、背景、图表)。唯一例外:圆环超额段的同色系渐深。
+  浮层的 backdrop blur 不算渐变,但只许用在 `OVERLAY` 列出的浮层上,不许给普通卡片加玻璃。
 
 ## I. 图形符号
 
@@ -89,13 +104,13 @@
 ## J. 图表
 
 - 线/柱/环只用 Product Main;对比系列才允许加一个辅助色系 Main。图表底用 Tint 或透明。
-- **图表空态 = 卡内凹陷槽 + 18px 描边 icon + tertiary 文案**,禁止大白卡里孤零零一行灰字。
+- **图表空态 = 卡内凹槽 + 18px 描边 icon + tertiary 文案**,禁止大白卡里孤零零一行灰字。
 - 大型圆环仪表同样遵循 DESIGN_SYSTEM §7 ring 规则:凹槽轨道 + Main 填充,不做实心大饼。
 
 ## K. 选择控件布局
 
 - **同一行只放一组选择控件**。两个维度(如 时间×指标)分两行,或把时间维度收进顶栏 pill 上下文控件。
-- 选项 >5 或一行放不下 → 凹槽容器内横向滚动,选中仍是凸起白;"筛选"这类动作不混进选项里,独立为 44px 圆钮。
+- 选项 >5 或一行放不下 → 凹槽容器内横向滚动,选中仍是白块;"筛选"这类动作不混进选项里,独立为 44px 裸 icon 钮。
 
 ## L. 多模块 app 的色彩例外
 
@@ -106,6 +121,17 @@
 
 - 浅底上状态栏文字恒为 textPrimary。禁止白字压浅底。
 
+## N. 动效 (Motion) — v1.0 新增
+
+没有投影以后,「谁在谁上面」靠动来讲:从哪儿进来、盖住了什么、怎么退场。类名都在 `utils/clayMotion.css`。
+- **三条曲线就够**:出场 `MOTION.ease`(列表升起、圆环画出);浮层 `MOTION.easeSheet`(sheet、选中白块,
+  一下出去慢慢停,不回弹);提示 `MOTION.easePop`(**只给**提示条和选中日,全系统只有这两处允许「弹」)。
+- **按压**:裸 icon 透明度 .4;按钮 / chip / 日期格 `clay-press`(scale .95);卡片 `clay-press-card`(scale .985)。
+  按下 70ms、松开 240ms。不再用「下沉 1px + 阴影减半」。
+- **一屏只给一个 hero 时刻**:健康 = 三环由外到内依次画出(`clay-draw-dash`);日历 = 选中日弹一下
+  (`clay-pop`)+ 当天清单依次升起(`clay-rise`,`--i` 错开 45ms)。其余元素不各自表演。
+- **退场比进场快**;全部跟随 `prefers-reduced-motion` 降级为直接切换(clayMotion.css 已处理)。
+
 ---
 
 # 第二部分 · 模式库(具体模式,按需增长)
@@ -113,7 +139,8 @@
 > 新模式出现 → 先查这里 → 没有则按第一部分推导 → **推导结果补录到这里**。
 
 ## P1. 日历(健康 app 沉淀)
-选中日 = 凹陷槽 radius 12;今日 = accent 1px 描边圈;事件 = 下方 5px Main 圆点 ≤3;
+选中日 = borderStrong 平底块 radius 10(健康:底色要留给经期/排卵的 Tint);
+日历 App 选中日 = Product Main 实心 + 白字 + `clay-pop`;今日 = accent 1.5px 描边圈;事件 = 下方 4–5px Main 圆点 ≤3;
 图例 chips = Tint 底 Ink 字,范围类用 1.5px 虚线描边。
 
 ## P2. 金额与涨跌(记账 app 沉淀)
@@ -146,22 +173,23 @@
 
 ## 交付自检(每页)
 
-- [ ] 可点独立 icon 全部是 44px 圆形凸起钮
-- [ ] 所有单选控件 = 凹槽+凸起白,无实心色 pill
+- [ ] 可点独立 icon 全部是裸 icon 钮,触控区 44×44
+- [ ] 所有单选控件 = 凹槽 + 滑动白块,无实心色 pill
+- [ ] 零手写 boxShadow / 零裸 hex;顶栏标题与 section 标题是衬线
 - [ ] 图标底座全部圆角方 12、Main 底白描边 icon
 - [ ] ≤1 主 + 1 辅 + 状态色;大面积只有 Tint
-- [ ] 至少一处凹陷;空状态用凹槽
-- [ ] 无渐变填充、无 emoji 图标;FAB 为实心 Main 圆
+- [ ] 空状态用凹槽;浮层用 OVERLAY 雾面,普通卡片不加玻璃
+- [ ] 无渐变填充、无 emoji 图标;FAB 为实心 Main 圆、无投影
 - [ ] 一行只有一组选择控件;图表空态用凹陷槽
 - [ ] 新模式已补录进模式库
 
 ## P6. 聊天设置分组页（2026-09-12 Emma 已确认）
 
-- 44px 返回圆钮、16px/600 居中标题，顶栏固定在滚动区外，安全区使用 `var(--chrome-top)`。
+- 44px 裸 icon 返回钮、衬线 17/700 居中标题，顶栏固定在滚动区外，安全区使用 `var(--chrome-top)`。
 - 紧凑身份行使用 48px 头像、显示名和原名两行，右箭头进入角色设定；不再附加路径说明。
 - 纯设置目录可省略左侧图标底座，用文字和右箭头，行高至少 64px；同组共用 surface 卡与 divider。查找入口单独一组。
 - 备注编辑沿用凹陷输入与底部主按钮；底栏只放保留的常用操作。
-- Emma 指定例外（2026-09-12）：Chat 顶部设置入口仅显示三个点，不显示圆形底、边框或阴影；保留 44px 点击范围。
+- Chat 顶部设置入口仅显示三个点，不显示圆形底、边框或阴影；保留 44px 点击范围（2026-09-12 的例外，v1.0 起已成为全系统规则）。
 - 当前发送/生成交互与独立设置页为固定前端：输入框聚焦时发文字，失焦时触发回复；不再提供“发送按钮代替生成按钮”开关，旧存档关闭值也按固定交互读取。
 
 
@@ -189,4 +217,4 @@
 - 最左负一屏单独显示完整月历与近期事件，从时钟页相近的顶部高度开始；中间的时钟页是启动默认页，使用原来的固定时钟、聊天卡和 12 个图标排版。这两页不接收自由网格项。
 - 第二、三页使用同一块居中的 4×6 区域，横向间距 10px、纵向间距 18px。格子按页面内容宽度计算，1×1 仍为正方形；2×2 方卡和除日程以外的 4×2 横卡保持原有可见尺寸，卡片在稍高的逻辑占位内居中。横卡内容统一留左右 5px。较矮屏幕允许纵向滚动。
 - 日程横卡在原 4×2 格位内从上边收高 8px，底边位置保持不变；其他横卡不收高。
-- 文件夹图标与普通软件图标使用同一底色、边框和凸起阴影。
+- 文件夹图标与普通软件图标使用同一底色和边框（v1.0 起无阴影）。

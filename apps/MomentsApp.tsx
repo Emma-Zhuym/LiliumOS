@@ -11,7 +11,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CaretLeft, ChatCircle, Heart, ImageSquare, PaperPlaneRight, Plus, Trash, Users, X, Eye } from '@phosphor-icons/react';
 import TokenImg from '../components/os/TokenImg';
 import { useOS } from '../context/OSContext';
-import { F, S, R, HUE } from '../utils/clayTokens';
+import { F, FONT, S, R, HUE } from '../utils/clayTokens';
 import { processImage } from '../utils/file';
 import { resolveCharacterApiConfig } from '../utils/characterApi';
 import {
@@ -28,8 +28,8 @@ const MAX_IMAGES = 9;
 const LOOK_KEY = 'lastLookAt';
 
 const IconBtn: React.FC<{ onClick: () => void; children: React.ReactNode; label: string }> = ({ onClick, children, label }) => (
-    <button onClick={onClick} aria-label={label} className="flex items-center justify-center active:translate-y-[1px] transition-transform"
-        style={{ width: 44, height: 44, borderRadius: R.pill, background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}>
+    <button onClick={onClick} aria-label={label} className="flex items-center justify-center active:opacity-40 transition-opacity"
+        style={{ width: 44, height: 44, borderRadius: R.pill, background: 'transparent', border: 'none', boxShadow: 'none' }}>
         {children}
     </button>
 );
@@ -322,15 +322,15 @@ const MomentsApp: React.FC = () => {
     }
 
     const top = screen === 'feed'
-        ? { title: '朋友圈', onBack: closeApp, right: <IconBtn onClick={() => setScreen('compose')} label="发动态"><Plus size={20} weight="bold" color={F.textSecondary} /></IconBtn> }
+        ? { title: '朋友圈', onBack: closeApp, right: <IconBtn onClick={() => setScreen('compose')} label="发动态"><Plus size={21} weight="bold" color={F.textPrimary} /></IconBtn> }
         : { title: '发动态', onBack: () => setScreen('feed'), right: null };
 
     return (
         <div className="h-full flex flex-col" style={{ background: F.appBg }}>
             <div className="shrink-0" style={{ paddingTop: 'var(--chrome-top)' }}>
                 <div className="relative flex items-center justify-between py-3" style={{ minHeight: 44, padding: '0 20px' }}>
-                    <IconBtn onClick={top.onBack} label="返回"><CaretLeft size={20} weight="bold" color={F.textSecondary} /></IconBtn>
-                    <span className="absolute left-0 right-0 flex justify-center font-semibold pointer-events-none" style={{ fontSize: 16, color: F.textPrimary }}>{top.title}</span>
+                    <IconBtn onClick={top.onBack} label="返回"><CaretLeft size={22} weight="bold" color={F.textPrimary} /></IconBtn>
+                    <span className="absolute left-0 right-0 flex justify-center pointer-events-none" style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: F.textPrimary }}>{top.title}</span>
                     {top.right || <div style={{ width: 44 }} />}
                 </div>
             </div>

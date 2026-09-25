@@ -7,13 +7,13 @@ import { mergeMessageFavorites, removeMessageFavoriteEntry, type MessageFavorite
 import TokenImg from '../os/TokenImg';
 import FavoriteMessageBody from './FavoriteMessageBody';
 import { normalizeChatSearchText, searchableChatMessageText } from '../../utils/chatMessageSearch';
-import { F, HUE, R, S, STATUS } from '../../utils/clayTokens';
+import { F, FONT, HUE, R, S, STATUS } from '../../utils/clayTokens';
 
 type FavoriteTab = 'all' | MessageFavoriteEntry['kind'];
 interface FavoritesPortalProps { onClose: () => void; onJumpToMessage?: (charId: string, messageId: number) => void; }
 const tabs = [{ value: 'all', label: '全部' }, { value: 'text', label: '文字' }, { value: 'image', label: '图片' }, { value: 'voice', label: '语音' }, { value: 'html', label: '卡片' }] as const;
 const timeFormatter = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-const roundButton = { width: 44, height: 44, borderRadius: R.pill, background: F.surface, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft, color: F.textSecondary };
+const roundButton = { width: 44, height: 44, borderRadius: R.pill, background: 'transparent', border: 'none', boxShadow: 'none', color: F.textPrimary };
 const PAGE_SIZE = 20;
 
 const FavoritesPortal: React.FC<FavoritesPortalProps> = ({ onClose, onJumpToMessage }) => {
@@ -66,7 +66,7 @@ const FavoritesPortal: React.FC<FavoritesPortalProps> = ({ onClose, onJumpToMess
         <header className="shrink-0 px-4 pb-3" style={{ paddingTop: 'var(--chrome-top)' }}>
             <div className="relative flex items-center justify-between pb-3">
                 <button type="button" onClick={onClose} className="grid place-items-center" style={roundButton} aria-label="返回"><CaretLeft size={20} weight="bold" /></button>
-                <h1 className="pointer-events-none absolute left-1/2 -translate-x-1/2 text-base font-semibold">收藏夹</h1>
+                <h1 className="pointer-events-none absolute left-1/2 -translate-x-1/2" style={{ ...FONT.navTitle, fontFamily: FONT.heading }}>收藏夹</h1>
                 <button type="button" onClick={() => { setSearchOpen(value => !value); setSearchQuery(''); }} className="grid place-items-center" style={roundButton} aria-label={searchOpen ? '关闭收藏搜索' : '搜索收藏'} aria-pressed={searchOpen}><MagnifyingGlass size={20} weight="bold" /></button>
             </div>
             <div className="grid grid-cols-5 gap-1 p-1" style={{ background: F.surfaceSunken, borderRadius: R.large, boxShadow: S.sunken }}>

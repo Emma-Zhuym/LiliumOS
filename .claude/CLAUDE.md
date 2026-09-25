@@ -25,16 +25,17 @@ Emma 会在 MacBook 和 Mac mini 上交替修改 LiliumOS。日常开发以自�
 
 ## ⚠️ UI 铁律（写任何界面代码前必须遵守——这是规则，不是建议）
 
-规则全文：`../design_prototype/design-system/`（`DESIGN_SYSTEM.md` + `APP_CONVENTIONS.md`）。
-**动 UI 前必须完整读过 APP_CONVENTIONS.md 的 §0 页面骨架硬规格**，并且：
+规则全文在仓库内：`design-system/DESIGN_SYSTEM.md` + `APP_CONVENTIONS.md`（v1.0「F」，2026-09-25 定稿）。
+**动 UI 前必须读过这两份**，并且：
 
-1. **样式取值只能来自 `utils/clayTokens.ts` 常量（F/S/R/HUE/STATUS/MOTION）**。
+1. **样式取值只能来自 `utils/clayTokens.ts` 常量（F/S/R/HUE/STATUS/FONT/OVERLAY/MOTION）**。
    UI 代码里出现裸 hex 颜色、手写 boxShadow 字符串、自造 borderRadius = 违规，必须返工。
+   v1.0 是全平：`S.*` 全为 none，不许用手写阴影把「凸起感」加回来。
    tokens 里没有需要的值 → **停下来问阿萌**，不许自己发明阴影/颜色/圆角。
-2. **顶栏/返回钮/标题逐字抄 §0.2/0.3/0.4 配方**：新 App 进 `utils/safeAreaApps.ts` 自理名单、
-   让位只写 `var(--chrome-top)`（禁止手拼 safe-top 算式）、返回钮 = 44px 凸起圆钮
-   （CaretLeft 20px bold textSecondary，子页/表单页同样，禁止裸文字"‹ 返回"）、
-   居中标题 16px/600、顶栏放滚动容器外 shrink-0。
+2. **顶栏**：新 App 进 `utils/safeAreaApps.ts` 自理名单、让位只写 `var(--chrome-top)`（禁止手拼 safe-top 算式）、
+   返回钮 = **裸 icon**（CaretLeft 22px bold textPrimary，无底无描边无阴影，**触控区 44×44**；
+   子页/表单页同样，禁止裸文字"‹ 返回"）、居中标题 = 衬线 `FONT.heading` + `FONT.navTitle`（17/700）、
+   顶栏放滚动容器外 shrink-0。
 3. **每屏彩色预算**：1 Product 主色 + ≤1 辅助色 + 状态色；大面积只许 Tint；
    全系统禁止渐变填充；界面 chrome 禁止 emoji（用 2px 描边 icon）。
 4. **完工自查**：新页面与 Health/Bank 截图摆一起对比顶栏——不像同一个系统 = 抄漏了，回 §0 重对。
@@ -76,7 +77,7 @@ merge 时 `grep -rn "EM-START\|\[EM:" --include="*.ts" --include="*.tsx"` 就能
 ### merge 后必跑自检
 
 ```bash
-bash scripts/check-em-patches.sh   # 当前 80 项锚点检查，红了就是功能被冲掉
+bash scripts/check-em-patches.sh   # 当前 118 项锚点检查，红了就是功能被冲掉
 pnpm vitest run                    # 单元测试
 ```
 
@@ -236,6 +237,15 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - 桥接建不了重复规则，事件的重复只能在苹果日历里建
 - 日历内容和桥接 Token 一样不得进日志、文档、Engram 或备份
 
+### 27. 换皮「F」（2026-09-25）
+- `utils/clayTokens.ts` 是唯一取值来源：全平（`S.*` = none）、中性底、圆角 12、OKLCH 16 色、`FONT` 衬线标题、`OVERLAY` 雾面浮层、`MOTION` 三条曲线
+- `utils/clayMotion.css` 由 clayTokens 顶部 `import './clayMotion.css';` 引入；删掉这行所有动效（sheet 滑入、提示条、圆环画出、选中日弹出）都会失效
+- **两处上游文件补丁**：`components/PhoneShell.tsx` 的提示条改为渲染 `components/os/ClayToast`（`[EM: skin-f-toast]`，一行 import + 一处替换）；`index.html` 字体链接末尾追加 `Noto+Serif+SC:wght@600;700`（上一行有 `[EM: skin-f]` 注释）。合并上游时保住这两处
+- 其余 22 个引用 clayTokens 的上游文件不改代码、被动跟着换皮；其中 VRWorld / 记忆宫殿 / Launcher / Chat / CallApp 有上游手写阴影，暂时新旧混搭，按约定不改
+- sheet 打开时自动聚焦必须 `focus({ preventScroll: true })`：sheet 从屏幕外滑入，普通 focus 会把整页外层滚上去（日历「记一件事」踩过）
+- 日历与健康是样板：以后其他 App 迁移照这两个改
+- `scripts/check-em-patches.sh` 的「换皮 F」一节有 8 个锚点
+
 ## 合并时常见坑（踩过的 bug）
 
 ### PhoneShell.tsx — messageSubView 必须解构
@@ -337,16 +347,20 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - `.claude/launch.json` — Vite dev/preview server 配置
 - 部署：Vercel（绑 GitHub main 分支自动部署）+ GitHub Pages
 
-## UI 设计系统 — Emma Soft Clay UI
+## UI 设计系统 — Emma Soft Clay UI v1.0「F」
 
-**所有 UI 改动必须遵循 [`design-system/DESIGN_SYSTEM.md`](../design-system/DESIGN_SYSTEM.md) 的规则。**
+**所有 UI 改动必须遵循 [`design-system/DESIGN_SYSTEM.md`](../design-system/DESIGN_SYSTEM.md) 与 [`APP_CONVENTIONS.md`](../APP_CONVENTIONS.md)。**
+2026-09-25 换皮定稿，替换 v0.1 的奶黄底 + 凹凸并存；七套备选和取舍过程见 https://claude.ai/artifact/4WQXnVEqsbsGbhGcuWbmD3
 
-- 颜色、圆角、阴影、间距、字体、动画的值只从 `design-system/tokens.json` / `tokens.css` 取，不许自己编 hex 值
-- 基底色是 V2 cooler-neutral（`#F7F6F2`），不是纯白也不是暖黄
-- 核心质感：**凹凸并存** — 凹陷区（输入框、segmented、进度条）+ 凸起区（按钮、卡片、sheet）
-- 色彩比例硬性规定：暖中性底 ~75%、模块 Tint ~18%、高饱和 Main ~7%
-- 每屏最多 1 主色 + 1 辅色 + 1 状态色
-- 参考 HTML 样例：`design-system/Emma Soft Clay UI v2.dc.html`
+- 颜色、圆角、阴影、间距、字体、浮层、动效的值只从 `utils/clayTokens.ts` 取（`tokens.json` / `tokens.css` 是镜像），不许自己编 hex 值
+- 基底 `#F8F9F7` 中性去黄，卡片纯白，靠明度差和 1px borderSoft 分层
+- 核心质感：**全平**——无投影、无凹陷内阴影；「凹槽」只是 surfaceSunken 平底色块；图标钮是裸 icon
+- 浮在内容上的 sheet / 提示条用 `OVERLAY` 雾面（iOS 18 材质，不是 iOS 26 液态玻璃）；普通卡片不许加玻璃
+- 标题（顶栏、sheet、section）用衬线 Noto Serif SC；数字、正文一律无衬线
+- 色板 16 色按 OKLCH 公式算：五颜六色但饱和度封顶；amber / yellow / lime 不做白字按钮底
+- 色彩比例：中性底 ~75%、模块 Tint ~18%、高饱和 Main ~7%；每屏最多 1 主色 + 1 辅色 + 1 状态色
+- 动效在 `utils/clayMotion.css`：三条曲线，一屏只一个 hero 时刻
+- `design-system/Emma Soft Clay UI v2.dc.html` 是 v0.1 旧样例，仅供参考历史，不再代表现行风格
 
 ## 技术栈
 

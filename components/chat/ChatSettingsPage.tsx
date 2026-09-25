@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { CaretLeft, CaretRight, MagnifyingGlass, Check, Trash } from '@phosphor-icons/react';
 import { CharacterProfile } from '../../types';
-import { F, HUE, R, S, STATUS } from '../../utils/clayTokens';
+import { F, FONT, HUE, R, S, STATUS } from '../../utils/clayTokens';
 import { saveContactRemark, useContactRemark } from '../../utils/contactRemarks';
 import TokenImg from '../os/TokenImg';
 import { PRESET_THEMES } from './ChatConstants';
@@ -26,10 +26,10 @@ export function ChatSettingsFrame({ title, onClose, children, footer, isOpen = t
         <header className="shrink-0" style={{ paddingTop: 'var(--chrome-top)' }}>
             <div className="relative flex items-center px-4 py-3">
                 <button type="button" aria-label={`返回${title === '聊天设置' ? '聊天' : '聊天设置'}`} onClick={onClose}
-                    className="flex items-center justify-center shrink-0" style={{ width: 44, height: 44, borderRadius: R.pill, background: F.surface, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}>
-                    <CaretLeft size={20} weight="bold" color={F.textSecondary} />
+                    className="flex items-center justify-center shrink-0" style={{ width: 44, height: 44, borderRadius: R.pill, background: 'transparent', border: 'none', boxShadow: 'none' }}>
+                    <CaretLeft size={22} weight="bold" color={F.textPrimary} />
                 </button>
-                <h1 className="absolute inset-x-16 text-center text-base font-semibold pointer-events-none">{title}</h1>
+                <h1 className="absolute inset-x-16 text-center pointer-events-none" style={{ ...FONT.navTitle, fontFamily: FONT.heading }}>{title}</h1>
             </div>
         </header>
         <div className="flex-1 min-h-0 overflow-y-auto px-4 pt-2 pb-6">{children}</div>

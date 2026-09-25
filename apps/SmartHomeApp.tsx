@@ -21,7 +21,7 @@ import {
   X,
 } from '@phosphor-icons/react';
 import { useOS } from '../context/OSContext';
-import { F, HUE, MOTION, R, S, SP, STATUS } from '../utils/clayTokens';
+import { F, FONT, HUE, MOTION, R, S, SP, STATUS } from '../utils/clayTokens';
 import {
   loadDemoSmartHomeDevices,
   saveDemoSmartHomeDevices,
@@ -85,8 +85,8 @@ const TopBar: React.FC<{
     <div className="relative flex items-center px-5 py-3">
       <BackButton onClick={onBack} />
       <span
-        className="pointer-events-none absolute left-0 right-0 flex justify-center text-[16px] font-semibold"
-        style={{ color: F.textPrimary }}
+        className="pointer-events-none absolute left-0 right-0 flex justify-center"
+        style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: F.textPrimary }}
       >
         {title}
       </span>

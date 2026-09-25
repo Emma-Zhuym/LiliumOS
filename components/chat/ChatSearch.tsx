@@ -21,7 +21,7 @@ import {
   getChatDateKeys,
   shiftChatCalendarMonth,
 } from '../../utils/chatSearchCalendar';
-import { F, HUE, MOTION, R, S, STATUS } from '../../utils/clayTokens';
+import { F, FONT, HUE, MOTION, R, S, STATUS } from '../../utils/clayTokens';
 
 type ChatSearchProps = {
   character: CharacterProfile;
@@ -230,7 +230,7 @@ const ChatSearch: React.FC<ChatSearchProps> = ({ character, onClose, onOpenMessa
           <RaisedIconButton onClick={onClose} label="返回聊天">
             <CaretLeft size={20} weight="bold" style={{ color: F.textSecondary }} />
           </RaisedIconButton>
-          <span className="pointer-events-none absolute left-0 right-0 flex justify-center text-[16px] font-semibold">
+          <span className="pointer-events-none absolute left-0 right-0 flex justify-center" style={{ ...FONT.navTitle, fontFamily: FONT.heading }}>
             查找聊天记录
           </span>
         </div>

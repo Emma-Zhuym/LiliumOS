@@ -3,7 +3,7 @@ import { Check, Folder, PencilSimple, Trash, CaretLeft } from '@phosphor-icons/r
 import { Icons, INSTALLED_APPS } from '../../constants';
 import { AppID, type AppConfig, type LauncherFolder } from '../../types';
 import { isPaperWallpaper, useOS } from '../../context/OSContext';
-import { F, S, R, HUE } from '../../utils/clayTokens';
+import { F, FONT, S, R, HUE } from '../../utils/clayTokens';
 import AppIcon from './AppIcon';
 
 export function LauncherFolderIcon({ folder, onOpen }: { folder: LauncherFolder; onOpen: () => void }) {
@@ -28,8 +28,8 @@ export function LauncherFolderIcon({ folder, onOpen }: { folder: LauncherFolder;
 }
 
 const circleButton: React.CSSProperties = {
-  width: 44, height: 44, background: F.surface, border: `1px solid ${F.borderSoft}`,
-  borderRadius: R.pill, boxShadow: S.raisedSoft,
+  width: 44, height: 44, background: 'transparent', border: 'none',
+  borderRadius: R.pill, boxShadow: 'none',
 };
 
 export function LauncherFolderPanel({ folder, onClose, onOpenApp, onEdit }: {
@@ -41,9 +41,9 @@ export function LauncherFolderPanel({ folder, onClose, onOpenApp, onEdit }: {
       <div className="absolute inset-0" style={{ background: F.textPrimary, opacity: 0.35 }} onClick={onClose} />
       <div className="relative w-full max-w-sm max-h-[75%] flex flex-col p-4" style={{ background: F.appBg, borderRadius: R.panel, boxShadow: S.floating }}>
         <header className="relative h-11 flex items-center justify-between shrink-0">
-          <button type="button" style={circleButton} className="flex items-center justify-center" aria-label="关闭文件夹" onClick={onClose}><CaretLeft size={20} weight="bold" color={F.textSecondary} /></button>
-          <h2 className="absolute left-1/2 -translate-x-1/2 text-base font-semibold truncate max-w-[55%]">{folder.name}</h2>
-          <button type="button" style={circleButton} className="flex items-center justify-center" aria-label="编辑文件夹" onClick={onEdit}><PencilSimple size={20} weight="bold" color={F.textSecondary} /></button>
+          <button type="button" style={circleButton} className="flex items-center justify-center" aria-label="关闭文件夹" onClick={onClose}><CaretLeft size={22} weight="bold" color={F.textPrimary} /></button>
+          <h2 className="absolute left-1/2 -translate-x-1/2 truncate max-w-[55%]" style={{ ...FONT.navTitle, fontFamily: FONT.heading }}>{folder.name}</h2>
+          <button type="button" style={circleButton} className="flex items-center justify-center" aria-label="编辑文件夹" onClick={onEdit}><PencilSimple size={21} weight="bold" color={F.textPrimary} /></button>
         </header>
         <div className="mt-4 p-4 grid grid-cols-4 gap-y-5 place-items-center overflow-y-auto" style={{ background: F.surfaceSunken, borderRadius: R.large, boxShadow: S.sunken }}>
           {apps.map(app => <AppIcon key={app.id} app={app} onClick={() => onOpenApp(app.id)} />)}
@@ -66,7 +66,7 @@ export function LauncherFolderEditor({ folder, availableApps, onClose, onSave, o
       <div className="absolute inset-0" style={{ background: F.textPrimary, opacity: 0.35 }} onClick={onClose} />
       <div className="relative w-full max-w-sm max-h-[82%] flex flex-col p-4" style={{ background: F.appBg, borderRadius: R.panel, boxShadow: S.floating }}>
         <header className="relative h-11 flex items-center justify-between shrink-0">
-          <button type="button" style={circleButton} className="flex items-center justify-center" aria-label="返回" onClick={onClose}><CaretLeft size={20} weight="bold" color={F.textSecondary} /></button>
+          <button type="button" style={circleButton} className="flex items-center justify-center" aria-label="返回" onClick={onClose}><CaretLeft size={22} weight="bold" color={F.textPrimary} /></button>
           <h2 className="absolute left-1/2 -translate-x-1/2 text-base font-semibold">{folder ? '编辑文件夹' : '新建文件夹'}</h2>
           <span className="w-11" />
         </header>
