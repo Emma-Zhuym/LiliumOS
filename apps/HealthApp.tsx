@@ -8,7 +8,7 @@ import {
   saveHealthEvent, deleteHealthEvent, getAllHealthEvents, buildEventMap,
 } from '../utils/healthDb';
 import { calcCycleStatus } from '../utils/cycleCalc';
-import { F, FONT, S, R, HUE, STATUS, MOTION } from '../utils/clayTokens';
+import { F, FONT, OVERLAY, S, R, HUE, STATUS, MOTION } from '../utils/clayTokens';
 import { HealthProfile, FitnessGoal, getHealthProfile, saveHealthProfile, calcBMR, calcTDEE, recommendCalories, calcDeficit } from '../utils/healthProfile';
 import { safeFetchJson, extractJson, extractContent } from '../utils/safeApi';
 import { readLiliumOSStorage, writeLiliumOSStorage } from '../utils/liliumosStorage';
@@ -1081,7 +1081,7 @@ const HealthApp: React.FC = () => {
                     <div className="flex items-center gap-3">
                       <div style={{ width: 36, height: 36, borderRadius: R.small, background: CAT_COLORS.workout.shadow, display: 'flex', alignItems: 'center', justifyContent: 'center', color: F.surfaceRaised, fontSize: '13px', fontWeight: 700, flexShrink: 0 }}><Barbell size={18} weight="fill" /></div>
                       <div className="flex-1 min-w-0">
-                        <span style={{ ...FONT.sectionTitle, fontFamily: FONT.heading, color: CAT_COLORS.workout.fg }}>训练</span>
+                        <span style={{ fontSize: '15px', fontWeight: 600, color: CAT_COLORS.workout.fg }}>训练</span>
                         <span className="ml-2" style={{ fontSize: '13px', fontWeight: 400, color: `${CAT_COLORS.workout.fg}99` }}>{selWorkout.duration}min{selWorkout.calories ? ` · ${selWorkout.calories}kcal` : ''}</span>
                       </div>
                       <div className="ml-auto flex gap-1 shrink-0">
@@ -1106,7 +1106,7 @@ const HealthApp: React.FC = () => {
                     <div className="flex items-center gap-3">
                       <div style={{ width: 36, height: 36, borderRadius: R.small, background: CAT_COLORS.sleep.shadow, display: 'flex', alignItems: 'center', justifyContent: 'center', color: F.surfaceRaised, fontSize: '13px', fontWeight: 700, flexShrink: 0 }}><MoonStars size={18} weight="fill" /></div>
                       <div className="flex-1 min-w-0">
-                        <span style={{ ...FONT.sectionTitle, fontFamily: FONT.heading, color: CAT_COLORS.sleep.fg }}>睡眠</span>
+                        <span style={{ fontSize: '15px', fontWeight: 600, color: CAT_COLORS.sleep.fg }}>睡眠</span>
                         <span className="ml-2" style={{ fontSize: '13px', fontWeight: 400, color: `${CAT_COLORS.sleep.fg}99` }}>
                           {selSleep.bedtime} → {selSleep.wakeTime} · {fmtDuration(selSleep.duration)} · {QUALITY_LABEL[selSleep.quality]}
                         </span>
@@ -1154,7 +1154,7 @@ const HealthApp: React.FC = () => {
                         <Drop size={16} weight="fill" color={F.surfaceRaised} />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <span style={{ ...FONT.sectionTitle, fontFamily: FONT.heading, color: CAT_COLORS.period.fg }}>经期</span>
+                        <span style={{ fontSize: '15px', fontWeight: 600, color: CAT_COLORS.period.fg }}>经期</span>
                         <span className="ml-2" style={{ fontSize: '13px', fontWeight: 400, color: `${CAT_COLORS.period.fg}99` }}>{FLOW_LABEL[selPeriod.flow]}</span>
                       </div>
                       <div className="ml-auto flex gap-1 shrink-0">
@@ -1176,7 +1176,7 @@ const HealthApp: React.FC = () => {
                     <div className="flex items-center gap-3">
                       <div style={{ width: 36, height: 36, borderRadius: R.small, background: CAT_COLORS.symptom.shadow, display: 'flex', alignItems: 'center', justifyContent: 'center', color: F.surfaceRaised, fontSize: '13px', fontWeight: 700, flexShrink: 0 }}><Bandaids size={18} weight="fill" /></div>
                       <div className="flex-1 min-w-0">
-                        <span style={{ ...FONT.sectionTitle, fontFamily: FONT.heading, color: CAT_COLORS.symptom.fg }}>症状</span>
+                        <span style={{ fontSize: '15px', fontWeight: 600, color: CAT_COLORS.symptom.fg }}>症状</span>
                         <span className="ml-2" style={{ fontSize: '13px', fontWeight: 400, color: `${CAT_COLORS.symptom.fg}99` }}>{selSymptom.symptoms.join('、')}</span>
                       </div>
                       <div className="ml-auto flex gap-1 shrink-0">
@@ -1495,7 +1495,7 @@ const HealthApp: React.FC = () => {
               <div className="flex items-center gap-3">
                 <div style={{ width: 36, height: 36, borderRadius: R.small, background: CAT_COLORS.workout.shadow, display: 'flex', alignItems: 'center', justifyContent: 'center', color: F.surfaceRaised, fontSize: '13px', fontWeight: 700, flexShrink: 0 }}><Barbell size={18} weight="fill" /></div>
                 <div className="flex-1 min-w-0">
-                  <span style={{ ...FONT.sectionTitle, fontFamily: FONT.heading, color: CAT_COLORS.workout.fg }}>训练</span>
+                  <span style={{ fontSize: '14px', fontWeight: 600, color: CAT_COLORS.workout.fg }}>训练</span>
                   <span className="ml-1" style={{ fontSize: '13px', fontWeight: 400, color: `${CAT_COLORS.workout.fg}99` }}>{todayWorkout.duration}min · {todayWorkout.calories ?? '—'}kcal</span>
                 </div>
                 <div className="flex gap-1 shrink-0">
@@ -1517,7 +1517,7 @@ const HealthApp: React.FC = () => {
               <div className="flex items-center gap-3">
                 <div style={{ width: 36, height: 36, borderRadius: R.small, background: CAT_COLORS.sleep.shadow, display: 'flex', alignItems: 'center', justifyContent: 'center', color: F.surfaceRaised, fontSize: '13px', fontWeight: 700, flexShrink: 0 }}><MoonStars size={18} weight="fill" /></div>
                 <div className="flex-1 min-w-0">
-                  <span style={{ ...FONT.sectionTitle, fontFamily: FONT.heading, color: CAT_COLORS.sleep.fg }}>睡眠</span>
+                  <span style={{ fontSize: '14px', fontWeight: 600, color: CAT_COLORS.sleep.fg }}>睡眠</span>
                   <span className="ml-1" style={{ fontSize: '13px', fontWeight: 400, color: `${CAT_COLORS.sleep.fg}99` }}>{todaySleep.bedtime} → {todaySleep.wakeTime} · {fmtDuration(todaySleep.duration)} · {QUALITY_LABEL[todaySleep.quality]}</span>
                 </div>
                 <div className="flex gap-1 shrink-0">
@@ -1563,7 +1563,7 @@ const HealthApp: React.FC = () => {
                   <Drop size={16} weight="fill" color={F.surfaceRaised} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <span style={{ ...FONT.sectionTitle, fontFamily: FONT.heading, color: CAT_COLORS.period.fg }}>经期</span>
+                  <span style={{ fontSize: '14px', fontWeight: 600, color: CAT_COLORS.period.fg }}>经期</span>
                   <span className="ml-1" style={{ fontSize: '13px', fontWeight: 400, color: `${CAT_COLORS.period.fg}99` }}>{FLOW_LABEL[todayPeriod.flow]}</span>
                 </div>
                 <div className="flex gap-1 shrink-0">
@@ -1585,7 +1585,7 @@ const HealthApp: React.FC = () => {
               <div className="flex items-center gap-3">
                 <div style={{ width: 36, height: 36, borderRadius: R.small, background: CAT_COLORS.symptom.shadow, display: 'flex', alignItems: 'center', justifyContent: 'center', color: F.surfaceRaised, fontSize: '13px', fontWeight: 700, flexShrink: 0 }}><Bandaids size={18} weight="fill" /></div>
                 <div className="flex-1 min-w-0">
-                  <span style={{ ...FONT.sectionTitle, fontFamily: FONT.heading, color: CAT_COLORS.symptom.fg }}>症状</span>
+                  <span style={{ fontSize: '14px', fontWeight: 600, color: CAT_COLORS.symptom.fg }}>症状</span>
                   <span className="ml-1" style={{ fontSize: '13px', fontWeight: 400, color: `${CAT_COLORS.symptom.fg}99` }}>{todaySymptom.symptoms.join('、')}</span>
                 </div>
                 <div className="flex gap-1 shrink-0">
@@ -1753,18 +1753,20 @@ const HealthApp: React.FC = () => {
           Record Modal
       ════════════════════════════════════════════════════ */}
       {recordMode && (
-        <div className="absolute inset-0 bg-black/15 backdrop-blur-sm z-50 flex items-end"
+        <div className="absolute inset-0 z-50 flex items-end" style={{ background: OVERLAY.scrim }}
           onClick={(e) => { if (e.target === e.currentTarget) closeRecord(); }}>
-          <div className="w-full px-5 pt-2 flex flex-col"
+          {/* [EM: skin-f] 雾面 sheet，背后不压暗不模糊 */}
+          <div className="w-full px-5 pt-2 flex flex-col clay-sheet-in"
             style={{
               paddingBottom: 'calc(1.5rem + var(--safe-bottom))', /* [EM: safe-bottom] 原 pb-10 */
-              background: clay.bg, borderRadius: `${R.sheet}px ${R.sheet}px 0 0`,
-              boxShadow: S.floating,
+              background: OVERLAY.bg, backdropFilter: OVERLAY.blur, WebkitBackdropFilter: OVERLAY.blur,
+              borderTop: OVERLAY.edge, boxShadow: OVERLAY.hairline,
+              borderRadius: `${R.sheet}px ${R.sheet}px 0 0`,
               height: `${modalHeight}px`,
               transition: isDraggingModal ? 'none' : 'height 0.25s ease',
             }}>
 
-            {/* 拖拽把手 — 仅训练/饮食可拖高 */}
+            {/* 拖拽把手 — 五项都显示（标题位置才一致），仅训练/饮食可拖高 */}
             {(recordMode === 'workout' || recordMode === 'diet') ? (
               <div className="shrink-0 py-1.5 -mx-5 px-5 flex justify-center cursor-grab active:cursor-grabbing"
                 style={{ touchAction: 'none' }}
@@ -1788,10 +1790,12 @@ const HealthApp: React.FC = () => {
                   const { maxH } = modalDragRef.current;
                   setModalHeight(h => (h - MODAL_BASE_H < (maxH - MODAL_BASE_H) / 2 ? MODAL_BASE_H : maxH));
                 }}>
-                <div className="w-10 h-1 rounded-full" style={{ background: F.borderStrong }} />
+                <div className="w-9 h-1 rounded-full" style={{ background: OVERLAY.grab }} />
               </div>
             ) : (
-              <div className="shrink-0 h-3" />
+              <div className="shrink-0 py-1.5 flex justify-center">
+                <div className="w-9 h-1 rounded-full" style={{ background: OVERLAY.grab }} />
+              </div>
             )}
 
             <div className="flex items-center justify-between mb-4 shrink-0">
