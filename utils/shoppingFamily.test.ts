@@ -124,12 +124,20 @@ describe('惊喜礼物', () => {
         expect(isHiddenFromChar(order({ surprise: true, etaTimestamp: NOW - MIN }), NOW)).toBe(false);
     });
 
-    it('TA 送我的惊喜：投喂站对我藏着，TA 自己的查手机照常知道是什么', () => {
+    it('TA 送我的惊喜：投喂站和 TA 的查手机都不露内容——查手机也是我在翻', () => {
         const gift = order({ surprise: true, isGiftFromChar: true });
         expect(isHiddenFromUser(gift, NOW)).toBe(true);
         expect(isHiddenFromChar(gift, NOW)).toBe(false);
         const [rec] = shopOrdersAsPhoneRecords([gift], products, 'c1', '阿萌', NOW);
-        expect(rec.detail).toContain('给阿萌买的惊喜，没告诉TA');
+        expect(rec).toMatchObject({ title: '一个包裹', detail: '给阿萌准备的，送到才揭晓（在路上）' });
+        expect(rec.value).toBeUndefined();
+    });
+
+    it('TA 送我的惊喜送到后，查手机里正常显示买了什么', () => {
+        const gift = order({ surprise: true, isGiftFromChar: true, etaTimestamp: NOW - MIN });
+        const [rec] = shopOrdersAsPhoneRecords([gift], products, 'c1', '阿萌', NOW);
+        expect(rec.title).toBe('霸王茶姬');
+        expect(rec.detail).toContain('给阿萌买的惊喜');
     });
 });
 
@@ -146,11 +154,18 @@ describe('TA 在心跳里给我买', () => {
         expect(orderCardLines(o, products)).toEqual([{ name: '奶茶店', qty: 1, price: 19 }]);
     });
 
-    it('TA 手机里那条礼物记录不会被当成「TA 给自己买的」，也不会被投喂站再映射一遍', () => {
+    it('礼物单实时映射进 TA 的查手机；惊喜没送到只显示一个包裹', () => {
         const gift = giftOrderFromLife(event, { id: 'c1', name: '沈砚' })!;
+        const [pending] = shopOrdersAsPhoneRecords([gift], products, 'c1', '阿萌', NOW);
+        expect(pending).toMatchObject({ type: 'delivery', title: '一个包裹' });
+        expect(pending.detail).not.toContain('杨枝甘露');
+        const [arrived] = shopOrdersAsPhoneRecords([gift], products, 'c1', '阿萌', NOW + 41 * MIN);
+        expect(arrived.title).toBe('奶茶店');
+    });
+
+    it('万一 TA 手机里还留着旧版写下的礼物记录，也不会被当成「TA 给自己买的」', () => {
         const chars = [char('c1', [record({ id: 'ag-hb:9:life', agentSourceIds: ['hb:9:life'] }), record({})])];
         expect(charSelfOrders(chars, ['c1'], NOW, ['hb:9:life']).map(o => o.id)).toEqual(['hb-c1-ag-hb:1:life']);
-        expect(shopOrdersAsPhoneRecords([gift], products, 'c1', '阿萌', NOW)).toEqual([]);
     });
 
     it('没写买了什么就不落单', () => {

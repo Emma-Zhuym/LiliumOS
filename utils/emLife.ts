@@ -114,25 +114,10 @@ export const applyLifeEpisode = (
         return { ...phone, records: nextRecords, contacts: nextContacts };
     }
 
-    // 给阿萌买的东西：记在 TA 自己手机的淘宝 / 外卖里（TA 付的钱），投喂站那一单由 OSContext 另外落
-    if (life.kind === 'gift') {
-        const title = life.with?.trim();
-        if (!title) return null;
-        const who = userName || 'TA';
-        const detail = [life.detail?.trim(), `送给${who}${life.surprise ? '的惊喜，还没告诉' + who : ''}`].filter(Boolean).join(' · ');
-        return {
-            ...phone,
-            records: [...records, {
-                id: `ag-${event.messageId}`,
-                type: life.via === 'food' ? 'delivery' : 'order',
-                title,
-                detail,
-                timestamp: at,
-                ...(life.value?.trim() ? { value: life.value.trim() } : {}),
-                agentSourceIds: [event.messageId],
-            }],
-        };
-    }
+    // 给阿萌买的东西这里不写：这条记录会出现在 TA 的淘宝 / 外卖里，而查手机就是阿萌在看，
+    // 直接写出来惊喜当场就穿帮了。改由投喂站那一单（OSContext 落库）实时映射进 TA 的手机，
+    // 送到之前只显示「一个包裹」（shopOrdersAsPhoneRecords + isHiddenFromUser）。
+    if (life.kind === 'gift') return null;
 
     const type = RECORD_TYPE[life.kind];
     if (!type) return null;

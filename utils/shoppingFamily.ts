@@ -5,7 +5,8 @@
  * 四种订单：
  * - 我给 TA 买 —— 投喂站下单，不论关联与否都会出现在 TA 查手机的淘宝 / 外卖里（`shopOrdersAsPhoneRecords`）。
  * - TA 给我买 —— 由 TA 在心跳里自己下单（`giftOrderFromLife`），惊喜不惊喜也是 TA 定的；
- *   TA 手机里那条由 emLife 直接写，所以这里不再映射一份。
+ *   TA 手机里那条也由这里实时映射（`shopOrdersAsPhoneRecords`）——查手机就是阿萌在看，
+ *   所以没送到的惊喜只显示「一个包裹」，送到了才露出买的是什么。
  * - 我给我买 —— 投喂站新下单方式（`selfOrder: 'user'`），只有家属关联的角色才知道
  *   （`buildFamilyShoppingContext`）。
  * - TA 给 TA 买 —— 心跳里 TA 真实下的网购 / 外卖（查手机里带 `agentSourceIds` 的记录），
@@ -145,12 +146,21 @@ export const shopOrdersAsPhoneRecords = (
     userName: string,
     now = Date.now(),
 ): PhoneEvidence[] =>
-    // 心跳下的礼物单（agentSourceId）TA 手机里已经有一条了，不重复映射
-    orders.filter(order => !order.selfOrder && !order.agentSourceId && order.receiverCharId === charId).flatMap(order => {
+    orders.filter(order => !order.selfOrder && order.receiverCharId === charId).flatMap(order => {
         const items = orderItemsText(order, products);
         if (!items) return [];
         const who = userName || '用户';
         const pending = order.status === 'active' ? '（在路上）' : '';
+        // TA 给我买的惊喜：TA 自己当然知道买了什么，但查手机是阿萌在看，没送到就先别露
+        if (isHiddenFromUser(order, now)) {
+            return [{
+                id: `${SHOP_RECORD_PREFIX}${order.id}`,
+                type: order.type === 'food' ? 'delivery' : 'order',
+                title: '一个包裹',
+                detail: `给${who}准备的，送到才揭晓${pending}`,
+                timestamp: order.placedAt,
+            }];
+        }
         if (isHiddenFromChar(order, now)) {
             return [{
                 id: `${SHOP_RECORD_PREFIX}${order.id}`,

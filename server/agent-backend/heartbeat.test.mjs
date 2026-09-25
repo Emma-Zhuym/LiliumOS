@@ -16,7 +16,7 @@ import { putSnapshot, normalizeSnapshotPayload } from './snapshots.mjs';
 import {
     ACTIVE_CHAT_WINDOW_MS, buildPrompt, checkGates, speakBlock, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
     BREAK_COOLDOWN_MIN, currentSlot, decideIntent, formatGap, inBreakWindow, upcomingBreakStarts, jitterRatio, lastRealInteractionAt, listModelRuns, messageChance,
-    nextRunAt, recordModelRun, shouldCaptureRaw, decideEpisode, episodeChance, isWorkSlot, lifeChance, pickLifeKind,
+    nextRunAt, recordModelRun, shouldCaptureRaw, decideEpisode, episodeChance, isWorkSlot, lifeChance, pickLifeKind, veilSurprise,
 } from './heartbeat.mjs';
 import { chatCompletionsUrl, createApiRunner, extractContentText, parseEpisode, parseHeartbeatOutput, parseLife } from './runner.mjs';
 import { applyThread, closeStaleThreads, listOpenThreads } from './lifeThreads.mjs';
@@ -1092,4 +1092,31 @@ test('刚聊过时，上一跳欠下的「等会儿」继续欠着，不在这�
     const result = await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 'q3'), rng: () => 0.99 });
     assert.equal(result.intent, 'live');
     assert.equal(listModelRuns(db)[0].urge, 'later');
+});
+
+test('惊喜礼物：起居注那一句不点破买了什么，episode 里照样留底', async () => {
+    assert.deepEqual(
+        veilSurprise({ activity: '下单了那只抱枕', reason: '她上次说想要' }, { kind: 'gift', surprise: true }, '阿萌'),
+        { activity: '给阿萌准备了点东西', reason: '想给 阿萌 一个惊喜，先不说是什么。' },
+    );
+    // 不是惊喜、不是礼物的，原样不动
+    assert.equal(veilSurprise({ activity: 'a', reason: 'b' }, { kind: 'gift', surprise: false }, '阿萌').activity, 'a');
+    assert.equal(veilSurprise({ activity: 'a', reason: 'b' }, { kind: 'order', with: 'x' }, '阿萌').activity, 'a');
+    assert.equal(veilSurprise({ activity: 'a', reason: 'b' }, null, '阿萌').reason, 'b');
+
+    const db = freshDb();
+    setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+    const character = seedCharacter(db);
+    seedSnapshot(db, { todaySchedule: [{ start: '18:00', title: '在家', availability: 'online' }] });
+    const sent = [];
+    const gift = { kind: 'gift', with: '云朵抱枕', via: 'net', surprise: true, detail: '她上次逛街摸了好几次', value: '¥129', note: '抱着睡' };
+    const runner = { run: async () => ({ ok: true, output: { action: 'noop', activity: '下单了那只云朵抱枕', reason: '她上次逛街摸了好几次', urge: 'none', life: gift } }) };
+    const seq = [0.99, 0.3, 0.999];   // 不开口 → 抽中生活 → 落到 gift（权重表最后一档）
+    let i = 0;
+    await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 'g1'), now: chicago(20), rng: () => seq[i++] ?? 0.99, deliver: async e => sent.push(e) });
+    const run = listModelRuns(db)[0];
+    assert.equal(run.activity, '给阿萌准备了点东西');
+    assert.ok(!run.reason.includes('抱枕'));
+    assert.equal(run.episode.life.with, '云朵抱枕', '排查时仍然看得到买了什么');
+    assert.equal(sent[0].payload.life.with, '云朵抱枕', '投喂站那一单照常拿到全部内容');
 });

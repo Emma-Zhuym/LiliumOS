@@ -499,6 +499,19 @@ export const pickLifeKind = (minutesOfDay, rng = Math.random) => {
 export const localMinutesOf = (date, timezone) => localMinutes(date, timezone);
 
 /**
+ * 惊喜礼物：起居注和试跑记录里不能写出买了什么。
+ *
+ * 「查手机 → 起居注」是阿萌在翻，`activity` 和 `reason` 原样写进去，惊喜当场就穿帮了。
+ * 所以落审计时换成不点破的说法；**买了什么原样留在 `episode.life` 里**（排查看得到），
+ * 真正的那一单也照常进投喂站，送到了自然揭晓。
+ */
+export const veilSurprise = (output, life, userName) => {
+    if (!life || life.kind !== 'gift' || !life.surprise) return { activity: output.activity, reason: output.reason };
+    const who = userName || '对方';
+    return { activity: `给${who}准备了点东西`, reason: `想给 ${who} 一个惊喜，先不说是什么。` };
+};
+
+/**
  * 排查开关：解析失败时要不要把模型原文留一段。
  * 默认关。原文里有角色的话，只落在 mini 的库里，不进日志、不进推送。
  */
@@ -893,6 +906,8 @@ export const createHeartbeatHandler = ({
     const userName = String(snapshot.payload?.user?.name ?? '').trim();
     const rawLife = lifeKind ? output.life ?? null : null;
     const life = rawLife && !(rawLife.kind === 'chat' && userName && rawLife.with === userName) ? rawLife : null;
+    // 惊喜礼物不写进起居注的那一句里（阿萌翻得到），买了什么留在 episode.life。
+    const veiled = veilSurprise(output, life, userName);
     recordModelRun(db, {
         jobUuid: job.uuid,
         charId: character.charId,
@@ -901,9 +916,9 @@ export const createHeartbeatHandler = ({
         durationMs,
         ok: true,
         outcome: output.action,
-        reason: output.reason,
+        reason: veiled.reason,
         // activity 是「这次醒来我做了什么」，起居注列的就是它。
-        activity: output.activity,
+        activity: veiled.activity,
         shadow,
         // 抽中了开口、模型却退回 noop 的次数值得盯：多了说明提示词还是在劝它闭嘴。
         intent,
