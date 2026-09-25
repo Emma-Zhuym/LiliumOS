@@ -7,8 +7,9 @@
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { clearNotice, getSetting, shouldNotice } from './db.mjs';
+import { clearNotice, getSetting, setSetting, shouldNotice } from './db.mjs';
 import { flattenContent } from './mcp.mjs';
+import { fetchTemporal, readVisibility, replaceTemporalItems } from './temporal.mjs';
 
 const execFileAsync = promisify(execFile);
 
@@ -135,5 +136,44 @@ export const restartUtmVm = async (vmName, execImpl = execFileAsync, utmctl = '/
         return { attempted: true, ok: true };
     } catch (error) {
         return { attempted: true, ok: false, error: String(error?.message || error).slice(0, 200) };
+    }
+};
+
+/**
+ * 把阿萌的 Apple 日历 / 提醒读进来（设计：temporal.mjs）。不调模型，纯读。
+ *
+ * 每天一次就够——课表本来就是固定的；临时加了考试、约了牙医，在日历 App 里点「立刻刷新」。
+ * 桥接连不上（mini 刚醒、Calendar.app 没授权）不算故障：保留上一次的结果，记一句错误，
+ * 界面照常显示「更新于……」。宁可旧一点，也不要突然让角色对阿萌的安排一无所知。
+ */
+export const createTemporalRefreshHandler = ({ db, appleEvents, now = () => new Date() }) => async () => {
+    const visibility = readVisibility(getSetting(db, 'temporal_visibility'));
+    const timeZone = getSetting(db, 'timezone') || 'America/Chicago';
+    const at = now();
+    const open = Object.values(visibility.calendars).concat(Object.values(visibility.lists))
+        .filter(level => level !== 'hidden').length;
+    if (open === 0) {
+        // 一个都没开：清空缓存（可能是刚被关掉的），不留角色不该知道的东西。
+        replaceTemporalItems(db, [], at);
+        setSetting(db, 'temporal_sync', JSON.stringify({ ...syncState(db), lastAt: at.toISOString(), lastError: null, count: 0 }));
+        return { ok: true, count: 0, sources: 0 };
+    }
+    try {
+        const items = await fetchTemporal({ appleEvents, visibility, timeZone, now: at });
+        replaceTemporalItems(db, items, at);
+        setSetting(db, 'temporal_sync', JSON.stringify({ ...syncState(db), lastAt: at.toISOString(), lastError: null, count: items.length }));
+        return { ok: true, count: items.length, sources: open };
+    } catch (error) {
+        const message = String(error?.message || error).slice(0, 200);
+        setSetting(db, 'temporal_sync', JSON.stringify({ ...syncState(db), lastError: message, lastErrorAt: at.toISOString() }));
+        throw error;
+    }
+};
+
+export const syncState = db => {
+    try {
+        return JSON.parse(getSetting(db, 'temporal_sync') || '{}');
+    } catch {
+        return {};
     }
 };

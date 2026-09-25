@@ -168,6 +168,26 @@ export const MIGRATIONS = [
     CREATE INDEX idx_life_threads_open ON life_threads (char_id, status, updated_at);
     ALTER TABLE model_runs ADD COLUMN episode TEXT;
     `,
+    // 7：阿萌的现实时间（Apple 日历 / 提醒）。只存一个窗口的缓存，原件永远在 Apple 那边；
+    // 每次同步整表重写，所以不留历史、也不用对账（设计 temporal.mjs 开头）。
+    `
+    CREATE TABLE temporal_items (
+      source_id   TEXT PRIMARY KEY,
+      kind        TEXT NOT NULL CHECK (kind IN ('event','reminder')),
+      source      TEXT NOT NULL,
+      title       TEXT NOT NULL,
+      start_at    TEXT,
+      end_at      TEXT,
+      all_day     INTEGER NOT NULL DEFAULT 0,
+      due_at      TEXT,
+      completed   INTEGER NOT NULL DEFAULT 0,
+      priority    TEXT,
+      location    TEXT,
+      repeats     TEXT,
+      fetched_at  TEXT NOT NULL
+    );
+    CREATE INDEX idx_temporal_when ON temporal_items (start_at, due_at);
+    `,
 ];
 
 export const DEFAULT_SETTINGS = {
@@ -182,6 +202,11 @@ export const DEFAULT_SETTINGS = {
     // 排查开关：打开后，解析失败时把模型的原始输出截一段存进 model_runs.raw_output。
     // 原始输出里有角色的话，只留在 mini 的库里、不进日志，查完记得关。
     heartbeat_debug: JSON.stringify({ captureRawOnError: false }),
+    // 阿萌的现实时间：逐个日历 / 提醒清单设可见性，默认什么都不给看。
+    // 空 = 一个都没开，同步任务什么都不读，角色也就什么都不知道。
+    temporal_visibility: JSON.stringify({ calendars: {}, lists: {} }),
+    // 每天同步一次就够（课表本来就固定）；改了日历自己点「立刻刷新」。
+    temporal_sync: JSON.stringify({ everyHours: 24 }),
 };
 
 export const openDb = (path, { now = () => new Date().toISOString() } = {}) => {

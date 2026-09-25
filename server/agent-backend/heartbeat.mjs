@@ -14,6 +14,7 @@ import { getSetting } from './db.mjs';
 import { getCharacter, toCharacter } from './characters.mjs';
 import { getSnapshot } from './snapshots.mjs';
 import { SHORT_ID_LENGTH, applyThread, closeStaleThreads, listOpenThreads } from './lifeThreads.mjs';
+import { formatTemporalForPrompt, listTemporalItems, readVisibility, veilForCharacter } from './temporal.mjs';
 
 /** 心跳最晚执行时间：过了就 expired，mini 睡醒后不会补跑一堆旧心跳（设计 4.1）。 */
 export const HEARTBEAT_TTL_MS = 15 * 60 * 1000;
@@ -614,7 +615,7 @@ export const HEARTBEAT_SCHEMA = {
  * 没话找话是主动消息最容易翻车的地方（设计 4.3 第 4 步）。
  */
 export const buildPrompt = (character, snapshot, now = new Date(), intent = 'live', {
-    thoughts = [], carried = null, threads = [], episode = false, life = null, canSpeak = true,
+    thoughts = [], carried = null, threads = [], episode = false, life = null, canSpeak = true, temporal = '',
 } = {}) => {
     const p = snapshot.payload || {};
     const lines = [];
@@ -626,6 +627,8 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
     if (p.mood) lines.push(`你此刻的情绪底色：\n${p.mood}`);
     // 日常节律：跟聊天日程生成用的是同一份自由文本。没有它，心跳完全不知道 TA 平时在哪、忙什么。
     if (p.dailyRhythm) lines.push(`你平时的生活节律（稳定的框架，不是今天必须逐字照做）：\n${p.dailyRhythm}`);
+    // 阿萌的现实安排（她勾选可见的那几个 Apple 日历 / 提醒清单）。
+    if (temporal) lines.push(temporal);
     if (Array.isArray(p.todaySchedule) && p.todaySchedule.length) {
         lines.push(`今天的安排：\n${p.todaySchedule.map(s => `- ${s.start}–${s.end} ${s.title}`).join('\n')}`);
     }
@@ -860,6 +863,16 @@ export const createHeartbeatHandler = ({
     // 手头正在推进的事：先把久没动静的收掉，再交给模型接着做。试跑期不动库，只是看看。
     if (!shadow) closeStaleThreads(db, character.charId, startedAt);
     const threads = listOpenThreads(db, character.charId);
+    // 阿萌的现实安排：每天同步一次的缓存，按可见性裁过再进提示词（不调模型、不现读）。
+    const temporal = formatTemporalForPrompt(
+        veilForCharacter(
+            listTemporalItems(db, { from: new Date(startedAt.getTime() - 3600_000).toISOString() }),
+            readVisibility(getSetting(db, 'temporal_visibility')),
+        ),
+        startedAt,
+        timezone,
+        snapshot.payload?.user?.name || '对方',
+    );
     // 这一跳要不要写一段工作往来：同样由程序抽签，抽中了才要求模型写。
     const { kind: sideKind } = decideEpisode({
         snapshot, now: startedAt, timezone, intent, threads, rng,
@@ -870,7 +883,7 @@ export const createHeartbeatHandler = ({
         charId: character.charId,
         credRef: character.credRef,
         system: buildPrompt(character, snapshot, startedAt, intent, {
-            thoughts, carried: hush ? null : carried, threads, episode: wantsEpisode, life: lifeKind, canSpeak: !hush,
+            thoughts, carried: hush ? null : carried, threads, episode: wantsEpisode, life: lifeKind, canSpeak: !hush, temporal,
         }),
         user: '现在要做什么？只按 schema 回一个 JSON。',
         schema: HEARTBEAT_SCHEMA,

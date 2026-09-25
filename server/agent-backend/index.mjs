@@ -17,7 +17,7 @@ import {
     upcomingBreakStarts, HEARTBEAT_JITTER_SPREAD,
 } from './heartbeat.mjs';
 import { getSnapshot } from './snapshots.mjs';
-import { createHaWatchdogHandler, createTestPingHandler, probeHomeAssistant } from './kinds.mjs';
+import { createHaWatchdogHandler, createTemporalRefreshHandler, createTestPingHandler, probeHomeAssistant, syncState } from './kinds.mjs';
 import { createApiRunner, createCodexRunnerStub } from './runner.mjs';
 import { createJob, inQuietWindow, recoverStaleLeases, runTick } from './jobs.mjs';
 import { createMcpClient } from './mcp.mjs';
@@ -105,6 +105,8 @@ export const createContext = async (config = loadConfig()) => {
     const handlers = {
         'test.ping': createTestPingHandler({ appleEvents, deliver }),
         'ha.watchdog': createHaWatchdogHandler({ db, config, deliver }),
+        // 阿萌的现实时间：每天读一次 Apple 日历 / 提醒，不调模型。
+        'temporal.refresh': createTemporalRefreshHandler({ db, appleEvents }),
         heartbeat: createHeartbeatHandler({
             db, config, runners, scheduleNext: scheduleNextHeartbeat, deliver,
         }),
@@ -148,7 +150,8 @@ export const createContext = async (config = loadConfig()) => {
         config, db, pusher, appleEvents, handlers, deliver, quietState, buildStatus,
         scheduleNextHeartbeat,
         // 客户端只允许创建这些种类；心跳只能由调度器自己排（设计 3.5）。
-        allowedClientKinds: ['test.ping'],
+        // temporal.refresh 允许：它不调模型、只读阿萌自己的日历，就是日历页那个「立刻刷新」。
+        allowedClientKinds: ['test.ping', 'temporal.refresh'],
     };
 };
 
@@ -182,6 +185,33 @@ export const ensureHeartbeatJobs = (ctx, now = new Date()) => {
     }
 };
 
+/**
+ * 现实时间同步：每天一次自己续排。
+ *
+ * 排在设置里的间隔之后（默认 24 小时）。手动刷新是另外创建一条马上跑的，两者互不影响：
+ * 手动刷新不会把自动的那条挤掉，自动的也不会因为你刚手动刷过就跳过——最多多读一次，很便宜。
+ */
+const ensureTemporalJob = (db, now = new Date()) => {
+    const pending = db.prepare(
+        "SELECT COUNT(*) AS n FROM jobs WHERE kind = 'temporal.refresh' AND status = 'pending'",
+    ).get().n;
+    if (pending > 0) return;
+    const everyHours = Math.min(168, Math.max(1, Number(syncState(db).everyHours) || 24));
+    const last = Date.parse(syncState(db).lastAt || '') || 0;
+    // 从没同步过就 1 分钟后跑一次（刚开完可见性开关，别让阿萌等一天）。
+    const runAt = last ? new Date(Math.max(now.getTime() + 60_000, last + everyHours * 3600_000)) : new Date(now.getTime() + 60_000);
+    createJob(db, {
+        uuid: `temporal:${runAt.toISOString().slice(0, 13)}`,
+        kind: 'temporal.refresh',
+        runAt: runAt.toISOString(),
+        // 错过就算了：下一次同步照样读的是最新的日历，补跑没有意义。
+        missedPolicy: 'drop',
+        expiresAt: new Date(runAt.getTime() + 6 * 3600_000).toISOString(),
+        maxAttempts: 2,
+        createdBy: 'scheduler',
+    }, now);
+};
+
 /** 看门狗自己续排下一次：不用 cron，也就不会因为进程重启漏掉一整条链。 */
 const ensureWatchdogJob = (db, now = new Date()) => {
     const pending = db.prepare(
@@ -210,6 +240,7 @@ export const startScheduler = ctx => {
         running = true;
         try {
             ensureWatchdogJob(db);
+            ensureTemporalJob(db);
             ensureHeartbeatJobs(ctx);
             await runTick(db, { handlers, quiet: ctx.quietState() });
             cleanupOutbox(db);

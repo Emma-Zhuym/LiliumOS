@@ -15,6 +15,10 @@ import { characterExists, listCharacters, touchPresence, upsertCharacter } from 
 import { listCredentials, putCredential } from './credentials.mjs';
 import { listModelRuns } from './heartbeat.mjs';
 import { listSnapshotMeta, putSnapshot } from './snapshots.mjs';
+import { getSetting, setSetting } from './db.mjs';
+import { listTemporalItems, readVisibility, veilForCharacter, VISIBILITY, SOURCES_TIMEOUT_MS } from './temporal.mjs';
+import { syncState } from './kinds.mjs';
+import { flattenContent } from './mcp.mjs';
 
 const MAX_BODY_BYTES = 256 * 1024;
 const PREFIX = '/agent/v1';
@@ -199,6 +203,42 @@ export const createRouter = ctx => {
                     limit: query.get('limit'),
                 }),
             }),
+        },
+
+        // ── 阿萌的现实时间（Apple 日历 / 提醒）──────────────────────────
+        'GET /temporal': {
+            // 日历 App 读这个：缓存里的条目 + 上次同步时间 + 当前可见性设置。
+            handle: ({ query }) => ({
+                items: listTemporalItems(db, { from: query.get('from'), to: query.get('to') }),
+                visibility: readVisibility(getSetting(db, 'temporal_visibility')),
+                sync: syncState(db),
+            }),
+        },
+        'GET /temporal/sources': {
+            // 列出有哪些日历 / 提醒清单，供设置页勾选。直接问桥接，不进缓存——
+            // 列日历那一下要 20 多秒（EventKit 慢），所以只在打开设置页时调。
+            handle: async () => {
+                const [calendars, lists] = await Promise.all([
+                    ctx.appleEvents.callTool('calendar_calendars', { action: 'read' }),
+                    ctx.appleEvents.callTool('reminders_lists', { action: 'read' }),
+                ]);
+                const names = result => flattenContent(result, 8000).split('\n')
+                    .map(line => line.match(/^- (.+)$/)?.[1]?.trim())
+                    .filter(Boolean);
+                return { calendars: names(calendars), lists: names(lists) };
+            },
+        },
+        'PUT /temporal/visibility': {
+            handle: ({ body }) => {
+                const clean = source => Object.fromEntries(
+                    Object.entries(source ?? {})
+                        .filter(([name, level]) => typeof name === 'string' && VISIBILITY.includes(level))
+                        .map(([name, level]) => [name.slice(0, 80), level]),
+                );
+                const next = { calendars: clean(body.calendars), lists: clean(body.lists) };
+                setSetting(db, 'temporal_visibility', JSON.stringify(next));
+                return { visibility: next };
+            },
         },
 
         'GET /outbox': {
