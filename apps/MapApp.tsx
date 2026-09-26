@@ -20,7 +20,7 @@ import { useOS } from '../context/OSContext';
 import { AppID, CharacterProfile, DailySchedule, ScheduleSlot } from '../types';
 import { DB } from '../utils/db';
 import { computeCharStatus, getSlotAvailability, CharAvailability } from '../utils/charStatus';
-import { F, FONT, S, R, HUE, STATUS } from '../utils/clayTokens';
+import { F, FONT, OVERLAY, S, R, HUE, STATUS } from '../utils/clayTokens';
 import { safeFetchJson, extractContent, extractJson } from '../utils/safeApi';
 import { MapWorld, MapRegion, MapDB, matchRegionForSlot } from '../utils/mapWorlds';
 import {
@@ -51,7 +51,6 @@ const MAPX = {
   nowCardBorder: '#E4D6FB',              // 时间线"进行中"卡边
   handle: '#E0D8CE',                     // sheet 把手
   purpleShadow: 'rgba(94,60,184,.28)',   // 紫色投影（Ink 的 rgb）
-  sheetShadow: '0 -8px 30px rgba(70,66,58,.16)',
   dangerBorder: '#F3D3DB',
 };
 
@@ -345,7 +344,8 @@ const ScheduleSheet: React.FC<{
         left: 0, right: 0, bottom: 0, zIndex: 6,
         height: 'calc(100% - var(--chrome-top) - 72px)',
         borderRadius: `${R.sheet}px ${R.sheet}px 0 0`,
-        background: F.surface, border: `1px solid ${F.borderSoft}`, boxShadow: MAPX.sheetShadow,
+        background: OVERLAY.bg, backdropFilter: OVERLAY.blur, WebkitBackdropFilter: OVERLAY.blur,
+        borderTop: OVERLAY.edge, boxShadow: OVERLAY.hairline, // [EM: skin-f] 地图面板 = Apple 地图式雾面
         transform: expanded ? 'translateY(0)' : `translateY(calc(100% - ${SHEET_PEEK}px))`,
         transition: 'transform .36s cubic-bezier(.2,.8,.2,1)',
       }}>

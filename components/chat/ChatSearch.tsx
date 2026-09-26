@@ -77,16 +77,15 @@ const RaisedIconButton = ({ onClick, label, children, disabled = false }: {
     onClick={onClick}
     disabled={disabled}
     aria-label={label}
-    className="flex shrink-0 items-center justify-center active:translate-y-[1px] transition-all disabled:active:translate-y-0"
+    className="flex shrink-0 items-center justify-center active:opacity-40 transition-opacity"
     style={{
       width: 44,
       height: 44,
       borderRadius: R.pill,
-      background: F.surfaceRaised,
-      border: `1px solid ${F.borderSoft}`,
-      boxShadow: disabled ? 'none' : S.raisedSoft,
-      opacity: disabled ? 0.38 : 1,
-      transitionDuration: MOTION.tap,
+      background: 'transparent',
+      border: 'none',
+      boxShadow: 'none',
+      opacity: disabled ? 0.3 : 1,
     }}
   >
     {children}
@@ -228,7 +227,7 @@ const ChatSearch: React.FC<ChatSearchProps> = ({ character, onClose, onOpenMessa
       <div className="shrink-0" style={{ paddingTop: 'var(--chrome-top)' }}>
         <div className="relative flex items-center px-5 py-3">
           <RaisedIconButton onClick={onClose} label="返回聊天">
-            <CaretLeft size={20} weight="bold" style={{ color: F.textSecondary }} />
+            <CaretLeft size={22} weight="bold" style={{ color: F.textPrimary }} />
           </RaisedIconButton>
           <span className="pointer-events-none absolute left-0 right-0 flex justify-center" style={{ ...FONT.navTitle, fontFamily: FONT.heading }}>
             查找聊天记录
@@ -283,7 +282,7 @@ const ChatSearch: React.FC<ChatSearchProps> = ({ character, onClose, onOpenMessa
                 label="上一个月"
                 disabled={!canGoPrevious}
               >
-                <CaretLeft size={18} weight="bold" style={{ color: F.textSecondary }} />
+                <CaretLeft size={20} weight="bold" style={{ color: F.textPrimary }} />
               </RaisedIconButton>
               <div className="text-center">
                 <div className="text-base font-semibold tabular-nums">
@@ -296,7 +295,7 @@ const ChatSearch: React.FC<ChatSearchProps> = ({ character, onClose, onOpenMessa
                 label="下一个月"
                 disabled={!canGoNext}
               >
-                <CaretRight size={18} weight="bold" style={{ color: F.textSecondary }} />
+                <CaretRight size={20} weight="bold" style={{ color: F.textPrimary }} />
               </RaisedIconButton>
             </div>
 

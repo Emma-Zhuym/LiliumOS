@@ -1617,8 +1617,8 @@ const HealthApp: React.FC = () => {
       {/* [EM-START: apple-health-detail-sheet] */}
       {showExternalHealthDetails && viewedExternalHealth && (
         <div
-          className="absolute inset-0 z-[60] flex items-end justify-center sm:items-center px-0 sm:px-5 backdrop-blur-sm"
-          style={{ background: `${F.textPrimary}26` }}
+          className="absolute inset-0 z-[60] flex items-end justify-center sm:items-center px-0 sm:px-5"
+          style={{ background: OVERLAY.scrim }}
           onClick={(event) => {
             if (event.target === event.currentTarget) setShowExternalHealthDetails(false);
           }}>
@@ -1626,14 +1626,13 @@ const HealthApp: React.FC = () => {
             role="dialog"
             aria-modal="true"
             aria-labelledby="apple-health-details-title"
-            className="w-full sm:max-w-md max-h-[88%] sm:max-h-[82%] flex flex-col overflow-hidden rounded-t-[var(--health-detail-radius)] sm:rounded-[var(--health-detail-radius)]"
+            className="clay-sheet-in w-full sm:max-w-md max-h-[88%] sm:max-h-[82%] flex flex-col overflow-hidden rounded-t-[var(--health-detail-radius)] sm:rounded-[var(--health-detail-radius)]"
             style={{
               '--health-detail-radius': `${R.sheet}px`,
-              background: F.appBg,
-              boxShadow: S.floating,
-              border: `1px solid ${F.borderSoft}`,
+              background: OVERLAY.bg, backdropFilter: OVERLAY.blur, WebkitBackdropFilter: OVERLAY.blur,
+              borderTop: OVERLAY.edge, boxShadow: OVERLAY.hairline,
             } as React.CSSProperties}>
-            <div className="shrink-0 px-5 pt-4 pb-3" style={{ background: F.appBg }}>
+            <div className="shrink-0 px-5 pt-4 pb-3">
               <div className="mx-auto mb-3 h-1 w-10 sm:hidden" style={{ background: F.borderStrong, borderRadius: R.pill }} />
               <div className="flex items-start gap-3">
                 <div className="flex-1 min-w-0">
@@ -2128,10 +2127,10 @@ const HealthApp: React.FC = () => {
           Profile Setup Modal
       ════════════════════════════════════════════════════ */}
       {showProfileSetup && (
-        <div className="absolute inset-0 bg-black/15 backdrop-blur-sm z-50 flex items-center justify-center"
+        <div className="absolute inset-0 z-50 flex items-center justify-center" style={{ background: OVERLAY.scrimModal }}
           onClick={(e) => { if (e.target === e.currentTarget && profile) setShowProfileSetup(false); }}>
-          <div className="w-[85%] max-w-xs p-5 flex flex-col gap-3 max-h-[80vh] overflow-y-auto"
-            style={{ background: clay.bg, borderRadius: R.sheet, boxShadow: S.raisedSoft }}>
+          <div className="clay-fade-in w-[85%] max-w-xs p-5 flex flex-col gap-3 max-h-[80vh] overflow-y-auto"
+            style={{ background: OVERLAY.bg, backdropFilter: OVERLAY.blur, WebkitBackdropFilter: OVERLAY.blur, border: OVERLAY.edge, borderRadius: R.sheet }}>
 
             <span style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: F.textPrimary }}>健康档案</span>
             <p className="text-[11px] -mt-1" style={{ color: F.textTertiary }}>用于计算基础代谢率(BMR)，数据仅存本地</p>
