@@ -192,6 +192,8 @@ check "设置页令牌与扫码" apps/Settings.tsx "fetchXhsLoginQr"
 check "令牌随工具配置上云" utils/amsgToolPack.ts "authToken: xhs.authToken"
 check "worker 注入令牌" worker/amsg/src/index.ts "XhsMcpClient.setAuthToken(stash.xhsAuthToken)"
 check "网关 /xhs 路由" scripts/home-assistant-proxy.mjs "XHS_MCP_TARGET"
+check "心跳逛小红书：快照带开关" utils/emAgentSnapshot.ts "[EM: heartbeat-xhs]"
+check "心跳逛小红书：落进小红书 App" context/OSContext.tsx "xhsActivityFromLife(event, charId)"
 
 echo ""
 if [ $FAIL -gt 0 ]; then

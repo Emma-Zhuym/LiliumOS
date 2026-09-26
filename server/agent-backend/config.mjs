@@ -42,6 +42,8 @@ export const loadConfig = (env = process.env) => {
             'https://emma-zhuym.github.io,http://localhost:5173,http://127.0.0.1:5173',
         ),
         appleEventsUrl: env.AGENT_APPLE_EVENTS_URL || 'http://127.0.0.1:8765/mcp',
+        // mini 上常驻的 xiaohongshu-mcp（server/xhs-mcp）：心跳「逛小红书」本机直连，不绕 Funnel。
+        xhsMcpUrl: env.AGENT_XHS_MCP_URL || 'http://127.0.0.1:18060/mcp',
         // mini 上的 HAOS 在 80 端口（8123 不通），与 scripts/home-assistant-proxy.mjs 的默认目标一致。
         homeAssistantUrl: env.AGENT_HA_URL || 'http://192.168.64.2',
         // 看门狗要重启的 UTM 虚拟机名；留空则只检查不重启。

@@ -82,6 +82,8 @@ export interface CharacterSnapshot {
         /** 私人生活里认识的人（通讯录里的虚构联系人），心跳写「和谁聊了几句」时优先从这里挑，名字才前后一致。 */
         circle?: { name: string; relation?: string; group?: string }[];
         coworkers?: { name: string; relation?: string; group?: string }[]; // [EM: moments]
+        /** 这个角色在聊天设置里开了小红书：心跳才会去 mini 上的 xiaohongshu-mcp 逛首页。 */
+        xhsEnabled?: boolean; // [EM: heartbeat-xhs]
         todaySchedule?: { start: string; end: string; title: string; availability?: string }[];
         lastInteraction?: { userAt?: string; charAt?: string };
         recentMessages?: { role: 'user' | 'char'; at: string | null; text: string }[];
@@ -225,6 +227,7 @@ export const buildCharacterSnapshot = async (
             ...(char.scheduleStyle !== 'mindful' && char.dailyRhythm?.trim()
                 ? { dailyRhythm: char.dailyRhythm.trim().slice(0, MAX_RHYTHM_CHARS) }
                 : {}),
+            ...(char.xhsEnabled ? { xhsEnabled: true } : {}), // [EM: heartbeat-xhs]
             lastInteraction: findLastInteraction(messages),
             ...(recent.length ? { recentMessages: recent } : {}),
             ...(options.boundaries?.length ? { boundaries: options.boundaries } : {}),

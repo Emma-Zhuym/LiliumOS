@@ -77,7 +77,7 @@ merge 时 `grep -rn "EM-START\|\[EM:" --include="*.ts" --include="*.tsx"` 就能
 ### merge 后必跑自检
 
 ```bash
-bash scripts/check-em-patches.sh   # 当前 126 项锚点检查，红了就是功能被冲掉
+bash scripts/check-em-patches.sh   # 当前 128 项锚点检查，红了就是功能被冲掉
 pnpm vitest run                    # 单元测试
 ```
 
@@ -252,6 +252,7 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - `utils/xhsMcpClient.ts` — 请求带 Bearer（`xhsMcpConfig.authToken`）；新版上游是无状态服务器、不发 `Mcp-Session-Id`，握手后用 `tools/list` 验证即可，不得再一律报 CORS；`get_login_qrcode` 的图片内容转成 data URL 给设置页
 - `utils/amsgToolPack.ts` / `worker/amsg/src/index.ts` — 令牌随工具配置上云，worker 直连 Funnel 时同样带上；改完要重跑 `node scripts/build-workers.mjs`
 - 令牌和登录 cookie 不得进仓库、plist、日志、Engram 或备份；部署与排查见 `server/xhs-mcp/README.md`
+- **心跳逛小红书**（`server/agent-backend/xhsFeed.mjs`）：生活小事里 `xhs` 占 0.08（从朋友圈分出）。程序先经本机直连 `list_feeds` 刷真实首页，模型只挑编号写感想，标题作者一律用首页真值；只刷首页，不搜索、不点赞、不评论。角色没开小红书（快照 `xhsEnabled`）、后端没有 `xhs-mcp-token`、首页刷不到时退回发朋友圈。前端 `utils/emLifeXhs.ts` 落进小红书 App 活动记录 + 私聊一条自由活动系统消息，不发 xhs_card
 
 ## 合并时常见坑（踩过的 bug）
 

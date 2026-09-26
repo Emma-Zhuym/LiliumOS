@@ -35,6 +35,9 @@ export const createContext = async (config = loadConfig()) => {
 
     const appleEventsToken = readSecret(config, 'apple-events-token');
     const appleEvents = createMcpClient({ url: config.appleEventsUrl, token: appleEventsToken });
+    // 小红书：令牌文件缺了就当没接，心跳抽中「逛小红书」时退回发朋友圈。
+    const xhsToken = readSecret(config, 'xhs-mcp-token');
+    const xhs = xhsToken ? createMcpClient({ url: config.xhsMcpUrl, token: xhsToken }) : null;
 
     /** 写信箱 + 推送 + 记投递结果。所有对外说话都走这一个口子。 */
     const deliver = async ({ messageId, charId = null, jobUuid = null, kind, payload, title, body, notify = true }) => {
@@ -108,7 +111,7 @@ export const createContext = async (config = loadConfig()) => {
         // 阿萌的现实时间：每天读一次 Apple 日历 / 提醒，不调模型。
         'temporal.refresh': createTemporalRefreshHandler({ db, appleEvents }),
         heartbeat: createHeartbeatHandler({
-            db, config, runners, scheduleNext: scheduleNextHeartbeat, deliver,
+            db, config, runners, scheduleNext: scheduleNextHeartbeat, deliver, xhs,
         }),
     };
 

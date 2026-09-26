@@ -83,6 +83,15 @@ describe('角色近况快照', () => {
 });
 
 
+describe('小红书开关进快照', () => {
+    it('角色开了小红书才带，心跳据此决定能不能去逛', async () => {
+        const on = await buildCharacterSnapshot({ ...char, xhsEnabled: true } as CharacterProfile, [message({})], {});
+        expect(on.payload.xhsEnabled).toBe(true);
+        const off = await buildCharacterSnapshot(char, [message({})], {});
+        expect('xhsEnabled' in off.payload).toBe(false);
+    });
+});
+
 describe('dailyRhythm 进快照', () => {
     it('带上聊天「日程/情绪」面板里的日常节律原文', async () => {
         const rhythmChar = { ...char, dailyRhythm: '周二周四必须到公司开会，其余时间较自由' } as unknown as CharacterProfile;

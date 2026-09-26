@@ -16,7 +16,7 @@ import { normalizeMomentExtras } from './moments'; // [EM: moments]
 type PhoneState = NonNullable<CharacterProfile['phoneState']>;
 
 export interface LifeEpisode {
-    kind: 'chat' | 'social' | 'delivery' | 'order' | 'moment' | 'gift';
+    kind: 'chat' | 'social' | 'delivery' | 'order' | 'moment' | 'gift' | 'xhs';
     with?: string;
     relation?: string;
     group?: string;
@@ -33,6 +33,18 @@ export interface LifeEpisode {
     hide?: string[];
     /** chat / social：顺口约的以后的事。dueAt 由后端按时区解析好；约定本身由后端记着，这里只随记录带过来 */
     plan?: { what: string; at: string; dueAt?: string };
+    /** xhs：mini 上真实刷到的首页，和其中多看了两眼的几条（note 是 TA 为什么停下来看）。落地见 emLifeXhs.ts */
+    feed?: XhsFeedNote[];
+    picks?: (XhsFeedNote & { note?: string })[];
+}
+
+export interface XhsFeedNote {
+    noteId: string;
+    title: string;
+    author?: string;
+    likes?: number;
+    video?: boolean;
+    xsecToken?: string;
 }
 
 export interface LifeEvent {
@@ -45,7 +57,7 @@ const MINE = '我';
 /** 一条记录里最多记多少个来源 id：只用来去重，太旧的不可能再被取回来。 */
 const MAX_SOURCE_IDS = 50;
 
-const RECORD_TYPE: Record<Exclude<LifeEpisode['kind'], 'chat' | 'social' | 'gift'>, string> = {
+const RECORD_TYPE: Record<Exclude<LifeEpisode['kind'], 'chat' | 'social' | 'gift' | 'xhs'>, string> = {
     delivery: 'delivery',
     order: 'order',
     moment: 'social',
@@ -123,6 +135,8 @@ export const applyLifeEpisode = (
     // 直接写出来惊喜当场就穿帮了。改由投喂站那一单（OSContext 落库）实时映射进 TA 的手机，
     // 送到之前只显示「一个包裹」（shopOrdersAsPhoneRecords + isHiddenFromUser）。
     if (life.kind === 'gift') return null;
+    // 逛小红书不进查手机：落在小红书 App 的活动记录里（emLifeXhs.ts，OSContext 那边写库）。
+    if (life.kind === 'xhs') return null;
 
     const type = RECORD_TYPE[life.kind];
     if (!type) return null;
