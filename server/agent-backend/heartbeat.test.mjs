@@ -975,6 +975,12 @@ test('life 解析：四种小事各自的必填项，写坏只丢这一段', () 
         { kind: 'gift', with: '奶茶店', via: 'food', surprise: true, detail: '她爱喝的', value: '¥18', note: '趁热' },
     );
     assert.deepEqual(parseLife({ kind: 'gift', with: '围巾', via: 'boat' }), { kind: 'gift', with: '围巾', via: 'net', surprise: false }, '不认识的 via 当网购；没说惊喜就不是');
+    // 网购选的配送档：认得的才留；外卖没有这一档
+    assert.equal(parseLife({ kind: 'order', with: '青菜', ship: 'same_day' }).ship, 'same_day');
+    assert.equal(parseLife({ kind: 'order', with: '书', ship: 'rocket' }).ship, undefined);
+    assert.equal(parseLife({ kind: 'delivery', with: '店', ship: 'same_day' }).ship, undefined);
+    assert.equal(parseLife({ kind: 'gift', with: '花', via: 'net', ship: 'next_day' }).ship, 'next_day');
+    assert.equal(parseLife({ kind: 'gift', with: '奶茶', via: 'food', ship: 'next_day' }).ship, undefined);
     assert.equal(parseLife({ kind: 'gift', detail: '没写买了啥' }), null);
     const whole = parseHeartbeatOutput(JSON.stringify({ action: 'noop', activity: 'a', reason: '', life: { kind: 'bad' } }));
     assert.equal(whole.ok, true);

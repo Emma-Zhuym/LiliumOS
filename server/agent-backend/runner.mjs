@@ -73,6 +73,9 @@ const parseLifeLines = raw => (Array.isArray(raw) ? raw : [])
     .filter(line => line.who && line.text)
     .slice(0, 8);
 
+/** 网购的配送档：跟 shopping.mjs 的 SHIP_KINDS 一致。 */
+const SHIP = new Set(['same_day', 'next_day', 'standard']);
+
 export const parseLife = raw => {
     if (!raw || typeof raw !== 'object' || !LIFE_KINDS.has(raw.kind)) return null;
     const withWho = String(raw.with ?? '').trim().slice(0, 40);
@@ -137,11 +140,15 @@ export const parseLife = raw => {
         return {
             kind: 'gift', with: withWho, via: raw.via === 'food' ? 'food' : 'net', surprise: raw.surprise === true,
             ...(detail ? { detail } : {}), ...(value ? { value } : {}), ...(note ? { note } : {}),
+            ...(raw.via !== 'food' && SHIP.has(raw.ship) ? { ship: raw.ship } : {}),
         };
     }
-    // 外卖 / 网购：with 是店名或商品名
+    // 外卖 / 网购：with 是店名或商品名；网购再带上选的配送（当天达 / 次日达 / 普通快递）
     if (!withWho) return null;
-    return { kind: raw.kind, with: withWho, ...(detail ? { detail } : {}), ...(value ? { value } : {}) };
+    return {
+        kind: raw.kind, with: withWho, ...(detail ? { detail } : {}), ...(value ? { value } : {}),
+        ...(raw.kind === 'order' && SHIP.has(raw.ship) ? { ship: raw.ship } : {}),
+    };
 };
 
 /**
