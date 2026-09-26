@@ -115,11 +115,20 @@ export const parseLife = raw => {
     if (raw.kind === 'xhs') {
         if (!detail) return null;
         const picks = (Array.isArray(raw.picks) ? raw.picks : [])
-            .map(pick => ({ index: Number(pick?.index), note: String(pick?.note ?? '').trim().slice(0, 120) }))
+            .map(pick => ({
+                index: Number(pick?.index),
+                note: String(pick?.note ?? '').trim().slice(0, 120),
+                like: pick?.like === true,
+                fav: pick?.fav === true,
+            }))
             .filter(pick => Number.isInteger(pick.index) && pick.index > 0)
             .slice(0, 3)
-            .map(pick => (pick.note ? pick : { index: pick.index }));
-        return { kind: 'xhs', detail, ...(picks.length ? { picks } : {}) };
+            .map(({ index, note, like, fav }) => ({ index, ...(note ? { note } : {}), ...(like ? { like } : {}), ...(fav ? { fav } : {}) }));
+        // 转发给阿萌：编号 + 配的一两句话，两样缺一样就当没转发
+        const shareIndex = Number(raw.share?.index);
+        const shareText = String(raw.share?.text ?? '').trim().slice(0, 200);
+        const share = Number.isInteger(shareIndex) && shareIndex > 0 && shareText ? { index: shareIndex, text: shareText } : null;
+        return { kind: 'xhs', detail, ...(picks.length ? { picks } : {}), ...(share ? { share } : {}) };
     }
     // 给阿萌买东西：with 是店名或商品名；via 分网购 / 外卖；惊喜不惊喜由 TA 自己定
     if (raw.kind === 'gift') {

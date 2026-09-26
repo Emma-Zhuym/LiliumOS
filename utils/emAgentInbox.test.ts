@@ -58,6 +58,23 @@ describe('后端信箱落地到聊天', () => {
         }));
     });
 
+    // [EM: heartbeat-xhs]
+    it('逛小红书时转发的那条：话后面接一张小红书卡片', async () => {
+        const xhsNote = { noteId: 'n2', title: '猫咪第一次见雪', desc: '', author: '橘子汽水', authorId: '', likes: 356, type: 'video' };
+        inbox.mockResolvedValueOnce([msg('hb:x', { payload: { text: '你看这只猫', xhsNote } })]);
+        const result = await syncAgentMessagesIntoChat(NOW);
+        expect(result.delivered).toBe(1);
+        expect(saveMessage).toHaveBeenCalledTimes(2);
+        expect(saveMessage).toHaveBeenNthCalledWith(1, expect.objectContaining({ type: 'text', content: '你看这只猫' }));
+        expect(saveMessage).toHaveBeenNthCalledWith(2, expect.objectContaining({
+            role: 'assistant',
+            type: 'xhs_card',
+            content: '猫咪第一次见雪',
+            timestamp: Date.parse('2026-09-23T11:00:00.000Z') + 1,
+            metadata: expect.objectContaining({ xhsNote }),
+        }));
+    });
+
     it('过了保质期的不进聊天——那会儿的话不该假装是刚说的', async () => {
         inbox.mockResolvedValueOnce([msg('hb:2', { payload: { staleAfter: '2026-09-23T06:00:00.000Z' } })]);
         const result = await syncAgentMessagesIntoChat(NOW);

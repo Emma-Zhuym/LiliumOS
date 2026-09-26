@@ -14,7 +14,7 @@
 
 | 事情 | 做完于 | 阿萌要做的 |
 |---|---|---|
-| 心跳逛小红书 | 2026-09-26 | 把令牌复制一份到 agent 后端的 secrets（见 changelog），重启后端；想让哪个角色逛就在 TA 的聊天设置里开「小红书」；过几天看小红书 App 里有没有 TA 自己刷的记录 |
+| 心跳逛小红书、停用发帖评论 | 2026-09-26 | 把令牌复制一份到 agent 后端的 secrets（见 changelog），重启后端和网关；想让哪个角色逛就在 TA 的聊天设置里开「小红书」；过几天看小红书 App 里有没有 TA 自己刷的记录、有没有转发给你的卡片 |
 | 小红书 MCP 搬到 mini | 2026-09-26 | 扫码后点「测试连接」看到昵称；让角色搜一次小红书试试；决定旧的 `xiaohongshu-readonly` / `xiaohongshu-tunnel` 要不要停 |
 | 心跳生活活动 v2 | 2026-09-26 | 重启 agent 后端；看一跳真实心跳，确认不再出现「你不来我就还没做饭」这类把自己日常冻住的话 |
 | 换皮「F」 | 2026-09-25 | 日常使用中留意漏网的旧样式（VRWorld / 记忆宫殿 / Launcher / Chat / CallApp 有上游手写阴影，按约定暂不改） |
@@ -28,7 +28,7 @@
 ### P0：规矩与同步安全
 
 - 上游同步严格走 `.claude/CLAUDE.md` / `AGENTS.md` 的审批闸门：先只读调研、汇报，阿萌选完才建验收分支。建议两周一合。
-- merge 后跑 `bash scripts/check-em-patches.sh`（当前 128 项）和 `pnpm vitest run`。
+- merge 后跑 `bash scripts/check-em-patches.sh`（当前 130 项）和 `pnpm vitest run`。
 - EM App 数据备份必须持续覆盖 Finance（含周期规则）、Health、Shopping、Map、Moments、Smart Home。
 - 剧情剧场默认独立故事线与独立记忆；只有用户显式开启才镜像进角色记忆。
 

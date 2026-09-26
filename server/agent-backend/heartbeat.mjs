@@ -17,7 +17,9 @@ import {
     SHORT_ID_LENGTH, applyThread, closePassedPlans, closeStaleThreads, completeThread, isPlanDue, isPlanThread, listOpenThreads,
 } from './lifeThreads.mjs';
 import { parsePlanTime } from './planTime.mjs';
-import { fetchFeed, formatFeedForPrompt, resolvePicks, XHS_MAX_PICKS } from './xhsFeed.mjs';
+import {
+    applyXhsActions, fetchDetail, fetchFeed, formatDetailForPrompt, formatFeedForPrompt, resolvePicks, resolveShare, XHS_MAX_PICKS,
+} from './xhsFeed.mjs';
 import { formatTemporalForPrompt, listTemporalItems, readVisibility, veilForCharacter } from './temporal.mjs';
 
 /** 心跳最晚执行时间：过了就 expired，mini 睡醒后不会补跑一堆旧心跳（设计 4.1）。 */
@@ -523,12 +525,26 @@ export const localMinutesOf = (date, timezone) => localMinutes(date, timezone);
  * 逛小红书的结果：模型写的编号换回真实笔记（标题、作者、赞数用首页的真值），
  * 再附上整页首页，前端小红书 App 的「看过的帖子」照这个列。没刷成首页的 xhs 整条不要。
  */
+/** 首页笔记 → 聊天里小红书卡片要的形状（MessageItem 读 metadata.xhsNote）。 */
+export const toCardNote = note => ({
+    noteId: note.noteId,
+    title: note.title,
+    desc: '',
+    author: note.author || '',
+    authorId: '',
+    likes: note.likes || 0,
+    ...(note.xsecToken ? { xsecToken: note.xsecToken } : {}),
+    ...(note.coverUrl ? { coverUrl: note.coverUrl } : {}),
+    type: note.video ? 'video' : 'normal',
+});
+
 export const withXhsFeed = (life, feed = []) => {
     if (!life || life.kind !== 'xhs') return life;
     if (!feed.length || !life.detail) return null;
-    const { picks, ...rest } = life;
+    const { picks, share, ...rest } = life;
     const resolved = resolvePicks(picks, feed);
-    return { ...rest, feed, ...(resolved.length ? { picks: resolved } : {}) };
+    const sharing = resolveShare(share, feed);
+    return { ...rest, feed, ...(resolved.length ? { picks: resolved } : {}), ...(sharing ? { share: sharing } : {}) };
 };
 
 /**
@@ -616,7 +632,8 @@ export const HEARTBEAT_SCHEMA = {
                 },
                 likes: { type: 'integer', minimum: 0, maximum: 999 },
                 hide: { type: 'array', items: { type: 'string', enum: ['family', 'friend', 'work', 'school', 'service', 'online', 'other'] } },
-                // xhs：刷首页时多看了两眼的几条，index 是首页列表里的编号，note 是为什么停下来看
+                // xhs：刷首页时多看了两眼的几条，index 是首页列表里的编号，note 是为什么停下来看；
+                // like / fav 是想点赞 / 收藏（程序去做，最多两次）
                 picks: {
                     type: 'array',
                     maxItems: XHS_MAX_PICKS,
@@ -627,7 +644,19 @@ export const HEARTBEAT_SCHEMA = {
                         properties: {
                             index: { type: 'integer', minimum: 1, maximum: 20 },
                             note: { type: 'string', maxLength: 120 },
+                            like: { type: 'boolean' },
+                            fav: { type: 'boolean' },
                         },
+                    },
+                },
+                // xhs：刷到想给对方看的，转发一条 + 配一两句话。不想发就省略。
+                share: {
+                    type: 'object',
+                    additionalProperties: false,
+                    required: ['index', 'text'],
+                    properties: {
+                        index: { type: 'integer', minimum: 1, maximum: 20 },
+                        text: { type: 'string', maxLength: 200 },
                     },
                 },
                 // chat / social：顺口约了以后的事。时间写自然语言，由程序解析成绝对时刻（planTime.mjs）。
@@ -683,7 +712,7 @@ export const HEARTBEAT_SCHEMA = {
  */
 export const buildPrompt = (character, snapshot, now = new Date(), intent = 'live', {
     thoughts = [], carried = null, threads = [], plans = [], duePlan = null, episode = false, life = null, canSpeak = true, temporal = '',
-    feed = [],
+    feed = [], opened = null,
 } = {}) => {
     const p = snapshot.payload || {};
     const lines = [];
@@ -837,8 +866,18 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
             xhs: '你刚刷了一会儿小红书首页，下面是你真的刷到的（按顺序）：\n'
                 + `${formatFeedForPrompt(feed)}\n`
                 + 'kind 填 "xhs"；detail 写你刷的时候心里的反应（第一人称，2–4 句，像自言自语，贴着你的人设和此刻的心情）；'
-                + `picks 写你多看了两眼的（最多 ${XHS_MAX_PICKS} 条，一条都不感兴趣就留空）：index 填上面的编号，note 写你为什么停下来看。`
-                + '只能从上面这些里挑，别编列表里没有的笔记；你只是在刷，不点赞、不评论、不搜索。',
+                + `picks 写你多看了两眼的（最多 ${XHS_MAX_PICKS} 条，一条都不感兴趣就留空）：index 填上面的编号，note 写你为什么停下来看；`
+                + '真喜欢的 like 填 true（点赞），想留着以后再看的 fav 填 true（收藏），不用每条都点。'
+                + (canSpeak
+                    ? `刷到特别想给${p.user?.name || '对方'}看的，可以转发一条给 ta：share 里 index 填编号，text 写一两句你转发时会说的话（像随手丢过去那样，别写成推荐语）；`
+                        + '没有想给 ta 看的就省略 share，不是每次都要发。'
+                    : '你们刚说过话，这次先别转发给 ta，省略 share。')
+                + '只能从上面这些里挑，别编列表里没有的笔记；不评论、不发帖、不搜索。'
+                + (opened
+                    ? `\n\n${formatDetailForPrompt(opened.index, opened.note, opened.detail)}\n`
+                        + '看完之后再写这一跳：detail 要写到你点开看到的东西（正文、评论区里戳到你的那句），'
+                        + '别复述，写你的反应；picks / like / fav / share 按你看完之后的想法重新决定。'
+                    : ''),
             gift: '你刚给对方买了点东西。kind 填 "gift"；via 填 "net"（网购，几天后到）或 "food"（给对方点外卖，半小时左右到）；'
                 + 'with 写商品名或店名，detail 写买了什么、为什么挑这个，value 写价格；note 可以写一句附言（对方收到时能看到）。'
                 + '想不想让对方提前知道是什么由你定：想当惊喜就把 surprise 设为 true，送到之前对方看不到内容，你也别在聊天里说漏。',
@@ -856,7 +895,9 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
             + known
             + momentCircle
             + `${how}\n`
-            + '这是你自己的时间：不要提到对方，不要围着对方转；要贴着你此刻的时段和你的人设。'
+            + (life === 'xhs'
+                ? '这是你自己的时间：除了 share 那一句，别的地方不要围着对方转；要贴着你此刻的时段和你的人设。'
+                : '这是你自己的时间：不要提到对方，不要围着对方转；要贴着你此刻的时段和你的人设。')
             + '也不要在里面做出会改变人生的大事。activity 要和这件事对得上。',
         );
     }
@@ -1012,16 +1053,38 @@ export const createHeartbeatHandler = ({
         }
         if (!feed.length) lifeKind = 'moment';
     }
-    const result = await runner.run({
+    const promptFor = opened => buildPrompt(character, snapshot, startedAt, intent, {
+        thoughts, carried: hush ? null : carried, threads, plans, duePlan, episode: wantsEpisode, life: lifeKind, canSpeak: !hush, temporal, feed, opened,
+    });
+    const firstPass = await runner.run({
         charId: character.charId,
         credRef: character.credRef,
-        system: buildPrompt(character, snapshot, startedAt, intent, {
-            thoughts, carried: hush ? null : carried, threads, plans, duePlan, episode: wantsEpisode, life: lifeKind, canSpeak: !hush, temporal, feed,
-        }),
+        system: promptFor(null),
         user: '现在要做什么？只按 schema 回一个 JSON。',
         schema: HEARTBEAT_SCHEMA,
         timeoutMs: config.heartbeatTimeoutMs,
     });
+    // 逛小红书：多看了两眼的第一条，程序替 TA 点开看正文和评论区，看完再把这一跳重写一遍（第二次调模型）。
+    // 点不点由程序定——让模型自己决定「要不要点开」，它多半说算了。点不开、第二次写坏了，都退回第一次的结果。
+    let result = firstPass;
+    let opened = null;
+    if (firstPass.ok && lifeKind === 'xhs') {
+        const first = withXhsFeed(firstPass.output?.life ?? null, feed)?.picks?.[0] ?? null;
+        const fetched = first ? await fetchDetail(xhs, first) : null;
+        if (fetched?.detail) {
+            opened = { index: feed.findIndex(note => note.noteId === first.noteId) + 1, note: first, detail: fetched.detail };
+            const secondPass = await runner.run({
+                charId: character.charId,
+                credRef: character.credRef,
+                system: promptFor(opened),
+                user: '你刚点开看完了。把这一跳写完，只按 schema 回一个 JSON。',
+                schema: HEARTBEAT_SCHEMA,
+                timeoutMs: config.heartbeatTimeoutMs,
+            });
+            if (secondPass.ok && secondPass.output?.life?.kind === 'xhs') result = secondPass;
+            else opened = null;
+        }
+    }
     const durationMs = now().getTime() - startedAt.getTime();
 
     if (!result.ok) {
@@ -1043,19 +1106,39 @@ export const createHeartbeatHandler = ({
     }
 
     // 不能开口的一跳，模型还是写了 message：不发，当成「想说但先留着」，下一跳再兑现。
-    const output = hush && result.output.action === 'message'
+    const modelOutput = hush && result.output.action === 'message'
         ? { ...result.output, action: 'noop', urge: 'later' }
         : result.output;
     // 没被要求写的 episode 一律不收：写不写由程序抽签定，模型自己加戏不算数。
-    const episode = wantsEpisode ? output.episode ?? null : null;
+    const episode = wantsEpisode ? modelOutput.episode ?? null : null;
     // 生活里的聊天对象不能是阿萌本人：那不是「自己的时间」，也会在通讯录里凭空多出一个她。
     const userName = String(snapshot.payload?.user?.name ?? '').trim();
-    const rawLife = lifeKind ? withXhsFeed(output.life ?? null, feed) : null;
-    const life = withPlanTime(
+    const rawLife = lifeKind ? withXhsFeed(modelOutput.life ?? null, feed) : null;
+    const lifeChecked = withPlanTime(
         rawLife && !((rawLife.kind === 'chat' || rawLife.kind === 'social') && userName && rawLife.with === userName) ? rawLife : null,
         startedAt,
         timezone,
     );
+    // 点开看过的那条也带上：前端小红书 App 另记一条「查看详情」，跟手动刷新时一样
+    const lifeDraft = lifeChecked?.kind === 'xhs' && opened
+        ? {
+            ...lifeChecked,
+            opened: {
+                noteId: opened.note.noteId,
+                title: opened.detail.fullTitle || opened.note.title,
+                author: opened.note.author || '',
+                desc: opened.detail.desc.slice(0, 300),
+                comments: opened.detail.comments.length,
+            },
+        }
+        : lifeChecked;
+    // 逛小红书时转发给阿萌：只有这一跳能开口才发。不能开口的就不发、也不留着——刷到的东西过了就过了。
+    const xhsShare = lifeDraft?.kind === 'xhs' && lifeDraft.share && !hush ? lifeDraft.share : null;
+    let life = lifeDraft?.kind === 'xhs' && lifeDraft.share && !xhsShare
+        ? (({ share: _held, ...rest }) => rest)(lifeDraft)
+        : lifeDraft;
+    // 转发了就算这一跳开了口：冷却、每日上限照常算。模型另写的那句 message 让位给转发时配的话，只发一条。
+    const output = xhsShare ? { ...modelOutput, action: 'message', text: xhsShare.text } : modelOutput;
     // 惊喜礼物不写进起居注的那一句里（阿萌翻得到），买了什么留在 episode.life。
     const veiled = veilSurprise(output, life, userName);
     recordModelRun(db, {
@@ -1118,6 +1201,10 @@ export const createHeartbeatHandler = ({
             title: life.plan.what, summary: `约在${life.plan.at}`, status: 'open', dueAt: life.plan.dueAt,
         }, startedAt);
     }
+    // 逛小红书时想点赞 / 收藏的，真的去做（影子期不做：上面已经返回了）。
+    if (life?.kind === 'xhs' && life.picks?.length) {
+        life = { ...life, picks: await applyXhsActions(xhs, life.picks) };
+    }
     // 私人生活里的小事：落进查手机里对应的 App（联系人聊天 / 外卖 / 淘宝 / 朋友圈），同样静默。
     let lifeDelivered = false;
     if (life) {
@@ -1151,6 +1238,8 @@ export const createHeartbeatHandler = ({
             createdAt: createdAt.toISOString(),
             // 过了保质期就不再当「刚说的话」送进聊天（设计 4.3.1），由前端据此分流。
             staleAfter: new Date(createdAt.getTime() + MESSAGE_STALE_AFTER_MS).toISOString(),
+            // 转发的那条小红书：前端在这句话后面接一张卡片（跟聊天里 [[XHS_SHARE]] 同一种）
+            ...(xhsShare ? { xhsNote: toCardNote(xhsShare.note) } : {}),
         },
     });
     return { ok: true, shadow: false, intent, action: 'message', activity: output.activity, delivered: true, workDelivered, lifeDelivered, durationMs };

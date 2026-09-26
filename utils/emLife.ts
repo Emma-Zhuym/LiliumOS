@@ -35,7 +35,12 @@ export interface LifeEpisode {
     plan?: { what: string; at: string; dueAt?: string };
     /** xhs：mini 上真实刷到的首页，和其中多看了两眼的几条（note 是 TA 为什么停下来看）。落地见 emLifeXhs.ts */
     feed?: XhsFeedNote[];
-    picks?: (XhsFeedNote & { note?: string })[];
+    /** 多看了两眼的；liked / faved 是真的点成了，error 是想点没点成 */
+    picks?: (XhsFeedNote & { note?: string; liked?: boolean; faved?: boolean; error?: string })[];
+    /** 替 TA 点开看过的那一条（正文开头 + 评论数） */
+    opened?: { noteId: string; title: string; author?: string; desc?: string; comments?: number };
+    /** 转发给阿萌的那条（消息本身走聊天，这里只是记一笔） */
+    share?: { note: XhsFeedNote; text: string };
 }
 
 export interface XhsFeedNote {

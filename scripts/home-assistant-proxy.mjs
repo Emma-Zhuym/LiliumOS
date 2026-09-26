@@ -18,6 +18,21 @@ const AGENT_BACKEND_TARGET = new URL(getArg('--agent-backend-target', 'http://12
 // 鉴权由它自己的 AUTH_TOKEN 做，这里只管路由和来源白名单。
 const XHS_MCP_TARGET = new URL(getArg('--xhs-mcp-target', 'http://127.0.0.1:18060'));
 const XHS_PREFIX = '/xhs';
+/**
+ * 小红书的「输出」类工具一律停用（阿萌 2026-09-26 定）：角色可以看、点赞、收藏、转发给阿萌，
+ * 但不在小红书上发帖、评论、回复，也不能把登录删掉。上游没有开关，只能在这一层拦：
+ * tools/call 直接回 JSON-RPC 错误，tools/list 里也把它们藏起来，模型根本看不到。
+ * mini 上的心跳本机直连、不走这里，那边另有白名单（server/agent-backend/xhsFeed.mjs）。
+ */
+export const XHS_BLOCKED_TOOLS = new Set([
+    'publish_content',
+    'publish_with_video',
+    'post_comment_to_feed',
+    'reply_comment_in_feed',
+    'reply_notification',
+    'delete_cookies',
+]);
+const XHS_MAX_BODY = 1024 * 1024;
 const ALLOWED_ORIGINS = new Set(
     getArg('--origins', 'https://emma-zhuym.github.io,http://localhost:5173,http://127.0.0.1:5173')
         .split(',')
@@ -145,6 +160,11 @@ const server = createServer((request, response) => {
         if (value !== undefined) upstreamHeaders[name] = value;
     }
 
+    if (isXhsMcpPath && request.method === 'POST') {
+        forwardXhsMcp({ request, response, target, origin, upstreamHeaders });
+        return;
+    }
+
     const send = target.protocol === 'https:' ? httpsRequest : httpRequest;
     const upstream = send(target, { method: request.method, headers: upstreamHeaders }, upstreamResponse => {
         const headers = corsHeaders(origin);
@@ -167,6 +187,107 @@ const server = createServer((request, response) => {
     });
     request.pipe(upstream);
 });
+
+/** 一条或一批 JSON-RPC 请求里，有没有想调停用工具的。 */
+const blockedToolIn = message => {
+    const calls = Array.isArray(message) ? message : [message];
+    for (const call of calls) {
+        const name = call?.method === 'tools/call' ? String(call?.params?.name ?? '') : '';
+        if (XHS_BLOCKED_TOOLS.has(name)) return { name, id: call?.id ?? null };
+    }
+    return null;
+};
+
+/** tools/list 的结果里去掉停用的工具。JSON 和 SSE 两种回法都认；认不出就原样返回。 */
+const hideBlockedTools = text => {
+    const filter = parsed => {
+        const tools = parsed?.result?.tools;
+        if (!Array.isArray(tools)) return parsed;
+        return { ...parsed, result: { ...parsed.result, tools: tools.filter(tool => !XHS_BLOCKED_TOOLS.has(tool?.name)) } };
+    };
+    try {
+        return JSON.stringify(filter(JSON.parse(text)));
+    } catch {
+        return text.split('\n').map(line => {
+            if (!line.startsWith('data:')) return line;
+            try {
+                return `data: ${JSON.stringify(filter(JSON.parse(line.slice(5).trim())))}`;
+            } catch {
+                return line;
+            }
+        }).join('\n');
+    }
+};
+
+/** 小红书 MCP：整段读完请求再决定放不放行；tools/list 的回包也整段读完、去掉停用工具再回。 */
+const forwardXhsMcp = ({ request, response, target, origin, upstreamHeaders }) => {
+    const chunks = [];
+    let size = 0;
+    let aborted = false;
+    request.on('data', chunk => {
+        if (aborted) return;
+        size += chunk.length;
+        if (size > XHS_MAX_BODY) {
+            aborted = true;
+            response.writeHead(413, corsHeaders(origin));
+            response.end();
+            request.destroy();
+            return;
+        }
+        chunks.push(chunk);
+    });
+    request.on('end', () => {
+        if (aborted) return;
+        const body = Buffer.concat(chunks);
+        let message = null;
+        try {
+            message = JSON.parse(body.toString('utf8') || 'null');
+        } catch { /* 不是 JSON 就原样转，由上游回错 */ }
+        const blocked = message && blockedToolIn(message);
+        if (blocked) {
+            response.writeHead(200, { ...corsHeaders(origin), 'Content-Type': 'application/json; charset=utf-8' });
+            response.end(JSON.stringify({
+                jsonrpc: '2.0',
+                id: blocked.id,
+                error: { code: -32601, message: `小红书工具 ${blocked.name} 在 LiliumOS 里停用了：角色只看、点赞、收藏、转发给阿萌，不发帖不评论。` },
+            }));
+            return;
+        }
+        const listing = !Array.isArray(message) && message?.method === 'tools/list';
+        const send = target.protocol === 'https:' ? httpsRequest : httpRequest;
+        const upstream = send(target, {
+            method: 'POST',
+            headers: { ...upstreamHeaders, 'content-length': String(body.length) },
+        }, upstreamResponse => {
+            const headers = corsHeaders(origin);
+            for (const name of ['cache-control', 'content-type', 'mcp-session-id', 'www-authenticate']) {
+                const value = upstreamResponse.headers[name];
+                if (value !== undefined) headers[name] = value;
+            }
+            if (!listing) {
+                response.writeHead(upstreamResponse.statusCode || 502, headers);
+                upstreamResponse.pipe(response);
+                return;
+            }
+            const parts = [];
+            upstreamResponse.on('data', part => parts.push(part));
+            upstreamResponse.on('end', () => {
+                response.writeHead(upstreamResponse.statusCode || 502, headers);
+                response.end(hideBlockedTools(Buffer.concat(parts).toString('utf8')));
+            });
+        });
+        upstream.on('error', error => {
+            console.error(`Xiaohongshu MCP request failed: ${error.code || error.name}: ${error.message}`);
+            if (response.headersSent) {
+                response.destroy(error);
+                return;
+            }
+            response.writeHead(502, { ...corsHeaders(origin), 'Content-Type': 'text/plain; charset=utf-8' });
+            response.end('Xiaohongshu MCP is unavailable');
+        });
+        upstream.end(body);
+    });
+};
 
 server.listen(PORT, HOST, () => {
     console.log(`LiliumOS local service mux listening on http://${HOST}:${PORT}`);

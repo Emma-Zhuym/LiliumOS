@@ -100,7 +100,7 @@ import { refreshAllChronicles } from '../utils/emAgentActivity'; // [EM: agent-b
 import { refreshTemporalCache } from '../utils/emTemporal'; // [EM: calendar-temporal]
 import { applyWorkEpisode } from '../utils/emWork'; // [EM: work-app]
 import { applyLifeEpisode } from '../utils/emLife'; // [EM: agent-life]
-import { xhsActivityFromLife, xhsChatNote } from '../utils/emLifeXhs'; // [EM: heartbeat-xhs]
+import { xhsActivitiesFromLife, xhsChatNote } from '../utils/emLifeXhs'; // [EM: heartbeat-xhs]
 import { ShoppingDB } from '../utils/shoppingDb'; // [EM: shopping-family]
 import { giftOrderFromLife } from '../utils/shoppingFamily'; // [EM: shopping-family]
 
@@ -1996,12 +1996,13 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   // [EM-START: heartbeat-xhs] 心跳自己逛了小红书：进小红书 App 的活动记录，私聊里留一条自由活动消息。
                   // 以活动 id 去重（同一条取回两次不重复写）；落库失败就抛出，不 ack，下次再收。
                   if (event.life.kind === 'xhs') {
-                      const activity = xhsActivityFromLife(event, charId);
+                      const [activity, ...rest] = xhsActivitiesFromLife(event, charId);
                       const already = activity && (await DB.getXhsActivities(charId)).some(a => a.id === activity.id);
                       if (activity && !already) {
+                          for (const extra of rest) await DB.saveXhsActivity(extra);
                           await DB.saveXhsActivity(activity);
                           const char = charactersRef.current.find(c => c.id === charId);
-                          await DB.saveMessage({ charId, role: 'system', type: 'text', content: xhsChatNote(activity, char?.name || 'TA'), timestamp: activity.timestamp });
+                          await DB.saveMessage({ charId, role: 'system', type: 'text', content: xhsChatNote(activity, char?.name || 'TA', event.life), timestamp: activity.timestamp });
                       }
                   }
                   // [EM-END: heartbeat-xhs]

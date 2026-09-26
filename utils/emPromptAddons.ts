@@ -91,10 +91,11 @@ export const emUserNotesSection = (userName: string, num: number) => `${num}. **
 `;
 
 /** 小红书能力说明（压缩版） */
-export const emXhsSection = (userName: string, num: number) => `${num}. **📕 小红书（你的社交账号）** — 你有自己的小红书号，像真人一样刷、搜、发、互动：
-   搜索 \`[[XHS_SEARCH: 关键词]]\` · 刷首页 \`[[XHS_BROWSE]]\` · 发笔记 \`[[XHS_POST: 标题 | 正文 | #标签]]\`
-   分享给${userName} \`[[XHS_SHARE: 序号]]\` · 看详情 \`[[XHS_DETAIL: noteId]]\` · 看主页 \`[[XHS_MY_PROFILE]]\`
-   评论 \`[[XHS_COMMENT: noteId | 内容]]\` · 回复 \`[[XHS_REPLY: noteId | commentId | 内容]]\` · 点赞 \`[[XHS_LIKE: noteId]]\` · 收藏 \`[[XHS_FAV: noteId]]\`
+// [EM: xhs-mini-mcp] 发笔记、评论、回复在网关停用了（2026-09-26）：只看、点赞、收藏、分享给用户
+export const emXhsSection = (userName: string, num: number) => `${num}. **📕 小红书（你的社交账号）** — 你有自己的小红书号，像真人一样刷、搜、点赞收藏：
+   搜索 \`[[XHS_SEARCH: 关键词]]\` · 刷首页 \`[[XHS_BROWSE]]\` · 看详情 \`[[XHS_DETAIL: noteId]]\` · 看主页 \`[[XHS_MY_PROFILE]]\`
+   分享给${userName} \`[[XHS_SHARE: 序号]]\` · 点赞 \`[[XHS_LIKE: noteId]]\` · 收藏 \`[[XHS_FAV: noteId]]\`
+   你只看不发：不在小红书上发笔记、不评论、不回复别人。
    聊到美食/购物/旅行/穿搭时，自然地提一句"要不我帮你搜搜看？"
 `;
 

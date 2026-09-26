@@ -5,7 +5,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { fetchFeed, formatFeedForPrompt, parseCount, parseFeed, resolvePicks } from './xhsFeed.mjs';
+import {
+    applyXhsActions, fetchDetail, fetchFeed, formatDetailForPrompt, formatFeedForPrompt, guardXhs, parseCount, parseDetail, parseFeed, resolvePicks, resolveShare,
+} from './xhsFeed.mjs';
 import { feedResult } from './xhsFeed.fixture.mjs';
 
 
@@ -50,4 +52,66 @@ test('模型挑的编号换回真实笔记：越界、重复的丢掉，标题�
     const notes = parseFeed(feedResult());
     const picks = resolvePicks([{ index: 2, note: '雪地里的小爪印好可爱' }, { index: 2 }, { index: 9 }, { index: 0 }, { index: 1 }], notes);
     assert.deepEqual(picks.map(p => [p.noteId, p.title, p.note]), [['n2', '猫咪第一次见雪', '雪地里的小爪印好可爱'], ['n1', '秋天第一杯热可可', undefined]]);
+});
+
+test('白名单：心跳只准刷首页、看详情、点赞、收藏；发帖评论删登录一律叫不动', async () => {
+    const calls = [];
+    const guarded = guardXhs({ callTool: async name => { calls.push(name); return {}; } });
+    for (const name of ['list_feeds', 'get_feed_detail', 'like_feed', 'favorite_feed']) await guarded.callTool(name, {});
+    for (const name of ['publish_content', 'post_comment_to_feed', 'reply_comment_in_feed', 'delete_cookies', 'search_feeds']) {
+        await assert.rejects(guarded.callTool(name, {}), /不允许/);
+    }
+    assert.deepEqual(calls, ['list_feeds', 'get_feed_detail', 'like_feed', 'favorite_feed']);
+    assert.equal(guardXhs(null), null);
+});
+
+test('详情：正文截一段、评论只留有字的，包在 data 里也认得', () => {
+    const wrap = obj => ({ content: [{ type: 'text', text: JSON.stringify(obj) }] });
+    const detail = parseDetail(wrap({ data: { note: { title: '标题', desc: '正'.repeat(900), ipLocation: '上海' }, comments: { list: [
+        { content: '好看', likeCount: '12', userInfo: { nickname: 'A' } },
+        { content: '', userInfo: { nickname: 'B' } },
+        { content: '同款', userInfo: {} },
+    ] } } }));
+    assert.equal(detail.desc.length, 600);
+    assert.equal(detail.location, '上海');
+    assert.deepEqual(detail.comments, [{ author: 'A', text: '好看', likes: 12 }, { author: '匿名', text: '同款', likes: 0 }]);
+    assert.equal(parseDetail(wrap({ feeds: [] })), null);
+    assert.equal(parseDetail({ isError: true, content: [{ type: 'text', text: '失败' }] }), null);
+    const text = formatDetailForPrompt(3, { title: '短标题', author: '小鹿' }, { fullTitle: '完整标题', desc: '', comments: [] });
+    assert.equal(text, '你点开了第 3 条「完整标题」（小鹿）：\n正文：（只有图 / 视频，没什么字）\n评论区：还没人评论。');
+});
+
+test('点开：没 token 不点，工具失败给原因', async () => {
+    assert.deepEqual(await fetchDetail({ callTool: async () => ({}) }, { noteId: 'n1' }), { error: 'xhs_no_token' });
+    const broken = { callTool: async () => { throw new Error('笔记不可访问'); } };
+    assert.match((await fetchDetail(broken, { noteId: 'n1', xsecToken: 't' })).error, /不可访问/);
+});
+
+test('转发：编号和配的话缺一不可', () => {
+    const notes = parseFeed(feedResult());
+    assert.deepEqual(resolveShare({ index: 1, text: ' 看这个 ' }, notes), { note: notes[0], text: '看这个' });
+    assert.equal(resolveShare({ index: 1, text: '' }, notes), null);
+    assert.equal(resolveShare({ index: 5, text: 'x' }, notes), null);
+    assert.equal(resolveShare(undefined, notes), null);
+});
+
+test('点赞收藏：一跳最多两次，没 token 的不点，失败只记原因', async () => {
+    const calls = [];
+    const xhs = { callTool: async (name, args) => {
+        calls.push(`${name}:${args.feed_id}`);
+        if (args.feed_id === 'bad') throw new Error('被风控了');
+        return { content: [] };
+    } };
+    const picks = [
+        { noteId: 'bad', title: 'a', xsecToken: 't', wantLike: true },
+        { noteId: 'n1', title: 'b', xsecToken: 't', wantLike: true, wantFav: true },
+        { noteId: 'n2', title: 'c', wantLike: true },
+    ];
+    const done = await applyXhsActions(xhs, picks);
+    assert.deepEqual(calls, ['like_feed:bad', 'like_feed:n1']);
+    assert.deepEqual(done, [
+        { noteId: 'bad', title: 'a', xsecToken: 't', error: '被风控了' },
+        { noteId: 'n1', title: 'b', xsecToken: 't', liked: true },
+        { noteId: 'n2', title: 'c' },
+    ]);
 });
