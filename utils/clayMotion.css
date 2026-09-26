@@ -1,0 +1,44 @@
+/* [EM-START: clay-motion] */
+/*
+ * clayMotion.css — 换皮「F」的动效。由 utils/clayTokens.ts 引入，曲线与时长和 MOTION 对应。
+ * 没有投影以后，「谁在谁上面」靠动来表达：浮层从哪儿进来、盖住了什么、怎么退场。
+ * 一屏只安排一个 hero 时刻；其余元素只做整体升起，不各自表演。
+ */
+
+/* 浮层：一下出去，慢慢停，不回弹 */
+@keyframes clay-sheet-in { from { transform: translateY(100%); } }
+@keyframes clay-fade-in { from { opacity: 0; } }
+.clay-sheet-in { animation: clay-sheet-in 460ms cubic-bezier(.32,.72,0,1) both; }
+.clay-fade-in { animation: clay-fade-in 320ms ease both; }
+
+/* 提示条：全系统两处允许「弹」之一 */
+@keyframes clay-toast-in { from { transform: translateY(-150%); opacity: 0; } }
+.clay-toast-in { animation: clay-toast-in 560ms cubic-bezier(.34,1.36,.64,1) both; }
+
+/* 选中日：填色弹一下（另一处允许「弹」的地方） */
+@keyframes clay-pop { from { transform: scale(.82); } }
+.clay-pop { animation: clay-pop 380ms cubic-bezier(.34,1.36,.64,1); }
+
+/* 列表升起：给子元素设 style={{ '--i': index }} 错开 45ms */
+@keyframes clay-rise { from { opacity: 0; transform: translateY(8px); } }
+.clay-rise { animation: clay-rise 420ms cubic-bezier(.2,.8,.2,1) both; animation-delay: calc(var(--i, 0) * 45ms); }
+
+/* 圆环画出：给 circle 设 style={{ '--c': 周长 }}，strokeDasharray = 周长 */
+@keyframes clay-draw { from { stroke-dashoffset: var(--c); } }
+.clay-draw { animation: clay-draw 1150ms cubic-bezier(.2,.8,.2,1) both; animation-delay: calc(220ms + var(--i, 0) * 100ms); }
+
+/* 圆环画出（用 strokeDasharray 画弧的写法）：从一个点长到目标长度 */
+@keyframes clay-draw-dash { from { stroke-dasharray: 0 1000; } }
+.clay-draw-dash { animation: clay-draw-dash 1150ms cubic-bezier(.2,.8,.2,1) both; animation-delay: calc(220ms + var(--i, 0) * 100ms); }
+
+/* 按压：没有阴影可减了。按下快（70ms）、松开慢（240ms） */
+.clay-press { transition: transform 240ms cubic-bezier(.2,.8,.2,1), opacity 240ms ease; -webkit-tap-highlight-color: transparent; }
+.clay-press:active { transition-duration: 70ms; transform: scale(.95); }
+.clay-press-card { transition: transform 240ms cubic-bezier(.2,.8,.2,1); -webkit-tap-highlight-color: transparent; }
+.clay-press-card:active { transition-duration: 70ms; transform: scale(.985); }
+
+@media (prefers-reduced-motion: reduce) {
+  .clay-sheet-in, .clay-fade-in, .clay-toast-in, .clay-pop, .clay-rise, .clay-draw, .clay-draw-dash { animation: none !important; }
+  .clay-press, .clay-press-card { transition: none !important; }
+}
+/* [EM-END: clay-motion] */

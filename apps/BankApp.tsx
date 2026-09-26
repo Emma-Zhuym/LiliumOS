@@ -16,7 +16,7 @@ import { normalizeUserImpression } from '../utils/impression';
 import { MemoryNodeDB, bm25Search } from '../utils/memoryPalace';
 import type { MemoryNode } from '../utils/memoryPalace/types';
 import { FinanceAccount, FinanceCategory, FinanceTransaction, FinanceTxType, CharacterProfile, RecurringRule, RecurringFrequency } from '../types';
-import { F, S, R, HUE, STATUS, MOTION } from '../utils/clayTokens';
+import { F, FONT, S, R, HUE, STATUS, MOTION } from '../utils/clayTokens';
 import { syncSimpleFinIfStale } from '../utils/simplefinSync';
 import { SimpleFinSettingsCard } from '../components/finance/SimpleFinSettingsCard';
 import { FinanceAnalysisPanel, FinanceTreatmentSelect } from '../components/finance/FinanceAnalysisPanel';
@@ -170,12 +170,12 @@ const BankApp: React.FC = () => {
       <div className="shrink-0 relative flex items-center px-5 py-3" style={{ paddingTop: 'var(--chrome-top)' }}>
         <button
           onClick={closeApp}
-          className="flex items-center justify-center active:translate-y-[2px] transition-transform z-10"
-          style={{ width: 44, height: 44, borderRadius: R.pill, background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft, color: F.textSecondary }}
+          className="flex items-center justify-center active:opacity-40 transition-opacity z-10"
+          style={{ width: 44, height: 44, borderRadius: R.pill, background: 'transparent', border: 'none', boxShadow: 'none', color: F.textPrimary }}
         >
-          <CaretLeft className="w-5 h-5" weight="bold" />
+          <CaretLeft size={22} weight="bold" />
         </button>
-        <span className="absolute left-0 right-0 flex justify-center text-sm font-semibold pointer-events-none" style={{ color: F.textPrimary }}>
+        <span className="absolute left-0 right-0 flex justify-center pointer-events-none" style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: F.textPrimary }}>
           {activeTab === 'assets' ? '资产' : activeTab === 'transactions' ? (
             <button
               onClick={() => setShowTxFilters(f => !f)}
@@ -219,10 +219,10 @@ const BankApp: React.FC = () => {
         <div className="ml-auto flex items-center gap-2 z-10">
           <button
             onClick={() => setShowSettings(true)}
-            className="flex items-center justify-center active:translate-y-[2px] transition-transform"
-            style={{ width: 44, height: 44, borderRadius: R.pill, background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft, color: F.textSecondary }}
+            className="flex items-center justify-center active:opacity-40 transition-opacity"
+            style={{ width: 44, height: 44, borderRadius: R.pill, background: 'transparent', border: 'none', boxShadow: 'none', color: F.textPrimary }}
           >
-            <Gear size={16} weight="bold" style={{ color: F.textTertiary }} />
+            <Gear size={21} weight="bold" style={{ color: F.textPrimary }} />
           </button>
         </div>
       </div>
@@ -277,7 +277,7 @@ const BankApp: React.FC = () => {
       {/* 底部 Tab Bar — floating pill */}
       <div
         className="shrink-0 flex items-center justify-around mx-5 p-1.5"
-        style={{ background: F.surfaceRaised, borderRadius: R.panel, boxShadow: S.raisedMedium, marginBottom: 'calc(0.5rem + var(--safe-bottom))' /* [EM: safe-bottom] */ }}
+        style={{ background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, borderRadius: R.panel, boxShadow: S.raisedMedium, marginBottom: 'calc(0.5rem + var(--safe-bottom))' /* [EM: safe-bottom] */ }}
       >
         {TABS.map(tab => {
           const isActive = activeTab === tab.id;
@@ -383,12 +383,12 @@ const AccountForm: React.FC<{
       {/* Header */}
       <div className="shrink-0 flex items-center justify-between px-4 py-3" style={{ paddingTop: 'var(--chrome-top)' }}>
         <button onClick={onClose}
-          className="flex items-center justify-center active:translate-y-[1px] transition-transform"
-          style={{ width: 44, height: 44, borderRadius: R.pill, background: F.surfaceRaised,
-                   border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}>
-          <CaretLeft size={20} weight="bold" style={{ color: F.textSecondary }} />
+          className="flex items-center justify-center active:opacity-40 transition-opacity"
+          style={{ width: 44, height: 44, borderRadius: R.pill, background: 'transparent',
+                   border: 'none', boxShadow: 'none' }}>
+          <CaretLeft size={22} weight="bold" style={{ color: F.textPrimary }} />
         </button>
-        <span className="text-sm font-semibold" style={{ color: F.textPrimary }}>
+        <span style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: F.textPrimary }}>
           {isSynced ? '账户详情' : isEdit ? '编辑账户' : '新建账户'}
         </span>
         <button
@@ -616,12 +616,12 @@ const SettingsPage: React.FC<{
     <div className="absolute inset-0 z-50 flex flex-col" style={{ background: F.appBg }}>
       <div className="shrink-0 flex items-center justify-between px-4 py-3" style={{ paddingTop: 'var(--chrome-top)' }}>
         <button onClick={onClose}
-          className="flex items-center justify-center active:translate-y-[1px] transition-transform"
-          style={{ width: 44, height: 44, borderRadius: R.pill, background: F.surfaceRaised,
-                   border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}>
-          <CaretLeft size={20} weight="bold" style={{ color: F.textSecondary }} />
+          className="flex items-center justify-center active:opacity-40 transition-opacity"
+          style={{ width: 44, height: 44, borderRadius: R.pill, background: 'transparent',
+                   border: 'none', boxShadow: 'none' }}>
+          <CaretLeft size={22} weight="bold" style={{ color: F.textPrimary }} />
         </button>
-        <span className="text-sm font-semibold" style={{ color: F.textPrimary }}>设置</span>
+        <span style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: F.textPrimary }}>设置</span>
         <div className="w-12" />
       </div>
 
@@ -847,12 +847,12 @@ const CategoryEditForm: React.FC<{
     <div className="absolute inset-0 z-50 flex flex-col" style={{ background: F.appBg }}>
       <div className="shrink-0 flex items-center justify-between px-4 py-3" style={{ paddingTop: 'var(--chrome-top)' }}>
         <button onClick={onClose}
-          className="flex items-center justify-center active:translate-y-[1px] transition-transform"
-          style={{ width: 44, height: 44, borderRadius: R.pill, background: F.surfaceRaised,
-                   border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}>
-          <CaretLeft size={20} weight="bold" style={{ color: F.textSecondary }} />
+          className="flex items-center justify-center active:opacity-40 transition-opacity"
+          style={{ width: 44, height: 44, borderRadius: R.pill, background: 'transparent',
+                   border: 'none', boxShadow: 'none' }}>
+          <CaretLeft size={22} weight="bold" style={{ color: F.textPrimary }} />
         </button>
-        <span className="text-sm font-semibold" style={{ color: F.textPrimary }}>
+        <span style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: F.textPrimary }}>
           {isEdit ? '编辑分类' : (parentId ? '新建子分类' : '新建一级分类')}
         </span>
         <button
@@ -1077,12 +1077,12 @@ const RecurringRuleForm: React.FC<{
     <div className="overflow-hidden mb-4 p-4" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, boxShadow: S.raisedSoft }}>
       <div className="flex items-center justify-between mb-3">
         <button onClick={onClose}
-          className="flex items-center justify-center active:translate-y-[1px] transition-transform"
-          style={{ width: 44, height: 44, borderRadius: R.pill, background: F.surfaceRaised,
-                   border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}>
-          <CaretLeft size={20} weight="bold" style={{ color: F.textSecondary }} />
+          className="flex items-center justify-center active:opacity-40 transition-opacity"
+          style={{ width: 44, height: 44, borderRadius: R.pill, background: 'transparent',
+                   border: 'none', boxShadow: 'none' }}>
+          <CaretLeft size={22} weight="bold" style={{ color: F.textPrimary }} />
         </button>
-        <span className="text-sm font-semibold" style={{ color: F.textPrimary }}>{initial ? '编辑规则' : '新建规则'}</span>
+        <span style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: F.textPrimary }}>{initial ? '编辑规则' : '新建规则'}</span>
         <button onClick={handleSave} disabled={!parseFloat(amount)} className="text-xs font-semibold" style={{ color: !parseFloat(amount) ? F.textTertiary : F.accent }}>保存</button>
       </div>
 
@@ -1318,12 +1318,12 @@ const TransactionForm: React.FC<{
     <div className="absolute inset-0 z-50 flex flex-col" style={{ background: F.appBg }}>
       <div className="shrink-0 flex items-center justify-between px-4 py-3" style={{ paddingTop: 'var(--chrome-top)' }}>
         <button onClick={onClose}
-          className="flex items-center justify-center active:translate-y-[1px] transition-transform"
-          style={{ width: 44, height: 44, borderRadius: R.pill, background: F.surfaceRaised,
-                   border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}>
-          <CaretLeft size={20} weight="bold" style={{ color: F.textSecondary }} />
+          className="flex items-center justify-center active:opacity-40 transition-opacity"
+          style={{ width: 44, height: 44, borderRadius: R.pill, background: 'transparent',
+                   border: 'none', boxShadow: 'none' }}>
+          <CaretLeft size={22} weight="bold" style={{ color: F.textPrimary }} />
         </button>
-        <span className="text-sm font-semibold" style={{ color: F.textPrimary }}>{isEdit ? '编辑交易' : '新增交易'}</span>
+        <span style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: F.textPrimary }}>{isEdit ? '编辑交易' : '新增交易'}</span>
         <button
           onClick={handleSave}
           disabled={!canSave}
@@ -1350,7 +1350,7 @@ const TransactionForm: React.FC<{
               <button
                 onClick={handleSnooze}
                 className="shrink-0 px-2.5 py-1.5 text-[10px] font-semibold active:translate-y-[1px] transition-transform"
-                style={{ borderRadius: R.medium, background: F.surfaceRaised, color: STATUS.info.ink, boxShadow: S.raisedSoft }}
+                style={{ borderRadius: R.medium, background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, color: STATUS.info.ink, boxShadow: S.raisedSoft }}
               >
                 先放着
               </button>
@@ -1374,7 +1374,7 @@ const TransactionForm: React.FC<{
               <button
                 onClick={showCategoryPicker}
                 className="min-h-[56px] px-2 py-2 flex flex-col items-center justify-center gap-1 text-[10px] font-medium active:translate-y-[1px] transition-transform"
-                style={{ borderRadius: R.medium, background: F.surfaceRaised, color: F.textSecondary, boxShadow: S.raisedSoft }}
+                style={{ borderRadius: R.medium, background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, color: F.textSecondary, boxShadow: S.raisedSoft }}
               >
                 <Lightbulb size={17} weight="bold" style={{ color: HUE.amber.ink }} />
                 我记得是什么
@@ -1382,7 +1382,7 @@ const TransactionForm: React.FC<{
               <button
                 onClick={() => window.open('https://www.amazon.com/gp/css/order-history', '_blank', 'noopener,noreferrer')}
                 className="min-h-[56px] px-2 py-2 flex flex-col items-center justify-center gap-1 text-[10px] font-medium active:translate-y-[1px] transition-transform"
-                style={{ borderRadius: R.medium, background: F.surfaceRaised, color: F.textSecondary, boxShadow: S.raisedSoft }}
+                style={{ borderRadius: R.medium, background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, color: F.textSecondary, boxShadow: S.raisedSoft }}
               >
                 <ArrowSquareOut size={17} weight="bold" style={{ color: HUE.amber.ink }} />
                 去 Amazon 查
@@ -1390,7 +1390,7 @@ const TransactionForm: React.FC<{
               <button
                 onClick={handleSnooze}
                 className="min-h-[56px] px-2 py-2 flex flex-col items-center justify-center gap-1 text-[10px] font-medium active:translate-y-[1px] transition-transform"
-                style={{ borderRadius: R.medium, background: F.surfaceRaised, color: F.textSecondary, boxShadow: S.raisedSoft }}
+                style={{ borderRadius: R.medium, background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, color: F.textSecondary, boxShadow: S.raisedSoft }}
               >
                 <Clock size={17} weight="bold" style={{ color: HUE.amber.ink }} />
                 先放着

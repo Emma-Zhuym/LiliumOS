@@ -8,14 +8,14 @@
  * 后端缓存的是「昨天到两周后」这个窗口，所以往前往后翻月会是空的——这是设定，不是坏了。
  * 建事件 / 建提醒 / 勾完成要等后端的写接口，现在先把月历和当天清单摆出来。
  *
- * 主色 = indigo（事件），提醒用 amber 做唯一的辅助色。
+ * 主色 = indigo（事件），提醒用 orange 做唯一的辅助色（amber 太亮，白字压不住）。
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowsClockwise, Bell, CalendarBlank, CaretLeft, CaretRight, Check, Plus, Repeat, X } from '@phosphor-icons/react';
 
 import { useOS } from '../context/OSContext';
-import { F, HUE, R, S, STATUS } from '../utils/clayTokens';
+import { F, FONT, HUE, OVERLAY, R, S, STATUS } from '../utils/clayTokens';
 import { AgentBackend, isAgentPaired, type TemporalItem } from '../utils/emAgentBackend';
 import {
     cacheItem, dayKey, dueText, groupByDay, hasOpenSource, isOverdue, itemTimeText, loadTemporalCache, monthGrid,
@@ -24,13 +24,13 @@ import {
 } from '../utils/emTemporal';
 
 const C = HUE.indigo;
-const A = HUE.amber;
+const A = HUE.orange;
 const DAY_LABELS = ['日', '一', '二', '三', '四', '五', '六'];
 
 const IconBtn: React.FC<{ onClick: () => void; label: string; children: React.ReactNode; disabled?: boolean }> = ({ onClick, label, children, disabled }) => (
     <button onClick={onClick} aria-label={label} disabled={disabled}
-        className="flex items-center justify-center active:translate-y-[1px] transition-transform disabled:opacity-50"
-        style={{ width: 44, height: 44, borderRadius: R.pill, background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}>
+        className="flex items-center justify-center active:opacity-40 transition-opacity disabled:opacity-50"
+        style={{ width: 44, height: 44, borderRadius: R.pill, background: 'transparent', border: 'none', boxShadow: 'none' }}>
         {children}
     </button>
 );
@@ -45,6 +45,10 @@ const CalendarApp: React.FC = () => {
     // 新建提醒：null = 没在建
     const [draft, setDraft] = useState<{ title: string; list: string; due: string } | null>(null);
     const [saving, setSaving] = useState(false);
+    // sheet 从屏幕下方滑进来：聚焦时别让浏览器把外层滚上去找输入框
+    const draftInput = useRef<HTMLInputElement>(null);
+    const draftOpen = draft !== null;
+    useEffect(() => { if (draftOpen) draftInput.current?.focus({ preventScroll: true }); }, [draftOpen]);
     /** 正在勾的那条：点下去就先划掉，别等网络回来才有反应。 */
     const [ticking, setTicking] = useState<string | null>(null);
 
@@ -120,10 +124,11 @@ const CalendarApp: React.FC = () => {
         const hasReminder = bucket.some(item => item.kind === 'reminder');
         return (
             <button key={cell.key} onClick={() => setSelected(cell.key)}
-                className="flex flex-col items-center justify-center active:translate-y-[1px] transition-transform"
+                className={`flex flex-col items-center justify-center clay-press${isSelected ? ' clay-pop' : ''}`}
                 style={{
                     height: 46, borderRadius: R.medium, gap: 3,
-                    background: isSelected ? C.main : isToday ? C.tint : 'transparent',
+                    background: isSelected ? C.main : 'transparent',
+                    border: `1.5px solid ${isToday && !isSelected ? F.accent : 'transparent'}`,
                     color: isSelected ? F.surfaceRaised : cell.inMonth ? F.textPrimary : F.textTertiary,
                     fontSize: 14, fontWeight: isToday || isSelected ? 700 : 500,
                 }}>
@@ -140,8 +145,8 @@ const CalendarApp: React.FC = () => {
         const isReminder = item.kind === 'reminder';
         const hue = isReminder ? A : C;
         return (
-            <div key={`${item.sourceId}-${index}`} className="flex items-start gap-3"
-                style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, padding: '14px 16px', boxShadow: S.raisedSoft }}>
+            <div key={`${item.sourceId}-${index}`} className="flex items-start gap-3 clay-rise"
+                style={{ '--i': index, background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, padding: '14px 16px', boxShadow: S.raisedSoft } as React.CSSProperties}>
                 <div className="flex items-center justify-center shrink-0"
                     style={{ width: 36, height: 36, borderRadius: R.small, background: hue.tint }}>
                     {isReminder ? <Bell size={18} weight="bold" color={hue.ink} /> : <CalendarBlank size={18} weight="bold" color={hue.ink} />}
@@ -184,21 +189,26 @@ const CalendarApp: React.FC = () => {
     };
 
     const renderDraft = () => draft && (
-        <div className="absolute inset-0 flex flex-col justify-end" style={{ background: 'rgba(46,42,40,.28)', zIndex: 20 }}
+        <div className="absolute inset-0 flex flex-col justify-end" style={{ background: OVERLAY.scrim, zIndex: 20 }}
             onClick={() => { if (!saving) setDraft(null); }}>
-            <div onClick={event => event.stopPropagation()} className="flex flex-col"
-                style={{ background: F.appBg, borderTopLeftRadius: R.sheet, borderTopRightRadius: R.sheet, padding: '20px 20px calc(20px + var(--safe-bottom))', gap: 14, boxShadow: S.floating }}>
+            <div onClick={event => event.stopPropagation()} className="flex flex-col clay-sheet-in"
+                style={{
+                    background: OVERLAY.bg, backdropFilter: OVERLAY.blur, WebkitBackdropFilter: OVERLAY.blur,
+                    borderTop: OVERLAY.edge, boxShadow: OVERLAY.hairline,
+                    borderTopLeftRadius: R.sheet, borderTopRightRadius: R.sheet, padding: '10px 20px calc(20px + var(--safe-bottom))', gap: 14,
+                }}>
+                <span style={{ width: 36, height: 4, borderRadius: R.pill, background: OVERLAY.grab, alignSelf: 'center' }} />
                 <div className="flex items-center justify-between">
-                    <span style={{ fontSize: 16, fontWeight: 600, color: F.textPrimary }}>记一件事</span>
-                    <button onClick={() => setDraft(null)} aria-label="关闭" className="flex items-center justify-center"
-                        style={{ width: 32, height: 32, borderRadius: R.pill, background: F.surfaceSunken }}>
-                        <X size={16} weight="bold" color={F.textSecondary} />
+                    <span style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: F.textPrimary }}>记一件事</span>
+                    <button onClick={() => setDraft(null)} aria-label="关闭" className="flex items-center justify-center active:opacity-40 transition-opacity"
+                        style={{ width: 44, height: 44, marginRight: -10, borderRadius: R.pill, background: 'transparent' }}>
+                        <X size={21} weight="bold" color={F.textPrimary} />
                     </button>
                 </div>
 
-                <input value={draft.title} autoFocus placeholder="要做什么"
+                <input ref={draftInput} value={draft.title} placeholder="要做什么"
                     onChange={event => setDraft({ ...draft, title: event.target.value.slice(0, 200) })}
-                    style={{ background: F.surfaceSunken, border: 'none', boxShadow: S.sunken, borderRadius: R.input, padding: '14px 16px', fontSize: 15, color: F.textPrimary, outline: 'none' }} />
+                    style={{ background: OVERLAY.well, border: 'none', borderRadius: R.input, padding: '14px 16px', fontSize: 15, color: F.textPrimary, outline: 'none' }} />
 
                 <div className="flex flex-wrap" style={{ gap: 8 }}>
                     {lists.map(name => (
@@ -218,7 +228,7 @@ const CalendarApp: React.FC = () => {
                     <span style={{ fontSize: 14, color: F.textSecondary }}>截止时间</span>
                     <input type="datetime-local" value={draft.due}
                         onChange={event => setDraft({ ...draft, due: event.target.value })}
-                        style={{ background: F.surfaceSunken, border: 'none', boxShadow: S.sunken, borderRadius: R.input, padding: '10px 12px', fontSize: 14, color: F.textPrimary, outline: 'none' }} />
+                        style={{ background: OVERLAY.well, border: 'none', borderRadius: R.input, padding: '10px 12px', fontSize: 14, color: F.textPrimary, outline: 'none' }} />
                 </label>
 
                 <button onClick={() => void saveReminder()} disabled={saving || !draft.title.trim() || !draft.list}
@@ -240,15 +250,15 @@ const CalendarApp: React.FC = () => {
         <div className="h-full flex flex-col relative" style={{ background: F.appBg }}>
             <div className="shrink-0" style={{ paddingTop: 'var(--chrome-top)' }}>
                 <div className="relative flex items-center justify-between py-3" style={{ minHeight: 44, padding: '0 20px' }}>
-                    <IconBtn onClick={closeApp} label="返回"><CaretLeft size={20} weight="bold" color={F.textSecondary} /></IconBtn>
-                    <span className="absolute left-0 right-0 flex justify-center font-semibold pointer-events-none" style={{ fontSize: 16, color: F.textPrimary }}>日历</span>
+                    <IconBtn onClick={closeApp} label="返回"><CaretLeft size={22} weight="bold" color={F.textPrimary} /></IconBtn>
+                    <span className="absolute left-0 right-0 flex justify-center pointer-events-none" style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: F.textPrimary }}>日历</span>
                     <div className="flex items-center" style={{ gap: 8 }}>
                         <IconBtn onClick={() => void refresh()} label="重新读取" disabled={loading}>
-                            <ArrowsClockwise size={18} weight="bold" color={F.textSecondary} />
+                            <ArrowsClockwise size={21} weight="bold" color={F.textPrimary} />
                         </IconBtn>
                         {/* 提醒清单一个都没开的话，建出来也没处放 */}
                         <IconBtn onClick={() => setDraft({ title: '', list: lists[0] ?? '', due: '' })} label="记一件事" disabled={lists.length === 0}>
-                            <Plus size={18} weight="bold" color={F.textSecondary} />
+                            <Plus size={21} weight="bold" color={F.textPrimary} />
                         </IconBtn>
                     </div>
                 </div>
@@ -261,18 +271,18 @@ const CalendarApp: React.FC = () => {
                 <div style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.panel, padding: 14, boxShadow: S.raisedSoft }}>
                     <div className="flex items-center justify-between" style={{ marginBottom: 8 }}>
                         <button onClick={() => setCursor(prev => shiftMonth(prev.year, prev.month, -1))} aria-label="上个月"
-                            className="flex items-center justify-center active:translate-y-[1px] transition-transform"
-                            style={{ width: 36, height: 36, borderRadius: R.pill, background: F.surfaceSunken }}>
-                            <CaretLeft size={16} weight="bold" color={F.textSecondary} />
+                            className="flex items-center justify-center active:opacity-40 transition-opacity"
+                            style={{ width: 36, height: 36, borderRadius: R.pill, background: 'transparent' }}>
+                            <CaretLeft size={18} weight="bold" color={F.textPrimary} />
                         </button>
                         <button onClick={() => { setCursor({ year: today.getFullYear(), month: today.getMonth() }); setSelected(todayKey); }}
                             style={{ fontSize: 15, fontWeight: 700, color: F.textPrimary }}>
                             {monthLabel}
                         </button>
                         <button onClick={() => setCursor(prev => shiftMonth(prev.year, prev.month, 1))} aria-label="下个月"
-                            className="flex items-center justify-center active:translate-y-[1px] transition-transform"
-                            style={{ width: 36, height: 36, borderRadius: R.pill, background: F.surfaceSunken }}>
-                            <CaretRight size={16} weight="bold" color={F.textSecondary} />
+                            className="flex items-center justify-center active:opacity-40 transition-opacity"
+                            style={{ width: 36, height: 36, borderRadius: R.pill, background: 'transparent' }}>
+                            <CaretRight size={18} weight="bold" color={F.textPrimary} />
                         </button>
                     </div>
                     <div className="grid grid-cols-7" style={{ marginBottom: 2 }}>
@@ -285,7 +295,7 @@ const CalendarApp: React.FC = () => {
 
                 {/* 选中那天 */}
                 <div className="flex items-center justify-between px-1">
-                    <span style={{ fontSize: 16, fontWeight: 600, color: F.textPrimary }}>{selectedLabel}</span>
+                    <span style={{ ...FONT.sectionTitle, fontFamily: FONT.heading, color: F.textPrimary }}>{selectedLabel}</span>
                     <span style={{ fontSize: 12, color: F.textTertiary }}>{dayItems.length > 0 ? `${dayItems.length} 项` : '没有安排'}</span>
                 </div>
                 {dayItems.map(renderItem)}
@@ -294,7 +304,7 @@ const CalendarApp: React.FC = () => {
                 {reminders.length > 0 && (
                     <>
                         <div className="flex items-center justify-between px-1 pt-1.5">
-                            <span style={{ fontSize: 16, fontWeight: 600, color: F.textPrimary }}>记着的事</span>
+                            <span style={{ ...FONT.sectionTitle, fontFamily: FONT.heading, color: F.textPrimary }}>记着的事</span>
                             <span style={{ fontSize: 12, color: F.textTertiary }}>{reminders.length} 件</span>
                         </div>
                         {reminders.map(renderReminder)}

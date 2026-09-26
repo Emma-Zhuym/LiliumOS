@@ -1,76 +1,117 @@
 /**
  * clayTokens.ts — Emma Soft Clay UI design system tokens for React inline styles.
- * Single source of truth. Values from design-system/tokens.json.
+ * Single source of truth. Values mirrored in design-system/tokens.json.
+ *
+ * v1.0（2026-09 换皮「F」）：全平——投影和凹陷阴影都没有了，分层靠细线和明度差；
+ * 圆角收紧到 12；底色去黄转中性；16 色按 OKLCH 公式重算；标题用衬线。
+ * 浮在内容上面的东西（sheet、提示条）用 OVERLAY 的雾面材质。
  */
+
+import './clayMotion.css';
 
 // ── Foundation ──
 export const F = {
-  appBg:        '#F7F6F2',
-  surface:      '#FFFEFC',
-  surfaceWarm:  '#FAF6EF',
-  surfaceSunken:'#ECE8E1',
+  appBg:        '#F8F9F7',
+  surface:      '#FFFFFF',
+  surfaceWarm:  '#F2F4F0',
+  surfaceSunken:'#EDEFEA',
   surfaceRaised:'#FFFFFF',
-  textPrimary:  '#2E2A28',
-  textSecondary:'#6E665F',
-  textTertiary: '#9E9891',
-  borderSoft:   '#E8E1D8',
-  borderStrong: '#D8CFC4',
-  divider:      '#EEE8E0',
-  accent:       '#C7834B',
+  textPrimary:  '#23262A',
+  textSecondary:'#5D635F',
+  textTertiary: '#959B96',
+  borderSoft:   '#E3E6E0',
+  borderStrong: '#CBCFC8',
+  divider:      '#EBEEE8',
+  accent:       '#B4402F',
 } as const;
 
-// ── Shadows (4 levels only) ──
+// ── Shadows ──
+// 全平：四档都保留名字（旧代码照常引用），值一律为 none。
+// 层次改由 1px borderSoft、surface 与 appBg 的明度差、以及浮层的动效来表达。
 export const S = {
-  raisedSoft:   '0 2px 6px rgba(70,66,58,.06), 0 8px 20px rgba(70,66,58,.06)',
-  raisedMedium: '0 4px 10px rgba(70,66,58,.08), 0 14px 28px rgba(70,66,58,.08)',
-  floating:     '0 8px 18px rgba(70,66,58,.10), 0 20px 40px rgba(70,66,58,.10)',
-  sunken:       'inset 2px 2px 5px rgba(70,66,58,.10), inset -2px -2px 5px rgba(255,255,255,.8)',
+  raisedSoft:   'none',
+  raisedMedium: 'none',
+  floating:     'none',
+  sunken:       'none',
 } as const;
 
 // ── Radius ──
 export const R = {
   chartBar: 2, // Compact chart bars: square base, subtly rounded top.
-  tiny: 6, small: 10, medium: 14, large: 18,
-  panel: 24, sheet: 28, pill: 999,
-  button: 14, input: 14, smallCard: 16, bigCard: 20,
+  tiny: 4, small: 8, medium: 10, large: 12,
+  panel: 14, sheet: 16, pill: 999,
+  button: 10, input: 10, smallCard: 10, bigCard: 12,
 } as const;
 
 // ── Spacing ──
 export const SP = [4, 8, 12, 16, 20, 24, 32, 48, 64] as const;
 
+// ── Typography ──
+// 衬线只给标题：App 顶栏标题、sheet 标题、section 小标题。数字、正文、标签一律无衬线。
+export const FONT = {
+  heading: '"Noto Serif SC", "Songti SC", serif',
+  body:    '"Noto Sans SC", -apple-system, "PingFang SC", sans-serif',
+  navTitle:     { fontSize: 17, fontWeight: 700 },
+  sectionTitle: { fontSize: 15.5, fontWeight: 600 },
+} as const;
+
 // ── Status ──
 export const STATUS = {
-  success: { tint: '#E6F7E9', main: '#35A853', ink: '#1E6F36' },
-  warning: { tint: '#FFF1D0', main: '#D99612', ink: '#7A5200' },
-  danger:  { tint: '#FFE6EA', main: '#D94B72', ink: '#8F2443' },
-  info:    { tint: '#EAF1FF', main: '#4A88FF', ink: '#2457B8' },
+  success: { tint: '#E7F3E9', main: '#53A768', ink: '#246135' },
+  warning: { tint: '#F7EDE2', main: '#ECA84A', ink: '#7B510D' },
+  danger:  { tint: '#FCEBE9', main: '#CA6862', ink: '#7F3B37' },
+  info:    { tint: '#E7F0FC', main: '#4982C9', ink: '#2B5386' },
 } as const;
 
 // ── Hue palette (tint / soft / main / ink) ──
+// OKLCH 公式：tint L .952 / C .019，soft L .885 / C .06，ink L .44–.47 / C .095；
+// main 的亮度按色相走——黄橙提亮免得发土，蓝靛压暗免得发飘，饱和度封顶 .135。
+// amber / yellow / lime 太亮，白字压不住：只做圆点、图标、圆环，不做实心按钮底。
 export const HUE = {
-  red:    { tint: '#FFE8E8', soft: '#FFC6C6', main: '#F45B5B', ink: '#A83232' },
-  rose:   { tint: '#FFE6EF', soft: '#FFC1D6', main: '#F45D8A', ink: '#A92D56' },
-  orange: { tint: '#FFEBDD', soft: '#FFC89F', main: '#F47B3F', ink: '#9B431D' },
-  amber:  { tint: '#FFF1D0', soft: '#FFD98A', main: '#F5A914', ink: '#8A5A00' },
-  yellow: { tint: '#FFF7CC', soft: '#FFE985', main: '#E8C21A', ink: '#776300' },
-  lime:   { tint: '#EEF9D6', soft: '#D4F09A', main: '#8BCF32', ink: '#4F7D18' },
-  green:  { tint: '#E6F7E9', soft: '#BCECC6', main: '#35C45A', ink: '#1F7A3A' },
-  mint:   { tint: '#E3F7EE', soft: '#B7EBD3', main: '#35B985', ink: '#1E7354' },
-  teal:   { tint: '#E2F5F2', soft: '#B3E4DC', main: '#39B4A6', ink: '#1F7068' },
-  cyan:   { tint: '#E3F6FA', soft: '#B8E8F2', main: '#36B6D5', ink: '#1D7185' },
-  blue:   { tint: '#EAF1FF', soft: '#C9DCFF', main: '#4A88FF', ink: '#2457B8' },
-  indigo: { tint: '#ECEEFF', soft: '#CDD3FF', main: '#6377F2', ink: '#3745A5' },
-  purple: { tint: '#F0E8FF', soft: '#D7C3FF', main: '#9B6CFF', ink: '#5E3CB8' },
-  violet: { tint: '#F5E8FF', soft: '#E6C5FF', main: '#B66BEE', ink: '#743CA0' },
-  brown:  { tint: '#F5E9DA', soft: '#E8CBAA', main: '#C98B52', ink: '#7A4D28' },
-  gray:   { tint: '#F0EFEC', soft: '#DDD9D3', main: '#8D8780', ink: '#4D4843' },
+  red:    { tint: '#FCEBE9', soft: '#FFCBC5', main: '#CA6862', ink: '#7F3B37' },
+  rose:   { tint: '#FBEAEE', soft: '#FCC9D6', main: '#CC6C89', ink: '#7C3A4E' },
+  orange: { tint: '#FAECE4', soft: '#FACFB5', main: '#D87E42', ink: '#844A23' },
+  amber:  { tint: '#F7EDE2', soft: '#F2D3AE', main: '#ECA84A', ink: '#7B510D' },
+  yellow: { tint: '#F3EFE1', soft: '#E5D9AD', main: '#E6C959', ink: '#6C5904' },
+  lime:   { tint: '#ECF2E4', soft: '#D0E1B6', main: '#A4C661', ink: '#4F6422' },
+  green:  { tint: '#E7F3E9', soft: '#BEE5C5', main: '#53A768', ink: '#246135' },
+  mint:   { tint: '#E4F3ED', soft: '#B3E6D2', main: '#37B78F', ink: '#006249' },
+  teal:   { tint: '#E2F4F1', soft: '#ACE7E0', main: '#0CABA2', ink: '#05605A' },
+  cyan:   { tint: '#E2F3F7', soft: '#ACE4F2', main: '#06B1CE', ink: '#025D6D' },
+  blue:   { tint: '#E7F0FC', soft: '#C1DCFE', main: '#4982C9', ink: '#2B5386' },
+  indigo: { tint: '#EBEFFC', soft: '#CED7FE', main: '#6170C0', ink: '#434D87' },
+  purple: { tint: '#F0EDFB', soft: '#DDD1FC', main: '#8A6EC1', ink: '#594680' },
+  violet: { tint: '#F5EBF7', soft: '#EBCDF2', main: '#AA6FB8', ink: '#694073' },
+  brown:  { tint: '#F8EEE7', soft: '#E3CCBB', main: '#9F7655', ink: '#614731' },
+  gray:   { tint: '#EEF1EF', soft: '#D1D6D1', main: '#818882', ink: '#434A44' },
+} as const;
+
+// ── Overlay（浮在内容上面的 sheet / 提示条，iOS 18 雾面材质） ──
+export const OVERLAY = {
+  bg:        'rgba(250,251,249,.66)',
+  blur:      'blur(26px) saturate(175%)',
+  edge:      '1px solid rgba(255,255,255,.78)',
+  hairline:  '0 -.5px 0 rgba(35,38,42,.14)',
+  grab:      'rgba(35,38,42,.22)',
+  well:      'rgba(118,124,140,.12)',   // 浮层里的凹槽底色
+  toastBg:   'rgba(232,235,230,.80)',
+  toastEdge: '1px solid rgba(35,38,42,.14)',
+  scrim:     'transparent',             // 玻璃自己分层；真正要打断用户的确认框才压暗
+  scrimModal:'rgba(35,38,42,.22)',
 } as const;
 
 // ── Motion ──
 export const MOTION = {
   tap: '100ms', hover: '140ms', card: '180ms', sheet: '240ms', page: '280ms',
-  ease: 'cubic-bezier(.2,.8,.2,1)',
+  ease: 'cubic-bezier(.2,.8,.2,1)',          // 出场：列表升起、圆环画出
+  easeSheet: 'cubic-bezier(.32,.72,0,1)',    // 浮层、切换 bar 白块：一下出去，慢慢停，不回弹
+  easePop: 'cubic-bezier(.34,1.36,.64,1)',   // 提示条、选中日：全系统只有这两处允许「弹」
+  sheetIn: '460ms', toastIn: '560ms', toastOut: '380ms',
 } as const;
 
 // ── Helpers ──
-export const pressStyle = { transform: 'translateY(1px)', boxShadow: '0 1px 3px rgba(70,66,58,.12)' };
+// 没有阴影可减了：按压 = 轻微缩小（卡片 .985、按钮 .95），裸 icon 用透明度 .4。
+export const pressStyle = { transform: 'scale(.97)' };
+export const iconButtonBare = {
+  width: 44, height: 44, borderRadius: 999, background: 'transparent', border: 'none', boxShadow: 'none',
+} as const;

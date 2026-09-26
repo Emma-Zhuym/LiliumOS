@@ -173,6 +173,16 @@ check "七夕四次调用文案" components/ValentineEvent.tsx "[EM: qixi-api-ca
 check "七夕专用召回上限" utils/memoryPalace/pipeline.ts "[EM: qixi-recall-cap]"
 check "七夕聊天上下文" utils/chatPrompts.ts "formatQixiEventCardForContext"
 
+echo "── 换皮 F（全平 / 雾面浮层 / 衬线标题）──"
+check "token 全平" utils/clayTokens.ts "raisedSoft:   'none'"
+check "token 雾面浮层" utils/clayTokens.ts "export const OVERLAY"
+check "动效样式随 token 引入" utils/clayTokens.ts "import './clayMotion.css';"
+check "动效关键帧" utils/clayMotion.css "clay-sheet-in"
+check "提示条组件" components/os/ClayToast.tsx "OVERLAY.toastBg"
+check "PhoneShell 提示条补丁" components/PhoneShell.tsx "[EM: skin-f-toast]"
+check "标题衬线字体加载" index.html "Noto+Serif+SC"
+check "雾面 sheet" components/os/ClayDialog.tsx "OVERLAY.blur"
+
 echo ""
 if [ $FAIL -gt 0 ]; then
     echo "🔴 $FAIL 项缺失（$PASS 项通过）——EM 功能被 merge 冲掉了，对照 .claude/CLAUDE.md 补回来"

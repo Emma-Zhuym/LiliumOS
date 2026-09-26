@@ -21,7 +21,7 @@ import {
   X,
 } from '@phosphor-icons/react';
 import { useOS } from '../context/OSContext';
-import { F, HUE, MOTION, R, S, SP, STATUS } from '../utils/clayTokens';
+import { F, FONT, HUE, MOTION, OVERLAY, R, S, SP, STATUS } from '../utils/clayTokens';
 import {
   loadDemoSmartHomeDevices,
   saveDemoSmartHomeDevices,
@@ -55,15 +55,14 @@ const IconButton: React.FC<{
     aria-label={label}
     title={label}
     onClick={onClick}
-    className="flex shrink-0 items-center justify-center active:translate-y-[1px] transition-transform"
+    className="flex shrink-0 items-center justify-center active:opacity-40 transition-opacity"
     style={{
       width: 44,
       height: 44,
       borderRadius: R.pill,
-      background: F.surfaceRaised,
-      border: `1px solid ${F.borderSoft}`,
-      boxShadow: S.raisedSoft,
-      transitionDuration: MOTION.tap,
+      background: 'transparent',
+      border: 'none',
+      boxShadow: 'none',
     }}
   >
     {children}
@@ -72,7 +71,7 @@ const IconButton: React.FC<{
 
 const BackButton: React.FC<{ onClick: () => void }> = ({ onClick }) => (
   <IconButton onClick={onClick} label="返回">
-    <CaretLeft size={20} weight="bold" style={{ color: F.textSecondary }} />
+    <CaretLeft size={22} weight="bold" style={{ color: F.textPrimary }} />
   </IconButton>
 );
 
@@ -85,8 +84,8 @@ const TopBar: React.FC<{
     <div className="relative flex items-center px-5 py-3">
       <BackButton onClick={onBack} />
       <span
-        className="pointer-events-none absolute left-0 right-0 flex justify-center text-[16px] font-semibold"
-        style={{ color: F.textPrimary }}
+        className="pointer-events-none absolute left-0 right-0 flex justify-center"
+        style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: F.textPrimary }}
       >
         {title}
       </span>
@@ -598,30 +597,30 @@ const ControlSheet: React.FC<{
   };
 
   return (
-    <div className="absolute inset-0 flex items-end" style={{ background: 'rgba(46,42,40,.35)' }} onClick={onClose}>
+    <div className="absolute inset-0 flex items-end" style={{ background: OVERLAY.scrim }} onClick={onClose}>
       <div
-        className="w-full animate-slide-up"
+        className="w-full clay-sheet-in"
         style={{
           padding: `${SP[2]}px ${SP[4]}px calc(var(--safe-bottom) + ${SP[4]}px)`,
           maxHeight: 'calc(100% - var(--chrome-top))',
           overflowY: 'auto',
           borderRadius: `${R.sheet}px ${R.sheet}px 0 0`,
-          background: F.surface,
-          boxShadow: S.floating,
+          background: OVERLAY.bg, backdropFilter: OVERLAY.blur, WebkitBackdropFilter: OVERLAY.blur,
+          borderTop: OVERLAY.edge, boxShadow: OVERLAY.hairline,
         }}
         onClick={event => event.stopPropagation()}
       >
-        <div className="mx-auto mb-3" style={{ width: 36, height: 4, borderRadius: R.pill, background: F.borderStrong }} />
+        <div className="mx-auto mb-3" style={{ width: 36, height: 4, borderRadius: R.pill, background: OVERLAY.grab }} />
         <div className="flex items-center gap-3">
           <span className="flex items-center justify-center" style={{ width: 44, height: 44, borderRadius: R.small, background: PRODUCT.main }}>
             <DeviceIcon device={device} />
           </span>
           <div className="min-w-0 flex-1">
-            <h2 className="truncate text-[18px] font-semibold" style={{ color: F.textPrimary }}>{device.name}</h2>
+            <h2 className="truncate" style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: F.textPrimary }}>{device.name}</h2>
             <p className="text-[13px]" style={{ color: F.textTertiary }}>{deviceSummary(device)}</p>
           </div>
           <IconButton onClick={onClose} label="关闭">
-            <X size={20} weight="bold" style={{ color: F.textSecondary }} />
+            <X size={21} weight="bold" style={{ color: F.textPrimary }} />
           </IconButton>
         </div>
 
@@ -797,23 +796,23 @@ const AddSheet: React.FC<{
 }> = ({ target, connected, loading, onClose, onAction }) => {
   const isDevices = target === 'devices';
   return (
-    <div className="absolute inset-0 flex items-end" style={{ background: 'rgba(46,42,40,.35)' }} onClick={onClose}>
+    <div className="absolute inset-0 flex items-end" style={{ background: OVERLAY.scrim }} onClick={onClose}>
       <div
-        className="w-full animate-slide-up"
-        style={{ padding: `${SP[2]}px ${SP[4]}px calc(var(--safe-bottom) + ${SP[4]}px)`, borderRadius: `${R.sheet}px ${R.sheet}px 0 0`, background: F.surface, boxShadow: S.floating }}
+        className="w-full clay-sheet-in"
+        style={{ padding: `${SP[2]}px ${SP[4]}px calc(var(--safe-bottom) + ${SP[4]}px)`, borderRadius: `${R.sheet}px ${R.sheet}px 0 0`, background: OVERLAY.bg, backdropFilter: OVERLAY.blur, WebkitBackdropFilter: OVERLAY.blur, borderTop: OVERLAY.edge, boxShadow: OVERLAY.hairline }}
         onClick={event => event.stopPropagation()}
       >
-        <div className="mx-auto mb-3" style={{ width: 36, height: 4, borderRadius: R.pill, background: F.borderStrong }} />
+        <div className="mx-auto mb-3" style={{ width: 36, height: 4, borderRadius: R.pill, background: OVERLAY.grab }} />
         <div className="flex items-center gap-3">
           <span className="flex items-center justify-center" style={{ width: 44, height: 44, borderRadius: R.small, background: PRODUCT.main }}>
             {isDevices ? <Lamp size={22} weight="bold" color={F.surfaceRaised} /> : <Sparkle size={22} weight="bold" color={F.surfaceRaised} />}
           </span>
           <div className="min-w-0 flex-1">
-            <h2 className="text-[18px] font-semibold">添加{isDevices ? '设备' : '场景'}</h2>
+            <h2 style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: F.textPrimary }}>添加{isDevices ? '设备' : '场景'}</h2>
             <p className="mt-1 text-[13px]" style={{ color: F.textTertiary }}>由 Home Assistant 统一管理</p>
           </div>
           <IconButton onClick={onClose} label="关闭">
-            <X size={20} weight="bold" style={{ color: F.textSecondary }} />
+            <X size={21} weight="bold" style={{ color: F.textPrimary }} />
           </IconButton>
         </div>
         <p className="mt-5 text-[14px] leading-6" style={{ color: F.textSecondary }}>
@@ -1130,10 +1129,10 @@ const SmartHomeApp: React.FC = () => {
         action={(
           <>
             <IconButton onClick={() => setAddTarget(tab)} label={tab === 'devices' ? '添加设备' : '添加场景'}>
-              <Plus size={20} weight="bold" style={{ color: PRODUCT.ink }} />
+              <Plus size={21} weight="bold" style={{ color: F.textPrimary }} />
             </IconButton>
             <IconButton onClick={() => { setDraft(config); setMessage(null); setScreen('settings'); }} label="连接设置">
-              <Gear size={20} weight="bold" style={{ color: F.textSecondary }} />
+              <Gear size={21} weight="bold" style={{ color: F.textPrimary }} />
             </IconButton>
           </>
         )}
@@ -1167,7 +1166,7 @@ const SmartHomeApp: React.FC = () => {
                 type="button"
                 onClick={() => void refresh(config)}
                 className="flex items-center justify-center gap-2 whitespace-nowrap text-[13px] font-semibold active:translate-y-[1px]"
-                style={{ height: 44, borderRadius: R.button, background: F.surfaceRaised, color: PRODUCT.ink, boxShadow: S.raisedSoft }}
+                style={{ height: 44, borderRadius: R.button, background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, color: PRODUCT.ink, boxShadow: S.raisedSoft }}
               >
                 <ArrowsClockwise size={18} weight="bold" />
                 刷新状态
@@ -1238,7 +1237,7 @@ const SmartHomeApp: React.FC = () => {
       </div>
 
       <div className="pointer-events-none absolute bottom-0 left-0 right-0 flex justify-center px-5" style={{ paddingBottom: `calc(var(--safe-bottom) + ${SP[2]}px)` }}>
-        <div className="pointer-events-auto flex" style={{ width: '100%', maxWidth: 320, padding: SP[0], gap: SP[0], borderRadius: R.panel, background: F.surface, boxShadow: S.raisedMedium }}>
+        <div className="pointer-events-auto flex" style={{ width: '100%', maxWidth: 320, padding: SP[0], gap: SP[0], borderRadius: R.panel, background: F.surface, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedMedium }}>
           {([
             { id: 'devices' as const, label: '设备', icon: Lamp },
             { id: 'scenes' as const, label: '场景', icon: Sparkle },

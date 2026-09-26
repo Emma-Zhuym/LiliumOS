@@ -20,7 +20,7 @@ import { useOS } from '../context/OSContext';
 import { AppID, CharacterProfile, DailySchedule, ScheduleSlot } from '../types';
 import { DB } from '../utils/db';
 import { computeCharStatus, getSlotAvailability, CharAvailability } from '../utils/charStatus';
-import { F, S, R, HUE, STATUS } from '../utils/clayTokens';
+import { F, FONT, OVERLAY, S, R, HUE, STATUS } from '../utils/clayTokens';
 import { safeFetchJson, extractContent, extractJson } from '../utils/safeApi';
 import { MapWorld, MapRegion, MapDB, matchRegionForSlot } from '../utils/mapWorlds';
 import {
@@ -51,7 +51,6 @@ const MAPX = {
   nowCardBorder: '#E4D6FB',              // 时间线"进行中"卡边
   handle: '#E0D8CE',                     // sheet 把手
   purpleShadow: 'rgba(94,60,184,.28)',   // 紫色投影（Ink 的 rgb）
-  sheetShadow: '0 -8px 30px rgba(70,66,58,.16)',
   dangerBorder: '#F3D3DB',
 };
 
@@ -130,9 +129,9 @@ const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '�
 const CircleBtn: React.FC<{ onClick: () => void; children: React.ReactNode; style?: React.CSSProperties }> =
   ({ onClick, children, style }) => (
     <button onClick={onClick}
-      className="flex items-center justify-center active:translate-y-[1px] transition-transform shrink-0"
-      style={{ width: 44, height: 44, borderRadius: R.pill, background: F.surfaceRaised,
-               border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft, ...style }}>
+      className="flex items-center justify-center active:opacity-40 transition-opacity shrink-0"
+      style={{ width: 44, height: 44, borderRadius: R.pill, background: 'transparent',
+               border: 'none', boxShadow: 'none', ...style }}>
       {children}
     </button>
   );
@@ -207,7 +206,7 @@ const MapWell: React.FC<{
         position: 'relative',
         background: MAPX.well,
         backgroundImage: `repeating-linear-gradient(0deg,transparent 0 46px,${MAPX.grid} 46px 48px),repeating-linear-gradient(90deg,transparent 0 52px,${MAPX.grid} 52px 54px)`,
-        boxShadow: 'inset 2px 2px 6px rgba(70,66,58,.12), inset -2px -2px 6px rgba(255,255,255,.65)',
+        boxShadow: S.sunken,
         ...style,
       }}>
 
@@ -227,7 +226,7 @@ const MapWell: React.FC<{
           </div>
           <div className="absolute inline-flex items-center" style={{ right: 14, top: 14, zIndex: 4, height: 30, padding: '0 12px',
             borderRadius: R.pill, background: F.surface, fontSize: 12, fontWeight: 600, color: P.ink,
-            boxShadow: '0 2px 6px rgba(70,66,58,.08)' }}>
+            border: `1px solid ${F.borderSoft}` }}>
             虚拟城市
           </div>
         </>
@@ -236,7 +235,7 @@ const MapWell: React.FC<{
       {/* 定位模式提示 */}
       {placingRegionId && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none" style={{ zIndex: 30 }}>
-          <div className="animate-pulse" style={{ background: P.main, color: '#fff', fontSize: 12, fontWeight: 700,
+          <div className="animate-pulse" style={{ background: P.main, color: F.surfaceRaised, fontSize: 12, fontWeight: 700,
             padding: '6px 14px', borderRadius: R.pill, boxShadow: `0 4px 10px ${MAPX.purpleShadow}` }}>
             点击地图放置位置
           </div>
@@ -252,10 +251,10 @@ const MapWell: React.FC<{
             style={{ left: `${r.x}%`, top: `${r.y}%`, gap: 5, zIndex: isHi ? 20 : 2 }}
             onClick={(e) => { if (onTapRegion && !placingRegionId) { e.stopPropagation(); onTapRegion(r.id); } }}>
             <span style={{ width: 15, height: 15, borderRadius: '50%', background: F.surface,
-              border: `3px solid ${P.main}`, boxShadow: `0 2px 6px ${MAPX.purpleShadow}`,
+              border: `3px solid ${P.main}`, boxShadow: S.raisedSoft,
               outline: isHi ? `3px solid ${P.soft}` : undefined }} />
             <span className="whitespace-nowrap" style={{ padding: '2px 9px', borderRadius: R.pill, background: F.surface,
-              fontSize: 11.5, fontWeight: 600, color: F.textPrimary, boxShadow: '0 2px 6px rgba(70,66,58,.1)' }}>
+              fontSize: 11.5, fontWeight: 600, color: F.textPrimary, border: `1px solid ${F.borderSoft}` }}>
               {r.name}
             </span>
           </div>
@@ -273,12 +272,12 @@ const MapWell: React.FC<{
           }}>
           <div className="flex items-center justify-center"
             style={{ width: 42, height: 42, borderRadius: '50%', border: `3px solid ${F.surface}`,
-                     background: HUE.teal.main, boxShadow: `0 5px 13px rgba(33,135,121,.28)` }}>
+                     background: HUE.teal.main, boxShadow: S.raisedSoft }}>
             <NavigationArrow size={20} weight="fill" style={{ color: F.surface }} />
           </div>
           <span className="whitespace-nowrap" style={{ padding: '3px 10px', borderRadius: R.pill, background: F.surface,
             fontSize: 11.5, fontWeight: 700, color: userRegion ? HUE.teal.ink : F.textSecondary,
-            boxShadow: '0 3px 10px rgba(70,66,58,.14)' }}>
+            border: `1px solid ${F.borderSoft}` }}>
             {userRegion ? `你 · ${userRegion.name}` : userOutsideLabel}
           </span>
         </div>
@@ -300,7 +299,7 @@ const MapWell: React.FC<{
               borderLeft: '7px solid transparent', borderRight: '7px solid transparent', borderTop: `10px solid ${P.main}` }} />
           </div>
           <span className="whitespace-nowrap" style={{ padding: '3px 11px', borderRadius: R.pill, background: F.surface,
-            fontSize: 12, fontWeight: 700, color: charRegion ? F.textPrimary : F.textSecondary, boxShadow: '0 3px 10px rgba(70,66,58,.14)' }}>
+            fontSize: 12, fontWeight: 700, color: charRegion ? F.textPrimary : F.textSecondary, border: `1px solid ${F.borderSoft}` }}>
             {charRegion ? charRegion.name : atHome ? '在家休息 🌙' : `在外面 · ${outsideLocation}`}
           </span>
         </div>
@@ -345,7 +344,8 @@ const ScheduleSheet: React.FC<{
         left: 0, right: 0, bottom: 0, zIndex: 6,
         height: 'calc(100% - var(--chrome-top) - 72px)',
         borderRadius: `${R.sheet}px ${R.sheet}px 0 0`,
-        background: F.surface, border: `1px solid ${F.borderSoft}`, boxShadow: MAPX.sheetShadow,
+        background: OVERLAY.bg, backdropFilter: OVERLAY.blur, WebkitBackdropFilter: OVERLAY.blur,
+        borderTop: OVERLAY.edge, boxShadow: OVERLAY.hairline, // [EM: skin-f] 地图面板 = Apple 地图式雾面
         transform: expanded ? 'translateY(0)' : `translateY(calc(100% - ${SHEET_PEEK}px))`,
         transition: 'transform .36s cubic-bezier(.2,.8,.2,1)',
       }}>
@@ -381,7 +381,7 @@ const ScheduleSheet: React.FC<{
           className="w-full flex items-center justify-center active:translate-y-[1px] transition-transform"
           style={{ marginTop: 14, height: 48, border: 'none', borderRadius: R.button, gap: 8,
                    background: F.textPrimary, color: F.surface, fontSize: 15, fontWeight: 600,
-                   boxShadow: '0 2px 6px rgba(70,66,58,.12), 0 8px 18px rgba(70,66,58,.16)' }}>
+                   boxShadow: S.raisedSoft }}>
           <ChatTeardrop size={17} weight="bold" />去找 TA
         </button>
       </div>
@@ -421,7 +421,7 @@ const ScheduleSheet: React.FC<{
               {/* 左侧竖轴：状态色圆点 + 虚线 */}
               <div className="flex flex-col items-center shrink-0" style={{ width: 14, paddingTop: 8 }}>
                 <span className="shrink-0" style={{ width: 13, height: 13, borderRadius: '50%', background: m.main,
-                  boxShadow: `0 0 0 4px ${F.surface}, 0 1px 3px rgba(70,66,58,.2)` }} />
+                  boxShadow: `0 0 0 4px ${F.surface}` }} />
                 {i < slots.length - 1 && (
                   <span className="flex-1" style={{ width: 0, minHeight: 20, borderLeft: `2px dashed ${F.borderStrong}`, marginTop: 4 }} />
                 )}
@@ -433,7 +433,7 @@ const ScheduleSheet: React.FC<{
                          background: isNow ? MAPX.nowCardBg : F.surface,
                          border: `1px solid ${isNow ? MAPX.nowCardBorder : F.borderSoft}`,
                          borderLeft: isNow ? `4px solid ${P.main}` : `1px solid ${F.borderSoft}`,
-                         boxShadow: '0 2px 6px rgba(70,66,58,.05)',
+                         boxShadow: S.raisedSoft,
                          cursor: hasMono ? 'pointer' : 'default' }}>
                 <div className="flex items-center justify-between" style={{ gap: 8 }}>
                   <span style={{ fontSize: 13, fontWeight: 600, color: P.ink, letterSpacing: '.01em' }}>
@@ -461,7 +461,7 @@ const ScheduleSheet: React.FC<{
                 {hasMono && isOpen && (
                   <div className="relative" style={{ marginTop: 12, borderRadius: R.medium, padding: '13px 14px 13px 30px',
                     background: F.surfaceSunken, boxShadow: S.sunken }}>
-                    <span className="absolute" style={{ left: 11, top: 7, fontSize: 26, lineHeight: 1, color: '#B7AFA4', fontFamily: 'Georgia,serif' }}>“</span>
+                    <span className="absolute" style={{ left: 11, top: 7, fontSize: 26, lineHeight: 1, color: F.borderStrong, fontFamily: 'Georgia,serif' }}>“</span>
                     <span style={{ fontSize: 13.5, fontStyle: 'italic', lineHeight: 1.65, color: F.textSecondary }}>
                       {slot.innerThought}
                     </span>
@@ -521,9 +521,9 @@ const MapScreen: React.FC<{
       {/* 浮动导航 */}
       <div className="absolute left-0 right-0" style={{ top: 0, zIndex: 9, paddingTop: 'var(--chrome-top)' }}>
         <div className="flex items-center justify-between" style={{ padding: '8px 18px' }}>
-          <CircleBtn onClick={onBack}><CaretLeft size={20} weight="bold" style={{ color: F.textSecondary }} /></CircleBtn>
+          <CircleBtn onClick={onBack}><CaretLeft size={22} weight="bold" style={{ color: F.textPrimary }} /></CircleBtn>
           <div style={{ fontSize: 16, fontWeight: 600, color: F.textPrimary }}>{worldTitle(world, char)}</div>
-          <CircleBtn onClick={onEdit}><GearSix size={20} weight="bold" style={{ color: F.textSecondary }} /></CircleBtn>
+          <CircleBtn onClick={onEdit}><GearSix size={21} weight="bold" style={{ color: F.textPrimary }} /></CircleBtn>
         </div>
       </div>
 
@@ -750,9 +750,9 @@ const WorldEditor: React.FC<{
       {/* 顶栏（§0.2）：返回 + 居中标题 + 保存 */}
       <div className="shrink-0" style={{ paddingTop: 'var(--chrome-top)' }}>
         <div className="relative flex items-center" style={{ padding: '12px 18px' }}>
-          <CircleBtn onClick={onBack}><CaretLeft size={20} weight="bold" style={{ color: F.textSecondary }} /></CircleBtn>
+          <CircleBtn onClick={onBack}><CaretLeft size={22} weight="bold" style={{ color: F.textPrimary }} /></CircleBtn>
           <span className="absolute left-0 right-0 flex justify-center pointer-events-none"
-            style={{ fontSize: 16, fontWeight: 600, color: F.textPrimary }}>
+            style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: F.textPrimary }}>
             {isNew ? '创建世界' : '编辑世界'}
           </span>
           <button onClick={() => onSave(w)}
@@ -921,7 +921,7 @@ const WorldEditor: React.FC<{
                       <button onClick={() => removeRegion(r.id)}
                         className="inline-flex items-center active:translate-y-[1px] transition-transform"
                         style={{ height: 28, padding: '0 13px', border: 'none', borderRadius: R.pill,
-                                 background: '#FFE6EA', fontSize: 12, fontWeight: 600, color: '#8F2443' }}>
+                                 background: STATUS.danger.tint, fontSize: 12, fontWeight: 600, color: STATUS.danger.ink }}>
                         删除
                       </button>
                     )}
@@ -1031,7 +1031,7 @@ const WorldEditor: React.FC<{
           <button onClick={onDelete}
             className="w-full active:translate-y-[1px] transition-transform"
             style={{ marginTop: 16, height: 50, border: `1px solid ${MAPX.dangerBorder}`, borderRadius: R.smallCard,
-                     background: '#FFE6EA', color: '#8F2443', fontSize: 14, fontWeight: 700 }}>
+                     background: STATUS.danger.tint, color: STATUS.danger.ink, fontSize: 14, fontWeight: 700 }}>
             删除这个世界
           </button>
         )}
@@ -1060,7 +1060,7 @@ const Shelf: React.FC<{
     <div className="flex flex-col h-full" style={{ background: F.appBg }}>
       <div className="shrink-0" style={{ paddingTop: 'var(--chrome-top)' }}>
         <div className="flex items-center" style={{ padding: '12px 20px 0' }}>
-          <CircleBtn onClick={() => closeApp()}><CaretLeft size={20} weight="bold" style={{ color: F.textSecondary }} /></CircleBtn>
+          <CircleBtn onClick={() => closeApp()}><CaretLeft size={22} weight="bold" style={{ color: F.textPrimary }} /></CircleBtn>
         </div>
       </div>
 
@@ -1121,7 +1121,7 @@ const Shelf: React.FC<{
               </div>
               <div className="flex items-center justify-center shrink-0"
                 style={{ width: 42, height: 42, borderRadius: '50%', background: F.textPrimary,
-                         boxShadow: '0 2px 6px rgba(70,66,58,.12), 0 8px 18px rgba(70,66,58,.16)' }}>
+                         boxShadow: S.raisedSoft }}>
                 <ArrowRight size={18} weight="bold" style={{ color: F.surface }} />
               </div>
             </div>
@@ -1275,9 +1275,9 @@ const MyLocationScreen: React.FC<{ onBack: () => void }> = ({ onBack }) => {
     <div className="flex flex-col h-full" style={{ background: F.appBg }}>
       <div className="shrink-0" style={{ paddingTop: 'var(--chrome-top)' }}>
         <div className="relative flex items-center px-5 py-3">
-          <CircleBtn onClick={onBack}><CaretLeft size={20} weight="bold" style={{ color: F.textSecondary }} /></CircleBtn>
-          <span className="absolute left-0 right-0 flex justify-center text-[16px] font-semibold pointer-events-none"
-            style={{ color: F.textPrimary }}>我的位置</span>
+          <CircleBtn onClick={onBack}><CaretLeft size={22} weight="bold" style={{ color: F.textPrimary }} /></CircleBtn>
+          <span className="absolute left-0 right-0 flex justify-center pointer-events-none"
+            style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: F.textPrimary }}>我的位置</span>
           <div className="ml-auto">
             <CircleBtn onClick={() => {
               if (!adding) selectKind(kind);

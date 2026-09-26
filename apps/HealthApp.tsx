@@ -8,7 +8,7 @@ import {
   saveHealthEvent, deleteHealthEvent, getAllHealthEvents, buildEventMap,
 } from '../utils/healthDb';
 import { calcCycleStatus } from '../utils/cycleCalc';
-import { F, S, R, HUE, STATUS, MOTION } from '../utils/clayTokens';
+import { F, FONT, OVERLAY, S, R, HUE, STATUS, MOTION } from '../utils/clayTokens';
 import { HealthProfile, FitnessGoal, getHealthProfile, saveHealthProfile, calcBMR, calcTDEE, recommendCalories, calcDeficit } from '../utils/healthProfile';
 import { safeFetchJson, extractJson, extractContent } from '../utils/safeApi';
 import { readLiliumOSStorage, writeLiliumOSStorage } from '../utils/liliumosStorage';
@@ -62,7 +62,7 @@ type TopTab = 'calendar' | 'today';
 const CAT_COLORS = {
   workout: { bg: HUE.green.tint, fg: HUE.green.ink,   active: HUE.green.main,  border: HUE.green.tint,  shadow: HUE.green.ink },
   sleep:   { bg: HUE.blue.tint,  fg: HUE.blue.ink,    active: HUE.blue.main,   border: HUE.blue.tint,   shadow: HUE.blue.ink },
-  diet:    { bg: HUE.amber.tint, fg: HUE.amber.ink,   active: HUE.amber.main,  border: HUE.amber.tint,  shadow: HUE.amber.ink },
+  diet:    { bg: HUE.orange.tint, fg: HUE.orange.ink,   active: HUE.orange.main,  border: HUE.orange.tint,  shadow: HUE.orange.ink },
   period:  { bg: HUE.rose.tint,  fg: HUE.rose.ink,    active: HUE.rose.main,   border: HUE.rose.tint,   shadow: HUE.rose.ink },
   symptom: { bg: HUE.purple.tint,fg: HUE.purple.ink,  active: HUE.purple.main, border: HUE.purple.tint, shadow: HUE.purple.ink },
 } as const;
@@ -770,7 +770,7 @@ const HealthApp: React.FC = () => {
     cardRose:   { background: HUE.rose.tint,   borderRadius: R.bigCard, boxShadow: S.raisedSoft, border: `1px solid ${F.borderSoft}`, borderLeft: `4px solid ${HUE.rose.main}` },
     cardViolet: { background: HUE.purple.tint,  borderRadius: R.bigCard, boxShadow: S.raisedSoft, border: `1px solid ${F.borderSoft}`, borderLeft: `4px solid ${HUE.purple.main}` },
     cardIndigo: { background: HUE.blue.tint,   borderRadius: R.bigCard, boxShadow: S.raisedSoft, border: `1px solid ${F.borderSoft}`, borderLeft: `4px solid ${HUE.blue.main}` },
-    cardAmber:  { background: HUE.amber.tint,  borderRadius: R.bigCard, boxShadow: S.raisedSoft, border: `1px solid ${F.borderSoft}`, borderLeft: `4px solid ${HUE.amber.main}` },
+    cardAmber:  { background: HUE.orange.tint,  borderRadius: R.bigCard, boxShadow: S.raisedSoft, border: `1px solid ${F.borderSoft}`, borderLeft: `4px solid ${HUE.orange.main}` },
     btnPrimary: { background: F.textPrimary, color: F.surfaceRaised, borderRadius: 999, boxShadow: S.raisedSoft, height: 32 },
     press:      'active:translate-y-[3px] transition-transform duration-150',
     pressSmall: 'active:translate-y-[2px] transition-transform duration-150',
@@ -780,7 +780,13 @@ const HealthApp: React.FC = () => {
   const ringArc = (r: number, pct: number) => {
     const c = 2 * Math.PI * r;
     const arc = c * Math.min(pct, 1);
-    return { strokeDasharray: `${arc.toFixed(1)} ${(c - arc).toFixed(1)}` };
+    // [EM: skin-f] 三环由外到内依次画出（clayMotion.css 的 clay-draw-dash）
+    const order = r >= 100 ? 0 : r >= 80 ? 1 : 2;
+    return {
+      strokeDasharray: `${arc.toFixed(1)} ${(c - arc).toFixed(1)}`,
+      className: 'clay-draw-dash',
+      style: { '--i': order } as React.CSSProperties,
+    };
   };
 
   // 溢出弧：沿弧线方向的渐变（SVG linearGradient 做不了环形渐变，用分段插值模拟）。
@@ -807,14 +813,14 @@ const HealthApp: React.FC = () => {
       <div className="py-3 flex items-center justify-between">
         <button onClick={closeApp}
           className={`w-11 h-11 flex items-center justify-center ${clay.pressSmall}`}
-          style={{ background: F.surfaceRaised, borderRadius: R.pill, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}>
-          <CaretLeft size={20} weight="bold" style={{ color: F.textSecondary }} />
+          style={{ background: 'transparent', borderRadius: R.pill, border: 'none', boxShadow: 'none' }}>
+          <CaretLeft size={22} weight="bold" style={{ color: F.textPrimary }} />
         </button>
 
         {topTab === 'calendar' && (
           <div className="relative">
             <div className="flex items-center gap-2 px-4 py-1.5"
-              style={{ background: F.surfaceRaised, borderRadius: R.pill, boxShadow: S.raisedSoft, width: 192 }}>
+              style={{ background: F.surfaceRaised, borderRadius: R.pill, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft, width: 192 }}>
               <button onClick={prevMonth} className={clay.pressSmall}>
                 <CaretLeft size={14} weight="bold" style={{ color: F.textTertiary }} />
               </button>
@@ -858,7 +864,7 @@ const HealthApp: React.FC = () => {
         {topTab === 'today' && (
           <div className="relative">
             <div className="flex items-center gap-2 px-4 py-1.5"
-              style={{ background: F.surfaceRaised, borderRadius: R.pill, boxShadow: S.raisedSoft, width: 192 }}>
+              style={{ background: F.surfaceRaised, borderRadius: R.pill, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft, width: 192 }}>
               <button onClick={() => setTodayViewOffset(o => o - 1)} className={clay.pressSmall}>
                 <CaretLeft size={14} weight="bold" style={{ color: F.textTertiary }} />
               </button>
@@ -908,27 +914,34 @@ const HealthApp: React.FC = () => {
 
         <button onClick={openProfileSetup}
           className={`w-11 h-11 flex items-center justify-center ${clay.pressSmall}`}
-          style={{ background: F.surfaceRaised, borderRadius: R.pill, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}>
-          <Gear size={16} weight="bold" style={{ color: F.textTertiary }} />
+          style={{ background: 'transparent', borderRadius: R.pill, border: 'none', boxShadow: 'none' }}>
+          <Gear size={21} weight="bold" style={{ color: F.textPrimary }} />
         </button>
       </div>
       </div>
 
       {/* ── Top tab bar (月历 / 今日) ── */}
-      <div className="shrink-0 mx-5 mb-2 flex p-1"
-        style={{ background: F.surfaceSunken, borderRadius: R.panel, boxShadow: S.sunken }}>
+      <div className="shrink-0 mx-5 mb-2 flex relative"
+        style={{ background: F.surfaceSunken, borderRadius: R.medium, boxShadow: S.sunken, padding: 2 }}>
+        {/* [EM: skin-f] 选中白块滑动，不跳 */}
+        <span aria-hidden className="absolute" style={{
+          top: 2, bottom: 2, left: 2, width: 'calc(50% - 2px)',
+          background: F.surfaceRaised, borderRadius: R.medium - 2,
+          transform: topTab === 'today' ? 'translateX(100%)' : 'none',
+          transition: `transform 340ms ${MOTION.easeSheet}`,
+        }} />
         {([
           { id: 'calendar' as TopTab, label: '月历' },
           { id: 'today'    as TopTab, label: '今日' },
         ]).map(tab => (
           <button key={tab.id} onClick={() => { setTopTab(tab.id); setShowDatePicker(false); }}
-            className={`flex-1 py-2 text-[13px] ${clay.pressSmall}`}
+            className="relative flex-1 py-1.5 text-[13px] clay-press"
             style={{
-              borderRadius: R.large,
-              background: topTab === tab.id ? F.surfaceRaised : 'transparent',
+              borderRadius: R.medium - 2,
+              background: 'transparent',
               color: topTab === tab.id ? F.textPrimary : F.textTertiary,
               fontWeight: topTab === tab.id ? 600 : 400,
-              boxShadow: topTab === tab.id ? S.raisedSoft : 'none',
+              transition: `color 220ms ease`,
             }}>
             {tab.label}
           </button>
@@ -1013,7 +1026,7 @@ const HealthApp: React.FC = () => {
                       boxShadow: isSel
                         ? S.sunken
                         : 'none',
-                      border: isToday && !isSel ? `2px solid ${HUE.amber.ink}` : 'none',
+                      border: isToday && !isSel ? `1.5px solid ${F.accent}` : 'none',
                     }}>
                     <span style={{
                       fontSize: '16px', lineHeight: 1, marginBottom: 2,
@@ -1215,16 +1228,10 @@ const HealthApp: React.FC = () => {
             }} />
             {/* SVG data arcs */}
             <svg viewBox="0 0 248 248" width="248" height="248" className="absolute inset-0">
-              <defs>
-                <filter id="arcShadow" x="-20%" y="-20%" width="140%" height="140%">
-                  <feDropShadow dx="1" dy="2" stdDeviation="3" floodColor="rgba(70,66,58,0.18)" />
-                </filter>
-              </defs>
               {/* Sleep ring (outer, r=107): track → arc → overflow */}
               <circle cx="124" cy="124" r="107" fill="none" stroke={F.surfaceSunken} strokeWidth="20" />
               <circle cx="124" cy="124" r="107" fill="none"
                 stroke={CAT_COLORS.sleep.active} strokeWidth="16" strokeLinecap="round"
-                filter="url(#arcShadow)"
                 {...ringArc(107, todaySleep ? todaySleep.duration / sleepTarget : 0)}
                 transform="rotate(-90 124 124)" />
               {todaySleep && todaySleep.duration / sleepTarget > 1 &&
@@ -1234,7 +1241,6 @@ const HealthApp: React.FC = () => {
               <circle cx="124" cy="124" r="88" fill="none" stroke={F.surfaceSunken} strokeWidth="20" />
               <circle cx="124" cy="124" r="88" fill="none"
                 stroke={CAT_COLORS.workout.active} strokeWidth="16" strokeLinecap="round"
-                filter="url(#arcShadow)"
                 {...ringArc(88, hasExerciseData ? exerciseCal / workoutTarget : 0)}
                 transform="rotate(-90 124 124)" />
               {hasExerciseData && exerciseCal / workoutTarget > 1 &&
@@ -1247,21 +1253,18 @@ const HealthApp: React.FC = () => {
                   {dietProteinKcal > 0 && (
                     <circle cx="124" cy="124" r="69" fill="none"
                       stroke={MACRO_COLORS.protein} strokeWidth="16" strokeLinecap="round"
-                      filter="url(#arcShadow)"
                       {...ringArc(69, dietProteinKcal / calTarget)}
                       transform="rotate(-90 124 124)" />
                   )}
                   {dietCarbsKcal > 0 && (
                     <circle cx="124" cy="124" r="69" fill="none"
                       stroke={MACRO_COLORS.carbs} strokeWidth="16" strokeLinecap="round"
-                      filter="url(#arcShadow)"
                       {...ringArc(69, dietCarbsKcal / calTarget)}
                       transform={`rotate(${-90 + (dietProteinKcal / calTarget) * 360} 124 124)`} />
                   )}
                   {dietFatKcal > 0 && (
                     <circle cx="124" cy="124" r="69" fill="none"
                       stroke={MACRO_COLORS.fat} strokeWidth="16" strokeLinecap="round"
-                      filter="url(#arcShadow)"
                       {...ringArc(69, dietFatKcal / calTarget)}
                       transform={`rotate(${-90 + ((dietProteinKcal + dietCarbsKcal) / calTarget) * 360} 124 124)`} />
                   )}
@@ -1270,7 +1273,6 @@ const HealthApp: React.FC = () => {
                 <>
                   <circle cx="124" cy="124" r="69" fill="none"
                     stroke={CAT_COLORS.diet.active} strokeWidth="16" strokeLinecap="round"
-                    filter="url(#arcShadow)"
                     {...ringArc(69, todayDietTotal / calTarget)}
                     transform="rotate(-90 124 124)" />
                   {todayDietTotal / calTarget > 1 &&
@@ -1361,8 +1363,8 @@ const HealthApp: React.FC = () => {
               <span style={{ background: HUE.green.tint, borderRadius: R.pill, padding: '4px 10px', fontSize: '11px', color: CAT_COLORS.workout.fg, boxShadow: S.raisedSoft }}>
                 运动 <b style={{ color: HUE.green.ink }}>+{exerciseCal}</b>
               </span>
-              <span style={{ background: HUE.amber.tint, borderRadius: R.pill, padding: '4px 10px', fontSize: '11px', color: CAT_COLORS.diet.fg, boxShadow: S.raisedSoft }}>
-                摄入 <b style={{ color: HUE.amber.ink }}>-{todayDietTotal}</b>
+              <span style={{ background: HUE.orange.tint, borderRadius: R.pill, padding: '4px 10px', fontSize: '11px', color: CAT_COLORS.diet.fg, boxShadow: S.raisedSoft }}>
+                摄入 <b style={{ color: HUE.orange.ink }}>-{todayDietTotal}</b>
               </span>
             </div>
           )}
@@ -1389,10 +1391,10 @@ const HealthApp: React.FC = () => {
                   </p>
                 </button>
                 <button onClick={handleSyncExternalHealth} disabled={isSyncingExternalHealth}
-                  className={`w-9 h-9 flex items-center justify-center disabled:opacity-40 ${clay.pressSmall}`}
-                  style={{ background: F.surfaceRaised, borderRadius: R.pill, boxShadow: S.raisedSoft }}
+                  className="w-11 h-11 -mr-2 flex items-center justify-center disabled:opacity-40 active:opacity-40 transition-opacity"
+                  style={{ background: 'transparent', borderRadius: R.pill }}
                   aria-label="同步 Apple Health">
-                  <ArrowClockwise size={15} weight="bold" style={{ color: HUE.blue.main }}
+                  <ArrowClockwise size={19} weight="bold" style={{ color: HUE.blue.main }}
                     className={isSyncingExternalHealth ? 'animate-spin' : ''} />
                 </button>
               </div>
@@ -1402,17 +1404,17 @@ const HealthApp: React.FC = () => {
                   onClick={openExternalHealthDetails}
                   className={`w-full mt-3 ${clay.pressSmall}`}
                   aria-label={`查看全部 ${externalHealthMetricCount} 项 Apple Health 指标`}>
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-4">
                     {[
                       { label: '步数', value: viewedExternalHealth.stepsToday !== undefined ? Math.round(viewedExternalHealth.stepsToday).toLocaleString() : '—' },
                       { label: '活动', value: viewedExternalHealth.activeCaloriesToday !== undefined ? `${Math.round(viewedExternalHealth.activeCaloriesToday)}k` : '—' },
                       { label: '睡眠', value: viewedExternalHealth.sleepHoursLastNight !== undefined ? `${viewedExternalHealth.sleepHoursLastNight.toFixed(1)}h` : '—' },
                       { label: 'HRV', value: viewedExternalHealth.hrvMs !== undefined ? `${Math.round(viewedExternalHealth.hrvMs)}ms` : '—' },
-                    ].map(metric => (
-                      <div key={metric.label} className="text-center py-2"
-                        style={{ background: F.surfaceSunken, borderRadius: R.smallCard, boxShadow: S.sunken }}>
-                        <div style={{ fontSize: '12px', fontWeight: 700, color: F.textPrimary }}>{metric.value}</div>
-                        <div className="mt-0.5" style={{ fontSize: '9px', color: F.textTertiary }}>{metric.label}</div>
+                    ].map((metric, index) => (
+                      <div key={metric.label} className="text-center py-1"
+                        style={{ borderLeft: index > 0 ? `1px solid ${HUE.blue.soft}` : 'none' }}>
+                        <div style={{ fontSize: '14px', fontWeight: 700, color: HUE.blue.ink, fontVariantNumeric: 'tabular-nums' }}>{metric.value}</div>
+                        <div className="mt-0.5" style={{ fontSize: '9.5px', color: HUE.blue.ink, opacity: 0.62 }}>{metric.label}</div>
                       </div>
                     ))}
                   </div>
@@ -1615,8 +1617,8 @@ const HealthApp: React.FC = () => {
       {/* [EM-START: apple-health-detail-sheet] */}
       {showExternalHealthDetails && viewedExternalHealth && (
         <div
-          className="absolute inset-0 z-[60] flex items-end justify-center sm:items-center px-0 sm:px-5 backdrop-blur-sm"
-          style={{ background: `${F.textPrimary}26` }}
+          className="absolute inset-0 z-[60] flex items-end justify-center sm:items-center px-0 sm:px-5"
+          style={{ background: OVERLAY.scrim }}
           onClick={(event) => {
             if (event.target === event.currentTarget) setShowExternalHealthDetails(false);
           }}>
@@ -1624,14 +1626,13 @@ const HealthApp: React.FC = () => {
             role="dialog"
             aria-modal="true"
             aria-labelledby="apple-health-details-title"
-            className="w-full sm:max-w-md max-h-[88%] sm:max-h-[82%] flex flex-col overflow-hidden rounded-t-[var(--health-detail-radius)] sm:rounded-[var(--health-detail-radius)]"
+            className="clay-sheet-in w-full sm:max-w-md max-h-[88%] sm:max-h-[82%] flex flex-col overflow-hidden rounded-t-[var(--health-detail-radius)] sm:rounded-[var(--health-detail-radius)]"
             style={{
               '--health-detail-radius': `${R.sheet}px`,
-              background: F.appBg,
-              boxShadow: S.floating,
-              border: `1px solid ${F.borderSoft}`,
+              background: OVERLAY.bg, backdropFilter: OVERLAY.blur, WebkitBackdropFilter: OVERLAY.blur,
+              borderTop: OVERLAY.edge, boxShadow: OVERLAY.hairline,
             } as React.CSSProperties}>
-            <div className="shrink-0 px-5 pt-4 pb-3" style={{ background: F.appBg }}>
+            <div className="shrink-0 px-5 pt-4 pb-3">
               <div className="mx-auto mb-3 h-1 w-10 sm:hidden" style={{ background: F.borderStrong, borderRadius: R.pill }} />
               <div className="flex items-start gap-3">
                 <div className="flex-1 min-w-0">
@@ -1662,7 +1663,7 @@ const HealthApp: React.FC = () => {
                 <button
                   onClick={() => setShowExternalHealthDetails(false)}
                   className={`flex items-center justify-center ${clay.pressSmall}`}
-                  style={{ width: 44, height: 44, background: F.surfaceRaised, borderRadius: R.pill, boxShadow: S.raisedSoft, border: `1px solid ${F.borderSoft}` }}
+                  style={{ width: 44, height: 44, background: 'transparent', borderRadius: R.pill, boxShadow: 'none', border: 'none' }}
                   aria-label="关闭 Apple Health 详情">
                   <X size={20} weight="bold" style={{ color: F.textSecondary }} />
                 </button>
@@ -1751,18 +1752,20 @@ const HealthApp: React.FC = () => {
           Record Modal
       ════════════════════════════════════════════════════ */}
       {recordMode && (
-        <div className="absolute inset-0 bg-black/15 backdrop-blur-sm z-50 flex items-end"
+        <div className="absolute inset-0 z-50 flex items-end" style={{ background: OVERLAY.scrim }}
           onClick={(e) => { if (e.target === e.currentTarget) closeRecord(); }}>
-          <div className="w-full px-5 pt-2 flex flex-col"
+          {/* [EM: skin-f] 雾面 sheet，背后不压暗不模糊 */}
+          <div className="w-full px-5 pt-2 flex flex-col clay-sheet-in"
             style={{
               paddingBottom: 'calc(1.5rem + var(--safe-bottom))', /* [EM: safe-bottom] 原 pb-10 */
-              background: clay.bg, borderRadius: `${R.sheet}px ${R.sheet}px 0 0`,
-              boxShadow: S.floating,
+              background: OVERLAY.bg, backdropFilter: OVERLAY.blur, WebkitBackdropFilter: OVERLAY.blur,
+              borderTop: OVERLAY.edge, boxShadow: OVERLAY.hairline,
+              borderRadius: `${R.sheet}px ${R.sheet}px 0 0`,
               height: `${modalHeight}px`,
               transition: isDraggingModal ? 'none' : 'height 0.25s ease',
             }}>
 
-            {/* 拖拽把手 — 仅训练/饮食可拖高 */}
+            {/* 拖拽把手 — 五项都显示（标题位置才一致），仅训练/饮食可拖高 */}
             {(recordMode === 'workout' || recordMode === 'diet') ? (
               <div className="shrink-0 py-1.5 -mx-5 px-5 flex justify-center cursor-grab active:cursor-grabbing"
                 style={{ touchAction: 'none' }}
@@ -1786,17 +1789,19 @@ const HealthApp: React.FC = () => {
                   const { maxH } = modalDragRef.current;
                   setModalHeight(h => (h - MODAL_BASE_H < (maxH - MODAL_BASE_H) / 2 ? MODAL_BASE_H : maxH));
                 }}>
-                <div className="w-10 h-1 rounded-full" style={{ background: F.borderStrong }} />
+                <div className="w-9 h-1 rounded-full" style={{ background: OVERLAY.grab }} />
               </div>
             ) : (
-              <div className="shrink-0 h-3" />
+              <div className="shrink-0 py-1.5 flex justify-center">
+                <div className="w-9 h-1 rounded-full" style={{ background: OVERLAY.grab }} />
+              </div>
             )}
 
             <div className="flex items-center justify-between mb-4 shrink-0">
-            <span className="text-base font-bold" style={{ color: F.textPrimary }}>{editingId ? '编辑记录' : '新记录'}</span>
-              <button onClick={closeRecord} className={`w-7 h-7 flex items-center justify-center ${clay.pressSmall}`}
-                style={{ background: F.surfaceRaised, borderRadius: R.pill, boxShadow: S.raisedSoft }}>
-                <X size={14} style={{ color: F.textTertiary }} />
+            <span style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: F.textPrimary }}>{editingId ? '编辑记录' : '新记录'}</span>
+              <button onClick={closeRecord} aria-label="关闭" className="w-11 h-11 -mr-2.5 flex items-center justify-center active:opacity-40 transition-opacity"
+                style={{ background: 'transparent', borderRadius: R.pill }}>
+                <X size={21} weight="bold" style={{ color: F.textPrimary }} />
               </button>
             </div>
 
@@ -1976,11 +1981,11 @@ const HealthApp: React.FC = () => {
                       <button onClick={() => setShowCameraMenu(!showCameraMenu)}
                         className={`w-11 h-[42px] flex items-center justify-center ${clay.pressSmall}`}
                         style={{ background: CAT_COLORS.diet.bg, borderRadius: R.pill, boxShadow: S.raisedSoft }}>
-                        <Camera size={18} weight="bold" style={{ color: HUE.amber.ink }} />
+                        <Camera size={18} weight="bold" style={{ color: HUE.orange.ink }} />
                       </button>
                       {showCameraMenu && (
                         <div className="absolute bottom-full right-0 mb-2 py-1 w-32 z-10"
-                          style={{ background: F.surfaceRaised, borderRadius: R.bigCard, boxShadow: S.raisedSoft }}>
+                          style={{ background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, boxShadow: S.raisedSoft }}>
                           <label className="flex items-center gap-2 px-3 py-2.5 text-xs font-medium cursor-pointer" style={{ color: F.textPrimary }}>
                             拍照
                             <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleImageInput} />
@@ -2001,18 +2006,18 @@ const HealthApp: React.FC = () => {
                   {/* Macro panel — 常驻可手填，AI 估算后自动填充 */}
                   <div className="mt-3 p-3" style={clay.cardAmber}>
                     <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-bold" style={{ color: HUE.amber.ink }}>
+                      <span className="text-xs font-bold" style={{ color: HUE.orange.ink }}>
                         {dietParsed && !editingId ? '估算结果 · 可修改' : '营养数据（可手填）'}
                       </span>
                       {dietParsed && !editingId && (
-                        <button onClick={handleDietEstimate} className="text-[10px]" style={{ color: HUE.amber.main }}>重新估算</button>
+                        <button onClick={handleDietEstimate} className="text-[10px]" style={{ color: HUE.orange.main }}>重新估算</button>
                       )}
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       {([
-                        { label: '总热量', val: dietCalories, set: setDietCalories, unit: 'kcal', color: HUE.amber.ink },
+                        { label: '总热量', val: dietCalories, set: setDietCalories, unit: 'kcal', color: HUE.orange.ink },
                         { label: '蛋白质', val: dietProtein,  set: setDietProtein,  unit: 'g', color: HUE.teal.ink },
-                        { label: '碳水',   val: dietCarbs,    set: setDietCarbs,    unit: 'g', color: HUE.amber.main },
+                        { label: '碳水',   val: dietCarbs,    set: setDietCarbs,    unit: 'g', color: HUE.amber.ink },
                         { label: '脂肪',   val: dietFat,      set: setDietFat,      unit: 'g', color: STATUS.danger.main },
                       ] as const).map(f => (
                         <div key={f.label} className="flex items-baseline gap-1">
@@ -2122,12 +2127,12 @@ const HealthApp: React.FC = () => {
           Profile Setup Modal
       ════════════════════════════════════════════════════ */}
       {showProfileSetup && (
-        <div className="absolute inset-0 bg-black/15 backdrop-blur-sm z-50 flex items-center justify-center"
+        <div className="absolute inset-0 z-50 flex items-center justify-center" style={{ background: OVERLAY.scrimModal }}
           onClick={(e) => { if (e.target === e.currentTarget && profile) setShowProfileSetup(false); }}>
-          <div className="w-[85%] max-w-xs p-5 flex flex-col gap-3 max-h-[80vh] overflow-y-auto"
-            style={{ background: clay.bg, borderRadius: R.sheet, boxShadow: S.raisedSoft }}>
+          <div className="clay-fade-in w-[85%] max-w-xs p-5 flex flex-col gap-3 max-h-[80vh] overflow-y-auto"
+            style={{ background: OVERLAY.bg, backdropFilter: OVERLAY.blur, WebkitBackdropFilter: OVERLAY.blur, border: OVERLAY.edge, borderRadius: R.sheet }}>
 
-            <span className="text-base font-bold" style={{ color: F.textPrimary }}>健康档案</span>
+            <span style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: F.textPrimary }}>健康档案</span>
             <p className="text-[11px] -mt-1" style={{ color: F.textTertiary }}>用于计算基础代谢率(BMR)，数据仅存本地</p>
 
             <div className="flex gap-3">
@@ -2238,7 +2243,7 @@ const HealthApp: React.FC = () => {
 
             <button onClick={handleSyncExternalHealth} disabled={isSyncingExternalHealth}
               className={`w-full font-medium py-2.5 text-xs ${clay.pressSmall}`}
-              style={{ color: F.textSecondary, background: F.surfaceRaised, borderRadius: R.pill, boxShadow: S.raisedSoft }}>
+              style={{ color: F.textSecondary, background: F.surfaceRaised, borderRadius: R.pill, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}>
               {isSyncingExternalHealth ? '正在从 Home Assistant 同步…' : '同步 Apple Health 数据'}
             </button>
           </div>
