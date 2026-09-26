@@ -91,5 +91,18 @@ describe('自托管 xiaohongshu-mcp（mini）', () => {
         expect(again.data).toMatchObject({ loggedIn: true });
         expect(again.data.imageDataUrl).toBeUndefined();
     });
+
+    it('扫码那一趟服务器卡住：到点放弃并说人话，不让设置页一直转', async () => {
+        statelessServer();
+        const { XhsMcpClient } = await import('./xhsMcpClient');
+        await XhsMcpClient.ensureInitialized(SERVER);
+        // 之后的请求（要二维码）挂住不回，直到被 abort
+        vi.stubGlobal('fetch', vi.fn((_url: string, init: any) => new Promise((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+        })));
+        const result = await XhsMcpClient.getQrcode(SERVER, 20);
+        expect(result.success).toBe(false);
+        expect(result.error).toContain('再点一次');
+    });
 });
 // [EM-END: xhs-mini-mcp]

@@ -10647,14 +10647,14 @@ var mcpParseResponse = (text, contentType) => {
     throw new Error(`MCP: \u65E0\u6CD5\u89E3\u6790\u54CD\u5E94: ${text.slice(0, 300)}`);
   }
 };
-var mcpPost = async (serverUrl, body, expectResponse = true) => {
+var mcpPost = async (serverUrl, body, expectResponse = true, signal) => {
   const headers = withMcpAuth({
     // [EM: xhs-mini-mcp]
     "Content-Type": "application/json",
     "Accept": "application/json, text/event-stream"
   });
   if (mcpSessionId) headers["Mcp-Session-Id"] = mcpSessionId;
-  const resp = await fetch(serverUrl, { method: "POST", headers, body: JSON.stringify(body) });
+  const resp = await fetch(serverUrl, { method: "POST", headers, body: JSON.stringify(body), signal });
   const sessionId = resp.headers.get("Mcp-Session-Id") || resp.headers.get("mcp-session-id");
   if (resp.status === 202) return { response: null, sessionId };
   if (resp.status === 401) throw new Error(MCP_UNAUTHORIZED);
@@ -11051,20 +11051,23 @@ var XhsMcpClient = {
     if (detectMode(serverUrl) === "bridge") return bridgePost(serverUrl, "login");
     return { success: false, error: "\u767B\u5F55\u529F\u80FD\u4EC5\u5728 Skills (Bridge) \u6A21\u5F0F\u4E0B\u53EF\u7528" };
   },
-  getQrcode: async (serverUrl) => {
+  getQrcode: async (serverUrl, timeoutMs) => {
     if (detectMode(serverUrl) === "bridge") return bridgePost(serverUrl, "get-qrcode");
-    return mcpLoginQrcode(serverUrl);
+    return mcpLoginQrcode(serverUrl, timeoutMs);
   },
   logout: async (serverUrl) => {
     if (detectMode(serverUrl) === "bridge") return bridgePost(serverUrl, "delete-cookies");
     return { success: false, error: "\u767B\u51FA\u529F\u80FD\u4EC5\u5728 Skills (Bridge) \u6A21\u5F0F\u4E0B\u53EF\u7528" };
   }
 };
-var mcpLoginQrcode = async (serverUrl) => {
+var XHS_QRCODE_TIMEOUT_MS = 12e4;
+var mcpLoginQrcode = async (serverUrl, timeoutMs = XHS_QRCODE_TIMEOUT_MS) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     await mcpEnsureInitialized(serverUrl);
     const name = mcpDiscoveredTools.some((t) => t.name === "get_login_qrcode") ? "get_login_qrcode" : mcpResolveToolName("get_login_qrcode");
-    const { response } = await mcpPost(serverUrl, mcpBuildRequest("tools/call", { name, arguments: {} }));
+    const { response } = await mcpPost(serverUrl, mcpBuildRequest("tools/call", { name, arguments: {} }), true, controller.signal);
     if (response?.error) return { success: false, error: `MCP Error [${response.error.code}]: ${response.error.message}` };
     const content = Array.isArray(response?.result?.content) ? response.result.content : [];
     const message = content.filter((c) => c?.type === "text").map((c) => c.text).join("\n").trim();
@@ -11077,7 +11080,12 @@ var mcpLoginQrcode = async (serverUrl) => {
     };
     return { success: true, data };
   } catch (e) {
+    if (controller.signal.aborted) {
+      return { success: false, error: `\u670D\u52A1\u5668 ${Math.round(timeoutMs / 1e3)} \u79D2\u90FD\u6CA1\u628A\u4E8C\u7EF4\u7801\u62FF\u56DE\u6765\uFF08\u5B83\u5728\u6253\u5F00\u5C0F\u7EA2\u4E66\u767B\u5F55\u9875\uFF09\uFF0C\u518D\u70B9\u4E00\u6B21\u8BD5\u8BD5` };
+    }
     return { success: false, error: e.message };
+  } finally {
+    clearTimeout(timer);
   }
 };
 var extractNotesFromMcpData = (data) => {

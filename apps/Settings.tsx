@@ -687,7 +687,7 @@ const Settings: React.FC = () => {
   const xhsLocalAuthToken = () => (rtXhsMode === 'local' ? rtXhsAuthToken.trim() || undefined : undefined);
   const fetchXhsLoginQr = async () => {
       if (!rtXhsLocalUrl) { setRtXhsQr({ status: '请先填写服务器 URL' }); return; }
-      setRtXhsQr({ status: '正在向服务器要二维码…（它要先打开小红书登录页，可能要十几秒）' });
+      setRtXhsQr({ status: '正在向服务器要二维码…它要先打开小红书登录页，mini 在国外时一分钟左右很正常（最多等 2 分钟）' });
       XhsMcpClient.setAuthToken(rtXhsAuthToken);
       const result = await XhsMcpClient.getQrcode(rtXhsLocalUrl);
       if (!result.success) { setRtXhsQr({ status: `获取失败：${result.error}` }); return; }
