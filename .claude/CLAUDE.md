@@ -77,7 +77,7 @@ merge 时 `grep -rn "EM-START\|\[EM:" --include="*.ts" --include="*.tsx"` 就能
 ### merge 后必跑自检
 
 ```bash
-bash scripts/check-em-patches.sh   # 当前 118 项锚点检查，红了就是功能被冲掉
+bash scripts/check-em-patches.sh   # 当前 126 项锚点检查，红了就是功能被冲掉
 pnpm vitest run                    # 单元测试
 ```
 
@@ -245,6 +245,13 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - sheet 打开时自动聚焦必须 `focus({ preventScroll: true })`：sheet 从屏幕外滑入，普通 focus 会把整页外层滚上去（日历「记一件事」踩过）
 - 日历与健康是样板：以后其他 App 迁移照这两个改
 - `scripts/check-em-patches.sh` 的「换皮 F」一节有 8 个锚点
+
+### 28. 小红书 MCP 常驻 mini
+- `server/xhs-mcp/` — 上游 `xiaohongshu-mcp` 的 LaunchAgent 部署：只听 `127.0.0.1:18060`，用上游自带 `AUTH_TOKEN`（令牌文件 `agent-tools/secrets/xhs-mcp-token`），登录态由 `COOKIES_PATH` 存在私有目录；在 LiliumOS 设置里扫码登录，不再手抄 cookie
+- `scripts/home-assistant-proxy.mjs` — Funnel 网关多一条 `/xhs/*`（去前缀转发），**只放行** `/xhs/mcp` 与 `/xhs/health`，上游 `/api/v1/*` REST 不从公网开
+- `utils/xhsMcpClient.ts` — 请求带 Bearer（`xhsMcpConfig.authToken`）；新版上游是无状态服务器、不发 `Mcp-Session-Id`，握手后用 `tools/list` 验证即可，不得再一律报 CORS；`get_login_qrcode` 的图片内容转成 data URL 给设置页
+- `utils/amsgToolPack.ts` / `worker/amsg/src/index.ts` — 令牌随工具配置上云，worker 直连 Funnel 时同样带上；改完要重跑 `node scripts/build-workers.mjs`
+- 令牌和登录 cookie 不得进仓库、plist、日志、Engram 或备份；部署与排查见 `server/xhs-mcp/README.md`
 
 ## 合并时常见坑（踩过的 bug）
 

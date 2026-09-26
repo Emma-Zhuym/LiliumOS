@@ -53,6 +53,27 @@ const resolveLiteCookie = (): string => {
     return '';
 };
 
+// [EM-START: xhs-mini-mcp]
+// 自托管的 xiaohongshu-mcp（Mac mini + Tailscale Funnel）开了 AUTH_TOKEN，每个请求都要带
+// Authorization: Bearer。和 cookie 一样：设置页显式 set 的优先，否则直接读持久化配置，
+// 聊天、自由漫游这些调用点都不用改。
+let mcpAuthToken = '';
+const resolveMcpAuthToken = (): string => {
+    if (mcpAuthToken) return mcpAuthToken;
+    try {
+        const raw = localStorage.getItem('os_realtime_config');
+        if (raw) return JSON.parse(raw)?.xhsMcpConfig?.authToken || '';
+    } catch { /* ignore */ }
+    return '';
+};
+const withMcpAuth = (headers: Record<string, string>): Record<string, string> => {
+    const token = resolveMcpAuthToken().trim();
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return headers;
+};
+const MCP_UNAUTHORIZED = '小红书服务拒绝了访问令牌（HTTP 401）：检查设置里的「访问令牌」和 mini 上的是否一致';
+// [EM-END: xhs-mini-mcp]
+
 const resolvePersistedLitePlatform = (): XhsPlatform | 'auto' => {
     try {
         const raw = localStorage.getItem('os_realtime_config');
@@ -348,16 +369,17 @@ const mcpPost = async (
     body: McpJsonRpcRequest,
     expectResponse = true,
 ): Promise<{ response: McpJsonRpcResponse | null; sessionId: string | null }> => {
-    const headers: Record<string, string> = {
+    const headers: Record<string, string> = withMcpAuth({ // [EM: xhs-mini-mcp]
         'Content-Type': 'application/json',
         'Accept': 'application/json, text/event-stream',
-    };
+    });
     if (mcpSessionId) headers['Mcp-Session-Id'] = mcpSessionId;
 
     const resp = await fetch(serverUrl, { method: 'POST', headers, body: JSON.stringify(body) });
     const sessionId = resp.headers.get('Mcp-Session-Id') || resp.headers.get('mcp-session-id');
 
     if (resp.status === 202) return { response: null, sessionId };
+    if (resp.status === 401) throw new Error(MCP_UNAUTHORIZED); // [EM: xhs-mini-mcp]
     if (!resp.ok) {
         const errText = await resp.text().catch(() => '');
         throw new Error(`MCP HTTP ${resp.status}: ${errText.slice(0, 200)}`);
@@ -379,6 +401,24 @@ const mcpInitialize = async (serverUrl: string): Promise<void> => {
     if (sessionId) mcpSessionId = sessionId;
     if (response?.error) throw new Error(`MCP Initialize failed: ${response.error.message}`);
 
+    // [EM-START: xhs-mini-mcp]
+    // 新版 xiaohongshu-mcp 跑的是无状态模式（Stateless: true），压根不发 Mcp-Session-Id。
+    // 这时没有 session 也能用：握手成功就直接拿 tools/list 验一下，通了就是无状态服务器；
+    // 不通才是「有状态但响应头被 CORS 挡住」，照旧给代理的提示。
+    if (!mcpSessionId && response?.result) {
+        try {
+            const probe = await mcpPost(serverUrl, mcpBuildRequest('tools/list'));
+            if (probe.response?.result?.tools) {
+                mcpDiscoveredTools = probe.response.result.tools.map((t: any) => ({ name: t.name, description: t.description }));
+                mcpInitialized = true;
+                return;
+            }
+        } catch (e: any) {
+            if (e?.message === MCP_UNAUTHORIZED) throw e;
+            /* 落到下面的 CORS 提示 */
+        }
+    }
+    // [EM-END: xhs-mini-mcp]
     if (!mcpSessionId) {
         console.warn(
             '[MCP] ⚠️ 无法读取 Mcp-Session-Id 响应头（CORS 限制）。\n' +
@@ -433,13 +473,14 @@ const mcpCallTool = async (serverUrl: string, toolName: string, args: Record<str
         if (resolved !== toolName) console.log(`[MCP] 工具名映射: ${toolName} → ${resolved}`);
 
         const body = mcpBuildRequest('tools/call', { name: resolved, arguments: adapted });
-        const headers: Record<string, string> = {
+        const headers: Record<string, string> = withMcpAuth({ // [EM: xhs-mini-mcp]
             'Content-Type': 'application/json',
             'Accept': 'application/json, text/event-stream',
-        };
+        });
         if (mcpSessionId) headers['Mcp-Session-Id'] = mcpSessionId;
 
         const resp = await fetch(serverUrl, { method: 'POST', headers, body: JSON.stringify(body) });
+        if (resp.status === 401) return { success: false, error: MCP_UNAUTHORIZED }; // [EM: xhs-mini-mcp]
         if (!resp.ok) {
             const errText = await resp.text().catch(() => '');
             return { success: false, error: `MCP HTTP ${resp.status}: ${errText.slice(0, 200)}` };
@@ -572,6 +613,14 @@ export const XhsMcpClient = {
         mcpRequestIdCounter = 0;
         mcpDiscoveredTools = [];
     },
+
+    // [EM-START: xhs-mini-mcp] 自托管 MCP 的 Bearer 令牌；换了令牌就重新握手
+    setAuthToken: (token?: string) => {
+        const next = (token || '').trim();
+        if (next !== mcpAuthToken) XhsMcpClient.resetSession();
+        mcpAuthToken = next;
+    },
+    // [EM-END: xhs-mini-mcp]
 
     // Lite Worker auth: register the XHS cookie used for x-xhs-cookie header.
     setCookie: (cookie?: string) => {
@@ -811,7 +860,7 @@ export const XhsMcpClient = {
 
     getQrcode: async (serverUrl: string): Promise<McpToolResult> => {
         if (detectMode(serverUrl) === 'bridge') return bridgePost(serverUrl, 'get-qrcode');
-        return { success: false, error: '二维码功能仅在 Skills (Bridge) 模式下可用' };
+        return mcpLoginQrcode(serverUrl); // [EM: xhs-mini-mcp]
     },
 
     logout: async (serverUrl: string): Promise<McpToolResult> => {
@@ -819,6 +868,40 @@ export const XhsMcpClient = {
         return { success: false, error: '登出功能仅在 Skills (Bridge) 模式下可用' };
     },
 };
+
+// [EM-START: xhs-mini-mcp]
+/**
+ * 服务器上那个浏览器的扫码登录：get_login_qrcode 回的是一段文字 + 一张 PNG（MCP image content）。
+ * mcpCallTool 只取文字，所以单独走一趟把图拿出来，给设置页直接显示。
+ * 已经登录时服务器只回一句「你当前已处于登录状态」，没有图。
+ */
+export interface XhsLoginQrcode {
+    loggedIn: boolean;
+    message: string;
+    imageDataUrl?: string;
+}
+
+const mcpLoginQrcode = async (serverUrl: string): Promise<McpToolResult> => {
+    try {
+        await mcpEnsureInitialized(serverUrl);
+        const name = mcpDiscoveredTools.some(t => t.name === 'get_login_qrcode') ? 'get_login_qrcode' : mcpResolveToolName('get_login_qrcode');
+        const { response } = await mcpPost(serverUrl, mcpBuildRequest('tools/call', { name, arguments: {} }));
+        if (response?.error) return { success: false, error: `MCP Error [${response.error.code}]: ${response.error.message}` };
+        const content: any[] = Array.isArray(response?.result?.content) ? response.result.content : [];
+        const message = content.filter(c => c?.type === 'text').map(c => c.text).join('\n').trim();
+        if (response?.result?.isError) return { success: false, error: message || '获取登录二维码失败' };
+        const image = content.find(c => c?.type === 'image' && typeof c.data === 'string');
+        const data: XhsLoginQrcode = {
+            loggedIn: !image && /已处于登录状态|已登录/.test(message),
+            message,
+            ...(image ? { imageDataUrl: `data:${image.mimeType || 'image/png'};base64,${image.data}` } : {}),
+        };
+        return { success: true, data };
+    } catch (e: any) {
+        return { success: false, error: e.message };
+    }
+};
+// [EM-END: xhs-mini-mcp]
 
 // ==================== Helpers ====================
 

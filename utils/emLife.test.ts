@@ -50,6 +50,31 @@ describe('applyLifeEpisode · 聊天', () => {
     });
 });
 
+describe('applyLifeEpisode · 社交（social）', () => {
+    const social = (id: string, extra: Partial<LifeEvent['life']> = {}): LifeEvent => ({
+        messageId: id,
+        createdAt: AT,
+        life: { kind: 'social', with: '林越', relation: '大学同学', group: 'school', detail: '临时约好上线打两把', lines: [{ who: '林越', text: '上号？' }, { who: '我', text: '来' }], ...extra },
+    });
+
+    it('跟聊天同类：进通讯录，那几句接进那个人的聊天，不新开记录类型', () => {
+        const next = applyLifeEpisode(undefined, social('hb:s1:life'))!;
+        expect(next.contacts![0]).toMatchObject({ name: '林越', kind: 'npc', identity: '大学同学', group: 'school' });
+        expect(next.records).toHaveLength(1);
+        expect(next.records[0]).toMatchObject({ id: 'ag-hb:s1:life', type: 'chat', title: '林越', detail: '对方: 上号？\n我: 来' });
+        const again = applyLifeEpisode(next, social('hb:s2:life', { plan: { what: '和林越去看展', at: '周六下午', dueAt: '2026-09-26T20:00:00.000Z' } }))!;
+        expect(again.records).toHaveLength(1);
+        expect(again.records[0].detail).toBe('对方: 上号？\n我: 来\n对方: 上号？\n我: 来');
+        expect(applyLifeEpisode(again, social('hb:s2:life'))).toBeNull();
+    });
+
+    it('没写那几句、对象是阿萌本人、真人角色：都不写', () => {
+        expect(applyLifeEpisode(undefined, social('a', { lines: [] }))).toBeNull();
+        expect(applyLifeEpisode(undefined, social('b', { with: '阿萌' }), { userName: '阿萌' })).toBeNull();
+        expect(applyLifeEpisode({ records: [], contacts: [contact({ name: '林越', kind: 'real', linkedCharId: 'x' })] }, social('c'))).toBeNull();
+    });
+});
+
 describe('applyLifeEpisode · 给阿萌买的东西', () => {
     it('不写进 TA 的手机：那条会剧透，改由投喂站那一单实时映射（见 shoppingFamily）', () => {
         const gift: LifeEvent = { messageId: 'g1', createdAt: AT, life: { kind: 'gift', with: '云朵抱枕', via: 'net', surprise: true, value: '¥129' } };

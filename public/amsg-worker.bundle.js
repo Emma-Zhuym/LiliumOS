@@ -9403,14 +9403,34 @@ var withMcpDedupeSuffix = (base, i, maxLen = DEFAULT_MAX_TOOL_NAME_LEN) => {
   const suffix = `_${i}`;
   return base.slice(0, Math.max(0, maxLen - suffix.length)) + suffix;
 };
+var SCHEMA_MAP_KEYS = /* @__PURE__ */ new Set(["properties", "patternProperties", "$defs", "definitions"]);
+var SCHEMA_KEYS = /* @__PURE__ */ new Set([
+  "items",
+  "additionalItems",
+  "additionalProperties",
+  "contains",
+  "propertyNames",
+  "not",
+  "if",
+  "then",
+  "else",
+  "anyOf",
+  "oneOf",
+  "allOf",
+  "prefixItems"
+]);
 var normalizeMcpToolSchemaForLLM = (schema) => {
-  const visit = (value, depth) => {
+  const visit = (value, depth, isSchema) => {
     if (depth > 40 || value === null || typeof value !== "object") return value;
-    if (Array.isArray(value)) return value.map((item) => visit(item, depth + 1));
+    if (Array.isArray(value)) return value.map((item) => visit(item, depth + 1, isSchema));
     const normalized = {};
     for (const [key, child] of Object.entries(value)) {
-      normalized[key] = visit(child, depth + 1);
+      if (!isSchema) normalized[key] = visit(child, depth + 1, true);
+      else if (SCHEMA_MAP_KEYS.has(key)) normalized[key] = visit(child, depth + 1, false);
+      else if (SCHEMA_KEYS.has(key)) normalized[key] = visit(child, depth + 1, true);
+      else normalized[key] = child;
     }
+    if (!isSchema) return normalized;
     const enumValues = Array.isArray(value.enum) ? value.enum : [];
     if (enumValues.length > 0) {
       let inferredType = null;
@@ -9427,9 +9447,17 @@ var normalizeMcpToolSchemaForLLM = (schema) => {
         normalized.description = description ? `${description} ${suffix}` : suffix;
       }
     }
+    if (Array.isArray(normalized.type)) {
+      const types = normalized.type.filter((item) => typeof item === "string" && item !== "null");
+      normalized.type = (normalized.items !== void 0 && types.includes("array") ? "array" : types[0]) ?? "string";
+    }
+    if (normalized.items !== void 0) {
+      if (typeof normalized.type !== "string") normalized.type = "array";
+      else if (normalized.type !== "array") delete normalized.items;
+    }
     return normalized;
   };
-  return visit(schema || { type: "object", properties: {} }, 0);
+  return visit(schema || { type: "object", properties: {} }, 0, true);
 };
 var serverSlug = (server, maxLen = DEFAULT_MAX_TOOL_NAME_LEN) => sanitizeMcpToolName(server.name, maxLen).slice(0, 20);
 var buildMcpNameMap = (servers, opts = {}) => {
@@ -10361,6 +10389,22 @@ var resolveLiteCookie = () => {
   }
   return "";
 };
+var mcpAuthToken = "";
+var resolveMcpAuthToken = () => {
+  if (mcpAuthToken) return mcpAuthToken;
+  try {
+    const raw = localStorage.getItem("os_realtime_config");
+    if (raw) return JSON.parse(raw)?.xhsMcpConfig?.authToken || "";
+  } catch {
+  }
+  return "";
+};
+var withMcpAuth = (headers) => {
+  const token = resolveMcpAuthToken().trim();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  return headers;
+};
+var MCP_UNAUTHORIZED = "\u5C0F\u7EA2\u4E66\u670D\u52A1\u62D2\u7EDD\u4E86\u8BBF\u95EE\u4EE4\u724C\uFF08HTTP 401\uFF09\uFF1A\u68C0\u67E5\u8BBE\u7F6E\u91CC\u7684\u300C\u8BBF\u95EE\u4EE4\u724C\u300D\u548C mini \u4E0A\u7684\u662F\u5426\u4E00\u81F4";
 var resolvePersistedLitePlatform = () => {
   try {
     const raw = localStorage.getItem("os_realtime_config");
@@ -10604,14 +10648,16 @@ var mcpParseResponse = (text, contentType) => {
   }
 };
 var mcpPost = async (serverUrl, body, expectResponse = true) => {
-  const headers = {
+  const headers = withMcpAuth({
+    // [EM: xhs-mini-mcp]
     "Content-Type": "application/json",
     "Accept": "application/json, text/event-stream"
-  };
+  });
   if (mcpSessionId) headers["Mcp-Session-Id"] = mcpSessionId;
   const resp = await fetch(serverUrl, { method: "POST", headers, body: JSON.stringify(body) });
   const sessionId = resp.headers.get("Mcp-Session-Id") || resp.headers.get("mcp-session-id");
   if (resp.status === 202) return { response: null, sessionId };
+  if (resp.status === 401) throw new Error(MCP_UNAUTHORIZED);
   if (!resp.ok) {
     const errText = await resp.text().catch(() => "");
     throw new Error(`MCP HTTP ${resp.status}: ${errText.slice(0, 200)}`);
@@ -10630,6 +10676,18 @@ var mcpInitialize = async (serverUrl) => {
   const { response, sessionId } = await mcpPost(serverUrl, initReq);
   if (sessionId) mcpSessionId = sessionId;
   if (response?.error) throw new Error(`MCP Initialize failed: ${response.error.message}`);
+  if (!mcpSessionId && response?.result) {
+    try {
+      const probe = await mcpPost(serverUrl, mcpBuildRequest("tools/list"));
+      if (probe.response?.result?.tools) {
+        mcpDiscoveredTools = probe.response.result.tools.map((t) => ({ name: t.name, description: t.description }));
+        mcpInitialized = true;
+        return;
+      }
+    } catch (e) {
+      if (e?.message === MCP_UNAUTHORIZED) throw e;
+    }
+  }
   if (!mcpSessionId) {
     console.warn(
       "[MCP] \u26A0\uFE0F \u65E0\u6CD5\u8BFB\u53D6 Mcp-Session-Id \u54CD\u5E94\u5934\uFF08CORS \u9650\u5236\uFF09\u3002\n\u8BF7\u4F7F\u7528 CORS \u4EE3\u7406: node scripts/mcp-proxy.mjs\n\u7136\u540E\u628A MCP URL \u6539\u4E3A http://localhost:18061/mcp"
@@ -10668,12 +10726,14 @@ var mcpCallTool = async (serverUrl, toolName, args = {}) => {
     const adapted = mcpAdaptParams(resolved, args);
     if (resolved !== toolName) console.log(`[MCP] \u5DE5\u5177\u540D\u6620\u5C04: ${toolName} \u2192 ${resolved}`);
     const body = mcpBuildRequest("tools/call", { name: resolved, arguments: adapted });
-    const headers = {
+    const headers = withMcpAuth({
+      // [EM: xhs-mini-mcp]
       "Content-Type": "application/json",
       "Accept": "application/json, text/event-stream"
-    };
+    });
     if (mcpSessionId) headers["Mcp-Session-Id"] = mcpSessionId;
     const resp = await fetch(serverUrl, { method: "POST", headers, body: JSON.stringify(body) });
+    if (resp.status === 401) return { success: false, error: MCP_UNAUTHORIZED };
     if (!resp.ok) {
       const errText = await resp.text().catch(() => "");
       return { success: false, error: `MCP HTTP ${resp.status}: ${errText.slice(0, 200)}` };
@@ -10771,6 +10831,13 @@ var XhsMcpClient = {
     mcpRequestIdCounter = 0;
     mcpDiscoveredTools = [];
   },
+  // [EM-START: xhs-mini-mcp] 自托管 MCP 的 Bearer 令牌；换了令牌就重新握手
+  setAuthToken: (token) => {
+    const next = (token || "").trim();
+    if (next !== mcpAuthToken) XhsMcpClient.resetSession();
+    mcpAuthToken = next;
+  },
+  // [EM-END: xhs-mini-mcp]
   // Lite Worker auth: register the XHS cookie used for x-xhs-cookie header.
   setCookie: (cookie) => {
     const nextCookie = cookie || "";
@@ -10986,11 +11053,31 @@ var XhsMcpClient = {
   },
   getQrcode: async (serverUrl) => {
     if (detectMode(serverUrl) === "bridge") return bridgePost(serverUrl, "get-qrcode");
-    return { success: false, error: "\u4E8C\u7EF4\u7801\u529F\u80FD\u4EC5\u5728 Skills (Bridge) \u6A21\u5F0F\u4E0B\u53EF\u7528" };
+    return mcpLoginQrcode(serverUrl);
   },
   logout: async (serverUrl) => {
     if (detectMode(serverUrl) === "bridge") return bridgePost(serverUrl, "delete-cookies");
     return { success: false, error: "\u767B\u51FA\u529F\u80FD\u4EC5\u5728 Skills (Bridge) \u6A21\u5F0F\u4E0B\u53EF\u7528" };
+  }
+};
+var mcpLoginQrcode = async (serverUrl) => {
+  try {
+    await mcpEnsureInitialized(serverUrl);
+    const name = mcpDiscoveredTools.some((t) => t.name === "get_login_qrcode") ? "get_login_qrcode" : mcpResolveToolName("get_login_qrcode");
+    const { response } = await mcpPost(serverUrl, mcpBuildRequest("tools/call", { name, arguments: {} }));
+    if (response?.error) return { success: false, error: `MCP Error [${response.error.code}]: ${response.error.message}` };
+    const content = Array.isArray(response?.result?.content) ? response.result.content : [];
+    const message = content.filter((c) => c?.type === "text").map((c) => c.text).join("\n").trim();
+    if (response?.result?.isError) return { success: false, error: message || "\u83B7\u53D6\u767B\u5F55\u4E8C\u7EF4\u7801\u5931\u8D25" };
+    const image = content.find((c) => c?.type === "image" && typeof c.data === "string");
+    const data = {
+      loggedIn: !image && /已处于登录状态|已登录/.test(message),
+      message,
+      ...image ? { imageDataUrl: `data:${image.mimeType || "image/png"};base64,${image.data}` } : {}
+    };
+    return { success: true, data };
+  } catch (e) {
+    return { success: false, error: e.message };
   }
 };
 var extractNotesFromMcpData = (data) => {
@@ -13011,7 +13098,9 @@ var buildToolCtx = (pack, config) => {
       lastXhsNotesRef: { current: [] }
     },
     proxyWorkerUrl: config.proxyWorkerUrl ?? null,
-    xhsCookie: config.xhsMcpConfig?.cookie ?? ""
+    xhsCookie: config.xhsMcpConfig?.cookie ?? "",
+    xhsAuthToken: config.xhsMcpConfig?.authToken ?? ""
+    // [EM: xhs-mini-mcp]
   };
 };
 var fireStateError = (reason, detail) => {
@@ -13708,13 +13797,15 @@ var amsgHooks = {
     const canSelfSchedule = typeof ctx.scheduleTask === "function" && selfScheduleAllowed;
     const tz = { tzId: pack.tzId };
     const clientTaskId = typeof taskMeta.amsgClientTaskId === "string" ? taskMeta.amsgClientTaskId : "";
-    const { toolCtx, proxyWorkerUrl, xhsCookie } = buildToolCtx(toolPack, toolConfig);
+    const { toolCtx, proxyWorkerUrl, xhsCookie, xhsAuthToken } = buildToolCtx(toolPack, toolConfig);
     const plannedSelfSendTasks = livePendingTasks.filter((t) => t.source === "character" && isPendingTask(t, ctx.now.getTime()));
     const stash = {
       session: createFireSessionState(),
       toolCtx,
       proxyWorkerUrl,
       xhsCookie,
+      xhsAuthToken,
+      // [EM: xhs-mini-mcp]
       occurrenceMs,
       selfLog,
       selfLogDirty: false,
@@ -14062,6 +14153,7 @@ var amsgHooks = {
     }
     if (stash.proxyWorkerUrl) setProxyWorkerUrlOverride(stash.proxyWorkerUrl);
     if (stash.xhsCookie) XhsMcpClient.setCookie(stash.xhsCookie);
+    if (stash.xhsAuthToken) XhsMcpClient.setAuthToken(stash.xhsAuthToken);
     const results = [];
     for (const toolCall of toolCalls) {
       const name = toolCall?.function?.name || "";

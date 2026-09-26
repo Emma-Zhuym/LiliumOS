@@ -183,6 +183,16 @@ check "PhoneShell 提示条补丁" components/PhoneShell.tsx "[EM: skin-f-toast]
 check "标题衬线字体加载" index.html "Noto+Serif+SC"
 check "雾面 sheet" components/os/ClayDialog.tsx "OVERLAY.blur"
 
+echo "── 小红书 MCP 搬到 mini（令牌 / 无状态 / 扫码登录）──"
+check "客户端带 Bearer 令牌" utils/xhsMcpClient.ts "const withMcpAuth"
+check "客户端认无状态服务器" utils/xhsMcpClient.ts "Stateless: true"
+check "客户端扫码登录" utils/xhsMcpClient.ts "const mcpLoginQrcode"
+check "配置类型带令牌" types.ts "authToken?: string; // [EM: xhs-mini-mcp]"
+check "设置页令牌与扫码" apps/Settings.tsx "fetchXhsLoginQr"
+check "令牌随工具配置上云" utils/amsgToolPack.ts "authToken: xhs.authToken"
+check "worker 注入令牌" worker/amsg/src/index.ts "XhsMcpClient.setAuthToken(stash.xhsAuthToken)"
+check "网关 /xhs 路由" scripts/home-assistant-proxy.mjs "XHS_MCP_TARGET"
+
 echo ""
 if [ $FAIL -gt 0 ]; then
     echo "🔴 $FAIL 项缺失（$PASS 项通过）——EM 功能被 merge 冲掉了，对照 .claude/CLAUDE.md 补回来"

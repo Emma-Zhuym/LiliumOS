@@ -17,7 +17,7 @@ import { bucketRetryCount, trackEvent } from '../utils/analytics';
 import Modal from '../components/os/Modal';
 import { NotionManager, FeishuManager, RealtimeContextManager } from '../utils/realtimeContext';
 import { searchCities, fetchOpenMeteoCurrent, resolveWeatherCoords, formatLocationLabel, type WeatherLocation } from '../utils/openMeteo'; // [EM: weather-openmeteo]
-import { XhsMcpClient } from '../utils/xhsMcpClient';
+import { XhsMcpClient, type XhsLoginQrcode } from '../utils/xhsMcpClient'; // [EM: xhs-mini-mcp] 扫码登录
 import { getMcdToken, setMcdToken as saveMcdToken, isMcdEnabled, setMcdEnabled as saveMcdEnabled, testMcdConnection, resetMcdSession } from '../utils/mcdMcpClient';
 import { getLuckinToken, setLuckinToken as saveLuckinToken, isLuckinEnabled, setLuckinEnabled as saveLuckinEnabled, testLuckinConnection, resetLuckinSession } from '../utils/luckinMcpClient';
 import { getProxyWorkerUrl, setProxyWorkerUrl, DEFAULT_PROXY_WORKER } from '../utils/proxyWorker';
@@ -681,6 +681,21 @@ const Settings: React.FC = () => {
   const [rtXhsCookie, setRtXhsCookie] = useState(realtimeConfig.xhsMcpConfig?.cookie || '');
   const [rtXhsPlatform, setRtXhsPlatform] = useState<'xhs' | 'rednote' | undefined>(realtimeConfig.xhsMcpConfig?.platform);
   const [rtXhsGuideOpen, setRtXhsGuideOpen] = useState(false);
+  // [EM-START: xhs-mini-mcp] mini 上自托管的 xiaohongshu-mcp：Bearer 令牌 + 在这里扫码登录
+  const [rtXhsAuthToken, setRtXhsAuthToken] = useState(realtimeConfig.xhsMcpConfig?.authToken || '');
+  const [rtXhsQr, setRtXhsQr] = useState<{ status: string; image?: string }>({ status: '' });
+  const xhsLocalAuthToken = () => (rtXhsMode === 'local' ? rtXhsAuthToken.trim() || undefined : undefined);
+  const fetchXhsLoginQr = async () => {
+      if (!rtXhsLocalUrl) { setRtXhsQr({ status: '请先填写服务器 URL' }); return; }
+      setRtXhsQr({ status: '正在向服务器要二维码…（它要先打开小红书登录页，可能要十几秒）' });
+      XhsMcpClient.setAuthToken(rtXhsAuthToken);
+      const result = await XhsMcpClient.getQrcode(rtXhsLocalUrl);
+      if (!result.success) { setRtXhsQr({ status: `获取失败：${result.error}` }); return; }
+      const qr = result.data as XhsLoginQrcode;
+      if (qr.loggedIn || !qr.imageDataUrl) { setRtXhsQr({ status: qr.message || '服务器上已经是登录状态' }); return; }
+      setRtXhsQr({ status: `${qr.message}\n扫完点一下「测试连接」确认。`, image: qr.imageDataUrl });
+  };
+  // [EM-END: xhs-mini-mcp]
   const [rtTestStatus, setRtTestStatus] = useState('');
 
   // 麦当劳 MCP (token / 启用态都直接存 localStorage, 不进 realtimeConfig)
@@ -1926,6 +1941,7 @@ const Settings: React.FC = () => {
               enabled: rtXhsMcpEnabled,
               serverUrl: rtXhsMode === 'lite' ? XHS_LITE_URL : rtXhsLocalUrl,
               cookie: rtXhsMode === 'lite' ? (rtXhsCookie.trim() || undefined) : undefined,
+              authToken: xhsLocalAuthToken(), // [EM: xhs-mini-mcp]
               platform: rtXhsMode === 'lite' ? rtXhsPlatform : undefined,
               loggedInNickname: rtXhsNickname || undefined,
               loggedInUserId: rtXhsUserId || undefined,
@@ -2022,6 +2038,7 @@ const Settings: React.FC = () => {
           return;
       }
       setRtTestStatus('正在连接...');
+      XhsMcpClient.setAuthToken(xhsLocalAuthToken()); // [EM: xhs-mini-mcp]
       try {
           const result = await XhsMcpClient.testConnection(
               urlToUse,
@@ -2046,6 +2063,7 @@ const Settings: React.FC = () => {
                       enabled: rtXhsMcpEnabled,
                       serverUrl: urlToUse,
                       cookie: cookieToUse,
+                      authToken: xhsLocalAuthToken(), // [EM: xhs-mini-mcp]
                       platform: result.platform,
                       loggedInNickname: rtXhsNickname || result.nickname,
                       loggedInUserId: rtXhsUserId || result.userId,
@@ -4790,7 +4808,22 @@ const Settings: React.FC = () => {
                               <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">服务器 URL</label>
                               <input value={rtXhsLocalUrl} onChange={e => setRtXhsLocalUrl(e.target.value)} className="w-full bg-white/80 border border-red-200 rounded-xl px-3 py-2 text-[11px] font-mono" placeholder="http://localhost:18060/mcp" />
                           </div>
+                          {/* [EM-START: xhs-mini-mcp] */}
+                          <div>
+                              <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">访问令牌（可选）</label>
+                              <input type="password" autoComplete="off" value={rtXhsAuthToken} onChange={e => setRtXhsAuthToken(e.target.value)} className="w-full bg-white/80 border border-red-200 rounded-xl px-3 py-2 text-[11px] font-mono" placeholder="mini 上 xhs-mcp-token 文件里那串；本机直连可留空" />
+                          </div>
+                          {/* [EM-END: xhs-mini-mcp] */}
                           <button onClick={testXhsMcp} className="w-full py-2 bg-red-100 text-red-600 text-xs font-bold rounded-xl active:scale-95 transition-transform">测试连接</button>
+                          {/* [EM-START: xhs-mini-mcp] 登录在服务器那个浏览器里：拿二维码用手机小红书扫 */}
+                          <button type="button" onClick={fetchXhsLoginQr} className="w-full py-2 bg-white/80 border border-red-200 text-red-600 text-xs font-bold rounded-xl active:scale-95 transition-transform">扫码登录</button>
+                          {rtXhsQr.status && (
+                              <div className="bg-white/80 border border-red-100 rounded-xl p-3 space-y-2">
+                                  <p className="text-[10px] text-slate-600 whitespace-pre-wrap leading-relaxed">{rtXhsQr.status}</p>
+                                  {rtXhsQr.image && <img src={rtXhsQr.image} alt="小红书登录二维码" className="w-40 h-40 mx-auto" />}
+                              </div>
+                          )}
+                          {/* [EM-END: xhs-mini-mcp] */}
                           <div className="grid grid-cols-2 gap-2">
                               <div>
                                   <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">小红书昵称</label>
@@ -4803,6 +4836,7 @@ const Settings: React.FC = () => {
                           </div>
                           <p className="text-[10px] text-red-500/70 leading-relaxed">
                               下载并运行 xiaohongshu-mcp，URL 填 http://localhost:18060/mcp（代理则 18061/mcp）。
+                              {/* [EM: xhs-mini-mcp] */} 跑在 Mac mini 上时，URL 填 https://（mini 的 Funnel 域名）/xhs/mcp，再填访问令牌；二维码最好在电脑上打开这页扫。
                           </p>
                       </div>
                   )}

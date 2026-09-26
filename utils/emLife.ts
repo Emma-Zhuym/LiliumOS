@@ -2,6 +2,7 @@
 /**
  * 私人生活里的小事，从 Mac mini 心跳送来后落进「查手机」里对应的 App：
  * 和朋友家人聊几句 → 联系人里那段聊天；点外卖 → 外卖；网购 → 淘宝；发朋友圈 → 朋友圈。
+ * 跟朋友当场有点来往（social：临时出门、约好上线打游戏）→ 跟聊天一样落在那个人的聊天里，不新开 App。
  *
  * 和工作往来（emWork.ts）是两条线：工作的只在「工作」App 里，这里的才进通讯录和短信那一侧。
  * 全是纯函数，返回新的 phoneState；没有要改的就返回 null（调用方据此跳过写库）。
@@ -15,7 +16,7 @@ import { normalizeMomentExtras } from './moments'; // [EM: moments]
 type PhoneState = NonNullable<CharacterProfile['phoneState']>;
 
 export interface LifeEpisode {
-    kind: 'chat' | 'delivery' | 'order' | 'moment' | 'gift';
+    kind: 'chat' | 'social' | 'delivery' | 'order' | 'moment' | 'gift';
     with?: string;
     relation?: string;
     group?: string;
@@ -30,6 +31,8 @@ export interface LifeEpisode {
     comments?: { who: string; relation?: string; text: string }[];
     likes?: number;
     hide?: string[];
+    /** chat / social：顺口约的以后的事。dueAt 由后端按时区解析好；约定本身由后端记着，这里只随记录带过来 */
+    plan?: { what: string; at: string; dueAt?: string };
 }
 
 export interface LifeEvent {
@@ -42,7 +45,7 @@ const MINE = '我';
 /** 一条记录里最多记多少个来源 id：只用来去重，太旧的不可能再被取回来。 */
 const MAX_SOURCE_IDS = 50;
 
-const RECORD_TYPE: Record<Exclude<LifeEpisode['kind'], 'chat' | 'gift'>, string> = {
+const RECORD_TYPE: Record<Exclude<LifeEpisode['kind'], 'chat' | 'social' | 'gift'>, string> = {
     delivery: 'delivery',
     order: 'order',
     moment: 'social',
@@ -68,7 +71,9 @@ export const applyLifeEpisode = (
     const at = Date.parse(event.createdAt) || Date.now();
     const { life } = event;
 
-    if (life.kind === 'chat') {
+    // social 跟 chat 同类：约人 / 当时的那几句接进那个人的聊天。没写那几句的就不落
+    // （查手机的聊天只认「我 / 对方」逐行格式，凭 detail 编出对话来不如不写；这件事照样在起居注里）。
+    if (life.kind === 'chat' || life.kind === 'social') {
         const name = life.with?.trim();
         const lines = (life.lines ?? []).filter(line => line.who?.trim() && line.text?.trim());
         if (!name || lines.length === 0) return null;
