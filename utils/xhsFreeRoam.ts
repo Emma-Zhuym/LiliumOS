@@ -485,6 +485,8 @@ export const XhsFreeRoamEngine = {
             if (!decision) {
                 throw new Error('角色决策解析失败');
             }
+            // [EM: xhs-mini-mcp] 发帖在网关停用了：想发帖的这一趟改成刷首页，别白跑一趟只落一条「失败」
+            if (decision.action === 'post') Object.assign(decision, { action: 'browse' });
 
             callbacks.onThinking(decision.thinking);
 

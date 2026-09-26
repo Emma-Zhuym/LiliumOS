@@ -31,6 +31,7 @@ cd server/agent-backend && npm install
 | `vapid-public` / `vapid-private` | Web Push。**必须与 LiliumOS 站点现有的那一对完全一致**，否则前端会退订重建，amsg 的推送会跟着断 |
 | `vapid-subject` | 可选，形如 `mailto:...`；缺省用占位值 |
 | `apple-events-token` | 调本机 apple-events-bridge 用的 Bearer |
+| `xhs-mcp-token` | 调本机 xiaohongshu-mcp（`server/xhs-mcp`）用的 Bearer；和 `agent-tools/secrets/xhs-mcp-token` 是同一串，复制一份过来。缺了心跳就不逛小红书（退回发朋友圈） |
 
 ```bash
 chmod 600 ~/Library/Application\ Support/LiliumOS/agent-backend/secrets/*

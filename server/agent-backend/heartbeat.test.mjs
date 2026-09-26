@@ -17,10 +17,11 @@ import {
     ACTIVE_CHAT_WINDOW_MS, buildPrompt, checkGates, speakBlock, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
     BREAK_COOLDOWN_MIN, currentSlot, decideIntent, formatGap, inBreakWindow, upcomingBreakStarts, jitterRatio, lastRealInteractionAt, listModelRuns, messageChance,
     nextRunAt, recordModelRun, shouldCaptureRaw, decideEpisode, episodeChance, isWorkSlot, lifeChance, pickLifeKind, veilSurprise,
-    MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, withPlanTime,
+    MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, withPlanTime, withXhsFeed,
 } from './heartbeat.mjs';
 import { chatCompletionsUrl, createApiRunner, extractContentText, parseEpisode, parseHeartbeatOutput, parseLife } from './runner.mjs';
 import { applyThread, closePassedPlans, closeStaleThreads, isPlanDue, listOpenThreads } from './lifeThreads.mjs';
+import { feedResult } from './xhsFeed.fixture.mjs';
 
 const AT = new Date('2026-09-23T20:00:00.000Z');          // 芝加哥时间 15:00，醒着
 const CHAR = 'lumi';
@@ -206,7 +207,7 @@ test('暂停与恢复不换代', () => {
     assert.equal(resumed.heartbeatGeneration, character.heartbeatGeneration);
 });
 
-const runHandler = async (db, { runner, job, now = AT, scheduled = [], rng = () => 0.99, deliver = null }) => {
+const runHandler = async (db, { runner, job, now = AT, scheduled = [], rng = () => 0.99, deliver = null, xhs = null }) => {
     const handler = createHeartbeatHandler({
         db,
         config: { heartbeatTimeoutMs: 1000 },
@@ -215,6 +216,7 @@ const runHandler = async (db, { runner, job, now = AT, scheduled = [], rng = () 
         now: () => now,
         rng,
         deliver,
+        xhs,
     });
     return handler(job);
 };
@@ -990,7 +992,7 @@ test('抽签：下班时段多半是生活，上班时段多半是工作；两�
     assert.equal(decideEpisode({ snapshot: evening, now: at, timezone: 'America/Chicago', intent: 'reach_out', rng: () => 0.3 }).kind, null);
 });
 
-test('生活里做什么由程序定：饭点外卖多，别的时候聊天为主，六种都会出现（含给她买东西、社交）', () => {
+test('生活里做什么由程序定：饭点外卖多，别的时候聊天为主，七种都会出现（含给她买东西、社交、逛小红书）', () => {
     const count = minutes => {
         const seen = {};
         for (let i = 0; i < 100; i += 1) {
@@ -1002,7 +1004,7 @@ test('生活里做什么由程序定：饭点外卖多，别的时候聊天为�
     const dinner = count(18 * 60 + 30);
     const night = count(22 * 60);
     assert.ok(dinner.delivery > night.delivery * 2);
-    assert.deepEqual(Object.keys(night).sort(), ['chat', 'delivery', 'gift', 'moment', 'order', 'social']);
+    assert.deepEqual(Object.keys(night).sort(), ['chat', 'delivery', 'gift', 'moment', 'order', 'social', 'xhs']);
     assert.ok(night.chat >= 38);
     assert.ok(night.order > dinner.order, '非饭点网购偏多');
 });
@@ -1136,15 +1138,18 @@ test('生活权重：两行各自合计 1.00，购物三项都压在 0.20', () =
         assert.equal(sumOf(weights), 1);
         assert.equal(sumOf(weights, ['delivery', 'order', 'gift']), 0.2);
     }
-    // 钉死 rng 验分档边界。饭点：chat 0.42 | social 0.58 | delivery 0.71 | order 0.75 | gift 0.78 | moment
+    // 钉死 rng 验分档边界。饭点：chat 0.42 | social 0.58 | delivery 0.71 | order 0.75 | gift 0.78 | moment 0.92 | xhs
     const lunch = 12 * 60;
     const at = r => pickLifeKind(lunch, () => r);
-    assert.deepEqual([0, 0.419, 0.42, 0.579, 0.58, 0.709, 0.71, 0.749, 0.75, 0.779, 0.78, 0.999].map(at),
-        ['chat', 'chat', 'social', 'social', 'delivery', 'delivery', 'order', 'order', 'gift', 'gift', 'moment', 'moment']);
-    // 其余：chat 0.40 | social 0.57 | delivery 0.61 | order 0.73 | gift 0.77 | moment
+    assert.deepEqual([0, 0.419, 0.42, 0.579, 0.58, 0.709, 0.71, 0.749, 0.75, 0.779, 0.78, 0.919, 0.92, 0.999].map(at),
+        ['chat', 'chat', 'social', 'social', 'delivery', 'delivery', 'order', 'order', 'gift', 'gift', 'moment', 'moment', 'xhs', 'xhs']);
+    // 其余：chat 0.40 | social 0.57 | delivery 0.61 | order 0.73 | gift 0.77 | moment 0.92 | xhs
     const night = r => pickLifeKind(22 * 60, () => r);
-    assert.deepEqual([0.399, 0.4, 0.569, 0.57, 0.609, 0.61, 0.729, 0.73, 0.769, 0.77, 0.999].map(night),
-        ['chat', 'social', 'social', 'delivery', 'delivery', 'order', 'order', 'gift', 'gift', 'moment', 'moment']);
+    assert.deepEqual([0.399, 0.4, 0.569, 0.57, 0.609, 0.61, 0.729, 0.73, 0.769, 0.77, 0.919, 0.92, 0.999].map(night),
+        ['chat', 'social', 'social', 'delivery', 'delivery', 'order', 'order', 'gift', 'gift', 'moment', 'moment', 'xhs', 'xhs']);
+    // 逛小红书是从朋友圈分出去的：两者合起来仍是原来那一份
+    assert.equal(sumOf(MEALTIME_LIFE_WEIGHTS, ['moment', 'xhs']), 0.22);
+    assert.equal(sumOf(OTHER_LIFE_WEIGHTS, ['moment', 'xhs']), 0.23);
     // 饭点边界：11:00 算、13:30 不算，17:00 算、20:30 不算
     // 同一个 0.65：饭点里是外卖，饭点外是网购
     assert.equal(pickLifeKind(11 * 60, () => 0.65), 'delivery');
@@ -1299,4 +1304,151 @@ test('影子期不动约定：不收、不落', async () => {
     const runner = { run: async () => ({ ok: true, output: { action: 'noop', activity: '打球', reason: '', urge: 'none', life: { kind: 'social', with: '林越', detail: 'x', plan: { what: '再约', at: '明晚八点' } } } }) };
     await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 's1'), now, rng: () => 0.99 });
     assert.deepEqual(listOpenThreads(db, CHAR).map(t => t.id), [due.id]);
+});
+
+// ---- 逛小红书（从朋友圈分出去的那 0.08）----
+
+const detailResult = () => ({
+    content: [{ type: 'text', text: JSON.stringify({ feed_id: 'n2', data: {
+        note: { noteId: 'n2', title: '猫咪第一次见雪', desc: '它先伸了一只爪子试探，然后整只猫扑进去了。', ipLocation: '黑龙江' },
+        comments: { list: [
+            { id: 'c1', content: '爪子缩回去那一下笑死', likeCount: '2.3万', userInfo: { nickname: '雪球' } },
+            { id: 'c2', content: '', userInfo: { nickname: '空评论' } },
+        ] },
+    } }) }],
+});
+
+/** 假的小红书服务：按工具名回，顺手记下调了什么。 */
+const fakeXhs = (calls, { detail = detailResult } = {}) => ({
+    callTool: async (name, args) => {
+        calls.push(name === 'list_feeds' ? name : `${name}:${args.feed_id}`);
+        if (name === 'list_feeds') return feedResult();
+        if (name === 'get_feed_detail') return detail();
+        return { content: [{ type: 'text', text: '操作成功' }] };
+    },
+});
+
+const xhsSeq = () => { const seq = [0.99, 0.3, 0.95]; let i = 0; return () => seq[i++] ?? 0.99; };   // 不开口 → 生活 → xhs
+
+test('逛小红书：刷首页 → 点开多看两眼的第一条 → 看完再写 → 点赞收藏 → 转发给阿萌带卡片', async () => {
+    const db = freshDb();
+    setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+    const character = seedCharacter(db);
+    seedSnapshot(db, { xhsEnabled: true, todaySchedule: [{ start: '18:00', title: '在家', availability: 'online' }] }, chicago(22));
+    const calls = [];
+    const prompts = [];
+    const outputs = [
+        { action: 'noop', activity: '刷小红书', reason: '', urge: 'none', life: { kind: 'xhs', detail: '刷到一只猫。', picks: [{ index: 2, note: '标题好可爱' }] } },
+        { action: 'noop', activity: '窝在沙发上看猫扑雪', reason: '', urge: 'none',
+            life: { kind: 'xhs', detail: '点开看了，它整只扑进雪里，评论说爪子缩回去那一下，我也笑了。',
+                picks: [{ index: 2, note: '扑雪', like: true, fav: true }, { index: 1, like: true }, { index: 7, like: true }],
+                share: { index: 2, text: '你看这只猫，像不像你第一次见雪' } } },
+    ];
+    const runner = { run: async ({ system }) => { prompts.push(system); return { ok: true, output: outputs[prompts.length - 1] }; } };
+    const sent = [];
+    const result = await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 'x1'), now: chicago(22), rng: xhsSeq(), deliver: async e => sent.push(e), xhs: fakeXhs(calls) });
+
+    assert.equal(prompts.length, 2, '点开之后再调一次模型');
+    assert.ok(prompts[0].includes('「猫咪第一次见雪」（视频） — 橘子汽水'), '第一次看的是真实首页');
+    assert.ok(!prompts[0].includes('你点开了'));
+    assert.ok(prompts[1].includes('你点开了第 2 条「猫咪第一次见雪」（橘子汽水，黑龙江）'));
+    assert.ok(prompts[1].includes('正文：它先伸了一只爪子试探'));
+    assert.ok(prompts[1].includes('- 雪球：爪子缩回去那一下笑死（23000 赞）'));
+    // 点赞 + 收藏一跳最多两次：第一条的赞和藏做了，第二条的赞没额度；越界的那条早被丢掉
+    assert.deepEqual(calls, ['list_feeds', 'get_feed_detail:n2', 'like_feed:n2', 'favorite_feed:n2']);
+
+    const life = sent.find(e => e.payload?.type === 'life_episode').payload.life;
+    assert.equal(life.detail, '点开看了，它整只扑进雪里，评论说爪子缩回去那一下，我也笑了。', '用的是看完之后的第二次');
+    assert.deepEqual(life.opened, { noteId: 'n2', title: '猫咪第一次见雪', author: '橘子汽水', desc: '它先伸了一只爪子试探，然后整只猫扑进去了。', comments: 1 });
+    assert.deepEqual(life.picks.map(p => [p.noteId, p.liked ?? false, p.faved ?? false]), [['n2', true, true], ['n1', false, false]]);
+    assert.ok(life.picks.every(p => !('wantLike' in p) && !('wantFav' in p)), '「想点」的标记不往前端送');
+
+    const message = sent.find(e => e.kind === 'chat_message');
+    assert.equal(message.payload.text, '你看这只猫，像不像你第一次见雪');
+    assert.deepEqual(message.payload.xhsNote, {
+        noteId: 'n2', title: '猫咪第一次见雪', desc: '', author: '橘子汽水', authorId: '', likes: 356, xsecToken: 'tok2', type: 'video',
+    });
+    assert.equal(result.action, 'message');
+    assert.equal(listModelRuns(db)[0].outcome, 'message', '转发了就算这一跳开了口，冷却和每日上限照常算');
+});
+
+test('逛小红书：刚聊过的一跳不转发；影子期不点赞；点不开就用第一次的结果', async () => {
+    // 刚聊过：share 丢掉，不发消息
+    {
+        const db = freshDb();
+        setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+        const character = seedCharacter(db);
+        seedSnapshot(db, { xhsEnabled: true, todaySchedule: [{ start: '18:00', title: '在家', availability: 'online' }] }, chicago(22));
+        db.prepare('UPDATE characters SET last_user_interaction_at = ? WHERE char_id = ?').run(new Date(chicago(22).getTime() - 3 * 60_000).toISOString(), CHAR);
+        const prompts = [];
+        const runner = { run: async ({ system }) => { prompts.push(system); return { ok: true, output: { action: 'noop', activity: 'a', reason: '', urge: 'none',
+            life: { kind: 'xhs', detail: '嗯', share: { index: 1, text: '给你看' } } } }; } };
+        const sent = [];
+        await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 'h1'), now: chicago(22), rng: xhsSeq(), deliver: async e => sent.push(e), xhs: fakeXhs([]) });
+        assert.ok(prompts[0].includes('这次先别转发给 ta'));
+        assert.equal(sent.filter(e => e.kind === 'chat_message').length, 0);
+        assert.equal(sent[0].payload.life.share, undefined, '没发出去的转发不带给前端');
+    }
+    // 影子期：照常刷、照常点开看，但不点赞不收藏
+    {
+        const db = freshDb();
+        const character = seedCharacter(db);
+        seedSnapshot(db, { xhsEnabled: true, todaySchedule: [{ start: '18:00', title: '在家', availability: 'online' }] }, chicago(22));
+        const calls = [];
+        const runner = { run: async () => ({ ok: true, output: { action: 'noop', activity: 'a', reason: '', urge: 'none',
+            life: { kind: 'xhs', detail: '嗯', picks: [{ index: 1, like: true }] } } }) };
+        await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 's1'), now: chicago(22), rng: xhsSeq(), xhs: fakeXhs(calls) });
+        assert.deepEqual(calls, ['list_feeds', 'get_feed_detail:n1']);
+    }
+    // 详情读不出来：只调一次模型，用第一次的结果
+    {
+        const db = freshDb();
+        setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+        const character = seedCharacter(db);
+        seedSnapshot(db, { xhsEnabled: true, todaySchedule: [{ start: '18:00', title: '在家', availability: 'online' }] }, chicago(22));
+        let runs = 0;
+        const runner = { run: async () => { runs += 1; return { ok: true, output: { action: 'noop', activity: 'a', reason: '', urge: 'none',
+            life: { kind: 'xhs', detail: '第一次写的', picks: [{ index: 1 }] } } }; } };
+        const sent = [];
+        await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 'd1'), now: chicago(22), rng: xhsSeq(), deliver: async e => sent.push(e),
+            xhs: fakeXhs([], { detail: () => ({ content: [{ type: 'text', text: '笔记不可访问' }] }) }) });
+        assert.equal(runs, 1);
+        assert.equal(sent[0].payload.life.detail, '第一次写的');
+        assert.equal(sent[0].payload.life.opened, undefined);
+    }
+});
+
+test('逛小红书退回发朋友圈：角色没开小红书、服务没接、首页刷不到', async () => {
+    const cases = [
+        { name: '角色没开', snapshot: {}, xhs: { callTool: async () => feedResult() }, reason: 'xhs:xhs_disabled_for_character' },
+        { name: '服务没接', snapshot: { xhsEnabled: true }, xhs: null, reason: 'xhs:xhs_not_configured' },
+        { name: '刷不到', snapshot: { xhsEnabled: true }, xhs: { callTool: async () => { throw new Error('超过 90000ms 没响应'); } }, reason: /^xhs:连不上 MCP|^xhs:超过/ },
+    ];
+    for (const item of cases) {
+        const db = freshDb();
+        const character = seedCharacter(db);
+        seedSnapshot(db, { ...item.snapshot, todaySchedule: [{ start: '18:00', title: '在家', availability: 'online' }] }, chicago(22));
+        const prompts = [];
+        const runner = { run: async ({ system }) => { prompts.push(system); return { ok: true, output: { action: 'noop', activity: 'a', reason: '', urge: 'none' } }; } };
+        const seq = [0.99, 0.3, 0.95];
+        let i = 0;
+        await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, `f-${item.name}`), now: chicago(22), rng: () => seq[i++] ?? 0.99, xhs: item.xhs });
+        assert.ok(prompts[0].includes('kind 填 "moment"'), `${item.name}：退回发朋友圈`);
+        assert.ok(!prompts[0].includes('kind 填 "xhs"'), item.name);
+        const gate = listModelRuns(db)[0].skipGate;
+        if (item.reason instanceof RegExp) assert.match(gate, item.reason, item.name);
+        else assert.equal(gate, item.reason, item.name);
+    }
+});
+
+test('逛小红书的输出：没刷成首页或没写感想的整条不要', () => {
+    const feed = [{ noteId: 'n1', title: 't', author: 'a', likes: 1, video: false }];
+    assert.equal(withXhsFeed({ kind: 'xhs', detail: '好看' }, []), null);
+    assert.equal(withXhsFeed({ kind: 'xhs' }, feed), null);
+    assert.deepEqual(withXhsFeed({ kind: 'xhs', detail: '没什么想看的' }, feed), { kind: 'xhs', detail: '没什么想看的', feed });
+    assert.deepEqual(withXhsFeed({ kind: 'moment', detail: 'x' }, feed), { kind: 'moment', detail: 'x' }, '别的种类原样过');
+    assert.deepEqual(parseLife({ kind: 'xhs', detail: '嗯', picks: [{ index: 2, note: '好看' }, { index: 'x' }, { index: -1 }] }),
+        { kind: 'xhs', detail: '嗯', picks: [{ index: 2, note: '好看' }] });
+    assert.equal(parseLife({ kind: 'xhs', picks: [] }), null);
+    assert.ok(HEARTBEAT_SCHEMA.properties.life.properties.kind.enum.includes('xhs'));
 });

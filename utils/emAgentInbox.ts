@@ -121,6 +121,19 @@ export const syncAgentMessagesIntoChat = async (
                     timestamp: Date.parse(String(message.payload?.createdAt ?? message.createdAt)) || now,
                     metadata: { fromAgentBackend: true, source: message.payload?.source ?? 'heartbeat' },
                 } as never);
+                // [EM-START: heartbeat-xhs] 逛小红书时转发给阿萌的那条：话后面接一张卡片（跟聊天里 [[XHS_SHARE]] 同一种）
+                const xhsNote = message.payload?.xhsNote as { noteId?: string; title?: string } | undefined;
+                if (xhsNote?.noteId && xhsNote.title) {
+                    await DB.saveMessage({
+                        charId: message.charId,
+                        role: 'assistant',
+                        type: 'xhs_card',
+                        content: xhsNote.title,
+                        timestamp: (Date.parse(String(message.payload?.createdAt ?? message.createdAt)) || now) + 1,
+                        metadata: { xhsNote, fromAgentBackend: true, source: 'heartbeat' },
+                    } as never);
+                }
+                // [EM-END: heartbeat-xhs]
                 result.delivered += 1;
                 result.lines.push({ charId: message.charId, text });
                 landed.push(message.messageId);

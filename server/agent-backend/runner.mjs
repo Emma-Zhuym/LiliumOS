@@ -53,7 +53,7 @@ export const parseEpisode = raw => {
  * 私人生活里的一件小事（life）：和朋友家人聊几句、点外卖、网购、发朋友圈。
  * 和 episode 一样是附赠的：写坏了只丢这一段。
  */
-const LIFE_KINDS = new Set(['chat', 'social', 'delivery', 'order', 'moment', 'gift']);
+const LIFE_KINDS = new Set(['chat', 'social', 'delivery', 'order', 'moment', 'gift', 'xhs']);
 const LIFE_GROUPS = new Set(['friend', 'family', 'school', 'online', 'other']);
 const MOMENT_GROUPS = new Set(['family', 'friend', 'work', 'school', 'service', 'online', 'other']);
 
@@ -110,6 +110,25 @@ export const parseLife = raw => {
             ...(raw.likes !== undefined && Number.isFinite(likes) && likes >= 0 ? { likes: Math.min(999, Math.round(likes)) } : {}),
             ...(hide.length ? { hide } : {}),
         };
+    }
+    // 逛小红书：detail 是刷的时候的反应；picks 只收编号和一句话，换成真实笔记是心跳那边的事（withXhsFeed）
+    if (raw.kind === 'xhs') {
+        if (!detail) return null;
+        const picks = (Array.isArray(raw.picks) ? raw.picks : [])
+            .map(pick => ({
+                index: Number(pick?.index),
+                note: String(pick?.note ?? '').trim().slice(0, 120),
+                like: pick?.like === true,
+                fav: pick?.fav === true,
+            }))
+            .filter(pick => Number.isInteger(pick.index) && pick.index > 0)
+            .slice(0, 3)
+            .map(({ index, note, like, fav }) => ({ index, ...(note ? { note } : {}), ...(like ? { like } : {}), ...(fav ? { fav } : {}) }));
+        // 转发给阿萌：编号 + 配的一两句话，两样缺一样就当没转发
+        const shareIndex = Number(raw.share?.index);
+        const shareText = String(raw.share?.text ?? '').trim().slice(0, 200);
+        const share = Number.isInteger(shareIndex) && shareIndex > 0 && shareText ? { index: shareIndex, text: shareText } : null;
+        return { kind: 'xhs', detail, ...(picks.length ? { picks } : {}), ...(share ? { share } : {}) };
     }
     // 给阿萌买东西：with 是店名或商品名；via 分网购 / 外卖；惊喜不惊喜由 TA 自己定
     if (raw.kind === 'gift') {
