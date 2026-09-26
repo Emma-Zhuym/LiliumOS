@@ -10,7 +10,7 @@
 
 | 主题 | 文档 | 什么时候看 |
 |------|------|-----------|
-| **当前进度 / Roadmap** | [`progress.md`](./progress.md)、[`docs/roadmap.md`](./docs/roadmap.md) | 判断功能是已完成、部分完成还是待做时先看；旧规格中的状态文字可能已过期 |
+| **改动日志 / Roadmap** | [`docs/changelog.md`](./docs/changelog.md)（做完了什么、哪天、谁做的）、[`docs/roadmap.md`](./docs/roadmap.md)（待验收与接下来做什么） | 判断功能是已完成、待验收还是待做时先看；旧规格中的状态文字可能已过期。做完一件事要在 changelog 加一条 |
 | **聊天语音条与日程密度** | [`.claude/CLAUDE.md`](./.claude/CLAUDE.md) 的 13、19 节 | 改 `<语音>` 标签、TTS、气泡工坊语音条颜色或日程生成数量前先看；“能显示转文字语音条”与“能合成真实音频”是两层能力，不能混为一谈 |
 | **聊天生图 API 与角色立绘参考** | [`docs/image-generation-api.md`](./docs/image-generation-api.md) | 改 `SEND_PHOTO`、设置页生图供应商/模型、立绘参考选择、图片编辑接口或失败降级前必读；生图配置独立于角色聊天 API |
 | **七夕「星月梦境童话」** | [`docs/qixi-special-moment.md`](./docs/qixi-special-moment.md) | 改特别时光入口、四次生成、角色 API 路由、活动存档/重放、聊天卡片或记忆召回前必读 |

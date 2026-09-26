@@ -190,7 +190,7 @@ bridge 在 MacBook 的 `~/Skills&Tools/persephone-bridge`。
 
 | 在哪 | 装的是什么 |
 |---|---|
-| [`roadmap.md`](./roadmap.md) | 当前优先级（P0/P1/P2）、已完成清单、待决策项 |
+| [`roadmap.md`](./roadmap.md) | 当前优先级（P0/P1/P2）、做了等验收的、待决策项 |
 | [`../notes/todo.md`](../notes/todo.md) | `/simplify` 扫出来的 amsg2 技术待办，带文件行号，质量很高 |
 | `docs/*-design.md` 末尾 | 各功能自己的「还没做」小节（如 `agent-backend-design.md`） |
-| [`../progress.md`](../progress.md) | 进度流水 |
+| [`changelog.md`](./changelog.md) | 做完了什么、哪天、谁做的（原来的 progress.md 已并进来） |

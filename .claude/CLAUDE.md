@@ -344,12 +344,15 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 |---|---|
 | 还没决定做的点子 | `docs/ideas.md` ← **唯一入口** |
 | 决定要做了 / 已排期 | `docs/roadmap.md` 的优先级 |
+| 做了但还没验收 / 体验 | `docs/roadmap.md` 的「做了，等验收」表 |
 | 要交给另一个 session 独立做完的 | `docs/spec-<功能名>.md`（照 `spec-photo-favorites.md` 的骨架：数据层 / 各端改动 / **本次不做** / EM 惯例 / 验收） |
-| 做完了 | `docs/roadmap.md` 的「已完成」 |
+| 做完了 | `docs/changelog.md`（日期 · 标题 · **操作：Claude（小帕）** · 提交号 · 内容；最新在上，格式见文件开头） |
 | 代码层面的技术待办 | `notes/todo.md` |
 | 跨 agent 交接、踩过的坑 | Engram（**不存点子**） |
 
-已完成、不要重复立项：地图×日程、Intiface、Finance 重设计、照片收藏、Token 召回面板、Offline 状态系统。
+已完成、不要重复立项：地图×日程、Intiface、Finance 重设计、照片收藏、Token 召回面板、Offline 状态系统。其余做过什么先翻 `docs/changelog.md`。
+
+**每完成一件事都要写 changelog**（2026-09-26 阿萌定）：合进 `main` 或上线后，在 `docs/changelog.md` 对应月份最上面加一条，操作者写 `Claude（小帕）`；同时把 roadmap「做了，等验收」里对应的那行删掉或更新。cloud session 看不到 Engram，changelog 是两边 Agent 和阿萌都一定看得到的那份记录。
 
 ## 文件说明
 
