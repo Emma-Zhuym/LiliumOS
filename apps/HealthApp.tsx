@@ -1985,7 +1985,7 @@ const HealthApp: React.FC = () => {
                       </button>
                       {showCameraMenu && (
                         <div className="absolute bottom-full right-0 mb-2 py-1 w-32 z-10"
-                          style={{ background: F.surfaceRaised, borderRadius: R.bigCard, boxShadow: S.raisedSoft }}>
+                          style={{ background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, boxShadow: S.raisedSoft }}>
                           <label className="flex items-center gap-2 px-3 py-2.5 text-xs font-medium cursor-pointer" style={{ color: F.textPrimary }}>
                             拍照
                             <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleImageInput} />

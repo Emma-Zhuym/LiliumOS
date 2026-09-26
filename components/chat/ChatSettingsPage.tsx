@@ -48,7 +48,7 @@ function Row({ title, subtitle, value, onClick, search = false }: { title: strin
 
 function Group({ title, children }: { title?: string; children: React.ReactNode }) {
     return <section className="mb-4">{title && <h2 className="px-3 pt-3 pb-2 text-xs" style={{ color: F.textTertiary }}>{title}</h2>}
-        <div className="px-4" style={{ background: F.surface, borderRadius: R.bigCard, boxShadow: S.raisedSoft }}>
+        <div className="px-4" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, boxShadow: S.raisedSoft }}>
             {React.Children.toArray(children).map((child, index) => <div key={index} style={index ? { borderTop: `1px solid ${F.divider}` } : undefined}>{child}</div>)}
         </div>
     </section>;

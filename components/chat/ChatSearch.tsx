@@ -299,7 +299,7 @@ const ChatSearch: React.FC<ChatSearchProps> = ({ character, onClose, onOpenMessa
               </RaisedIconButton>
             </div>
 
-            <div className="px-3 pb-5 pt-4" style={{ borderRadius: R.bigCard, background: F.surface, boxShadow: S.raisedSoft }}>
+            <div className="px-3 pb-5 pt-4" style={{ borderRadius: R.bigCard, background: F.surface, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}>
               <div className="grid grid-cols-7 pb-3">
                 {WEEK_LABELS.map(label => (
                   <span key={label} className="text-center text-[11px] font-medium" style={{ color: F.textTertiary }}>{label}</span>
@@ -351,7 +351,7 @@ const ChatSearch: React.FC<ChatSearchProps> = ({ character, onClose, onOpenMessa
         </div>
 
         {loading && (
-          <div style={{ borderRadius: R.bigCard, background: F.surface, boxShadow: S.raisedSoft, overflow: 'hidden' }}>
+          <div style={{ borderRadius: R.bigCard, background: F.surface, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft, overflow: 'hidden' }}>
             {[0, 1, 2].map(index => (
               <div key={index} className="flex animate-pulse gap-3 p-4" style={{ borderTop: index ? `1px solid ${F.divider}` : undefined }}>
                 <div className="h-10 w-10 shrink-0" style={{ borderRadius: R.small, background: F.surfaceSunken }} />
@@ -382,7 +382,7 @@ const ChatSearch: React.FC<ChatSearchProps> = ({ character, onClose, onOpenMessa
         )}
 
         {!loading && !error && results.length > 0 && (
-          <div style={{ borderRadius: R.bigCard, background: F.surface, boxShadow: S.raisedSoft, overflow: 'hidden' }}>
+          <div style={{ borderRadius: R.bigCard, background: F.surface, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft, overflow: 'hidden' }}>
             {results.map((message, index) => {
               const typeMeta = TYPE_META[message.type] || TYPE_META.text;
               const TypeIcon = typeMeta.Icon;

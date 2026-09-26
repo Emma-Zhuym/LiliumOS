@@ -1166,7 +1166,7 @@ const SmartHomeApp: React.FC = () => {
                 type="button"
                 onClick={() => void refresh(config)}
                 className="flex items-center justify-center gap-2 whitespace-nowrap text-[13px] font-semibold active:translate-y-[1px]"
-                style={{ height: 44, borderRadius: R.button, background: F.surfaceRaised, color: PRODUCT.ink, boxShadow: S.raisedSoft }}
+                style={{ height: 44, borderRadius: R.button, background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, color: PRODUCT.ink, boxShadow: S.raisedSoft }}
               >
                 <ArrowsClockwise size={18} weight="bold" />
                 刷新状态
@@ -1237,7 +1237,7 @@ const SmartHomeApp: React.FC = () => {
       </div>
 
       <div className="pointer-events-none absolute bottom-0 left-0 right-0 flex justify-center px-5" style={{ paddingBottom: `calc(var(--safe-bottom) + ${SP[2]}px)` }}>
-        <div className="pointer-events-auto flex" style={{ width: '100%', maxWidth: 320, padding: SP[0], gap: SP[0], borderRadius: R.panel, background: F.surface, boxShadow: S.raisedMedium }}>
+        <div className="pointer-events-auto flex" style={{ width: '100%', maxWidth: 320, padding: SP[0], gap: SP[0], borderRadius: R.panel, background: F.surface, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedMedium }}>
           {([
             { id: 'devices' as const, label: '设备', icon: Lamp },
             { id: 'scenes' as const, label: '场景', icon: Sparkle },

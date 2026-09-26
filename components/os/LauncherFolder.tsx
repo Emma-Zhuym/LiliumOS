@@ -74,7 +74,7 @@ export function LauncherFolderEditor({ folder, availableApps, onClose, onSave, o
         <input value={name} maxLength={20} onChange={event => setName(event.target.value)} className="mt-2 h-12 px-3 outline-none text-[15px]"
           style={{ background: F.surfaceSunken, borderRadius: R.input, boxShadow: S.sunken }} />
         <p className="mt-4 text-[13px]" style={{ color: F.textSecondary }}>选择要放进去的软件{folder ? '' : '（至少两个）'}</p>
-        <div className="mt-2 overflow-y-auto" style={{ background: F.surface, borderRadius: R.large, boxShadow: S.raisedSoft }}>
+        <div className="mt-2 overflow-y-auto" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.large, boxShadow: S.raisedSoft }}>
           {availableApps.map(app => {
             const Icon = Icons[app.icon] || Icons.Settings;
             const checked = selected.includes(app.id);
@@ -87,7 +87,7 @@ export function LauncherFolderEditor({ folder, availableApps, onClose, onSave, o
           })}
         </div>
         <div className="shrink-0 mt-4 flex gap-3">
-          {folder && onDelete && <button type="button" aria-label="删除文件夹并放回软件" onClick={onDelete} className="h-12 w-12 flex items-center justify-center" style={{ background: F.surface, borderRadius: R.button, boxShadow: S.raisedSoft }}><Trash size={20} /></button>}
+          {folder && onDelete && <button type="button" aria-label="删除文件夹并放回软件" onClick={onDelete} className="h-12 w-12 flex items-center justify-center" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.button, boxShadow: S.raisedSoft }}><Trash size={20} /></button>}
           <button type="button" disabled={!canSave} onClick={() => onSave(name.trim(), selected)} className="h-12 flex-1 font-semibold disabled:opacity-40" style={{ background: F.textPrimary, color: F.surface, borderRadius: R.button, boxShadow: S.raisedSoft }}>保存文件夹</button>
         </div>
       </div>

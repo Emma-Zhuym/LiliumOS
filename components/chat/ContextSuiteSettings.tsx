@@ -6,7 +6,7 @@ export default function ContextSuiteSettings() {
     const { memoryPalaceConfig, updateMemoryPalaceConfig } = useOS();
     const flags = memoryPalaceConfig.featureFlags;
     const enabled = flags.recallRouter || flags.interactionAdaptation || flags.deepEngagement;
-    return <div className="flex items-center gap-4 p-4" style={{ background: F.surface, borderRadius: R.smallCard, boxShadow: S.raisedSoft }}>
+    return <div className="flex items-center gap-4 p-4" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.smallCard, boxShadow: S.raisedSoft }}>
         <div className="min-w-0 flex-1">
             <div className="text-sm font-semibold" style={{ color: F.textPrimary }}>智能语境</div>
             <p className="mt-2 text-xs leading-relaxed" style={{ color: F.textSecondary }}>承接话题、识别专名并跟随交流节奏。对所有私聊生效，本地分析不增加模型调用；角色的交流偏好可在记忆宫殿调整。</p>

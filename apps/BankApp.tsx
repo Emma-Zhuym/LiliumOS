@@ -277,7 +277,7 @@ const BankApp: React.FC = () => {
       {/* 底部 Tab Bar — floating pill */}
       <div
         className="shrink-0 flex items-center justify-around mx-5 p-1.5"
-        style={{ background: F.surfaceRaised, borderRadius: R.panel, boxShadow: S.raisedMedium, marginBottom: 'calc(0.5rem + var(--safe-bottom))' /* [EM: safe-bottom] */ }}
+        style={{ background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, borderRadius: R.panel, boxShadow: S.raisedMedium, marginBottom: 'calc(0.5rem + var(--safe-bottom))' /* [EM: safe-bottom] */ }}
       >
         {TABS.map(tab => {
           const isActive = activeTab === tab.id;
@@ -1350,7 +1350,7 @@ const TransactionForm: React.FC<{
               <button
                 onClick={handleSnooze}
                 className="shrink-0 px-2.5 py-1.5 text-[10px] font-semibold active:translate-y-[1px] transition-transform"
-                style={{ borderRadius: R.medium, background: F.surfaceRaised, color: STATUS.info.ink, boxShadow: S.raisedSoft }}
+                style={{ borderRadius: R.medium, background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, color: STATUS.info.ink, boxShadow: S.raisedSoft }}
               >
                 先放着
               </button>
@@ -1374,7 +1374,7 @@ const TransactionForm: React.FC<{
               <button
                 onClick={showCategoryPicker}
                 className="min-h-[56px] px-2 py-2 flex flex-col items-center justify-center gap-1 text-[10px] font-medium active:translate-y-[1px] transition-transform"
-                style={{ borderRadius: R.medium, background: F.surfaceRaised, color: F.textSecondary, boxShadow: S.raisedSoft }}
+                style={{ borderRadius: R.medium, background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, color: F.textSecondary, boxShadow: S.raisedSoft }}
               >
                 <Lightbulb size={17} weight="bold" style={{ color: HUE.amber.ink }} />
                 我记得是什么
@@ -1382,7 +1382,7 @@ const TransactionForm: React.FC<{
               <button
                 onClick={() => window.open('https://www.amazon.com/gp/css/order-history', '_blank', 'noopener,noreferrer')}
                 className="min-h-[56px] px-2 py-2 flex flex-col items-center justify-center gap-1 text-[10px] font-medium active:translate-y-[1px] transition-transform"
-                style={{ borderRadius: R.medium, background: F.surfaceRaised, color: F.textSecondary, boxShadow: S.raisedSoft }}
+                style={{ borderRadius: R.medium, background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, color: F.textSecondary, boxShadow: S.raisedSoft }}
               >
                 <ArrowSquareOut size={17} weight="bold" style={{ color: HUE.amber.ink }} />
                 去 Amazon 查
@@ -1390,7 +1390,7 @@ const TransactionForm: React.FC<{
               <button
                 onClick={handleSnooze}
                 className="min-h-[56px] px-2 py-2 flex flex-col items-center justify-center gap-1 text-[10px] font-medium active:translate-y-[1px] transition-transform"
-                style={{ borderRadius: R.medium, background: F.surfaceRaised, color: F.textSecondary, boxShadow: S.raisedSoft }}
+                style={{ borderRadius: R.medium, background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, color: F.textSecondary, boxShadow: S.raisedSoft }}
               >
                 <Clock size={17} weight="bold" style={{ color: HUE.amber.ink }} />
                 先放着
