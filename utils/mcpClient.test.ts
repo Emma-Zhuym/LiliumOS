@@ -278,6 +278,43 @@ describe('buildMcpOpenAITools', () => {
         expect(parameters.properties.mode).toEqual({ type: 'string', enum: ['read', 'write'] });
         expect(inputSchema.properties.priority).toEqual({ type: 'integer', enum: [0, 1, 5, 9] });
     });
+
+    // 真事故：Home Assistant 的 GetLiveContext.domain 写成 { type: 'string', items: {...} }
+    // （voluptuous 的 vol.All(cv.ensure_list, [str]) 转出来的），Gemini 整批退回 400
+    // 「For schema with items, schema type should be ARRAY」——26 个工具一起用不了，聊天直接发不出去。
+    it('items 和 type 打架时不整批退回：留标量类型、去掉 items，不擅自改宽成数组', () => {
+        const inputSchema = {
+            type: 'object',
+            properties: {
+                domain: { type: 'string', items: { type: 'string' }, description: '要看的领域' },
+                names: { items: { type: 'string' } },
+                area: { type: ['string', 'null'] },
+                tags: { type: 'array', items: { type: 'string' } },
+            },
+        };
+        saveMcpServers([mkServer({ tools: [{ name: 'GetLiveContext', inputSchema }] })]);
+
+        const { properties } = buildMcpOpenAITools().tools[0].function.parameters;
+        // 声明成数组、服务端只认标量的话就真调错了，所以这里保守地留标量
+        expect(properties.domain).toEqual({ type: 'string', description: '要看的领域' });
+        // 没写 type 的才按 items 补上 array
+        expect(properties.names).toEqual({ type: 'array', items: { type: 'string' } });
+        expect(properties.area).toEqual({ type: 'string' });
+        // 本来就自洽的不动
+        expect(properties.tags).toEqual({ type: 'array', items: { type: 'string' } });
+        // 原始 schema 仍是真实调用的依据，一个字都不能改
+        expect(inputSchema.properties.domain).toEqual({ type: 'string', items: { type: 'string' }, description: '要看的领域' });
+    });
+
+    it('叫 items 的属性不会被当成数组声明', () => {
+        const inputSchema = {
+            type: 'object',
+            properties: { items: { type: 'string', description: '买什么' } },
+        };
+        saveMcpServers([mkServer({ tools: [{ name: 'HassListAddItem', inputSchema }] })]);
+        const { properties } = buildMcpOpenAITools().tools[0].function.parameters;
+        expect(properties.items).toEqual({ type: 'string', description: '买什么' });
+    });
 });
 
 describe('MCP 多步任务策略', () => {
