@@ -368,6 +368,7 @@ const mcpPost = async (
     serverUrl: string,
     body: McpJsonRpcRequest,
     expectResponse = true,
+    signal?: AbortSignal, // [EM: xhs-mini-mcp] 扫码那一趟要能超时
 ): Promise<{ response: McpJsonRpcResponse | null; sessionId: string | null }> => {
     const headers: Record<string, string> = withMcpAuth({ // [EM: xhs-mini-mcp]
         'Content-Type': 'application/json',
@@ -375,7 +376,7 @@ const mcpPost = async (
     });
     if (mcpSessionId) headers['Mcp-Session-Id'] = mcpSessionId;
 
-    const resp = await fetch(serverUrl, { method: 'POST', headers, body: JSON.stringify(body) });
+    const resp = await fetch(serverUrl, { method: 'POST', headers, body: JSON.stringify(body), signal });
     const sessionId = resp.headers.get('Mcp-Session-Id') || resp.headers.get('mcp-session-id');
 
     if (resp.status === 202) return { response: null, sessionId };
@@ -858,9 +859,9 @@ export const XhsMcpClient = {
         return { success: false, error: '登录功能仅在 Skills (Bridge) 模式下可用' };
     },
 
-    getQrcode: async (serverUrl: string): Promise<McpToolResult> => {
+    getQrcode: async (serverUrl: string, timeoutMs?: number): Promise<McpToolResult> => {
         if (detectMode(serverUrl) === 'bridge') return bridgePost(serverUrl, 'get-qrcode');
-        return mcpLoginQrcode(serverUrl); // [EM: xhs-mini-mcp]
+        return mcpLoginQrcode(serverUrl, timeoutMs); // [EM: xhs-mini-mcp]
     },
 
     logout: async (serverUrl: string): Promise<McpToolResult> => {
@@ -881,11 +882,19 @@ export interface XhsLoginQrcode {
     imageDataUrl?: string;
 }
 
-const mcpLoginQrcode = async (serverUrl: string): Promise<McpToolResult> => {
+/**
+ * 服务器那边要先用浏览器打开小红书登录页才截得到码；mini 在国外时一分钟左右是常事。
+ * 不设上限的话它一卡住，设置页就永远停在「正在要二维码」。
+ */
+export const XHS_QRCODE_TIMEOUT_MS = 120_000;
+
+const mcpLoginQrcode = async (serverUrl: string, timeoutMs = XHS_QRCODE_TIMEOUT_MS): Promise<McpToolResult> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
         await mcpEnsureInitialized(serverUrl);
         const name = mcpDiscoveredTools.some(t => t.name === 'get_login_qrcode') ? 'get_login_qrcode' : mcpResolveToolName('get_login_qrcode');
-        const { response } = await mcpPost(serverUrl, mcpBuildRequest('tools/call', { name, arguments: {} }));
+        const { response } = await mcpPost(serverUrl, mcpBuildRequest('tools/call', { name, arguments: {} }), true, controller.signal);
         if (response?.error) return { success: false, error: `MCP Error [${response.error.code}]: ${response.error.message}` };
         const content: any[] = Array.isArray(response?.result?.content) ? response.result.content : [];
         const message = content.filter(c => c?.type === 'text').map(c => c.text).join('\n').trim();
@@ -898,7 +907,12 @@ const mcpLoginQrcode = async (serverUrl: string): Promise<McpToolResult> => {
         };
         return { success: true, data };
     } catch (e: any) {
+        if (controller.signal.aborted) {
+            return { success: false, error: `服务器 ${Math.round(timeoutMs / 1000)} 秒都没把二维码拿回来（它在打开小红书登录页），再点一次试试` };
+        }
         return { success: false, error: e.message };
+    } finally {
+        clearTimeout(timer);
     }
 };
 // [EM-END: xhs-mini-mcp]
