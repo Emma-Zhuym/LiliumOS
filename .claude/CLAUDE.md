@@ -328,16 +328,18 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - `ScheduleCard.tsx` — 编辑时可手动覆盖状态
 - 三层判断优先级：手动覆盖 > LLM 生成 > 关键词 fallback
 
-## 未来功能计划
+## 点子和待办往哪写
 
-当前优先级和完成记录统一维护在 `docs/roadmap.md`；这里仅保留会影响架构边界的摘要，避免两份清单再次漂移。
+**新点子只写 `docs/ideas.md`，别再开新清单文档了**（2026-09-25 定，起因是同一批想法散在
+五个地方，还有几条掉进 Engram 里找不回来）。
 
-1. **Health 外部数据链收尾**：Notion 同步、完整历史角色工具、角色周评。
-2. **Notion 高级管理 App**：独立 `apps/NotionApp.tsx`，不重写 Settings；整合多库权限、模板和标签。
-3. **位置感知聊天**：`utils/locationService.ts` + Google Places + 显式权限/隐私开关。
-4. **日记系统整理**：独立 `apps/DiaryApp.tsx`，统一交换日记与 Notion 日记。
-5. **共读增强**：批注回信支路、文字高亮、PDF。
-6. **角色时区/多人日程尾项**：先按 `docs/character-timezone.md` 的产品决策处理，不要把角色时间和设备时间混用。
+| 东西 | 写哪 |
+|---|---|
+| 还没决定做的点子 | `docs/ideas.md` ← **唯一入口** |
+| 决定要做了 / 已排期 | `docs/roadmap.md` 的优先级 |
+| 做完了 | `docs/roadmap.md` 的「已完成」 |
+| 代码层面的技术待办 | `notes/todo.md` |
+| 跨 agent 交接、踩过的坑 | Engram（**不存点子**） |
 
 已完成、不要重复立项：地图×日程、Intiface、Finance 重设计、照片收藏、Token 召回面板、Offline 状态系统。
 
