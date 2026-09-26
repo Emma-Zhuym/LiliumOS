@@ -77,7 +77,7 @@ merge 时 `grep -rn "EM-START\|\[EM:" --include="*.ts" --include="*.tsx"` 就能
 ### merge 后必跑自检
 
 ```bash
-bash scripts/check-em-patches.sh   # 当前 130 项锚点检查，红了就是功能被冲掉
+bash scripts/check-em-patches.sh   # 当前 131 项锚点检查，红了就是功能被冲掉
 pnpm vitest run                    # 单元测试
 ```
 
@@ -167,6 +167,8 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - `utils/shoppingFamily.ts` — 四种订单互通：我给 TA 自动进 TA 查手机的淘宝和外卖（只读映射）；TA 给我只由心跳 `gift` 下单（惊喜由 TA 定），投喂站不再手动录；「给自己」与家属关联角色心跳下的单只在关联后互相可见
 - **惊喜礼物三处都要藏住**：投喂站、TA 查手机里那条（查手机就是阿萌在翻，所以礼物单一律由 `shopOrdersAsPhoneRecords` 实时映射、`emLife` 不写记录）、起居注那一句（后端 `veilSurprise` 换成不点破的说法，买了什么留在 `model_runs.episode.life`）。送到即揭晓
 - 网购是直接填单（名称/价格/规格），不走商品目录和购物车；外卖保留店铺目录 + 购物车
+- **送达时间由后端定**（`server/agent-backend/shopping.mjs`）：心跳抽中买东西先抽送达时刻写进提示词（网购分当天达 / 次日达 / 普通快递三档，**选哪档由模型按买的东西定（`ship`），几点到由程序定**），`life.eta` 带去前端（查手机记录 `PhoneEvidence.eta`、礼物单 `etaTimestamp`）；没有 `eta` 的旧数据退回写死估计，别删这条退路。同一处把最近 7 天买过的列给 TA，防重复下单
+- 外卖和网购都由 `sweepDeliveries` 到点自动签收；**退单不删单**：状态 `cancelled` + `cancelledAt`，TA 自己的心跳单退款标在查手机那条记录上（`refundedAt` + 「（已退款）」），跟 TA 有关的退单在私聊留一条系统消息（`refundNotice`）
 
 ### 17. EM 角色代记
 - `utils/emScribe.ts` — 代记指令执行与去重

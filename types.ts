@@ -951,6 +951,10 @@ export interface PhoneEvidence {
     contactId?: string;
     topicStart?: number; // [EM: phone-topic-boundary] 当前话题在完整对话中的气泡起点
     agentSourceIds?: string[]; // [EM: agent-life] 这条记录里有哪几段来自 Mac mini 心跳（幂等键；也用来在起居注里去重）
+    // [EM-START: shopping-eta] 心跳买的东西：后端定好的送达时刻；阿萌在投喂站帮 TA 退掉的时刻
+    eta?: number;
+    refundedAt?: number;
+    // [EM-END: shopping-eta]
     // [EM-START: moments] 朋友圈：和动态同一次生成的亲友评论（3–5 条）、虚拟点赞数、屏蔽的通讯录分组、配图
     moment?: {
         comments?: { who: string; relation?: string; text: string }[];

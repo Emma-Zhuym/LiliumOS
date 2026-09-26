@@ -112,6 +112,10 @@ const toInstant = ({ year, month, day }, { hour, minute }, timeZone) => {
     return parseAppleDate(`${date.year}-${pad(date.month)}-${pad(date.day)} ${pad(hour % 24)}:${pad(minute)}:00`, timeZone);
 };
 
+/** 本地某天（今天起第 offset 天）的几点几分 → 绝对时刻。送达时间这类「程序定一个本地时刻」用。 */
+export const localDayAt = (now, offset, hour, minute, timeZone = 'America/Chicago') =>
+    toInstant(shiftDate(localParts(now, timeZone), offset), { hour, minute }, timeZone);
+
 /**
  * 解析约定时间。认不出、已经过去、或者太远，一律返回 null。
  */

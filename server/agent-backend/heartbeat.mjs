@@ -18,6 +18,9 @@ import {
 } from './lifeThreads.mjs';
 import { parsePlanTime } from './planTime.mjs';
 import {
+    SHIP_KINDS, SHOPPING_KINDS, formatEtaForPrompt, formatPurchasesForPrompt, formatShipOptions, pickEtas, recentPurchases, withEta,
+} from './shopping.mjs';
+import {
     applyXhsActions, fetchDetail, fetchFeed, formatDetailForPrompt, formatFeedForPrompt, resolvePicks, resolveShare, XHS_MAX_PICKS,
 } from './xhsFeed.mjs';
 import { formatTemporalForPrompt, listTemporalItems, readVisibility, veilForCharacter } from './temporal.mjs';
@@ -617,6 +620,8 @@ export const HEARTBEAT_SCHEMA = {
                 detail: { type: 'string', maxLength: 400 },
                 value: { type: 'string', maxLength: 20 },
                 via: { type: 'string', enum: ['net', 'food'] },
+                // 网购选哪种配送（当天达 / 次日达 / 普通快递）；几点到由程序定
+                ship: { type: 'string', enum: SHIP_KINDS },
                 surprise: { type: 'boolean' },
                 note: { type: 'string', maxLength: 120 },
                 // moment：亲友评论、虚拟赞数、不给哪些分组看
@@ -712,7 +717,7 @@ export const HEARTBEAT_SCHEMA = {
  */
 export const buildPrompt = (character, snapshot, now = new Date(), intent = 'live', {
     thoughts = [], carried = null, threads = [], plans = [], duePlan = null, episode = false, life = null, canSpeak = true, temporal = '',
-    feed = [], opened = null,
+    feed = [], opened = null, etas = null, purchases = [],
 } = {}) => {
     const p = snapshot.payload || {};
     const lines = [];
@@ -844,6 +849,11 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
         const momentCircle = life === 'moment' && (circle.length || coworkers.length)
             ? `能来评论的人（括号里是关系，方括号是分组）：${[...circle, ...coworkers].map(c => `${c.name}${c.relation ? `（${c.relation}）` : ''}[${c.group ?? 'other'}]`).join('、')}。\n`
             : '';
+        const foodWhen = () => formatEtaForPrompt(etas.food, now, p.timezone);
+        const shipHow = () => formatShipOptions(etas, now, p.timezone);
+        const bought = purchases.length && SHOPPING_KINDS.has(life)
+            ? `${formatPurchasesForPrompt(purchases, now, p.timezone, p.user?.name || '对方')}\n`
+            : '';
         const how = {
             chat: '你刚和一位朋友、家人或老同学聊了几句。kind 填 "chat"；with 写对方的名字，'
                 + (circle.length ? '优先从上面认识的人里选；' : '')
@@ -858,8 +868,10 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
                 + '也可以是不用出门的（比如临时约好一起上线打游戏、开着语音各干各的）。'
                 + '当场就发生的事写现在时，别写成计划。lines 写约人或者当时说的那几句（最多 6 句，who 写说话人的名字，你自己写「我」）。'
                 + PLAN_HOW,
-            delivery: '你刚点了外卖。kind 填 "delivery"；with 写店名，detail 写点了什么，value 写实付金额（比如 ¥38.50）。',
-            order: '你刚在网上下了一单。kind 填 "order"；with 写商品名，detail 写规格或物流状态，value 写价格。',
+            delivery: '你刚点了外卖。kind 填 "delivery"；with 写店名，detail 写点了什么，value 写实付金额（比如 ¥38.50）。'
+                + (etas ? `这一单${foodWhen()}送到，提到送达就说这个时间，别自己编。` : ''),
+            order: '你刚在网上下了一单。kind 填 "order"；with 写商品名，detail 写规格，value 写价格。'
+                + (etas ? shipHow() : ''),
             moment: '你刚发了一条朋友圈。kind 填 "moment"；detail 写正文。'
                 + '再替你通讯录里的亲友写下反应：comments 写 3–5 条评论（who 用上面认识的人的名字，relation 写 TA 是你的谁，语气贴着各自身份）；'
                 + 'likes 写点赞数（按你的人缘，一般 5–60）；不想给某些人看就在 hide 里写分组（family / friend / work / school / online / other），被屏蔽的人不能出现在评论里，不屏蔽就省略。',
@@ -878,13 +890,15 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
                         + '看完之后再写这一跳：detail 要写到你点开看到的东西（正文、评论区里戳到你的那句），'
                         + '别复述，写你的反应；picks / like / fav / share 按你看完之后的想法重新决定。'
                     : ''),
-            gift: '你刚给对方买了点东西。kind 填 "gift"；via 填 "net"（网购，几天后到）或 "food"（给对方点外卖，半小时左右到）；'
+            gift: '你刚给对方买了点东西。kind 填 "gift"；via 填 "net"（网购）或 "food"（给对方点外卖）；'
+                + (etas ? `点外卖的话${foodWhen()}到；网购的话${shipHow()}` : '')
                 + 'with 写商品名或店名，detail 写买了什么、为什么挑这个，value 写价格；note 可以写一句附言（对方收到时能看到）。'
                 + '想不想让对方提前知道是什么由你定：想当惊喜就把 surprise 设为 true，送到之前对方看不到内容，你也别在聊天里说漏。',
         }[life];
         if (life === 'gift') {
             lines.push(
                 '这一跳你想到了对方，顺手给对方买了点东西。在 life 里写这一单：\n'
+                + bought
                 + `${how}\n`
                 + '要贴着你的人设、你们的关系和你此刻的时段，价钱和你的日常消费差不多，不要一出手就是大件。activity 要和这件事对得上。',
             );
@@ -894,6 +908,7 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
             '这一跳你在过自己的私人生活，跟对方无关。在 life 里写一件你刚做的小事：\n'
             + known
             + momentCircle
+            + bought
             + `${how}\n`
             + (life === 'xhs'
                 ? '这是你自己的时间：除了 share 那一句，别的地方不要围着对方转；要贴着你此刻的时段和你的人设。'
@@ -1053,8 +1068,13 @@ export const createHeartbeatHandler = ({
         }
         if (!feed.length) lifeKind = 'moment';
     }
+    // 买东西：送达时刻由程序先抽好写进提示词，落地时同一个时刻带去投喂站；最近买过的也给 TA 看，别重复下单。
+    const shopping = SHOPPING_KINDS.has(lifeKind);
+    const etas = shopping ? pickEtas(startedAt, timezone, rng) : null;
+    const purchases = shopping ? recentPurchases(db, character.charId, startedAt) : [];
     const promptFor = opened => buildPrompt(character, snapshot, startedAt, intent, {
         thoughts, carried: hush ? null : carried, threads, plans, duePlan, episode: wantsEpisode, life: lifeKind, canSpeak: !hush, temporal, feed, opened,
+        etas, purchases,
     });
     const firstPass = await runner.run({
         charId: character.charId,
@@ -1114,11 +1134,11 @@ export const createHeartbeatHandler = ({
     // 生活里的聊天对象不能是阿萌本人：那不是「自己的时间」，也会在通讯录里凭空多出一个她。
     const userName = String(snapshot.payload?.user?.name ?? '').trim();
     const rawLife = lifeKind ? withXhsFeed(modelOutput.life ?? null, feed) : null;
-    const lifeChecked = withPlanTime(
+    const lifeChecked = withEta(withPlanTime(
         rawLife && !((rawLife.kind === 'chat' || rawLife.kind === 'social') && userName && rawLife.with === userName) ? rawLife : null,
         startedAt,
         timezone,
-    );
+    ), etas);
     // 点开看过的那条也带上：前端小红书 App 另记一条「查看详情」，跟手动刷新时一样
     const lifeDraft = lifeChecked?.kind === 'xhs' && opened
         ? {

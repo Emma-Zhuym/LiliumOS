@@ -23,9 +23,11 @@ export const FAMILY_LINKS_KEY = 'familyLinks';
 /** 查手机里由投喂站映射来的记录用这个前缀，据此隐藏删除按钮。 */
 export const SHOP_RECORD_PREFIX = 'shop-';
 
-/** 心跳只说「刚下单」，没有送达时间：外卖按 30 分钟、网购按 3 天算。 */
+/** 旧的心跳订单没带送达时刻（`eta`）：外卖按 30 分钟、网购按 3 天算。新的一律用后端定好的那个。 */
 const CHAR_FOOD_ETA_MS = 30 * 60 * 1000;
 const CHAR_NET_ETA_MS = 3 * 24 * 60 * 60 * 1000;
+/** 帮 TA 退掉的心跳订单：查手机那条记录的 detail 末尾加上这个。 */
+export const REFUND_MARK = '（已退款）';
 /** 家属能看到的「我给我买」：还在路上的，加上一天内送到的。 */
 const FAMILY_RECENT_MS = 24 * 60 * 60 * 1000;
 
@@ -51,14 +53,15 @@ export const charSelfOrders = (
         (char.phoneState?.records ?? []).filter(isHeartbeatPurchase)
             .filter(record => !record.agentSourceIds?.some(id => gifts.has(id))).map(record => {
             const type = record.type === 'delivery' ? 'food' : 'net';
-            const etaTimestamp = record.timestamp + (type === 'food' ? CHAR_FOOD_ETA_MS : CHAR_NET_ETA_MS);
-            const detail = record.detail?.trim();
+            const etaTimestamp = record.eta ?? record.timestamp + (type === 'food' ? CHAR_FOOD_ETA_MS : CHAR_NET_ETA_MS);
+            const detail = record.detail?.trim().replace(REFUND_MARK, '').trim();
             return {
                 id: `hb-${char.id}-${record.id}`,
                 type,
                 receiver: char.name,
                 receiverCharId: char.id,
-                status: etaTimestamp <= now ? 'done' : 'active',
+                status: record.refundedAt ? 'cancelled' : etaTimestamp <= now ? 'done' : 'active',
+                ...(record.refundedAt ? { cancelledAt: record.refundedAt } : {}),
                 note: '',
                 placedAt: record.timestamp,
                 etaTimestamp,
@@ -90,9 +93,9 @@ export const parsePrice = (text?: string) => {
 
 export const formatYuan = (n: number) => '¥' + (Math.round(n * 100) / 100).toString().replace(/\.00$/, '');
 
-/** 心跳里 TA 给我买的东西 → 投喂站订单。外卖 40 分钟到，网购 3 天到。 */
+/** 心跳里 TA 给我买的东西 → 投喂站订单。送达时刻用后端定好的；旧数据没有就外卖 40 分钟、网购 3 天。 */
 export const giftOrderFromLife = (
-    event: { messageId: string; createdAt: string; life: { with?: string; detail?: string; value?: string; via?: 'net' | 'food'; surprise?: boolean; note?: string } },
+    event: { messageId: string; createdAt: string; life: { with?: string; detail?: string; value?: string; via?: 'net' | 'food'; surprise?: boolean; note?: string; eta?: string } },
     char: Pick<CharacterProfile, 'id' | 'name'>,
 ): ShopOrder | null => {
     const title = event.life.with?.trim();
@@ -109,7 +112,7 @@ export const giftOrderFromLife = (
         status: 'active',
         note: event.life.note?.trim() ?? '',
         placedAt,
-        etaTimestamp: placedAt + (type === 'food' ? 40 * 60 * 1000 : CHAR_NET_ETA_MS),
+        etaTimestamp: Date.parse(event.life.eta ?? '') || placedAt + (type === 'food' ? 40 * 60 * 1000 : CHAR_NET_ETA_MS),
         lines: [],
         isGiftFromChar: true,
         agentSourceId: event.messageId,
@@ -129,9 +132,12 @@ export const orderPriceText = (order: ShopOrder, products: ShopProduct[]) => {
     return formatYuan(productLines(order, products).reduce((sum, { line, product }) => sum + product.price * line.qty, 0));
 };
 
-/** 惊喜礼物还没送到：收礼的一方看不到里面是什么。 */
-const isUnrevealedSurprise = (order: ShopOrder, now: number) =>
-    !!order.surprise && order.status === 'active' && !(order.etaTimestamp && order.etaTimestamp <= now);
+/** 惊喜礼物还没送到：收礼的一方看不到里面是什么。送到之前就退掉的，永远不揭晓。 */
+const isUnrevealedSurprise = (order: ShopOrder, now: number) => {
+    if (!order.surprise || order.status === 'done') return false;
+    const at = order.status === 'cancelled' ? order.cancelledAt ?? now : now; // [EM: shopping-refund]
+    return !(order.etaTimestamp && order.etaTimestamp <= at);
+};
 /** TA 送我的惊喜：送到之前投喂站里不显示内容和价格。 */
 export const isHiddenFromUser = (order: ShopOrder, now = Date.now()) => isUnrevealedSurprise(order, now) && !!order.isGiftFromChar;
 /** 我送 TA 的惊喜：送到之前 TA 那边（聊天、查手机）不知道是什么。 */
@@ -150,7 +156,7 @@ export const shopOrdersAsPhoneRecords = (
         const items = orderItemsText(order, products);
         if (!items) return [];
         const who = userName || '用户';
-        const pending = order.status === 'active' ? '（在路上）' : '';
+        const pending = order.status === 'active' ? '（在路上）' : order.status === 'cancelled' ? '（已退款）' : '';
         // TA 给我买的惊喜：TA 自己当然知道买了什么，但查手机是阿萌在看，没送到就先别露
         if (isHiddenFromUser(order, now)) {
             return [{
@@ -195,7 +201,7 @@ export const buildFamilyShoppingContext = (
 ): string | null => {
     if (!linkedIds.includes(charId)) return null;
     const lines = orders
-        .filter(order => order.selfOrder === 'user')
+        .filter(order => order.selfOrder === 'user' && order.status !== 'cancelled')
         // 在路上的，和预计送达后一天之内的；没点「确认收货」的旧网购单不会一直挂着
         .filter(order => now - (order.etaTimestamp ?? order.placedAt) < FAMILY_RECENT_MS)
         .sort((a, b) => a.placedAt - b.placedAt)
@@ -217,4 +223,35 @@ export const buildFamilyShoppingContext = (
     if (lines.length === 0) return null;
     return `👪 你们的购物账号是家属关联的，你能看到用户最近给自己买的东西：${lines.join('；')}。这是你顺手看到的，不是用户专门告诉你的；可以自然地关心一句（好不好吃、到了没），不用每轮都提。`;
 };
+
+// [EM-START: shopping-refund]
+/** 订单状态的字：进行中（配送中 / 运送中）、已完成、已退款。 */
+export const orderStatusText = (order: Pick<ShopOrder, 'status' | 'type'>) =>
+    order.status === 'done' ? '已完成' : order.status === 'cancelled' ? '已退款' : order.type === 'food' ? '配送中' : '运送中';
+
+/** 能不能退：在路上的都能取消；网购送到了还能退货（外卖吃了就不能退了）。 */
+export const canRefund = (order: Pick<ShopOrder, 'status' | 'type'>) =>
+    order.status === 'active' || (order.status === 'done' && order.type === 'net');
+
+/**
+ * 退掉一单之后告诉 TA 的那句（进 TA 的私聊，TA 聊天时看得到）。跟 TA 无关的（给自己买的）返回 null。
+ * 私聊是阿萌也在看的：TA 送我的惊喜还没揭晓，就不写里面是什么。
+ */
+export const refundNotice = (order: ShopOrder, products: ShopProduct[], userName: string, now = Date.now()): string | null => {
+    if (order.selfOrder === 'user') return null;
+    const who = userName || '对方';
+    const kind = order.type === 'food' ? '外卖' : '网购';
+    const action = order.status === 'done' ? '退货退款' : '取消';
+    const items = orderItemsText(order, products);
+    if (order.selfOrder === 'char') return `🧾 ${who}帮你把${kind}「${items}」${action}了，钱原路退回。`;
+    if (order.isGiftFromChar) {
+        return isHiddenFromUser(order, now)
+            ? `🧾 ${who}${action}了你给 ta 准备的那份惊喜（${kind}）。`
+            : `🧾 ${who}${action}了你给 ta 买的${kind}「${items}」。`;
+    }
+    return isHiddenFromChar(order, now)
+        ? `🧾 ${who}${action}了原本要给你的一个惊喜包裹。`
+        : `🧾 ${who}${action}了给你买的${kind}「${items}」。`;
+};
+// [EM-END: shopping-refund]
 // [EM-END: shopping-family]

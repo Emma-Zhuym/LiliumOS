@@ -1,9 +1,10 @@
 /**
- * shoppingDeliverySweep.ts — 外卖到点自动收货
+ * shoppingDeliverySweep.ts — 到点自动收货
  *
- * 外卖 ETA 精确到分钟：到时间自动把订单标 done + awaitingReply，
+ * 外卖和快递的 ETA 都精确到分钟：到时间自动把订单标 done + awaitingReply，
  * 并把送达卡片（interaction 消息）发进对应角色聊天，卡片时间戳 = 送达时刻。
- * 快递（net）仍保持手动确认收货（现实里也要签收）。
+ * 快递原来要手动确认收货，结果没点的单一直挂着「今天送达」（2026-09-26 改成到点自动签收）；
+ * 想提前收也还能手动点「确认收货」。
  *
  * 调用点：
  * - ShoppingApp refresh（打开投喂站时）
@@ -15,13 +16,13 @@ import { ShoppingDB } from './shoppingDb';
 import { DB } from './db';
 import { orderCardLines } from './shoppingFamily'; // [EM: shopping-family]
 
-export async function sweepFoodDeliveries(): Promise<void> {
+export async function sweepDeliveries(): Promise<void> {
   try {
     const [orders, products] = await Promise.all([ShoppingDB.getOrders(), ShoppingDB.getProducts()]);
     const now = Date.now();
 
     for (const o of orders) {
-      if (o.type !== 'food' || o.status !== 'active' || !o.etaTimestamp || o.etaTimestamp > now) continue;
+      if (o.status !== 'active' || !o.etaTimestamp || o.etaTimestamp > now) continue;
 
       // 先翻状态再发卡片：两个调用点并发时，第二个进来看到 status 已变就跳过
       await ShoppingDB.saveOrder({ ...o, status: 'done', awaitingReply: true });
@@ -40,7 +41,7 @@ export async function sweepFoodDeliveries(): Promise<void> {
         content: '📦',
         metadata: {
           kind,
-          typeLabel: '外卖',
+          typeLabel: o.type === 'food' ? '外卖' : '快递',
           items,
           receiver: o.receiver,
           isGiftFromChar: !!o.isGiftFromChar,
@@ -53,6 +54,6 @@ export async function sweepFoodDeliveries(): Promise<void> {
       } as any);
     }
   } catch (e) {
-    console.error('[ShoppingSweep] 外卖自动收货失败', e);
+    console.error('[ShoppingSweep] 自动收货失败', e);
   }
 }

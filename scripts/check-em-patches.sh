@@ -62,6 +62,7 @@ check "外卖店铺与店内双层滚动" apps/ShoppingApp.tsx "[EM-START: shopp
 check "投喂站整页触摸滚动" apps/ShoppingApp.tsx "[EM: shopping-page-scroll]"
 check "投喂站订单进 TA 查手机淘宝/外卖" apps/CheckPhone.tsx "[EM-START: shopping-family]"
 check "家属关联与惊喜礼物进聊天购物感知" utils/shoppingContextBuilder.ts "[EM-START: shopping-family]"
+check "心跳订单送达时刻与退款标记" types.ts "[EM-START: shopping-eta]"
 check "朋友圈 App 注册" components/PhoneShell.tsx "case AppID.Moments: return <MomentsApp />"
 check "朋友圈图标" constants.tsx "Moments: ({ className }) => <Aperture"
 check "朋友圈顶栏自理安全区" utils/safeAreaApps.ts "AppID.Moments, // [EM: moments]"

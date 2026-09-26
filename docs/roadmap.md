@@ -14,6 +14,7 @@
 
 | 事情 | 做完于 | 阿萌要做的 |
 |---|---|---|
+| 投喂站送达时间与退单 | 2026-09-26 | 重启 agent 后端；把那张重复的单退掉试试（「帮 TA 取消」/「退货退款」），看 TA 私聊里有没有那句说明；下一单心跳网购看投喂站里的送达时间和 TA 嘴上说的对不对得上 |
 | 心跳逛小红书、停用发帖评论 | 2026-09-26 | 把令牌复制一份到 agent 后端的 secrets（见 changelog），重启后端和网关；想让哪个角色逛就在 TA 的聊天设置里开「小红书」；过几天看小红书 App 里有没有 TA 自己刷的记录、有没有转发给你的卡片 |
 | 小红书 MCP 搬到 mini | 2026-09-26 | 扫码后点「测试连接」看到昵称；让角色搜一次小红书试试；决定旧的 `xiaohongshu-readonly` / `xiaohongshu-tunnel` 要不要停 |
 | 心跳生活活动 v2 | 2026-09-26 | 重启 agent 后端；看一跳真实心跳，确认不再出现「你不来我就还没做饭」这类把自己日常冻住的话 |
@@ -28,13 +29,12 @@
 ### P0：规矩与同步安全
 
 - 上游同步严格走 `.claude/CLAUDE.md` / `AGENTS.md` 的审批闸门：先只读调研、汇报，阿萌选完才建验收分支。建议两周一合。
-- merge 后跑 `bash scripts/check-em-patches.sh`（当前 130 项）和 `pnpm vitest run`。
+- merge 后跑 `bash scripts/check-em-patches.sh`（当前 131 项）和 `pnpm vitest run`。
 - EM App 数据备份必须持续覆盖 Finance（含周期规则）、Health、Shopping、Map、Moments、Smart Home。
 - 剧情剧场默认独立故事线与独立记忆；只有用户显式开启才镜像进角色记忆。
 
 ### P1：心跳后续
 
-- 送达时间统一（`docs/spec-heartbeat-life-v2.md` 第 5 节）：程序定外卖 / 网购的到达时刻，投喂站和提示词用同一个时间。
 - 朋友圈由心跳定时刷新（现在只有「让大家看看」手动刷）。
 
 ### P1：Health 收尾
