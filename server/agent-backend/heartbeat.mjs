@@ -13,7 +13,10 @@ import { createHash } from 'node:crypto';
 import { getSetting } from './db.mjs';
 import { getCharacter, toCharacter } from './characters.mjs';
 import { getSnapshot } from './snapshots.mjs';
-import { SHORT_ID_LENGTH, applyThread, closeStaleThreads, listOpenThreads } from './lifeThreads.mjs';
+import {
+    SHORT_ID_LENGTH, applyThread, closePassedPlans, closeStaleThreads, completeThread, isPlanDue, isPlanThread, listOpenThreads,
+} from './lifeThreads.mjs';
+import { parsePlanTime } from './planTime.mjs';
 import { formatTemporalForPrompt, listTemporalItems, readVisibility, veilForCharacter } from './temporal.mjs';
 
 /** 心跳最晚执行时间：过了就 expired，mini 睡醒后不会补跑一堆旧心跳（设计 4.1）。 */
@@ -481,23 +484,46 @@ export const decideEpisode = ({ snapshot, now, timezone, intent, threads = [], r
 
 /**
  * 生活里具体做哪件事，也由程序定：让模型自己挑，它会一直挑同一种（多半是找人聊天）。
- * 饭点外卖多一些。
+ *
+ * 购物（delivery + order + gift）两行都压在 20%（2026-09-26）：原来饭点外卖 0.35，
+ * 算下来一个角色一晚上约 0.9 次外卖，几个角色一起跑就天天在买东西、饭后还点外卖。
+ * 饭点仍然外卖偏多、非饭点仍然网购偏多，只是整体让位给聊天 / 社交 / 朋友圈。
  */
+export const MEALTIME_LIFE_WEIGHTS = [
+    ['chat', 0.42], ['social', 0.16], ['delivery', 0.13], ['order', 0.04], ['gift', 0.03], ['moment', 0.22],
+];
+export const OTHER_LIFE_WEIGHTS = [
+    ['chat', 0.40], ['social', 0.17], ['delivery', 0.04], ['order', 0.12], ['gift', 0.04], ['moment', 0.23],
+];
+export const isMealtime = minutesOfDay =>
+    (minutesOfDay >= 11 * 60 && minutesOfDay < 13 * 60 + 30) || (minutesOfDay >= 17 * 60 && minutesOfDay < 20 * 60 + 30);
+
 export const pickLifeKind = (minutesOfDay, rng = Math.random) => {
-    const mealtime = (minutesOfDay >= 11 * 60 && minutesOfDay < 13 * 60 + 30) || (minutesOfDay >= 17 * 60 && minutesOfDay < 20 * 60 + 30);
     // gift = 给阿萌买点东西（网购或外卖，TA 自己定要不要当惊喜）；少见才珍贵
-    const weights = mealtime
-        ? [['chat', 0.38], ['delivery', 0.35], ['order', 0.09], ['moment', 0.14], ['gift', 0.04]]
-        : [['chat', 0.48], ['delivery', 0.1], ['order', 0.18], ['moment', 0.2], ['gift', 0.04]];
-    let roll = rng();
+    // social = 跟朋友当场有点来往：临时出门（少见），或临时约好上线打游戏
+    const weights = isMealtime(minutesOfDay) ? MEALTIME_LIFE_WEIGHTS : OTHER_LIFE_WEIGHTS;
+    // 按千分位累加再比：浮点一路相减，分档边界（0.42 / 0.58 …）会差一个 ε 落错档
+    const roll = rng() * 1000;
+    let edge = 0;
     for (const [kind, weight] of weights) {
-        if (roll < weight) return kind;
-        roll -= weight;
+        edge += Math.round(weight * 1000);
+        if (roll < edge) return kind;
     }
     return 'chat';
 };
 
 export const localMinutesOf = (date, timezone) => localMinutes(date, timezone);
+
+/**
+ * 给 life 里的 plan 定时间：模型写的是「周六下午」，这里按时区解析成绝对时刻（dueAt）。
+ * 解析不了就把 plan 整条丢掉，life 其余部分照常——跟 episode 写坏了只丢那一段同一个原则。
+ */
+export const withPlanTime = (life, now, timezone) => {
+    if (!life?.plan) return life;
+    const { plan, ...rest } = life;
+    const dueAt = parsePlanTime(plan.at, now, timezone);
+    return dueAt ? { ...rest, plan: { ...plan, dueAt: dueAt.toISOString() } } : rest;
+};
 
 /**
  * 惊喜礼物：起居注和试跑记录里不能写出买了什么。
@@ -541,7 +567,7 @@ export const HEARTBEAT_SCHEMA = {
             additionalProperties: false,
             required: ['kind'],
             properties: {
-                kind: { type: 'string', enum: ['chat', 'delivery', 'order', 'moment', 'gift'] },
+                kind: { type: 'string', enum: ['chat', 'social', 'delivery', 'order', 'moment', 'gift'] },
                 with: { type: 'string', maxLength: 40 },
                 relation: { type: 'string', maxLength: 20 },
                 group: { type: 'string', enum: ['friend', 'family', 'school', 'online', 'other'] },
@@ -573,6 +599,16 @@ export const HEARTBEAT_SCHEMA = {
                 },
                 likes: { type: 'integer', minimum: 0, maximum: 999 },
                 hide: { type: 'array', items: { type: 'string', enum: ['family', 'friend', 'work', 'school', 'service', 'online', 'other'] } },
+                // chat / social：顺口约了以后的事。时间写自然语言，由程序解析成绝对时刻（planTime.mjs）。
+                plan: {
+                    type: 'object',
+                    additionalProperties: false,
+                    required: ['what', 'at'],
+                    properties: {
+                        what: { type: 'string', maxLength: 40 },
+                        at: { type: 'string', maxLength: 40 },
+                    },
+                },
             },
         },
         // 工作往来：只有程序抽中「这一跳在处理工作」时才会要求写，见 decideEpisode。
@@ -615,7 +651,7 @@ export const HEARTBEAT_SCHEMA = {
  * 没话找话是主动消息最容易翻车的地方（设计 4.3 第 4 步）。
  */
 export const buildPrompt = (character, snapshot, now = new Date(), intent = 'live', {
-    thoughts = [], carried = null, threads = [], episode = false, life = null, canSpeak = true, temporal = '',
+    thoughts = [], carried = null, threads = [], plans = [], duePlan = null, episode = false, life = null, canSpeak = true, temporal = '',
 } = {}) => {
     const p = snapshot.payload || {};
     const lines = [];
@@ -653,13 +689,21 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
             + p.recentMessages.slice(-12).map(m => `${m.role === 'user' ? '对方' : '你'}：${m.text}`).join('\n'),
         );
         // 只给间隔还不够：模型会拿这段空白自己补剧情，把「她应该洗完了」一路脑补成
-        // 「我已经帮她吹完头发了」，然后据此判断「人就在身边，没必要发消息」——
-        // 等着的那件事被自己想完了，开口的理由也就没了。所以这里把边界写死。
+        // 「我已经帮她吹完头发了」，然后据此判断「人就在身边，没必要发消息」。
+        // 原来这里写死「什么互动都没发生」，结果连 TA 自己的日子也冻住了——说了「我做饭，你来一起吃」，
+        // 六七个小时后还是「你不来我就还没做饭」（2026-09-26）。开不开口现在是程序抽的，
+        // 那条限制的原始理由已经过期了大半，所以三类分开说：要对方赴约的没发生；自己的日常照常走；
+        // 同居的日常同处可能有过。最后一句专堵「所以没必要找 ta」这个漏口。
         lines.push(
-            '重要：从上次说话到现在，你们之间没有发生过任何互动。'
-            + '这段时间对方在做什么，你并不知道；不要假设你们已经见过面、说过话，'
-            + '也不要把当时说好要做的事当成已经做完了。'
-            + '如果你们之间有还没兑现的约定，而时间已经过去不少，问一句正是此刻该做的事。',
+            '重要：从上次在聊天里说话到现在，对方没有回你消息。\n'
+            + '- 需要对方特意赴约的事一件都没发生（约好出门、约好视频、说好一起做的某件事），'
+            + '别把它们当成已经做完了。\n'
+            + '- 你自己的日常照常往前走：该做饭就做了，该吃饭就吃了，该睡就睡了。'
+            + '对方没回消息不会让你的一天停在原地。叫过对方一起吃而 ta 没出现，那就是你自己吃了。\n'
+            + '- 如果你们本来就住在一起，那么日常的同处——一起吃了饭、擦肩而过、各忙各的——'
+            + '当然可能发生过，不必当成没有。\n'
+            + '无论这段时间你们碰没碰面，都不构成「所以现在没必要找 ta」的理由。'
+            + '住在一起的人照样一天发很多条消息：在另一个房间、ta 在洗澡、上班路上，或者只是想说一句。',
         );
     }
     if (thoughts.length) {
@@ -679,6 +723,20 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
             + threads.map(t => `- 「${t.title}」${t.summary ? `：${t.summary}` : ''}（id：${String(t.id).slice(0, SHORT_ID_LENGTH)}）`).join('\n'),
         );
     }
+    // 约好的事：还没到点的只是记着（也是天然的话头）；到点的那件，这一跳就是在做它。
+    const upcoming = plans.filter(t => t.id !== duePlan?.id);
+    if (upcoming.length) {
+        lines.push(
+            '你跟别人约好、还没到时间的事（对方并不知道，除非你说起）：\n'
+            + upcoming.map(t => `- ${t.title}${t.summary ? `，${t.summary}` : ''}（${formatLocal(new Date(t.dueAt), p.timezone)}）`).join('\n'),
+        );
+    }
+    if (duePlan) {
+        lines.push(
+            `现在就是你约好的时间：「${duePlan.title}」${duePlan.summary ? `（${duePlan.summary}）` : ''}。`
+            + '这一跳你正在做这件事（或者正要出发 / 刚开始），activity 就写它，写现在时。',
+        );
+    }
     // 开不开口已经定了，模型不再做判断题，只负责把它说得像这个人会说的话。
     lines.push(
         intent === 'reach_out'
@@ -686,6 +744,8 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
                 + '规则：activity 里用第一人称写你这会儿在做什么（40 字以内）；'
                 + 'action 填 "message"，text 写你要说的那句话——'
                 + '要贴着你此刻正在做的事和你们之间还没了结的话头，别写成万能问候。'
+                // 约定是天然的话头：「周六要去看展」正是能自然说起的事，别让它从 noop 的口子漏掉
+                + (plans.length ? '你跟别人约好的事也是很自然的话头（比如跟 ta 说一声你周末要去做什么）。' : '')
                 + '真的想不出任何自然的话头时才退回 action="noop"，那说明这一刻确实不合适。'
                 + 'reason 写你心里的想法，对方看不到它。urge 填 "none"。'
             : '现在你自己醒了一下，过你自己的日子。\n'
@@ -728,7 +788,15 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
                 + (circle.length ? '优先从上面认识的人里选；' : '')
                 + '是新出现的人就再写 relation（你怎么称呼 ta，比如「发小」「表姐」）和 group'
                 + '（friend=朋友 / family=家人 / school=同学 / online=网友 / other=其他）。'
-                + 'lines 最多 6 句，who 写说话人的名字，你自己写「我」。聊的是你们之间的事，不是对方。',
+                + 'lines 最多 6 句，who 写说话人的名字，你自己写「我」。聊的是你们之间的事，不是对方。'
+                + PLAN_HOW,
+            social: '你刚跟朋友有点来往。kind 填 "social"；with 写对方名字'
+                + (circle.length ? '（优先从上面认识的人里选，' : '（')
+                + '新人再写 relation 和 group）；'
+                + 'detail 写你们做了什么——可以是临时出门（少见，得跟你此刻的时段和人设对得上），'
+                + '也可以是不用出门的（比如临时约好一起上线打游戏、开着语音各干各的）。'
+                + '当场就发生的事写现在时，别写成计划。lines 写约人或者当时说的那几句（最多 6 句，who 写说话人的名字，你自己写「我」）。'
+                + PLAN_HOW,
             delivery: '你刚点了外卖。kind 填 "delivery"；with 写店名，detail 写点了什么，value 写实付金额（比如 ¥38.50）。',
             order: '你刚在网上下了一单。kind 填 "order"；with 写商品名，detail 写规格或物流状态，value 写价格。',
             moment: '你刚发了一条朋友圈。kind 填 "moment"；detail 写正文。'
@@ -757,6 +825,11 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
     }
     return lines.join('\n\n');
 };
+
+/** chat / social 共用：顺口约了以后的事就写进 plan，时间用说话的说法，由程序去解析。 */
+const PLAN_HOW = '如果你们顺口约了以后的事（明天、周末、下周几），就在 plan 里写：what 写做什么、带上对方的名字'
+    + '（比如「和林越去看展」），at 写说好的时间，用平常说话的说法（比如「周六下午」「明晚八点」），不要写日期格式。'
+    + '没约就省略 plan。';
 
 /**
  * 给模型看的时间。
@@ -861,8 +934,15 @@ export const createHeartbeatHandler = ({
         since: new Date(startedAt.getTime() - 12 * 60 * 60_000),
     });
     // 手头正在推进的事：先把久没动静的收掉，再交给模型接着做。试跑期不动库，只是看看。
-    if (!shadow) closeStaleThreads(db, character.charId, startedAt);
-    const threads = listOpenThreads(db, character.charId);
+    if (!shadow) {
+        closeStaleThreads(db, character.charId, startedAt);
+        closePassedPlans(db, character.charId, startedAt);
+    }
+    const openThreads = listOpenThreads(db, character.charId);
+    // 约定（有时间的）和「正在推进的事」分开：约定不给工作往来抄 id，到点了这一跳就去做它。
+    const threads = openThreads.filter(t => !isPlanThread(t));
+    const plans = openThreads.filter(isPlanThread);
+    const duePlan = plans.find(t => isPlanDue(t, startedAt)) ?? null;
     // 阿萌的现实安排：每天同步一次的缓存，按可见性裁过再进提示词（不调模型、不现读）。
     const temporal = formatTemporalForPrompt(
         veilForCharacter(
@@ -877,13 +957,15 @@ export const createHeartbeatHandler = ({
     const { kind: sideKind } = decideEpisode({
         snapshot, now: startedAt, timezone, intent, threads, rng,
     });
-    const wantsEpisode = sideKind === 'work';
-    const lifeKind = sideKind === 'life' ? pickLifeKind(localMinutesOf(startedAt, timezone), rng) : null;
+    // 约定到点了：过自己日子的这一跳就是去赴约，不再抽别的事（抽签照样抽，保持随机序列不变）。
+    const pickedLife = sideKind === 'life' ? pickLifeKind(localMinutesOf(startedAt, timezone), rng) : null;
+    const wantsEpisode = sideKind === 'work' && !(duePlan && intent === 'live');
+    const lifeKind = duePlan && intent === 'live' ? 'social' : pickedLife;
     const result = await runner.run({
         charId: character.charId,
         credRef: character.credRef,
         system: buildPrompt(character, snapshot, startedAt, intent, {
-            thoughts, carried: hush ? null : carried, threads, episode: wantsEpisode, life: lifeKind, canSpeak: !hush, temporal,
+            thoughts, carried: hush ? null : carried, threads, plans, duePlan, episode: wantsEpisode, life: lifeKind, canSpeak: !hush, temporal,
         }),
         user: '现在要做什么？只按 schema 回一个 JSON。',
         schema: HEARTBEAT_SCHEMA,
@@ -918,7 +1000,11 @@ export const createHeartbeatHandler = ({
     // 生活里的聊天对象不能是阿萌本人：那不是「自己的时间」，也会在通讯录里凭空多出一个她。
     const userName = String(snapshot.payload?.user?.name ?? '').trim();
     const rawLife = lifeKind ? output.life ?? null : null;
-    const life = rawLife && !(rawLife.kind === 'chat' && userName && rawLife.with === userName) ? rawLife : null;
+    const life = withPlanTime(
+        rawLife && !((rawLife.kind === 'chat' || rawLife.kind === 'social') && userName && rawLife.with === userName) ? rawLife : null,
+        startedAt,
+        timezone,
+    );
     // 惊喜礼物不写进起居注的那一句里（阿萌翻得到），买了什么留在 episode.life。
     const veiled = veilSurprise(output, life, userName);
     recordModelRun(db, {
@@ -970,6 +1056,14 @@ export const createHeartbeatHandler = ({
             },
         });
         workDelivered = true;
+    }
+    // 到点的约定：这一跳写完就收掉（不管模型写没写好——时间过了，这件事就算去过了）。
+    if (duePlan) completeThread(db, duePlan.id, startedAt);
+    // 新约的事：落成一条带时间的 thread，之后每跳都记得，到点那一跳去做。
+    if (life?.plan?.dueAt) {
+        applyThread(db, character.charId, {
+            title: life.plan.what, summary: `约在${life.plan.at}`, status: 'open', dueAt: life.plan.dueAt,
+        }, startedAt);
     }
     // 私人生活里的小事：落进查手机里对应的 App（联系人聊天 / 外卖 / 淘宝 / 朋友圈），同样静默。
     let lifeDelivered = false;

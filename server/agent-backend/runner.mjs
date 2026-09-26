@@ -53,26 +53,45 @@ export const parseEpisode = raw => {
  * 私人生活里的一件小事（life）：和朋友家人聊几句、点外卖、网购、发朋友圈。
  * 和 episode 一样是附赠的：写坏了只丢这一段。
  */
-const LIFE_KINDS = new Set(['chat', 'delivery', 'order', 'moment', 'gift']);
+const LIFE_KINDS = new Set(['chat', 'social', 'delivery', 'order', 'moment', 'gift']);
 const LIFE_GROUPS = new Set(['friend', 'family', 'school', 'online', 'other']);
 const MOMENT_GROUPS = new Set(['family', 'friend', 'work', 'school', 'service', 'online', 'other']);
+
+/**
+ * 约定（plan）：做什么 + 模型写的自然语言时间。这里只收字面，时间由心跳按时区解析（planTime.mjs），
+ * 解析不了整条 plan 丢掉——但不连累 life 其余部分。
+ */
+const parsePlan = raw => {
+    if (!raw || typeof raw !== 'object') return null;
+    const what = String(raw.what ?? '').trim().slice(0, 40);
+    const at = String(raw.at ?? '').trim().slice(0, 40);
+    return what && at ? { what, at } : null;
+};
+
+const parseLifeLines = raw => (Array.isArray(raw) ? raw : [])
+    .map(line => ({ who: String(line?.who ?? '').trim().slice(0, 24), text: String(line?.text ?? '').trim().slice(0, 400) }))
+    .filter(line => line.who && line.text)
+    .slice(0, 8);
 
 export const parseLife = raw => {
     if (!raw || typeof raw !== 'object' || !LIFE_KINDS.has(raw.kind)) return null;
     const withWho = String(raw.with ?? '').trim().slice(0, 40);
     const detail = String(raw.detail ?? '').trim().slice(0, 400);
     const value = String(raw.value ?? '').trim().slice(0, 20);
-    if (raw.kind === 'chat') {
-        const lines = (Array.isArray(raw.lines) ? raw.lines : [])
-            .map(line => ({ who: String(line?.who ?? '').trim().slice(0, 24), text: String(line?.text ?? '').trim().slice(0, 400) }))
-            .filter(line => line.who && line.text)
-            .slice(0, 8);
-        if (!withWho || lines.length === 0) return null;
+    // 和朋友约了以后的事：只有聊天和社交这两种会带
+    const plan = raw.kind === 'chat' || raw.kind === 'social' ? parsePlan(raw.plan) : null;
+    if (raw.kind === 'chat' || raw.kind === 'social') {
+        const lines = parseLifeLines(raw.lines);
+        // 聊天就是那几句话；社交是「做了什么」，那几句约人的话可有可无
+        if (!withWho || (raw.kind === 'chat' ? lines.length === 0 : !detail)) return null;
         const relation = String(raw.relation ?? '').trim().slice(0, 20);
         return {
-            kind: 'chat', with: withWho, lines,
+            kind: raw.kind, with: withWho,
+            ...(raw.kind === 'social' ? { detail } : {}),
+            ...(lines.length ? { lines } : {}),
             ...(relation ? { relation } : {}),
             ...(LIFE_GROUPS.has(raw.group) ? { group: raw.group } : {}),
+            ...(plan ? { plan } : {}),
         };
     }
     if (raw.kind === 'moment') {

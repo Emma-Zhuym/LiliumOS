@@ -17,9 +17,10 @@ import {
     ACTIVE_CHAT_WINDOW_MS, buildPrompt, checkGates, speakBlock, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
     BREAK_COOLDOWN_MIN, currentSlot, decideIntent, formatGap, inBreakWindow, upcomingBreakStarts, jitterRatio, lastRealInteractionAt, listModelRuns, messageChance,
     nextRunAt, recordModelRun, shouldCaptureRaw, decideEpisode, episodeChance, isWorkSlot, lifeChance, pickLifeKind, veilSurprise,
+    MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, withPlanTime,
 } from './heartbeat.mjs';
 import { chatCompletionsUrl, createApiRunner, extractContentText, parseEpisode, parseHeartbeatOutput, parseLife } from './runner.mjs';
-import { applyThread, closeStaleThreads, listOpenThreads } from './lifeThreads.mjs';
+import { applyThread, closePassedPlans, closeStaleThreads, isPlanDue, listOpenThreads } from './lifeThreads.mjs';
 
 const AT = new Date('2026-09-23T20:00:00.000Z');          // 芝加哥时间 15:00，醒着
 const CHAR = 'lumi';
@@ -414,7 +415,7 @@ test('间隔文案：分钟、小时、天', () => {
     assert.equal(formatGap(new Date('2026-09-23T11:59:30.000Z'), now), '');
 });
 
-test('提示词写死「这段时间什么都没发生」：否则角色会把约定脑补成已完成', () => {
+test('间隔那段三类分开说：要赴约的没发生，自己的日常照常走，碰没碰面都不是不找 ta 的理由', () => {
     const db = freshDb();
     const character = seedCharacter(db);
     const snapshot = {
@@ -428,9 +429,12 @@ test('提示词写死「这段时间什么都没发生」：否则角色会把�
         },
     };
     const prompt = buildPrompt(character, snapshot, new Date('2026-09-23T03:00:00.000Z'));
-    assert.ok(prompt.includes('没有发生过任何互动'), '必须说明这段时间没有互动');
-    assert.ok(prompt.includes('已经做完了'), '必须禁止把说好的事当成做完了');
-    assert.ok(prompt.includes('还没兑现的约定'), '久等的约定应该成为开口的理由');
+    assert.ok(prompt.includes('对方没有回你消息'), '必须说明这段时间对方没回');
+    assert.ok(prompt.includes('别把它们当成已经做完了'), '要对方赴约的事不能脑补成做完了');
+    assert.ok(prompt.includes('你自己的日常照常往前走'), '自己的日子不能冻住（「你不来我就还没做饭」）');
+    assert.ok(prompt.includes('如果你们本来就住在一起'), '同居与否交给人设判断，不传参数');
+    assert.ok(prompt.includes('不构成「所以现在没必要找 ta」的理由'), '堵住「人就在旁边所以不说话」');
+    assert.ok(!prompt.includes('没有发生过任何互动'), '旧的一刀切说法不能留着');
 });
 
 test('正文是 thinking + text 数组时，只取 text 那块', () => {
@@ -986,7 +990,7 @@ test('抽签：下班时段多半是生活，上班时段多半是工作；两�
     assert.equal(decideEpisode({ snapshot: evening, now: at, timezone: 'America/Chicago', intent: 'reach_out', rng: () => 0.3 }).kind, null);
 });
 
-test('生活里做什么由程序定：饭点外卖多，别的时候聊天为主，五种都会出现（含给她买东西）', () => {
+test('生活里做什么由程序定：饭点外卖多，别的时候聊天为主，六种都会出现（含给她买东西、社交）', () => {
     const count = minutes => {
         const seen = {};
         for (let i = 0; i < 100; i += 1) {
@@ -998,8 +1002,9 @@ test('生活里做什么由程序定：饭点外卖多，别的时候聊天为�
     const dinner = count(18 * 60 + 30);
     const night = count(22 * 60);
     assert.ok(dinner.delivery > night.delivery * 2);
-    assert.deepEqual(Object.keys(night).sort(), ['chat', 'delivery', 'gift', 'moment', 'order']);
-    assert.ok(night.chat >= 40);
+    assert.deepEqual(Object.keys(night).sort(), ['chat', 'delivery', 'gift', 'moment', 'order', 'social']);
+    assert.ok(night.chat >= 38);
+    assert.ok(night.order > dinner.order, '非饭点网购偏多');
 });
 
 test('提示词：生活那段写明是自己的时间、不提对方，并列出认识的人', () => {
@@ -1111,7 +1116,7 @@ test('惊喜礼物：起居注那一句不点破买了什么，episode 里照样
     const sent = [];
     const gift = { kind: 'gift', with: '云朵抱枕', via: 'net', surprise: true, detail: '她上次逛街摸了好几次', value: '¥129', note: '抱着睡' };
     const runner = { run: async () => ({ ok: true, output: { action: 'noop', activity: '下单了那只云朵抱枕', reason: '她上次逛街摸了好几次', urge: 'none', life: gift } }) };
-    const seq = [0.99, 0.3, 0.999];   // 不开口 → 抽中生活 → 落到 gift（权重表最后一档）
+    const seq = [0.99, 0.3, 0.76];    // 不开口 → 抽中生活 → 落到 gift（饭点 0.75–0.78 那一档）
     let i = 0;
     await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 'g1'), now: chicago(20), rng: () => seq[i++] ?? 0.99, deliver: async e => sent.push(e) });
     const run = listModelRuns(db)[0];
@@ -1119,4 +1124,179 @@ test('惊喜礼物：起居注那一句不点破买了什么，episode 里照样
     assert.ok(!run.reason.includes('抱枕'));
     assert.equal(run.episode.life.with, '云朵抱枕', '排查时仍然看得到买了什么');
     assert.equal(sent[0].payload.life.with, '云朵抱枕', '投喂站那一单照常拿到全部内容');
+});
+
+// ---- 生活活动 v2（docs/spec-heartbeat-life-v2.md）----
+
+const sumOf = (weights, kinds = null) =>
+    Math.round(weights.filter(([kind]) => !kinds || kinds.includes(kind)).reduce((n, [, w]) => n + w, 0) * 1000) / 1000;
+
+test('生活权重：两行各自合计 1.00，购物三项都压在 0.20', () => {
+    for (const weights of [MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS]) {
+        assert.equal(sumOf(weights), 1);
+        assert.equal(sumOf(weights, ['delivery', 'order', 'gift']), 0.2);
+    }
+    // 钉死 rng 验分档边界。饭点：chat 0.42 | social 0.58 | delivery 0.71 | order 0.75 | gift 0.78 | moment
+    const lunch = 12 * 60;
+    const at = r => pickLifeKind(lunch, () => r);
+    assert.deepEqual([0, 0.419, 0.42, 0.579, 0.58, 0.709, 0.71, 0.749, 0.75, 0.779, 0.78, 0.999].map(at),
+        ['chat', 'chat', 'social', 'social', 'delivery', 'delivery', 'order', 'order', 'gift', 'gift', 'moment', 'moment']);
+    // 其余：chat 0.40 | social 0.57 | delivery 0.61 | order 0.73 | gift 0.77 | moment
+    const night = r => pickLifeKind(22 * 60, () => r);
+    assert.deepEqual([0.399, 0.4, 0.569, 0.57, 0.609, 0.61, 0.729, 0.73, 0.769, 0.77, 0.999].map(night),
+        ['chat', 'social', 'social', 'delivery', 'delivery', 'order', 'order', 'gift', 'gift', 'moment', 'moment']);
+    // 饭点边界：11:00 算、13:30 不算，17:00 算、20:30 不算
+    // 同一个 0.65：饭点里是外卖，饭点外是网购
+    assert.equal(pickLifeKind(11 * 60, () => 0.65), 'delivery');
+    assert.equal(pickLifeKind(10 * 60 + 59, () => 0.65), 'order');
+    assert.equal(pickLifeKind(13 * 60 + 30, () => 0.65), 'order');
+    assert.equal(pickLifeKind(17 * 60, () => 0.65), 'delivery');
+    assert.equal(pickLifeKind(20 * 60 + 29, () => 0.65), 'delivery');
+    assert.equal(pickLifeKind(20 * 60 + 30, () => 0.65), 'order');
+});
+
+test('social：抽得中，schema 收得下，解析后带 detail；约人那几句可有可无', () => {
+    assert.equal(pickLifeKind(22 * 60, () => 0.5), 'social');
+    assert.ok(HEARTBEAT_SCHEMA.properties.life.properties.kind.enum.includes('social'));
+    assert.deepEqual(HEARTBEAT_SCHEMA.properties.life.properties.plan.required, ['what', 'at']);
+    assert.deepEqual(parseLife({ kind: 'social', with: '林越', detail: '临时约好上线打两把' }),
+        { kind: 'social', with: '林越', detail: '临时约好上线打两把' });
+    const withLines = parseLife({ kind: 'social', with: '林越', detail: '开着语音各干各的', lines: [{ who: '林越', text: '上号？' }, { who: '我', text: '来' }], group: 'friend' });
+    assert.equal(withLines.lines.length, 2);
+    assert.equal(withLines.group, 'friend');
+    assert.equal(parseLife({ kind: 'social', with: '林越' }), null, '没写做了什么就不算');
+    assert.equal(parseLife({ kind: 'social', detail: 'x' }), null);
+});
+
+test('提示词：social 写明当场发生、可以不出门；chat 和 social 都教怎么写 plan', () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    const snapshot = { payload: { timezone: 'America/Chicago', circle: [{ name: '林越', relation: '大学同学' }] } };
+    const social = buildPrompt(character, snapshot, AT, 'live', { life: 'social' });
+    assert.ok(social.includes('kind 填 "social"'));
+    assert.ok(social.includes('上线打游戏'));
+    assert.ok(social.includes('别写成计划'));
+    assert.ok(social.includes('plan'));
+    assert.ok(buildPrompt(character, snapshot, AT, 'live', { life: 'chat' }).includes('「周六下午」'));
+    assert.ok(!buildPrompt(character, snapshot, AT, 'live', { life: 'delivery' }).includes('plan 里写'));
+});
+
+test('plan 解析：认得出的带上 dueAt，认不出的整条 plan 丢掉，life 其余照常', () => {
+    const life = { kind: 'social', with: '林越', detail: '约好周末看展', plan: { what: '和林越去看展', at: '周六下午' } };
+    const kept = withPlanTime(life, AT, 'America/Chicago');
+    assert.equal(kept.plan.dueAt, new Date(Date.UTC(2026, 8, 26, 20)).toISOString());
+    assert.equal(kept.plan.what, '和林越去看展');
+    const dropped = withPlanTime({ ...life, plan: { what: '和林越去看展', at: '改天吧' } }, AT, 'America/Chicago');
+    assert.equal(dropped.plan, undefined);
+    assert.equal(dropped.detail, '约好周末看展');
+    assert.equal(withPlanTime(null, AT, 'America/Chicago'), null);
+    // 解析层：plan 只在 chat / social 上收，缺字段就不要
+    assert.equal(parseLife({ kind: 'delivery', with: '店', plan: { what: 'x', at: '明天' } }).plan, undefined);
+    assert.equal(parseLife({ kind: 'social', with: '林越', detail: 'x', plan: { what: '看展' } }).plan, undefined);
+});
+
+test('迁移 9：旧 thread 的 due_at 是 NULL，行为不变；约定和正在推进的事各占各的名额', () => {
+    const db = freshDb();
+    seedCharacter(db);
+    assert.equal(db.prepare('PRAGMA user_version').get().user_version, 9);
+    // 模拟迁移前写下的行：不带 due_at
+    db.prepare(`INSERT INTO life_threads (id, char_id, title, summary, status, created_at, updated_at)
+                VALUES ('aaaaaaaa-old', ?, '改领口', '打样回来了', 'open', ?, ?)`).run(CHAR, AT.toISOString(), AT.toISOString());
+    const [old] = listOpenThreads(db, CHAR);
+    assert.equal(old.dueAt, null);
+    assert.equal(isPlanDue(old, AT), false);
+    const updated = applyThread(db, CHAR, { id: 'aaaaaaaa', title: '改领口', summary: '改完了', status: 'open' }, AT);
+    assert.equal(updated.id, 'aaaaaaaa-old', '照抄 id 仍然接得上');
+    assert.equal(closePassedPlans(db, CHAR, new Date(AT.getTime() + 86400_000)), 0, '没有时间的事不会被当成错过的约定');
+
+    // 三个约定不挤掉工作的事；工作抄来的 id 也对不上约定
+    for (let i = 0; i < 3; i += 1) {
+        applyThread(db, CHAR, { title: `约定${i}`, summary: '', status: 'open', dueAt: new Date(AT.getTime() + (i + 1) * 3600_000).toISOString() }, AT);
+    }
+    const open = listOpenThreads(db, CHAR);
+    assert.equal(open.length, 4);
+    assert.ok(open.some(t => t.id === 'aaaaaaaa-old'));
+    const plan = open.find(t => t.title === '约定0');
+    const miss = applyThread(db, CHAR, { id: plan.id.slice(0, 8), title: '新工作', summary: '', status: 'open' }, AT);
+    assert.notEqual(miss.id, plan.id);
+    assert.equal(miss.dueAt, null);
+});
+
+test('约定窗口：前后 45 分钟内算到点，过了窗口还开着的静默收掉', () => {
+    const db = freshDb();
+    seedCharacter(db);
+    const soon = applyThread(db, CHAR, { title: '和林越打球', summary: '', status: 'open', dueAt: new Date(AT.getTime() + 40 * 60_000).toISOString() }, AT);
+    const later = applyThread(db, CHAR, { title: '和林越看展', summary: '', status: 'open', dueAt: new Date(AT.getTime() + 3 * 86400_000).toISOString() }, AT);
+    assert.equal(isPlanDue(soon, AT), true);
+    assert.equal(isPlanDue(later, AT), false);
+    assert.equal(isPlanDue(soon, new Date(AT.getTime() + 86 * 60_000)), false);
+    assert.equal(closePassedPlans(db, CHAR, new Date(AT.getTime() + 86 * 60_000)), 1);
+    assert.deepEqual(listOpenThreads(db, CHAR).map(t => t.id), [later.id]);
+});
+
+test('真实执行：新约的事落成带时间的 thread；解析不了就不落库，生活照常送', async () => {
+    const db = freshDb();
+    setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+    const character = seedCharacter(db);
+    seedSnapshot(db, { todaySchedule: [{ start: '18:00', title: '在家', availability: 'online' }] }, chicago(22));
+    const sent = [];
+    const social = plan => ({ kind: 'social', with: '林越', detail: '一起打了两把', lines: [{ who: '林越', text: '周六去看展？' }, { who: '我', text: '行' }], plan });
+    const runnerFor = life => ({ run: async () => ({ ok: true, output: { action: 'noop', activity: '和林越打游戏', reason: '', urge: 'none', life } }) });
+    // 不开口 → 抽中生活 → 0.5 落在 social
+    const seq = rolls => { let i = 0; return () => rolls[i++] ?? 0.99; };
+    await runHandler(db, { runner: runnerFor(social({ what: '和林越去看展', at: '周六下午' })), job: jobFor(character.heartbeatGeneration, 'p1'), now: chicago(22), rng: seq([0.99, 0.3, 0.5]), deliver: async e => sent.push(e) });
+    const [plan] = listOpenThreads(db, CHAR);
+    assert.equal(plan.title, '和林越去看展');
+    assert.equal(plan.dueAt, new Date(Date.UTC(2026, 8, 26, 20)).toISOString());
+    assert.equal(sent[0].payload.life.plan.dueAt, plan.dueAt);
+
+    await runHandler(db, { runner: runnerFor(social({ what: '和林越吃饭', at: '改天' })), job: jobFor(character.heartbeatGeneration, 'p2'), now: chicago(22, 30), rng: seq([0.99, 0.3, 0.5]), deliver: async e => sent.push(e) });
+    assert.equal(listOpenThreads(db, CHAR).length, 1, '解析不了的 plan 不落库');
+    assert.equal(sent.length, 2, '生活照样送到手机');
+    assert.equal(sent[1].payload.life.plan, undefined);
+    assert.equal(sent[1].payload.life.detail, '一起打了两把');
+});
+
+test('约定到点：这一跳就去做这件事、写完收掉；没到点的留着，并进提示词当话头', async () => {
+    const db = freshDb();
+    setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+    const character = seedCharacter(db);
+    const now = chicago(15);
+    seedSnapshot(db, { todaySchedule: [{ start: '09:00', title: '在家', availability: 'online' }] }, now);
+    const due = applyThread(db, CHAR, { title: '和林越打球', summary: '约在今天下午三点', status: 'open', dueAt: new Date(now.getTime() + 20 * 60_000).toISOString() }, AT);
+    const later = applyThread(db, CHAR, { title: '和林越去看展', summary: '约在周六下午', status: 'open', dueAt: new Date(Date.UTC(2026, 8, 26, 20)).toISOString() }, AT);
+    const prompts = [];
+    const runner = { run: async ({ system }) => {
+        prompts.push(system);
+        return { ok: true, output: { action: 'noop', activity: '在球场跟林越打球', reason: '', urge: 'none', life: { kind: 'social', with: '林越', detail: '在打球' } } };
+    } };
+    // 不开口，抽签落在「什么都不写」（0.99）：到点的约定照样把这一跳变成赴约
+    const sent = [];
+    const result = await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 'd1'), now, rng: () => 0.99, deliver: async e => sent.push(e) });
+    assert.equal(result.intent, 'live');
+    assert.ok(prompts[0].includes('现在就是你约好的时间：「和林越打球」'));
+    assert.ok(prompts[0].includes('kind 填 "social"'));
+    assert.ok(prompts[0].includes('和林越去看展'), '没到点的约定也在提示词里');
+    assert.ok(!prompts[0].includes(`id：${due.id.slice(0, 8)}`), '约定不混进「手头正在推进的事」给工作抄 id');
+    assert.equal(sent[0].payload.life.kind, 'social');
+    assert.deepEqual(listOpenThreads(db, CHAR).map(t => t.id), [later.id], '到点的收掉，没到点的留着');
+
+    // 开口的一跳：约定是能自然说起的话头
+    const talk = [];
+    await runHandler(db, {
+        runner: { run: async ({ system }) => { talk.push(system); return { ok: true, output: { action: 'message', activity: 'a', reason: '', urge: 'none', text: '周六我要去看展' } }; } },
+        job: jobFor(character.heartbeatGeneration, 'd2'), now: new Date(now.getTime() + 3 * 3600_000), rng: () => 0, deliver: async () => {},
+    });
+    assert.ok(talk[0].includes('你跟别人约好的事也是很自然的话头'));
+});
+
+test('影子期不动约定：不收、不落', async () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    const now = chicago(15);
+    seedSnapshot(db, {}, now);
+    const due = applyThread(db, CHAR, { title: '和林越打球', summary: '', status: 'open', dueAt: new Date(now.getTime() + 10 * 60_000).toISOString() }, AT);
+    const runner = { run: async () => ({ ok: true, output: { action: 'noop', activity: '打球', reason: '', urge: 'none', life: { kind: 'social', with: '林越', detail: 'x', plan: { what: '再约', at: '明晚八点' } } } }) };
+    await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 's1'), now, rng: () => 0.99 });
+    assert.deepEqual(listOpenThreads(db, CHAR).map(t => t.id), [due.id]);
 });

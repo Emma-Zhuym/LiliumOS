@@ -211,6 +211,11 @@ export const MIGRATIONS = [
     );
     CREATE INDEX idx_temporal_when ON temporal_items (start_at, due_at);
     `,
+    // 9：约定——系统里第一个「以后才发生」的东西。life_threads 已经能跨心跳接上，差一个时间。
+    // 旧行 due_at 为 NULL = 没有时间的「正在推进的事」，行为完全不变。
+    `
+    ALTER TABLE life_threads ADD COLUMN due_at TEXT;
+    `,
 ];
 
 export const DEFAULT_SETTINGS = {
