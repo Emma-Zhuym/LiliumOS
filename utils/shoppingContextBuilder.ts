@@ -1,12 +1,12 @@
 /**
  * shoppingContextBuilder.ts — 购物感知注入
  *
- * 外卖（food）：ETA 精确到分钟，到时间自动标 done
- * 快递（net）：ETA 只有日期，到日期提醒但不自动标 done，等用户手动确认收货
+ * 外卖和快递：ETA 精确到分钟，到时间自动标 done（sweepDeliveries）
+ * 快递当天还没到点：提一句「今天会到」
  */
 
 import { ShoppingDB, type ShopOrder } from './shoppingDb';
-import { sweepFoodDeliveries } from './shoppingDeliverySweep';
+import { sweepDeliveries } from './shoppingDeliverySweep';
 import { buildFamilyShoppingContext, FAMILY_LINKS_KEY, isHiddenFromChar, normalizeFamilyLinks, orderItemsText } from './shoppingFamily'; // [EM: shopping-family]
 
 function isEtaDateReached(etaTimestamp: number): boolean {
@@ -19,8 +19,8 @@ function isEtaDateReached(etaTimestamp: number): boolean {
 
 export async function buildShoppingDeliveryContext(charId: string): Promise<string | null> {
   try {
-    // 外卖到点自动收货+发卡片（先于读订单，保证下面读到的状态是最新的）
-    await sweepFoodDeliveries();
+    // 到点自动收货+发卡片（先于读订单，保证下面读到的状态是最新的）
+    await sweepDeliveries();
     const [orders, products] = await Promise.all([ShoppingDB.getOrders(), ShoppingDB.getProducts()]);
     const now = Date.now();
 
@@ -89,7 +89,8 @@ export async function buildShoppingDeliveryContext(charId: string): Promise<stri
         }
       } else {
         if (isEtaDateReached(o.etaTimestamp)) {
-          netArrived.push(`快递（${items}）今天应该到了${noteClause}`); // 到了就揭晓
+          const d = new Date(o.etaTimestamp);
+          inTransit.push(`你有一个快递（${shownItems}）今天 ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')} 左右到`); // [EM: shopping-refund] 到点前不揭晓
         } else {
           const d = new Date(o.etaTimestamp);
           const etaStr = `${d.getMonth() + 1}月${d.getDate()}日`;

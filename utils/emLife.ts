@@ -27,6 +27,8 @@ export interface LifeEpisode {
     via?: 'net' | 'food';
     surprise?: boolean;
     note?: string;
+    /** delivery / order / gift：后端定好的送达时刻（ISO）。旧数据没有，投喂站退回写死的估计 */
+    eta?: string;
     /** moment：亲友评论、虚拟赞数、不给哪些分组看 */
     comments?: { who: string; relation?: string; text: string }[];
     likes?: number;
@@ -156,6 +158,7 @@ export const applyLifeEpisode = (
         timestamp: at,
         ...(life.value?.trim() && life.kind !== 'moment' ? { value: life.value.trim() } : {}),
         agentSourceIds: [event.messageId],
+        ...(life.kind !== 'moment' && Date.parse(life.eta ?? '') ? { eta: Date.parse(life.eta!) } : {}),
         // [EM: moments] 亲友评论和动态同一跳写出来，挂在这条记录上，朋友圈 App 直接读
         ...(life.kind === 'moment' && normalizeMomentExtras(life) ? { moment: normalizeMomentExtras(life) } : {}),
     };

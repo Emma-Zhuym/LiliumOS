@@ -5,6 +5,7 @@ import type { CharacterProfile, PhoneEvidence } from '../types';
 import type { ShopOrder, ShopProduct } from './shoppingDb';
 import {
     buildFamilyShoppingContext,
+    canRefund,
     charSelfOrders,
     giftOrderFromLife,
     orderCardLines,
@@ -13,6 +14,9 @@ import {
     isShopRecord,
     normalizeFamilyLinks,
     orderPriceText,
+    orderStatusText,
+    REFUND_MARK,
+    refundNotice,
     shopOrdersAsPhoneRecords,
 } from './shoppingFamily';
 
@@ -184,4 +188,55 @@ describe('小工具', () => {
         expect(orderPriceText(order({}), products)).toBe('¥36');
     });
 });
+
+// [EM-START: shopping-refund]
+describe('送达时间与退单', () => {
+    it('心跳带了 eta 就用它：TA 自己的单和给我的礼物都一样；旧数据照旧估', () => {
+        const eta = NOW + 26 * 60 * MIN;
+        const [mine] = charSelfOrders([char('c1', [record({ eta })])], ['c1'], NOW);
+        expect(mine.etaTimestamp).toBe(eta);
+        expect(charSelfOrders([char('c1', [record({ eta })])], ['c1'], eta + 1)[0].status).toBe('done');
+
+        const gift = giftOrderFromLife(
+            { messageId: 'g', createdAt: new Date(NOW).toISOString(), life: { with: '围巾', via: 'net', eta: new Date(eta).toISOString() } },
+            { id: 'c1', name: '沈砚' },
+        )!;
+        expect(gift.etaTimestamp).toBe(eta);
+        const old = giftOrderFromLife({ messageId: 'g2', createdAt: new Date(NOW).toISOString(), life: { with: '围巾' } }, { id: 'c1', name: '沈砚' })!;
+        expect(old.etaTimestamp).toBe(NOW + 3 * 24 * 60 * MIN);
+    });
+
+    it('帮 TA 退掉的心跳订单：状态是已退款，标题规格里不带退款标记', () => {
+        const [refunded] = charSelfOrders([char('c1', [record({ refundedAt: NOW - MIN, detail: `茶轴${REFUND_MARK}` })])], ['c1'], NOW);
+        expect(refunded).toMatchObject({ status: 'cancelled', cancelledAt: NOW - MIN, custom: { detail: '茶轴' } });
+        expect(orderStatusText(refunded)).toBe('已退款');
+    });
+
+    it('在路上的都能取消；网购送到了还能退货，外卖不行；退过的不能再退', () => {
+        expect(canRefund({ status: 'active', type: 'food' })).toBe(true);
+        expect(canRefund({ status: 'done', type: 'net' })).toBe(true);
+        expect(canRefund({ status: 'done', type: 'food' })).toBe(false);
+        expect(canRefund({ status: 'cancelled', type: 'net' })).toBe(false);
+    });
+
+    it('退掉之后告诉 TA；没揭晓的惊喜不写内容，给自己买的不打扰任何人', () => {
+        expect(refundNotice(order({ type: 'net', lines: [], custom: { title: '机械键盘' }, selfOrder: 'char' }), products, '阿萌'))
+            .toBe('🧾 阿萌帮你把网购「机械键盘」取消了，钱原路退回。');
+        expect(refundNotice(order({ type: 'net', status: 'done', lines: [], custom: { title: '围巾' }, isGiftFromChar: true }), products, '阿萌', NOW))
+            .toBe('🧾 阿萌退货退款了你给 ta 买的网购「围巾」。');
+        const surprise = refundNotice(order({ lines: [], custom: { title: '云朵抱枕' }, isGiftFromChar: true, surprise: true }), products, '阿萌', NOW)!;
+        expect(surprise).not.toContain('抱枕');
+        expect(refundNotice(order({ surprise: true }), products, '阿萌', NOW)).toBe('🧾 阿萌取消了原本要给你的一个惊喜包裹。');
+        expect(refundNotice(order({ selfOrder: 'user' }), products, '阿萌')).toBeNull();
+    });
+
+    it('送到之前就退掉的惊喜永远不揭晓；退掉的单在 TA 查手机里标「已退款」', () => {
+        const cancelled = order({ type: 'net', lines: [], custom: { title: '云朵抱枕' }, isGiftFromChar: true, surprise: true, status: 'cancelled', cancelledAt: NOW - MIN });
+        expect(isHiddenFromUser(cancelled, NOW + 10 * 24 * 60 * MIN)).toBe(true);
+        const [phone] = shopOrdersAsPhoneRecords([order({ status: 'cancelled', cancelledAt: NOW })], products, 'c1', '阿萌', NOW);
+        expect(phone.detail).toContain('（已退款）');
+        expect(buildFamilyShoppingContext([order({ selfOrder: 'user', status: 'cancelled' })], products, 'c1', ['c1'], NOW)).toBeNull();
+    });
+});
+// [EM-END: shopping-refund]
 // [EM-END: shopping-family]

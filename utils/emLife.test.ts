@@ -89,6 +89,9 @@ describe('applyLifeEpisode · 外卖 / 网购 / 朋友圈', () => {
         expect(delivery.records[0]).toMatchObject({ id: 'ag-d', type: 'delivery', title: '老王麻辣烫', detail: '加麻加辣', value: '¥32' });
         const order = applyLifeEpisode(undefined, { messageId: 'o', createdAt: AT, life: { kind: 'order', with: '机械键盘' } })!;
         expect(order.records[0]).toMatchObject({ type: 'order', title: '机械键盘', detail: '…' });
+        expect(order.records[0].eta).toBeUndefined();
+        const timed = applyLifeEpisode(undefined, { messageId: 't', createdAt: AT, life: { kind: 'order', with: '猫砂', eta: '2026-09-28T15:00:00.000Z' } })!;
+        expect(timed.records[0].eta).toBe(Date.parse('2026-09-28T15:00:00.000Z')); // [EM: shopping-refund] 后端定好的送达时刻带进查手机
         const moment = applyLifeEpisode(undefined, { messageId: 'm', createdAt: AT, life: { kind: 'moment', detail: '今天的云很好看', value: '不该有' } })!;
         expect(moment.records[0].type).toBe('social');
         expect(moment.records[0].detail).toBe('今天的云很好看');

@@ -32,7 +32,7 @@ export interface ShopOrder {
   type: 'net' | 'food';
   receiver: string;
   receiverCharId?: string;
-  status: 'active' | 'done';
+  status: 'active' | 'done' | 'cancelled'; // [EM: shopping-refund] cancelled = 取消 / 退货退款
   note: string;
   placedAt: number;
   etaTimestamp?: number;
@@ -49,6 +49,8 @@ export interface ShopOrder {
   surprise?: boolean;
   /** TA 在心跳里下的单：来源 messageId（幂等键） */
   agentSourceId?: string;
+  /** 取消 / 退款的时刻 */
+  cancelledAt?: number;
   // [EM-END: shopping-family]
 }
 

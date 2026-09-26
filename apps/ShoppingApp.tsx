@@ -10,10 +10,10 @@ import TokenImg from '../components/os/TokenImg'; // [EM: token-img-avatars]
 import { CaretLeft, CaretRight, CaretDown, Plus, Minus, House, Package, CheckCircle, ShoppingCart, Clock, PencilSimple, Trash, UsersThree } from '@phosphor-icons/react';
 import { useOS } from '../context/OSContext';
 import { ShoppingDB, type ShopProduct, type CartItem, type ShopOrder } from '../utils/shoppingDb';
-import { sweepFoodDeliveries } from '../utils/shoppingDeliverySweep';
+import { sweepDeliveries } from '../utils/shoppingDeliverySweep';
 import { DB } from '../utils/db';
 import { F, FONT, S, R, HUE, STATUS } from '../utils/clayTokens';
-import { charSelfOrders, FAMILY_LINKS_KEY, formatYuan, isHiddenFromUser, normalizeFamilyLinks, orderCardLines, orderPriceText } from '../utils/shoppingFamily'; // [EM: shopping-family]
+import { canRefund, charSelfOrders, FAMILY_LINKS_KEY, formatYuan, isHiddenFromUser, normalizeFamilyLinks, orderCardLines, orderPriceText, orderStatusText, REFUND_MARK, refundNotice } from '../utils/shoppingFamily'; // [EM: shopping-family]
 
 const LAST_RECEIVER_KEY = 'lastReceiverCharId';
 const FOOD_ETA_OPTIONS = [15, 20, 25, 30, 45, 60];
@@ -120,7 +120,7 @@ const EmptyState: React.FC<{ icon: React.ReactNode; text: string }> = ({ icon, t
 // ── Main App ──
 
 const ShoppingApp: React.FC = () => {
-  const { closeApp, characters, userProfile } = useOS(); // [EM: shopping-family]
+  const { closeApp, characters, userProfile, updateCharacter } = useOS(); // [EM: shopping-family]
   const [screen, setScreen] = useState<Screen>('home');
   const screenStack = React.useRef<Screen[]>(['home']);
   const [products, setProducts] = useState<ShopProduct[]>([]);
@@ -128,7 +128,7 @@ const ShoppingApp: React.FC = () => {
   const [orders, setOrders] = useState<ShopOrder[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [ordersTab, setOrdersTab] = useState<'active' | 'done'>('active');
+  const [ordersTab, setOrdersTab] = useState<'active' | 'done' | 'cancelled'>('active'); // [EM: shopping-refund]
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
   const [receiver, setReceiver] = useState('');
   const [receiverCharId, setReceiverCharId] = useState('');
@@ -162,7 +162,7 @@ const ShoppingApp: React.FC = () => {
   const roles = characters.map(c => ({ id: c.id, name: c.name, avatar: c.avatar }));
 
   const refresh = useCallback(async () => {
-    await sweepFoodDeliveries();
+    await sweepDeliveries();
     const [p, c, o, links] = await Promise.all([ShoppingDB.getProducts(), ShoppingDB.getCart(), ShoppingDB.getOrders(), ShoppingDB.getSetting(FAMILY_LINKS_KEY)]);
     setProducts(p);
     setCart(c);
@@ -276,15 +276,34 @@ const ShoppingApp: React.FC = () => {
   };
 
   // 取消要点两下，防手滑
+  // [EM-START: shopping-refund] 取消 / 退货不再删单：留在「已退款」里，跟 TA 有关的告诉 TA 一声
   const [cancelArmed, setCancelArmed] = useState(false);
   const cancelOrder = async (o: ShopOrder) => {
     if (!cancelArmed) { setCancelArmed(true); setTimeout(() => setCancelArmed(false), 2500); return; }
     setCancelArmed(false);
-    await ShoppingDB.deleteOrder(o.id);
+    const now = Date.now();
+    const notice = refundNotice(o, products, userProfile?.name || '');
+    const charId = o.receiverCharId;
+    if (o.selfOrder === 'char' && charId) {
+      // TA 自己在心跳里下的单：投喂站里是实时映射，真正的记录在 TA 查手机里，标在那条上
+      const recordId = o.id.slice(`hb-${charId}-`.length);
+      await updateCharacter(charId, cur => ({
+        phoneState: {
+          ...cur.phoneState,
+          records: (cur.phoneState?.records ?? []).map(r => r.id === recordId
+            ? { ...r, refundedAt: now, detail: `${r.detail.replace(REFUND_MARK, '').trim()}${REFUND_MARK}` }
+            : r),
+        },
+      }));
+    } else {
+      await ShoppingDB.saveOrder({ ...o, status: 'cancelled', cancelledAt: now, awaitingReply: false });
+    }
+    if (notice && charId) await DB.saveMessage({ charId, role: 'system', type: 'text', content: notice });
     await refresh();
-    back();
-    flash('订单已取消');
+    setOrdersTab('cancelled');
+    flash(o.status === 'done' ? '已退货退款' : '订单已取消');
   };
+  // [EM-END: shopping-refund]
 
   const clearNetForm = () => { setNName(''); setNPrice(''); setNSpec(''); setNDays(3); };
 
@@ -429,10 +448,21 @@ const ShoppingApp: React.FC = () => {
   // [EM-END: shopping-family]
   const activeOrders = allOrders.filter(o => o.status === 'active'); // [EM: shopping-family]
   const doneOrders = allOrders.filter(o => o.status === 'done'); // [EM: shopping-family]
-  const shownOrders = ordersTab === 'active' ? activeOrders : doneOrders;
+  const cancelledOrders = allOrders.filter(o => o.status === 'cancelled'); // [EM: shopping-refund]
+  const shownOrders = ordersTab === 'active' ? activeOrders : ordersTab === 'done' ? doneOrders : cancelledOrders; // [EM: shopping-refund]
   const currentOrder = allOrders.find(o => o.id === currentOrderId); // [EM: shopping-family]
 
+  // [EM-START: shopping-refund] 送达时间精确到分钟：网购也写几点到
+  const clockOf = (ts: number) => { const d = new Date(ts); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; };
+  const dayClockOf = (ts: number) => {
+    const d = new Date(ts);
+    const today = new Date();
+    const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+    const day = d.toDateString() === today.toDateString() ? '今天' : d.toDateString() === tomorrow.toDateString() ? '明天' : `${d.getMonth() + 1}月${d.getDate()}日`;
+    return `${day} ${clockOf(ts)}`;
+  };
   const formatEta = (o: ShopOrder) => {
+    if (o.status === 'cancelled') return o.cancelledAt ? `${dayClockOf(o.cancelledAt)} 退款` : '已退款';
     if (o.status === 'done') return '已送达';
     if (!o.etaTimestamp) return '配送中';
     const remaining = Math.max(0, o.etaTimestamp - Date.now());
@@ -440,9 +470,9 @@ const ShoppingApp: React.FC = () => {
       const mins = Math.ceil(remaining / 60000);
       return mins > 0 ? `还有 ${mins} 分钟送达` : '即将送达';
     }
-    const d = new Date(o.etaTimestamp);
-    return `预计 ${d.getMonth() + 1}月${d.getDate()}日 送达`;
+    return `预计 ${dayClockOf(o.etaTimestamp)} 送达`;
   };
+  // [EM-END: shopping-refund]
 
   const formatTime = (ts: number) => {
     const d = new Date(ts);
@@ -943,6 +973,7 @@ const ShoppingApp: React.FC = () => {
       <SunkenBox>
         <SegBtn label="进行中" active={ordersTab === 'active'} onClick={() => setOrdersTab('active')} />
         <SegBtn label="已完成" active={ordersTab === 'done'} onClick={() => setOrdersTab('done')} />
+        <SegBtn label="已退款" active={ordersTab === 'cancelled'} onClick={() => setOrdersTab('cancelled')} />{/* [EM: shopping-refund] */}
       </SunkenBox>
       {shownOrders.length === 0 ? (
         <EmptyState icon={<Package size={22} weight="bold" color={F.textTertiary} />} text="这里还没有订单" />
@@ -961,9 +992,9 @@ const ShoppingApp: React.FC = () => {
                 <div className="flex-1"><span style={{ fontSize: 12, color: F.textTertiary }}>{o.type === 'food' ? '外卖' : '网购'} · {directionLabel(o)}</span></div>{/* [EM: shopping-family] */}
                 <span className="shrink-0" style={{
                   padding: '4px 10px', borderRadius: R.pill, fontSize: 12, fontWeight: 600,
-                  background: o.status === 'done' ? HUE.gray.tint : c.tint,
-                  color: o.status === 'done' ? F.textSecondary : c.ink,
-                }}>{o.status === 'done' ? '已完成' : (o.type === 'food' ? '配送中' : '运送中')}</span>
+                  background: o.status !== 'active' ? HUE.gray.tint : c.tint,
+                  color: o.status !== 'active' ? F.textSecondary : c.ink,
+                }}>{orderStatusText(o)}</span>{/* [EM: shopping-refund] */}
               </div>
               <div className="truncate" style={{ fontSize: 15, fontWeight: 600, color: F.textPrimary }}>{title}</div>
               <div className="flex items-center justify-between">
@@ -997,7 +1028,7 @@ const ShoppingApp: React.FC = () => {
             {/* [EM-END: shopping-family] */}
           </div>
           <span style={{ padding: '5px 12px', borderRadius: R.pill, background: F.surface, fontSize: 12, fontWeight: 600, color: c.ink }}>
-            {o.status === 'done' ? '已完成' : (o.type === 'food' ? '配送中' : '运送中')}
+            {orderStatusText(o)}{/* [EM: shopping-refund] */}
           </span>
         </div>
 
@@ -1023,11 +1054,7 @@ const ShoppingApp: React.FC = () => {
             <div className="flex-1 pb-3.5">
               <div style={{ fontSize: 14, fontWeight: 600, color: F.textPrimary }}>{o.type === 'food' ? '配送中' : '运送中'}</div>
               <div style={{ fontSize: 12, fontWeight: 600, marginTop: 1, color: c.main }}>
-                {o.etaTimestamp
-                  ? (o.type === 'food'
-                    ? `预计 ${new Date(o.etaTimestamp).getHours()}:${String(new Date(o.etaTimestamp).getMinutes()).padStart(2, '0')} 送达`
-                    : `预计 ${new Date(o.etaTimestamp).getMonth() + 1}月${new Date(o.etaTimestamp).getDate()}日 送达`)
-                  : '配送中'}
+                {o.etaTimestamp ? `预计 ${dayClockOf(o.etaTimestamp)} 送达` : '配送中'}{/* [EM: shopping-refund] */}
               </div>
             </div>
           </div>
@@ -1039,7 +1066,14 @@ const ShoppingApp: React.FC = () => {
                 boxShadow: o.status === 'done' ? `0 0 0 3px ${c.tint}` : S.sunken }} />
             </div>
             <div className="flex-1 pb-3">
-              <div style={{ fontSize: 14, fontWeight: o.status === 'done' ? 700 : 600, color: o.status === 'done' ? c.ink : F.textTertiary }}>送达</div>
+              {/* [EM-START: shopping-refund] 退掉的单：最后一格写退款时间 */}
+              <div style={{ fontSize: 14, fontWeight: o.status === 'active' ? 600 : 700, color: o.status === 'done' ? c.ink : o.status === 'cancelled' ? F.textSecondary : F.textTertiary }}>
+                {o.status === 'cancelled' ? '已退款' : '送达'}
+              </div>
+              {o.status === 'cancelled' && o.cancelledAt && (
+                <div style={{ fontSize: 12, color: F.textTertiary, marginTop: 1 }}>{dayClockOf(o.cancelledAt)}</div>
+              )}
+              {/* [EM-END: shopping-refund] */}
             </div>
           </div>
         </div>
@@ -1321,16 +1355,17 @@ const ShoppingApp: React.FC = () => {
             </div>
           );
         })()}
-        {/* 订单操作：进行中 = 取消 + 确认收货；已完成 = 再买一次（TA 自己的单只读） */}
-        {screen === 'detail' && currentOrder && currentOrder.selfOrder !== 'char' && (
+        {/* 订单操作：进行中 = 取消 + 确认收货；已完成 = 退货（网购）+ 再买一次；TA 自己的单只能帮 TA 退 */}
+        {/* [EM-START: shopping-refund] */}
+        {screen === 'detail' && currentOrder && (canRefund(currentOrder) || (currentOrder.status === 'done' && currentOrder.selfOrder !== 'char')) && (
           <div className="flex gap-3">
-            {currentOrder.status === 'active' && (
-              <button onClick={() => cancelOrder(currentOrder)} className="flex items-center justify-center active:translate-y-[1px] transition-transform"
+            {canRefund(currentOrder) && (
+              <button onClick={() => cancelOrder(currentOrder)} className={`${currentOrder.selfOrder === 'char' ? 'flex-1 ' : ''}flex items-center justify-center active:translate-y-[1px] transition-transform`}
                 style={{ height: 48, padding: '0 18px', borderRadius: R.button, background: F.surfaceSunken, boxShadow: S.sunken, color: F.textSecondary, fontSize: 14, fontWeight: 600 }}>
-                {cancelArmed ? '再点一次' : '取消订单'}
+                {cancelArmed ? '再点一次' : currentOrder.status === 'done' ? '退货退款' : currentOrder.selfOrder === 'char' ? '帮 TA 取消' : '取消订单'}
               </button>
             )}
-            {currentOrder.status === 'active' && (
+            {currentOrder.status === 'active' && currentOrder.selfOrder !== 'char' && (
               <button onClick={async () => {
                 const o = currentOrder!;
                 const orderLines = orderCardLines(o, products); // [EM: shopping-family]
@@ -1350,7 +1385,7 @@ const ShoppingApp: React.FC = () => {
                 确认收货
               </button>
             )}
-            {currentOrder.status === 'done' && !currentOrder.isGiftFromChar && (currentOrder.custom || currentOrder.lines.some(l => products.some(p => p.id === l.id))) && (
+            {currentOrder.status === 'done' && currentOrder.selfOrder !== 'char' && !currentOrder.isGiftFromChar && (currentOrder.custom || currentOrder.lines.some(l => products.some(p => p.id === l.id))) && (
               <button onClick={() => reorder(currentOrder)} className="flex-1 flex items-center justify-center gap-2 active:translate-y-[1px] transition-transform"
                 style={{ height: 48, borderRadius: R.button, background: F.surface, border: `1px solid ${F.borderSoft}`, color: F.textPrimary, fontSize: 15, fontWeight: 600, boxShadow: S.raisedSoft }}>
                 <ShoppingCart size={18} weight="bold" />
@@ -1359,6 +1394,7 @@ const ShoppingApp: React.FC = () => {
             )}
           </div>
         )}
+        {/* [EM-END: shopping-refund] */}
         {showTab && <TabBar />}
       </div>
 
