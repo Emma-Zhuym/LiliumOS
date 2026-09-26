@@ -102,6 +102,18 @@ describe('buildToolConfig / parseToolConfig', () => {
     expect('feishuAppId' in config).toBe(false);
   });
 
+  // [EM: xhs-mini-mcp] mini 上的小红书服务走 Funnel，worker 够得着，令牌要跟着上云
+  it('自托管小红书的访问令牌随配置上云；没填就不写键', () => {
+    const withToken = parseToolConfig(JSON.stringify(buildToolConfig({
+      xhsMcpConfig: { enabled: true, serverUrl: 'https://mini.example.ts.net/xhs/mcp', authToken: 'tok' },
+    } as unknown as RealtimeConfig)));
+    expect(withToken?.xhsMcpConfig).toEqual({ enabled: true, serverUrl: 'https://mini.example.ts.net/xhs/mcp', authToken: 'tok' });
+    const without = buildToolConfig({
+      xhsMcpConfig: { enabled: true, serverUrl: 'https://mini.example.ts.net/xhs/mcp' },
+    } as unknown as RealtimeConfig);
+    expect('authToken' in (without.xhsMcpConfig ?? {})).toBe(false);
+  });
+
   it('无 realtimeConfig 时出全禁用配置（而不是抛错）', () => {
     const config = buildToolConfig(undefined);
     expect(config.newsEnabled).toBe(false);

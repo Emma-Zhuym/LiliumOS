@@ -14,6 +14,10 @@ const PORT = Number.parseInt(getArg('--port', '18123'), 10);
 const TARGET = new URL(getArg('--target', 'http://192.168.64.2'));
 const APPLE_EVENTS_TARGET = new URL(getArg('--apple-events-target', 'http://127.0.0.1:8765'));
 const AGENT_BACKEND_TARGET = new URL(getArg('--agent-backend-target', 'http://127.0.0.1:8790'));
+// 小红书：mini 上的 xiaohongshu-mcp（server/xhs-mcp）。对外是 /xhs/*，转发时去掉 /xhs 前缀；
+// 鉴权由它自己的 AUTH_TOKEN 做，这里只管路由和来源白名单。
+const XHS_MCP_TARGET = new URL(getArg('--xhs-mcp-target', 'http://127.0.0.1:18060'));
+const XHS_PREFIX = '/xhs';
 const ALLOWED_ORIGINS = new Set(
     getArg('--origins', 'https://emma-zhuym.github.io,http://localhost:5173,http://127.0.0.1:5173')
         .split(',')
@@ -32,6 +36,9 @@ if (APPLE_EVENTS_TARGET.protocol !== 'http:' && APPLE_EVENTS_TARGET.protocol !==
 }
 if (AGENT_BACKEND_TARGET.protocol !== 'http:' && AGENT_BACKEND_TARGET.protocol !== 'https:') {
     throw new Error('Only HTTP and HTTPS Agent Backend targets are supported');
+}
+if (XHS_MCP_TARGET.protocol !== 'http:' && XHS_MCP_TARGET.protocol !== 'https:') {
+    throw new Error('Only HTTP and HTTPS Xiaohongshu MCP targets are supported');
 }
 
 const corsHeaders = origin => ({
@@ -79,7 +86,7 @@ const server = createServer((request, response) => {
         });
         response.end(JSON.stringify({
             status: 'ok',
-            routes: { homeAssistant: '/api/*', appleEvents: '/mcp', agentBackend: '/agent/*' },
+            routes: { homeAssistant: '/api/*', appleEvents: '/mcp', agentBackend: '/agent/*', xiaohongshu: '/xhs/mcp' },
         }));
         return;
     }
@@ -103,7 +110,12 @@ const server = createServer((request, response) => {
     } else {
         const isAppleEventsPath = incoming.pathname === '/mcp' || incoming.pathname.startsWith('/mcp/');
         const isAgentBackendPath = incoming.pathname.startsWith('/agent/');
-        if (isAppleEventsPath) {
+        // 只放 MCP 端点和健康检查：它的 /api/v1/* REST 接口（发帖、删 cookie…）不从公网开
+        const xhsPath = incoming.pathname.startsWith(`${XHS_PREFIX}/`) ? incoming.pathname.slice(XHS_PREFIX.length) : null;
+        if (xhsPath === '/mcp' || xhsPath === '/health') {
+            target = new URL(`${xhsPath}${incoming.search}`, XHS_MCP_TARGET);
+            upstreamName = 'Xiaohongshu MCP';
+        } else if (isAppleEventsPath) {
             target = new URL(`${incoming.pathname}${incoming.search}`, APPLE_EVENTS_TARGET);
             upstreamName = 'Apple Events';
         } else if (isAgentBackendPath) {
@@ -120,7 +132,8 @@ const server = createServer((request, response) => {
         && (target.pathname === '/mcp' || target.pathname.startsWith('/mcp/'));
     const isAgentBackendPath = target.origin === AGENT_BACKEND_TARGET.origin
         && target.pathname.startsWith('/agent/');
-    if (!isHomeAssistantPath && !isAppleEventsPath && !isAgentBackendPath) {
+    const isXhsMcpPath = upstreamName === 'Xiaohongshu MCP';
+    if (!isHomeAssistantPath && !isAppleEventsPath && !isAgentBackendPath && !isXhsMcpPath) {
         response.writeHead(404, corsHeaders(origin));
         response.end();
         return;
@@ -160,4 +173,5 @@ server.listen(PORT, HOST, () => {
     console.log(`Forwarding /api requests to ${TARGET.origin}`);
     console.log(`Forwarding /mcp requests to ${APPLE_EVENTS_TARGET.origin}`);
     console.log(`Forwarding /agent requests to ${AGENT_BACKEND_TARGET.origin}`);
+    console.log(`Forwarding /xhs/mcp requests to ${XHS_MCP_TARGET.origin}`);
 });
