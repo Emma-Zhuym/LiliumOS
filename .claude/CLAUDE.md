@@ -337,6 +337,7 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 |---|---|
 | 还没决定做的点子 | `docs/ideas.md` ← **唯一入口** |
 | 决定要做了 / 已排期 | `docs/roadmap.md` 的优先级 |
+| 要交给另一个 session 独立做完的 | `docs/spec-<功能名>.md`（照 `spec-photo-favorites.md` 的骨架：数据层 / 各端改动 / **本次不做** / EM 惯例 / 验收） |
 | 做完了 | `docs/roadmap.md` 的「已完成」 |
 | 代码层面的技术待办 | `notes/todo.md` |
 | 跨 agent 交接、踩过的坑 | Engram（**不存点子**） |
