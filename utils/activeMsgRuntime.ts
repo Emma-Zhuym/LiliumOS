@@ -2472,6 +2472,19 @@ const scheduleNextInstantChatStatusCheck = () => {
   }, INSTANT_CHAT_STATUS_CHECK_INTERVAL_MS);
 };
 
+// [EM-START: agent-instant-chat]
+/**
+ * 去 Mac mini 的信箱取即时回复（推送丢了、或太长只推了「去取」信号时），塞进收件箱后冲刷。
+ * 也给 SW 转来的 agent-pull 结果和 OSContext 用。
+ */
+export const pullAgentOutboxAndFlush = async (): Promise<number> => {
+  const { syncAgentMessagesIntoChat } = await import('./emAgentInbox');
+  const result = await syncAgentMessagesIntoChat(Date.now());
+  if (result.chatReplies > 0) await flushInboxToChat('轮询补收');
+  return result.chatReplies;
+};
+// [EM-END: agent-instant-chat]
+
 /**
  * 即时对话的「一直等」状态机。客户端不按时长宣判——worker 一次 fire 最长 10 分钟、
  * 失败重试间隔 2/4/6 分钟，任何固定的客户端超时都会抢在云端结论之前把还在路上的
@@ -2491,7 +2504,18 @@ const scheduleNextInstantChatStatusCheck = () => {
  */
 export const runInstantChatStatusCheck = async (): Promise<void> => {
   if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
-  const pendings = listInstantChatPendings();
+  // [EM-START: agent-instant-chat] 交给 Mac mini 的轮次去问 mini，不走下面 amsg 那套（查无此行会被判死）
+  const allPendings = listInstantChatPendings();
+  const miniPendings = allPendings.filter((p) => p.via === 'mini');
+  if (miniPendings.length > 0) {
+    const { checkAgentChatPending } = await import('./emAgentChat');
+    for (const pending of miniPendings) {
+      await checkAgentChatPending(pending, async () => { await pullAgentOutboxAndFlush(); });
+    }
+    scheduleNextInstantChatStatusCheck();
+  }
+  const pendings = allPendings.filter((p) => p.via !== 'mini');
+  // [EM-END: agent-instant-chat]
   // 计数器只留还在等的轮次（销账走别的路时这里顺手清，别攒垃圾）。
   const activeUuids = new Set(pendings.map((p) => p.uuid));
   for (const uuid of [...instantStatusCheckFailures.keys()]) {

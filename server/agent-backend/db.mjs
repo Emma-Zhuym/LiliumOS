@@ -216,6 +216,42 @@ export const MIGRATIONS = [
     `
     ALTER TABLE life_threads ADD COLUMN due_at TEXT;
     `,
+    // 10：即时回复（chat_reply）和它的失败告知（chat_error）要进信箱。SQLite 改不了 CHECK，只能重建。
+    // deliveries 挂着 ON DELETE CASCADE 的外键：直接 DROP outbox 会连带删光投递记录，
+    // 所以先把 deliveries 挪开、重建 outbox、再原样放回去。
+    `
+    CREATE TABLE deliveries_v10 AS SELECT * FROM deliveries;
+    DROP TABLE deliveries;
+
+    CREATE TABLE outbox_v10 (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      message_id  TEXT NOT NULL UNIQUE,
+      char_id     TEXT,
+      job_uuid    TEXT,
+      kind        TEXT NOT NULL CHECK (kind IN ('chat_message','chat_reply','chat_error','job_result','system_notice')),
+      payload     TEXT NOT NULL,
+      notify      INTEGER NOT NULL DEFAULT 1,
+      created_at  TEXT NOT NULL,
+      acked_at    TEXT,
+      acked_by    TEXT REFERENCES devices(id)
+    );
+    INSERT INTO outbox_v10 (id, message_id, char_id, job_uuid, kind, payload, notify, created_at, acked_at, acked_by)
+      SELECT id, message_id, char_id, job_uuid, kind, payload, notify, created_at, acked_at, acked_by FROM outbox;
+    DROP TABLE outbox;
+    ALTER TABLE outbox_v10 RENAME TO outbox;
+    CREATE INDEX idx_outbox_unacked ON outbox (id) WHERE acked_at IS NULL;
+
+    CREATE TABLE deliveries (
+      message_id   TEXT NOT NULL REFERENCES outbox(message_id) ON DELETE CASCADE,
+      device_id    TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+      status       TEXT NOT NULL CHECK (status IN ('sent','failed','gone')),
+      http_status  INTEGER,
+      attempted_at TEXT NOT NULL,
+      PRIMARY KEY (message_id, device_id)
+    );
+    INSERT INTO deliveries SELECT message_id, device_id, status, http_status, attempted_at FROM deliveries_v10;
+    DROP TABLE deliveries_v10;
+    `,
 ];
 
 export const DEFAULT_SETTINGS = {

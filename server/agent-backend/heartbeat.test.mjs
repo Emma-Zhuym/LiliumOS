@@ -1210,7 +1210,7 @@ test('plan 解析：认得出的带上 dueAt，认不出的整条 plan 丢掉，
 test('迁移 9：旧 thread 的 due_at 是 NULL，行为不变；约定和正在推进的事各占各的名额', () => {
     const db = freshDb();
     seedCharacter(db);
-    assert.equal(db.prepare('PRAGMA user_version').get().user_version, 9);
+    assert.ok(db.prepare('PRAGMA user_version').get().user_version >= 9);
     // 模拟迁移前写下的行：不带 due_at
     db.prepare(`INSERT INTO life_threads (id, char_id, title, summary, status, created_at, updated_at)
                 VALUES ('aaaaaaaa-old', ?, '改领口', '打样回来了', 'open', ?, ?)`).run(CHAR, AT.toISOString(), AT.toISOString());
@@ -1736,4 +1736,29 @@ test('连发三条没回：整跳走下来不开口，生活照过', async () =>
     const result = await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration), rng: () => 0, deliver: async item => delivered.push(item) });
     assert.equal(result.action, 'noop');
     assert.equal(delivered.filter(d => d.kind === 'chat_message').length, 0);
+});
+
+// ── 即时回复和心跳对账 ──
+
+test('即时回复回过的，心跳不再当没读去回', () => {
+    const db = freshDb();
+    seedCharacter(db);
+    enqueue(db, { messageId: 'mini:t1', charId: CHAR, kind: 'chat_reply', payload: { message: '在的' } }, new Date(minutesAgo(5)));
+    const snapshot = { receivedAt: AT.toISOString(), payload: { recentMessages: bedtimeChat } };
+    assert.deepEqual(unreadFromUser(db, CHAR, snapshot), []);
+});
+
+test('即时回复正在跑：心跳这一跳不开口', async () => {
+    const db = freshDb();
+    setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+    const character = seedCharacter(db);
+    seedSnapshot(db);
+    const runner = { run: async () => ({ ok: true, output: { action: 'message', activity: '想她', reason: '', text: '在干嘛' } }) };
+    const handler = createHeartbeatHandler({
+        db, config: { heartbeatTimeoutMs: 1000 }, runners: { api: runner }, scheduleNext: () => {},
+        now: () => AT, rng: () => 0, deliver: async () => {}, chatBusy: () => true,
+    });
+    const result = await handler(jobFor(character.heartbeatGeneration));
+    assert.equal(result.action, 'noop');
+    assert.equal(listModelRuns(db)[0].skipGate, 'chat_turn_running');
 });

@@ -48,13 +48,15 @@ export const createPusher = async config => {
          * 给所有有效设备推一条。返回每台设备的结果，调用方负责写 deliveries。
          * 404 / 410 代表订阅已失效，把设备标成 gone，不再重复骚扰推送服务。
          */
-        async send(db, { messageId, title, body, url }) {
+        async send(db, { messageId, title, body, url, pushPayload = null }) {
             if (!ready) return [];
             const targets = db.prepare(
                 `SELECT id, push_endpoint, push_p256dh, push_auth FROM devices
                   WHERE revoked_at IS NULL AND push_status = 'active' AND push_endpoint IS NOT NULL`,
             ).all();
-            const payload = JSON.stringify({
+            // 即时回复按 amsg 推送的形状整份发（SW 认它，直接进收件箱走聊天后处理）；
+            // 其余照旧只按门铃。形状和大小由调用方负责（见 chatTurns.mjs 的 4KB 退路）。
+            const payload = pushPayload ? JSON.stringify(pushPayload) : JSON.stringify({
                 title,
                 body: String(body || '').slice(0, PREVIEW_LIMIT),
                 url: url || '/',
