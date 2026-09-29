@@ -5,6 +5,7 @@ import { isScheduleFeatureOn } from './scheduleFeature';
 import { buildScheduleInjection as buildScheduleInjectionText } from './scheduleInjection';
 import { TIME_FRAMING_CONVERSATIONAL } from './timeFramingNote';
 import { resolveCharTimeZone, nowInTimeZone, tzAwarenessNote, interactionGapNote } from './timezone';
+import { userClockNote } from './emUserClock'; // [EM: chat-user-clock]
 import {
     formatWorldbookSection,
     resolveWorldbookEntries,
@@ -366,6 +367,7 @@ export const ContextBuilder = {
         }
         const tzNote = tzAwarenessNote(charTz);
         if (tzNote) context += `${tzNote.trim()}\n`;
+        context += userClockNote(charTz); // [EM: chat-user-clock] 对方那边几点，按手机系统时区
         // 距离上次联系多久（统一口径）：传了 lastInteractionTs 才注入。
         // 让查手机/人际关系等无内联消息流的路径，也像聊天一样知道「用户多久没联系我了」。
         const gapNote = interactionGapNote(timeOptions?.lastInteractionTs);

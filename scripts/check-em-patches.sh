@@ -208,6 +208,8 @@ check "聊天知道自己的约定" utils/chatPrompts.ts "[EM-START: agent-plans
 check "日历显示角色约定" apps/CalendarApp.tsx "dayPlans.map(renderPlan)"
 check "后端约定接口" server/agent-backend/server.mjs "'GET /plans'"
 check "角色发的照片只给文字" utils/chatPrompts.ts "[EM-START: assistant-photo-text]"
+check "聊天知道对方那边几点" utils/context.ts "userClockNote(charTz)"
+check "天气地名带州和国家" utils/openMeteo.ts "displayName: placeName(savedLocation)"
 check "朋友圈评论带上私聊" apps/MomentsApp.tsx "runCharacterLook(char, items, readInter, characters, userName, api, recentChat)"
 
 echo ""

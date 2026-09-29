@@ -289,6 +289,40 @@ export const unreadFromUser = (db, charId, snapshot) => {
 };
 
 /**
+ * 阿萌最后一次说话之后，TA 主动发出去、还没等到回音的那几条（按时间正序）。
+ *
+ * 真人连发两三条没回就不再追了；心跳以前看不到这个，照样按概率开口，
+ * 于是一天里「到家了吗」「你人呢」「上次那条好像发送失败了」一条接一条。
+ */
+export const unansweredProactive = (db, charId, since) => db.prepare(
+    `SELECT created_at, payload FROM outbox
+      WHERE char_id = ? AND kind = 'chat_message' AND created_at > ?
+      ORDER BY id ASC`,
+).all(charId, since ? since.toISOString() : '1970-01-01T00:00:00.000Z').map(row => {
+    let text = '';
+    try { text = String(JSON.parse(row.payload)?.text ?? ''); } catch { /* 坏了就当空 */ }
+    return { at: row.created_at, text };
+});
+
+/** 阿萌最后一次真的开口的时刻：快照里的 userAt（夹到 received_at）和在场信号取大。TA 自己说的不算。 */
+export const lastUserSpokeAt = (character, snapshot) => {
+    const candidates = [];
+    if (character.lastUserInteractionAt) candidates.push(Date.parse(character.lastUserInteractionAt));
+    const raw = snapshot?.payload?.lastInteraction?.userAt;
+    if (raw) {
+        const receivedAt = Date.parse(snapshot.receivedAt);
+        const parsed = Date.parse(raw);
+        if (Number.isFinite(parsed)) candidates.push(Number.isFinite(receivedAt) ? Math.min(parsed, receivedAt) : parsed);
+    }
+    const valid = candidates.filter(Number.isFinite);
+    return valid.length ? new Date(Math.max(...valid)) : null;
+};
+
+/** 连发了几条没回，开口的概率打几折：一条没回照常，两条减半，三条起就不再主动找了。 */
+export const UNANSWERED_BACKOFF = [1, 1, 0.4, 0];
+export const unansweredFactor = count => UNANSWERED_BACKOFF[Math.min(count, UNANSWERED_BACKOFF.length - 1)];
+
+/**
  * 六道零模型闸。返回命中的那道闸的名字，全都通过则返回 null。
  *
  * 顺序按「越便宜越先判」排：读角色行就能判的排前面，要查表的排后面。
@@ -489,7 +523,7 @@ export const messageChance = ({ availability, minutesSinceContact, inBreak = fal
  * rng 可注入，测试里钉死。
  */
 export const decideIntent = ({
-    snapshot, now, timezone, minutesSinceContact, carried = null, canSpeak = true, owed = false, rng = Math.random,
+    snapshot, now, timezone, minutesSinceContact, carried = null, canSpeak = true, owed = false, unanswered = 0, rng = Math.random,
 }) => {
     const slot = currentSlot(snapshot, now, timezone);
     const availability = slot?.availability ?? null;
@@ -507,7 +541,11 @@ export const decideIntent = ({
     // 冷却、每日上限这些闸在抽签之前已经过了，所以不会因此刷屏。
     const inBreak = inBreakWindow(snapshot, now, timezone);
     // 这一跳不能开口时照样抽一次（保持随机序列不变），只是概率为 0；欠着的「等会儿」留到下一跳。
-    const chance = !canSpeak ? 0 : carried ? 1 : messageChance({ availability, minutesSinceContact, inBreak });
+    // 连发了没回：欠着的「等会儿」也不再强行兑现，概率照样打折（三条起为 0）。
+    const backoff = unansweredFactor(unanswered);
+    const chance = !canSpeak ? 0
+        : carried && unanswered < 2 ? 1
+            : messageChance({ availability, minutesSinceContact, inBreak }) * backoff;
     return {
         intent: rng() < chance ? 'reach_out' : 'live',
         chance,
@@ -802,7 +840,7 @@ export const HEARTBEAT_SCHEMA = {
  */
 export const buildPrompt = (character, snapshot, now = new Date(), intent = 'live', {
     thoughts = [], carried = null, threads = [], plans = [], duePlan = null, episode = false, life = null, canSpeak = true, temporal = '',
-    feed = [], opened = null, etas = null, purchases = [], unread = [], moments = [],
+    feed = [], opened = null, etas = null, purchases = [], unread = [], moments = [], unanswered = [], userTimezone = null,
 } = {}) => {
     const p = snapshot.payload || {};
     const lines = [];
@@ -816,6 +854,10 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
         );
     }
     lines.push(`对方是「${p.user?.name || '阿萌'}」。现在是 ${formatLocal(now, p.timezone)}（${p.timezone || '未知时区'}）。`);
+    // 两人不在一个时区时，TA 得知道对方那边几点：不然对方下午两点半，TA 问「睡了没」。
+    if (userTimezone && userTimezone !== p.timezone) {
+        lines.push(`对方那边现在是 ${formatLocal(now, userTimezone)}（${userTimezone}）。问候、问 ta 睡没睡、在不在上课，都按 ta 那边的时间来。`);
+    }
     if (p.sleepWindow) lines.push(`你的作息：${p.sleepWindow.start} 睡，${p.sleepWindow.end} 起。`);
     // 情绪底色：聊天那边每轮情绪评估写出来的叙事。缺了它，心跳里的 TA 永远是出厂情绪。
     if (p.mood) lines.push(`你此刻的情绪底色：\n${p.mood}`);
@@ -934,6 +976,13 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
                 // 约定是天然的话头：「周六要去看展」正是能自然说起的事，别让它从 noop 的口子漏掉
                 + (plans.length ? '你跟别人约好的事也是很自然的话头（比如跟 ta 说一声你周末要去做什么）。' : '')
                 + '真的想不出任何自然的话头时才退回 action="noop"，那说明这一刻确实不合适。'
+                + reachOutTimeRule(lastRealInteractionAt(character, snapshot), now)
+                + (unanswered.length
+                    ? `\n你之前主动发给 ta 的这些，ta 还没回：\n${unanswered.map(u => `- ${formatLocal(new Date(u.at), p.timezone)}：${u.text}`).join('\n')}\n`
+                        + 'ta 多半在忙（上课、开会、路上、睡觉），不是没收到，也不是消息发送失败。'
+                        + '这次别追问 ta 去哪了、在不在、收没收到、回不回，也别把上面问过的再问一遍；'
+                        + '说一件你自己这边新发生的事，或者一句不需要 ta 回的话。'
+                    : '')
                 + 'reason 写你心里的想法，对方看不到它。urge 填 "none"。'
             : '现在你自己醒了一下，过你自己的日子。\n'
                 + '规则：activity 里用第一人称写你这会儿在做什么（40 字以内），'
@@ -989,9 +1038,9 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
                 + '也可以是不用出门的（比如临时约好一起上线打游戏、开着语音各干各的）。'
                 + '当场就发生的事写现在时，别写成计划。lines 写约人或者当时说的那几句（最多 6 句，who 写说话人的名字，你自己写「我」）。'
                 + PLAN_HOW,
-            delivery: '你刚点了外卖。kind 填 "delivery"；with 写店名，detail 写点了什么，value 写实付金额（比如 ¥38.50）。'
+            delivery: '你刚点了外卖。kind 填 "delivery"；with 写店名，detail 写点了什么，value 写实付金额，用你所在地的货币（在美国就是 $18.50 这样，在国内就是 ¥38.50）。'
                 + (etas ? `这一单${foodWhen()}送到，提到送达就说这个时间，别自己编。` : ''),
-            order: '你刚在网上下了一单。kind 填 "order"；with 写商品名，detail 写规格，value 写价格。'
+            order: '你刚在网上下了一单。kind 填 "order"；with 写商品名，detail 写规格，value 写价格（用你所在地的货币）。'
                 + (etas ? shipHow() : ''),
             moment: '你刚发了一条朋友圈。kind 填 "moment"；detail 写正文。'
                 + '再替你通讯录里的亲友写下反应：comments 写 3–5 条评论（who 用上面认识的人的名字，relation 写 TA 是你的谁，语气贴着各自身份）；'
@@ -1013,7 +1062,7 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
                     : ''),
             gift: '你刚给对方买了点东西。kind 填 "gift"；via 填 "net"（网购）或 "food"（给对方点外卖）；'
                 + (etas ? `点外卖的话${foodWhen()}到；网购的话${shipHow()}` : '')
-                + 'with 写商品名或店名，detail 写买了什么、为什么挑这个，value 写价格；note 可以写一句附言（对方收到时能看到）。'
+                + 'with 写商品名或店名，detail 写买了什么、为什么挑这个，value 写价格（东西送到对方那边，按对方所在地的货币写）；note 可以写一句附言（对方收到时能看到）。'
                 + '想不想让对方提前知道是什么由你定：想当惊喜就把 surprise 设为 true，送到之前对方看不到内容，你也别在聊天里说漏。',
         }[life];
         if (life === 'gift') {
@@ -1061,6 +1110,20 @@ export const formatGap = (since, now) => {
     const rest = minutes % 60;
     if (hours < 24) return rest ? `${hours} 小时 ${rest} 分钟前` : `${hours} 小时前`;
     return `${Math.floor(hours / 24)} 天前`;
+};
+
+/**
+ * 找 ta 说话时的时间感。
+ *
+ * 模型会抓着上次聊天的最后一幕不放：隔了三小时还问「吃完没」「碗给我」「人呢」。
+ * 超过一小时就明说那一幕已经过去了，要接着上次的话就按现在往后推。
+ */
+export const reachOutTimeRule = (lastContact, now) => {
+    const gap = formatGap(lastContact, now);
+    if (!lastContact || now.getTime() - lastContact.getTime() < 60 * 60_000) return '';
+    return `\n时间感：你们上次聊天是${gap}，那时的场景（在吃饭、洗碗、洗澡、在路上、正要去做什么）早就结束了。`
+        + '别问只在那一刻才成立的事（「吃完没」「到家没」「人呢」「洗完没」）。'
+        + '想接着上次的话题，就按现在的时间往后推（上次说要考试，现在就问考得怎么样）。';
 };
 
 /**
@@ -1153,8 +1216,13 @@ export const createHeartbeatHandler = ({
     const carried = pendingUrge(db, character.charId, { since: lastContact });
     // 阿萌发了还没回的消息：有的话这一跳先读消息、回她。
     const unread = unreadFromUser(db, character.charId, snapshot);
+    // TA 主动发了、阿萌还没回的：连发多了就别再追（概率打折 + 提示词里列出来）。
+    const unanswered = unread.length ? [] : unansweredProactive(db, character.charId, lastUserSpokeAt(character, snapshot));
+    const userTimezone = snapshot.payload?.userTimezone || getSetting(db, 'timezone') || null;
     // 刚聊过 / 刚发过：这一跳不开口，但照样醒、照样过自己的日子。
-    const hush = speakBlock(db, { character, snapshot, now: startedAt, owed: unread.length > 0 });
+    const hush = speakBlock(db, { character, snapshot, now: startedAt, owed: unread.length > 0 })
+        // 连发三条没回：这一跳不开口（生活照过），等 ta 回了再说。
+        || (unanswered.length >= UNANSWERED_BACKOFF.length - 1 ? 'unanswered' : null);
     // 开不开口由程序抽签，不再让模型做判断题——它总能为沉默找到理由（设计 3.3）。
     const { intent } = decideIntent({
         snapshot,
@@ -1164,6 +1232,7 @@ export const createHeartbeatHandler = ({
         carried,
         canSpeak: !hush,
         owed: unread.length > 0,
+        unanswered: unanswered.length,
         rng,
     });
     // 只回看最近 12 小时：更早的那些，今天的聊天多半已经盖过去了。
@@ -1221,6 +1290,7 @@ export const createHeartbeatHandler = ({
     const promptFor = opened => buildPrompt(character, snapshot, startedAt, intent, {
         thoughts, carried: hush || intent === 'reply' ? null : carried, threads, plans, duePlan, episode: wantsEpisode, life: lifeKind, canSpeak: !hush, temporal, feed, opened,
         etas, purchases, unread: intent === 'reply' ? unread : [], moments,
+        unanswered: intent === 'reach_out' ? unanswered : [], userTimezone,
     });
     const firstPass = await runner.run({
         charId: character.charId,

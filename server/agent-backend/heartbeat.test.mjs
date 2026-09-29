@@ -17,7 +17,7 @@ import {
     ACTIVE_CHAT_WINDOW_MS, buildPrompt, checkGates, speakBlock, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
     BREAK_COOLDOWN_MIN, currentSlot, decideIntent, formatGap, inBreakWindow, upcomingBreakStarts, jitterRatio, lastRealInteractionAt, listModelRuns, messageChance,
     nextRunAt, recordModelRun, shouldCaptureRaw, decideEpisode, episodeChance, isWorkSlot, lifeChance, pickLifeKind, veilSurprise,
-    MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, withPlanTime, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule,
+    MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, withPlanTime, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule, unansweredProactive, lastUserSpokeAt, unansweredFactor, reachOutTimeRule,
 } from './heartbeat.mjs';
 import { chatCompletionsUrl, createApiRunner, extractContentText, parseEpisode, parseHeartbeatOutput, parseLife } from './runner.mjs';
 import { applyThread, closePassedPlans, closeStaleThreads, isPlanDue, listOpenThreads, listPlans } from './lifeThreads.mjs';
@@ -1671,4 +1671,69 @@ test('约定：列出窗口内所有角色的约定，按时间排，带 charId�
     assert.equal(plans[1].charId, CHAR);
     assert.equal(plans[1].status, 'open');
     assert.equal(plans[1].summary, '约在周六下午');
+});
+
+// ── 时间感：连发没回别追、隔久了别问那一刻的事、知道对方那边几点 ──
+
+test('没回的主动消息：只算阿萌最后开口之后 TA 发的', () => {
+    const db = freshDb();
+    seedCharacter(db);
+    enqueue(db, { messageId: 'a', charId: CHAR, kind: 'chat_message', payload: { text: '早' } }, new Date(minutesAgo(300)));
+    enqueue(db, { messageId: 'b', charId: CHAR, kind: 'chat_message', payload: { text: '到家了吗' } }, new Date(minutesAgo(120)));
+    enqueue(db, { messageId: 'c', charId: CHAR, kind: 'chat_message', payload: { text: '你人呢' } }, new Date(minutesAgo(30)));
+    const since = new Date(minutesAgo(200));
+    assert.deepEqual(unansweredProactive(db, CHAR, since).map(u => u.text), ['到家了吗', '你人呢']);
+});
+
+test('阿萌最后开口：只看 userAt 和在场信号，TA 自己说的不算', () => {
+    const snapshot = { receivedAt: AT.toISOString(), payload: { lastInteraction: { userAt: minutesAgo(200), charAt: minutesAgo(10) } } };
+    assert.equal(lastUserSpokeAt({ lastUserInteractionAt: null }, snapshot).toISOString(), minutesAgo(200));
+});
+
+test('连发没回：一条照常，两条打折，三条起不再主动找（欠着的等会儿也不强行兑现）', () => {
+    assert.equal(unansweredFactor(0), 1);
+    assert.equal(unansweredFactor(1), 1);
+    assert.equal(unansweredFactor(2), 0.4);
+    assert.equal(unansweredFactor(5), 0);
+    const args = { snapshot: {}, now: AT, timezone: 'America/Chicago', minutesSinceContact: 600, rng: () => 0.01 };
+    assert.equal(decideIntent({ ...args, carried: { reason: '想她' }, unanswered: 1 }).chance, 1);
+    assert.ok(decideIntent({ ...args, carried: { reason: '想她' }, unanswered: 2 }).chance < 1);
+    assert.equal(decideIntent({ ...args, unanswered: 3 }).intent, 'live');
+});
+
+test('隔了一小时以上找她：说明那一幕已经过去，别问「吃完没」「人呢」', () => {
+    assert.equal(reachOutTimeRule(new Date(minutesAgo(30)), AT), '');
+    assert.match(reachOutTimeRule(new Date(minutesAgo(180)), AT), /3 小时前.*早就结束了.*人呢/s);
+});
+
+test('找她时列出没回的那几条，叫 TA 别追问、别说发送失败', () => {
+    const snapshot = { payload: { user: { name: '阿萌' }, timezone: 'America/Chicago', recentMessages: bedtimeChat } };
+    const prompt = buildPrompt({ displayName: '陈照' }, snapshot, AT, 'reach_out', {
+        unanswered: [{ at: minutesAgo(90), text: '到家了吗' }],
+    });
+    assert.match(prompt, /ta 还没回：\n- .*到家了吗/);
+    assert.match(prompt, /不是消息发送失败/);
+});
+
+test('不在一个时区：告诉 TA 对方那边几点；同一个时区不多说', () => {
+    const snapshot = { payload: { user: { name: '阿萌' }, timezone: 'Asia/Shanghai' } };
+    const prompt = buildPrompt({ displayName: '陆时' }, snapshot, AT, 'live', { userTimezone: 'America/Chicago' });
+    assert.match(prompt, /对方那边现在是 .*下午3:00（America\/Chicago）/);
+    const same = buildPrompt({ displayName: '陆时' }, { payload: { timezone: 'America/Chicago' } }, AT, 'live', { userTimezone: 'America/Chicago' });
+    assert.doesNotMatch(same, /对方那边现在是/);
+});
+
+test('连发三条没回：整跳走下来不开口，生活照过', async () => {
+    const db = freshDb();
+    setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+    const character = seedCharacter(db, { messageCooldownMin: 1 });
+    seedSnapshot(db, { lastInteraction: { userAt: minutesAgo(600), charAt: minutesAgo(30) } });
+    for (const [id, m] of [['a', 400], ['b', 200], ['c', 60]]) {
+        enqueue(db, { messageId: id, charId: CHAR, kind: 'chat_message', payload: { text: '在吗' } }, new Date(minutesAgo(m)));
+    }
+    const runner = { run: async () => ({ ok: true, output: { action: 'message', activity: '刷手机', reason: '', text: '你人呢' } }) };
+    const delivered = [];
+    const result = await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration), rng: () => 0, deliver: async item => delivered.push(item) });
+    assert.equal(result.action, 'noop');
+    assert.equal(delivered.filter(d => d.kind === 'chat_message').length, 0);
 });
