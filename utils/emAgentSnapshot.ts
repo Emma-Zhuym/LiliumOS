@@ -19,6 +19,7 @@ import { resolveCharTimeZone } from './timezone';
 import { isScheduleFeatureOn } from './scheduleFeature';
 import { resolveContactGroup } from './contactGroups';
 import { normName } from './relationshipChat';
+import { loadUserMomentsForSnapshot, type SnapshotUserMoment } from './emMomentsContext'; // [EM: moments-heartbeat]
 
 export const SNAPSHOT_SCHEMA_VERSION = 1;
 
@@ -91,6 +92,8 @@ export interface CharacterSnapshot {
         recentMessages?: { role: 'user' | 'char'; at: string | null; text: string }[];
         /** 长期记忆：聊天记忆里的月度总结（char.refinedMemories），按月份正序。 */
         monthlySummaries?: { month: string; text: string }[];
+        /** 阿萌最近发的、TA 还没回应过的朋友圈（只有文字），心跳醒来时刷到。 */
+        userMoments?: SnapshotUserMoment[]; // [EM: moments-heartbeat]
         boundaries?: SnapshotBoundary[];
         openThreads?: never[];
     };
@@ -207,6 +210,9 @@ export const buildCharacterSnapshot = async (
         todaySchedule = undefined;
     }
 
+    // [EM: moments-heartbeat] 朋友圈库读不出来（没有 IndexedDB 的环境）就不带，不拦快照
+    const userMoments = await loadUserMomentsForSnapshot(char.id, options.userName || '阿萌', at.getTime()).catch(() => []);
+
     const recent = messages
         .filter(message => message.type !== 'system')
         .slice(-MAX_RECENT_MESSAGES)
@@ -253,6 +259,7 @@ export const buildCharacterSnapshot = async (
             ...(char.xhsEnabled ? { xhsEnabled: true } : {}), // [EM: heartbeat-xhs]
             lastInteraction: findLastInteraction(messages),
             ...(recent.length ? { recentMessages: recent } : {}),
+            ...(userMoments.length ? { userMoments } : {}), // [EM: moments-heartbeat]
             ...(() => {
                 const monthlySummaries = buildMonthlySummaries(char);
                 return monthlySummaries.length ? { monthlySummaries } : {};

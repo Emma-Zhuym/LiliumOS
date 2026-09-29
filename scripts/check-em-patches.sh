@@ -199,6 +199,11 @@ check "心跳转发小红书带卡片" utils/emAgentInbox.ts "[EM-START: heartbe
 check "网关停用发帖评论" scripts/home-assistant-proxy.mjs "XHS_BLOCKED_TOOLS"
 check "心跳读消息：TA 回过后同步快照" apps/Chat.tsx "[EM-START: agent-backend-reply-sync]"
 check "心跳长期记忆：月度总结进快照" utils/emAgentSnapshot.ts "monthlySummaries"
+check "心跳丢掉过期日程" server/agent-backend/heartbeat.mjs "withTodaySchedule(getSnapshot(db, character.charId), now())"
+check "打开 App 补传快照" context/OSContext.tsx "refreshHeartbeatSnapshots(charactersRef.current"
+check "聊天看得到朋友圈" utils/chatPrompts.ts "[EM-START: moments-chat-context]"
+check "心跳刷朋友圈：反应落库" utils/emAgentInbox.ts "applyHeartbeatMomentReactions(message.charId"
+check "心跳刷朋友圈：快照带阿萌动态" utils/emAgentSnapshot.ts "loadUserMomentsForSnapshot("
 check "朋友圈评论带上私聊" apps/MomentsApp.tsx "runCharacterLook(char, items, readInter, characters, userName, api, recentChat)"
 
 echo ""

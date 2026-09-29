@@ -69,6 +69,22 @@ export const normalizeSnapshotPayload = payload => {
             }));
     }
 
+    // 阿萌最近发的朋友圈（TA 还没回应过的）：只收文字、时间、配图张数和已有评论，图片本身不上来。
+    if (Array.isArray(source.userMoments)) {
+        out.userMoments = source.userMoments
+            .filter(item => item && typeof item.id === 'string' && typeof item.text === 'string')
+            .slice(0, 10)
+            .map(item => ({
+                id: String(item.id).slice(0, 80),
+                text: String(item.text).slice(0, MAX_MESSAGE_CHARS),
+                at: item.at ?? null,
+                images: Math.max(0, Math.min(9, Number(item.images) || 0)),
+                comments: (Array.isArray(item.comments) ? item.comments : []).slice(-5)
+                    .filter(c => c && typeof c.text === 'string')
+                    .map(c => ({ who: String(c.who ?? '').slice(0, 24), text: String(c.text).slice(0, 200) })),
+            }));
+    }
+
     // 月度总结（长期记忆）：只收 {month, text}，按月份排好。
     if (Array.isArray(source.monthlySummaries)) {
         out.monthlySummaries = source.monthlySummaries

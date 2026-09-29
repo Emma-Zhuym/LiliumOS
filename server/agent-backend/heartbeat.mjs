@@ -23,6 +23,9 @@ import {
 import {
     applyXhsActions, fetchDetail, fetchFeed, formatDetailForPrompt, formatFeedForPrompt, resolvePicks, resolveShare, XHS_MAX_PICKS,
 } from './xhsFeed.mjs';
+import {
+    MOMENTS_MAX_PER_BEAT, formatMomentsForPrompt, markMomentsSeen, resolveMomentReactions, unseenMoments,
+} from './moments.mjs';
 import { formatTemporalForPrompt, listTemporalItems, readVisibility, veilForCharacter } from './temporal.mjs';
 
 /** 心跳最晚执行时间：过了就 expired，mini 睡醒后不会补跑一堆旧心跳（设计 4.1）。 */
@@ -177,6 +180,30 @@ const localMinutes = (date, timezone) => {
 const toMinutes = value => {
     const [h, m] = String(value || '').split(':').map(Number);
     return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : null;
+};
+
+const dateKey = (date, timezone) => {
+    try {
+        return new Intl.DateTimeFormat('en-CA', { timeZone: timezone || 'America/Chicago' }).format(date);
+    } catch {
+        return date.toISOString().slice(0, 10);
+    }
+};
+
+/**
+ * 快照里的「今天的安排」只在拼快照的那一天有效。
+ *
+ * 快照只在阿萌发消息 / 打开 App 时更新：一整天没动静，手里那份就还是昨天的，
+ * 不丢掉的话 TA 会照着昨天的时间表判断现在忙不忙、该上班还是在家。
+ * 按角色时区比日期；不是今天的就当没有日程（权重按「不知道在忙什么」算），别的字段照旧。
+ */
+export const withTodaySchedule = (snapshot, now = new Date()) => {
+    if (!snapshot?.payload?.todaySchedule) return snapshot;
+    const built = Date.parse(snapshot.builtAt);
+    const timezone = snapshot.payload.timezone;
+    if (Number.isFinite(built) && dateKey(new Date(built), timezone) === dateKey(now, timezone)) return snapshot;
+    const { todaySchedule: _stale, ...payload } = snapshot.payload;
+    return { ...snapshot, payload };
 };
 
 export const inSleepWindow = (now, sleepWindow, timezone) => {
@@ -719,6 +746,21 @@ export const HEARTBEAT_SCHEMA = {
                 },
             },
         },
+        // 刷到阿萌的新朋友圈：只有提示词里列了动态才会要求写。index 是列表里的编号。
+        moments: {
+            type: 'array',
+            maxItems: MOMENTS_MAX_PER_BEAT,
+            items: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['index'],
+                properties: {
+                    index: { type: 'integer', minimum: 1, maximum: MOMENTS_MAX_PER_BEAT },
+                    like: { type: 'boolean' },
+                    comment: { type: 'string', maxLength: 200 },
+                },
+            },
+        },
         // 工作往来：只有程序抽中「这一跳在处理工作」时才会要求写，见 decideEpisode。
         episode: {
             type: 'object',
@@ -760,7 +802,7 @@ export const HEARTBEAT_SCHEMA = {
  */
 export const buildPrompt = (character, snapshot, now = new Date(), intent = 'live', {
     thoughts = [], carried = null, threads = [], plans = [], duePlan = null, episode = false, life = null, canSpeak = true, temporal = '',
-    feed = [], opened = null, etas = null, purchases = [], unread = [],
+    feed = [], opened = null, etas = null, purchases = [], unread = [], moments = [],
 } = {}) => {
     const p = snapshot.payload || {};
     const lines = [];
@@ -861,6 +903,17 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
         lines.push(
             `现在就是你约好的时间：「${duePlan.title}」${duePlan.summary ? `（${duePlan.summary}）` : ''}。`
             + '这一跳你正在做这件事（或者正要出发 / 刚开始），activity 就写它，写现在时。',
+        );
+    }
+    // 阿萌发了新朋友圈：TA 这会儿拿起手机刷到了。回不回应、怎么回应由 TA 定，写在 moments 里。
+    if (moments.length) {
+        const userName = p.user?.name || '对方';
+        lines.push(
+            `你刚刷了一下朋友圈，看到${userName}新发的动态：\n`
+            + formatMomentsForPrompt(moments, { userName, formatTime: at => formatLocal(new Date(at), p.timezone) })
+            + '\n在 moments 里写你的反应：index 填上面的编号；想点赞 like 填 true；想评论就写 comment'
+            + '（一两句以内，像真人在朋友圈底下说话，贴着你们的关系和最近的聊天；别复述 ta 写了什么）。'
+            + '没什么想回应的就不写那一条。这跟你这一跳在做的事可以同时发生。',
         );
     }
     // 开不开口已经定了，模型不再做判断题，只负责把它说得像这个人会说的话。
@@ -1061,7 +1114,8 @@ export const createHeartbeatHandler = ({
 
     scheduleNext(character, now());
 
-    const snapshot = getSnapshot(db, character.charId);
+    // 昨天拼的日程不拿来过今天
+    const snapshot = withTodaySchedule(getSnapshot(db, character.charId), now());
     const gate = checkGates(db, { character, snapshot, now: now() });
     if (gate) {
         recordModelRun(db, {
@@ -1162,9 +1216,11 @@ export const createHeartbeatHandler = ({
     const shopping = SHOPPING_KINDS.has(lifeKind);
     const etas = shopping ? pickEtas(startedAt, timezone, rng) : null;
     const purchases = shopping ? recentPurchases(db, character.charId, startedAt) : [];
+    // 阿萌的新朋友圈：回她消息的那一跳专心回消息，别的跳顺手刷一下。
+    const moments = intent === 'reply' ? [] : unseenMoments(db, character.charId, snapshot);
     const promptFor = opened => buildPrompt(character, snapshot, startedAt, intent, {
         thoughts, carried: hush || intent === 'reply' ? null : carried, threads, plans, duePlan, episode: wantsEpisode, life: lifeKind, canSpeak: !hush, temporal, feed, opened,
-        etas, purchases, unread: intent === 'reply' ? unread : [],
+        etas, purchases, unread: intent === 'reply' ? unread : [], moments,
     });
     const firstPass = await runner.run({
         charId: character.charId,
@@ -1281,6 +1337,21 @@ export const createHeartbeatHandler = ({
         return { ok: true, shadow, intent, action: output.action, activity: output.activity, durationMs };
     }
 
+    // 刷过的朋友圈：看过就记下（回没回应都一样），回应了的静默送去手机写进朋友圈。
+    if (moments.length) {
+        markMomentsSeen(db, character.charId, moments.map(post => post.id), startedAt);
+        const reactions = resolveMomentReactions(result.output.moments, moments);
+        if (reactions.length) {
+            await deliver({
+                messageId: `hb:${job.uuid}:moments`,
+                charId: character.charId,
+                jobUuid: job.uuid,
+                kind: 'job_result',
+                notify: false,
+                payload: { type: 'moment_reaction', createdAt: startedAt.toISOString(), reactions },
+            });
+        }
+    }
     // 工作往来：先记「正在推进的事」，再送去手机。静默送达（notify:false）：
     // 这是给阿萌翻的记录，不是来打扰她的消息。messageId 以任务 uuid 为幂等键。
     let workDelivered = false;
