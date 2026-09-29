@@ -142,6 +142,8 @@
 选中日 = borderStrong 平底块 radius 10(健康:底色要留给经期/排卵的 Tint);
 日历 App 选中日 = Product Main 实心 + 白字 + `clay-pop`;今日 = accent 1.5px 描边圈;事件 = 下方 4–5px Main 圆点 ≤3;
 图例 chips = Tint 底 Ink 字,范围类用 1.5px 虚线描边。
+日历 App 里的**角色约定**(不是阿萌自己的事)= 中性层:角色头像代替图标座、时间用 textSecondary、
+月历圆点用 textTertiary 灰;不占 Product/辅助色名额。已过的约定整卡 0.6 透明度 + 标题删除线。
 
 ## P2. 金额与涨跌(记账 app 沉淀)
 金额 bodyStrong / 大数字 display + tabular-nums;涨跌用 success/danger 状态色

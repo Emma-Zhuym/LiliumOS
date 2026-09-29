@@ -114,3 +114,21 @@ export const closePassedPlans = (db, charId, now = new Date()) =>
 export const completeThread = (db, id, now = new Date()) =>
     db.prepare(`UPDATE life_threads SET status = 'done', updated_at = ? WHERE id = ? AND status = 'open'`)
         .run(now.toISOString(), id).changes;
+
+/** 列约定时默认看的窗口：往前一周（日历上还能看到刚做过的），往后两个月。 */
+export const PLANS_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
+export const PLANS_LOOKAHEAD_MS = 60 * 24 * 60 * 60 * 1000;
+
+/**
+ * 所有角色的约定（带 due_at 的那种），给手机的日历和聊天用。按时间正序。
+ * status 为 open 是还没到；done 是到点做了或过了窗口收掉的——对日历来说都是「那天有这件事」。
+ */
+export const listPlans = (db, { from = null, to = null, now = new Date() } = {}) => {
+    const fromIso = from && Number.isFinite(Date.parse(from)) ? new Date(from).toISOString()
+        : new Date(now.getTime() - PLANS_LOOKBACK_MS).toISOString();
+    const toIso = to && Number.isFinite(Date.parse(to)) ? new Date(to).toISOString()
+        : new Date(now.getTime() + PLANS_LOOKAHEAD_MS).toISOString();
+    return db.prepare(
+        `SELECT * FROM life_threads WHERE due_at IS NOT NULL AND due_at >= ? AND due_at <= ? ORDER BY due_at ASC LIMIT 200`,
+    ).all(fromIso, toIso).map(row => ({ ...toThread(row), charId: row.char_id }));
+};

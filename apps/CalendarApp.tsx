@@ -9,14 +9,17 @@
  * 建事件 / 建提醒 / 勾完成要等后端的写接口，现在先把月历和当天清单摆出来。
  *
  * 主色 = indigo（事件），提醒用 orange 做唯一的辅助色（amber 太亮，白字压不住）。
+ * 角色们的约定（心跳里 TA 跟亲友约下的事）也摆在对应那天，用中性灰 + 角色头像，不占彩色名额。
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowsClockwise, Bell, CalendarBlank, CaretLeft, CaretRight, Check, Plus, Repeat, X } from '@phosphor-icons/react';
+import { ArrowsClockwise, Bell, CalendarBlank, CaretLeft, CaretRight, Check, Plus, Repeat, Users, X } from '@phosphor-icons/react';
 
 import { useOS } from '../context/OSContext';
 import { F, FONT, HUE, OVERLAY, R, S, STATUS } from '../utils/clayTokens';
-import { AgentBackend, isAgentPaired, type TemporalItem } from '../utils/emAgentBackend';
+import { AgentBackend, isAgentPaired, type AgentPlan, type TemporalItem } from '../utils/emAgentBackend';
+import { loadPlansCache, refreshPlansCache } from '../utils/emAgentPlans';
+import TokenImg from '../components/os/TokenImg';
 import {
     cacheItem, dayKey, dueText, groupByDay, hasOpenSource, isOverdue, itemTimeText, loadTemporalCache, monthGrid,
     openReminders, saveTemporalCache, shiftMonth, syncText, uncacheItem, writableLists,
@@ -36,9 +39,10 @@ const IconBtn: React.FC<{ onClick: () => void; label: string; children: React.Re
 );
 
 const CalendarApp: React.FC = () => {
-    const { closeApp, addToast } = useOS();
+    const { closeApp, addToast, characters } = useOS();
     const today = useMemo(() => new Date(), []);
     const [cache, setCache] = useState<TemporalCache | null>(loadTemporalCache);
+    const [plans, setPlans] = useState<AgentPlan[]>(loadPlansCache);
     const [loading, setLoading] = useState(false);
     const [cursor, setCursor] = useState(() => ({ year: today.getFullYear(), month: today.getMonth() }));
     const [selected, setSelected] = useState(() => dayKey(today));
@@ -55,6 +59,8 @@ const CalendarApp: React.FC = () => {
     const refresh = useCallback(async () => {
         if (!isAgentPaired()) return;
         setLoading(true);
+        // 约定走自己的缓存：拉不到就留着上次的，不跟日历一起失败
+        void refreshPlansCache().then(setPlans);
         try {
             setCache(saveTemporalCache(await AgentBackend.temporal()));
         } catch {
@@ -70,6 +76,19 @@ const CalendarApp: React.FC = () => {
     const byDay = useMemo(() => groupByDay(items), [items]);
     const grid = useMemo(() => monthGrid(cursor.year, cursor.month), [cursor]);
     const dayItems = byDay.get(selected) ?? [];
+    // 约定按本机日期归到那一天（日历本来就是阿萌这边的时间）；已删的角色不显示
+    const plansByDay = useMemo(() => {
+        const map = new Map<string, AgentPlan[]>();
+        for (const plan of [...plans].sort((a, b) => Date.parse(a.dueAt) - Date.parse(b.dueAt))) {
+            if (!characters.some(c => c.id === plan.charId)) continue;
+            const at = new Date(plan.dueAt);
+            if (Number.isNaN(at.getTime())) continue;
+            const key = dayKey(at);
+            map.set(key, [...(map.get(key) ?? []), plan]);
+        }
+        return map;
+    }, [plans, characters]);
+    const dayPlans = plansByDay.get(selected) ?? [];
     const todayKey = dayKey(today);
 
     const lists = useMemo(() => writableLists(cache?.visibility), [cache]);
@@ -122,6 +141,7 @@ const CalendarApp: React.FC = () => {
         const isToday = cell.key === todayKey;
         const hasEvent = bucket.some(item => item.kind === 'event');
         const hasReminder = bucket.some(item => item.kind === 'reminder');
+        const hasPlan = plansByDay.has(cell.key);
         return (
             <button key={cell.key} onClick={() => setSelected(cell.key)}
                 className={`flex flex-col items-center justify-center clay-press${isSelected ? ' clay-pop' : ''}`}
@@ -136,6 +156,7 @@ const CalendarApp: React.FC = () => {
                 <span className="flex items-center" style={{ gap: 2, height: 4 }}>
                     {hasEvent && <span style={{ width: 4, height: 4, borderRadius: R.pill, background: isSelected ? F.surfaceRaised : C.main }} />}
                     {hasReminder && <span style={{ width: 4, height: 4, borderRadius: R.pill, background: isSelected ? F.surfaceRaised : A.main }} />}
+                    {hasPlan && <span style={{ width: 4, height: 4, borderRadius: R.pill, background: isSelected ? F.surfaceRaised : F.textTertiary }} />}
                 </span>
             </button>
         );
@@ -160,6 +181,34 @@ const CalendarApp: React.FC = () => {
                         <span className="truncate">{item.source}</span>
                         {item.location && <span className="truncate">{item.location}</span>}
                         {item.repeats && <span className="flex items-center" style={{ gap: 3 }}><Repeat size={12} weight="bold" color={F.textTertiary} />重复</span>}
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    /** 角色的约定：中性灰卡，头像代替图标座；做过的（到点了）划掉。 */
+    const renderPlan = (plan: AgentPlan, index: number) => {
+        const char = characters.find(c => c.id === plan.charId);
+        const done = plan.status === 'done' || Date.parse(plan.dueAt) < Date.now();
+        const time = new Date(plan.dueAt).toLocaleTimeString('zh-CN', { hour: 'numeric', minute: '2-digit' });
+        return (
+            <div key={plan.id} className="flex items-start gap-3 clay-rise"
+                style={{ '--i': dayItems.length + index, background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, padding: '14px 16px', boxShadow: S.raisedSoft, opacity: done ? 0.6 : 1 } as React.CSSProperties}>
+                {char?.avatar
+                    ? <TokenImg value={char.avatar} alt={char.name} style={{ width: 36, height: 36, borderRadius: R.small, objectFit: 'cover', flexShrink: 0 }} />
+                    : (
+                        <div className="flex items-center justify-center shrink-0" style={{ width: 36, height: 36, borderRadius: R.small, background: F.surfaceSunken }}>
+                            <Users size={18} weight="bold" color={F.textSecondary} />
+                        </div>
+                    )}
+                <div className="flex-1 min-w-0">
+                    <div className="truncate" style={{ fontSize: 15, fontWeight: 600, color: F.textPrimary, textDecoration: done ? 'line-through' : 'none' }}>
+                        {plan.title}
+                    </div>
+                    <div className="flex items-center flex-wrap" style={{ gap: 8, marginTop: 3, fontSize: 12, color: F.textTertiary }}>
+                        <span style={{ color: F.textSecondary, fontWeight: 600 }}>{time}</span>
+                        <span className="truncate">{char?.name ?? 'TA'} 的约定</span>
                     </div>
                 </div>
             </div>
@@ -296,9 +345,10 @@ const CalendarApp: React.FC = () => {
                 {/* 选中那天 */}
                 <div className="flex items-center justify-between px-1">
                     <span style={{ ...FONT.sectionTitle, fontFamily: FONT.heading, color: F.textPrimary }}>{selectedLabel}</span>
-                    <span style={{ fontSize: 12, color: F.textTertiary }}>{dayItems.length > 0 ? `${dayItems.length} 项` : '没有安排'}</span>
+                    <span style={{ fontSize: 12, color: F.textTertiary }}>{dayItems.length + dayPlans.length > 0 ? `${dayItems.length + dayPlans.length} 项` : '没有安排'}</span>
                 </div>
                 {dayItems.map(renderItem)}
+                {dayPlans.map(renderPlan)}
 
                 {/* 记着的事：提醒不挂在某一天上看才有用——逾期的、没写时间的都在这儿 */}
                 {reminders.length > 0 && (

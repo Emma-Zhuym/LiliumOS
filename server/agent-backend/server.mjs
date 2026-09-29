@@ -14,6 +14,7 @@ import { cancelJob, createJob, listJobs } from './jobs.mjs';
 import { characterExists, listCharacters, touchPresence, upsertCharacter } from './characters.mjs';
 import { listCredentials, putCredential } from './credentials.mjs';
 import { listModelRuns } from './heartbeat.mjs';
+import { listPlans } from './lifeThreads.mjs';
 import { listSnapshotMeta, putSnapshot } from './snapshots.mjs';
 import { getSetting, setSetting } from './db.mjs';
 import {
@@ -206,6 +207,12 @@ export const createRouter = ctx => {
                     limit: query.get('limit'),
                 }),
             }),
+        },
+
+        // ── 角色们的约定（心跳里跟亲友约下的事）─────────────────────────
+        'GET /plans': {
+            // 日历 App 摆出来、聊天里告诉 TA 自己约了什么。默认往前一周、往后两个月。
+            handle: ({ query }) => ({ plans: listPlans(db, { from: query.get('from'), to: query.get('to') }) }),
         },
 
         // ── 阿萌的现实时间（Apple 日历 / 提醒）──────────────────────────
