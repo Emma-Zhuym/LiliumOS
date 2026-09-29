@@ -8,7 +8,9 @@
 
 export const SNAPSHOT_SCHEMA_VERSION = 1;
 
-const MAX_RECENT_MESSAGES = 30;
+const MAX_RECENT_MESSAGES = 100;
+const MAX_MONTHLY_SUMMARIES = 24;
+const MAX_SUMMARY_CHARS = 2000;
 const MAX_MESSAGE_CHARS = 500;
 
 /**
@@ -64,6 +66,17 @@ export const normalizeSnapshotPayload = payload => {
                 role: item?.role === 'user' ? 'user' : 'char',
                 at: item?.at ?? null,
                 text: String(item?.text ?? '').slice(0, MAX_MESSAGE_CHARS),
+            }));
+    }
+
+    // 月度总结（长期记忆）：只收 {month, text}，按月份排好。
+    if (Array.isArray(source.monthlySummaries)) {
+        out.monthlySummaries = source.monthlySummaries
+            .filter(item => item && typeof item.text === 'string' && item.text.trim())
+            .slice(-MAX_MONTHLY_SUMMARIES)
+            .map(item => ({
+                month: String(item.month ?? '').slice(0, 20),
+                text: String(item.text).trim().slice(0, MAX_SUMMARY_CHARS),
             }));
     }
 

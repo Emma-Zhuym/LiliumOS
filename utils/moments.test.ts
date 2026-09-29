@@ -1,7 +1,7 @@
 // [EM-START: moments]
 import { describe, expect, it } from 'vitest';
 
-import type { CharacterProfile, PhoneContact, PhoneEvidence } from '../types';
+import type { CharacterProfile, Message, PhoneContact, PhoneEvidence } from '../types';
 import {
     USER, addComment, applyLookReactions, buildFeed, canSee, charActor, collectLookItems, emptyInteractions,
     allComments, formatMomentTime, likeCount, normalizeMomentExtras, parseLookReactions, relationOf, toggleLike,
@@ -103,10 +103,31 @@ describe('刷朋友圈', () => {
         const [system, user] = buildLookMessages(b, items, interOf, [a, b], '阿萌');
         expect(String(system.content)).toContain('你是陆离');
         const parts = user.content as { type: string; text?: string; image_url?: { url: string } }[];
-        expect(parts[0].text).toContain('阿萌（对方，也就是和你聊天的那个人）发了');
-        expect(parts[0].text).toContain('沈砚（大学室友）发了');
+        expect(parts[0].text).toMatch(/阿萌（对方，也就是和你聊天的那个人）在.+发了/);
+        expect(parts[0].text).toMatch(/沈砚（大学室友）在.+发了/);
         expect(parts[0].text).toContain('已有评论：\n  - 阿萌：早点睡');
         expect(parts[1]).toEqual({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,xx' } });
+    });
+
+    it('提示词：带上最近的私聊，刚一起做过的事 TA 记得', () => {
+        const items = collectLookItems('b', feed, interOf, NOW - 3 * H);
+        const chat = [
+            { id: 1, charId: 'b', role: 'user', type: 'text', content: '我们一起做饭吧', timestamp: NOW - 20 * 60_000 },
+            { id: 2, charId: 'b', role: 'assistant', type: 'text', content: '好，我来切菜', timestamp: NOW - 19 * 60_000 },
+            { id: 3, charId: 'b', role: 'system', type: 'system', content: '系统提示', timestamp: NOW - 18 * 60_000 },
+        ] as Message[];
+        const [system] = buildLookMessages(b, items, interOf, [a, b], '阿萌', chat, NOW);
+        const text = String(system.content);
+        expect(text).toContain('阿萌：我们一起做饭吧');
+        expect(text).toContain('陆离（你）：好，我来切菜');
+        expect(text).not.toContain('系统提示');
+        expect(text).toContain('别装不知道');
+    });
+
+    it('没有私聊时不加那一段', () => {
+        const items = collectLookItems('b', feed, interOf, NOW - 3 * H);
+        const [system] = buildLookMessages(b, items, interOf, [a, b], '阿萌');
+        expect(String(system.content)).not.toContain('最近的私聊');
     });
 });
 

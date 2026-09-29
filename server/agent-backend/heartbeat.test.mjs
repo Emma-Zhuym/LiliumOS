@@ -17,7 +17,7 @@ import {
     ACTIVE_CHAT_WINDOW_MS, buildPrompt, checkGates, speakBlock, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
     BREAK_COOLDOWN_MIN, currentSlot, decideIntent, formatGap, inBreakWindow, upcomingBreakStarts, jitterRatio, lastRealInteractionAt, listModelRuns, messageChance,
     nextRunAt, recordModelRun, shouldCaptureRaw, decideEpisode, episodeChance, isWorkSlot, lifeChance, pickLifeKind, veilSurprise,
-    MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, withPlanTime, withXhsFeed,
+    MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, withPlanTime, withXhsFeed, unreadFromUser, formatRecentMessages,
 } from './heartbeat.mjs';
 import { chatCompletionsUrl, createApiRunner, extractContentText, parseEpisode, parseHeartbeatOutput, parseLife } from './runner.mjs';
 import { applyThread, closePassedPlans, closeStaleThreads, isPlanDue, listOpenThreads } from './lifeThreads.mjs';
@@ -1457,4 +1457,106 @@ test('逛小红书的输出：没刷成首页或没写感想的整条不要', ()
         { kind: 'xhs', detail: '嗯', picks: [{ index: 2, note: '好看' }] });
     assert.equal(parseLife({ kind: 'xhs', picks: [] }), null);
     assert.ok(HEARTBEAT_SCHEMA.properties.life.properties.kind.enum.includes('xhs'));
+});
+
+// ── 读消息：阿萌发了、TA 还没回的那几条 ──
+
+const minutesAgo = (n, now = AT) => new Date(now.getTime() - n * 60_000).toISOString();
+const bedtimeChat = [
+    { role: 'char', at: minutesAgo(9 * 60), text: '我先去洗澡' },
+    { role: 'user', at: minutesAgo(8 * 60), text: '今天好累，老板又改需求' },
+    { role: 'user', at: minutesAgo(8 * 60 - 1), text: '我先睡啦，晚安' },
+];
+
+test('读消息：最后几条是阿萌发的、TA 没回，就是没读', () => {
+    const db = freshDb();
+    seedCharacter(db);
+    const snapshot = { receivedAt: AT.toISOString(), payload: { recentMessages: bedtimeChat } };
+    assert.deepEqual(unreadFromUser(db, CHAR, snapshot).map(m => m.text), ['今天好累，老板又改需求', '我先睡啦，晚安']);
+});
+
+test('读消息：最后一条是 TA 说的，没有欠着的', () => {
+    const db = freshDb();
+    seedCharacter(db);
+    const snapshot = { receivedAt: AT.toISOString(), payload: { recentMessages: [...bedtimeChat, { role: 'char', at: minutesAgo(10), text: '早' }] } };
+    assert.deepEqual(unreadFromUser(db, CHAR, snapshot), []);
+});
+
+test('读消息：心跳已经回过（outbox 里有），快照还没更新也不再回第二遍', () => {
+    const db = freshDb();
+    seedCharacter(db);
+    enqueue(db, { messageId: 'hb:1', charId: CHAR, kind: 'chat_message', payload: { text: '早，昨晚睡得好吗' } }, new Date(minutesAgo(30)));
+    const snapshot = { receivedAt: AT.toISOString(), payload: { recentMessages: bedtimeChat } };
+    assert.deepEqual(unreadFromUser(db, CHAR, snapshot), []);
+});
+
+test('读消息：欠着回复时冷却挡不住，但刚在聊的 10 分钟窗口照样挡', () => {
+    const db = freshDb();
+    const character = seedCharacter(db, { messageCooldownMin: 600 });
+    enqueue(db, { messageId: 'm1', charId: CHAR, kind: 'chat_message', payload: { text: '在吗' } }, new Date(minutesAgo(9 * 60 + 30)));
+    const snapshot = { receivedAt: AT.toISOString(), payload: { timezone: 'America/Chicago' } };
+    assert.equal(speakBlock(db, { character, snapshot, now: AT }), 'message_cooldown');
+    assert.equal(speakBlock(db, { character, snapshot, now: AT, owed: true }), null);
+
+    db.prepare('UPDATE characters SET last_user_interaction_at = ? WHERE char_id = ?').run(minutesAgo(3), CHAR);
+    const present = toCharacter(db.prepare('SELECT * FROM characters WHERE char_id = ?').get(CHAR));
+    assert.equal(speakBlock(db, { character: present, snapshot, now: AT, owed: true }), 'active_chat');
+});
+
+test('读消息：欠着回复时不抽签，这一跳就是回她', () => {
+    const args = { snapshot: {}, now: AT, timezone: 'America/Chicago', minutesSinceContact: 480 };
+    assert.equal(decideIntent({ ...args, owed: true, rng: () => 0.99 }).intent, 'reply');
+    assert.equal(decideIntent({ ...args, owed: true, canSpeak: false, rng: () => 0.99 }).intent, 'live');
+});
+
+test('读消息：回她的那一跳，提示词列出没回的消息，不再说「对方没回你」', () => {
+    const snapshot = { payload: { user: { name: '阿萌' }, timezone: 'America/Chicago', recentMessages: bedtimeChat } };
+    const unread = bedtimeChat.slice(1);
+    const prompt = buildPrompt({ displayName: '露米' }, snapshot, AT, 'reply', { unread });
+    assert.match(prompt, /对方给你发了这些消息，你还没有回/);
+    assert.match(prompt, /- .*今天好累，老板又改需求/);
+    assert.match(prompt, /先回应 ta 说的内容/);
+    assert.doesNotMatch(prompt, /对方没有回你消息/);
+    const idle = buildPrompt({ displayName: '露米' }, snapshot, AT, 'live');
+    assert.match(idle, /对方没有回你消息/);
+});
+
+test('读消息：整跳走下来，抽签抽不中也会回她，且不去过自己的日子', async () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    seedSnapshot(db, { recentMessages: bedtimeChat, lastInteraction: { userAt: bedtimeChat[2].at, charAt: bedtimeChat[0].at } });
+    let system = '';
+    const runner = {
+        run: async input => {
+            system = input.system;
+            return { ok: true, output: { action: 'message', activity: '刚醒', reason: '她昨晚好累', text: '早，昨天辛苦了', urge: 'none' } };
+        },
+    };
+    const result = await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration), rng: () => 0.99 });
+    assert.equal(result.intent, 'reply');
+    assert.equal(result.action, 'message');
+    assert.match(system, /我先睡啦，晚安/);
+    assert.doesNotMatch(system, /在 life 里写/);
+});
+
+test('长期记忆：月度总结进提示词；聊天记录隔半小时标一次时间', () => {
+    const snapshot = { payload: {
+        timezone: 'America/Chicago',
+        monthlySummaries: [{ month: '2026-09', text: '一起养了只猫' }],
+        recentMessages: bedtimeChat,
+    } };
+    const prompt = buildPrompt({ displayName: '露米' }, snapshot, AT, 'live');
+    assert.match(prompt, /\[2026-09\] 一起养了只猫/);
+    const lines = formatRecentMessages(bedtimeChat, 'America/Chicago').split('\n');
+    assert.equal(lines.filter(line => line.startsWith('〔')).length, 2, '洗澡和后面两句隔了一小时，后两句只隔一分钟');
+});
+
+test('快照：月度总结只收 {month, text}，聊天最多留 100 条', () => {
+    const normalized = normalizeSnapshotPayload({
+        monthlySummaries: [{ month: '2026-09', text: ' 猫 ', extra: 1 }, { month: '2026-08', text: '' }],
+        recentMessages: Array.from({ length: 130 }, (_, i) => ({ role: 'user', at: null, text: String(i) })),
+    });
+    assert.deepEqual(normalized.monthlySummaries, [{ month: '2026-09', text: '猫' }]);
+    assert.equal(normalized.recentMessages.length, 100);
+    assert.equal(normalized.recentMessages[0].text, '30');
 });

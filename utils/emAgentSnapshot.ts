@@ -23,12 +23,14 @@ import { normName } from './relationshipChat';
 export const SNAPSHOT_SCHEMA_VERSION = 1;
 
 /** 最多带多少条最近消息；每条截断到多少字。与后端的规整逻辑对齐。 */
-const MAX_RECENT_MESSAGES = 30;
+const MAX_RECENT_MESSAGES = 100;
 const MAX_MESSAGE_CHARS = 500;
 const MAX_PERSONA_CHARS = 4000;
 const MAX_MOOD_CHARS = 1500;
 const MAX_RHYTHM_CHARS = 3000;
 const MAX_CIRCLE = 12;
+/** 月度总结一共最多带多少字：超了从最早的月份开始丢，近的更要紧。 */
+const MAX_SUMMARIES_CHARS = 8000;
 /** 私人生活里的圈子：同事在工作 App 里，司机店家之类不算「会聊几句的人」。 */
 const PRIVATE_GROUPS = new Set(['friend', 'family', 'school', 'online', 'other']);
 
@@ -87,6 +89,8 @@ export interface CharacterSnapshot {
         todaySchedule?: { start: string; end: string; title: string; availability?: string }[];
         lastInteraction?: { userAt?: string; charAt?: string };
         recentMessages?: { role: 'user' | 'char'; at: string | null; text: string }[];
+        /** 长期记忆：聊天记忆里的月度总结（char.refinedMemories），按月份正序。 */
+        monthlySummaries?: { month: string; text: string }[];
         boundaries?: SnapshotBoundary[];
         openThreads?: never[];
     };
@@ -118,8 +122,27 @@ export const messageToPlainText = (message: Message): string => {
 const isFromUser = (message: Message): boolean => message.role === 'user';
 
 /**
+ * 月度总结，按月份正序。一共超过 MAX_SUMMARIES_CHARS 字就从最早的月份丢起。
+ * 记忆宫殿要按话题向量召回，后端没有向量库，心跳里只带这份稳定的。
+ */
+export const buildMonthlySummaries = (char: Pick<CharacterProfile, 'refinedMemories'>): { month: string; text: string }[] => {
+    const entries = Object.entries(char.refinedMemories ?? {})
+        .map(([month, text]) => ({ month, text: String(text ?? '').trim() }))
+        .filter(item => item.text)
+        .sort((a, b) => a.month.localeCompare(b.month));
+    const kept: { month: string; text: string }[] = [];
+    let total = 0;
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+        total += entries[index].text.length;
+        if (total > MAX_SUMMARIES_CHARS && kept.length) break;
+        kept.unshift({ ...entries[index], text: entries[index].text.slice(0, MAX_SUMMARIES_CHARS) });
+    }
+    return kept;
+};
+
+/**
  * 角色设定：系统提示词 + 人设简介 + 世界观，按这个顺序拼。
- * 记忆、日记那些不进快照——快照只是「最近的样子」，长期记忆是 Phase 2 的事。
+ * 记忆不拼进这里：月度总结单独放在 monthlySummaries。
  */
 export const buildPersona = (char: CharacterProfile): string =>
     [char.systemPrompt, char.description, char.worldview]
@@ -230,6 +253,10 @@ export const buildCharacterSnapshot = async (
             ...(char.xhsEnabled ? { xhsEnabled: true } : {}), // [EM: heartbeat-xhs]
             lastInteraction: findLastInteraction(messages),
             ...(recent.length ? { recentMessages: recent } : {}),
+            ...(() => {
+                const monthlySummaries = buildMonthlySummaries(char);
+                return monthlySummaries.length ? { monthlySummaries } : {};
+            })(),
             ...(options.boundaries?.length ? { boundaries: options.boundaries } : {}),
         },
     };
