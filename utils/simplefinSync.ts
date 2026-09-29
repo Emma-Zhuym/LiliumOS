@@ -231,6 +231,7 @@ export function normalizeSimpleFinSnapshot(
   currentTransactions: FinanceTransaction[],
   syncedAt: number,
   reviewSince = Number.NEGATIVE_INFINITY,
+  fetchedSinceMs?: number,
 ): { accounts: FinanceAccount[]; transactions: FinanceTransaction[]; newTransactionCount: number } {
   const existingAccounts = new Map(currentAccounts.map(account => [account.id, account]));
   const accounts: FinanceAccount[] = [];
@@ -307,8 +308,9 @@ export function normalizeSimpleFinSnapshot(
       });
       const eventSeconds = sourceTransaction.transacted_at || sourceTransaction.posted || Math.floor(syncedAt / 1000);
       const supersededByExternalId = incomingHoldMatches.get(sourceTransaction.id);
+      // 被判「银行撤掉了」的预扣款又出现在数据里（聚合商时有时无）：它还挂着，撤销那次排除
       const excludedFromReporting = incomingPending
-        ? Boolean(supersededByExternalId || existingTransaction?.excludedFromReporting)
+        ? Boolean(supersededByExternalId || (existingTransaction?.excludedFromReporting && !existingTransaction?.pendingDroppedAt))
         : false;
       const learnedCategory = existingTransaction
         ? null
@@ -343,6 +345,7 @@ export function normalizeSimpleFinSnapshot(
         supersededByExternalId: incomingPending
           ? supersededByExternalId || existingTransaction?.supersededByExternalId
           : undefined,
+        pendingDroppedAt: undefined,
         importedAt: existingTransaction?.importedAt || syncedAt,
         sourceUpdatedAt: syncedAt,
         needsCategoryReview,
@@ -368,6 +371,40 @@ export function normalizeSimpleFinSnapshot(
       needsCategoryReview: false,
     });
   });
+  // [EM-START: finance-dropped-holds]
+  // 银行撤掉的预扣款：同步只做 upsert，本地那条永远留着。实付金额和预扣不同时（加了小费、
+  // 称重商品、Target 这种预授权多扣的）上面的配对认不出来，于是 61 块的预扣一直算在账上。
+  // 这一轮拉回来的窗口里、本地还标着 pending、却已经不在数据里的，就是被银行撤掉了：
+  // 标成不计入统计（不删，分类和备注都留着）。有报错的账户整个跳过，宁可漏收也不误删。
+  if (fetchedSinceMs !== undefined) {
+    const DROP_MARGIN_MS = 2 * 24 * 60 * 60 * 1000;
+    const erroredConnections = new Set(snapshot.errlist.map(error => error.conn_id).filter(Boolean));
+    const erroredAccounts = new Set(snapshot.errlist.map(error => error.account_id).filter(Boolean));
+    const globalError = snapshot.errlist.some(error => !error.conn_id && !error.account_id);
+    if (!globalError) {
+      for (const sourceAccount of snapshot.accounts) {
+        if (!Array.isArray(sourceAccount.transactions)) continue;
+        if (erroredConnections.has(sourceAccount.conn_id) || erroredAccounts.has(sourceAccount.id)) continue;
+        const accountId = simpleFinAccountKey(sourceAccount.conn_id, sourceAccount.id);
+        const incomingIds = new Set(sourceAccount.transactions.map(transaction => transaction.id));
+        for (const transaction of currentTransactions) {
+          if (transaction.source !== 'simplefin' || transaction.accountId !== accountId) continue;
+          if (transaction.pending !== true || transaction.excludedFromReporting) continue;
+          if (transaction.timestamp < fetchedSinceMs + DROP_MARGIN_MS) continue;
+          if (transaction.externalId && incomingIds.has(transaction.externalId)) continue;
+          if (reconciledTransactions.has(transaction.id)) continue;
+          reconciledTransactions.set(transaction.id, {
+            ...transaction,
+            excludedFromReporting: true,
+            pendingDroppedAt: syncedAt,
+            needsCategoryReview: false,
+            sourceUpdatedAt: syncedAt,
+          });
+        }
+      }
+    }
+  }
+  // [EM-END: finance-dropped-holds]
   // Include local history: an old authorization can outlive the fetch window.
   // Return only refreshed rows and repair updates; storage remains an upsert.
   const history = new Map(currentTransactions.map(transaction => [transaction.id, transaction]));
@@ -406,7 +443,7 @@ export async function syncSimpleFin(): Promise<SimpleFinSyncResult> {
       FinanceDB.getTransactions(),
     ]);
     const reviewSince = previousState.lastSuccessAt ?? attemptedAt - 24 * 60 * 60 * 1000;
-    const normalized = normalizeSimpleFinSnapshot(snapshot, currentAccounts, currentTransactions, attemptedAt, reviewSince);
+    const normalized = normalizeSimpleFinSnapshot(snapshot, currentAccounts, currentTransactions, attemptedAt, reviewSince, overlapStart * 1000); // [EM: finance-dropped-holds]
     await Promise.all([
       FinanceDB.saveAccounts(normalized.accounts),
       FinanceDB.saveSyncedTransactions(normalized.transactions),

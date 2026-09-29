@@ -3674,6 +3674,8 @@ export interface FinanceTransaction {
     excludedFromReporting?: boolean;
     /** Posted provider transaction that replaced this authorization hold. */
     supersededByExternalId?: string;
+    /** 银行撤掉了这笔预扣款（SimpleFIN 的数据里已经没有它）时的同步时刻。再出现就清掉。 */
+    pendingDroppedAt?: number; // [EM: finance-dropped-holds]
     importedAt?: number;
     sourceUpdatedAt?: number;
     /** New synced transaction awaiting the user's local category confirmation. */

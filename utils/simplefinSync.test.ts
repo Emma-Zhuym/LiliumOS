@@ -335,3 +335,79 @@ describe('SimpleFIN client', () => {
       .rejects.toThrow('可能是邮件里的登录验证码');
   });
 });
+
+// [EM-START: finance-dropped-holds]
+describe('银行撤掉的预扣款', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const FETCHED_SINCE = SYNCED_AT - 14 * DAY;
+  const hold = (overrides: Partial<FinanceTransaction> = {}): FinanceTransaction => ({
+    id: 'simplefin-tx:demo:credit-1:hold-61',
+    type: 'expense',
+    amount: 61,
+    currency: 'USD',
+    accountId: 'simplefin:demo:credit-1',
+    categoryId: 'cat_shopping',
+    note: 'Target',
+    timestamp: SYNCED_AT - 3 * DAY,
+    dateStr: '2026-08-12',
+    source: 'simplefin',
+    externalId: 'hold-61',
+    sourceDescription: 'TARGET 00012345 BIRMINGHAM AL',
+    pending: true,
+    ...overrides,
+  });
+  const withPosted49 = {
+    ...snapshot,
+    accounts: [{
+      ...snapshot.accounts[0],
+      transactions: [{
+        id: 'posted-49', posted: Math.floor((SYNCED_AT - 2 * DAY) / 1000), amount: '-49.00', description: 'TARGET T-1234 BIRMINGHAM AL',
+      }],
+    }],
+  };
+
+  it('预扣 61、实付 49：数据里已经没有 61 了，就把它标成不计入（不删，分类留着）', () => {
+    const result = normalizeSimpleFinSnapshot(withPosted49, [], [hold()], SYNCED_AT, undefined, FETCHED_SINCE);
+    const dropped = result.transactions.find(t => t.id === hold().id);
+    expect(dropped).toMatchObject({ excludedFromReporting: true, pendingDroppedAt: SYNCED_AT, categoryId: 'cat_shopping' });
+    expect(result.transactions.find(t => t.externalId === 'posted-49')).toMatchObject({ amount: 49, excludedFromReporting: false });
+  });
+
+  it('还在数据里的预扣款不动', () => {
+    const stillThere = {
+      ...snapshot,
+      accounts: [{ ...snapshot.accounts[0], transactions: [{ id: 'hold-61', posted: 0, transacted_at: Math.floor((SYNCED_AT - 3 * DAY) / 1000), amount: '-61.00', description: 'TARGET 00012345 BIRMINGHAM AL', pending: true }] }],
+    };
+    const result = normalizeSimpleFinSnapshot(stillThere, [], [hold()], SYNCED_AT, undefined, FETCHED_SINCE);
+    expect(result.transactions.find(t => t.id === hold().id)?.excludedFromReporting).toBe(false);
+  });
+
+  it('被判撤掉后又出现（聚合商时有时无）：撤销排除', () => {
+    const reappeared = {
+      ...snapshot,
+      accounts: [{ ...snapshot.accounts[0], transactions: [{ id: 'hold-61', posted: 0, transacted_at: Math.floor((SYNCED_AT - 3 * DAY) / 1000), amount: '-61.00', description: 'TARGET 00012345 BIRMINGHAM AL', pending: true }] }],
+    };
+    const result = normalizeSimpleFinSnapshot(reappeared, [], [hold({ excludedFromReporting: true, pendingDroppedAt: SYNCED_AT - DAY })], SYNCED_AT, undefined, FETCHED_SINCE);
+    const row = result.transactions.find(t => t.id === hold().id);
+    expect(row?.excludedFromReporting).toBe(false);
+    expect(row?.pendingDroppedAt).toBeUndefined();
+  });
+
+  it('拉取窗口边上的、账户有报错的、已入账的都不动', () => {
+    const nearEdge = hold({ timestamp: FETCHED_SINCE + DAY });
+    expect(normalizeSimpleFinSnapshot(withPosted49, [], [nearEdge], SYNCED_AT, undefined, FETCHED_SINCE)
+      .transactions.find(t => t.id === nearEdge.id)).toBeUndefined();
+    const errored = { ...withPosted49, errlist: [{ code: 'con.auth', msg: '需要重新登录', conn_id: 'demo' }] };
+    expect(normalizeSimpleFinSnapshot(errored, [], [hold()], SYNCED_AT, undefined, FETCHED_SINCE)
+      .transactions.find(t => t.id === hold().id)).toBeUndefined();
+    const posted = hold({ pending: false });
+    expect(normalizeSimpleFinSnapshot(withPosted49, [], [posted], SYNCED_AT, undefined, FETCHED_SINCE)
+      .transactions.find(t => t.id === posted.id)).toBeUndefined();
+  });
+
+  it('不传拉取窗口（旧调用）就不做这一步', () => {
+    expect(normalizeSimpleFinSnapshot(withPosted49, [], [hold()], SYNCED_AT)
+      .transactions.find(t => t.id === hold().id)).toBeUndefined();
+  });
+});
+// [EM-END: finance-dropped-holds]
