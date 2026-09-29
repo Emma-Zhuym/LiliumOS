@@ -21,6 +21,7 @@ import {
 } from './emAgentBackend';
 import { applyHeartbeatMomentReactions } from './emMomentsContext'; // [EM: moments-heartbeat]
 import { ChatParser } from './chatParser';
+import { chatReplyToInbox } from './emAgentChat'; // [EM: agent-instant-chat]
 
 export interface InboxSyncResult {
     /** 真正写进聊天的条数。 */
@@ -35,9 +36,11 @@ export interface InboxSyncResult {
     charIds: string[];
     /** 写进聊天的每一句（角色 + 正文），供调用方做「角色名 + 内容预览」的通知，和上游主动消息一个样子。 */
     lines: { charId: string; text: string }[];
+    /** [EM: agent-instant-chat] 塞进 ActiveMsg 收件箱的即时回复条数：调用方见到 >0 就冲刷收件箱。 */
+    chatReplies: number;
 }
 
-const EMPTY: InboxSyncResult = { delivered: 0, stale: 0, work: 0, life: 0, charIds: [], lines: [] };
+const EMPTY: InboxSyncResult = { delivered: 0, stale: 0, work: 0, life: 0, charIds: [], lines: [], chatReplies: 0 };
 
 export interface InboxSyncOptions {
     /**
@@ -100,7 +103,7 @@ export const syncAgentMessagesIntoChat = async (
     }
     if (messages.length === 0) return EMPTY;
 
-    const result: InboxSyncResult = { delivered: 0, stale: 0, work: 0, life: 0, charIds: [], lines: [] };
+    const result: InboxSyncResult = { delivered: 0, stale: 0, work: 0, life: 0, charIds: [], lines: [], chatReplies: 0 };
     const acked: string[] = [];
     const landed: string[] = [];
     const alreadyDelivered = new Set(loadDelivered());
@@ -200,6 +203,33 @@ export const syncAgentMessagesIntoChat = async (
                     continue;
                 }
             }
+        // [EM-START: agent-instant-chat]
+        } else if (route === 'reply') {
+            // 即时回复：放进 ActiveMsg 收件箱，由调用方冲刷，拆气泡 / 表情 / 发图 / 记忆走现成后处理。
+            // SW 可能已经按推送放过一份：收件箱落库前按 messageId 查近史去重，不会出两条。
+            const entry = chatReplyToInbox(message, now);
+            if (entry) {
+                try {
+                    const { ActiveMsgStore } = await import('./activeMsgStore');
+                    await ActiveMsgStore.saveInboxMessage(entry);
+                    result.chatReplies += 1;
+                    landed.push(message.messageId);
+                } catch {
+                    continue;
+                }
+            }
+        } else if (route === 'reply-error') {
+            // 这一轮在 mini 上没跑成：还在等它的话当场收场（落系统消息、熄灯、可重发）
+            const turnId = String(message.payload?.turnId ?? '');
+            if (message.charId && turnId) {
+                try {
+                    const { failInstantChatPending } = await import('./amsgInstantChat');
+                    await failInstantChatPending(message.charId, turnId, String(message.payload?.reason ?? 'Mac mini 那边这一轮没跑成'));
+                } catch {
+                    continue;
+                }
+            }
+        // [EM-END: agent-instant-chat]
         } else if (route === 'stale') {
             result.stale += 1;
         }

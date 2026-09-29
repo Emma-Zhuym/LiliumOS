@@ -251,11 +251,14 @@ export const startOfLocalDay = (now, timezone) => {
     return new Date(now.getTime() - minutes * MINUTE - (now.getSeconds() * 1000 + now.getMilliseconds()));
 };
 
-/** 上一条真发出去的主动消息的时刻，用来算冷却。影子期没有真消息，冷却自然不会命中。 */
+/**
+ * 上一条真发出去的消息的时刻（主动消息 + 即时回复），用来算冷却、判断「TA 回过没有」。
+ * 影子期没有真消息，冷却自然不会命中。
+ */
 const lastChatMessageAt = (db, charId) =>
     db.prepare(
         `SELECT created_at FROM outbox
-          WHERE char_id = ? AND kind = 'chat_message'
+          WHERE char_id = ? AND kind IN ('chat_message', 'chat_reply')
           ORDER BY id DESC LIMIT 1`,
     ).get(charId)?.created_at ?? null;
 
@@ -1164,6 +1167,7 @@ const formatLocal = (date, timezone) => {
  */
 export const createHeartbeatHandler = ({
     db, config, runners, scheduleNext, deliver = null, quiet = null, now = () => new Date(), rng = Math.random, xhs = null,
+    chatBusy = () => false,
 }) => async job => {
     const row = getCharacter(db, job.charId);
     if (!row) return { skipped: 'unknown_character' };
@@ -1222,7 +1226,9 @@ export const createHeartbeatHandler = ({
     // 刚聊过 / 刚发过：这一跳不开口，但照样醒、照样过自己的日子。
     const hush = speakBlock(db, { character, snapshot, now: startedAt, owed: unread.length > 0 })
         // 连发三条没回：这一跳不开口（生活照过），等 ta 回了再说。
-        || (unanswered.length >= UNANSWERED_BACKOFF.length - 1 ? 'unanswered' : null);
+        || (unanswered.length >= UNANSWERED_BACKOFF.length - 1 ? 'unanswered' : null)
+        // 即时回复正在跑：这一轮就是在回她，心跳别抢着插一句。
+        || (chatBusy(character.charId) ? 'chat_turn_running' : null);
     // 开不开口由程序抽签，不再让模型做判断题——它总能为沉默找到理由（设计 3.3）。
     const { intent } = decideIntent({
         snapshot,

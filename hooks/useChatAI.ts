@@ -64,6 +64,7 @@ import { buildAmsg2NoticesText, buildAmsg2TaskContextText, collectAmsg2TaskConte
 import { resolveCharTimeZone } from '../utils/timezone';
 import { resolveCharacterApiConfig } from '../utils/characterApi';
 import { announceInstantChatRoute, getInstantChatPending, resolveInstantChatReadiness, sendInstantChatTurn, stageInstantChatExpiredNotices } from '../utils/amsgInstantChat';
+import { isAgentChatReady, sendAgentChatTurn } from '../utils/emAgentChat'; // [EM: agent-instant-chat]
 // worker 模块的常量叶子（零运行时依赖，前端引它不带进 worker 环境）：
 // 云端 fire 的总时长上限，安全网超时从它推导，worker 调预算时前端自动跟上。
 import { INSTANT_TOTAL_TIMEOUT_MS } from '../worker/amsg/src/instantChat';
@@ -938,9 +939,12 @@ export const useChatAI = ({
             // 带上 char：角色单独关了即时对话（reason char-disabled）时 ready 直接为
             // false，和「全局没开」同一待遇——下面那条 veto trace 的条件够不到它，
             // 静默走本地。那是用户的主动选择，每条消息刷一遍 warn 就成骚扰了。
+            // [EM-START: agent-instant-chat] 交给 Mac mini：优先于 amsg；mini 不在就当没开，这一轮本地生成
+            const agentChatRoute = !instantChatVeto && !instantPushConfigured && await isAgentChatReady();
+            // [EM-END: agent-instant-chat]
             const instantChatReadiness = await resolveInstantChatReadiness(char);
             const instantChatOn = instantChatReadiness.ready;
-            const instantChatRoute = instantChatOn && !instantChatVeto && !instantPushConfigured;
+            const instantChatRoute = !agentChatRoute && instantChatOn && !instantChatVeto && !instantPushConfigured; // [EM: agent-instant-chat]
             const financeToolTurn = financeLocalRequired
                 || (financeAwareness.hasLedger && !instantChatOn && !instantPushConfigured);
             // GPS 只能由当前设备在前台授权读取。云端主动心跳以后会有自己的后端位置工具；
@@ -1502,6 +1506,39 @@ export const useChatAI = ({
             // MCP（这次 POST 顺手把配置传上去了），云端答得了。排掉它的话，只要全局配着
             // 一台 enabled 的 MCP 服务器，即时对话就永远静默走回本地——设置页亮着
             // 「已开启」、界面毫无异样，正是 instant push 静默分流那个坑的复刻。
+            // [EM-START: agent-instant-chat]
+            // 这一轮交给 Mac mini：本地这一轮原本要发的全部内容原样交上去（时效段已经烤在 prompt 里，
+            // mini 不另补），发完就能锁屏。回复推回来走收件箱同一条后处理管线。
+            if (agentChatRoute) {
+                const agentResult = await sendAgentChatTurn({
+                    char,
+                    messages: fullMessages as Array<{ role: string; content: unknown }>,
+                    api: { baseUrl: effectiveApi.baseUrl, apiKey: effectiveApi.apiKey, model: baseReqBody.model },
+                    ...(typeof baseReqBody.temperature === 'number' ? { temperature: baseReqBody.temperature } : {}),
+                    maxTokens: baseReqBody.max_tokens,
+                    ...(baseReqBody.thinking || baseReqBody.reasoning_effort || baseReqBody.extra_body
+                        ? {
+                            extraBody: {
+                                ...(baseReqBody.thinking ? { thinking: baseReqBody.thinking } : {}),
+                                ...(baseReqBody.reasoning_effort ? { reasoning_effort: baseReqBody.reasoning_effort } : {}),
+                                ...(baseReqBody.extra_body ? { extra_body: baseReqBody.extra_body } : {}),
+                            },
+                        }
+                        : {}),
+                });
+                if (agentResult.ok) {
+                    // 情绪评估第一版留在手机上跑（页面活着时照常更新；被杀后台那一轮会漏一次，spec 里说好的）
+                    fireLocalEmotionEval?.();
+                } else {
+                    // 刚探过 mini 在，却交不上去：落系统消息 + 弹错，别静默退回本地
+                    await DB.saveMessage({ charId: char.id, role: 'system', type: 'text', content: `[交给 Mac mini 失败：${agentResult.error}]` });
+                    setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
+                    if (showError) showError('交给 Mac mini 失败', agentResult.error);
+                    else addToast(agentResult.error, 'error');
+                }
+                return;
+            }
+            // [EM-END: agent-instant-chat]
             if (instantChatRoute) {
                 // 作废回执跟着 chat 段上云：检出（collectAmsg2TaskContext，带落台账的副作用）
                 // 在上面已经跑过了，本地路径靠 withAmsg2TaskContext 注入的排程清单和能力

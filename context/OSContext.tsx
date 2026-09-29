@@ -2015,6 +2015,11 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   // [EM-END: heartbeat-xhs]
               },
           });
+          // [EM: agent-instant-chat] 信箱里取回的即时回复已经放进收件箱，冲刷一下走聊天后处理
+          if (alive && result.chatReplies > 0) {
+              const { flushInboxToChat } = await import('../utils/activeMsgRuntime');
+              await flushInboxToChat('轮询补收');
+          }
           if (!alive || result.delivered === 0) return;
           // 落库了要让正在看的那个聊天刷新出来；复用主动消息那条既有广播。
           // 监听方要的是 { charId, charName, body }：少了名字通知就成了「undefined sent a proactive message」，
@@ -2029,9 +2034,11 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       };
       void pull();
       document.addEventListener('visibilitychange', pull);
+      window.addEventListener('em-agent-pull', pull); // [EM: agent-instant-chat] 回复太长只推了「去取」信号
       return () => {
           alive = false;
           document.removeEventListener('visibilitychange', pull);
+          window.removeEventListener('em-agent-pull', pull); // [EM: agent-instant-chat]
       };
   }, []);
   // [EM-END: agent-backend-inbox]

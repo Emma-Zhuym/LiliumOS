@@ -114,6 +114,11 @@ const dispatchOne = async (payload: unknown, context?: AmsgResultContext): Promi
         const { applyScheduleChangeResult } = await import('./amsgScheduleResultApply');
         return await applyScheduleChangeResult(payload, context);
       }
+      // [EM-START: agent-instant-chat] Mac mini 的即时回复太长推不动，只推了「去取」：叫页面去 mini 信箱取
+      case 'agent-pull':
+        if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('em-agent-pull'));
+        return true;
+      // [EM-END: agent-instant-chat]
       default:
         // 认不出来的多半是**前端比 worker 旧**：worker 可以脱开前端单独更新（fork 的
         // Sync → Cloudflare Workers Builds），PWA 那边还可能跑着缓存下来的旧包。销账

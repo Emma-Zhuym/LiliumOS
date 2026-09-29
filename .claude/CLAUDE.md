@@ -260,6 +260,13 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - **心跳逛小红书**（`server/agent-backend/xhsFeed.mjs`）：生活小事里 `xhs` 占 0.08（从朋友圈分出）。程序先经本机直连 `list_feeds` 刷真实首页，模型只挑编号写感想，标题作者一律用首页真值；程序替 TA 点开第一条多看两眼的（`get_feed_detail`，第二次调模型）；点赞 / 收藏一跳最多两次；`share` 转发给阿萌时算开口（不能开口的那一跳丢弃），消息 payload 带 `xhsNote`，`utils/emAgentInbox.ts` 在话后接 xhs_card。心跳只准调 `XHS_BACKEND_TOOLS` 四个。角色没开小红书（快照 `xhsEnabled`）、后端没有 `xhs-mcp-token`、首页刷不到时退回发朋友圈。前端 `utils/emLifeXhs.ts` 落进小红书 App 活动记录 + 私聊一条自由活动系统消息
 - **小红书只看不发**（阿萌 2026-09-26 定）：网关 `XHS_BLOCKED_TOOLS` 停用发帖 / 发视频 / 评论 / 回复评论 / 回复通知 / 删登录（tools/call 拒绝、tools/list 隐藏）；`emXhsSection` 不再教发帖评论；手动自由活动的 post 决策改为刷首页。不得把这几项加回来
 
+### 29. 聊天交给 Mac mini 回复（即时回复）
+- 规格 `docs/spec-agent-backend-instant-chat.md`；阶段一已做，阶段二（主动消息排程搬到 mini）、阶段三（退役 amsg）待做
+- 手机端 `utils/emAgentChat.ts`（开关、探活、提交、60 秒点名、信箱回复→收件箱）；`useChatAI.ts` 的 `[EM-START: agent-instant-chat]` 路由优先于 amsg 即时对话，mini 不在就本地生成
+- 复用 amsg 即时对话：待收记录 `via:'mini'`（`amsgInstantChat.ts`），`activeMsgRuntime.ts` 的状态点名把 mini 轮次分走（否则会去 amsg 查无此行被判死）；回复推送是 amsg content 形状，SW 直接进收件箱走后处理
+- 后端 `server/agent-backend/chatTurns.mjs`：`POST/GET /chat/turns`，凭据只在内存，重启后未跑的那轮判失败让手机重发；>3.5KB 只推 `agent-pull` 信号（`amsgResults.ts`）
+- 心跳：`lastChatMessageAt` 把 `chat_reply` 算作回过；即时回复在跑时 `chat_turn_running` 不开口
+
 ## 合并时常见坑（踩过的 bug）
 
 ### PhoneShell.tsx — messageSubView 必须解构

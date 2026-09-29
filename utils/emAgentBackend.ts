@@ -118,7 +118,7 @@ export interface AgentMessage {
     messageId: string;
     charId: string | null;
     jobUuid: string | null;
-    kind: 'chat_message' | 'job_result' | 'system_notice';
+    kind: 'chat_message' | 'chat_reply' | 'chat_error' | 'job_result' | 'system_notice'; // [EM: agent-instant-chat]
     payload: Record<string, unknown> & { text?: string; detail?: string };
     createdAt: string;
 }
@@ -312,6 +312,24 @@ export const AgentBackend = {
 
     /** 后端缓存里的现实安排（日历 App 读这个，不直接连桥接）。 */
     plans: () => request<{ plans: AgentPlan[] }>('/plans').then(data => data.plans), // [EM: agent-plans]
+    // [EM-START: agent-instant-chat]
+    /** 不带设备钥匙的探活：即时回复发之前用，3 秒内没回就当 mini 不在。 */
+    health: (timeoutMs = 3_000) => request<{ ok: boolean; version: string }>('/health', { auth: false, timeoutMs }),
+    /** 把这一轮交给 mini。整轮对话 + 图片可能好几 MB，上传给足时间。 */
+    submitChatTurn: (body: {
+        turnId: string;
+        charId: string;
+        charName: string;
+        messages: Array<{ role: string; content: unknown }>;
+        api: { baseUrl: string; apiKey: string; model: string };
+        temperature?: number;
+        maxTokens?: number;
+        extraBody?: Record<string, unknown>;
+        supersedes?: string;
+    }) => request<{ turnId: string; status: string }>('/chat/turns', { method: 'POST', body, timeoutMs: 90_000 }),
+    chatTurnStatus: (turnId: string) =>
+        request<{ state: string; error?: string }>(`/chat/turns?turnId=${encodeURIComponent(turnId)}`),
+    // [EM-END: agent-instant-chat]
     temporal: (range?: { from?: string; to?: string }) => {
         const query = new URLSearchParams();
         if (range?.from) query.set('from', range.from);
@@ -459,7 +477,7 @@ export const isFreshChatMessage = (message: AgentMessage, now = Date.now()): boo
 export interface InboxDelivery {
     message: AgentMessage;
     /** 'chat' = 进聊天；'stale' = 过期了，只留在起居注；'work' = 「工作」App 的往来；'life' = 私人生活里的小事；'other' = 系统通知等。 */
-    route: 'chat' | 'stale' | 'work' | 'life' | 'moments' | 'other';
+    route: 'chat' | 'stale' | 'work' | 'life' | 'moments' | 'reply' | 'reply-error' | 'other';
 }
 
 /** 后端把心跳产出的工作往来装在 job_result 里，靠 payload.type 认（信箱的 kind 是固定几种，见设计 2.6）。 */
@@ -481,6 +499,8 @@ export const routeInboxMessages = (messages: AgentMessage[], now = Date.now()): 
         route: isWorkEpisodeMessage(message) ? 'work'
             : isLifeEpisodeMessage(message) ? 'life'
             : isMomentReactionMessage(message) ? 'moments'
+            : message.kind === 'chat_reply' ? 'reply' // [EM: agent-instant-chat]
+            : message.kind === 'chat_error' ? 'reply-error' // [EM: agent-instant-chat]
             : message.kind !== 'chat_message' ? 'other'
                 : isFreshChatMessage(message, now) ? 'chat' : 'stale',
     }));

@@ -25,6 +25,8 @@ import { syncState } from './kinds.mjs';
 import { flattenContent } from './mcp.mjs';
 
 const MAX_BODY_BYTES = 256 * 1024;
+/** 即时回复这一路：整轮对话连同阿萌发过的图（已还原成 data URL）一起上来，给足。 */
+const CHAT_TURN_MAX_BODY_BYTES = 16 * 1024 * 1024;
 const PREFIX = '/agent/v1';
 
 const json = (res, status, payload, origin) => {
@@ -50,12 +52,12 @@ const corsHeaders = origin => (origin ? {
     Vary: 'Origin',
 } : { Vary: 'Origin' });
 
-const readBody = req => new Promise((resolve, reject) => {
+const readBody = (req, limit = MAX_BODY_BYTES) => new Promise((resolve, reject) => {
     let size = 0;
     const chunks = [];
     req.on('data', chunk => {
         size += chunk.length;
-        if (size > MAX_BODY_BYTES) {
+        if (size > limit) {
             reject(Object.assign(new Error('请求体过大'), { code: 'PAYLOAD_TOO_LARGE' }));
             req.destroy();
             return;
@@ -215,6 +217,20 @@ export const createRouter = ctx => {
             handle: ({ query }) => ({ plans: listPlans(db, { from: query.get('from'), to: query.get('to') }) }),
         },
 
+        // ── 即时回复：聊天这一轮交给 mini 跑（spec-agent-backend-instant-chat 阶段一）──
+        'POST /chat/turns': {
+            maxBodyBytes: CHAT_TURN_MAX_BODY_BYTES,
+            handle: ({ body }) => {
+                const result = ctx.chatTurns.submit(body, { handlers: ctx.handlers });
+                if (!result.ok) throw Object.assign(new Error(result.error), { code: 'BAD_REQUEST', status: 400 });
+                return { turnId: result.turnId, status: 'accepted' };
+            },
+        },
+        'GET /chat/turns': {
+            // 手机每 60 秒点一次名：只有这里说 failed / gone 才算这一轮没了
+            handle: ({ query }) => ctx.chatTurns.status(query.get('turnId')),
+        },
+
         // ── 阿萌的现实时间（Apple 日历 / 提醒）──────────────────────────
         'GET /temporal': {
             // 日历 App 读这个：缓存里的条目 + 上次同步时间 + 当前可见性设置。
@@ -337,7 +353,7 @@ export const createApp = ctx => {
         }
 
         try {
-            const body = req.method === 'POST' ? await readBody(req) : {};
+            const body = req.method === 'POST' ? await readBody(req, route.maxBodyBytes) : {};
             const data = await route.handle({ db, body, query: url.searchParams, device, ctx });
             ok(res, data, origin);
         } catch (error) {

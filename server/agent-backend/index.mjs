@@ -24,6 +24,7 @@ import { createMcpClient } from './mcp.mjs';
 import { cleanup as cleanupOutbox, enqueue } from './outbox.mjs';
 import { createPusher, recordDeliveries } from './push.mjs';
 import { startServer } from './server.mjs';
+import { CHAT_TURN_KIND, createChatTurnService } from './chatTurns.mjs';
 
 const TICK_MS = 15_000;
 const WATCHDOG_EVERY_MIN = 5;
@@ -40,10 +41,10 @@ export const createContext = async (config = loadConfig()) => {
     const xhs = xhsToken ? createMcpClient({ url: config.xhsMcpUrl, token: xhsToken }) : null;
 
     /** 写信箱 + 推送 + 记投递结果。所有对外说话都走这一个口子。 */
-    const deliver = async ({ messageId, charId = null, jobUuid = null, kind, payload, title, body, notify = true }) => {
+    const deliver = async ({ messageId, charId = null, jobUuid = null, kind, payload, title, body, notify = true, pushPayload = null }) => {
         const entry = enqueue(db, { messageId, charId, jobUuid, kind, payload, notify });
         if (entry.duplicated || !notify) return entry;
-        const results = await pusher.send(db, { messageId: entry.messageId, title, body });
+        const results = await pusher.send(db, { messageId: entry.messageId, title, body, pushPayload });
         if (results.length) recordDeliveries(db, entry.messageId, results);
         return entry;
     };
@@ -100,6 +101,9 @@ export const createContext = async (config = loadConfig()) => {
         return job;
     };
 
+    // 即时回复：手机发完就走，mini 跑完推回去。凭据只在内存。
+    const chatTurns = createChatTurnService({ db, deliver });
+
     const runners = {
         api: createApiRunner({ config }),
         codex: createCodexRunnerStub(),
@@ -112,7 +116,9 @@ export const createContext = async (config = loadConfig()) => {
         'temporal.refresh': createTemporalRefreshHandler({ db, appleEvents }),
         heartbeat: createHeartbeatHandler({
             db, config, runners, scheduleNext: scheduleNextHeartbeat, deliver, xhs,
+            chatBusy: charId => chatTurns.busy(charId),
         }),
+        [CHAT_TURN_KIND]: chatTurns.handler,
     };
 
     const buildStatus = async () => {
@@ -145,12 +151,12 @@ export const createContext = async (config = loadConfig()) => {
                 jitterSpread: HEARTBEAT_JITTER_SPREAD,
             },
             // 前端只认这个字段判断功能可用与否（设计约束 4）。
-            capabilities: ['jobs', 'outbox', 'watchdog', 'heartbeat-shadow'],
+            capabilities: ['jobs', 'outbox', 'watchdog', 'heartbeat-shadow', 'chat-turns'],
         };
     };
 
     return {
-        config, db, pusher, appleEvents, handlers, deliver, quietState, buildStatus,
+        config, db, pusher, appleEvents, handlers, deliver, quietState, buildStatus, chatTurns,
         scheduleNextHeartbeat,
         // 客户端只允许创建这些种类；心跳只能由调度器自己排（设计 3.5）。
         // temporal.refresh 允许：它不调模型、只读阿萌自己的日历，就是日历页那个「立刻刷新」。

@@ -14,6 +14,7 @@ import { useOS } from '../../context/OSContext';
 import Modal from '../os/Modal';
 import AgentHeartbeatPanel from './AgentHeartbeatPanel';
 import AgentTemporalPanel from './AgentTemporalPanel'; // [EM: calendar-temporal]
+import { isAgentChatEnabled, setAgentChatEnabled } from '../../utils/emAgentChat'; // [EM: agent-instant-chat]
 import {
     AgentBackend,
     AgentBackendError,
@@ -47,6 +48,7 @@ export default function AgentBackendSection() {
     const [devices, setDevices] = useState<AgentDevice[] | null>(null);
     const [pairing, setPairing] = useState(false);
     const [busy, setBusy] = useState(false);
+    const [agentChat, setAgentChat] = useState(isAgentChatEnabled); // [EM: agent-instant-chat]
     const [open, setOpen] = useState(false);
     const [form, setForm] = useState({ baseUrl: '', code: '', deviceName: '' });
     const [heartbeatOpen, setHeartbeatOpen] = useState(false);
@@ -237,6 +239,29 @@ export default function AgentBackendSection() {
                         ))}
                     </ul>
                 )}
+
+                {/* [EM-START: agent-instant-chat] */}
+                {paired && (
+                    <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-slate-50/60 p-3">
+                        <div className="min-w-0">
+                            <p className="text-[11px] font-bold text-slate-600">聊天交给 Mac mini 回复</p>
+                            <p className="text-[10px] text-slate-400 mt-0.5 leading-relaxed">
+                                点生成后就能锁屏或划掉 App，回复推送回来。mini 休眠或连不上时这一轮照旧在手机上生成。
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            role="switch"
+                            aria-checked={agentChat}
+                            aria-label="聊天交给 Mac mini 回复"
+                            onClick={() => { setAgentChatEnabled(!agentChat); setAgentChat(!agentChat); }}
+                            className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${agentChat ? 'bg-violet-500' : 'bg-slate-200'}`}
+                        >
+                            <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${agentChat ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                        </button>
+                    </div>
+                )}
+                {/* [EM-END: agent-instant-chat] */}
 
                 {paired ? <>
                     {/* 一行两个：挤到一行六个时，按钮里的中文会被压成竖排。 */}

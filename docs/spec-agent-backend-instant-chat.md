@@ -1,6 +1,6 @@
 # Mac mini 后端接手即时回复与主动消息排程 spec
 
-> 2026-09-29 起草（Claude（小帕）），待阿萌拍板后施工。
+> 2026-09-29 起草（Claude（小帕）），阿萌同日拍板（三个问题都按推荐）。**阶段一已实现**，阶段二、三待做。
 > 目标：**PWA 被杀后台也能当场收到回复**；主动消息的排程搬到 mini，**以后不再需要 amsg（Cloudflare Worker）**。
 > 设计参考：amsg 的即时对话 [`plans/amsg2-instant-chat.md`](../plans/amsg2-instant-chat.md) 与契约 [`plans/amsg2-instant-chat-contract.md`](../plans/amsg2-instant-chat-contract.md)。
 > 我们照搬它「发完就自由、云端跑、推送回来、本地后处理」的形状，但不搬它的加密信封、D1、Durable Object。
@@ -78,11 +78,18 @@ amsg 的排程有两个来源，都要接：
 - 改 amsg worker 或 `@rei-standard/*` 包。
 - 多用户：mini 只服务阿萌自己的设备。
 
-## 要阿萌拍板的
+## 已拍板（2026-09-29）
 
-1. **mini 不在时**（每天 4–7 点休眠、断网）：回落本地生成（推荐），还是回落 amsg？
-2. **API Key 随每轮请求带**（推荐，不落 mini 的盘），还是像心跳那样存在 mini 上？
-3. 阶段二的天气 / 热搜槽位第一版留空，可以吗？
+1. mini 不在时回落本地生成。
+2. API Key 随每轮请求带，mini 只在内存里用。
+3. 阶段二的天气 / 热搜槽位第一版留空。
+
+## 阶段一实现备注
+
+- 聊天任务的 `jobs.char_id` 留空：那一列外键要求角色在后端登记过（只有开了心跳的才登记），角色 id 放 `input.charId`，串行靠 `serializeGroup`。
+- 信箱表加了 `chat_reply` / `chat_error` 两种（迁移 10，重建表时先挪开 deliveries 防级联删除）。
+- 即时回复不受 0–7 点安静时段限制（`QUIET_EXEMPT_KINDS`）。
+- 请求体上限只对 `/chat/turns` 放到 16MB（带图）。
 
 ## EM 惯例
 

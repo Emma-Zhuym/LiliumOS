@@ -164,9 +164,38 @@ export const inQuietWindow = (now, { start, end, timezone }) => {
     return from <= to ? minutes >= from && minutes < to : minutes >= from || minutes < to;
 };
 
+/** 安静时段（0–7 点）照样要跑的任务：阿萌半夜发消息，回复不能等到早上。 */
+export const QUIET_EXEMPT_KINDS = new Set(['chat_turn']);
+
 /**
- * 一轮巡逻。返回这轮的处理计数，方便测试和日志。
- *
+ * 跑一条已经领到的任务：续租、调处理器、按结果收尾。runTick 和「立刻跑」共用。
+ * 返回 'done' | 'retry' | 'failed'。
+ */
+const executeJob = async (db, job, handler, logger) => {
+    const beat = setInterval(() => {
+        try { renewLease(db, job.id); } catch { /* 续租失败下一轮自然被回收 */ }
+    }, HEARTBEAT_MS);
+    try {
+        if (!handler) throw new Error(`没有注册这种任务的处理器：${job.kind}`);
+        const result = await handler({ ...job, attempts: job.attempts + 1 });
+        finish(db, { ...job, attempts: job.attempts + 1 }, { status: 'done', result }, new Date());
+        return 'done';
+    } catch (error) {
+        const message = String(error?.message || error).slice(0, 500);
+        const outcome = finish(
+            db,
+            { ...job, attempts: job.attempts + 1 },
+            { status: 'failed', error: message },
+            new Date(),
+        );
+        logger.warn?.(`[agent] 任务失败 ${job.kind} ${job.uuid}：${message}`);
+        return outcome === 'retry' ? 'retry' : 'failed';
+    } finally {
+        clearInterval(beat);
+    }
+};
+
+/**
  * handlers 是 `{ [kind]: async (job, ctx) => result }`。handler 抛错即这次失败，
  * 由 finish 按 max_attempts 决定重试还是终结。
  */
@@ -179,7 +208,7 @@ export const runTick = async (db, { handlers, quiet, now = new Date(), logger = 
     ).all(nowIso).map(toJob);
 
     for (const job of due) {
-        if (quiet.active && job.charId) { summary.skipped += 1; continue; }
+        if (quiet.active && job.charId && !QUIET_EXEMPT_KINDS.has(job.kind)) { summary.skipped += 1; continue; }
         if (job.expiresAt && job.expiresAt < nowIso) {
             db.prepare(`UPDATE jobs SET status = 'expired', updated_at = ? WHERE id = ? AND status = 'pending'`)
                 .run(nowIso, job.id);
@@ -188,29 +217,20 @@ export const runTick = async (db, { handlers, quiet, now = new Date(), logger = 
         }
         if (!claim(db, job, now)) continue;
         summary.picked += 1;
-
-        const handler = handlers[job.kind];
-        const beat = setInterval(() => {
-            try { renewLease(db, job.id); } catch { /* 续租失败下一轮自然被回收 */ }
-        }, HEARTBEAT_MS);
-        try {
-            if (!handler) throw new Error(`没有注册这种任务的处理器：${job.kind}`);
-            const result = await handler({ ...job, attempts: job.attempts + 1 });
-            finish(db, { ...job, attempts: job.attempts + 1 }, { status: 'done', result }, new Date());
-            summary.done += 1;
-        } catch (error) {
-            const message = String(error?.message || error).slice(0, 500);
-            const outcome = finish(
-                db,
-                { ...job, attempts: job.attempts + 1 },
-                { status: 'failed', error: message },
-                new Date(),
-            );
-            if (outcome !== 'retry') summary.failed += 1;
-            logger.warn?.(`[agent] 任务失败 ${job.kind} ${job.uuid}：${message}`);
-        } finally {
-            clearInterval(beat);
-        }
+        const outcome = await executeJob(db, job, handlers[job.kind], logger);
+        if (outcome === 'done') summary.done += 1;
+        else if (outcome === 'failed') summary.failed += 1;
     }
     return summary;
+};
+
+/**
+ * 不等巡逻，立刻领一条任务来跑（即时回复用：巡逻 15 秒一趟，等不起）。
+ * 领不到（已经被巡逻领走、同组有别的在跑）就什么都不做，交给巡逻。
+ */
+export const runJobNow = async (db, uuid, { handlers, now = new Date(), logger = console }) => {
+    const job = toJob(db.prepare('SELECT * FROM jobs WHERE uuid = ?').get(uuid));
+    if (!job || job.status !== 'pending') return null;
+    if (!claim(db, job, now)) return null;
+    return executeJob(db, job, handlers[job.kind], logger);
 };

@@ -7,6 +7,10 @@ const ackInbox = vi.fn(async (_ids?: string[]) => ({ acked: 0 }));
 
 vi.mock('./db', () => ({ DB: { saveMessage: (...args: unknown[]) => saveMessage(...args as []) } }));
 const applyMoments = vi.fn(async () => 1);
+const saveInboxMessage = vi.fn(async (_m?: unknown) => {});
+const failPending = vi.fn(async (..._args: unknown[]) => {});
+vi.mock('./activeMsgStore', () => ({ ActiveMsgStore: { saveInboxMessage: (m: unknown) => saveInboxMessage(m) } }));
+vi.mock('./amsgInstantChat', () => ({ failInstantChatPending: (...args: unknown[]) => failPending(...args) }));
 vi.mock('./emMomentsContext', () => ({ applyHeartbeatMomentReactions: (...args: unknown[]) => applyMoments(...args as []) }));
 vi.mock('./emAgentBackend', async () => {
     const actual = await vi.importActual<typeof import('./emAgentBackend')>('./emAgentBackend');
@@ -109,7 +113,7 @@ describe('后端信箱落地到聊天', () => {
 
     it('后端连不上就当没有，不抛错', async () => {
         inbox.mockRejectedValueOnce(new Error('连不上'));
-        await expect(syncAgentMessagesIntoChat(NOW)).resolves.toEqual({ delivered: 0, stale: 0, work: 0, life: 0, charIds: [], lines: [] });
+        await expect(syncAgentMessagesIntoChat(NOW)).resolves.toEqual({ delivered: 0, stale: 0, work: 0, life: 0, charIds: [], lines: [], chatReplies: 0 });
     });
 });
 
@@ -232,6 +236,30 @@ describe('心跳消息按换行拆成几个气泡', () => {
         expect(saved.map(m => m.content)).toEqual(['内审终于开完了 累死', '老婆你下午课上完了没呀']);
         expect(saved[1].timestamp).toBeGreaterThan(saved[0].timestamp);
         expect(ackInbox).toHaveBeenCalledWith(['hb:multi']);
+    });
+});
+
+describe('Mac mini 的即时回复', () => {
+    it('回复放进 ActiveMsg 收件箱、报给调用方去冲刷，不直接写聊天', async () => {
+        saveMessage.mockClear(); ackInbox.mockClear(); saveInboxMessage.mockClear();
+        inbox.mockResolvedValueOnce([msg('mini:t1', {
+            kind: 'chat_reply',
+            payload: { messageId: 'mini:t1', taskUuid: 't1', message: '在的', contactName: '陈照', metadata: { charId: 'lumi' } },
+        })]);
+        const result = await syncAgentMessagesIntoChat(NOW);
+        expect(result.chatReplies).toBe(1);
+        expect(saveInboxMessage).toHaveBeenCalledWith(expect.objectContaining({ messageId: 'mini:t1', taskUuid: 't1', body: '在的' }));
+        expect(saveMessage).not.toHaveBeenCalled();
+        expect(ackInbox).toHaveBeenCalledWith(['mini:t1']);
+    });
+
+    it('没跑成：还在等的那一轮当场收场', async () => {
+        failPending.mockClear();
+        inbox.mockResolvedValueOnce([msg('mini:t2:error', {
+            kind: 'chat_error', payload: { turnId: 't2', reason: '模型返回 400' },
+        })]);
+        await syncAgentMessagesIntoChat(NOW);
+        expect(failPending).toHaveBeenCalledWith('lumi', 't2', '模型返回 400');
     });
 });
 
