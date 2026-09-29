@@ -21,6 +21,8 @@ import {
 import { MomentsDB } from '../utils/momentsDb';
 import { runCharacterLook } from '../utils/momentsLook';
 import { DB } from '../utils/db';
+import { refreshHeartbeatSnapshots } from '../utils/emAgentSnapshotSync'; // [EM: moments-heartbeat]
+import { refreshMomentsCache } from '../utils/emMomentsContext';
 
 type Screen = 'feed' | 'compose';
 
@@ -68,7 +70,8 @@ const MomentsApp: React.FC = () => {
         const [posts, inter] = await Promise.all([MomentsDB.getPosts(), MomentsDB.getInteractions()]);
         setUserPosts(posts);
         setInteractions(Object.fromEntries(inter.map(i => [i.postId, i])));
-    }, []);
+        void refreshMomentsCache(characters); // 聊天读的朋友圈副本跟着刷新
+    }, [characters]);
 
     useEffect(() => { refresh().finally(() => setLoading(false)); }, [refresh]);
 
@@ -85,6 +88,7 @@ const MomentsApp: React.FC = () => {
         if (items.length === 0) return;
         await MomentsDB.saveInteractions(items);
         setInteractions(prev => ({ ...prev, ...Object.fromEntries(items.map(i => [i.postId, i])) }));
+        void refreshMomentsCache(characters);
     };
 
     const onLike = (postId: string) => saveInter([toggleLike(interOf(postId), USER)]);
@@ -164,6 +168,8 @@ const MomentsApp: React.FC = () => {
             ...(draftVisible.length ? { visibleTo: draftVisible } : {}),
         };
         await MomentsDB.savePost(post);
+        // 马上告诉后端：开了心跳的角色下次醒来就能刷到（静默，后端不在线也不影响发）
+        void refreshHeartbeatSnapshots(characters, userProfile?.name, { force: true });
         setDraftText(''); setDraftImages([]); setDraftVisible([]);
         await refresh();
         setScreen('feed');

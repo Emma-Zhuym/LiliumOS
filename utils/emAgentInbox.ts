@@ -19,6 +19,7 @@ import {
     routeInboxMessages,
     type AgentMessage,
 } from './emAgentBackend';
+import { applyHeartbeatMomentReactions } from './emMomentsContext'; // [EM: moments-heartbeat]
 
 export interface InboxSyncResult {
     /** 真正写进聊天的条数。 */
@@ -180,6 +181,17 @@ export const syncAgentMessagesIntoChat = async (
                 landed.push(message.messageId);
             } catch {
                 continue;
+            }
+        } else if (route === 'moments') {
+            // [EM: moments-heartbeat] 朋友圈库就在本机，不用调用方接手，直接写
+            if (message.charId) {
+                try {
+                    await applyHeartbeatMomentReactions(message.charId, message.messageId, message.payload?.reactions,
+                        Date.parse(String(message.payload?.createdAt ?? message.createdAt)) || now);
+                    landed.push(message.messageId);
+                } catch {
+                    continue;
+                }
             }
         } else if (route === 'stale') {
             result.stale += 1;

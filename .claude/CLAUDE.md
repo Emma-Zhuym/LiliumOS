@@ -227,7 +227,9 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 ### 25. 朋友圈 App
 - `apps/MomentsApp.tsx` / `utils/moments.ts` / `utils/momentsDb.ts` / `utils/momentsLook.ts` — 所有人的动态汇总：角色动态直接读查手机 `type: 'social'` 记录，用户动态、点赞评论存 `LiliumOS_Moments`
 - 亲友评论（3–5 条）、虚拟赞数、屏蔽分组与动态**同一次生成**，存在 `PhoneEvidence.moment`（查手机刷新和心跳 `life.moment` 两处都写）；npc 不接话
-- 用户动态可选「谁可以看」；「让大家看看」用各角色自己的 API 立即刷一遍（带图识图）；平时由心跳刷（待做）
+- 用户动态可选「谁可以看」；「让大家看看」用各角色自己的 API 立即刷一遍（带图识图、带最近 30 条私聊）
+- **心跳刷朋友圈**：快照 `userMoments` 带阿萌 48 小时内、TA 没回应过的动态（只有文字和配图张数）；后端 `moments.mjs` 记「看过了」（`moments_seen:<charId>`），醒来顺手点赞 / 评论，`moment_reaction` 静默送回、`utils/emMomentsContext.ts` 写进 `LiliumOS_Moments`；回消息的那一跳不刷
+- **聊天看得到朋友圈**：`buildMomentsChatInjection` 把 48 小时内阿萌发的和 TA 自己发的（含评论）放进 volatileState
 - `context/OSContext.tsx` 的 `emMoments` 随备份导出/恢复，文字备份不带图且恢复时保留本机图片
 
 ### 26. 日历（现实时间接入）

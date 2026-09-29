@@ -17,11 +17,12 @@ import {
     ACTIVE_CHAT_WINDOW_MS, buildPrompt, checkGates, speakBlock, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
     BREAK_COOLDOWN_MIN, currentSlot, decideIntent, formatGap, inBreakWindow, upcomingBreakStarts, jitterRatio, lastRealInteractionAt, listModelRuns, messageChance,
     nextRunAt, recordModelRun, shouldCaptureRaw, decideEpisode, episodeChance, isWorkSlot, lifeChance, pickLifeKind, veilSurprise,
-    MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, withPlanTime, withXhsFeed, unreadFromUser, formatRecentMessages,
+    MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, withPlanTime, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule,
 } from './heartbeat.mjs';
 import { chatCompletionsUrl, createApiRunner, extractContentText, parseEpisode, parseHeartbeatOutput, parseLife } from './runner.mjs';
 import { applyThread, closePassedPlans, closeStaleThreads, isPlanDue, listOpenThreads } from './lifeThreads.mjs';
 import { feedResult } from './xhsFeed.fixture.mjs';
+import { formatMomentsForPrompt, markMomentsSeen, parseMomentReactions, resolveMomentReactions, unseenMoments } from './moments.mjs';
 
 const AT = new Date('2026-09-23T20:00:00.000Z');          // 芝加哥时间 15:00，醒着
 const CHAR = 'lumi';
@@ -1559,4 +1560,99 @@ test('快照：月度总结只收 {month, text}，聊天最多留 100 条', () =
     assert.deepEqual(normalized.monthlySummaries, [{ month: '2026-09', text: '猫' }]);
     assert.equal(normalized.recentMessages.length, 100);
     assert.equal(normalized.recentMessages[0].text, '30');
+});
+
+// ── 过期日程：昨天拼的「今天的安排」不拿来过今天 ──
+
+test('过期日程：快照是今天拼的就照用，昨天的就丢掉日程、别的照旧', () => {
+    const schedule = [{ start: '09:00', end: '18:00', title: '上班', availability: 'busy' }];
+    const today = { builtAt: '2026-09-23T14:00:00.000Z', payload: { timezone: 'America/Chicago', todaySchedule: schedule, mood: '平静' } };
+    assert.equal(withTodaySchedule(today, AT), today);
+    // 芝加哥 9 月 22 日晚上拼的，到 23 日下午就是昨天的了
+    const yesterday = { ...today, builtAt: '2026-09-23T03:00:00.000Z' };
+    const fresh = withTodaySchedule(yesterday, AT);
+    assert.equal(fresh.payload.todaySchedule, undefined);
+    assert.equal(fresh.payload.mood, '平静');
+    assert.equal(currentSlot(fresh, AT, 'America/Chicago'), null);
+});
+
+test('过期日程：心跳提示词里不再出现昨天的安排', async () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    putSnapshot(db, {
+        charId: CHAR,
+        builtAt: '2026-09-22T15:00:00.000Z',
+        payload: { identity: { name: '露米' }, user: { name: '阿萌' }, timezone: 'America/Chicago', todaySchedule: [{ start: '09:00', end: '', title: '昨天的会' }] },
+    }, AT);
+    let system = '';
+    const runner = { run: async input => { system = input.system; return { ok: true, output: { action: 'noop', activity: '发呆', reason: '' } }; } };
+    await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration) });
+    assert.doesNotMatch(system, /昨天的会/);
+});
+
+// ── 心跳刷朋友圈 ──
+
+const userMoments = [
+    { id: 'u1', text: '和露米一起做的红烧肉', at: '2026-09-23T19:00:00.000Z', images: 2, comments: [{ who: '表姐', text: '看着好香' }] },
+    { id: 'u2', text: '下班路上的晚霞', at: '2026-09-23T19:30:00.000Z', images: 0, comments: [] },
+];
+
+test('朋友圈：没看过的才拿出来，看过就记下', () => {
+    const db = freshDb();
+    seedCharacter(db);
+    const snapshot = { payload: { userMoments } };
+    assert.deepEqual(unseenMoments(db, CHAR, snapshot).map(p => p.id), ['u1', 'u2']);
+    markMomentsSeen(db, CHAR, ['u1'], AT);
+    assert.deepEqual(unseenMoments(db, CHAR, snapshot).map(p => p.id), ['u2']);
+});
+
+test('朋友圈：模型只回编号，越界、重复、什么都没做的丢掉', () => {
+    const parsed = parseMomentReactions([
+        { index: 1, like: true, comment: ' 下次还要吃 ' }, { index: 1, like: true }, { index: 2 }, { index: 9, like: true },
+    ]);
+    assert.deepEqual(parsed, [{ index: 1, like: true, comment: '下次还要吃' }, { index: 9, like: true }]);
+    assert.deepEqual(resolveMomentReactions(parsed, userMoments), [{ postId: 'u1', like: true, comment: '下次还要吃' }]);
+    assert.equal(parseMomentReactions('乱写'), null);
+});
+
+test('朋友圈：提示词写明配图看不到内容、带上已有评论', () => {
+    const text = formatMomentsForPrompt(userMoments, { userName: '阿萌' });
+    assert.match(text, /1\. .*阿萌发了：「和露米一起做的红烧肉」（配了 2 张图，你看不到图的内容，别编）/);
+    assert.match(text, /已有评论：表姐：看着好香/);
+});
+
+test('朋友圈：整跳走下来，刷到就回应，结果静默送去手机，下一跳不再看', async () => {
+    const db = freshDb();
+    setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+    const character = seedCharacter(db);
+    seedSnapshot(db, { userMoments });
+    let system = '';
+    const runner = {
+        run: async input => {
+            system = input.system;
+            return { ok: true, output: { action: 'noop', activity: '躺着刷手机', reason: '', moments: [{ index: 1, like: true, comment: '下次还要吃' }] } };
+        },
+    };
+    const delivered = [];
+    await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration), deliver: async item => delivered.push(item) });
+    assert.match(system, /你刚刷了一下朋友圈/);
+    const sent = delivered.find(item => item.payload?.type === 'moment_reaction');
+    assert.equal(sent.notify, false);
+    assert.deepEqual(sent.payload.reactions, [{ postId: 'u1', like: true, comment: '下次还要吃' }]);
+    assert.deepEqual(unseenMoments(db, CHAR, { payload: { userMoments } }), []);
+});
+
+test('朋友圈：回她消息的那一跳不刷朋友圈', async () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    seedSnapshot(db, { userMoments, recentMessages: bedtimeChat });
+    let system = '';
+    const runner = { run: async input => { system = input.system; return { ok: true, output: { action: 'message', activity: '刚醒', reason: '', text: '早' } }; } };
+    await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration) });
+    assert.doesNotMatch(system, /你刚刷了一下朋友圈/);
+});
+
+test('朋友圈：runner 把 moments 解析出来', () => {
+    const parsed = parseHeartbeatOutput(JSON.stringify({ action: 'noop', activity: 'x', reason: '', moments: [{ index: 1, like: true }] }));
+    assert.deepEqual(parsed.output.moments, [{ index: 1, like: true }]);
 });

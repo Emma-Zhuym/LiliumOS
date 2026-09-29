@@ -97,6 +97,8 @@ import { normalizeCharacterRoomAssetsInPlace } from '../utils/roomTemplateAssets
 // [EM: agent-backend-inbox] 后端信箱 → 聊天，打开 App / 回前台各取一次
 import { syncAgentMessagesIntoChat } from '../utils/emAgentInbox';
 import { refreshAllChronicles } from '../utils/emAgentActivity'; // [EM: agent-backend-chronicle]
+import { refreshHeartbeatSnapshots } from '../utils/emAgentSnapshotSync'; // [EM: agent-backend-snapshot-refresh]
+import { refreshMomentsCache } from '../utils/emMomentsContext'; // [EM: moments-chat-context]
 import { refreshTemporalCache } from '../utils/emTemporal'; // [EM: calendar-temporal]
 import { applyWorkEpisode } from '../utils/emWork'; // [EM: work-app]
 import { applyLifeEpisode } from '../utils/emLife'; // [EM: agent-life]
@@ -1967,6 +1969,9 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           if (document.visibilityState !== 'visible') return;
           // 起居注副本顺手刷新：聊天注入读的是它，发消息那一刻不能再等网络。
           void refreshAllChronicles();
+          // [EM: agent-backend-snapshot-refresh] 没发消息也补传近况：不然后端拿着昨天的日程过今天
+          void refreshHeartbeatSnapshots(charactersRef.current, userProfileRef.current?.name);
+          void refreshMomentsCache(charactersRef.current); // [EM: moments-chat-context] 聊天读的朋友圈副本
           // [EM: calendar-temporal] 阿萌的现实安排同理：聊天提示词读本机缓存，这里顺手续上（一小时才真去问一次）
           void refreshTemporalCache();
           const result = await syncAgentMessagesIntoChat(Date.now(), {

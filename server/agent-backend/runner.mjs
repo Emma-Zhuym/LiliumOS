@@ -7,6 +7,7 @@
  */
 
 import { readCredential } from './credentials.mjs';
+import { parseMomentReactions } from './moments.mjs';
 
 const JSON_BLOCK = /```(?:json)?\s*([\s\S]*?)```/i;
 
@@ -205,9 +206,11 @@ const toOutput = parsed => {
     if (action === 'message' && !body.trim()) return null;
     const episode = parseEpisode(parsed.episode);
     const life = parseLife(parsed.life);
+    const moments = parseMomentReactions(parsed.moments);
     return {
         ...(episode ? { episode } : {}),
         ...(life ? { life } : {}),
+        ...(moments ? { moments } : {}),
         action,
         activity: String(parsed.activity ?? '').slice(0, 120),
         reason: String(parsed.reason ?? '').slice(0, 500),

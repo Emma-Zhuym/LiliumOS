@@ -14,7 +14,7 @@ import { getSetting, openDb } from './db.mjs';
 import { listCharacters } from './characters.mjs';
 import {
     FIRST_BEAT_DELAY_MS, HEARTBEAT_TTL_MS, createHeartbeatHandler, heartbeatUuid, isShadowMode, nextRunAt,
-    upcomingBreakStarts, HEARTBEAT_JITTER_SPREAD,
+    upcomingBreakStarts, withTodaySchedule, HEARTBEAT_JITTER_SPREAD,
 } from './heartbeat.mjs';
 import { getSnapshot } from './snapshots.mjs';
 import { createHaWatchdogHandler, createTemporalRefreshHandler, createTestPingHandler, probeHomeAssistant, syncState } from './kinds.mjs';
@@ -77,7 +77,7 @@ export const createContext = async (config = loadConfig()) => {
     const scheduleNextHeartbeat = (character, now = new Date()) => {
         if (!character.heartbeatEnabled || character.heartbeatPaused) return null;
         // 瞄准午休 / 下班这类空档：日程里有的话，把下一跳排进去（没有日程就照常随机）。
-        const snapshot = getSnapshot(db, character.charId);
+        const snapshot = withTodaySchedule(getSnapshot(db, character.charId), now);
         const timezone = snapshot?.payload?.timezone || getSetting(db, 'timezone') || 'America/Chicago';
         const runAt = nextRunAt(character, {
             now,

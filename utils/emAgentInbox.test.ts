@@ -6,6 +6,8 @@ const inbox = vi.fn();
 const ackInbox = vi.fn(async (_ids?: string[]) => ({ acked: 0 }));
 
 vi.mock('./db', () => ({ DB: { saveMessage: (...args: unknown[]) => saveMessage(...args as []) } }));
+const applyMoments = vi.fn(async () => 1);
+vi.mock('./emMomentsContext', () => ({ applyHeartbeatMomentReactions: (...args: unknown[]) => applyMoments(...args as []) }));
 vi.mock('./emAgentBackend', async () => {
     const actual = await vi.importActual<typeof import('./emAgentBackend')>('./emAgentBackend');
     return {
@@ -199,6 +201,25 @@ describe('生活小事', () => {
     it('没有人接手时留在信箱里', async () => {
         inbox.mockResolvedValueOnce([life('hb:10:life')]);
         await syncAgentMessagesIntoChat(NOW, { onWorkEvent: vi.fn() });
+        expect(ackInbox).not.toHaveBeenCalled();
+    });
+});
+describe('心跳刷朋友圈的反应', () => {
+    it('写进朋友圈再 ack，不进聊天', async () => {
+        saveMessage.mockClear(); ackInbox.mockClear(); applyMoments.mockClear();
+        const reactions = [{ postId: 'u1', like: true }];
+        inbox.mockResolvedValueOnce([msg('hb:m:moments', { kind: 'job_result', payload: { type: 'moment_reaction', reactions, createdAt: '2026-09-23T11:00:00.000Z' } })]);
+        await syncAgentMessagesIntoChat(NOW);
+        expect(applyMoments).toHaveBeenCalledWith('lumi', 'hb:m:moments', reactions, Date.parse('2026-09-23T11:00:00.000Z'));
+        expect(saveMessage).not.toHaveBeenCalled();
+        expect(ackInbox).toHaveBeenCalledWith(['hb:m:moments']);
+    });
+
+    it('写不进去就不 ack，下次再来', async () => {
+        ackInbox.mockClear();
+        applyMoments.mockRejectedValueOnce(new Error('db'));
+        inbox.mockResolvedValueOnce([msg('hb:m2:moments', { kind: 'job_result', payload: { type: 'moment_reaction', reactions: [] } })]);
+        await syncAgentMessagesIntoChat(NOW);
         expect(ackInbox).not.toHaveBeenCalled();
     });
 });

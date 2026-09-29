@@ -27,6 +27,7 @@ import { buildNotionDiaryCadenceReminder } from './notionDiaryCadence';
 import { getDailyScheduleForChar } from './dailySchedule';
 import { buildEmScribeInjection } from './emScribe'; // [EM: em-scribe]
 import { buildChronicleInjection } from './emAgentActivity'; // [EM: agent-backend-chronicle]
+import { buildMomentsChatInjection } from './emMomentsContext'; // [EM: moments-chat-context]
 import { buildTemporalInjection } from './emTemporal'; // [EM: calendar-temporal]
 import { formatRelativeAge } from './groupChat/relativeTime';
 import { isBlobRef } from './blobRef';
@@ -609,6 +610,11 @@ ${groupLogStr}\n`;
             try { volatileState += buildChronicleInjection(char.id, { timeZone: charTz || undefined }); } catch (e) { console.error('Failed to inject chronicle:', e); }
         }
         // [EM-END: agent-backend-chronicle]
+        // [EM-START: moments-chat-context] 最近的朋友圈：阿萌发的、TA 自己发的，和底下的评论（读内存副本，不等 IndexedDB）
+        if (!forFirePack) {
+            try { volatileState += buildMomentsChatInjection(char, userProfile.name); } catch (e) { console.error('Failed to inject moments:', e); }
+        }
+        // [EM-END: moments-chat-context]
         // [EM-START: calendar-temporal] 阿萌真实的日历 / 提醒（读本机缓存，不等网络）。
         // fire_pack 不烤：里面有「此刻在忙什么」，打包时算的那一句到点就过期了。
         if (!forFirePack) {
