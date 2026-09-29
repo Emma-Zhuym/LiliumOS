@@ -20,6 +20,7 @@ import {
     type AgentMessage,
 } from './emAgentBackend';
 import { applyHeartbeatMomentReactions } from './emMomentsContext'; // [EM: moments-heartbeat]
+import { ChatParser } from './chatParser';
 
 export interface InboxSyncResult {
     /** 真正写进聊天的条数。 */
@@ -113,15 +114,21 @@ export const syncAgentMessagesIntoChat = async (
         }
         if (route === 'chat' && message.charId && text) {
             try {
-                await DB.saveMessage({
-                    charId: message.charId,
-                    role: 'assistant',
-                    type: 'text',
-                    content: text,
-                    // 用后端写下的时刻，而不是取回来的这一刻——它本来就是那会儿说的。
-                    timestamp: Date.parse(String(message.payload?.createdAt ?? message.createdAt)) || now,
-                    metadata: { fromAgentBackend: true, source: message.payload?.source ?? 'heartbeat' },
-                } as never);
+                // 用后端写下的时刻，而不是取回来的这一刻——它本来就是那会儿说的。
+                const sentAt = Date.parse(String(message.payload?.createdAt ?? message.createdAt)) || now;
+                // 按换行拆成几个气泡，跟聊天里本地生成的回复同一个拆法（ChatParser.chunkText）。
+                // 原来整段存成一条，「会开完了\n你下课了没」挤在一个气泡里。
+                const chunks = ChatParser.chunkText(text).map(chunk => chunk.trim()).filter(Boolean);
+                for (const [index, chunk] of (chunks.length ? chunks : [text]).entries()) {
+                    await DB.saveMessage({
+                        charId: message.charId,
+                        role: 'assistant',
+                        type: 'text',
+                        content: chunk,
+                        timestamp: sentAt + index,
+                        metadata: { fromAgentBackend: true, source: message.payload?.source ?? 'heartbeat' },
+                    } as never);
+                }
                 // [EM-START: heartbeat-xhs] 逛小红书时转发给阿萌的那条：话后面接一张卡片（跟聊天里 [[XHS_SHARE]] 同一种）
                 const xhsNote = message.payload?.xhsNote as { noteId?: string; title?: string } | undefined;
                 if (xhsNote?.noteId && xhsNote.title) {
@@ -130,7 +137,7 @@ export const syncAgentMessagesIntoChat = async (
                         role: 'assistant',
                         type: 'xhs_card',
                         content: xhsNote.title,
-                        timestamp: (Date.parse(String(message.payload?.createdAt ?? message.createdAt)) || now) + 1,
+                        timestamp: sentAt + Math.max(chunks.length, 1),
                         metadata: { xhsNote, fromAgentBackend: true, source: 'heartbeat' },
                     } as never);
                 }

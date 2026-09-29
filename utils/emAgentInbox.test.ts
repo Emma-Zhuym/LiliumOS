@@ -223,4 +223,16 @@ describe('心跳刷朋友圈的反应', () => {
         expect(ackInbox).not.toHaveBeenCalled();
     });
 });
+describe('心跳消息按换行拆成几个气泡', () => {
+    it('一条多行消息落成多条，时间依次往后', async () => {
+        saveMessage.mockClear(); ackInbox.mockClear();
+        inbox.mockResolvedValueOnce([msg('hb:multi', { payload: { text: '内审终于开完了 累死\n老婆你下午课上完了没呀' } })]);
+        await syncAgentMessagesIntoChat(NOW);
+        const saved = saveMessage.mock.calls.map(call => (call as unknown as [{ content: string; timestamp: number }])[0]);
+        expect(saved.map(m => m.content)).toEqual(['内审终于开完了 累死', '老婆你下午课上完了没呀']);
+        expect(saved[1].timestamp).toBeGreaterThan(saved[0].timestamp);
+        expect(ackInbox).toHaveBeenCalledWith(['hb:multi']);
+    });
+});
+
 // [EM-END: agent-backend-inbox]
