@@ -204,6 +204,9 @@ check "打开 App 补传快照" context/OSContext.tsx "refreshHeartbeatSnapshots
 check "聊天看得到朋友圈" utils/chatPrompts.ts "[EM-START: moments-chat-context]"
 check "心跳刷朋友圈：反应落库" utils/emAgentInbox.ts "applyHeartbeatMomentReactions(message.charId"
 check "心跳刷朋友圈：快照带阿萌动态" utils/emAgentSnapshot.ts "loadUserMomentsForSnapshot("
+check "聊天知道自己的约定" utils/chatPrompts.ts "[EM-START: agent-plans]"
+check "日历显示角色约定" apps/CalendarApp.tsx "dayPlans.map(renderPlan)"
+check "后端约定接口" server/agent-backend/server.mjs "'GET /plans'"
 check "朋友圈评论带上私聊" apps/MomentsApp.tsx "runCharacterLook(char, items, readInter, characters, userName, api, recentChat)"
 
 echo ""

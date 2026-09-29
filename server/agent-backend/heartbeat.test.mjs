@@ -20,7 +20,7 @@ import {
     MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, withPlanTime, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule,
 } from './heartbeat.mjs';
 import { chatCompletionsUrl, createApiRunner, extractContentText, parseEpisode, parseHeartbeatOutput, parseLife } from './runner.mjs';
-import { applyThread, closePassedPlans, closeStaleThreads, isPlanDue, listOpenThreads } from './lifeThreads.mjs';
+import { applyThread, closePassedPlans, closeStaleThreads, isPlanDue, listOpenThreads, listPlans } from './lifeThreads.mjs';
 import { feedResult } from './xhsFeed.fixture.mjs';
 import { formatMomentsForPrompt, markMomentsSeen, parseMomentReactions, resolveMomentReactions, unseenMoments } from './moments.mjs';
 
@@ -1655,4 +1655,20 @@ test('朋友圈：回她消息的那一跳不刷朋友圈', async () => {
 test('朋友圈：runner 把 moments 解析出来', () => {
     const parsed = parseHeartbeatOutput(JSON.stringify({ action: 'noop', activity: 'x', reason: '', moments: [{ index: 1, like: true }] }));
     assert.deepEqual(parsed.output.moments, [{ index: 1, like: true }]);
+});
+
+// ── 约定给手机：日历和聊天 ──
+
+test('约定：列出窗口内所有角色的约定，按时间排，带 charId，普通的事不列', () => {
+    const db = freshDb();
+    seedCharacter(db);
+    applyThread(db, CHAR, { title: '和林越去看展', summary: '约在周六下午', dueAt: '2026-09-26T19:00:00.000Z' }, AT);
+    applyThread(db, CHAR, { title: '和表姐吃饭', dueAt: '2026-09-24T01:00:00.000Z' }, AT);
+    applyThread(db, CHAR, { title: '改方案', summary: '领口还要改' }, AT);
+    applyThread(db, CHAR, { title: '很久以前的约', dueAt: '2026-08-01T01:00:00.000Z' }, AT);
+    const plans = listPlans(db, { now: AT });
+    assert.deepEqual(plans.map(p => p.title), ['和表姐吃饭', '和林越去看展']);
+    assert.equal(plans[1].charId, CHAR);
+    assert.equal(plans[1].status, 'open');
+    assert.equal(plans[1].summary, '约在周六下午');
 });

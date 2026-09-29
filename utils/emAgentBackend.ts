@@ -128,6 +128,17 @@ export interface AgentMessage {
 export type TemporalLevel = 'hidden' | 'busy' | 'title';
 
 /** 后端缓存里的一条现实安排。事件有 startAt，提醒有 dueAt。 */
+/** [EM: agent-plans] 角色在心跳里跟亲友约下的事（后端 life_threads 里带 due_at 的那些）。 */
+export interface AgentPlan {
+    id: string;
+    charId: string;
+    title: string;
+    summary: string;
+    /** 'open' = 还没到；'done' = 到点做了，或过了时间收掉的 */
+    status: 'open' | 'done';
+    dueAt: string;
+}
+
 export interface TemporalItem {
     kind: 'event' | 'reminder';
     sourceId: string;
@@ -300,6 +311,7 @@ export const AgentBackend = {
         ).then(data => data.modelRuns),
 
     /** 后端缓存里的现实安排（日历 App 读这个，不直接连桥接）。 */
+    plans: () => request<{ plans: AgentPlan[] }>('/plans').then(data => data.plans), // [EM: agent-plans]
     temporal: (range?: { from?: string; to?: string }) => {
         const query = new URLSearchParams();
         if (range?.from) query.set('from', range.from);

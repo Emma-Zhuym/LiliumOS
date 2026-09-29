@@ -99,6 +99,7 @@ import { syncAgentMessagesIntoChat } from '../utils/emAgentInbox';
 import { refreshAllChronicles } from '../utils/emAgentActivity'; // [EM: agent-backend-chronicle]
 import { refreshHeartbeatSnapshots } from '../utils/emAgentSnapshotSync'; // [EM: agent-backend-snapshot-refresh]
 import { refreshMomentsCache } from '../utils/emMomentsContext'; // [EM: moments-chat-context]
+import { refreshPlansCache } from '../utils/emAgentPlans'; // [EM: agent-plans]
 import { refreshTemporalCache } from '../utils/emTemporal'; // [EM: calendar-temporal]
 import { applyWorkEpisode } from '../utils/emWork'; // [EM: work-app]
 import { applyLifeEpisode } from '../utils/emLife'; // [EM: agent-life]
@@ -1972,6 +1973,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           // [EM: agent-backend-snapshot-refresh] 没发消息也补传近况：不然后端拿着昨天的日程过今天
           void refreshHeartbeatSnapshots(charactersRef.current, userProfileRef.current?.name);
           void refreshMomentsCache(charactersRef.current); // [EM: moments-chat-context] 聊天读的朋友圈副本
+          void refreshPlansCache(); // [EM: agent-plans] 角色们的约定：聊天和日历读本机副本
           // [EM: calendar-temporal] 阿萌的现实安排同理：聊天提示词读本机缓存，这里顺手续上（一小时才真去问一次）
           void refreshTemporalCache();
           const result = await syncAgentMessagesIntoChat(Date.now(), {
