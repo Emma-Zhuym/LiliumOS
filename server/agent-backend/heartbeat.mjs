@@ -1038,9 +1038,9 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
                 + '也可以是不用出门的（比如临时约好一起上线打游戏、开着语音各干各的）。'
                 + '当场就发生的事写现在时，别写成计划。lines 写约人或者当时说的那几句（最多 6 句，who 写说话人的名字，你自己写「我」）。'
                 + PLAN_HOW,
-            delivery: '你刚点了外卖。kind 填 "delivery"；with 写店名，detail 写点了什么，value 写实付金额（比如 ¥38.50）。'
+            delivery: '你刚点了外卖。kind 填 "delivery"；with 写店名，detail 写点了什么，value 写实付金额，用你所在地的货币（在美国就是 $18.50 这样，在国内就是 ¥38.50）。'
                 + (etas ? `这一单${foodWhen()}送到，提到送达就说这个时间，别自己编。` : ''),
-            order: '你刚在网上下了一单。kind 填 "order"；with 写商品名，detail 写规格，value 写价格。'
+            order: '你刚在网上下了一单。kind 填 "order"；with 写商品名，detail 写规格，value 写价格（用你所在地的货币）。'
                 + (etas ? shipHow() : ''),
             moment: '你刚发了一条朋友圈。kind 填 "moment"；detail 写正文。'
                 + '再替你通讯录里的亲友写下反应：comments 写 3–5 条评论（who 用上面认识的人的名字，relation 写 TA 是你的谁，语气贴着各自身份）；'
@@ -1062,7 +1062,7 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
                     : ''),
             gift: '你刚给对方买了点东西。kind 填 "gift"；via 填 "net"（网购）或 "food"（给对方点外卖）；'
                 + (etas ? `点外卖的话${foodWhen()}到；网购的话${shipHow()}` : '')
-                + 'with 写商品名或店名，detail 写买了什么、为什么挑这个，value 写价格；note 可以写一句附言（对方收到时能看到）。'
+                + 'with 写商品名或店名，detail 写买了什么、为什么挑这个，value 写价格（东西送到对方那边，按对方所在地的货币写）；note 可以写一句附言（对方收到时能看到）。'
                 + '想不想让对方提前知道是什么由你定：想当惊喜就把 surprise 设为 true，送到之前对方看不到内容，你也别在聊天里说漏。',
         }[life];
         if (life === 'gift') {
