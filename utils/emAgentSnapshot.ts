@@ -77,6 +77,8 @@ export interface CharacterSnapshot {
         identity: { name: string; persona?: string };
         user: { name: string };
         timezone: string;
+        /** 阿萌这台设备的时区：角色在别处（出差、异地）时，心跳才知道对方那边几点。 */
+        userTimezone?: string; // [EM: heartbeat-user-time]
         sleepWindow?: { start: string; end: string };
         /** 情绪底色：聊天里每轮情绪评估写出的那段叙事（char.buffInjection）。 */
         mood?: string;
@@ -231,6 +233,7 @@ export const buildCharacterSnapshot = async (
             identity: { name: char.name, persona: buildPersona(char) },
             user: { name: options.userName || '阿萌' },
             timezone,
+            userTimezone: deviceTimeZone(), // [EM: heartbeat-user-time]
             ...(char.sleepWindow
                 ? {
                     sleepWindow: {
