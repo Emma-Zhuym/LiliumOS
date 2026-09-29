@@ -20,6 +20,7 @@ import {
 } from '../utils/moments';
 import { MomentsDB } from '../utils/momentsDb';
 import { runCharacterLook } from '../utils/momentsLook';
+import { DB } from '../utils/db';
 
 type Screen = 'feed' | 'compose';
 
@@ -122,7 +123,9 @@ const MomentsApp: React.FC = () => {
             setLooking(`${char.name} 在看…`);
             try {
                 const api = resolveCharacterApiConfig(char, apiConfig, apiPresets).apiConfig;
-                const reactions = await runCharacterLook(char, items, readInter, characters, userName, api);
+                // 带上最近的私聊：刚在聊天里一起做的事，TA 刷到时得记得
+                const recentChat = await DB.getMessagesByCharId(char.id).catch(() => []);
+                const reactions = await runCharacterLook(char, items, readInter, characters, userName, api, recentChat);
                 const changed = applyLookReactions(char.id, items, reactions, readInter);
                 for (const item of changed) working = { ...working, [item.postId]: item };
                 await saveInter(changed);

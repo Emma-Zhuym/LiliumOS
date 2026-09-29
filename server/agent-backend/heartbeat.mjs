@@ -233,6 +233,35 @@ const lastChatMessageAt = (db, charId) =>
     ).get(charId)?.created_at ?? null;
 
 /**
+ * 阿萌发了、TA 还没回的那几条（按时间正序）。
+ *
+ * 阿萌睡前发了消息没点生成，TA 醒来得先读到它们——以前心跳完全不看这个，
+ * 醒来照样抽签，六成去过自己的日子，抽中开口也是接着自己的事另起话头。
+ *
+ * 「TA 回过」要看两处：快照里 TA 的消息（聊天里生成的），和 outbox 里心跳已经发出的那条
+ * （快照要等阿萌下次发消息才更新，不看 outbox 的话同一批会被回两遍）。
+ */
+export const unreadFromUser = (db, charId, snapshot) => {
+    const messages = snapshot?.payload?.recentMessages;
+    if (!Array.isArray(messages) || messages.length === 0) return [];
+    let lastChar = -1;
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+        if (messages[index]?.role !== 'user') { lastChar = index; break; }
+    }
+    const tail = messages.slice(lastChar + 1);
+    if (!tail.length) return [];
+    const repliedAt = [snapshot.payload?.lastInteraction?.charAt, lastChatMessageAt(db, charId)]
+        .map(value => (value ? Date.parse(value) : NaN))
+        .filter(Number.isFinite);
+    const since = repliedAt.length ? Math.max(...repliedAt) : -Infinity;
+    // 没带时间的消息没法跟 outbox 比先后：TA 从没回过才算没读，否则宁可当读过，别重复回。
+    return tail.filter(message => {
+        const at = message.at ? Date.parse(message.at) : NaN;
+        return Number.isFinite(at) ? at > since : since === -Infinity;
+    });
+};
+
+/**
  * 六道零模型闸。返回命中的那道闸的名字，全都通过则返回 null。
  *
  * 顺序按「越便宜越先判」排：读角色行就能判的排前面，要查表的排后面。
@@ -255,14 +284,16 @@ export const checkGates = (db, { character, snapshot, now = new Date() }) => {
  * 只是不主动找阿萌——工作往来、生活小事照常写，TA 还是在过自己的日子。
  *
  * - active_chat：10 分钟内聊过（任意一方说过话），人就在跟前，不必另起话头；
- * - message_cooldown：离上一条主动消息太近（空档里缩到 30 分钟）。
+ * - message_cooldown：离上一条主动消息太近（空档里缩到 30 分钟）。欠着阿萌的回复时不算：
+ *   冷却是为了别刷屏，阿萌在那之后又发了话，回她不叫刷屏。
  */
-export const speakBlock = (db, { character, snapshot, now = new Date() }) => {
+export const speakBlock = (db, { character, snapshot, now = new Date(), owed = false }) => {
     const timezone = snapshot?.payload?.timezone || getSetting(db, 'timezone') || 'America/Chicago';
     const lastInteraction = lastRealInteractionAt(character, snapshot);
     if (lastInteraction && now.getTime() - lastInteraction.getTime() < ACTIVE_CHAT_WINDOW_MS) {
         return 'active_chat';
     }
+    if (owed) return null;
     // 空档里冷却缩短：午休本来就是多说两句的时候，不该被上午那条挡住。
     const cooldownMin = inBreakWindow(snapshot, now, timezone)
         ? Math.min(character.messageCooldownMin, BREAK_COOLDOWN_MIN)
@@ -430,9 +461,21 @@ export const messageChance = ({ availability, minutesSinceContact, inBreak = fal
  * 决定这一跳的意图。reach_out = 去说句话；live = 过自己的日子。
  * rng 可注入，测试里钉死。
  */
-export const decideIntent = ({ snapshot, now, timezone, minutesSinceContact, carried = null, canSpeak = true, rng = Math.random }) => {
+export const decideIntent = ({
+    snapshot, now, timezone, minutesSinceContact, carried = null, canSpeak = true, owed = false, rng = Math.random,
+}) => {
     const slot = currentSlot(snapshot, now, timezone);
     const availability = slot?.availability ?? null;
+    // 阿萌发了消息 TA 还没回：醒来第一件事是读消息、回她，不抽签（随机数照样取一个，保持序列不变）。
+    if (owed && canSpeak) {
+        rng();
+        return {
+            intent: 'reply',
+            chance: 1,
+            slot: slot ? { title: slot.title ?? slot.activity ?? '', availability } : null,
+            inBreak: inBreakWindow(snapshot, now, timezone),
+        };
+    }
     // 上一跳自己说了「等会儿找 ta」：这一跳不再抽签，兑现它。
     // 冷却、每日上限这些闸在抽签之前已经过了，所以不会因此刷屏。
     const inBreak = inBreakWindow(snapshot, now, timezone);
@@ -717,12 +760,19 @@ export const HEARTBEAT_SCHEMA = {
  */
 export const buildPrompt = (character, snapshot, now = new Date(), intent = 'live', {
     thoughts = [], carried = null, threads = [], plans = [], duePlan = null, episode = false, life = null, canSpeak = true, temporal = '',
-    feed = [], opened = null, etas = null, purchases = [],
+    feed = [], opened = null, etas = null, purchases = [], unread = [],
 } = {}) => {
     const p = snapshot.payload || {};
     const lines = [];
     lines.push(`你是「${p.identity?.name || character.displayName}」，正在自己的生活里过日子。`);
     if (p.identity?.persona) lines.push(`你的设定：\n${p.identity.persona}`);
+    // 长期记忆：聊天那边的月度总结。没有它，TA 醒来时对你们之间的事只记得最近几十句。
+    if (Array.isArray(p.monthlySummaries) && p.monthlySummaries.length) {
+        lines.push(
+            '你们之间的长期记忆（按月总结，这些都是真实发生过的）：\n'
+            + p.monthlySummaries.map(m => `- [${m.month}] ${m.text}`).join('\n'),
+        );
+    }
     lines.push(`对方是「${p.user?.name || '阿萌'}」。现在是 ${formatLocal(now, p.timezone)}（${p.timezone || '未知时区'}）。`);
     if (p.sleepWindow) lines.push(`你的作息：${p.sleepWindow.start} 睡，${p.sleepWindow.end} 起。`);
     // 情绪底色：聊天那边每轮情绪评估写出来的叙事。缺了它，心跳里的 TA 永远是出厂情绪。
@@ -752,8 +802,18 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
         const gap = formatGap(lastRealInteractionAt(character, snapshot), now);
         lines.push(
             `${gap ? `你们上次说话是${gap}。下面这些对话发生在那时候，不是刚刚：` : '最近的对话：'}\n`
-            + p.recentMessages.slice(-12).map(m => `${m.role === 'user' ? '对方' : '你'}：${m.text}`).join('\n'),
+            + formatRecentMessages(p.recentMessages, p.timezone),
         );
+    }
+    if (unread.length) {
+        // 最后几句是对方说的、你还没回：跟下面那段「对方没回你」正好反过来，别混用。
+        const since = formatGap(new Date(unread[0].at ?? now), now);
+        lines.push(
+            `对方给你发了这些消息，你还没有回（最早一条是${since || '刚才'}发的）：\n`
+            + unread.map(m => `- ${m.at ? `${formatLocal(new Date(m.at), p.timezone)} ` : ''}${m.text}`).join('\n')
+            + '\n从 ta 发这些消息到现在，你们没有说过话：ta 在等你回。',
+        );
+    } else if (Array.isArray(p.recentMessages) && p.recentMessages.length) {
         // 只给间隔还不够：模型会拿这段空白自己补剧情，把「她应该洗完了」一路脑补成
         // 「我已经帮她吹完头发了」，然后据此判断「人就在身边，没必要发消息」。
         // 原来这里写死「什么互动都没发生」，结果连 TA 自己的日子也冻住了——说了「我做饭，你来一起吃」，
@@ -805,7 +865,15 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
     }
     // 开不开口已经定了，模型不再做判断题，只负责把它说得像这个人会说的话。
     lines.push(
-        intent === 'reach_out'
+        intent === 'reply'
+            ? '现在你拿起手机，看到了 ta 发来的这些消息，要回 ta。\n'
+                + '规则：activity 里用第一人称写你这会儿在做什么（40 字以内）；action 填 "message"，text 写你回 ta 的话。\n'
+                + '- 先回应 ta 说的内容：ta 问了就答，ta 分享了就接住，ta 情绪不好就先顾着 ta。别当没看见，也别另起一个无关的话头。\n'
+                + '- 消息是一段时间以前发的，回的时候要意识到时间过去了（比如 ta 睡前说的晚安，现在你这边已经是早上）；'
+                + '可以顺带说一句你这边刚在做什么、为什么现在才回，但只是顺带。\n'
+                + '- ta 发了好几条就一起回，不用逐条编号。\n'
+                + 'reason 写你心里的想法，对方看不到它。urge 填 "none"。'
+            : intent === 'reach_out'
             ? '现在你想起了对方，并且决定跟 ta 说句话。\n'
                 + '规则：activity 里用第一人称写你这会儿在做什么（40 字以内）；'
                 + 'action 填 "message"，text 写你要说的那句话——'
@@ -942,6 +1010,25 @@ export const formatGap = (since, now) => {
     return `${Math.floor(hours / 24)} 天前`;
 };
 
+/**
+ * 最近的聊天记录。隔了半小时以上就插一行时间：一百来句跨好几天，
+ * 不标时间的话模型会把前天的晚安和今早的早安读成连着说的。
+ */
+const TIME_MARK_GAP_MS = 30 * 60_000;
+export const formatRecentMessages = (messages, timezone) => {
+    const out = [];
+    let previous = null;
+    for (const m of messages) {
+        const at = m.at ? Date.parse(m.at) : NaN;
+        if (Number.isFinite(at) && (previous === null || at - previous >= TIME_MARK_GAP_MS)) {
+            out.push(`〔${formatLocal(new Date(at), timezone)}〕`);
+        }
+        if (Number.isFinite(at)) previous = at;
+        out.push(`${m.role === 'user' ? '对方' : '你'}：${m.text}`);
+    }
+    return out.join('\n');
+};
+
 const formatLocal = (date, timezone) => {
     try {
         return new Intl.DateTimeFormat('zh-CN', {
@@ -1010,8 +1097,10 @@ export const createHeartbeatHandler = ({
     const timezone = snapshot.payload?.timezone || getSetting(db, 'timezone') || 'America/Chicago';
     const lastContact = lastRealInteractionAt(character, snapshot);
     const carried = pendingUrge(db, character.charId, { since: lastContact });
+    // 阿萌发了还没回的消息：有的话这一跳先读消息、回她。
+    const unread = unreadFromUser(db, character.charId, snapshot);
     // 刚聊过 / 刚发过：这一跳不开口，但照样醒、照样过自己的日子。
-    const hush = speakBlock(db, { character, snapshot, now: startedAt });
+    const hush = speakBlock(db, { character, snapshot, now: startedAt, owed: unread.length > 0 });
     // 开不开口由程序抽签，不再让模型做判断题——它总能为沉默找到理由（设计 3.3）。
     const { intent } = decideIntent({
         snapshot,
@@ -1020,6 +1109,7 @@ export const createHeartbeatHandler = ({
         minutesSinceContact: lastContact ? (startedAt.getTime() - lastContact.getTime()) / 60_000 : null,
         carried,
         canSpeak: !hush,
+        owed: unread.length > 0,
         rng,
     });
     // 只回看最近 12 小时：更早的那些，今天的聊天多半已经盖过去了。
@@ -1073,8 +1163,8 @@ export const createHeartbeatHandler = ({
     const etas = shopping ? pickEtas(startedAt, timezone, rng) : null;
     const purchases = shopping ? recentPurchases(db, character.charId, startedAt) : [];
     const promptFor = opened => buildPrompt(character, snapshot, startedAt, intent, {
-        thoughts, carried: hush ? null : carried, threads, plans, duePlan, episode: wantsEpisode, life: lifeKind, canSpeak: !hush, temporal, feed, opened,
-        etas, purchases,
+        thoughts, carried: hush || intent === 'reply' ? null : carried, threads, plans, duePlan, episode: wantsEpisode, life: lifeKind, canSpeak: !hush, temporal, feed, opened,
+        etas, purchases, unread: intent === 'reply' ? unread : [],
     });
     const firstPass = await runner.run({
         charId: character.charId,

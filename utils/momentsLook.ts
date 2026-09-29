@@ -5,11 +5,31 @@
  * 用的是角色自己的聊天 API（resolveCharacterApiConfig），图片直接带给模型看。
  */
 
-import type { APIConfig, CharacterProfile } from '../types';
+import type { APIConfig, CharacterProfile, Message } from '../types';
 import { extractContent, extractJson, safeFetchJson } from './safeApi';
-import { allComments, type LookItem, type LookReaction, type MomentActor, type MomentInteractions, parseLookReactions, relationOf } from './moments';
+import { allComments, formatMomentTime, type LookItem, type LookReaction, type MomentActor, type MomentInteractions, parseLookReactions, relationOf } from './moments';
+import { messageToPlainText } from './emAgentSnapshot';
 
 const MAX_IMAGES_PER_CALL = 4;
+/** 带给模型的私聊条数：够看出「刚才一起在干什么」就行。 */
+const MAX_CHAT_LINES = 30;
+
+/**
+ * 最近的私聊，带时间。没有这段的时候，阿萌刚跟 TA 在聊天里一起做完饭、转头发了朋友圈，
+ * TA 评论「你啥时候做的我怎么不知道」——刷朋友圈的 TA 对聊天一无所知。
+ */
+export const formatRecentChat = (messages: Message[], userName: string, charName: string, now = Date.now()): string =>
+    messages
+        .filter(m => m.type !== 'system')
+        .slice(-MAX_CHAT_LINES)
+        .map(m => {
+            const text = messageToPlainText(m).replace(/\s+/g, ' ').slice(0, 200);
+            if (!text) return '';
+            const when = m.timestamp ? `〔${formatMomentTime(m.timestamp, now)}〕` : '';
+            return `${when}${m.role === 'user' ? userName : `${charName}（你）`}：${text}`;
+        })
+        .filter(Boolean)
+        .join('\n');
 
 const nameOf = (actor: MomentActor, characters: Pick<CharacterProfile, 'id' | 'name'>[], userName: string) =>
     actor.kind === 'user' ? userName : actor.kind === 'npc' ? actor.name : characters.find(c => c.id === actor.charId)?.name ?? '某人';
@@ -23,6 +43,8 @@ export const buildLookMessages = (
     interactionsOf: (postId: string) => MomentInteractions,
     characters: CharacterProfile[],
     userName: string,
+    recentChat: Message[] = [],
+    now = Date.now(),
 ) => {
     const persona = [char.description, char.systemPrompt].filter(Boolean).join('\n').slice(0, 2400);
     const images: string[] = [];
@@ -44,11 +66,16 @@ export const buildLookMessages = (
             ? `${item.ref} 你自己发的动态，有人来评论了：`
             : item.why === 'reply_to_me'
                 ? `${item.ref} 你在 ${author}${relation}的动态下评论过，有人回复了你：`
-                : `${item.ref} ${author}${relation}发了：`;
+                : `${item.ref} ${author}${relation}在${formatMomentTime(item.post.createdAt, now)}发了：`;
         return `${head}\n「${item.post.text}」${picNote}${existing ? `\n已有评论：\n${existing}` : ''}`;
     }).join('\n\n');
 
+    const chat = formatRecentChat(recentChat, userName, char.name, now);
     const system = `你是${char.name}。以下是你的设定：\n${persona || '（没有额外设定）'}\n\n`
+        + (chat
+            ? `你和${userName}最近的私聊（现在是${formatMomentTime(now, now)}；这些是你亲身经历过的，刷朋友圈时你都记得）：\n${chat}\n\n`
+                + `如果${userName}发的动态说的正是你们聊天里一起做过、聊过的事，你当然知道，要按你知道的来接话，别装不知道、别问「什么时候的事」。\n\n`
+            : '')
         + `你正在刷朋友圈。下面是你上次看过之后新出现的东西。对每一条，按你的性格和你们的关系决定：点赞、评论，或者都不做（不是每条都要回应）。\n`
         + `- 「你自己发的动态，有人来评论了」「有人回复了你」：想回就在 comment 里回那个人，不点赞。\n`
         + `- 评论要短，像真人在朋友圈里说话，一两句以内；别复述对方写了什么。\n`
@@ -69,6 +96,7 @@ export const runCharacterLook = async (
     characters: CharacterProfile[],
     userName: string,
     api: APIConfig,
+    recentChat: Message[] = [],
 ): Promise<LookReaction[]> => {
     if (items.length === 0) return [];
     const baseUrl = api.baseUrl.replace(/\/+$/, '');
@@ -77,7 +105,7 @@ export const runCharacterLook = async (
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${api.apiKey || 'sk-none'}` },
         body: JSON.stringify({
             model: api.model,
-            messages: buildLookMessages(char, items, interactionsOf, characters, userName),
+            messages: buildLookMessages(char, items, interactionsOf, characters, userName, recentChat),
             temperature: 0.9,
             max_tokens: 4000,
             stream: false,

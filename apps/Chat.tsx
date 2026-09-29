@@ -468,6 +468,23 @@ const Chat: React.FC = () => {
         charAvailability: charStatusInfo.status,
     });
 
+    // [EM-START: agent-backend-reply-sync]
+    // TA 在聊天里回过之后也传一份近况。原来只在阿萌发消息时传：她发完隔天才点生成，
+    // 后端一直以为那几条没回，心跳醒来会再回一遍。
+    const lastSyncedReplyRef = useRef<string | number | null>(null);
+    useEffect(() => {
+        if (!char || isTyping) return;
+        const last = messages[messages.length - 1];
+        if (!last || last.role !== 'assistant' || last.id === lastSyncedReplyRef.current) return;
+        lastSyncedReplyRef.current = last.id;
+        scheduleSnapshotUpload(char.id, async () => buildCharacterSnapshot(
+            char,
+            await DB.getMessagesByCharId(char.id),
+            { userName: userProfile?.name },
+        ));
+    }, [char, messages, isTyping, userProfile?.name]);
+    // [EM-END: agent-backend-reply-sync]
+
     // [EM-START: offline-auto-reply] offline → online 时自动触发角色回复（补回 offline 期间的未回复消息）
     useEffect(() => {
         const prev = prevCharStatusRef.current;

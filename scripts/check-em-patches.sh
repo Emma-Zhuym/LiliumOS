@@ -197,6 +197,9 @@ check "心跳逛小红书：快照带开关" utils/emAgentSnapshot.ts "[EM: hear
 check "心跳逛小红书：落进小红书 App" context/OSContext.tsx "xhsActivitiesFromLife(event, charId)"
 check "心跳转发小红书带卡片" utils/emAgentInbox.ts "[EM-START: heartbeat-xhs]"
 check "网关停用发帖评论" scripts/home-assistant-proxy.mjs "XHS_BLOCKED_TOOLS"
+check "心跳读消息：TA 回过后同步快照" apps/Chat.tsx "[EM-START: agent-backend-reply-sync]"
+check "心跳长期记忆：月度总结进快照" utils/emAgentSnapshot.ts "monthlySummaries"
+check "朋友圈评论带上私聊" apps/MomentsApp.tsx "runCharacterLook(char, items, readInter, characters, userName, api, recentChat)"
 
 echo ""
 if [ $FAIL -gt 0 ]; then

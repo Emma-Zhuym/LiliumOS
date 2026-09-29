@@ -14,7 +14,7 @@ vi.mock('./dailySchedule', () => ({
     })),
 }));
 
-import { buildCharacterSnapshot, findLastInteraction, messageToPlainText } from './emAgentSnapshot';
+import { buildCharacterSnapshot, buildMonthlySummaries, findLastInteraction, messageToPlainText } from './emAgentSnapshot';
 
 const char = {
     id: 'lumi',
@@ -136,5 +136,27 @@ describe('circle 进快照', () => {
 
     it('没人就不带这个字段', async () => {
         expect((await buildCharacterSnapshot(char, [], {})).payload.circle).toBeUndefined();
+    });
+});
+
+describe('月度总结（心跳的长期记忆）', () => {
+    it('按月份正序带上，空的丢掉', () => {
+        expect(buildMonthlySummaries({ refinedMemories: { '2026-09': '九月', '2026-07': '七月', '2026-08': '  ' } })).toEqual([
+            { month: '2026-07', text: '七月' },
+            { month: '2026-09', text: '九月' },
+        ]);
+    });
+
+    it('超过字数上限时从最早的月份丢起', () => {
+        const long = 'x'.repeat(5000);
+        const kept = buildMonthlySummaries({ refinedMemories: { '2026-07': long, '2026-08': long, '2026-09': '九月' } });
+        expect(kept.map(item => item.month)).toEqual(['2026-08', '2026-09']);
+    });
+
+    it('进快照；没有就不带这个字段', async () => {
+        const withMemory = { ...char, refinedMemories: { '2026-09': '一起做了饭' } } as unknown as CharacterProfile;
+        expect((await buildCharacterSnapshot(withMemory, [], {})).payload.monthlySummaries)
+            .toEqual([{ month: '2026-09', text: '一起做了饭' }]);
+        expect((await buildCharacterSnapshot(char, [], {})).payload.monthlySummaries).toBeUndefined();
     });
 });
