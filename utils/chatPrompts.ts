@@ -985,6 +985,14 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
                          if (index === historySlice.length - 1 && timeGapHint && m.role === 'user') textPart += `\n\n${timeGapHint}`;
                          return { role: m.role, content: textPart };
                      }
+                     // [EM-START: assistant-photo-text] 角色自己发的照片只给文字：图片只能出现在 user 消息里（OpenAI / Claude 规范），
+                     // assistant 带 image_url 时 OpenRouter 会兼容，但直连官方的中转站一律 400，而且那张图之后每一轮都会带上。
+                     // 画面描述就是 TA 生图时写的那句，TA 知道自己发了什么就够了。
+                     if (m.role === 'assistant') {
+                         const photoPrompt = typeof m.metadata?.photoPrompt === 'string' ? m.metadata.photoPrompt.trim() : '';
+                         return { role: m.role, content: `${timeStr} [你发了一张照片${photoPrompt ? `：${photoPrompt}` : ''}]` };
+                     }
+                     // [EM-END: assistant-photo-text]
                      // 向下兼容：如果图片数据缺失（例如只导入了文字备份），不要把空 URL 发给 API，否则会报错无法回应
                      // 图片有三种形态：base64 data URL、外链 http(s)、本机的 blobref 令牌
                      // （二进制在 blob_assets，见 utils/blobRef.ts）。令牌既不以 data: 也不以 http 开头，
