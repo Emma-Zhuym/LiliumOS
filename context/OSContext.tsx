@@ -100,6 +100,7 @@ import { refreshAllChronicles } from '../utils/emAgentActivity'; // [EM: agent-b
 import { refreshHeartbeatSnapshots } from '../utils/emAgentSnapshotSync'; // [EM: agent-backend-snapshot-refresh]
 import { refreshMomentsCache } from '../utils/emMomentsContext'; // [EM: moments-chat-context]
 import { refreshPlansCache } from '../utils/emAgentPlans'; // [EM: agent-plans]
+import { ensureAgentPushRegistered } from '../utils/emAgentBackend'; // [EM: agent-push-resubscribe]
 import { refreshTemporalCache } from '../utils/emTemporal'; // [EM: calendar-temporal]
 import { applyWorkEpisode } from '../utils/emWork'; // [EM: work-app]
 import { applyLifeEpisode } from '../utils/emLife'; // [EM: agent-life]
@@ -1974,6 +1975,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           void refreshHeartbeatSnapshots(charactersRef.current, userProfileRef.current?.name);
           void refreshMomentsCache(charactersRef.current); // [EM: moments-chat-context] 聊天读的朋友圈副本
           void refreshPlansCache(); // [EM: agent-plans] 角色们的约定：聊天和日历读本机副本
+          void ensureAgentPushRegistered(); // [EM: agent-push-resubscribe] 手机换了推送订阅就重新告诉 mini
           // [EM: calendar-temporal] 阿萌的现实安排同理：聊天提示词读本机缓存，这里顺手续上（一小时才真去问一次）
           void refreshTemporalCache();
           const result = await syncAgentMessagesIntoChat(Date.now(), {

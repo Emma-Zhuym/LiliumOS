@@ -217,6 +217,7 @@ check "即时回复：信箱回复进收件箱" utils/emAgentInbox.ts "route ===
 check "即时回复：去取信号" utils/amsgResults.ts "case 'agent-pull'"
 check "即时回复：设置开关" components/settings/AgentBackendSection.tsx "聊天交给 Mac mini 回复"
 check "即时回复：后端接口" server/agent-backend/server.mjs "'POST /chat/turns'"
+check "推送订阅换了自动重新登记给 mini" context/OSContext.tsx "ensureAgentPushRegistered()"
 check "朋友圈评论带上私聊" apps/MomentsApp.tsx "runCharacterLook(char, items, readInter, characters, userName, api, recentChat)"
 
 echo ""

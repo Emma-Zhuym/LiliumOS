@@ -259,6 +259,7 @@ export const AgentBackend = {
             method: 'POST',
             body: { subscription: { endpoint: attempt.sub.endpoint, keys: { p256dh: attempt.sub.p256dh, auth: attempt.sub.auth } } },
         });
+        rememberRegisteredPushEndpoint(attempt.sub.endpoint); // [EM: agent-push-resubscribe]
         return { ok: true };
     },
 
@@ -504,4 +505,43 @@ export const routeInboxMessages = (messages: AgentMessage[], now = Date.now()): 
             : message.kind !== 'chat_message' ? 'other'
                 : isFreshChatMessage(message, now) ? 'chat' : 'stale',
     }));
+// [EM-START: agent-push-resubscribe]
+/**
+ * 手机的推送订阅会被换掉（amsg 重置订阅、系统 pushsubscriptionchange），原来后端只在手动点
+ * 「登记推送」时记一次：换了以后后端还往旧地址推，Apple 照回 201，手机却什么也收不到——
+ * 锁屏没通知、页面开着也要等 60 秒轮询才拉到回复。打开 App / 回到前台时对一下，变了就重新登记。
+ */
+const PUSH_ENDPOINT_KEY = 'em_agent_push_endpoint_v1';
+const PUSH_CHECK_INTERVAL_MS = 10 * 60_000;
+let lastPushCheckAt = 0;
+
+const rememberRegisteredPushEndpoint = (endpoint: string) => {
+    try { localStorage.setItem(PUSH_ENDPOINT_KEY, endpoint); } catch { /* 记不住下次再登记一遍，无害 */ }
+};
+
+export const ensureAgentPushRegistered = async (now = Date.now()): Promise<'skipped' | 'unchanged' | 'registered' | 'failed'> => {
+    if (!isAgentPaired()) return 'skipped';
+    if (now - lastPushCheckAt < PUSH_CHECK_INTERVAL_MS) return 'skipped';
+    lastPushCheckAt = now;
+    // 只在已经授权过通知时做：这里绝不弹权限框
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return 'skipped';
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return 'skipped';
+    try {
+        const registration = await navigator.serviceWorker.ready;
+        const current = await registration.pushManager.getSubscription();
+        if (!current) return 'skipped';
+        let registered: string | null = null;
+        try { registered = localStorage.getItem(PUSH_ENDPOINT_KEY); } catch { /* 当作没登记过 */ }
+        if (registered === current.endpoint) return 'unchanged';
+        const result = await AgentBackend.registerPush();
+        return result.ok ? 'registered' : 'failed';
+    } catch {
+        return 'failed';
+    }
+};
+
+/** 测试用 */
+export const resetAgentPushCheckForTest = () => { lastPushCheckAt = 0; };
+// [EM-END: agent-push-resubscribe]
+
 // [EM-END: agent-backend-client]
