@@ -307,6 +307,24 @@ export const unansweredProactive = (db, charId, since) => db.prepare(
     return { at: row.created_at, text };
 });
 
+/**
+ * TA 最近主动发给阿萌的话（心跳发的，按时间正序），不管阿萌回没回。
+ *
+ * 快照里的聊天是按气泡算条数的，聊得密的时候一百条只盖得住几个小时；心跳自己的「前几跳」
+ * 也只回看 12 小时。于是昨天下午问过「明晚撸串要不要一起」，今早醒来又原样问了一遍。
+ * 这份直接从 outbox 读，不依赖快照。
+ */
+export const OWN_MESSAGES_WINDOW_MS = 48 * 60 * 60_000;
+export const recentOwnMessages = (db, charId, now, { limit = 6 } = {}) => db.prepare(
+    `SELECT created_at, payload FROM outbox
+      WHERE char_id = ? AND kind = 'chat_message' AND created_at >= ?
+      ORDER BY id DESC LIMIT ?`,
+).all(charId, new Date(now.getTime() - OWN_MESSAGES_WINDOW_MS).toISOString(), limit).reverse().map(row => {
+    let text = '';
+    try { text = String(JSON.parse(row.payload)?.text ?? ''); } catch { /* 坏了就当空 */ }
+    return { at: row.created_at, text };
+}).filter(item => item.text.trim());
+
 /** 阿萌最后一次真的开口的时刻：快照里的 userAt（夹到 received_at）和在场信号取大。TA 自己说的不算。 */
 export const lastUserSpokeAt = (character, snapshot) => {
     const candidates = [];
@@ -844,6 +862,7 @@ export const HEARTBEAT_SCHEMA = {
 export const buildPrompt = (character, snapshot, now = new Date(), intent = 'live', {
     thoughts = [], carried = null, threads = [], plans = [], duePlan = null, episode = false, life = null, canSpeak = true, temporal = '',
     feed = [], opened = null, etas = null, purchases = [], unread = [], moments = [], unanswered = [], userTimezone = null,
+    ownMessages = [],
 } = {}) => {
     const p = snapshot.payload || {};
     const lines = [];
@@ -926,6 +945,15 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
                 + `${t.reason ? `（心里想：${t.reason}）` : ''}${t.said ? `（你对 ta 说了：${t.said}）` : ''}`).join('\n'),
         );
     }
+    // 自己这两天主动说过的话（不管 ta 回没回）：问过的别再问、说过的约定别当新鲜事再提
+    const ownNotUnanswered = ownMessages.filter(own => !unanswered.some(u => u.at === own.at));
+    if (ownNotUnanswered.length) {
+        lines.push(
+            '你这两天主动发给 ta 的消息（这些 ta 都看到了）：\n'
+            + ownNotUnanswered.map(own => `- ${formatLocal(new Date(own.at), p.timezone)}：${own.text.replace(/\s+/g, ' ').slice(0, 200)}`).join('\n')
+            + '\n上面问过的事别再问一遍；跟 ta 提过的约定别当成新鲜事再说一次，要提就接着说进展（比如快到点了、刚到店了）。',
+        );
+    }
     if (carried) {
         lines.push(`你上一次醒来时心里想的是：「${carried.reason}」。现在就是那个「等会儿」了。`);
     }
@@ -977,7 +1005,7 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
                 + 'action 填 "message"，text 写你要说的那句话——'
                 + '要贴着你此刻正在做的事和你们之间还没了结的话头，别写成万能问候。'
                 // 约定是天然的话头：「周六要去看展」正是能自然说起的事，别让它从 noop 的口子漏掉
-                + (plans.length ? '你跟别人约好的事也是很自然的话头（比如跟 ta 说一声你周末要去做什么）。' : '')
+                + (plans.length ? '你跟别人约好的事也是很自然的话头（比如跟 ta 说一声你周末要去做什么）——前提是你还没跟 ta 提过。' : '')
                 + '真的想不出任何自然的话头时才退回 action="noop"，那说明这一刻确实不合适。'
                 + reachOutTimeRule(lastRealInteractionAt(character, snapshot), now)
                 + (unanswered.length
@@ -1223,6 +1251,7 @@ export const createHeartbeatHandler = ({
     // TA 主动发了、阿萌还没回的：连发多了就别再追（概率打折 + 提示词里列出来）。
     const unanswered = unread.length ? [] : unansweredProactive(db, character.charId, lastUserSpokeAt(character, snapshot));
     const userTimezone = snapshot.payload?.userTimezone || getSetting(db, 'timezone') || null;
+    const ownMessages = recentOwnMessages(db, character.charId, startedAt);
     // 刚聊过 / 刚发过：这一跳不开口，但照样醒、照样过自己的日子。
     const hush = speakBlock(db, { character, snapshot, now: startedAt, owed: unread.length > 0 })
         // 连发三条没回：这一跳不开口（生活照过），等 ta 回了再说。
@@ -1296,7 +1325,7 @@ export const createHeartbeatHandler = ({
     const promptFor = opened => buildPrompt(character, snapshot, startedAt, intent, {
         thoughts, carried: hush || intent === 'reply' ? null : carried, threads, plans, duePlan, episode: wantsEpisode, life: lifeKind, canSpeak: !hush, temporal, feed, opened,
         etas, purchases, unread: intent === 'reply' ? unread : [], moments,
-        unanswered: intent === 'reach_out' ? unanswered : [], userTimezone,
+        unanswered: intent === 'reach_out' ? unanswered : [], userTimezone, ownMessages,
     });
     const firstPass = await runner.run({
         charId: character.charId,
