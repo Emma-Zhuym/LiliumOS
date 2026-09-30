@@ -231,6 +231,7 @@ export function normalizeSimpleFinSnapshot(
   currentTransactions: FinanceTransaction[],
   syncedAt: number,
   reviewSince = Number.NEGATIVE_INFINITY,
+  fetchedSinceMs?: number,
 ): { accounts: FinanceAccount[]; transactions: FinanceTransaction[]; newTransactionCount: number } {
   const existingAccounts = new Map(currentAccounts.map(account => [account.id, account]));
   const accounts: FinanceAccount[] = [];
@@ -307,9 +308,13 @@ export function normalizeSimpleFinSnapshot(
       });
       const eventSeconds = sourceTransaction.transacted_at || sourceTransaction.posted || Math.floor(syncedAt / 1000);
       const supersededByExternalId = incomingHoldMatches.get(sourceTransaction.id);
-      const excludedFromReporting = incomingPending
-        ? Boolean(supersededByExternalId || existingTransaction?.excludedFromReporting)
+      // 被判「银行撤掉了」的预扣款又出现在数据里（聚合商时有时无）：它还挂着，撤销那次排除
+      const autoExcluded = incomingPending
+        ? Boolean(supersededByExternalId || (existingTransaction?.excludedFromReporting && !existingTransaction?.pendingDroppedAt))
         : false;
+      // [EM: finance-manual-exclude] 手动定过的去留优先于自动判断，同步不改
+      const userChoice = existingTransaction?.excludedByUser;
+      const excludedFromReporting = userChoice === true ? true : userChoice === false ? false : autoExcluded;
       const learnedCategory = existingTransaction
         ? null
         : learnedCategoryForTransaction(sourceTransaction.description, currentTransactions);
@@ -343,6 +348,7 @@ export function normalizeSimpleFinSnapshot(
         supersededByExternalId: incomingPending
           ? supersededByExternalId || existingTransaction?.supersededByExternalId
           : undefined,
+        pendingDroppedAt: undefined,
         importedAt: existingTransaction?.importedAt || syncedAt,
         sourceUpdatedAt: syncedAt,
         needsCategoryReview,
@@ -358,6 +364,7 @@ export function normalizeSimpleFinSnapshot(
 
   const reconciledTransactions = new Map(transactions.map(transaction => [transaction.id, transaction]));
   holdUpdates.forEach((update, id) => {
+    if (update.excludedByUser === false) return; // [EM: finance-manual-exclude]
     const refreshed = reconciledTransactions.get(id);
     reconciledTransactions.set(id, {
       ...update,
@@ -368,6 +375,83 @@ export function normalizeSimpleFinSnapshot(
       needsCategoryReview: false,
     });
   });
+  // [EM-START: finance-dropped-holds]
+  // 银行撤掉的预扣款：同步只做 upsert，本地那条永远留着。实付金额和预扣不同时（加了小费、
+  // 称重商品、Target 这种预授权多扣的）上面的配对认不出来，于是 61 块的预扣一直算在账上。
+  // 这一轮拉回来的窗口里、本地还标着 pending、却已经不在数据里的，就是被银行撤掉了：
+  // 标成不计入统计（不删，分类和备注都留着）。有报错的账户整个跳过，宁可漏收也不误删。
+  if (fetchedSinceMs !== undefined) {
+    const DROP_MARGIN_MS = 2 * 24 * 60 * 60 * 1000;
+    const erroredConnections = new Set(snapshot.errlist.map(error => error.conn_id).filter(Boolean));
+    const erroredAccounts = new Set(snapshot.errlist.map(error => error.account_id).filter(Boolean));
+    const globalError = snapshot.errlist.some(error => !error.conn_id && !error.account_id);
+    if (!globalError) {
+      for (const sourceAccount of snapshot.accounts) {
+        if (!Array.isArray(sourceAccount.transactions)) continue;
+        if (erroredConnections.has(sourceAccount.conn_id) || erroredAccounts.has(sourceAccount.id)) continue;
+        const accountId = simpleFinAccountKey(sourceAccount.conn_id, sourceAccount.id);
+        const incomingIds = new Set(sourceAccount.transactions.map(transaction => transaction.id));
+        for (const transaction of currentTransactions) {
+          if (transaction.source !== 'simplefin' || transaction.accountId !== accountId) continue;
+          if (transaction.pending !== true || transaction.excludedFromReporting) continue;
+          if (transaction.excludedByUser === false) continue; // [EM: finance-manual-exclude] 手动恢复过的不动
+          if (transaction.timestamp < fetchedSinceMs + DROP_MARGIN_MS) continue;
+          if (transaction.externalId && incomingIds.has(transaction.externalId)) continue;
+          if (reconciledTransactions.has(transaction.id)) continue;
+          reconciledTransactions.set(transaction.id, {
+            ...transaction,
+            excludedFromReporting: true,
+            pendingDroppedAt: syncedAt,
+            needsCategoryReview: false,
+            sourceUpdatedAt: syncedAt,
+          });
+        }
+      }
+    }
+  }
+  // [EM-END: finance-dropped-holds]
+  // [EM-START: finance-adjusted-holds]
+  // 预授权和实付金额不一样的（Target 预扣 61 → 实付 49、加小费、称重）：上面按金额相等配对认不出来。
+  // 还挂着「预扣中」的那笔，7 天内同账户、同商户出现一笔金额在它 0.5–1.5 倍之间的实付款，就当它被实付款替掉了。
+  // 只动 provider 仍标 pending 的；手动恢复过的不动；一笔实付只认一笔预扣，挑时间最近且唯一的。
+  {
+    const ADJUSTED_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+    const pool = new Map(currentTransactions.map(transaction => [transaction.id, transaction]));
+    reconciledTransactions.forEach((transaction, id) => pool.set(id, transaction));
+    const all = [...pool.values()].filter(transaction => transaction.source === 'simplefin' && transaction.type === 'expense');
+    const claimedFinals = new Set(all.map(transaction => transaction.supersededByExternalId).filter(Boolean));
+    const holds = all
+      .filter(transaction => transaction.pending === true && !transaction.excludedFromReporting && transaction.excludedByUser !== false)
+      .sort((a, b) => a.timestamp - b.timestamp);
+    for (const hold of holds) {
+      const holdMerchant = merchantStem(hold.sourceDescription || hold.note);
+      if (!holdMerchant) continue;
+      const finals = all.filter(final =>
+        final.accountId === hold.accountId
+        && final.pending !== true
+        && !final.excludedFromReporting
+        && final.externalId
+        && !claimedFinals.has(final.externalId)
+        && final.timestamp >= hold.timestamp
+        && final.timestamp - hold.timestamp <= ADJUSTED_WINDOW_MS
+        && Math.abs(final.amount - hold.amount) >= 0.005
+        && final.amount >= hold.amount * 0.5
+        && final.amount <= hold.amount * 1.5
+        && merchantStem(final.sourceDescription || final.note) === holdMerchant,
+      );
+      const final = closestUniqueByTime(finals, transaction => transaction.timestamp, hold.timestamp);
+      if (!final?.externalId) continue;
+      claimedFinals.add(final.externalId);
+      reconciledTransactions.set(hold.id, {
+        ...hold,
+        excludedFromReporting: true,
+        supersededByExternalId: final.externalId,
+        needsCategoryReview: false,
+        sourceUpdatedAt: syncedAt,
+      });
+    }
+  }
+  // [EM-END: finance-adjusted-holds]
   // Include local history: an old authorization can outlive the fetch window.
   // Return only refreshed rows and repair updates; storage remains an upsert.
   const history = new Map(currentTransactions.map(transaction => [transaction.id, transaction]));
@@ -406,7 +490,7 @@ export async function syncSimpleFin(): Promise<SimpleFinSyncResult> {
       FinanceDB.getTransactions(),
     ]);
     const reviewSince = previousState.lastSuccessAt ?? attemptedAt - 24 * 60 * 60 * 1000;
-    const normalized = normalizeSimpleFinSnapshot(snapshot, currentAccounts, currentTransactions, attemptedAt, reviewSince);
+    const normalized = normalizeSimpleFinSnapshot(snapshot, currentAccounts, currentTransactions, attemptedAt, reviewSince, overlapStart * 1000); // [EM: finance-dropped-holds]
     await Promise.all([
       FinanceDB.saveAccounts(normalized.accounts),
       FinanceDB.saveSyncedTransactions(normalized.transactions),
