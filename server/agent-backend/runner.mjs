@@ -199,6 +199,14 @@ export const salvageFields = raw => {
     return out;
 };
 
+/**
+ * 字段名后面漏了冒号和引号：实测模型会把 `"text": "刚醒…"` 写成 `"text刚醒…"`，整段 JSON 作废，
+ * 那一跳本来要发的消息就丢了（2026-09-30 抓到的解析失败里三次有两次是这个）。
+ * 只修键的位置（紧跟在 { 或 , 后面），正文里恰好以 text 开头的字不会被误改。
+ */
+const MISSING_COLON_RE = /([{,]\s*)"(action|activity|reason|urge|text|message|content|reply)(?=[^"\s:])/g;
+export const repairMissingColons = raw => raw.replace(MISSING_COLON_RE, '$1"$2": "');
+
 const toOutput = parsed => {
     const action = parsed?.action;
     if (action !== 'noop' && action !== 'message') return null;
@@ -220,7 +228,8 @@ const toOutput = parsed => {
 };
 
 export const parseHeartbeatOutput = raw => {
-    const text = String(raw ?? '').trim();
+    const original = String(raw ?? '').trim();
+    const text = repairMissingColons(original);
     if (!text) return { ok: false, error: '模型没有返回内容' };
     const candidates = [text];
     const block = text.match(JSON_BLOCK);
@@ -244,7 +253,7 @@ export const parseHeartbeatOutput = raw => {
     const output = salvaged && toOutput(salvaged);
     if (output) return { ok: true, output };
     // 带上原文：调用方在排查开关打开时才会落库，平时直接丢掉。
-    return { ok: false, error: '模型输出解析不出合法的心跳结果', raw: text };
+    return { ok: false, error: '模型输出解析不出合法的心跳结果', raw: original };
 };
 
 /**

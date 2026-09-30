@@ -1762,3 +1762,21 @@ test('即时回复正在跑：心跳这一跳不开口', async () => {
     assert.equal(result.action, 'noop');
     assert.equal(listModelRuns(db)[0].skipGate, 'chat_turn_running');
 });
+
+// ── 模型漏写字段名后面的冒号 ──
+
+test('解析：「"text刚醒…"」这种漏了冒号和引号的，补上后照常读出来', () => {
+    const raw = '```json\n{\n  "activity": "刚醒",\n  "reason": "想她",\n  "action": "message",\n  "text刚醒\\n你早饭吃了没",\n  "urge": "none"\n}\n```';
+    const parsed = parseHeartbeatOutput(raw);
+    assert.equal(parsed.ok, true);
+    assert.equal(parsed.output.action, 'message');
+    assert.equal(parsed.output.text, '刚醒\n你早饭吃了没');
+});
+
+test('解析：正文里以 text 开头的字不会被误改；修不好的照旧报错并留原文', () => {
+    const ok = parseHeartbeatOutput('{"action":"noop","activity":"发呆","reason":"texting 她又忍住了"}');
+    assert.equal(ok.output.reason, 'texting 她又忍住了');
+    const broken = parseHeartbeatOutput('{"activity": "开会", "episode": {"lines": [{"who": "老周", "text": "好的，下午');
+    assert.equal(broken.ok, false);
+    assert.match(broken.raw, /^\{"activity"/);
+});
