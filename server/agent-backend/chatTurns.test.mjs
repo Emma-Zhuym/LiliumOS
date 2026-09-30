@@ -11,7 +11,7 @@ import { upsertCharacter } from './characters.mjs';
 import { runJobNow } from './jobs.mjs';
 import {
     extractReasoning,
-    CHAT_TURN_KIND, PUSH_PAYLOAD_LIMIT_BYTES, buildReplyPush, createChatTurnService, jobUuidFor, previewText, validateTurn,
+    notificationPreview, splitEmbeddedThinking, CHAT_TURN_KIND, PUSH_PAYLOAD_LIMIT_BYTES, buildReplyPush, createChatTurnService, jobUuidFor, previewText, validateTurn,
 } from './chatTurns.mjs';
 
 const TURN = '11111111-2222-4333-8444-555555555555';
@@ -132,8 +132,15 @@ test('即时回复：请求校验', () => {
     assert.equal(validateTurn(turn()), null);
 });
 
-test('通知预览去掉指令和标签', () => {
+test('通知预览去掉指令和标签（兜底版）', () => {
     assert.equal(previewText('[[SEND_EMOJI: 开心]]<语音>好呀</语音> 走吧'), '好呀 走吧');
+    assert.equal(previewText('<think>她刚下课</think>辛苦啦'), '辛苦啦');
+});
+
+test('通知预览用前端同一份清洗：心象、时间戳、引用标记都不进横幅', async () => {
+    const preview = await notificationPreview('<think>她刚下课，先问累不累</think>[2026-09-30 09:31] [你引用了阿萌的消息「好累」] 辛苦啦[[SEND_EMOJI: 抱抱]]\n今晚想吃什么');
+    assert.doesNotMatch(preview, /她刚下课|2026-09-30|引用了/);
+    assert.match(preview, /^辛苦啦/);
 });
 
 test('心象：各家放思考的地方都认，跟着回复一起推回去', async () => {
@@ -153,4 +160,23 @@ test('心象：各家放思考的地方都认，跟着回复一起推回去', as
     service.submit(turn());
     await runJobNow(db, jobUuidFor(TURN), { handlers: { [CHAT_TURN_KIND]: service.handler }, logger: { warn() {} } });
     assert.equal(delivered[0].payload.metadata.amsgReasoning, '她刚下课，先问累不累');
+});
+
+test('心象写在正文里：抠出来当心象，正文只留要说的话', async () => {
+    assert.deepEqual(splitEmbeddedThinking('<think>她刚下课</think>辛苦啦'), { text: '辛苦啦', thinking: '她刚下课' });
+    assert.deepEqual(splitEmbeddedThinking('<thinking>先哄</thinking>乖<thought>再问</thought>饿不饿'), { text: '乖饿不饿', thinking: '先哄\n\n再问' });
+    assert.deepEqual(splitEmbeddedThinking('好呀<think>没闭合的一直算到结尾'), { text: '好呀', thinking: '没闭合的一直算到结尾' });
+    assert.deepEqual(splitEmbeddedThinking('没有思考'), { text: '没有思考', thinking: '' });
+
+    const db = openDb(':memory:');
+    const delivered = [];
+    const service = createChatTurnService({
+        db, deliver: async item => { delivered.push(item); }, logger: { warn() {} },
+        fetchImpl: async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: '<think>她好累</think>辛苦啦', reasoning_content: '先想想' } }] }) }),
+    });
+    service.submit(turn());
+    await runJobNow(db, jobUuidFor(TURN), { handlers: { [CHAT_TURN_KIND]: service.handler }, logger: { warn() {} } });
+    assert.equal(delivered[0].payload.message, '辛苦啦');
+    assert.equal(delivered[0].payload.metadata.amsgReasoning, '先想想\n\n她好累');
+    assert.doesNotMatch(delivered[0].payload.notification.body, /她好累/);
 });
