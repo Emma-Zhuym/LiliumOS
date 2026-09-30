@@ -218,6 +218,8 @@ check "即时回复：去取信号" utils/amsgResults.ts "case 'agent-pull'"
 check "即时回复：设置开关" components/settings/AgentBackendSection.tsx "聊天交给 Mac mini 回复"
 check "即时回复：后端接口" server/agent-backend/server.mjs "'POST /chat/turns'"
 check "SimpleFIN 撤掉的预扣款不计入" utils/simplefinSync.ts "[EM-START: finance-dropped-holds]"
+check "SimpleFIN 金额调整过的预扣款" utils/simplefinSync.ts "[EM-START: finance-adjusted-holds]"
+check "账本手动不计入 / 已排除列表" apps/BankApp.tsx "[EM-START: finance-manual-exclude]"
 check "朋友圈评论带上私聊" apps/MomentsApp.tsx "runCharacterLook(char, items, readInter, characters, userName, api, recentChat)"
 
 echo ""

@@ -98,6 +98,8 @@ const BankApp: React.FC = () => {
   const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
   const [categories, setCategories] = useState<FinanceCategory[]>([]);
   const [transactions, setTransactions] = useState<FinanceTransaction[]>([]);
+  // [EM: finance-manual-exclude] 被排除的同步账目（重复预扣、手动排除）：不进流水和统计，但要看得到、能恢复
+  const [excludedTransactions, setExcludedTransactions] = useState<FinanceTransaction[]>([]);
   const [balances, setBalances] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [showTxFilters, setShowTxFilters] = useState(false);
@@ -117,6 +119,7 @@ const BankApp: React.FC = () => {
     setAccounts(accs);
     setCategories(cats);
     setTransactions(txs.filter(isFinanceTransactionReportable));
+    setExcludedTransactions(txs.filter(t => t.source === 'simplefin' && !isFinanceTransactionReportable(t))); // [EM: finance-manual-exclude]
     const bals: Record<string, number> = {};
     for (const a of accs) {
       bals[a.id] = await FinanceDB.calcAccountBalance(a);
@@ -245,6 +248,7 @@ const BankApp: React.FC = () => {
         {activeTab === 'transactions' && (
           <TransactionsTab
             transactions={transactions}
+            excludedTransactions={excludedTransactions} // [EM: finance-manual-exclude]
             accounts={accounts}
             categories={categories}
             onRefresh={refreshData}
@@ -1205,6 +1209,7 @@ const TransactionForm: React.FC<{
   const [categoryId, setCategoryId] = useState(initial?.categoryId || '');
   const [note, setNote] = useState(initial?.note || '');
   const [treatment, setTreatment] = useState(analysisTreatment(initial || {}));
+  const [excluded, setExcluded] = useState(initial?.excludedFromReporting === true); // [EM: finance-manual-exclude]
   const [dateStr, setDateStr] = useState(initial?.dateStr || new Date().toISOString().split('T')[0]);
   const [expandedTopCat, setExpandedTopCat] = useState<string | null>(null);
   const [newCategoryParentId, setNewCategoryParentId] = useState<string | null | undefined>(undefined);
@@ -1269,6 +1274,10 @@ const TransactionForm: React.FC<{
       categoryReviewedAt: isSynced && reviewStatus !== 'unrecognized' ? Date.now() : initial?.categoryReviewedAt,
       autoCategoryConfidence: isSynced && reviewStatus !== 'auto' ? undefined : initial?.autoCategoryConfidence,
       analysisTreatment: treatment,
+      // [EM: finance-manual-exclude] 手动排除：同步也不会把它加回账上；关掉就是手动恢复
+      ...(isSynced && excluded !== (initial?.excludedFromReporting === true)
+        ? { excludedFromReporting: excluded, excludedByUser: excluded, ...(excluded ? {} : { pendingDroppedAt: undefined, supersededByExternalId: undefined }) }
+        : {}),
     });
   };
 
@@ -1568,6 +1577,27 @@ const TransactionForm: React.FC<{
             />
           </FormRow>
         </div>
+
+        {/* [EM-START: finance-manual-exclude] 同步来的账删了下次还会回来，所以给「不计入」而不是删除 */}
+        {isEdit && isSynced && (
+          <div className="mb-4" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, boxShadow: S.raisedSoft }}>
+            <div className="flex items-center gap-3 px-4 py-3.5">
+              <div className="flex-1 min-w-0">
+                <div className="text-sm" style={{ color: F.textPrimary }}>不计入账本</div>
+                <div className="text-[11px] mt-0.5 leading-relaxed" style={{ color: F.textTertiary }}>
+                  重复的预扣款、银行已撤销的错账。同步不会把它加回来，可以在流水底部「已排除」里恢复。
+                </div>
+              </div>
+              <button type="button" role="switch" aria-checked={excluded} aria-label="不计入账本"
+                onClick={() => setExcluded(v => !v)}
+                className="relative w-12 h-7 shrink-0"
+                style={{ background: excluded ? HUE.blue.main : F.surfaceSunken, borderRadius: R.pill, boxShadow: S.sunken, transition: `background ${MOTION.hover} ${MOTION.ease}` }}>
+                <span className="absolute top-1 left-1 w-5 h-5" style={{ background: F.surfaceRaised, borderRadius: R.pill, boxShadow: S.raisedSoft, transform: excluded ? 'translateX(20px)' : 'none', transition: `transform ${MOTION.hover} ${MOTION.ease}` }} />
+              </button>
+            </div>
+          </div>
+        )}
+        {/* [EM-END: finance-manual-exclude] */}
 
         {/* 删除 */}
         {isEdit && onDelete && (
@@ -1947,12 +1977,14 @@ const SunkenSelector: React.FC<{ children: React.ReactNode; className?: string }
 
 const TransactionsTab: React.FC<{
   transactions: FinanceTransaction[];
+  excludedTransactions?: FinanceTransaction[]; // [EM: finance-manual-exclude]
   accounts: FinanceAccount[];
   categories: FinanceCategory[];
   onRefresh: () => Promise<void>;
   showFilters: boolean;
   setShowFilters: React.Dispatch<React.SetStateAction<boolean>>;
-}> = ({ transactions, accounts, categories, onRefresh, showFilters, setShowFilters }) => {
+}> = ({ transactions, excludedTransactions = [], accounts, categories, onRefresh, showFilters, setShowFilters }) => {
+  const [showExcluded, setShowExcluded] = useState(false); // [EM: finance-manual-exclude]
   const { characters, apiConfig, userProfile } = useOS();
   const [timeRange, setTimeRange] = useState<TimeRange>('all');
   const [filterAccountIds, setFilterAccountIds] = useState<Set<string>>(new Set());
@@ -2273,6 +2305,52 @@ const TransactionsTab: React.FC<{
           );
         })
       )}
+
+      {/* [EM-START: finance-manual-exclude] 不计入的同步账目：重复的预扣款、手动排除的。看得到、能恢复 */}
+      {excludedTransactions.length > 0 && (
+        <div className="mb-4" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, boxShadow: S.raisedSoft }}>
+          <button type="button" onClick={() => setShowExcluded(v => !v)} aria-expanded={showExcluded}
+            className="w-full flex items-center justify-between px-4 min-h-[44px]">
+            <span className="text-sm" style={{ color: F.textSecondary }}>已排除 {excludedTransactions.length} 笔（重复的预扣款等）</span>
+            <CaretDown className="w-4 h-4" weight="bold" style={{ color: F.textTertiary, transform: showExcluded ? 'rotate(180deg)' : 'none', transition: `transform ${MOTION.hover} ${MOTION.ease}` }} />
+          </button>
+          {showExcluded && [...excludedTransactions].sort((a, b) => b.timestamp - a.timestamp).map(t => {
+            const reason = t.excludedByUser ? '手动排除'
+              : t.pendingDroppedAt ? '银行已撤销的预扣'
+                : t.supersededByExternalId ? '已被实付款替代'
+                  : '不计入';
+            const acc = accounts.find(a => a.id === t.accountId);
+            const sym = acc?.currency === 'USD' ? '$' : acc?.currency === 'CNY' ? '¥' : '';
+            return (
+              <div key={t.id} className="flex items-center gap-3 px-4 py-3" style={{ borderTop: `1px solid ${F.borderSoft}` }}>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm truncate" style={{ color: F.textSecondary }}>{t.note || t.sourceDescription}</div>
+                  <div className="text-[11px] mt-0.5" style={{ color: F.textTertiary }}>{t.dateStr} · {reason}</div>
+                </div>
+                <div className="text-sm line-through" style={{ color: F.textTertiary }}>{sym}{t.amount.toLocaleString()}</div>
+                <button type="button"
+                  onClick={async () => {
+                    // 手动恢复：自动规则以后也不再排除它（excludedByUser: false）
+                    await FinanceDB.saveTransaction({
+                      ...t,
+                      excludedFromReporting: false,
+                      excludedByUser: false,
+                      pendingDroppedAt: undefined,
+                      supersededByExternalId: undefined,
+                    });
+                    announceFinanceReviewChanged();
+                    await onRefresh();
+                  }}
+                  className="shrink-0 px-3 min-h-[36px] text-xs font-medium"
+                  style={{ color: HUE.blue.ink, background: HUE.blue.tint, borderRadius: R.pill }}>
+                  恢复
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {/* [EM-END: finance-manual-exclude] */}
 
       {/* 新增按钮 */}
       <button

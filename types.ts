@@ -3676,6 +3676,11 @@ export interface FinanceTransaction {
     supersededByExternalId?: string;
     /** 银行撤掉了这笔预扣款（SimpleFIN 的数据里已经没有它）时的同步时刻。再出现就清掉。 */
     pendingDroppedAt?: number; // [EM: finance-dropped-holds]
+    /**
+     * 阿萌手动定的去留，优先于一切自动判断（同步也不改）：true = 不计入（重复预扣、错账），
+     * false = 手动恢复过、自动规则别再排除它。不填 = 交给自动规则。
+     */
+    excludedByUser?: boolean; // [EM: finance-manual-exclude]
     importedAt?: number;
     sourceUpdatedAt?: number;
     /** New synced transaction awaiting the user's local category confirmation. */
