@@ -37,7 +37,7 @@
 ## 2026-09
 
 ### 2026-09-30 · 没标「预扣中」的预扣款也认得出来
-**操作**：Claude（小帕） · 提交号待补
+**操作**：Claude（小帕） · `9b299b9b`
 
 - BofA 经 SimpleFIN 的预扣款不带 pending 标记，上一版只管标了 pending 的，Target 61 没被认出来
 - 新规则：同一张卡上一笔的描述是另一笔的开头一截（「TARGET.COM」→「TARGET.COM * WWW.TARGET.COMN」、「INSTACART 159」→「INSTACART*159 888-246-7822 CA」），后者在 7 天内出现、金额在 0.5–1.5 倍之间，短的那笔就是预扣，不计入；金额一样也算
