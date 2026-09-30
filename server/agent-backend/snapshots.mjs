@@ -12,6 +12,8 @@ const MAX_RECENT_MESSAGES = 100;
 const MAX_MONTHLY_SUMMARIES = 24;
 const MAX_SUMMARY_CHARS = 2000;
 const MAX_MESSAGE_CHARS = 500;
+/** 聊天记录一条的上限：手机把同一个人连着发的几个气泡合成一条了（emAgentSnapshot 的 mergeConsecutiveBubbles）。 */
+const MAX_RECENT_MESSAGE_CHARS = 1000;
 
 /**
  * 收下前先规整一遍。这里只做两件与安全有关的事：
@@ -65,7 +67,7 @@ export const normalizeSnapshotPayload = payload => {
             .map(item => ({
                 role: item?.role === 'user' ? 'user' : 'char',
                 at: item?.at ?? null,
-                text: String(item?.text ?? '').slice(0, MAX_MESSAGE_CHARS),
+                text: String(item?.text ?? '').slice(0, MAX_RECENT_MESSAGE_CHARS),
             }));
     }
 

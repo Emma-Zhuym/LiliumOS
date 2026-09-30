@@ -26,6 +26,13 @@ export const SNAPSHOT_SCHEMA_VERSION = 1;
 /** 最多带多少条最近消息；每条截断到多少字。与后端的规整逻辑对齐。 */
 const MAX_RECENT_MESSAGES = 100;
 const MAX_MESSAGE_CHARS = 500;
+/**
+ * [EM: snapshot-merge-bubbles] 同一个人连着发的几个气泡合成一条：角色一次回复常拆成五六个气泡，
+ * 按气泡数条的话一百条只盖得住几个小时（2026-09-30 实测 4 小时），昨天问过的事今早就看不见了。
+ * 合并后条数不变、能盖到大半天到一天。间隔超过这么久就算另起一轮。
+ */
+const MERGE_GAP_MS = 3 * 60_000;
+const MAX_MERGED_CHARS = 1000;
 const MAX_PERSONA_CHARS = 4000;
 const MAX_MOOD_CHARS = 1500;
 const MAX_RHYTHM_CHARS = 3000;
@@ -156,6 +163,24 @@ export const buildPersona = (char: CharacterProfile): string =>
         .join('\n\n')
         .slice(0, MAX_PERSONA_CHARS);
 
+/** [EM: snapshot-merge-bubbles] 连着的同一个人、间隔不超过 MERGE_GAP_MS 的几条合成一条，时间取最后那条。 */
+export const mergeConsecutiveBubbles = (
+    items: { role: 'user' | 'char'; at: string | null; text: string }[],
+): { role: 'user' | 'char'; at: string | null; text: string }[] => {
+    const merged: { role: 'user' | 'char'; at: string | null; text: string }[] = [];
+    for (const item of items) {
+        const last = merged[merged.length - 1];
+        const gap = last?.at && item.at ? Date.parse(item.at) - Date.parse(last.at) : Infinity;
+        if (last && last.role === item.role && gap >= 0 && gap <= MERGE_GAP_MS && last.text.length < MAX_MERGED_CHARS) {
+            last.text = `${last.text}\n${item.text}`.slice(0, MAX_MERGED_CHARS);
+            last.at = item.at;
+        } else {
+            merged.push({ ...item });
+        }
+    }
+    return merged;
+};
+
 /**
  * 找最后一条**真实**的用户消息与角色消息的时刻（设计 3.4）。
  * 系统提示、卡片之类不算真实互动，别让它们把心跳的「正在聊天」闸一直按住。
@@ -215,15 +240,17 @@ export const buildCharacterSnapshot = async (
     // [EM: moments-heartbeat] 朋友圈库读不出来（没有 IndexedDB 的环境）就不带，不拦快照
     const userMoments = await loadUserMomentsForSnapshot(char.id, options.userName || '阿萌', at.getTime()).catch(() => []);
 
-    const recent = messages
+    const recent = mergeConsecutiveBubbles(messages
         .filter(message => message.type !== 'system')
-        .slice(-MAX_RECENT_MESSAGES)
+        // 合并前多取一些：合完才截到 MAX_RECENT_MESSAGES 条
+        .slice(-MAX_RECENT_MESSAGES * 8)
         .map(message => ({
             role: (isFromUser(message) ? 'user' : 'char') as 'user' | 'char',
             at: message.timestamp ? new Date(message.timestamp).toISOString() : null,
             text: messageToPlainText(message).slice(0, MAX_MESSAGE_CHARS),
         }))
-        .filter(item => item.text.length > 0);
+        .filter(item => item.text.length > 0))
+        .slice(-MAX_RECENT_MESSAGES);
 
     return {
         charId: char.id,

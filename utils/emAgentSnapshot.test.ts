@@ -14,7 +14,7 @@ vi.mock('./dailySchedule', () => ({
     })),
 }));
 
-import { buildCharacterSnapshot, buildMonthlySummaries, findLastInteraction, messageToPlainText } from './emAgentSnapshot';
+import { buildCharacterSnapshot, buildMonthlySummaries, findLastInteraction, mergeConsecutiveBubbles, messageToPlainText } from './emAgentSnapshot';
 
 const char = {
     id: 'lumi',
@@ -159,4 +159,32 @@ describe('月度总结（心跳的长期记忆）', () => {
             .toEqual([{ month: '2026-09', text: '一起做了饭' }]);
         expect((await buildCharacterSnapshot(char, [], {})).payload.monthlySummaries).toBeUndefined();
     });
+});describe('同一个人连着发的气泡合成一条（快照能盖到更久以前）', () => {
+    const at = (min: number) => new Date(Date.UTC(2026, 8, 30, 12, min)).toISOString();
+    it('三分钟内同一个人的合并，时间取最后一条；换人或隔久了另起一条', () => {
+        const merged = mergeConsecutiveBubbles([
+            { role: 'char', at: at(0), text: '会开完了' },
+            { role: 'char', at: at(1), text: '今晚撸串你要不要一起' },
+            { role: 'user', at: at(2), text: '好呀' },
+            { role: 'user', at: at(10), text: '几点' },
+        ]);
+        expect(merged).toEqual([
+            { role: 'char', at: at(1), text: '会开完了\n今晚撸串你要不要一起' },
+            { role: 'user', at: at(2), text: '好呀' },
+            { role: 'user', at: at(10), text: '几点' },
+        ]);
+    });
+
+    it('合并后一条最多 1000 字，超了另起', () => {
+        const long = 'x'.repeat(600);
+        const merged = mergeConsecutiveBubbles([
+            { role: 'char', at: at(0), text: long },
+            { role: 'char', at: at(1), text: long },
+            { role: 'char', at: at(2), text: 'y' },
+        ]);
+        expect(merged[0].text.length).toBe(1000);
+        expect(merged).toHaveLength(2);
+    });
 });
+
+

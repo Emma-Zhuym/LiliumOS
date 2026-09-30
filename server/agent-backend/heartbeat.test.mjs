@@ -17,7 +17,7 @@ import {
     ACTIVE_CHAT_WINDOW_MS, buildPrompt, checkGates, speakBlock, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
     BREAK_COOLDOWN_MIN, currentSlot, decideIntent, formatGap, inBreakWindow, upcomingBreakStarts, jitterRatio, lastRealInteractionAt, listModelRuns, messageChance,
     nextRunAt, recordModelRun, shouldCaptureRaw, decideEpisode, episodeChance, isWorkSlot, lifeChance, pickLifeKind, veilSurprise,
-    MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, withPlanTime, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule, unansweredProactive, lastUserSpokeAt, unansweredFactor, reachOutTimeRule,
+    MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, withPlanTime, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule, unansweredProactive, lastUserSpokeAt, unansweredFactor, reachOutTimeRule, recentOwnMessages,
 } from './heartbeat.mjs';
 import { chatCompletionsUrl, createApiRunner, extractContentText, parseEpisode, parseHeartbeatOutput, parseLife } from './runner.mjs';
 import { applyThread, closePassedPlans, closeStaleThreads, isPlanDue, listOpenThreads, listPlans } from './lifeThreads.mjs';
@@ -1779,4 +1779,23 @@ test('解析：正文里以 text 开头的字不会被误改；修不好的照�
     const broken = parseHeartbeatOutput('{"activity": "开会", "episode": {"lines": [{"who": "老周", "text": "好的，下午');
     assert.equal(broken.ok, false);
     assert.match(broken.raw, /^\{"activity"/);
+});
+
+// ── 自己两天内主动说过的话（不依赖快照） ──
+
+test('自己说过的话：读 outbox 里两天内的主动消息，提示词叫 TA 别再问一遍', () => {
+    const db = freshDb();
+    seedCharacter(db);
+    enqueue(db, { messageId: 'old', charId: CHAR, kind: 'chat_message', payload: { text: '三天前的' } }, new Date(AT.getTime() - 72 * 3600_000));
+    enqueue(db, { messageId: 'bbq', charId: CHAR, kind: 'chat_message', payload: { text: '明晚我跟周鹏约了撸串 你要不要一起' } }, new Date(AT.getTime() - 16 * 3600_000));
+    enqueue(db, { messageId: 'reply', charId: CHAR, kind: 'chat_reply', payload: { message: '即时回复不算主动' } }, new Date(AT.getTime() - 3600_000));
+    const own = recentOwnMessages(db, CHAR, AT);
+    assert.deepEqual(own.map(o => o.text), ['明晚我跟周鹏约了撸串 你要不要一起']);
+
+    const prompt = buildPrompt({ displayName: '陈照' }, { payload: { timezone: 'America/Chicago' } }, AT, 'reach_out', {
+        ownMessages: own, plans: [{ id: 'p', title: '和周鹏撸串', dueAt: new Date(AT.getTime() + 3600_000).toISOString() }],
+    });
+    assert.match(prompt, /你这两天主动发给 ta 的消息[\s\S]*撸串 你要不要一起/);
+    assert.match(prompt, /问过的事别再问一遍/);
+    assert.match(prompt, /前提是你还没跟 ta 提过/);
 });
