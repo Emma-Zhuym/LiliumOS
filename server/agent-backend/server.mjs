@@ -220,8 +220,8 @@ export const createRouter = ctx => {
         // ── 即时回复：聊天这一轮交给 mini 跑（spec-agent-backend-instant-chat 阶段一）──
         'POST /chat/turns': {
             maxBodyBytes: CHAT_TURN_MAX_BODY_BYTES,
-            handle: ({ body }) => {
-                const result = ctx.chatTurns.submit(body, { handlers: ctx.handlers });
+            handle: ({ body, timing }) => {
+                const result = ctx.chatTurns.submit(body, { handlers: ctx.handlers, timing });
                 if (!result.ok) throw Object.assign(new Error(result.error), { code: 'BAD_REQUEST', status: 400 });
                 return { turnId: result.turnId, status: 'accepted' };
             },
@@ -323,6 +323,7 @@ export const createApp = ctx => {
     const { db, config } = ctx;
 
     return async (req, res) => {
+        const requestStartedAt = Date.now();
         const origin = config.allowedOrigins.includes(req.headers.origin) ? req.headers.origin : null;
         if (req.method === 'OPTIONS') {
             res.writeHead(204, corsHeaders(origin));
@@ -354,7 +355,9 @@ export const createApp = ctx => {
 
         try {
             const body = req.method === 'POST' ? await readBody(req, route.maxBodyBytes) : {};
-            const data = await route.handle({ db, body, query: url.searchParams, device, ctx });
+            // 上传花了多久、多大：排查「即时回复慢」时分得清是手机传得慢还是模型 / 推送慢。只有数，没有内容。
+            const timing = { uploadMs: Date.now() - requestStartedAt, bytes: Number(req.headers['content-length']) || null };
+            const data = await route.handle({ db, body, query: url.searchParams, device, ctx, timing });
             ok(res, data, origin);
         } catch (error) {
             const status = error?.status || (error?.code === 'PAYLOAD_TOO_LARGE' ? 413 : 500);

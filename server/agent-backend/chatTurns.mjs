@@ -33,7 +33,7 @@ export const previewText = text => String(text ?? '')
     .slice(0, PREVIEW_LIMIT);
 
 /** 手机端 SW 认的 amsg content 推送（worker/sw-keep-alive.ts 的 saveContentToInbox）。 */
-export const buildReplyPush = ({ turnId, charId, charName, text, usage = null, at }) => ({
+export const buildReplyPush = ({ turnId, charId, charName, text, reasoning = '', usage = null, at }) => ({
     messageKind: 'content',
     messageId: `mini:${turnId}`,
     // 手机端「正在输入…」认这个熄灭（activeMsgRuntime 按 taskUuid 销账）
@@ -51,6 +51,8 @@ export const buildReplyPush = ({ turnId, charId, charName, text, usage = null, a
         messageIndex: 1,
         totalMessages: 1,
         ...(usage ? { amsgUsage: usage } : {}),
+        // 心象卡片：手机端收件箱认 amsg 即时对话的这个字段（activeMsgRuntime 挂到首条回复的 thinkingChain）
+        ...(reasoning ? { amsgReasoning: reasoning } : {}),
     },
     notification: {
         title: charName,
@@ -93,6 +95,37 @@ export const buildErrorPush = ({ turnId, charId, charName, reason }) => ({
     },
 });
 
+/**
+ * 模型这一轮的思考内容。各家放的地方不一样：DeepSeek 和多数中转站是 reasoning_content，
+ * OpenRouter 是 reasoning（或 reasoning_details 数组），Anthropic 透传是 content 里的 thinking 块。
+ * 都没有就是没开思考 / 模型不给。原来只取正文，走 mini 的每一轮心象卡片都没了。
+ */
+export const extractReasoning = message => {
+    if (!message || typeof message !== 'object') return '';
+    // 跟手机本地那条路同一个优先级（utils/safeApi.ts）
+    for (const key of ['reasoning_content', 'reasoning', 'thinking']) {
+        if (typeof message[key] === 'string' && message[key].trim()) return message[key].trim();
+    }
+    // Anthropic 透传：content 是分块数组，思考在 type: 'thinking' 的块里
+    if (Array.isArray(message.content)) {
+        const thinking = message.content
+            .filter(block => block?.type === 'thinking' && typeof block.thinking === 'string')
+            .map(block => block.thinking)
+            .join('')
+            .trim();
+        if (thinking) return thinking;
+    }
+    if (Array.isArray(message.reasoning_details)) {
+        const text = message.reasoning_details
+            .map(part => (typeof part?.text === 'string' ? part.text : typeof part?.summary === 'string' ? part.summary : ''))
+            .filter(Boolean)
+            .join('\n')
+            .trim();
+        if (text) return text;
+    }
+    return '';
+};
+
 const fitsInPush = payload => Buffer.byteLength(JSON.stringify(payload), 'utf8') <= PUSH_PAYLOAD_LIMIT_BYTES;
 
 /** 校验手机交上来的这一轮。返回错误说明，合法返回 null。 */
@@ -114,6 +147,12 @@ export const createChatTurnService = ({ db, deliver, fetchImpl = fetch, timeoutM
     const secrets = new Map();
 
     const callModel = async ({ api, messages, temperature, maxTokens, extraBody }) => {
+        const startedAt = Date.now();
+        const result = await callModelOnce({ api, messages, temperature, maxTokens, extraBody });
+        return { ...result, modelMs: Date.now() - startedAt };
+    };
+
+    const callModelOnce = async ({ api, messages, temperature, maxTokens, extraBody }) => {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);
         try {
@@ -143,7 +182,7 @@ export const createChatTurnService = ({ db, deliver, fetchImpl = fetch, timeoutM
             const message = data?.choices?.[0]?.message;
             const text = extractContentText(message?.content).trim();
             if (!text) return { ok: false, error: '模型返回了空内容' };
-            return { ok: true, text, usage: data?.usage ?? null };
+            return { ok: true, text, reasoning: extractReasoning(message), usage: data?.usage ?? null };
         } catch (error) {
             if (error?.name === 'AbortError') return { ok: false, error: `等了 ${Math.round(timeoutMs / 1000)} 秒模型还没回` };
             return { ok: false, error: String(error?.message || error).slice(0, 200) };
@@ -176,7 +215,7 @@ export const createChatTurnService = ({ db, deliver, fetchImpl = fetch, timeoutM
         if (!result.ok) return fail(job, result.error);
         const { turnId, charId, charName } = job.input;
         const at = new Date().toISOString();
-        const push = buildReplyPush({ turnId, charId, charName, text: result.text, usage: result.usage, at });
+        const push = buildReplyPush({ turnId, charId, charName, text: result.text, reasoning: result.reasoning, usage: result.usage, at });
         await deliver({
             messageId: push.messageId,
             charId,
@@ -188,14 +227,14 @@ export const createChatTurnService = ({ db, deliver, fetchImpl = fetch, timeoutM
             body: push.notification.body,
             pushPayload: fitsInPush(push) ? push : buildPullPush({ turnId, charId, charName, text: result.text }),
         });
-        return { ok: true, chars: result.text.length, usage: result.usage ?? null };
+        return { ok: true, chars: result.text.length, reasoningChars: result.reasoning.length, modelMs: result.modelMs, usage: result.usage ?? null };
     };
 
     /**
      * 受理一轮：先落 jobs 再回话（durability 在前），然后不等巡逻立刻开跑。
      * 连发时顶掉上一轮还没开跑的（已经在跑的顶不掉，那一轮照常回，手机那边认新的 turnId）。
      */
-    const submit = (body, { handlers, now = new Date() } = {}) => {
+    const submit = (body, { handlers, now = new Date(), timing = null } = {}) => {
         const error = validateTurn(body);
         if (error) return { ok: false, error };
         const uuid = jobUuidFor(body.turnId);
@@ -217,7 +256,13 @@ export const createChatTurnService = ({ db, deliver, fetchImpl = fetch, timeoutM
             runAt: now.toISOString(),
             maxAttempts: 1,
             missedPolicy: 'catch_up',
-            input: { turnId: body.turnId, charId: body.charId, charName: String(body.charName || '').slice(0, 40) },
+            input: {
+                turnId: body.turnId,
+                charId: body.charId,
+                charName: String(body.charName || '').slice(0, 40),
+                // 排查用：手机上传这一轮花了多久、多大（不含内容）
+                ...(timing ? { uploadMs: timing.uploadMs, uploadBytes: timing.bytes } : {}),
+            },
             createdBy: 'client',
         }, now);
         if (!duplicated) {
