@@ -24,16 +24,43 @@ export const jobUuidFor = turnId => `chat:${turnId}`;
 
 const isUuidish = value => typeof value === 'string' && /^[A-Za-z0-9-]{8,64}$/.test(value);
 
-/** 通知栏预览：去掉 [[...]] 指令、<...> 标签和多余空白，只留一句能看的。 */
+/** 通知栏预览的兜底：去掉 [[...]] 指令、<...> 标签和多余空白。正常走下面那个跟 amsg 同一份的清洗。 */
 export const previewText = text => String(text ?? '')
+    .replace(/<(think|thinking|thought)>[\s\S]*?(<\/\1>|$)/gi, ' ')
     .replace(/\[\[[\s\S]*?\]\]/g, ' ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, PREVIEW_LIMIT);
 
+/**
+ * 通知栏预览用前端那份 sanitizeForNotification（amsg 推送也用它）：思考块、时间戳、
+ * 「你引用了…」、业务标签、表情指令全剥掉。原来只粗剥指令和标签，心象正文、时间戳、
+ * 引用标记都漏进了锁屏横幅。Node 23 能直接跑 .ts；加载不了就退回上面的粗剥。
+ */
+let notificationSanitizer;
+const loadNotificationSanitizer = async () => {
+    if (notificationSanitizer !== undefined) return notificationSanitizer;
+    try {
+        notificationSanitizer = (await import('../../utils/sanitize.ts')).sanitizeForNotification;
+    } catch {
+        notificationSanitizer = null;
+    }
+    return notificationSanitizer;
+};
+
+export const notificationPreview = async text => {
+    const sanitize = await loadNotificationSanitizer();
+    if (!sanitize) return previewText(text);
+    try {
+        return String(sanitize(String(text ?? ''))).replace(/\s+/g, ' ').trim().slice(0, PREVIEW_LIMIT);
+    } catch {
+        return previewText(text);
+    }
+};
+
 /** 手机端 SW 认的 amsg content 推送（worker/sw-keep-alive.ts 的 saveContentToInbox）。 */
-export const buildReplyPush = ({ turnId, charId, charName, text, reasoning = '', usage = null, at }) => ({
+export const buildReplyPush = ({ turnId, charId, charName, text, reasoning = '', usage = null, at, preview = null }) => ({
     messageKind: 'content',
     messageId: `mini:${turnId}`,
     // 手机端「正在输入…」认这个熄灭（activeMsgRuntime 按 taskUuid 销账）
@@ -56,7 +83,7 @@ export const buildReplyPush = ({ turnId, charId, charName, text, reasoning = '',
     },
     notification: {
         title: charName,
-        body: previewText(text) || '发来一条消息',
+        body: (preview ?? previewText(text)) || '发来一条消息',
         tag: `mini-chat-${charId}`,
         renotify: true,
         silent: 'when-visible',
@@ -64,7 +91,7 @@ export const buildReplyPush = ({ turnId, charId, charName, text, reasoning = '',
 });
 
 /** 太大推不动时的退路：只按门铃 + 叫页面来取（SW 把 result 原样转给页面，不进收件箱）。 */
-export const buildPullPush = ({ turnId, charId, charName, text }) => ({
+export const buildPullPush = ({ turnId, charId, charName, text, preview = null }) => ({
     messageKind: 'result',
     resultKind: 'agent-pull',
     messageId: `mini:${turnId}:pull`,
@@ -73,7 +100,7 @@ export const buildPullPush = ({ turnId, charId, charName, text }) => ({
     metadata: { charId, charName, source: 'agent-backend', agentTurnId: turnId },
     notification: {
         title: charName,
-        body: previewText(text) || '发来一条消息',
+        body: (preview ?? previewText(text)) || '发来一条消息',
         tag: `mini-chat-${charId}`,
         renotify: true,
         silent: 'when-visible',
@@ -124,6 +151,26 @@ export const extractReasoning = message => {
         if (text) return text;
     }
     return '';
+};
+
+/**
+ * 正文里的思考块抠出来：模型有时不走 reasoning 字段，而是把心象写成正文里的 <think>…</think>。
+ * 手机端收件箱只从 amsgReasoning 取心象、不翻正文，所以不在这里抠的话卡片就没了，
+ * 正文里还会留着那段思考。规则跟手机本地那条路一样（applyAssistantPostProcessing 的
+ * extractThinkingChain）：think / thinking / thought 三种标签，没闭合的一直算到结尾。
+ */
+export const splitEmbeddedThinking = raw => {
+    const blocks = [];
+    let text = String(raw ?? '').replace(/<(think|thinking|thought)>([\s\S]*?)<\/\1>/gi, (_all, _tag, inner) => {
+        if (inner.trim()) blocks.push(inner.trim());
+        return '';
+    });
+    const open = text.match(/<(?:think|thinking|thought)>([\s\S]*)$/i);
+    if (open) {
+        if (open[1].trim()) blocks.push(open[1].trim());
+        text = text.slice(0, open.index);
+    }
+    return { text: text.trim(), thinking: blocks.join('\n\n') };
 };
 
 const fitsInPush = payload => Buffer.byteLength(JSON.stringify(payload), 'utf8') <= PUSH_PAYLOAD_LIMIT_BYTES;
@@ -180,9 +227,11 @@ export const createChatTurnService = ({ db, deliver, fetchImpl = fetch, timeoutM
             }
             const data = await response.json();
             const message = data?.choices?.[0]?.message;
-            const text = extractContentText(message?.content).trim();
+            const { text, thinking } = splitEmbeddedThinking(extractContentText(message?.content));
             if (!text) return { ok: false, error: '模型返回了空内容' };
-            return { ok: true, text, reasoning: extractReasoning(message), usage: data?.usage ?? null };
+            // 跟本地同一个拼法：reasoning 字段在前，正文里抠出来的思考块在后
+            const reasoning = [extractReasoning(message), thinking].filter(Boolean).join('\n\n');
+            return { ok: true, text, reasoning, usage: data?.usage ?? null };
         } catch (error) {
             if (error?.name === 'AbortError') return { ok: false, error: `等了 ${Math.round(timeoutMs / 1000)} 秒模型还没回` };
             return { ok: false, error: String(error?.message || error).slice(0, 200) };
@@ -215,7 +264,8 @@ export const createChatTurnService = ({ db, deliver, fetchImpl = fetch, timeoutM
         if (!result.ok) return fail(job, result.error);
         const { turnId, charId, charName } = job.input;
         const at = new Date().toISOString();
-        const push = buildReplyPush({ turnId, charId, charName, text: result.text, reasoning: result.reasoning, usage: result.usage, at });
+        const preview = await notificationPreview(result.text);
+        const push = buildReplyPush({ turnId, charId, charName, text: result.text, reasoning: result.reasoning, usage: result.usage, at, preview });
         await deliver({
             messageId: push.messageId,
             charId,
@@ -225,7 +275,7 @@ export const createChatTurnService = ({ db, deliver, fetchImpl = fetch, timeoutM
             payload: push,
             title: charName,
             body: push.notification.body,
-            pushPayload: fitsInPush(push) ? push : buildPullPush({ turnId, charId, charName, text: result.text }),
+            pushPayload: fitsInPush(push) ? push : buildPullPush({ turnId, charId, charName, text: result.text, preview }),
         });
         return { ok: true, chars: result.text.length, reasoningChars: result.reasoning.length, modelMs: result.modelMs, usage: result.usage ?? null };
     };
