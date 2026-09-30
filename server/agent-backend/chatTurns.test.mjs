@@ -10,6 +10,7 @@ import { openDb } from './db.mjs';
 import { upsertCharacter } from './characters.mjs';
 import { runJobNow } from './jobs.mjs';
 import {
+    extractReasoning,
     CHAT_TURN_KIND, PUSH_PAYLOAD_LIMIT_BYTES, buildReplyPush, createChatTurnService, jobUuidFor, previewText, validateTurn,
 } from './chatTurns.mjs';
 
@@ -133,4 +134,23 @@ test('即时回复：请求校验', () => {
 
 test('通知预览去掉指令和标签', () => {
     assert.equal(previewText('[[SEND_EMOJI: 开心]]<语音>好呀</语音> 走吧'), '好呀 走吧');
+});
+
+test('心象：各家放思考的地方都认，跟着回复一起推回去', async () => {
+    assert.equal(extractReasoning({ reasoning_content: '想她' }), '想她');
+    assert.equal(extractReasoning({ reasoning: '想她' }), '想她');
+    assert.equal(extractReasoning({ thinking: '想她' }), '想她');
+    assert.equal(extractReasoning({ reasoning_details: [{ type: 'reasoning.text', text: '想' }, { text: '她' }] }), '想\n她');
+    assert.equal(extractReasoning({ content: [{ type: 'thinking', thinking: '想她' }, { type: 'text', text: '在的' }] }), '想她');
+    assert.equal(extractReasoning({ content: '在的' }), '');
+
+    const db = openDb(':memory:');
+    const delivered = [];
+    const service = createChatTurnService({
+        db, deliver: async item => { delivered.push(item); }, logger: { warn() {} },
+        fetchImpl: async () => ({ ok: true, json: async () => ({ choices: [{ message: { content: '在的', reasoning_content: '她刚下课，先问累不累' } }] }) }),
+    });
+    service.submit(turn());
+    await runJobNow(db, jobUuidFor(TURN), { handlers: { [CHAT_TURN_KIND]: service.handler }, logger: { warn() {} } });
+    assert.equal(delivered[0].payload.metadata.amsgReasoning, '她刚下课，先问累不累');
 });
