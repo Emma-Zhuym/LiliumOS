@@ -76,6 +76,17 @@ function normalizeDescription(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9\p{L}\p{N}]+/gu, ' ').trim();
 }
 
+/**
+ * [EM: finance-adjusted-holds] 预授权的描述是实付描述的开头一截：「TARGET.COM」→「TARGET.COM * WWW.TARGET.COMN」、
+ * 「INSTACART 159」→「INSTACART*159 888-246-7822 CA」。同一家店真买两次描述一样长，不会是这种关系。
+ * 短的至少两个词：只有「UBER」的话，打车和外卖都以它开头，不敢配。
+ */
+export function isShortFormDescriptor(holdDescription: string, finalDescription: string): boolean {
+  const hold = normalizeDescription(holdDescription);
+  const final = normalizeDescription(finalDescription);
+  return hold.split(' ').length >= 2 && final.length > hold.length && final.startsWith(`${hold} `);
+}
+
 function merchantStem(value: string): string {
   const normalized = normalizeDescription(value).replace(/\bubr\b/g, 'uber');
   return normalized.split(' ').find(token =>
@@ -420,25 +431,24 @@ export function normalizeSimpleFinSnapshot(
     reconciledTransactions.forEach((transaction, id) => pool.set(id, transaction));
     const all = [...pool.values()].filter(transaction => transaction.source === 'simplefin' && transaction.type === 'expense');
     const claimedFinals = new Set(all.map(transaction => transaction.supersededByExternalId).filter(Boolean));
+    // 候选预扣：provider 标了 pending 的；或者没标（BofA 经 SimpleFIN 常这样）但描述是某笔实付的开头一截的
     const holds = all
-      .filter(transaction => transaction.pending === true && !transaction.excludedFromReporting && transaction.excludedByUser !== false)
+      .filter(transaction => !transaction.excludedFromReporting && transaction.excludedByUser !== false)
       .sort((a, b) => a.timestamp - b.timestamp);
     for (const hold of holds) {
-      const holdMerchant = merchantStem(hold.sourceDescription || hold.note);
+      const holdDescription = hold.sourceDescription || hold.note;
+      const holdMerchant = merchantStem(holdDescription);
       if (!holdMerchant) continue;
-      const finals = all.filter(final =>
-        final.accountId === hold.accountId
-        && final.pending !== true
-        && !final.excludedFromReporting
-        && final.externalId
-        && !claimedFinals.has(final.externalId)
-        && final.timestamp >= hold.timestamp
-        && final.timestamp - hold.timestamp <= ADJUSTED_WINDOW_MS
-        && Math.abs(final.amount - hold.amount) >= 0.005
-        && final.amount >= hold.amount * 0.5
-        && final.amount <= hold.amount * 1.5
-        && merchantStem(final.sourceDescription || final.note) === holdMerchant,
-      );
+      const finals = all.filter(final => {
+        if (final.id === hold.id || final.accountId !== hold.accountId) return false;
+        if (final.pending === true || final.excludedFromReporting || !final.externalId || claimedFinals.has(final.externalId)) return false;
+        if (final.timestamp < hold.timestamp || final.timestamp - hold.timestamp > ADJUSTED_WINDOW_MS) return false;
+        if (final.amount < hold.amount * 0.5 || final.amount > hold.amount * 1.5) return false;
+        const finalDescription = final.sourceDescription || final.note;
+        // 没标 pending 的只认「短描述 → 长描述」这一种，金额相同也算（同一笔的两个样子）
+        if (hold.pending !== true) return isShortFormDescriptor(holdDescription, finalDescription);
+        return Math.abs(final.amount - hold.amount) >= 0.005 && merchantStem(finalDescription) === holdMerchant;
+      });
       const final = closestUniqueByTime(finals, transaction => transaction.timestamp, hold.timestamp);
       if (!final?.externalId) continue;
       claimedFinals.add(final.externalId);
