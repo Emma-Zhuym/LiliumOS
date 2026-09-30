@@ -463,6 +463,40 @@ describe('金额调整过的预扣款（Target 预扣 61 → 实付 49）', () =
   });
 });
 
+describe('没标预扣中、但描述是实付的开头一截（BofA 经 SimpleFIN）', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const row = (id: string, amount: string, description: string, daysAgo: number) =>
+    ({ id, posted: Math.floor((SYNCED_AT - daysAgo * DAY) / 1000), amount, description });
+  const feed = (transactions: unknown[]) => ({ ...snapshot, accounts: [{ ...snapshot.accounts[0], transactions }] }) as typeof snapshot;
+
+  it('TARGET.COM 61 → TARGET.COM * WWW.TARGET.COMN 49：61 不计入', () => {
+    const result = normalizeSimpleFinSnapshot(feed([
+      row('hold', '-61.00', 'TARGET.COM', 3), row('final', '-49.00', 'TARGET.COM * WWW.TARGET.COMN', 1),
+    ]), [], [], SYNCED_AT);
+    expect(result.transactions.find(t => t.externalId === 'hold')).toMatchObject({ excludedFromReporting: true, supersededByExternalId: 'final' });
+    expect(result.transactions.find(t => t.externalId === 'final')?.excludedFromReporting).toBe(false);
+  });
+
+  it('INSTACART 159 → INSTACART*159 888-246-7822 CA：金额一样也配', () => {
+    const result = normalizeSimpleFinSnapshot(feed([
+      row('hold', '-80.00', 'INSTACART 159', 2), row('final', '-80.00', 'INSTACART*159 888-246-7822 CA', 1),
+    ]), [], [], SYNCED_AT);
+    expect(result.transactions.find(t => t.externalId === 'hold')?.excludedFromReporting).toBe(true);
+  });
+
+  it('同一家店买两次（描述一样长）、只有一个词的、长的在前面：都不配', () => {
+    const cases = [
+      [row('a', '-61.00', 'TARGET.COM', 3), row('b', '-49.00', 'TARGET.COM', 1)],
+      [row('a', '-20.00', 'UBER', 3), row('b', '-18.00', 'UBER EATS HELP.UBER.COM', 1)],
+      [row('a', '-61.00', 'TARGET.COM', 1), row('b', '-49.00', 'TARGET.COM * WWW.TARGET.COMN', 3)],
+    ];
+    for (const transactions of cases) {
+      const result = normalizeSimpleFinSnapshot(feed(transactions), [], [], SYNCED_AT);
+      expect(result.transactions.every(t => !t.excludedFromReporting)).toBe(true);
+    }
+  });
+});
+
 describe('手动定的去留', () => {
   const DAY = 24 * 60 * 60 * 1000;
   const holdTx = (overrides: Partial<FinanceTransaction> = {}): FinanceTransaction => ({
