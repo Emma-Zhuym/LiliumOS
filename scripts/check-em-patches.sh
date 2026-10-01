@@ -212,6 +212,7 @@ check "角色发的照片只给文字" utils/chatPrompts.ts "[EM-START: assistan
 check "聊天知道对方那边几点" utils/context.ts "userClockNote(charTz)"
 check "天气地名带州和国家" utils/openMeteo.ts "displayName: placeName(savedLocation)"
 check "即时回复：聊天路由交给 mini" hooks/useChatAI.ts "[EM-START: agent-instant-chat]"
+check "记忆整理：冲突写清起因" utils/memoryPalace/extraction.ts "emMemoryCauseRule(userLabel)"
 check "聊天时差：直接给出谁快几小时" utils/emUserClock.ts "timeDifferenceNote(charTz, userTz, now)"
 check "即时回复：交给 mini 的这一轮不因常驻工具关思考链" hooks/useChatAI.ts "!instantChatOn && !agentChatRoute"
 check "Token 面板：云端回复的用量也更新 ⚡" hooks/useChatAI.ts "[EM-START: token-panel-cloud]"
