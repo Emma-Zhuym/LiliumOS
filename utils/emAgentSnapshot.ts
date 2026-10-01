@@ -163,6 +163,31 @@ export const buildPersona = (char: CharacterProfile): string =>
         .join('\n\n')
         .slice(0, MAX_PERSONA_CHARS);
 
+/**
+ * [EM: snapshot-xhs-compact] 私聊里的小红书自由活动记录给心跳看时只留梗概：做了什么、多看了哪几条的标题、
+ * 转发了什么、一句心里话。整份帖子列表和摘要一条能有五百字，心跳另有自己逛小红书的记录，不用再看一遍。
+ * 只改快照里的这份，聊天记录本身不动。
+ */
+const XHS_NOTE_HEAD = /^📕 .+的自由活动: /;
+const XHS_THOUGHT_MAX = 60;
+export const compactXhsActivityNote = (text: string): string => {
+    if (!XHS_NOTE_HEAD.test(text)) return text;
+    const lines = text.split('\n');
+    const kept = [lines[0]];
+    for (const line of lines.slice(1)) {
+        if (/^(多看了两眼|保存的话题): /.test(line)) {
+            const titles = line.match(/「[^」]*」(?= - |、|$)/g);
+            if (titles?.length) kept.push(`${line.slice(0, line.indexOf(':'))}: ${titles.join('、')}`);
+        } else if (/^(转发给了对方|点开看了)/.test(line)) {
+            kept.push(line);
+        } else if (line.startsWith('💭 内心想法: ')) {
+            const thought = line.slice('💭 内心想法: '.length);
+            kept.push(`💭 内心想法: ${thought.length > XHS_THOUGHT_MAX ? `${thought.slice(0, XHS_THOUGHT_MAX)}…` : thought}`);
+        }
+    }
+    return kept.join('\n');
+};
+
 /** [EM: snapshot-merge-bubbles] 连着的同一个人、间隔不超过 MERGE_GAP_MS 的几条合成一条，时间取最后那条。 */
 export const mergeConsecutiveBubbles = (
     items: { role: 'user' | 'char'; at: string | null; text: string }[],
@@ -247,7 +272,7 @@ export const buildCharacterSnapshot = async (
         .map(message => ({
             role: (isFromUser(message) ? 'user' : 'char') as 'user' | 'char',
             at: message.timestamp ? new Date(message.timestamp).toISOString() : null,
-            text: messageToPlainText(message).slice(0, MAX_MESSAGE_CHARS),
+            text: compactXhsActivityNote(messageToPlainText(message)).slice(0, MAX_MESSAGE_CHARS),
         }))
         .filter(item => item.text.length > 0))
         .slice(-MAX_RECENT_MESSAGES);
