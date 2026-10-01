@@ -64,7 +64,7 @@ import { buildAmsg2NoticesText, buildAmsg2TaskContextText, collectAmsg2TaskConte
 import { resolveCharTimeZone } from '../utils/timezone';
 import { resolveCharacterApiConfig } from '../utils/characterApi';
 import { announceInstantChatRoute, getInstantChatPending, resolveInstantChatReadiness, sendInstantChatTurn, stageInstantChatExpiredNotices } from '../utils/amsgInstantChat';
-import { isAgentChatReady, sendAgentChatTurn } from '../utils/emAgentChat'; // [EM: agent-instant-chat]
+import { isAgentChatReady, sendAgentChatTurn, tokenUsageFromCloudMetadata } from '../utils/emAgentChat'; // [EM: agent-instant-chat]
 // worker 模块的常量叶子（零运行时依赖，前端引它不带进 worker 环境）：
 // 云端 fire 的总时长上限，安全网超时从它推导，worker 调预算时前端自动跟上。
 import { INSTANT_TOTAL_TIMEOUT_MS } from '../worker/amsg/src/instantChat';
@@ -592,6 +592,19 @@ export const useChatAI = ({
     useEffect(() => {
         setEvolvedNarrative('');
     }, [char?.id]);
+
+    // [EM-START: token-panel-cloud] mini / amsg 的回复从收件箱流进来，带着这一轮的用量：当前角色的就更新 ⚡ 面板
+    useEffect(() => {
+        const onReceived = (event: Event) => {
+            const detail = (event as CustomEvent).detail;
+            if (!char?.id || detail?.charId !== char.id) return;
+            const usage = tokenUsageFromCloudMetadata(detail?.usage);
+            if (usage) updateTokenUsage({ usage }, 0, 'cloud');
+        };
+        window.addEventListener('active-msg-received', onReceived);
+        return () => window.removeEventListener('active-msg-received', onReceived);
+    }, [char?.id]);
+    // [EM-END: token-panel-cloud]
 
     // ─── Post-push emotion eval (Option B: online/offline split) ───────────────
     //

@@ -2032,6 +2032,7 @@ const flushInboxToChatImpl = async (trigger: FlushTrigger): Promise<string[]> =>
           body: message.previewBody || message.body,
           avatarUrl: message.avatarUrl,
           sentAt: eventSentAt,
+          usage: (message.metadata as any)?.amsgUsage, // [EM: token-panel-cloud]
         },
       }));
       activeMsgTrace('runtime-active-msg-received-dispatched', {
