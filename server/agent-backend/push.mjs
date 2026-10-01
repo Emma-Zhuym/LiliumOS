@@ -14,6 +14,14 @@ import { readSecret } from './config.mjs';
 /** 推送正文只放标题和短预览：Web Push 正文上限约 4KB，而且要经过 Apple / Google 的服务器。 */
 const PREVIEW_LIMIT = 80;
 
+/**
+ * 推送选项。不写 Urgency 时按 normal 发，Apple 会把它当省电优先的推送，手机闲着（锁屏、低电量）
+ * 时可以压着不送，一压就是一两个小时（2026-09-30 陆时 19:42 的心跳，Apple 收下了却快九点才看到）。
+ * 后端推的都是角色发来的消息，RFC 8030 给聊天消息的建议就是 high。
+ * TTL 一天：过了一天才送到的「在吗」不如不送，信箱里照样能补收。
+ */
+export const PUSH_OPTIONS = Object.freeze({ urgency: 'high', TTL: 24 * 60 * 60 });
+
 let webPushModule;
 const loadWebPush = async () => {
     if (webPushModule !== undefined) return webPushModule;
@@ -70,7 +78,7 @@ export const createPusher = async config => {
                     keys: { p256dh: target.push_p256dh, auth: target.push_auth },
                 };
                 try {
-                    await webPush.sendNotification(subscription, payload);
+                    await webPush.sendNotification(subscription, payload, PUSH_OPTIONS);
                     results.push({ deviceId: target.id, status: 'sent', httpStatus: 201 });
                 } catch (error) {
                     const httpStatus = Number(error?.statusCode) || null;
