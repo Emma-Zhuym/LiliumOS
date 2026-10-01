@@ -20,7 +20,7 @@ vi.mock('./activeMsgClient', () => ({
 
 import {
     AGENT_CHAT_MAX_STATUS_FAILURES, chatReplyToInbox, checkAgentChatPending, isAgentChatReady, resetAgentChatProbeForTest,
-    sendAgentChatTurn, setAgentChatEnabled,
+    sendAgentChatTurn, setAgentChatEnabled, tokenUsageFromCloudMetadata,
 } from './emAgentChat';
 import { clearInstantChatPending, getInstantChatPending, setInstantChatPending } from './amsgInstantChat';
 
@@ -138,6 +138,17 @@ describe('信箱里的回复塞回收件箱', () => {
             sentAt: Date.parse('2026-09-29T20:00:00.000Z'), receivedAt: 123,
         });
         expect(entry?.metadata?.amsgOutboxBackfill).toBeUndefined();
+    });
+});
+
+describe('[EM: token-panel-cloud] 云端回复的用量给 ⚡ 面板', () => {
+    it('mini 原样的 usage、amsg 的两个数都认；没有数就不更新', () => {
+        expect(tokenUsageFromCloudMetadata({ prompt_tokens: 10, completion_tokens: 5, total_tokens: 80 }))
+            .toEqual({ prompt_tokens: 10, completion_tokens: 5, total_tokens: 80 });
+        expect(tokenUsageFromCloudMetadata({ promptTokens: 10, completionTokens: 5 }))
+            .toEqual({ prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 });
+        expect(tokenUsageFromCloudMetadata({})).toBeNull();
+        expect(tokenUsageFromCloudMetadata(undefined)).toBeNull();
     });
 });
 // [EM-END: agent-instant-chat]

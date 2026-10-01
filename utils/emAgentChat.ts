@@ -172,3 +172,23 @@ export const chatReplyToInbox = (message: AgentMessage, receivedAt = Date.now())
     };
 };
 // [EM-END: agent-instant-chat]
+
+// [EM-START: token-panel-cloud]
+/**
+ * 云端回来的这一轮的用量 → ⚡ 面板要的那份。本地生成是收到回包当场更新面板；mini / amsg 的回复从收件箱
+ * 流进来，不经过那一处，面板就一直空着。两边字段名不一样：mini 原样转模型的 usage（prompt_tokens…），
+ * amsg 只回 promptTokens / completionTokens 两个数。
+ */
+export const tokenUsageFromCloudMetadata = (usage: unknown): { prompt_tokens: number; completion_tokens: number; total_tokens: number } | null => {
+    if (!usage || typeof usage !== 'object') return null;
+    const u = usage as Record<string, unknown>;
+    const num = (...keys: string[]) => {
+        for (const key of keys) if (typeof u[key] === 'number' && Number.isFinite(u[key])) return u[key] as number;
+        return undefined;
+    };
+    const prompt = num('prompt_tokens', 'promptTokens') ?? 0;
+    const completion = num('completion_tokens', 'completionTokens') ?? 0;
+    const total = num('total_tokens', 'totalTokens') ?? prompt + completion;
+    return total > 0 ? { prompt_tokens: prompt, completion_tokens: completion, total_tokens: total } : null;
+};
+// [EM-END: token-panel-cloud]
