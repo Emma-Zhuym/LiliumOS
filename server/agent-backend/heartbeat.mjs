@@ -1120,6 +1120,45 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
     return lines.join('\n\n');
 };
 
+/**
+ * 只补朋友圈的亲友评论：短提示词、同一份 schema（回 noop + life.moment），读 life.comments。
+ * 屏蔽了的分组、阿萌本人写的评论丢掉——那些人看不到这条，阿萌的评论只能她自己写。
+ */
+export const fillMomentComments = async ({ runner, character, snapshot, life, userName = '', timeoutMs }) => {
+    const p = snapshot.payload || {};
+    const people = [
+        ...(Array.isArray(p.circle) ? p.circle : []).slice(0, 12),
+        ...(Array.isArray(p.coworkers) ? p.coworkers : []).slice(0, 6),
+    ];
+    const hidden = new Set(life.hide ?? []);
+    const visible = people.filter(c => !hidden.has(c.group ?? 'other'));
+    const blocked = new Set([userName, ...people.filter(c => hidden.has(c.group ?? 'other')).map(c => c.name)].filter(Boolean));
+    const name = p.identity?.name || character.displayName;
+    const system = [
+        `你是「${name}」。`,
+        p.identity?.persona ? `你的设定：\n${String(p.identity.persona).slice(0, 1500)}` : '',
+        `你刚发了一条朋友圈：「${life.detail}」`,
+        visible.length
+            ? `能看到这条的人（括号里是关系）：${visible.map(c => `${c.name}${c.relation ? `（${c.relation}）` : ''}`).join('、')}。`
+            : '',
+        '替你通讯录里的亲友写下评论：comments 写 3–5 条，who 用'
+            + (visible.length ? '上面这些人的名字' : '你生活里会有的亲友、同事的名字')
+            + '，relation 写 TA 是你的谁，语气贴着各自身份和跟你的关系，别都一个腔调。'
+            + (userName ? `不要写${userName}的评论。` : ''),
+        `只回一个 JSON：action 填 "noop"，activity 填 "发朋友圈"，reason 留空，life 里 kind 填 "moment"、detail 原样抄上面那条正文，再写 comments。`,
+    ].filter(Boolean).join('\n\n');
+    const result = await runner.run({
+        charId: character.charId,
+        credRef: character.credRef,
+        system,
+        user: '写评论。只按 schema 回一个 JSON。',
+        schema: HEARTBEAT_SCHEMA,
+        timeoutMs,
+    });
+    const comments = result.ok && result.output?.life?.kind === 'moment' ? result.output.life.comments ?? [] : [];
+    return comments.filter(c => !blocked.has(c.who));
+};
+
 /** chat / social 共用：顺口约了以后的事就写进 plan，时间用说话的说法，由程序去解析。 */
 const PLAN_HOW = '如果你们顺口约了以后的事（明天、周末、下周几），就在 plan 里写：what 写做什么、带上对方的名字'
     + '（比如「和林越去看展」），at 写说好的时间，用平常说话的说法（比如「周六下午」「明晚八点」），不要写日期格式。'
@@ -1410,6 +1449,14 @@ export const createHeartbeatHandler = ({
         : lifeDraft;
     // 转发了就算这一跳开了口：冷却、每日上限照常算。模型另写的那句 message 让位给转发时配的话，只发一条。
     const output = xhsShare ? { ...modelOutput, action: 'message', text: xhsShare.text } : modelOutput;
+    // 发了朋友圈却没写亲友评论：单独再叫一次模型只补评论。大提示词里这个可选字段常被漏掉
+    // （9/29 起上下文变长后一条都没有了）。补不上就照原样发，不连累动态本身。
+    if (life?.kind === 'moment' && !life.comments?.length) {
+        const comments = await fillMomentComments({
+            runner, character, snapshot, life, userName, timeoutMs: config.heartbeatTimeoutMs,
+        });
+        if (comments.length) life = { ...life, comments };
+    }
     // 惊喜礼物不写进起居注的那一句里（阿萌翻得到），买了什么留在 episode.life。
     const veiled = veilSurprise(output, life, userName);
     recordModelRun(db, {

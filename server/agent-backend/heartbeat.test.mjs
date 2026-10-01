@@ -17,7 +17,7 @@ import {
     ACTIVE_CHAT_WINDOW_MS, buildPrompt, checkGates, speakBlock, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
     BREAK_COOLDOWN_MIN, currentSlot, decideIntent, formatGap, inBreakWindow, upcomingBreakStarts, jitterRatio, lastRealInteractionAt, listModelRuns, messageChance,
     nextRunAt, recordModelRun, shouldCaptureRaw, decideEpisode, episodeChance, isWorkSlot, lifeChance, pickLifeKind, veilSurprise,
-    MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, withPlanTime, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule, unansweredProactive, lastUserSpokeAt, unansweredFactor, reachOutTimeRule, recentOwnMessages,
+    MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, withPlanTime, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule, unansweredProactive, lastUserSpokeAt, unansweredFactor, reachOutTimeRule, recentOwnMessages, fillMomentComments,
 } from './heartbeat.mjs';
 import { chatCompletionsUrl, createApiRunner, extractContentText, parseEpisode, parseHeartbeatOutput, parseLife } from './runner.mjs';
 import { applyThread, closePassedPlans, closeStaleThreads, isPlanDue, listOpenThreads, listPlans } from './lifeThreads.mjs';
@@ -1798,4 +1798,53 @@ test('自己说过的话：读 outbox 里两天内的主动消息，提示词叫
     assert.match(prompt, /你这两天主动发给 ta 的消息[\s\S]*撸串 你要不要一起/);
     assert.match(prompt, /问过的事别再问一遍/);
     assert.match(prompt, /前提是你还没跟 ta 提过/);
+});
+
+test('朋友圈评论：漏写了就单独补一次，屏蔽的人和阿萌的评论丢掉', async () => {
+    const snapshot = { payload: { user: { name: '阿萌' }, identity: { name: '陆时' },
+        circle: [{ name: '老周', relation: '发小', group: 'friend' }, { name: '妈', relation: '妈妈', group: 'family' }],
+        coworkers: [{ name: '小林', relation: '助理', group: 'work' }] } };
+    let system = '';
+    const runner = { run: async input => { system = input.system; return { ok: true, output: { action: 'noop', activity: 'a', reason: '', urge: 'none',
+        life: { kind: 'moment', detail: '加班', comments: [{ who: '老周', text: '又加班' }, { who: '妈', text: '早点睡' }, { who: '阿萌', text: '哼' }, { who: '小林', text: '辛苦了' }] } } }; } };
+    const comments = await fillMomentComments({ runner, character: { charId: CHAR, displayName: '陆时' }, snapshot,
+        life: { kind: 'moment', detail: '加班', hide: ['family'] }, userName: '阿萌' });
+    assert.deepEqual(comments.map(c => c.who), ['老周', '小林']);
+    assert.match(system, /你刚发了一条朋友圈：「加班」/);
+    assert.match(system, /老周（发小）/);
+    assert.doesNotMatch(system, /妈（妈妈）/, '屏蔽的分组不给模型看');
+    // 补的那次失败了：照原样发，不带评论
+    const failed = await fillMomentComments({ runner: { run: async () => ({ ok: false, error: 'timeout' }) },
+        character: { charId: CHAR, displayName: '陆时' }, snapshot, life: { kind: 'moment', detail: '加班' } });
+    assert.deepEqual(failed, []);
+});
+
+test('朋友圈评论：整跳里第一次没写评论才补，写了就不再调', async () => {
+    for (const firstComments of [undefined, [{ who: '老周', text: '好看' }]]) {
+        const db = freshDb();
+        setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+        const character = seedCharacter(db);
+        seedSnapshot(db, { circle: [{ name: '老周', relation: '发小', group: 'friend' }], todaySchedule: [{ start: '18:00', title: '在家', availability: 'online' }] }, chicago(22));
+        let runs = 0;
+        const runner = { run: async () => {
+            runs += 1;
+            const comments = runs === 1 ? firstComments : [{ who: '老周', text: '补的' }];
+            return { ok: true, output: { action: 'noop', activity: 'a', reason: '', urge: 'none',
+                life: { kind: 'moment', detail: '晚霞', ...(comments ? { comments } : {}) } } };
+        } };
+        const sent = [];
+        const seq = [0.99, 0.3, 0.95];
+        let i = 0;
+        await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, `m-${runs}-${Boolean(firstComments)}`), now: chicago(22),
+            rng: () => seq[i++] ?? 0.99, deliver: async e => sent.push(e) });
+        const life = sent.find(e => e.payload?.life)?.payload.life;
+        assert.equal(life?.kind, 'moment');
+        if (firstComments) {
+            assert.equal(runs, 1);
+            assert.equal(life.comments[0].text, '好看');
+        } else {
+            assert.equal(runs, 2);
+            assert.equal(life.comments[0].text, '补的');
+        }
+    }
 });
