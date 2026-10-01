@@ -14,7 +14,7 @@ vi.mock('./dailySchedule', () => ({
     })),
 }));
 
-import { buildCharacterSnapshot, buildMonthlySummaries, findLastInteraction, mergeConsecutiveBubbles, messageToPlainText } from './emAgentSnapshot';
+import { buildCharacterSnapshot, buildMonthlySummaries, compactXhsActivityNote, findLastInteraction, mergeConsecutiveBubbles, messageToPlainText } from './emAgentSnapshot';
 
 const char = {
     id: 'lumi',
@@ -188,3 +188,27 @@ describe('月度总结（心跳的长期记忆）', () => {
 });
 
 
+
+describe('[EM: snapshot-xhs-compact] 小红书自由活动记录给心跳看时只留梗概', () => {
+    it('删掉帖子列表和摘要，留标题、转发和一句心里话', () => {
+        const long = '想'.repeat(80);
+        const text = [
+            '📕 卫斯理的自由活动: 自己刷了会儿小红书首页',
+            '看到的帖子: 「开个楼」by 甲、「机场攻略」by 乙',
+            '多看了两眼: 「机场攻略」 - 一大段摘要、「咖喱做法」',
+            '点了赞: 「机场攻略」',
+            '转发给了对方: 「咖喱做法」',
+            `💭 内心想法: ${long}`,
+        ].join('\n');
+        expect(compactXhsActivityNote(text)).toBe([
+            '📕 卫斯理的自由活动: 自己刷了会儿小红书首页',
+            '多看了两眼: 「机场攻略」、「咖喱做法」',
+            '转发给了对方: 「咖喱做法」',
+            `💭 内心想法: ${'想'.repeat(60)}…`,
+        ].join('\n'));
+    });
+
+    it('别的消息原样不动', () => {
+        expect(compactXhsActivityNote('看到的帖子: 这是我自己说的话')).toBe('看到的帖子: 这是我自己说的话');
+    });
+});
