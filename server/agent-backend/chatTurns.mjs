@@ -154,6 +154,32 @@ export const extractReasoning = message => {
 };
 
 /**
+ * 没取到心象时记下回包长什么样：只有字段名、类型和长度，不带任何内容，也不带凭据。
+ * 中转站改了返回格式（2026-10-01 下午起心象又没了）时，靠它看思考跑到哪个字段去了。
+ */
+export const describeResponseShape = (data, extraBody) => {
+    const describe = value => {
+        if (typeof value === 'string') return `string(${value.length})`;
+        if (Array.isArray(value)) {
+            return `array[${value.map(item => (item && typeof item === 'object'
+                ? `${item.type ?? 'object'}{${Object.keys(item).join(',')}}`
+                : typeof item)).join(';')}]`;
+        }
+        if (value && typeof value === 'object') return `object{${Object.keys(value).join(',')}}`;
+        return String(value);
+    };
+    const message = data?.choices?.[0]?.message ?? {};
+    return {
+        top: Object.keys(data ?? {}).join(','),
+        choice: Object.keys(data?.choices?.[0] ?? {}).join(','),
+        message: Object.fromEntries(Object.entries(message).map(([key, value]) => [key, describe(value)])),
+        sent: extraBody && typeof extraBody === 'object'
+            ? Object.fromEntries(Object.entries(extraBody).map(([key, value]) => [key, describe(value)]))
+            : null,
+    };
+};
+
+/**
  * 正文里的思考块抠出来：模型有时不走 reasoning 字段，而是把心象写成正文里的 <think>…</think>。
  * 手机端收件箱只从 amsgReasoning 取心象、不翻正文，所以不在这里抠的话卡片就没了，
  * 正文里还会留着那段思考。规则跟手机本地那条路一样（applyAssistantPostProcessing 的
@@ -231,7 +257,10 @@ export const createChatTurnService = ({ db, deliver, fetchImpl = fetch, timeoutM
             if (!text) return { ok: false, error: '模型返回了空内容' };
             // 跟本地同一个拼法：reasoning 字段在前，正文里抠出来的思考块在后
             const reasoning = [extractReasoning(message), thinking].filter(Boolean).join('\n\n');
-            return { ok: true, text, reasoning, usage: data?.usage ?? null };
+            return {
+                ok: true, text, reasoning, usage: data?.usage ?? null,
+                ...(reasoning ? {} : { shape: describeResponseShape(data, extraBody) }),
+            };
         } catch (error) {
             if (error?.name === 'AbortError') return { ok: false, error: `等了 ${Math.round(timeoutMs / 1000)} 秒模型还没回` };
             return { ok: false, error: String(error?.message || error).slice(0, 200) };
@@ -277,7 +306,10 @@ export const createChatTurnService = ({ db, deliver, fetchImpl = fetch, timeoutM
             body: push.notification.body,
             pushPayload: fitsInPush(push) ? push : buildPullPush({ turnId, charId, charName, text: result.text, preview }),
         });
-        return { ok: true, chars: result.text.length, reasoningChars: result.reasoning.length, modelMs: result.modelMs, usage: result.usage ?? null };
+        return {
+            ok: true, chars: result.text.length, reasoningChars: result.reasoning.length, modelMs: result.modelMs, usage: result.usage ?? null,
+            ...(result.shape ? { shape: result.shape } : {}),
+        };
     };
 
     /**
