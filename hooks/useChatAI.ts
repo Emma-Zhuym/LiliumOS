@@ -946,11 +946,12 @@ export const useChatAI = ({
             const instantChatOn = instantChatReadiness.ready;
             const instantChatRoute = !agentChatRoute && instantChatOn && !instantChatVeto && !instantPushConfigured; // [EM: agent-instant-chat]
             const financeToolTurn = financeLocalRequired
-                || (financeAwareness.hasLedger && !instantChatOn && !instantPushConfigured);
+                || (financeAwareness.hasLedger && !instantChatOn && !agentChatRoute && !instantPushConfigured); // [EM: agent-instant-chat] 交给 mini 的这一轮没有工具循环，别因常驻查账工具把思考链关掉
             // GPS 只能由当前设备在前台授权读取。云端主动心跳以后会有自己的后端位置工具；
             // 这一版只在实际走本地生成时把按需工具交给角色。
             const locationToolEnabled = isLocationChatToolEnabled()
                 && !instantChatRoute
+                && !agentChatRoute // [EM: agent-instant-chat] 同上：定位工具只在本地生成时给
                 && (!instantPushConfigured || locationLocalRequired);
             // 「即时对话开着、这一轮却没上云」的所有情形都在这一处留痕，三种原因去向不同：
             //   · 点单流程否决：瑞幸/麦当劳是客户端交互式循环（选城市、确认单），云端接不了
