@@ -212,6 +212,7 @@ check "角色发的照片只给文字" utils/chatPrompts.ts "[EM-START: assistan
 check "聊天知道对方那边几点" utils/context.ts "userClockNote(charTz)"
 check "天气地名带州和国家" utils/openMeteo.ts "displayName: placeName(savedLocation)"
 check "即时回复：聊天路由交给 mini" hooks/useChatAI.ts "[EM-START: agent-instant-chat]"
+check "即时回复：交给 mini 的这一轮不因常驻工具关思考链" hooks/useChatAI.ts "!instantChatOn && !agentChatRoute"
 check "即时回复：mini 的轮次单独点名" utils/activeMsgRuntime.ts "p.via === 'mini'"
 check "即时回复：待收记录带 via" utils/amsgInstantChat.ts "via?: 'mini'"
 check "即时回复：信箱回复进收件箱" utils/emAgentInbox.ts "route === 'reply'"
