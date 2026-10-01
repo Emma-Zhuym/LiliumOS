@@ -12,6 +12,7 @@ import { runJobNow } from './jobs.mjs';
 import {
     extractReasoning,
     notificationPreview, splitEmbeddedThinking, CHAT_TURN_KIND, PUSH_PAYLOAD_LIMIT_BYTES, buildReplyPush, createChatTurnService, jobUuidFor, previewText, validateTurn,
+    describeResponseShape,
 } from './chatTurns.mjs';
 
 const TURN = '11111111-2222-4333-8444-555555555555';
@@ -179,4 +180,13 @@ test('心象写在正文里：抠出来当心象，正文只留要说的话', as
     assert.equal(delivered[0].payload.message, '辛苦啦');
     assert.equal(delivered[0].payload.metadata.amsgReasoning, '先想想\n\n她好累');
     assert.doesNotMatch(delivered[0].payload.notification.body, /她好累/);
+});
+
+test('没取到心象时只记回包的字段名和长度，不记内容', () => {
+    const shape = describeResponseShape({
+        id: 'x', choices: [{ index: 0, message: { role: 'assistant', content: '在的', reasoning_details: [{ type: 'reasoning.encrypted', data: '密文' }] } }],
+    }, { thinking: { type: 'enabled', budget_tokens: 2000 } });
+    assert.deepEqual(shape.message, { role: 'string(9)', content: 'string(2)', reasoning_details: 'array[reasoning.encrypted{type,data}]' });
+    assert.equal(shape.sent.thinking, 'object{type,budget_tokens}');
+    assert.ok(!JSON.stringify(shape).includes('密文'));
 });
