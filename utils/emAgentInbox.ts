@@ -247,4 +247,23 @@ export const syncAgentMessagesIntoChat = async (
     }
     return result;
 };
+
+/**
+ * [EM: agent-instant-chat] 推送送到的即时回复落进聊天之后，立刻记账并告诉 mini「收到了」。
+ *
+ * 原来只有「从信箱取回来」那条路会销账。推送送到的回复当场显示了，mini 那边却一直挂着「没人收」，
+ * 下次打开 App 取信箱又把它们领回来一遍，只靠聊天记录里的去重挡——2026-10-02 没挡住：
+ * 卫斯理前一晚 22:18 的晚安，第二天 8:12 又出现了一次。
+ * 这里补上：本机记一笔（取信箱时见到就只补销账、不再落库），再向 mini 销账（下次根本不会再发回来）。
+ */
+export const settleLandedAgentReplies = async (messageIds: string[]): Promise<void> => {
+    const ids = messageIds.filter(id => typeof id === 'string' && id.startsWith('mini:'));
+    if (ids.length === 0) return;
+    rememberDelivered(ids);
+    try {
+        await AgentBackend.ackInbox(ids);
+    } catch {
+        // 销账失败没关系：本机已经记了账，下次取回来只补销账。
+    }
+};
 // [EM-END: agent-backend-inbox]
