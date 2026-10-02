@@ -168,7 +168,7 @@ const PUSH_STALE_STREAK = 2;
 const PUSH_STALE_NOTICE_GAP_MS = 30 * 60_000;
 let pollRescueStreak = 0;
 let lastTurnNeededPoll = false;
-let lastPushStaleNoticeAt = 0;
+let lastPushStaleNoticeAt = -Infinity;
 
 /** 交上去新一轮时调：上一轮是推送送到的，就把连续计数清零。 */
 const noteTurnSubmitted = (): void => {
@@ -203,7 +203,7 @@ export const pushStaleNoticeText = (detail: { fixed?: boolean; reason?: string }
     : `Mac mini 的推送没送到手机，最近的回复都晚了约一分钟。自动重新登记没成功${detail.reason ? `（${detail.reason}）` : ''}，请到 设置 → Mac mini 后端 点一次「登记推送」。`);
 
 /** 测试用 */
-export const resetPushStaleForTest = () => { pollRescueStreak = 0; lastTurnNeededPoll = false; lastPushStaleNoticeAt = 0; };
+export const resetPushStaleForTest = () => { pollRescueStreak = 0; lastTurnNeededPoll = false; lastPushStaleNoticeAt = -Infinity; };
 // [EM-END: agent-push-stale-notice]
 
 /** 信箱里的即时回复（kind chat_reply）→ 收件箱条目，形状和 SW 收到推送时写的一样。 */
