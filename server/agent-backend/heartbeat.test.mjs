@@ -17,7 +17,7 @@ import {
     ACTIVE_CHAT_WINDOW_MS, buildPrompt, checkGates, speakBlock, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
     BREAK_COOLDOWN_MIN, currentSlot, decideIntent, formatGap, inBreakWindow, upcomingBreakStarts, jitterRatio, lastRealInteractionAt, listModelRuns, messageChance,
     nextRunAt, recordModelRun, shouldCaptureRaw, decideEpisode, episodeChance, isWorkSlot, lifeChance, pickLifeKind, veilSurprise,
-    MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, withPlanTime, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule, unansweredProactive, lastUserSpokeAt, unansweredFactor, reachOutTimeRule, recentOwnMessages, fillMomentComments,
+    MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, withPlanTime, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule, unansweredProactive, lastUserSpokeAt, unansweredFactor, reachOutTimeRule, recentOwnMessages, fillMomentComments, DUTY_RULE,
 } from './heartbeat.mjs';
 import { chatCompletionsUrl, createApiRunner, extractContentText, parseEpisode, parseHeartbeatOutput, parseLife } from './runner.mjs';
 import { applyThread, closePassedPlans, closeStaleThreads, isPlanDue, listOpenThreads, listPlans } from './lifeThreads.mjs';
@@ -1847,4 +1847,27 @@ test('朋友圈评论：整跳里第一次没写评论才补，写了就不再�
             assert.equal(life.comments[0].text, '补的');
         }
     }
+});
+
+test('活在社会里的人：三种意图的提示词里都有，跟在今天的安排后面', () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    const snapshot = {
+        receivedAt: AT.toISOString(),
+        payload: {
+            identity: { name: '陆时', persona: '集团总裁' }, user: { name: '阿萌' }, timezone: 'Asia/Shanghai',
+            todaySchedule: [{ start: '09:00', end: '18:00', title: '公司办公', availability: 'busy' }, { start: '19:00', end: '', title: '晚宴' }],
+        },
+    };
+    for (const intent of ['live', 'reach_out', 'reply']) {
+        const prompt = buildPrompt(character, snapshot, AT, intent);
+        assert.ok(prompt.includes(DUTY_RULE), `${intent} 也要有`);
+        assert.ok(prompt.indexOf('今天的安排') < prompt.indexOf(DUTY_RULE), `${intent}：先读安排，再读分寸`);
+    }
+    // 写的是「你是什么样的人」，三种情况是掂量之后的样子
+    assert.match(DUTY_RULE, /你是活在社会里的人/);
+    assert.match(DUTY_RULE, /有人指望着你/);
+    assert.match(DUTY_RULE, /受伤、急病、出了事，放下一切赶过去/);
+    assert.match(DUTY_RULE, /想逛超市、想见面、无聊了，手头的事照常做完再陪/);
+    assert.match(DUTY_RULE, /而不是推掉工作连夜赶过去、跨城跨国飞过去/);
 });

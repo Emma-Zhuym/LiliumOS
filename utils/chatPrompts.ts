@@ -16,7 +16,7 @@ import { FISH_VOICE_ACTING_GUIDE } from './fishAudioTts';
 import { getTtsProvider, getVoicePromptOverride } from './ttsProvider';
 import { resolveCharTimeZone, nowInTimeZone } from './timezone';
 // [EM-START: prompt-addons] 个人化提示词全部在 emPromptAddons.ts，merge 时保住这行 import 和下面的调用点
-import { emSendPhotoAddon, emQuoteSection, emNotionDiarySection, emFeishuDiarySection, emUserNotesSection, emXhsSection, emNotionDiaryNudgePrompt, emFavPhotoAddon, emVoiceAwareAddon } from './emPromptAddons';
+import { emSendPhotoAddon, emQuoteSection, emNotionDiarySection, emFeishuDiarySection, emUserNotesSection, emXhsSection, emNotionDiaryNudgePrompt, emFavPhotoAddon, emVoiceAwareAddon, emDutySection } from './emPromptAddons';
 // [EM-END: prompt-addons]
 import { buildLifeRecordInjection } from './lifeRecords';
 import { isWorkerReachableUrl } from './amsgToolPack';
@@ -701,6 +701,7 @@ ${uname} 的化身正挂在《彼方》的【${roomName}】${act ? `，状态写
             **严格注意，你正在手机聊天，无论之前是什么模式，哪怕上一句话你们还面对面在一起，当前，你都是已经处于线上聊天状态了，请不要输出你的行为**
 1. **沉浸感**: 保持角色扮演。使用适合即时通讯(IM)的口语化风格。
 2. **行为模式**: 不要总是围绕用户转。分享你自己的生活、想法或随意的观察。有时候要”任性”或”以自我为中心”一点，这更像真人，具体的程度视你的性格而定。
+${emDutySection(userProfile.name)}
 2.5 **对话质量 (极其重要)**:
    - **拒绝空话**: 不要说”我会一直在”、”我不会离开你”这类万能安慰句。这些话谁都能说，毫无信息量。
    - **相对更浓烈的表达**: 在只有文字沟通的前提下，往往情绪的传达会被淡化，说话前思考一下：这样真的能传达我的心情吗？根据对方的性格，这样说会让ta产生不必要的误解吗？

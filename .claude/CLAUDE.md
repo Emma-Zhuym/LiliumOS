@@ -267,6 +267,12 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - 后端 `server/agent-backend/chatTurns.mjs`：`POST/GET /chat/turns`，凭据只在内存，重启后未跑的那轮判失败让手机重发；>3.5KB 只推 `agent-pull` 信号（`amsgResults.ts`）
 - 心跳：`lastChatMessageAt` 把 `chat_reply` 算作回过；即时回复在跑时 `chat_turn_running` 不开口
 
+### 30. 角色是活在社会里的人（社会责任）
+- 阿萌 2026-10-01 定：她受伤、出事，角色可以放下工作赶来；她想逛超市角色就早退、她生气角色就推掉工作跨国飞来，不行。**她明确说不是日程规则的问题**（改日程可以），是角色整个没有社会责任——所以写的是「你是什么样的人」，不要改成条款或去动日程块
+- 聊天：`utils/emPromptAddons.ts` 的 `emDutySection`（行为规范 2.1，主动消息打包也带）；`chatPrompts.ts` 只有一处调用
+- 心跳：`server/agent-backend/heartbeat.mjs` 的 `DUTY_RULE`（心跳不读世界书，只读角色设定，所以不能靠世界书）；**改措辞两边一起改**
+- 某个角色要例外（设定就是不上班的人）写进那个角色自己的设定，聊天和心跳都读设定
+
 ## 合并时常见坑（踩过的 bug）
 
 ### PhoneShell.tsx — messageSubView 必须解构
