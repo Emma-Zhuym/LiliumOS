@@ -870,6 +870,17 @@ export const DUTY_RULE = '你是活在社会里的人：你的工作、学业、
     + '对方生气了、你们吵架了，认真把话说清楚，而不是推掉工作连夜赶过去、跨城跨国飞过去，真要见面也是安排妥当之后。'
     + '它体现在你怎么做事，不用挂在嘴上说教。你的设定里本来没有工作或固定安排的，按你实际的生活来。';
 
+/** 发照片的写法，跟聊天里的 [[SEND_PHOTO]] 同一种；每张都要调一次生图，所以要 TA 克制。 */
+export const PHOTO_HOW = '发消息时如果想给对方看点什么（刚做的菜、眼前的景、手边的东西），可以在 text 里单独占一行写 [[SEND_PHOTO: 英文描述]]，'
+    + '对方会真的收到一张照片；一条消息最多一张，也别每次都发，想让 ta 看的时候才发。'
+    + '描述必须用英文，写清拍的是什么、光线和拍法；拍东西、拍风景时写 no people or faces in frame，只有自拍才写 the character is visible。'
+    + '不要写成「[一张照片：……]」这种中文描述，那样对方只会看到一行字。';
+
+/** 推送预览里不放照片指令的原文。 */
+export const previewWithoutPhotoTags = text => String(text ?? '')
+    .replace(/\[\[\s*SEND_PHOTO\s*[:：][\s\S]*?\]\]/gi, '[照片]')
+    .replace(/[\[【]\s*(?:一张)?(?:照片|图片)\s*[:：][^\]】\n]*[\]】]/g, '[照片]');
+
 /**
  * 拼提示词。「什么时候该说话」写死在这里，不交给模型自由发挥——
  * 没话找话是主动消息最容易翻车的地方（设计 4.3 第 4 步）。
@@ -1006,6 +1017,9 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
             + '没什么想回应的就不写那一条。这跟你这一跳在做的事可以同时发生。',
         );
     }
+    // 能开口的这一跳才教发照片：手机收到 text 里单独成行的 [[SEND_PHOTO: …]] 会按描述去生图
+    // （utils/emAgentPhotos.ts）。不教的话 TA 会模仿聊天记录写「[一张照片：…]」，那只是一行字。
+    if (canSpeak) lines.push(PHOTO_HOW);
     // 开不开口已经定了，模型不再做判断题，只负责把它说得像这个人会说的话。
     lines.push(
         intent === 'reply'
@@ -1581,7 +1595,7 @@ export const createHeartbeatHandler = ({
         jobUuid: job.uuid,
         kind: 'chat_message',
         title: character.displayName,
-        body: output.text,
+        body: previewWithoutPhotoTags(output.text),
         payload: {
             text: output.text,
             source: 'heartbeat',
