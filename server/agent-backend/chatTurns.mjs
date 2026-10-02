@@ -115,10 +115,14 @@ export const buildErrorPush = ({ turnId, charId, charName, reason }) => ({
     taskUuid: turnId,
     // errorCode 让手机端说「模型接口拒了这次请求」而不是笼统的「生成失败」（describeInstantChatFailure）
     metadata: { charId, charName, source: 'agent-backend', taskUuid: turnId, reason, ...(/^模型返回/.test(reason) ? { errorCode: 'LLM_CALL_FAILED' } : {}) },
+    // show:'always'：error 这一类推送 SW 默认不弹通知，而 iOS 对「收到推送却没弹通知」是记账的，
+    // 攒够几次就把这台设备的推送订阅收回——之后回复全靠手机 60 秒点名才取得到（2026-10-02）。
     notification: {
+        show: 'always',
         title: charName,
         body: '这一轮没回成，点开可以重发',
         tag: `mini-chat-${charId}`,
+        silent: 'when-visible',
     },
 });
 

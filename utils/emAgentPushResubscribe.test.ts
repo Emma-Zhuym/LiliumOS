@@ -47,6 +47,17 @@ describe('手机换了推送订阅就重新登记给 mini', () => {
         expect(await ensureAgentPushRegistered(3_000_000)).toBe('registered');
     });
 
+    it('订阅被系统收回了（以前登记过）：重新订一份并登记；从没登记过的不替用户订', async () => {
+        const noSub = { ready: Promise.resolve({ pushManager: { getSubscription: async () => null } }) };
+        Object.defineProperty(globalThis.navigator, 'serviceWorker', { configurable: true, value: noSub });
+        expect(await ensureAgentPushRegistered(1_000_000)).toBe('skipped');
+        expect(fetchMock).not.toHaveBeenCalled();
+        localStorage.setItem('em_agent_push_endpoint_v1', 'https://web.push.apple.com/old');
+        resetAgentPushCheckForTest();
+        expect(await ensureAgentPushRegistered(2_000_000)).toBe('registered');
+        expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toContain('/devices/push');
+    });
+
     it('没授权通知就什么都不做（绝不弹权限框）', async () => {
         vi.stubGlobal('Notification', { permission: 'default' });
         expect(await ensureAgentPushRegistered(1_000_000)).toBe('skipped');

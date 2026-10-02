@@ -529,10 +529,11 @@ export const ensureAgentPushRegistered = async (now = Date.now()): Promise<'skip
     try {
         const registration = await navigator.serviceWorker.ready;
         const current = await registration.pushManager.getSubscription();
-        if (!current) return 'skipped';
         let registered: string | null = null;
         try { registered = localStorage.getItem(PUSH_ENDPOINT_KEY); } catch { /* 当作没登记过 */ }
-        if (registered === current.endpoint) return 'unchanged';
+        // 订阅没了（iOS 会把它收回）：以前登记过才重新订一份，从没登记过的不替用户做主
+        if (!current && !registered) return 'skipped';
+        if (current && registered === current.endpoint) return 'unchanged';
         const result = await AgentBackend.registerPush();
         return result.ok ? 'registered' : 'failed';
     } catch {
