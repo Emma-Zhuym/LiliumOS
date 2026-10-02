@@ -25,6 +25,8 @@ import { buildDailyRhythmDraftPrompt } from '../utils/scheduleGenerator'; // [EM
 import { fetchMiniMaxVoices, MiniMaxVoiceItem } from '../utils/minimaxVoice';
 import { resolveMiniMaxApiKey } from '../utils/minimaxApiKey';
 import { normalizeUserImpression } from '../utils/impression';
+import { parseImpressionReply } from '../utils/emImpressionParse'; // [EM: impression-json-tolerant]
+import { emImpressionJsonNote } from '../utils/emPromptAddons'; // [EM: impression-json-tolerant]
 import { injectMemoryPalace } from '../utils/memoryPalace/pipeline';
 import { COMMON_TIMEZONES } from '../utils/timezone';
 import { toMountedWorldbook } from '../utils/worldbook';
@@ -984,7 +986,7 @@ ${isInitialGeneration ? `
     ${changesInstruction}
   ]
 }
-注意：observed_changes 的每一项必须是纯字符串（string），例如 ["最近变得更开朗了", "开始主动分享日常"]。严禁使用对象格式如 {"period": "...", "description": "..."}。`;
+注意：observed_changes 的每一项必须是纯字符串（string），例如 ["最近变得更开朗了", "开始主动分享日常"]。严禁使用对象格式如 {"period": "...", "description": "..."}。${emImpressionJsonNote()}`;
 
           const data = await safeFetchJson(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
               method: 'POST',
@@ -1002,7 +1004,7 @@ ${isInitialGeneration ? `
           let content = extractContent(data);
 
           content = content.replace(/```json/g, '').replace(/```/g, '').trim();
-const parsed = normalizeUserImpression(JSON.parse(content));
+          const parsed = normalizeUserImpression(parseImpressionReply(content)); // [EM: impression-json-tolerant] 回包带闲话 / 内层引号没转义时不再整次作废
           if (!parsed) throw new Error('印象生成结果不完整');
 
           if (editingIdRef.current === targetId) {

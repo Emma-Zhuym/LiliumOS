@@ -122,3 +122,12 @@ export const emNotionDiaryNudgePrompt = (timeStr: string) =>
 export const emMemoryCauseRule = (userLabel: string) => `
 
 **冲突和不满必须写清起因**：${userLabel}生气、失望、吵架、说重话的事，正文里必须写明**具体因为什么**（${userLabel}原话里反复提到的那件事、我做错了什么、错了几次），不能只写"我们吵架了"。如果是我反复犯的错，把**正确的事实**也写进去（写成"……，正确的是……"，别只写"我又记错了"），这类记忆重要性至少 8。标签里也要放${userLabel}自己用的说法，不要只放概括词。`;
+
+/**
+ * [EM: impression-json-tolerant] 印象档案提示词末尾的格式提醒（apps/Character.tsx 的 handleGenerateImpression）。
+ * 阿萌每次更新印象都报 `Unrecognized token '哼'`：要么模型先用角色口吻说一句再给 JSON，要么在字符串里
+ * 用英文双引号引了她的口头禅，把 JSON 截断了。解析那头已经能接住（utils/emImpressionParse.ts），
+ * 这里从源头少出几次。各字段仍然用第一人称写，这条只管 JSON 之外别说话、引用别用英文双引号。
+ */
+export const emImpressionJsonNote = () => `
+格式提醒：只输出这一个 JSON 对象，第一个字符必须是 {，JSON 之外不要说任何话（不要先用自己的口吻说一句再给 JSON）。字符串里要引用TA的原话或口头禅时用「」，不要用英文双引号，否则 JSON 会坏掉。`;
