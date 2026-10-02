@@ -2,9 +2,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { F, HUE, R, S, SP } from '../../utils/clayTokens';
-import type { KitchenFood, KitchenLot, KitchenFridgePlacement } from '../../utils/kitchenDb';
-import { FRIDGE_SHELVES, fridgePlacementOptions, fridgeDoorParent } from '../../utils/kitchenFridgeSpec';
+import { F, HUE, R, SP } from '../../utils/clayTokens';
+import { KITCHEN_PAPER as PAPER } from '../../utils/kitchenPaperTokens';
+import type { KitchenFood, KitchenLot } from '../../utils/kitchenDb';
+import { FRIDGE_SHELVES, fridgeDoorParent } from '../../utils/kitchenFridgeSpec';
 import { eggVisibleCount, fridgeLayout } from '../../utils/kitchenSceneLayout';
 import { createKitchenBackdrop } from '../../utils/kitchenBackdrop';
 import { spaceKitchenMarkers } from '../../utils/kitchenSceneMarkers';
@@ -13,8 +14,6 @@ interface Props {
   lots: KitchenLot[];
   foods: KitchenFood[];
   onOpenLot: (id: string) => void;
-  busy?: boolean;
-  onMoveLot: (id: string, placement: KitchenFridgePlacement) => Promise<void>;
 }
 
 const DOOR_OPEN_ANGLE = -THREE.MathUtils.degToRad(112);
@@ -36,14 +35,14 @@ function disposeObjects(objects: THREE.Object3D[]) {
   textures.forEach(value => value.dispose());
 }
 
-const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot, busy }) => {
-  const [doorsOpen, setDoorsOpen] = useState({ fridge: false, freezer: false });
+const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot }) => {
+  const [doorsOpen, setDoorsOpen] = useState({ fridge: true, freezer: true });
   const [drawersOpen, setDrawersOpen] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [markers, setMarkers] = useState<{ lotId: string; x: number; y: number }[]>([]);
   const host = useRef<HTMLDivElement>(null);
-  const selectionPanel = useRef<HTMLDivElement>(null);
+  const onOpenLotRef = useRef(onOpenLot);
+  onOpenLotRef.current = onOpenLot;
   const controller = useRef<{ setOpen: (value: typeof doorsOpen) => void; setDrawers: (value: boolean) => void }>();
   const openRef = useRef(doorsOpen);
   const drawersRef = useRef(drawersOpen);
@@ -54,12 +53,8 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
     const frozen = fridgeLayout(lots, foods, 'freezer');
     return { entries: [...frozen.entries, ...cold.entries], total: cold.total + frozen.total };
   }, [lots, foods]);
-  const selected = layout.entries.find(entry => entry.lot.id === selectedId);
   const isOpen = (zone: string) => zone === 'freezer' ? doorsOpen.freezer : doorsOpen.fridge;
   const toggleDoor = (zone: 'fridge' | 'freezer') => setDoorsOpen(value => ({ ...value, [zone]: !value[zone] }));
-  useEffect(() => {
-    if (selectedId) selectionPanel.current?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
-  }, [selectedId]);
 
   useEffect(() => { controller.current?.setOpen(doorsOpen); }, [doorsOpen]);
   useEffect(() => { controller.current?.setDrawers(doorsOpen.fridge && drawersOpen); }, [doorsOpen.fridge, drawersOpen]);
@@ -236,7 +231,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
       if (!hit) return;
       let object: THREE.Object3D | null = hit.object;
       while (object) {
-        if (object.userData.lotId && openRef.current[object.userData.zone as 'fridge' | 'freezer']) { setSelectedId(object.userData.lotId); return; }
+        if (object.userData.lotId && openRef.current[object.userData.zone as 'fridge' | 'freezer']) { onOpenLotRef.current(object.userData.lotId); return; }
         if (object.name === 'DoorPivot') { toggleDoor('fridge'); return; }
         if (object.name === 'FreezerDoorPivot') { toggleDoor('freezer'); return; }
         if (object.name.startsWith('Crisper') && openRef.current.fridge) { setDrawersOpen(value => !value); return; }
@@ -360,64 +355,52 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot, onMoveLot
   }, [layout]);
 
   const buttonStyle: React.CSSProperties = {
-    minHeight: 44, padding: `${SP[1]}px ${SP[2]}px`, borderRadius: R.button,
-    background: F.surfaceRaised, color: HUE.green.ink, boxShadow: S.raisedSoft, fontSize: 13,
+    minHeight: 44,
+    padding: `${SP[1]}px ${SP[2]}px`,
+    borderRadius: R.button,
+    color: PAPER.blueInk,
+    fontSize: 12,
+    fontWeight: 500,
   };
   return (
-    <section aria-label="冰箱可视化" style={{ marginBottom: SP[3], padding: SP[2], borderRadius: R.bigCard, background: F.surfaceSunken }}>
-      <div className="flex items-center justify-between" style={{ gap: SP[2] }}>
-        <span style={{ fontSize: 14, fontWeight: 600 }}>冰箱 · {layout.total} 条库存</span>
-        <span style={{ fontSize: 12, color: F.textSecondary }}>点哪扇门，就开哪一层</span>
-      </div>
-      {(['fridge', 'freezer'] as const).map(value => <button key={value} type="button" disabled={status !== 'ready'}
-        className="sr-only focus:not-sr-only" aria-pressed={doorsOpen[value]} style={buttonStyle}
-        onClick={() => toggleDoor(value)}>{doorsOpen[value] ? '关闭' : '打开'}{value === 'fridge' ? '冷藏门' : '冷冻门'}</button>)}
+    <section className="kitchen-scene" aria-label="冰箱可视化">
       <div className="relative" style={{ aspectRatio: '1 / 1.18', maxHeight: 420,
-        marginTop: SP[2], borderRadius: R.smallCard, overflow: 'hidden', background: HUE.blue.tint }}>
+        overflow: 'hidden', background: HUE.blue.tint }}>
         <div ref={host} className="absolute inset-0" />
         {status !== 'ready' && <div role="status" className="absolute inset-0 flex items-center justify-center text-center"
-          style={{ padding: SP[3], color: F.textSecondary, fontSize: 13 }}>
-          {status === 'loading' ? '正在整理冰箱…' : '冰箱画面暂时打不开，可以继续使用下面的食材列表。切回列表后重试。'}
+          style={{ padding: SP[3], color: PAPER.muted, fontSize: 13 }}>
+          {status === 'loading' ? '正在整理冰箱…' : '冰箱画面暂时打不开，请从「食材清单」继续记录。'}
         </div>}
         {status === 'ready' && layout.entries.map((entry, index) => {
           if (!isOpen(entry.lot.storageZone)) return null;
           const marker = markers.find(item => item.lotId === entry.lot.id);
           if (!marker) return null;
           return <button key={entry.lot.id} type="button"
-            aria-label={`选中${entry.name}`}
-            onClick={() => setSelectedId(entry.lot.id)}
+            aria-label={`查看${entry.name}`}
+            onClick={() => onOpenLot(entry.lot.id)}
             className="absolute flex items-center justify-center"
             style={{ left: marker.x - 22, top: marker.y - 22, width: 44, height: 44 }}>
-            <span style={{ background: F.surfaceRaised, color: HUE.green.ink, borderRadius: R.pill,
-              width: 24, height: 24, lineHeight: '24px', fontSize: 12, boxShadow: S.raisedSoft }}>{index + 1}</span>
+            <span style={{ background: PAPER.surface, color: PAPER.blueInk, borderRadius: R.pill,
+              border: `1px solid ${PAPER.line}`, width: 24, height: 24, lineHeight: '22px', fontSize: 12 }}>{index + 1}</span>
           </button>;
         })}
       </div>
-      {status === 'ready' && doorsOpen.fridge && <button type="button" aria-pressed={drawersOpen} style={{ ...buttonStyle, marginBottom: SP[2] }}
-        onClick={() => setDrawersOpen(value => !value)}>{drawersOpen ? '推回保鲜抽屉' : '拉开保鲜抽屉'}</button>}
-      <p style={{ color: F.textSecondary, fontSize: 12, marginBottom: SP[2] }}>
-        {layout.total === 0 ? '冰箱里还没有食材，可以先添加冷藏或冷冻库存。' : '点食材可以查看详情或移动；门内置物架随各自的门一起开合。'}
-      </p>
-      {selected && <div ref={selectionPanel} aria-label="选中食材" style={{ padding: SP[2], marginBottom: SP[2], borderRadius: R.medium, background: F.surfaceSunken, boxShadow: S.sunken }}>
-        <strong style={{ fontSize: 14 }}>{selected.name}</strong>
-        <button type="button" style={{ ...buttonStyle, marginLeft: SP[2] }} onClick={() => onOpenLot(selected.lot.id)}>查看详情</button>
-        {(selected.lot.storageZone === 'fridge' || selected.lot.storageZone === 'freezer') && <>
-          <p style={{ fontSize: 12, marginTop: SP[2], marginBottom: SP[1], color: F.textSecondary }}>放到哪里？</p>
-          <div className="grid grid-cols-2" style={{ gap: SP[1] }}>
-            {fridgePlacementOptions(selected.lot.storageZone).map(option =>
-              <button type="button" key={option.value} disabled={busy || selected.placement === option.value}
-                className="flex-1 disabled:opacity-40" style={buttonStyle}
-                onClick={() => { void onMoveLot(selected.lot.id, option.value); }}>{option.label}</button>)}
-          </div>
-        </>}
-      </div>}
-      <div className="grid grid-cols-3" style={{ gap: SP[1] }}>
-        {layout.entries.map((entry, index) => <button key={entry.lot.id} type="button" style={buttonStyle}
-          className="min-w-0 text-left" onClick={() => { setSelectedId(entry.lot.id); setDoorsOpen(value => ({ ...value, [entry.lot.storageZone]: true })); }}>
-          <span className="block truncate">{index + 1}. {entry.name}</span>
-          <span style={{ color: F.textSecondary, fontSize: 11 }}>{entry.placement === 'shelf' ? (entry.lot.storageZone === 'freezer' ? '冷冻层板' : '冷藏层板') : `${entry.lot.storageZone === 'freezer' ? '冷冻' : '冷藏'}门${entry.placement === 'door-upper' ? '上层' : entry.placement === 'door-middle' ? '中层' : '下层'}`}</span>
+      <div className="flex items-center justify-center flex-wrap" style={{ gap: SP[1], padding: `${SP[1]}px ${SP[2]}px` }}>
+        {(['freezer', 'fridge'] as const).map(value => <button key={value} type="button"
+          disabled={status !== 'ready'} aria-pressed={doorsOpen[value]}
+          className="disabled:opacity-40" style={buttonStyle}
+          onClick={() => toggleDoor(value)}>
+          {doorsOpen[value] ? '关上' : '打开'}{value === 'fridge' ? '冷藏门' : '冷冻门'}
         </button>)}
+        <button type="button" disabled={status !== 'ready' || !doorsOpen.fridge}
+          aria-pressed={doorsOpen.fridge && drawersOpen} className="disabled:opacity-40" style={buttonStyle}
+          onClick={() => setDrawersOpen(value => !value)}>
+          {drawersOpen ? '推回抽屉' : '拉开抽屉'}
+        </button>
       </div>
+      <p style={{ color: PAPER.muted, fontSize: 12, textAlign: 'center', padding: `0 ${SP[3]}px ${SP[3]}px` }}>
+        {layout.total === 0 ? '冰箱还空着，把新买的食物放进来吧。' : '点食材，记下还剩多少 · 也可以打开食材清单'}
+      </p>
     </section>
   );
 };

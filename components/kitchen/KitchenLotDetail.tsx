@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CaretLeft, Check, Package, Snowflake } from '@phosphor-icons/react';
-import { F, HUE, MOTION, R, S, SP } from '../../utils/clayTokens';
+import { KITCHEN_PAPER as PAPER, KITCHEN_PAPER_VARS } from '../../utils/kitchenPaperTokens';
+import './kitchenPaper.css';
 import {
   hasKitchenEventChange,
   type KitchenEvent,
@@ -11,8 +12,6 @@ import {
   type UpdateKitchenLotDetailsInput,
 } from '../../utils/kitchenDb';
 import { formatPackageAmount, formatPortionFraction } from '../../utils/kitchenQuantity';
-
-const KITCHEN = HUE.green;
 
 const EVENT_LABELS: Record<KitchenEvent['type'], string> = {
   ADD: '放进厨房',
@@ -40,39 +39,15 @@ const formatEventTime = (occurredAt: number): string => new Intl.DateTimeFormat(
 }).format(occurredAt);
 
 const Field: React.FC<React.InputHTMLAttributes<HTMLInputElement>> = props => (
-  <input
-    {...props}
-    className="w-full outline-none"
-    style={{
-      height: 52,
-      padding: `0 ${SP[3]}px`,
-      borderRadius: R.input,
-      background: F.surfaceSunken,
-      color: F.textPrimary,
-      boxShadow: S.sunken,
-      fontSize: 15,
-    }}
-  />
+  <input {...props} className="kitchen-field" />
 );
 
 const SelectField: React.FC<React.SelectHTMLAttributes<HTMLSelectElement>> = props => (
-  <select
-    {...props}
-    className="w-full outline-none"
-    style={{
-      height: 52,
-      padding: `0 ${SP[3]}px`,
-      borderRadius: R.input,
-      background: F.surfaceSunken,
-      color: F.textPrimary,
-      boxShadow: S.sunken,
-      fontSize: 15,
-    }}
-  />
+  <select {...props} className="kitchen-field" />
 );
 
 const Label: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <span className="block" style={{ marginBottom: SP[1], color: F.textSecondary, fontSize: 13, lineHeight: '18px' }}>
+  <span className="kitchen-label">
     {children}
   </span>
 );
@@ -151,95 +126,81 @@ const KitchenLotDetail: React.FC<KitchenLotDetailProps> = ({
   };
 
   return (
-    <div className="h-full min-h-0 flex flex-col" style={{ background: F.appBg, color: F.textPrimary }}>
-      <div className="shrink-0" style={{ paddingTop: 'var(--chrome-top)' }}>
-        <div className="relative flex items-center" style={{ minHeight: 44, padding: `${SP[2]}px ${SP[4]}px` }}>
-          <button
-            type="button"
-            aria-label="返回食材列表"
-            onClick={onBack}
-            className="flex shrink-0 items-center justify-center active:translate-y-[1px]"
-            style={{
-              width: 44,
-              height: 44,
-              borderRadius: R.pill,
-              background: F.surfaceRaised,
-              border: `1px solid ${F.borderSoft}`,
-              boxShadow: S.raisedSoft,
-              transition: `transform ${MOTION.tap} ${MOTION.ease}`,
-            }}
-          >
-            <CaretLeft size={20} weight="bold" color={F.textSecondary} />
+    <form
+      className="kitchen-paper kitchen-page"
+      style={KITCHEN_PAPER_VARS}
+      onSubmit={event => { event.preventDefault(); save(); }}
+    >
+      <header className="kitchen-header">
+        <div className="relative flex items-center" style={{ minHeight: 52, padding: '4px 0' }}>
+          <button type="button" aria-label="返回食材" onClick={onBack} className="kitchen-icon">
+            <CaretLeft size={20} weight="bold" />
           </button>
-          <span
-            className="pointer-events-none absolute left-0 right-0 flex justify-center font-semibold"
-            style={{ fontSize: 16, color: F.textPrimary }}
-          >
-            食材详情
-          </span>
+          <h1 className="kitchen-heading pointer-events-none absolute left-0 right-0 text-center" style={{ fontSize: 17 }}>
+            食材小档案
+          </h1>
         </div>
-      </div>
+      </header>
 
-      <main className="flex-1 min-h-0 overflow-y-auto" style={{ padding: `${SP[1]}px ${SP[4]}px calc(var(--safe-bottom) + ${SP[5]}px)` }}>
-        <section
-          className="flex items-center"
-          style={{ gap: SP[2], padding: SP[3], borderRadius: R.bigCard, background: KITCHEN.tint, boxShadow: S.raisedSoft }}
-        >
-          <span className="flex shrink-0 items-center justify-center" style={{ width: 44, height: 44, borderRadius: R.medium, background: KITCHEN.main, color: F.surfaceRaised }}>
+      <main className="kitchen-content">
+        <section className="kitchen-detail-summary" aria-label="食材余量">
+          <span className="flex shrink-0 items-center justify-center" style={{ width: 44, height: 44, borderRadius: PAPER.radius.card, background: PAPER.blue, color: PAPER.blueInk }}>
             {lot.storageZone === 'freezer' ? <Snowflake size={22} /> : <Package size={22} />}
           </span>
-          <span className="min-w-0">
-            <span className="block break-words" style={{ fontSize: 18, lineHeight: '26px', fontWeight: 600 }}>{food.name}</span>
-            <span className="block" style={{ color: F.textSecondary, fontSize: 13, lineHeight: '18px' }}>{stockSummary}</span>
-          </span>
+          <div className="min-w-0">
+            <h2 className="kitchen-heading break-words" style={{ fontSize: 21 }}>{food.name}</h2>
+            <p style={{ color: PAPER.muted, fontSize: 13, lineHeight: '20px', marginTop: 4 }}>{stockSummary}</p>
+          </div>
         </section>
 
         {notice && (
-          <div role="status" style={{ marginTop: SP[3], padding: `${SP[2]}px ${SP[3]}px`, borderRadius: R.medium, background: KITCHEN.tint, color: KITCHEN.ink, fontSize: 13 }}>
-            {notice}
-          </div>
+          <div role="status" className="kitchen-note" style={{ marginTop: 16 }}>{notice}</div>
         )}
         {validationError && (
-          <div role="alert" style={{ marginTop: SP[3], padding: `${SP[2]}px ${SP[3]}px`, borderRadius: R.medium, background: F.surfaceSunken, color: F.textSecondary, fontSize: 13 }}>
-            {validationError}
-          </div>
+          <div role="alert" id="kitchen-detail-error" className="kitchen-note" style={{ marginTop: 16, color: PAPER.danger }}>{validationError}</div>
         )}
 
-        <section style={{ marginTop: SP[5] }}>
-          <h2 style={{ marginBottom: SP[2], fontSize: 18, lineHeight: '26px', fontWeight: 600 }}>基本资料</h2>
-          <div style={{ padding: SP[3], borderRadius: R.bigCard, background: F.surface, boxShadow: S.raisedSoft }}>
-            <div>
+        <section className="kitchen-detail-section">
+          <h2 className="kitchen-heading">基本资料</h2>
+          <div className="kitchen-detail-fields">
+            <label>
               <Label>食材名称</Label>
-              <Field aria-label="食材名称" value={name} onChange={event => setName(event.target.value)} />
-            </div>
-            <div style={{ marginTop: SP[3] }}>
+              <Field
+                aria-label="食材名称"
+                aria-invalid={!!validationError}
+                aria-describedby={validationError ? 'kitchen-detail-error' : undefined}
+                value={name}
+                onChange={event => setName(event.target.value)}
+              />
+            </label>
+            <label>
               <Label>收纳单位</Label>
               <SelectField aria-label="收纳单位" value={unit} onChange={event => setUnit(event.target.value as KitchenUnit)}>
                 {editableUnits.map(option => <option key={option} value={option}>{unitLabels[option]}</option>)}
               </SelectField>
-            </div>
-            <div style={{ marginTop: SP[3] }}>
-              <Label>每件包装规格（可不填）</Label>
+            </label>
+            <label>
+              <Label>每件包装规格 · 可不填</Label>
               <Field aria-label="包装规格" value={packageSize} onChange={event => setPackageSize(event.target.value)} placeholder="例如 946 ml、30 fl oz 或 1.1 lb" />
-            </div>
+            </label>
             {siblingLotCount > 1 && (
-              <p style={{ marginTop: SP[2], color: F.textTertiary, fontSize: 12, lineHeight: '18px' }}>
+              <p style={{ color: PAPER.muted, fontSize: 12, lineHeight: '19px' }}>
                 改名称会同步到另 {siblingLotCount - 1} 条同名批次；包装与位置只改这一条。
               </p>
             )}
           </div>
         </section>
 
-        <section style={{ marginTop: SP[5] }}>
-          <h2 style={{ marginBottom: SP[2], fontSize: 18, lineHeight: '26px', fontWeight: 600 }}>收纳与日期</h2>
-          <div style={{ padding: SP[3], borderRadius: R.bigCard, background: F.surface, boxShadow: S.raisedSoft }}>
-            <div>
+        <section className="kitchen-detail-section">
+          <h2 className="kitchen-heading">收纳与日期</h2>
+          <div className="kitchen-detail-fields">
+            <label>
               <Label>收纳位置</Label>
               <SelectField aria-label="收纳位置" value={storageZone} onChange={event => setStorageZone(event.target.value as KitchenStorageZone)}>
                 {(Object.keys(zoneLabels) as KitchenStorageZone[]).map(option => <option key={option} value={option}>{zoneLabels[option]}</option>)}
               </SelectField>
-            </div>
-            <div className="grid grid-cols-2" style={{ gap: SP[2], marginTop: SP[3] }}>
+            </label>
+            <div className="kitchen-form-row">
               <label>
                 <Label>购买日期</Label>
                 <Field aria-label="购买日期" type="date" value={purchasedAt} onChange={event => setPurchasedAt(event.target.value)} />
@@ -252,57 +213,50 @@ const KitchenLotDetail: React.FC<KitchenLotDetailProps> = ({
           </div>
         </section>
 
-        <section style={{ marginTop: SP[5] }}>
-          <h2 style={{ marginBottom: SP[2], fontSize: 18, lineHeight: '26px', fontWeight: 600 }}>当前库存</h2>
-          {onFinish && lot.quantity > 0 && <button type="button" onClick={onFinish} disabled={busy}
-            className="w-full disabled:opacity-50"
-            style={{ minHeight: 44, marginBottom: SP[2], borderRadius: R.button, background: F.surfaceRaised,
-              color: KITCHEN.ink, boxShadow: S.raisedSoft, fontSize: 13, fontWeight: 600 }}>
-            这条库存已用完
-          </button>}
-          <div style={{ padding: SP[3], borderRadius: R.bigCard, background: F.surfaceSunken, boxShadow: S.sunken }}>
-            <div style={{ color: F.textPrimary, fontSize: 15, lineHeight: '23px', fontWeight: 600 }}>{stockSummary}</div>
-            <div style={{ marginTop: SP[1], color: F.textSecondary, fontSize: 13, lineHeight: '18px' }}>
-              余量请从列表展开后的“吃了一些”或秤图标核对，不会被修改资料时意外改掉。
-            </div>
+        <section className="kitchen-detail-section">
+          <h2 className="kitchen-heading">当前库存</h2>
+          <div className="kitchen-note">
+            <p style={{ color: PAPER.ink, fontSize: 15, fontWeight: 600 }}>{stockSummary}</p>
+            <p style={{ marginTop: 4 }}>余量在食材操作面板中记录；修改这些资料不会改变库存数量。</p>
           </div>
-        </section>
-
-        <section style={{ marginTop: SP[5] }}>
-          <h2 style={{ marginBottom: SP[2], fontSize: 18, lineHeight: '26px', fontWeight: 600 }}>这条库存的记录</h2>
-          {lotEvents.length === 0 ? (
-            <div style={{ padding: SP[3], borderRadius: R.bigCard, background: F.surfaceSunken, boxShadow: S.sunken, color: F.textTertiary, fontSize: 13 }}>
-              还没有记录。
-            </div>
-          ) : (
-            <div style={{ borderRadius: R.bigCard, background: F.surface, boxShadow: S.raisedSoft, overflow: 'hidden' }}>
-              {lotEvents.map((event, index) => (
-                <div key={event.id} className="flex items-center" style={{ minHeight: 64, gap: SP[2], padding: `${SP[2]}px ${SP[3]}px`, borderTop: index === 0 ? undefined : `1px solid ${F.divider}`, opacity: event.undoneAt ? 0.5 : 1 }}>
-                  <span className="min-w-0 flex-1">
-                    <span className="block" style={{ fontSize: 13, lineHeight: '18px', fontWeight: 600 }}>{EVENT_LABELS[event.type]}{event.undoneAt ? '（已撤销）' : ''}</span>
-                    <span className="block" style={{ color: F.textTertiary, fontSize: 12, lineHeight: '18px' }}>{formatEventTime(event.occurredAt)}{event.note ? ` · ${event.note}` : ''}</span>
-                  </span>
-                  <span style={{ color: (event.contentDelta ?? event.quantityDelta) >= 0 ? KITCHEN.ink : F.textSecondary, fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-                    {formatEventAmount(event, unitLabels)}
-                  </span>
-                </div>
-              ))}
-            </div>
+          {onFinish && lot.quantity > 0 && (
+            <button type="button" onClick={onFinish} disabled={busy} className="kitchen-text-button" style={{ marginTop: 4 }}>
+              这条库存已用完
+            </button>
           )}
         </section>
 
-        <button
-          type="button"
-          onClick={save}
-          disabled={busy}
-          className="flex w-full items-center justify-center font-semibold disabled:opacity-50 active:translate-y-[1px]"
-          style={{ height: 48, gap: SP[1], marginTop: SP[5], borderRadius: R.button, background: KITCHEN.main, color: F.surfaceRaised, boxShadow: S.raisedSoft, transition: `transform ${MOTION.tap} ${MOTION.ease}` }}
-        >
-          <Check size={18} weight="bold" />
-          保存修改
-        </button>
+        <details className="kitchen-detail-section" style={{ borderTop: `1px solid ${PAPER.line}`, paddingTop: 16 }}>
+          <summary className="kitchen-heading" style={{ fontSize: 15, cursor: 'pointer', minHeight: 44 }}>
+            这条库存的记录 <span style={{ color: PAPER.muted, fontFamily: 'sans-serif', fontSize: 12, fontWeight: 400 }}>（{lotEvents.length}）</span>
+          </summary>
+          {lotEvents.length === 0 ? (
+            <p style={{ color: PAPER.muted, fontSize: 13, padding: '8px 0 16px' }}>还没有记录。</p>
+          ) : (
+            <ol className="kitchen-detail-history">
+              {lotEvents.map(event => (
+                <li key={event.id} style={{ opacity: event.undoneAt ? 0.6 : 1 }}>
+                  <span className="min-w-0 flex-1">
+                    <span className="block" style={{ fontSize: 13, lineHeight: '20px', fontWeight: 600 }}>{EVENT_LABELS[event.type]}{event.undoneAt ? '（已撤销）' : ''}</span>
+                    <span className="block" style={{ color: PAPER.muted, fontSize: 12, lineHeight: '18px' }}>{formatEventTime(event.occurredAt)}{event.note ? ` · ${event.note}` : ''}</span>
+                  </span>
+                  <span style={{ color: (event.contentDelta ?? event.quantityDelta) >= 0 ? PAPER.greenInk : PAPER.muted, fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+                    {formatEventAmount(event, unitLabels)}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </details>
       </main>
-    </div>
+
+      <footer className="kitchen-detail-footer">
+        <button type="submit" disabled={busy} className="kitchen-button kitchen-button--primary w-full">
+          <Check size={18} weight="bold" />
+          {busy ? '正在保存…' : '保存修改'}
+        </button>
+      </footer>
+    </form>
   );
 };
 
