@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const health = vi.fn();
 const submitChatTurn = vi.fn();
 const chatTurnStatus = vi.fn();
+const registerPush = vi.fn();
 let paired = true;
 
 vi.mock('./emAgentBackend', () => ({
@@ -12,6 +13,7 @@ vi.mock('./emAgentBackend', () => ({
         health: (...args: unknown[]) => health(...args),
         submitChatTurn: (...args: unknown[]) => submitChatTurn(...args),
         chatTurnStatus: (...args: unknown[]) => chatTurnStatus(...args),
+        registerPush: (...args: unknown[]) => registerPush(...args),
     },
 }));
 vi.mock('./activeMsgClient', () => ({
@@ -20,7 +22,7 @@ vi.mock('./activeMsgClient', () => ({
 
 import {
     AGENT_CHAT_MAX_STATUS_FAILURES, chatReplyToInbox, checkAgentChatPending, isAgentChatReady, resetAgentChatProbeForTest,
-    sendAgentChatTurn, setAgentChatEnabled, tokenUsageFromCloudMetadata,
+    sendAgentChatTurn, setAgentChatEnabled, tokenUsageFromCloudMetadata, notePollRescue, pushStaleNoticeText, resetPushStaleForTest, PUSH_STALE_EVENT,
 } from './emAgentChat';
 import { clearInstantChatPending, getInstantChatPending, setInstantChatPending } from './amsgInstantChat';
 
@@ -121,6 +123,50 @@ describe('60 秒点名', () => {
         }
         await checkAgentChatPending(pending, async () => {});
         expect(getInstantChatPending('lumi')).toBeNull();
+    });
+});
+
+describe('[EM: agent-push-stale-notice] 推送没送到时要让阿萌知道', () => {
+    const heard: Array<{ fixed?: boolean; reason?: string }> = [];
+    const listen = (event: Event) => { heard.push((event as CustomEvent).detail); };
+    beforeEach(() => {
+        heard.length = 0; registerPush.mockReset(); resetPushStaleForTest();
+        vi.stubGlobal('window', new EventTarget());
+        window.addEventListener(PUSH_STALE_EVENT, listen);
+        submitChatTurn.mockResolvedValue({});
+    });
+    const send = () => sendAgentChatTurn({ char, messages: [], api: { baseUrl: 'b', apiKey: '', model: 'm' } });
+
+    it('一轮靠点名取到不算；连着两轮才提示，并先自己重新登记一次', async () => {
+        registerPush.mockResolvedValue({ ok: true });
+        await send(); await notePollRescue(1_000);
+        expect(heard).toHaveLength(0);
+        await send(); await notePollRescue(2_000);
+        expect(registerPush).toHaveBeenCalledTimes(1);
+        expect(heard).toEqual([{ fixed: true, reason: '' }]);
+        expect(pushStaleNoticeText(heard[0])).toContain('已经自动重新登记推送');
+        // 半小时内不重复提示
+        await send(); await notePollRescue(3_000);
+        expect(heard).toHaveLength(1);
+        vi.unstubAllGlobals();
+    });
+
+    it('中间有一轮是推送送到的：连续计数清零', async () => {
+        registerPush.mockResolvedValue({ ok: true });
+        await send(); await notePollRescue(1_000);
+        await send(); // 这一轮推送送到了，没走点名
+        await send(); await notePollRescue(2_000);
+        expect(heard).toHaveLength(0);
+        vi.unstubAllGlobals();
+    });
+
+    it('自动登记没成功：提示里说清原因，让她去点「登记推送」', async () => {
+        registerPush.mockResolvedValue({ ok: false, reason: '浏览器没有给出推送订阅' });
+        await send(); await notePollRescue(1_000);
+        await send(); await notePollRescue(2_000);
+        expect(pushStaleNoticeText(heard[0])).toContain('自动重新登记没成功（浏览器没有给出推送订阅）');
+        expect(pushStaleNoticeText(heard[0])).toContain('点一次「登记推送」');
+        vi.unstubAllGlobals();
     });
 });
 

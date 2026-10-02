@@ -2045,6 +2045,18 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   }, []);
   // [EM-END: agent-backend-inbox]
 
+  // [EM-START: agent-push-stale-notice] 推送到不了手机：弹一个要点掉才消失的说明，别让回复悄悄变慢
+  useEffect(() => {
+      const onStale = (event: Event) => {
+          void import('../utils/emAgentChat').then(({ pushStaleNoticeText }) => {
+              setErrorDialog({ title: 'Mac mini 的推送没送到', details: pushStaleNoticeText((event as CustomEvent).detail ?? {}) });
+          });
+      };
+      window.addEventListener('em-agent-push-stale', onStale);
+      return () => window.removeEventListener('em-agent-push-stale', onStale);
+  }, []);
+  // [EM-END: agent-push-stale-notice]
+
   // ─── Global Proactive Message Handler ───
   // Registered at OS level so it works even when Chat is not open.
   useEffect(() => {
