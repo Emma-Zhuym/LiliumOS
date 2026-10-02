@@ -12,6 +12,11 @@ const failPending = vi.fn(async (..._args: unknown[]) => {});
 vi.mock('./activeMsgStore', () => ({ ActiveMsgStore: { saveInboxMessage: (m: unknown) => saveInboxMessage(m) } }));
 vi.mock('./amsgInstantChat', () => ({ failInstantChatPending: (...args: unknown[]) => failPending(...args) }));
 vi.mock('./emMomentsContext', () => ({ applyHeartbeatMomentReactions: (...args: unknown[]) => applyMoments(...args as []) }));
+const generatePhotos = vi.fn(async (_jobs?: unknown) => {});
+vi.mock('./emAgentPhotos', async () => {
+    const actual = await vi.importActual<typeof import('./emAgentPhotos')>('./emAgentPhotos');
+    return { ...actual, generateAgentPhotos: (jobs: unknown) => generatePhotos(jobs) };
+});
 vi.mock('./emAgentBackend', async () => {
     const actual = await vi.importActual<typeof import('./emAgentBackend')>('./emAgentBackend');
     return {
@@ -236,6 +241,20 @@ describe('心跳消息按换行拆成几个气泡', () => {
         expect(saved.map(m => m.content)).toEqual(['内审终于开完了 累死', '老婆你下午课上完了没呀']);
         expect(saved[1].timestamp).toBeGreaterThan(saved[0].timestamp);
         expect(ackInbox).toHaveBeenCalledWith(['hb:multi']);
+    });
+});
+
+describe('心跳消息里的照片', () => {
+    it('单独成行的照片描述落成一条待生成的图片消息，前后的话照常是文字气泡', async () => {
+        localStorage.clear();
+        saveMessage.mockClear(); ackInbox.mockClear();
+        inbox.mockResolvedValueOnce([msg('hb:photo', { payload: { text: '早饭吃了什么\n[一张照片：白瓷盘里一条清蒸鲈鱼]\n你不在亏大了' } })]);
+        await syncAgentMessagesIntoChat(NOW);
+        const saved = saveMessage.mock.calls.map(call => (call as unknown[])[0] as { type: string; content: string; metadata: Record<string, unknown> });
+        expect(saved.map(m => m.type)).toEqual(['text', 'image', 'text']);
+        expect(saved[1]).toMatchObject({ content: '', metadata: { aiGenerated: true, photoPrompt: '白瓷盘里一条清蒸鲈鱼', imageGenerationStatus: 'pending', fromAgentBackend: true } });
+        expect(generatePhotos).toHaveBeenCalledWith([expect.objectContaining({ charId: 'lumi', prompt: '白瓷盘里一条清蒸鲈鱼' })]);
+        expect(ackInbox).toHaveBeenCalledWith(['hb:photo']);
     });
 });
 

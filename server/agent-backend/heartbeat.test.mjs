@@ -17,7 +17,7 @@ import {
     ACTIVE_CHAT_WINDOW_MS, buildPrompt, checkGates, speakBlock, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
     BREAK_COOLDOWN_MIN, currentSlot, decideIntent, formatGap, inBreakWindow, upcomingBreakStarts, jitterRatio, lastRealInteractionAt, listModelRuns, messageChance,
     nextRunAt, recordModelRun, shouldCaptureRaw, decideEpisode, episodeChance, isWorkSlot, lifeChance, pickLifeKind, veilSurprise,
-    MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, withPlanTime, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule, unansweredProactive, lastUserSpokeAt, unansweredFactor, reachOutTimeRule, recentOwnMessages, fillMomentComments, DUTY_RULE,
+    MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, withPlanTime, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule, unansweredProactive, lastUserSpokeAt, unansweredFactor, reachOutTimeRule, recentOwnMessages, fillMomentComments, DUTY_RULE, PHOTO_HOW, previewWithoutPhotoTags,
 } from './heartbeat.mjs';
 import { chatCompletionsUrl, createApiRunner, extractContentText, parseEpisode, parseHeartbeatOutput, parseLife } from './runner.mjs';
 import { applyThread, closePassedPlans, closeStaleThreads, isPlanDue, listOpenThreads, listPlans } from './lifeThreads.mjs';
@@ -1870,4 +1870,19 @@ test('活在社会里的人：三种意图的提示词里都有，跟在今天�
     assert.match(DUTY_RULE, /受伤、急病、出了事，放下一切赶过去/);
     assert.match(DUTY_RULE, /想逛超市、想见面、无聊了，手头的事照常做完再陪/);
     assert.match(DUTY_RULE, /而不是推掉工作连夜赶过去、跨城跨国飞过去/);
+});
+
+test('心跳发照片：能开口的那一跳才教写法；推送预览里不放指令原文', () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    const snapshot = { receivedAt: AT.toISOString(), payload: { identity: { name: '卫斯理' }, user: { name: '阿萌' }, timezone: 'Asia/Shanghai' } };
+    assert.ok(buildPrompt(character, snapshot, AT, 'reach_out').includes(PHOTO_HOW));
+    assert.ok(buildPrompt(character, snapshot, AT, 'reply').includes(PHOTO_HOW));
+    assert.ok(!buildPrompt(character, snapshot, AT, 'live', { canSpeak: false }).includes(PHOTO_HOW), '不能开口的那一跳不教');
+    assert.match(PHOTO_HOW, /\[\[SEND_PHOTO: 英文描述\]\]/);
+    assert.equal(
+        previewWithoutPhotoTags('早饭吃了什么\n[[SEND_PHOTO: steamed sea bass on a white plate, no people in frame]]\n你不在亏大了'),
+        '早饭吃了什么\n[照片]\n你不在亏大了',
+    );
+    assert.equal(previewWithoutPhotoTags('[一张照片：白瓷盘里一条清蒸鲈鱼]'), '[照片]');
 });

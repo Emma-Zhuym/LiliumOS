@@ -22,6 +22,7 @@ import {
 import { applyHeartbeatMomentReactions } from './emMomentsContext'; // [EM: moments-heartbeat]
 import { ChatParser } from './chatParser';
 import { chatReplyToInbox } from './emAgentChat'; // [EM: agent-instant-chat]
+import { generateAgentPhotos, parsePhotoBubble, type AgentPhotoJob } from './emAgentPhotos'; // [EM: heartbeat-photos]
 
 export interface InboxSyncResult {
     /** 真正写进聊天的条数。 */
@@ -136,7 +137,26 @@ const syncAgentMessagesOnce = async (
                 // 按换行拆成几个气泡，跟聊天里本地生成的回复同一个拆法（ChatParser.chunkText）。
                 // 原来整段存成一条，「会开完了\n你下课了没」挤在一个气泡里。
                 const chunks = ChatParser.chunkText(text).map(chunk => chunk.trim()).filter(Boolean);
+                const photoJobs: AgentPhotoJob[] = []; // [EM: heartbeat-photos]
                 for (const [index, chunk] of (chunks.length ? chunks : [text]).entries()) {
+                    // [EM-START: heartbeat-photos] 单独成行的照片描述落成一条待生成的图片消息
+                    const photoPrompt = parsePhotoBubble(chunk);
+                    if (photoPrompt) {
+                        const imageMessageId = await DB.saveMessage({
+                            charId: message.charId,
+                            role: 'assistant',
+                            type: 'image',
+                            content: '',
+                            timestamp: sentAt + index,
+                            metadata: {
+                                fromAgentBackend: true, source: message.payload?.source ?? 'heartbeat',
+                                aiGenerated: true, photoPrompt, imageGenerationStatus: 'pending',
+                            },
+                        } as never);
+                        photoJobs.push({ messageId: imageMessageId, charId: message.charId, prompt: photoPrompt });
+                        continue;
+                    }
+                    // [EM-END: heartbeat-photos]
                     await DB.saveMessage({
                         charId: message.charId,
                         role: 'assistant',
@@ -159,6 +179,8 @@ const syncAgentMessagesOnce = async (
                     } as never);
                 }
                 // [EM-END: heartbeat-xhs]
+                // [EM: heartbeat-photos] 不等生图：消息先落地、先销账，图在后面慢慢出
+                if (photoJobs.length) void generateAgentPhotos(photoJobs);
                 result.delivered += 1;
                 result.lines.push({ charId: message.charId, text });
                 landed.push(message.messageId);
