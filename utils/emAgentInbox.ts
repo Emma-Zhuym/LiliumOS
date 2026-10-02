@@ -89,9 +89,23 @@ const rememberDelivered = (ids: string[]): void => {
  * 全程静默失败：mini 每天 4–7 点休眠、Tailscale 没开都属于正常状态，不该弹错。
  * ack 放在写库之后——先确认存下来了再告诉后端「我收到了」，否则这条就永远丢了。
  */
-export const syncAgentMessagesIntoChat = async (
+export const syncAgentMessagesIntoChat = (
     now = Date.now(),
     options: InboxSyncOptions = {},
+): Promise<InboxSyncResult> => {
+    // 一次只跑一趟。取信箱有两处会触发（回到前台、即时回复的点名 / 推送叫取），撞在一起时两趟
+    // 都在对方记账、销账之前取到同一批，每条就落两遍——2026-10-02 卫斯理的晚安和清蒸鲈鱼都是这么重复的。
+    // 排队之后，后一趟等前一趟销完账再去取，取到的就只剩真正没收过的。
+    const run = syncQueue.then(() => syncAgentMessagesOnce(now, options));
+    syncQueue = run.then(() => undefined, () => undefined);
+    return run;
+};
+
+let syncQueue: Promise<void> = Promise.resolve();
+
+const syncAgentMessagesOnce = async (
+    now: number,
+    options: InboxSyncOptions,
 ): Promise<InboxSyncResult> => {
     if (!isAgentPaired()) return EMPTY;
 

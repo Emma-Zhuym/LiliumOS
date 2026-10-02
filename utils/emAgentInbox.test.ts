@@ -239,6 +239,23 @@ describe('心跳消息按换行拆成几个气泡', () => {
     });
 });
 
+describe('取信箱一次只跑一趟', () => {
+    it('两处同时触发：后一趟等前一趟销完账再取，同一条不会落两遍', async () => {
+        localStorage.clear();
+        saveMessage.mockClear(); ackInbox.mockClear();
+        const box = [msg('hb:race', { payload: { text: '早饭吃了什么' } })];
+        let fetches = 0;
+        // 后端的信箱：销过账的就不再给
+        inbox.mockImplementation(async () => { fetches += 1; await new Promise(r => setTimeout(r, 5)); return [...box]; });
+        ackInbox.mockImplementation(async (ids?: string[]) => { box.splice(0, box.length, ...box.filter(m => !(ids ?? []).includes(m.messageId))); return { acked: 1 }; });
+        const [first, second] = await Promise.all([syncAgentMessagesIntoChat(NOW), syncAgentMessagesIntoChat(NOW)]);
+        expect(fetches).toBe(2);
+        expect(first.delivered + second.delivered).toBe(1);
+        expect(saveMessage).toHaveBeenCalledTimes(1);
+        inbox.mockReset(); ackInbox.mockReset(); ackInbox.mockImplementation(async () => ({ acked: 0 }));
+    });
+});
+
 describe('Mac mini 的即时回复', () => {
     it('回复放进 ActiveMsg 收件箱、报给调用方去冲刷，不直接写聊天', async () => {
         saveMessage.mockClear(); ackInbox.mockClear(); saveInboxMessage.mockClear();
