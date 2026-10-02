@@ -2105,6 +2105,13 @@ const flushInboxToChatImpl = async (trigger: FlushTrigger): Promise<string[]> =>
       });
     }
   }
+  // [EM-START: agent-instant-chat] mini 的即时回复落地了就销账，免得下次取信箱又领回来一遍
+  if (landedMessageIds.some(id => id.startsWith('mini:'))) {
+    void import('./emAgentInbox')
+      .then(({ settleLandedAgentReplies }) => settleLandedAgentReplies(landedMessageIds))
+      .catch(() => {});
+  }
+  // [EM-END: agent-instant-chat]
   return landedMessageIds;
 };
 

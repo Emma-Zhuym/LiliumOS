@@ -21,7 +21,7 @@ vi.mock('./emAgentBackend', async () => {
     };
 });
 
-import { syncAgentMessagesIntoChat } from './emAgentInbox';
+import { settleLandedAgentReplies, syncAgentMessagesIntoChat } from './emAgentInbox';
 
 const NOW = Date.parse('2026-09-23T12:00:00.000Z');
 
@@ -239,6 +239,23 @@ describe('心跳消息按换行拆成几个气泡', () => {
     });
 });
 
+describe('取信箱一次只跑一趟', () => {
+    it('两处同时触发：后一趟等前一趟销完账再取，同一条不会落两遍', async () => {
+        localStorage.clear();
+        saveMessage.mockClear(); ackInbox.mockClear();
+        const box = [msg('hb:race', { payload: { text: '早饭吃了什么' } })];
+        let fetches = 0;
+        // 后端的信箱：销过账的就不再给
+        inbox.mockImplementation(async () => { fetches += 1; await new Promise(r => setTimeout(r, 5)); return [...box]; });
+        ackInbox.mockImplementation(async (ids?: string[]) => { box.splice(0, box.length, ...box.filter(m => !(ids ?? []).includes(m.messageId))); return { acked: 1 }; });
+        const [first, second] = await Promise.all([syncAgentMessagesIntoChat(NOW), syncAgentMessagesIntoChat(NOW)]);
+        expect(fetches).toBe(2);
+        expect(first.delivered + second.delivered).toBe(1);
+        expect(saveMessage).toHaveBeenCalledTimes(1);
+        inbox.mockReset(); ackInbox.mockReset(); ackInbox.mockImplementation(async () => ({ acked: 0 }));
+    });
+});
+
 describe('Mac mini 的即时回复', () => {
     it('回复放进 ActiveMsg 收件箱、报给调用方去冲刷，不直接写聊天', async () => {
         saveMessage.mockClear(); ackInbox.mockClear(); saveInboxMessage.mockClear();
@@ -251,6 +268,27 @@ describe('Mac mini 的即时回复', () => {
         expect(saveInboxMessage).toHaveBeenCalledWith(expect.objectContaining({ messageId: 'mini:t1', taskUuid: 't1', body: '在的' }));
         expect(saveMessage).not.toHaveBeenCalled();
         expect(ackInbox).toHaveBeenCalledWith(['mini:t1']);
+    });
+
+    it('推送送到的回复落地后立刻销账；之后取信箱再见到它，只补销账、不再放进收件箱', async () => {
+        localStorage.clear();
+        ackInbox.mockClear(); saveInboxMessage.mockClear();
+        // 昨晚：推送到了、回复落进聊天，同一批里别的来源（amsg）不归这里管
+        await settleLandedAgentReplies(['mini:night', 'msg_task_1@0_hook_0']);
+        expect(ackInbox).toHaveBeenCalledWith(['mini:night']);
+        // 销账那一下网断了也不要紧：本机已经记了账
+        ackInbox.mockRejectedValueOnce(new Error('网断了'));
+        await settleLandedAgentReplies(['mini:night2']);
+        // 今早打开 App 取信箱：mini 还把这两条发回来
+        ackInbox.mockClear();
+        inbox.mockResolvedValueOnce(['mini:night', 'mini:night2'].map(id => msg(id, {
+            kind: 'chat_reply',
+            payload: { messageId: id, taskUuid: id.slice(5), message: '晚安萌萌', contactName: '卫斯理', metadata: { charId: 'lumi' } },
+        })));
+        const result = await syncAgentMessagesIntoChat(NOW);
+        expect(result.chatReplies).toBe(0);
+        expect(saveInboxMessage).not.toHaveBeenCalled();
+        expect(ackInbox).toHaveBeenCalledWith(['mini:night', 'mini:night2']);
     });
 
     it('没跑成：还在等的那一轮当场收场', async () => {

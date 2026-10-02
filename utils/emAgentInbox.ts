@@ -89,9 +89,23 @@ const rememberDelivered = (ids: string[]): void => {
  * 全程静默失败：mini 每天 4–7 点休眠、Tailscale 没开都属于正常状态，不该弹错。
  * ack 放在写库之后——先确认存下来了再告诉后端「我收到了」，否则这条就永远丢了。
  */
-export const syncAgentMessagesIntoChat = async (
+export const syncAgentMessagesIntoChat = (
     now = Date.now(),
     options: InboxSyncOptions = {},
+): Promise<InboxSyncResult> => {
+    // 一次只跑一趟。取信箱有两处会触发（回到前台、即时回复的点名 / 推送叫取），撞在一起时两趟
+    // 都在对方记账、销账之前取到同一批，每条就落两遍——2026-10-02 卫斯理的晚安和清蒸鲈鱼都是这么重复的。
+    // 排队之后，后一趟等前一趟销完账再去取，取到的就只剩真正没收过的。
+    const run = syncQueue.then(() => syncAgentMessagesOnce(now, options));
+    syncQueue = run.then(() => undefined, () => undefined);
+    return run;
+};
+
+let syncQueue: Promise<void> = Promise.resolve();
+
+const syncAgentMessagesOnce = async (
+    now: number,
+    options: InboxSyncOptions,
 ): Promise<InboxSyncResult> => {
     if (!isAgentPaired()) return EMPTY;
 
@@ -246,5 +260,24 @@ export const syncAgentMessagesIntoChat = async (
         }
     }
     return result;
+};
+
+/**
+ * [EM: agent-instant-chat] 推送送到的即时回复落进聊天之后，立刻记账并告诉 mini「收到了」。
+ *
+ * 原来只有「从信箱取回来」那条路会销账。推送送到的回复当场显示了，mini 那边却一直挂着「没人收」，
+ * 下次打开 App 取信箱又把它们领回来一遍，只靠聊天记录里的去重挡——2026-10-02 没挡住：
+ * 卫斯理前一晚 22:18 的晚安，第二天 8:12 又出现了一次。
+ * 这里补上：本机记一笔（取信箱时见到就只补销账、不再落库），再向 mini 销账（下次根本不会再发回来）。
+ */
+export const settleLandedAgentReplies = async (messageIds: string[]): Promise<void> => {
+    const ids = messageIds.filter(id => typeof id === 'string' && id.startsWith('mini:'));
+    if (ids.length === 0) return;
+    rememberDelivered(ids);
+    try {
+        await AgentBackend.ackInbox(ids);
+    } catch {
+        // 销账失败没关系：本机已经记了账，下次取回来只补销账。
+    }
 };
 // [EM-END: agent-backend-inbox]
