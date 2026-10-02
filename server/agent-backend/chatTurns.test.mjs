@@ -12,7 +12,7 @@ import { runJobNow } from './jobs.mjs';
 import {
     extractReasoning,
     notificationPreview, splitEmbeddedThinking, CHAT_TURN_KIND, PUSH_PAYLOAD_LIMIT_BYTES, buildReplyPush, createChatTurnService, jobUuidFor, previewText, validateTurn,
-    describeResponseShape,
+    describeResponseShape, buildErrorPush,
 } from './chatTurns.mjs';
 
 const TURN = '11111111-2222-4333-8444-555555555555';
@@ -189,4 +189,11 @@ test('没取到心象时只记回包的字段名和长度，不记内容', () =>
     assert.deepEqual(shape.message, { role: 'string(9)', content: 'string(2)', reasoning_details: 'array[reasoning.encrypted{type,data}]' });
     assert.equal(shape.sent.thinking, 'object{type,budget_tokens}');
     assert.ok(!JSON.stringify(shape).includes('密文'));
+});
+
+test('失败的那条推送一定弹通知：iOS 对没弹通知的推送记账，攒够了会收回订阅', () => {
+    const push = buildErrorPush({ turnId: 't', charId: 'c', charName: '陆时', reason: '模型返回 503' });
+    assert.equal(push.messageKind, 'error');
+    assert.equal(push.notification.show, 'always');
+    assert.equal(push.notification.silent, 'when-visible');
 });

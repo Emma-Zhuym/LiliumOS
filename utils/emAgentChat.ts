@@ -89,6 +89,7 @@ export const sendAgentChatTurn = async (params: AgentChatTurnParams): Promise<{ 
         import('./activeMsgClient'),
     ]);
     const previous = getInstantChatPending(params.char.id);
+    noteTurnSubmitted(); // [EM: agent-push-stale-notice]
     const turnId = newTurnId();
     try {
         await AgentBackend.submitChatTurn({
@@ -143,11 +144,67 @@ export const checkAgentChatPending = async (
     if (state === 'pending' || state === 'running') return;
     // done：推送多半丢了，去信箱取；failed / gone：先取一次（错误说明也在信箱里），还没收场再下结论
     await pullOutbox();
-    if (getInstantChatPending(pending.charId)?.uuid !== pending.uuid) return;
+    if (getInstantChatPending(pending.charId)?.uuid !== pending.uuid) {
+        // 回复是靠这次点名才取到的：推送没送到。连着两轮都这样就告诉阿萌，并顺手重新登记一次。
+        if (state === 'done') void notePollRescue();
+        return;
+    }
     if (state === 'done') return; // 回复可能还在落库途中，下一跳再看
     await failInstantChatPending(pending.charId, pending.uuid,
         state === 'cancelled' ? '这一轮被后一条消息顶掉了' : (error || 'Mac mini 那边这一轮没跑成'));
 };
+
+// [EM-START: agent-push-stale-notice]
+/**
+ * 推送到不了手机时要让阿萌知道（2026-10-02：「不知道发生了什么事情我不能接受」）。
+ *
+ * 判据：页面开着，回复却是靠 60 秒点名才取到的，连着两轮。一轮不算——推送偶尔晚到是正常的。
+ * 推送正常送到的那一轮，待收记录在点名之前就销了，走不到这里；所以每次交上去新一轮时，
+ * 上一轮没靠点名就把连续计数清零。
+ * 发现之后先自己重新登记一次，再发事件给 OSContext 弹提示条；半小时内不重复提示。
+ */
+export const PUSH_STALE_EVENT = 'em-agent-push-stale';
+const PUSH_STALE_STREAK = 2;
+const PUSH_STALE_NOTICE_GAP_MS = 30 * 60_000;
+let pollRescueStreak = 0;
+let lastTurnNeededPoll = false;
+let lastPushStaleNoticeAt = -Infinity;
+
+/** 交上去新一轮时调：上一轮是推送送到的，就把连续计数清零。 */
+const noteTurnSubmitted = (): void => {
+    if (!lastTurnNeededPoll) pollRescueStreak = 0;
+    lastTurnNeededPoll = false;
+};
+
+export const notePollRescue = async (now = Date.now()): Promise<void> => {
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+    lastTurnNeededPoll = true;
+    pollRescueStreak += 1;
+    if (pollRescueStreak < PUSH_STALE_STREAK) return;
+    if (now - lastPushStaleNoticeAt < PUSH_STALE_NOTICE_GAP_MS) return;
+    lastPushStaleNoticeAt = now;
+    let fixed = false;
+    let reason = '';
+    try {
+        const result = await AgentBackend.registerPush();
+        fixed = result.ok;
+        reason = result.reason ?? '';
+    } catch (e) {
+        reason = e instanceof Error ? e.message : String(e);
+    }
+    if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent(PUSH_STALE_EVENT, { detail: { fixed, reason } }));
+    }
+};
+
+/** 提示条文案：发生了什么、现在怎么样、要不要她动手。 */
+export const pushStaleNoticeText = (detail: { fixed?: boolean; reason?: string }): string => (detail.fixed
+    ? 'Mac mini 的推送没送到手机，最近的回复都晚了约一分钟。已经自动重新登记推送，下一条应该恢复；还慢的话到 设置 → Mac mini 后端 再点一次「登记推送」。'
+    : `Mac mini 的推送没送到手机，最近的回复都晚了约一分钟。自动重新登记没成功${detail.reason ? `（${detail.reason}）` : ''}，请到 设置 → Mac mini 后端 点一次「登记推送」。`);
+
+/** 测试用 */
+export const resetPushStaleForTest = () => { pollRescueStreak = 0; lastTurnNeededPoll = false; lastPushStaleNoticeAt = -Infinity; };
+// [EM-END: agent-push-stale-notice]
 
 /** 信箱里的即时回复（kind chat_reply）→ 收件箱条目，形状和 SW 收到推送时写的一样。 */
 export const chatReplyToInbox = (message: AgentMessage, receivedAt = Date.now()): ActiveMsg2InboxMessage | null => {
