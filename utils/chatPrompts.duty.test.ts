@@ -1,9 +1,7 @@
 // [EM-START: char-duty]
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-// 走真正的聊天提示词生成流程，确认「做事的分寸」落在该落的位置：
-//   - 行为规范里（稳定段，主动消息打包时也带着）；
-//   - 日程块里（每轮都在、贴着生成点）：例子不再是「去超市」，块尾有「工作和约好的事不在此列」。
+// 走真正的聊天提示词生成流程，确认「你是活在社会里的人」落在行为规范里（主动消息打包时也带着）。
 
 vi.mock('./dailySchedule', () => ({
     getDailyScheduleForChar: vi.fn(async () => ({
@@ -43,26 +41,24 @@ describe('做事的分寸：真实的聊天提示词', () => {
     it('行为规范里有这一条，夹在「行为模式」和「对话质量」之间', async () => {
         const { stable } = await build();
         const mode = stable.indexOf('2. **行为模式**');
-        const duty = stable.indexOf('2.1 **做事的分寸');
+        const duty = stable.indexOf('2.1 **你是活在社会里的人');
         const quality = stable.indexOf('2.5 **对话质量');
         expect(mode).toBeGreaterThan(-1);
         expect(duty).toBeGreaterThan(mode);
         expect(quality).toBeGreaterThan(duty);
+        expect(stable).toContain('有人指望着你');
         expect(stable).toContain('阿萌想逛超市');
-        expect(stable).toContain('阿萌生气、委屈、你们吵架');
     });
 
-    it('日程块：教改日程的例子不再是「去超市」，块尾写明工作和约好的事不在此列', async () => {
+    it('日程块不动：改日程本身没问题，这条规矩不靠日程规则', async () => {
         const { volatileState } = await build();
         expect(volatileState).toContain('当前时段：09:00 你正在公司办公');
-        expect(volatileState).toContain('[[ACTION:CHANGE_SCHEDULE | 14:00 | 在家看书]]');
-        expect(volatileState).not.toContain('去超市');
-        expect(volatileState).toContain('表上的工作、上课、会议、和别人约好的事，是你对别人的责任');
+        expect(volatileState).toContain('CHANGE_SCHEDULE');
     });
 
     it('主动消息打包的那份提示词也带着这条规矩', async () => {
         const { stable } = await build(true);
-        expect(stable).toContain('2.1 **做事的分寸');
+        expect(stable).toContain('2.1 **你是活在社会里的人');
     });
 });
 // [EM-END: char-duty]

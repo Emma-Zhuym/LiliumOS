@@ -16,7 +16,7 @@ import { FISH_VOICE_ACTING_GUIDE } from './fishAudioTts';
 import { getTtsProvider, getVoicePromptOverride } from './ttsProvider';
 import { resolveCharTimeZone, nowInTimeZone } from './timezone';
 // [EM-START: prompt-addons] 个人化提示词全部在 emPromptAddons.ts，merge 时保住这行 import 和下面的调用点
-import { emSendPhotoAddon, emQuoteSection, emNotionDiarySection, emFeishuDiarySection, emUserNotesSection, emXhsSection, emNotionDiaryNudgePrompt, emFavPhotoAddon, emVoiceAwareAddon, emDutySection, emScheduleDuty } from './emPromptAddons';
+import { emSendPhotoAddon, emQuoteSection, emNotionDiarySection, emFeishuDiarySection, emUserNotesSection, emXhsSection, emNotionDiaryNudgePrompt, emFavPhotoAddon, emVoiceAwareAddon, emDutySection } from './emPromptAddons';
 // [EM-END: prompt-addons]
 import { buildLifeRecordInjection } from './lifeRecords';
 import { isWorkerReachableUrl } from './amsgToolPack';
@@ -542,7 +542,7 @@ ${groupLogStr}\n`;
                         includeClock: char.timeAwarenessEnabled !== false,
                     },
                 );
-                if (scheduleContext) volatileState += `\n${emScheduleDuty(scheduleContext)}\n`; // [EM: char-duty] 工作和约好的事不因对方一句话改掉
+                if (scheduleContext) volatileState += `\n${scheduleContext}\n`;
             } catch (e) {
                 console.error('Failed to inject schedule context:', e);
             }

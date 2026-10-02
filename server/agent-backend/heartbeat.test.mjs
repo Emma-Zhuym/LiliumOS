@@ -1849,7 +1849,7 @@ test('朋友圈评论：整跳里第一次没写评论才补，写了就不再�
     }
 });
 
-test('做事的分寸：三种意图的提示词里都有，跟在今天的安排后面', () => {
+test('活在社会里的人：三种意图的提示词里都有，跟在今天的安排后面', () => {
     const db = freshDb();
     const character = seedCharacter(db);
     const snapshot = {
@@ -1864,10 +1864,10 @@ test('做事的分寸：三种意图的提示词里都有，跟在今天的安�
         assert.ok(prompt.includes(DUTY_RULE), `${intent} 也要有`);
         assert.ok(prompt.indexOf('今天的安排') < prompt.indexOf(DUTY_RULE), `${intent}：先读安排，再读分寸`);
     }
-    // 轻重三档都写明了：紧急严重可以赶过去；日常的事和情绪上的事不丢下工作
-    assert.match(DUTY_RULE, /受伤、急病、事故/);
-    assert.match(DUTY_RULE, /想逛超市/);
-    assert.match(DUTY_RULE, /生气、委屈、你们吵架/);
-    assert.match(DUTY_RULE, /不早退、不翘班、不推掉定好的工作/);
-    assert.match(DUTY_RULE, /本来没有工作或固定安排的，按你实际的生活来/);
+    // 写的是「你是什么样的人」，三种情况是掂量之后的样子
+    assert.match(DUTY_RULE, /你是活在社会里的人/);
+    assert.match(DUTY_RULE, /有人指望着你/);
+    assert.match(DUTY_RULE, /受伤、急病、出了事，放下一切赶过去/);
+    assert.match(DUTY_RULE, /想逛超市、想见面、无聊了，手头的事照常做完再陪/);
+    assert.match(DUTY_RULE, /而不是推掉工作连夜赶过去、跨城跨国飞过去/);
 });
