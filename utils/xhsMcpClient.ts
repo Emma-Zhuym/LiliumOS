@@ -1076,7 +1076,8 @@ export const normalizeNote = (n: any): {
 } => {
     const card = n.noteCard || n.note_card || n.notecard;
     // 封面：cover 对象 / 字符串，或笔记图片列表首图（feed detail 返回 image_list）。
-    const coverObj = card?.cover || n.cover || n.image_list?.[0] || card?.image_list?.[0];
+    const coverObj = card?.cover || n.cover || n.image_list?.[0] || card?.image_list?.[0]
+        || n.imageList?.[0] || card?.imageList?.[0]; // [EM: xhs-share-instant-card] mini 上的 xiaohongshu-mcp 详情用驼峰 imageList
     const rawCoverUrl = typeof coverObj === 'string' ? coverObj
         : coverObj?.urlDefault || coverObj?.url_default || coverObj?.url || coverObj?.urlPre
         || coverObj?.info_list?.[0]?.url || undefined;

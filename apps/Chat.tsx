@@ -1428,6 +1428,7 @@ const Chat: React.FC = () => {
         if (type === 'text') {
             let xhsCardCreated = false;
             let webpageCardCreated = false;
+            let xhsDetailPromise: Promise<void> | null = null; // [EM: xhs-share-instant-card]
             const xhsFullNoteId = extractXhsNoteId(text);
             // 同时识别桌面/旧版 xhslink.com 与手机版新版 xhslink.cn。
             const xhsShortUrl = detectXhsShortUrl(text);
@@ -1455,50 +1456,70 @@ const Chat: React.FC = () => {
                 // 告诉用户如何排查。此前这里完全静默，表现就是“角色能分享、用户分享不了”。
                 if (noteId) {
                     // 基础卡数据来自分享文案，零后端依赖。
-                    let note: any = {
+                    const note: any = {
                         noteId, title: titleFromText || '', desc: '', author: '',
                         authorId: '', likes: 0, xsecToken,
                     };
 
-                    // 有小红书 MCP/Lite 才抓详情补全（正文/封面/作者/赞数）。
-                    const mcpUrl = realtimeConfig?.xhsMcpConfig?.serverUrl;
-                    if (mcpUrl && realtimeConfig?.xhsMcpConfig?.enabled) {
-                        try {
-                            const noteUrl = `https://www.xiaohongshu.com/explore/${noteId}${xsecToken ? `?xsec_token=${xsecToken}&xsec_source=pc_share` : ''}`;
-                            // loadAllComments：和角色自己浏览笔记 (XHS_DETAIL) 一致地把评论区也抓回来，
-                            // 否则 user 分享的笔记只有标题/正文，角色读不到评论（char 分享给 user 的却能看到）。
-                            const result = await XhsMcpClient.getNoteDetail(mcpUrl, noteUrl, xsecToken, { loadAllComments: true });
-                            if (isDevDebugAvailable()) console.log('[卡片调试] 小红书抓取 result =', result);
-                            if (result.success && result.data) {
-                                const fetched = normalizeXhsLiteDetail(result.data);
-                                // 抓到的字段补全基础卡；id/标题/token 保底，标题优先文案标题（更完整可读）。
-                                note = { ...note, ...fetched, noteId: fetched.noteId || note.noteId, title: titleFromText || fetched.title || note.title, xsecToken: fetched.xsecToken || xsecToken };
-                            } else if (!result.success) {
-                                // 基础卡仍然可以发送，只提示详情读取失败，避免误以为整次分享失败。
-                                addToast(`小红书正文读取失败，已发送基础卡片。请尝试开启/关闭科学上网、切换 Wi‑Fi/流量，或检查 Lite 配置。${result.error ? `（${result.error}）` : ''}`, 'info');
-                            }
-                        } catch (e) {
-                            console.warn('XHS link fetch via MCP failed (已用文案兜底):', e);
-                            addToast('小红书正文读取失败，已发送基础卡片。请尝试开启/关闭科学上网、切换 Wi‑Fi/流量，或检查 Lite 配置。', 'info');
-                        }
-                    }
-
-                    await DB.saveMessage({
+                    // [EM-START: xhs-share-instant-card]
+                    // 先存基础卡、马上显示，详情放到后台补。mini 上的 xiaohongshu-mcp 要真开浏览器
+                    // 打开笔记、滚动加载评论，一次 40–85 秒；原来等它读完才存卡，这段时间界面上
+                    // 什么都没有，看起来就像「转发了没变成卡片」，提前点回复的话角色也只读到一条链接。
+                    const cardMsgId = await DB.saveMessage({
                         charId: char.id,
                         role: 'user',
                         type: 'xhs_card',
                         content: note.title || '小红书笔记',
                         metadata: { xhsNote: note }
                     });
-                    // F12 调试（仅开发分支）：打印卡片存了啥 + 角色实际会读到的文本。
-                    if (isDevDebugAvailable()) {
+                    xhsCardCreated = true;
+
+                    // 有小红书 MCP/Lite 才抓详情补全（正文/封面/作者/赞数）。
+                    const mcpUrl = realtimeConfig?.xhsMcpConfig?.serverUrl;
+                    if (mcpUrl && realtimeConfig?.xhsMcpConfig?.enabled) {
+                        addToast('卡片已发出，正在打开笔记读正文和评论（mini 上要一分钟左右），读完再让 TA 回复', 'info');
+                        const baseNote = note;
+                        xhsDetailPromise = (async () => {
+                            try {
+                                const noteUrl = `https://www.xiaohongshu.com/explore/${noteId}${xsecToken ? `?xsec_token=${xsecToken}&xsec_source=pc_share` : ''}`;
+                                // loadAllComments：和角色自己浏览笔记 (XHS_DETAIL) 一致地把评论区也抓回来，
+                                // 否则 user 分享的笔记只有标题/正文，角色读不到评论（char 分享给 user 的却能看到）。
+                                const result = await XhsMcpClient.getNoteDetail(mcpUrl, noteUrl, xsecToken, { loadAllComments: true });
+                                if (isDevDebugAvailable()) console.log('[卡片调试] 小红书抓取 result =', result);
+                                if (result.success && result.data) {
+                                    const fetched = normalizeXhsLiteDetail(result.data);
+                                    // 抓到的字段补全基础卡；id/标题/token 保底，标题优先文案标题（更完整可读）。
+                                    const merged = { ...baseNote, ...fetched, noteId: fetched.noteId || baseNote.noteId, title: titleFromText || fetched.title || baseNote.title, xsecToken: fetched.xsecToken || xsecToken };
+                                    await DB.updateMessageMetadata(cardMsgId, prev => ({ ...(prev || {}), xhsNote: merged }));
+                                    if (merged.title && merged.title !== baseNote.title) await DB.updateMessage(cardMsgId, merged.title);
+                                    if (isDevDebugAvailable()) {
+                                        console.log('[卡片调试] 小红书卡片·metadata =', merged);
+                                        console.log('[卡片调试] 小红书卡片·角色将读到 =\n' + normalizeMessageContent(
+                                            { type: 'xhs_card', role: 'user', content: merged.title || '小红书笔记', metadata: { xhsNote: merged } } as any,
+                                            char.name, userProfile.name,
+                                        ));
+                                    }
+                                    const commentCount = Array.isArray(merged.comments) ? merged.comments.length : 0;
+                                    addToast(merged.desc ? `笔记读好了${commentCount ? `，带 ${commentCount} 条评论` : ''}，可以让 TA 回复了` : '笔记打开了，但没读到正文，TA 只能看到标题', 'info');
+                                    if (activeCharIdRef.current === char.id) await reloadMessages(visibleCountRef.current);
+                                } else if (!result.success) {
+                                    // 基础卡已经发出，只提示详情读取失败，避免误以为整次分享失败。
+                                    addToast(`小红书正文读取失败，卡片只有标题。请检查 mini 上的小红书服务是否在线、是否还登录着。${result.error ? `（${result.error}）` : ''}`, 'info');
+                                }
+                            } catch (e) {
+                                console.warn('XHS link fetch via MCP failed (已用文案兜底):', e);
+                                addToast('小红书正文读取失败，卡片只有标题。请检查 mini 上的小红书服务是否在线、是否还登录着。', 'info');
+                            }
+                        })();
+                    } else if (isDevDebugAvailable()) {
+                        // F12 调试（仅开发分支）：打印卡片存了啥 + 角色实际会读到的文本。
                         console.log('[卡片调试] 小红书卡片·metadata =', note);
                         console.log('[卡片调试] 小红书卡片·角色将读到 =\n' + normalizeMessageContent(
                             { type: 'xhs_card', role: 'user', content: note.title || '小红书笔记', metadata: { xhsNote: note } } as any,
                             char.name, userProfile.name,
                         ));
                     }
-                    xhsCardCreated = true;
+                    // [EM-END: xhs-share-instant-card]
                 } else {
                     addToast(`小红书链接解析失败，原消息已保留。通常是网络或代理导致短链无法展开：请尝试开启/关闭科学上网、切换 Wi‑Fi/流量，并检查网络代理与小红书 Lite 配置。${shortLinkError ? `（${shortLinkError}）` : ''}`, 'error');
                 }
@@ -1552,6 +1573,13 @@ const Chat: React.FC = () => {
             if ((xhsCardCreated || webpageCardCreated) && savedUserMsgId) {
                 await DB.deleteMessage(savedUserMsgId);
             }
+            // [EM-START: xhs-share-instant-card]
+            // 发完会自动回复的话，先让卡片露面，再等正文读完，免得角色只看到标题就开口。
+            if (xhsDetailPromise && (inputPreferences.autoReply || (isInstantConfigReady(loadInstantConfig()) && loadInstantConfig().autoTriggerOnSend))) {
+                await reloadMessages(visibleCountRef.current);
+                await xhsDetailPromise;
+            }
+            // [EM-END: xhs-share-instant-card]
         }
 
         await reloadMessages(visibleCountRef.current);
