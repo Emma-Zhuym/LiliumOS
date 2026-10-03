@@ -263,6 +263,31 @@ p.kitchen-note { margin: 0; padding: 0; border: 0; background: transparent; colo
 .kitchen-inline-notice { padding: 12px; margin-bottom: 16px; border: 1px solid var(--k-line); border-radius: var(--k-radius-field); background: var(--k-blue); color: var(--k-blue-ink); font-size: 13px; line-height: 1.6; }
 .kitchen-inline-notice[role="alert"] { color: var(--k-danger); background: var(--k-well); }
 
+/*
+ * The photograph supplies real pulp depth; the transparent SVG adds a few
+ * readable long fibres after the photo is reduced to a phone-sized surface.
+ * Multiply lets the same material sit naturally on blue and green paper.
+ */
+.kitchen-paper,
+.kitchen-field,
+.kitchen-button,
+.kitchen-tabs > button:is([aria-selected="true"], [aria-pressed="true"], .is-active, .active),
+.kitchen-tabs > button:is([aria-selected="true"], [aria-pressed="true"], .is-active, .active)::after,
+.kitchen-scene > div:first-child::before,
+.kitchen-scene > div:first-child::after,
+.kitchen-note,
+.kitchen-sheet,
+.kitchen-sheet::before,
+.kitchen-toast,
+.kitchen-detail-footer,
+.kitchen-food-icon,
+.kitchen-pantry,
+.kitchen-inline-notice {
+  background-image: var(--k-paper-photo), var(--k-texture);
+  background-size: 680px 680px, 280px 280px;
+  background-blend-mode: multiply;
+}
+
 @keyframes kitchen-paper-rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
 @media (hover: hover) {
   .kitchen-paper .kitchen-icon:hover:not(:disabled), .kitchen-paper .kitchen-button:hover:not(:disabled), .kitchen-paper .kitchen-tabs > button:hover:not(:disabled) { background-color: var(--k-well); }
