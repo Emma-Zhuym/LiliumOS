@@ -16,7 +16,7 @@ export const KITCHEN_PAPER = {
   greenInk: '#446349',
   danger: STATUS.danger.ink,
   heading: '"Noto Serif SC", "Songti SC", "ZCOOL XiaoWei", "STSong", Georgia, serif',
-  paperPhoto: `${import.meta.env.BASE_URL}kitchen/cotton-paper-v2.jpg`,
+  paperPhoto: `${import.meta.env.BASE_URL}kitchen/cotton-paper-soft.svg`,
   texture: `${import.meta.env.BASE_URL}kitchen/paper-fibers.svg`,
   radius: { field: 10, button: 10, sheet: 16, card: 12 },
 } as const;

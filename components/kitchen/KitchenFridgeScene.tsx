@@ -385,22 +385,24 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot }) => {
           </button>;
         })}
       </div>
-      <div className="flex items-center justify-center flex-wrap" style={{ gap: SP[1], padding: `${SP[1]}px ${SP[2]}px` }}>
-        {(['freezer', 'fridge'] as const).map(value => <button key={value} type="button"
-          disabled={status !== 'ready'} aria-pressed={doorsOpen[value]}
-          className="disabled:opacity-40" style={buttonStyle}
-          onClick={() => toggleDoor(value)}>
-          {doorsOpen[value] ? '关上' : '打开'}{value === 'fridge' ? '冷藏门' : '冷冻门'}
-        </button>)}
-        <button type="button" disabled={status !== 'ready' || !doorsOpen.fridge}
-          aria-pressed={doorsOpen.fridge && drawersOpen} className="disabled:opacity-40" style={buttonStyle}
-          onClick={() => setDrawersOpen(value => !value)}>
-          {drawersOpen ? '推回抽屉' : '拉开抽屉'}
-        </button>
+      <div className="kitchen-scene-footer">
+        <div className="kitchen-scene-controls flex items-center justify-center flex-wrap" style={{ gap: SP[1], padding: `${SP[1]}px ${SP[2]}px` }}>
+          {(['freezer', 'fridge'] as const).map(value => <button key={value} type="button"
+            disabled={status !== 'ready'} aria-pressed={doorsOpen[value]}
+            className="disabled:opacity-40" style={buttonStyle}
+            onClick={() => toggleDoor(value)}>
+            {doorsOpen[value] ? '关上' : '打开'}{value === 'fridge' ? '冷藏门' : '冷冻门'}
+          </button>)}
+          <button type="button" disabled={status !== 'ready' || !doorsOpen.fridge}
+            aria-pressed={doorsOpen.fridge && drawersOpen} className="disabled:opacity-40" style={buttonStyle}
+            onClick={() => setDrawersOpen(value => !value)}>
+            {drawersOpen ? '推回抽屉' : '拉开抽屉'}
+          </button>
+        </div>
+        <p className="kitchen-scene-note" style={{ color: PAPER.muted, fontSize: 12, textAlign: 'center', padding: `0 ${SP[3]}px ${SP[3]}px` }}>
+          {layout.total === 0 ? '冰箱还空着，把新买的食物放进来吧。' : '点食材，记下还剩多少 · 也可以打开食材清单'}
+        </p>
       </div>
-      <p style={{ color: PAPER.muted, fontSize: 12, textAlign: 'center', padding: `0 ${SP[3]}px ${SP[3]}px` }}>
-        {layout.total === 0 ? '冰箱还空着，把新买的食物放进来吧。' : '点食材，记下还剩多少 · 也可以打开食材清单'}
-      </p>
     </section>
   );
 };
