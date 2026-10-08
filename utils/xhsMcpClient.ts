@@ -768,7 +768,11 @@ export const XhsMcpClient = {
         }
         const args: Record<string, any> = { url: noteUrl };
         if (xsecToken) args.xsec_token = xsecToken;
-        if (loadAllComments) { args.load_all_comments = true; args.click_more_replies = true; }
+        // [EM-START: xhs-detail-fast]
+        // 自托管 xiaohongshu-mcp 不传 load_all_comments 时只取前 10 条一级评论、不开浏览器滚动；
+        // 一开就要滚评论区 + 展开二级回复，一篇 40–85 秒。角色回应笔记，看十条主评论足够。
+        void loadAllComments;
+        // [EM-END: xhs-detail-fast]
         return mcpCallTool(serverUrl, 'get_note_detail', args);
     },
 

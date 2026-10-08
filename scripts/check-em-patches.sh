@@ -199,6 +199,7 @@ check "心跳转发小红书带卡片" utils/emAgentInbox.ts "[EM-START: heartbe
 check "网关停用发帖评论" scripts/home-assistant-proxy.mjs "XHS_BLOCKED_TOOLS"
 check "转发小红书先出卡再补正文" apps/Chat.tsx "[EM-START: xhs-share-instant-card]"
 check "详情封面认驼峰 imageList" utils/xhsMcpClient.ts "n.imageList?.[0]"
+check "自托管读笔记不滚评论" utils/xhsMcpClient.ts "xhs-detail-fast"
 check "心跳读消息：TA 回过后同步快照" apps/Chat.tsx "[EM-START: agent-backend-reply-sync]"
 check "心跳长期记忆：月度总结进快照" utils/emAgentSnapshot.ts "monthlySummaries"
 check "心跳丢掉过期日程" server/agent-backend/heartbeat.mjs "withTodaySchedule(getSnapshot(db, character.charId), now())"
