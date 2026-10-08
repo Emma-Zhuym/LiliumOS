@@ -87,8 +87,14 @@ Ombre-Brain、Haven-Ombre、Serein、Latent-memory 都是 Python 自部署服务
 
 ## 外部内容接入
 
-- **B 站视频获取**（2026-10-08）—— 听说字幕之类都能取到。先去 GitHub 找现成的 MCP / 工具（阿萌看到别人做过），看能不能直接接进通用 MCP 客户端，不自己造。接上后可以像小红书转发那样：丢一个 B 站链接，角色能读到字幕内容再回应。
-- **小红书 mini MCP 比 lite 慢很多**（2026-10-08）—— 读一篇笔记开浏览器滚评论要 40–85 秒（10-03 已做「先出卡片后补正文」止痛，没治本）。看有没有办法提速：只取需要的字段、减少滚动评论、缓存、或回退到轻量接口取正文、评论按需再拉。
+- **B 站视频获取**（2026-10-08，GitHub 已调研）—— 推荐 [`XZXZZX-Ai/bilibili-mcp`](https://github.com/XZXZZX-Ai/bilibili-mcp)（Apache-2.0，Node 20+，2026-09-27 还在更新）：读字幕全文、按关键词搜原话并带时间点、评论、搜视频/UP 主、收藏夹；没字幕的视频可选装本地 ASR（faster-whisper）转录。只读为主，不带发布/私信类危险工具。
+  - 它是 **stdio** 服务，LiliumOS 客户端要 Streamable HTTP：照 `server/apple-events-bridge/` 的做法包一层（mini 上跑、只听本机、Bearer Token、Funnel）。
+  - 登录要 B 站 Cookie 或扫码，在 mini 终端本人操作，不进聊天/仓库。
+  - 备选：`adoresever/bilibili-mcp`（Python，27 个工具，字幕/弹幕/评论但也带发动态、上传、私信，权限太大，不优先）。
+- **小红书 mini MCP 提速**（2026-10-08，已查代码）—— 慢的是评论滚动：上游 `get_feed_detail` 默认只取前 10 条一级评论、不滚动，开了 `load_all_comments` 才会开浏览器滚（还带 `click_more_replies` 展开二级回复）。**我们的 `utils/agenticTools.ts:628/644`（读笔记）和 `utils/xhsFreeRoam.ts:321` 都写死了 `loadAllComments: true`**，转发小红书那 40–85 秒多半就是它。
+  - 最便宜的改法：默认不传（前 10 条够角色回应），或者传 `load_all_comments:true` 但加 `limit`（如 10）、关掉 `click_more_replies`；真需要更多评论再按需拉。
+  - 心跳那边（`server/agent-backend/xhsFeed.mjs`）本来就没开滚动，不受影响。
+  - 更狠的路线：`jobsonlook/xhs-mcp`（JS 逆向 x-s/x-t，直接请求接口、不开浏览器，516★，但没有开源协议声明、逆向签名容易随小红书改版失效、封号风险也更高），先不考虑；`aicu-icu/xhs-mcp-server` 需要浏览器扩展常开，不适合 mini 常驻。
 
 ## 手帐引导（新功能）
 
