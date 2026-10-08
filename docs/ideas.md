@@ -88,6 +88,7 @@ Ombre-Brain、Haven-Ombre、Serein、Latent-memory 都是 Python 自部署服务
 ## 外部内容接入
 
 - **B 站视频获取**（2026-10-08，GitHub 已调研）—— 推荐 [`XZXZZX-Ai/bilibili-mcp`](https://github.com/XZXZZX-Ai/bilibili-mcp)（Apache-2.0，Node 20+，2026-09-27 还在更新）：读字幕全文、按关键词搜原话并带时间点、评论、搜视频/UP 主、收藏夹；没字幕的视频可选装本地 ASR（faster-whisper）转录。只读为主，不带发布/私信类危险工具。
+  - **范围（阿萌 2026-10-08 定）：只读，不需要输出。** 两件事：①心跳时角色能自己搜 / 看（搜视频、读字幕），像逛小红书那样走后端白名单（参考 `server/agent-backend/xhsFeed.mjs` 的 `XHS_BACKEND_TOOLS`）；②阿萌在聊天里发 B 站链接，角色能读到字幕内容再回应。
   - 它是 **stdio** 服务，LiliumOS 客户端要 Streamable HTTP：照 `server/apple-events-bridge/` 的做法包一层（mini 上跑、只听本机、Bearer Token、Funnel）。
   - 登录要 B 站 Cookie 或扫码，在 mini 终端本人操作，不进聊天/仓库。
   - 备选：`adoresever/bilibili-mcp`（Python，27 个工具，字幕/弹幕/评论但也带发动态、上传、私信，权限太大，不优先）。
