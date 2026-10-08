@@ -1,6 +1,6 @@
 # LiliumOS Roadmap
 
-> 这份只管**接下来做什么**和**做了但还没验收的**。最后整理：2026-09-30。
+> 这份只管**接下来做什么**和**做了但还没验收的**。最后整理：2026-10-08。
 >
 > - 做完了的 → [`changelog.md`](./changelog.md)（按日期，写明谁做的）
 > - 还没决定做的点子 → [`ideas.md`](./ideas.md)
@@ -39,30 +39,14 @@
 
 ### P1：Mac mini 接手主动消息，退役 amsg
 
-规格 [`spec-agent-backend-instant-chat.md`](./spec-agent-backend-instant-chat.md)。阶段一（即时回复）已做完并验收。
+规格 [`spec-agent-backend-instant-chat.md`](./spec-agent-backend-instant-chat.md)。阶段一（即时回复）、阶段二（主动消息排程搬到 mini，含睡眠闸）已做完，阿萌已用约两周（2026-10-08 确认）。
 
-- **阶段二：主动消息排程搬到 mini** —— 面板里给角色定的时间、角色自己说的「明早八点叫你」都由 mini 到点发；fire_pack 复用前端现成的，天气 / 热搜第一版不带；迁移时先列出 amsg 上挂着的任务、阿萌确认后再搬。
-  顺带解决：**老主动消息没有睡眠闸**（到点就发、不看角色睡没睡，跟心跳一起能一早上连发三条）。
-- **阶段三：退役 amsg** —— 设置里 amsg 那块收起（不删上游代码）；情绪评估、后台 MCP 工具按需搬到 mini。
-
-### P1：Health 收尾
-
-- Notion HealthLog / Daily Routine 同步。
-- Health App 里「让角色说说这周」的周评入口与缓存。
-- 要不要给角色开放逐样本的原始历史、要不要单独做七日趋势图——现在工具只返回按日聚合。
+- **阶段三：退役 amsg** —— 还没做。设置里 amsg 那块收起（不删上游代码）；情绪评估、后台 MCP 工具按需搬到 mini。
 
 ### P1：Notion 高级管理 App
 
 - 独立 `apps/NotionApp.tsx`，不重写 Settings 的基础配置。
 - 整合多库权限、TAG 查询、日记模板和标签管理；复用 `utils/notionExtraConfig.ts`，保持 `NotionExtraDatabase.name` 字段契约。
-
-### P1：Smart Home 真实设备
-
-App、HA REST、演示模式、备份和角色 MCP 都已完成；部署交接见 `docs/home-assistant-mac-mini-plan.md`。
-
-- 两只 Tapo Matter 灯泡接入 HA。
-- Levoit Core 200S-P 经 VeSync 接入，核对实体名、风速和模式字段。
-- 用真实设备验收开关、亮度、色温、净化器档位、场景和角色控制。
 
 ### P2：位置感知收尾
 
@@ -77,11 +61,6 @@ App、HA REST、演示模式、备份和角色 MCP 都已完成；部署交接�
 
 - 角色回应用户写在已读段落的批注（Phase 2）；选中文字高亮；PDF 支持。
 
-### P2：Finance 后续
-
-- Amazon 邮件 / 订单匹配（需要单独的邮箱授权）。
-- 角色替用户批量写分类——要先定义写账确认边界。
-
 ## 待决策
 
 - 邮局待寄队列超过 5 封时：部分接受、整批拒绝但友好提示，还是提高限额。
@@ -91,6 +70,8 @@ App、HA REST、演示模式、备份和角色 MCP 都已完成；部署交接�
 
 ## 暂不处理
 
+- **Health 外部数据链收尾**（Notion HealthLog / Daily Routine 同步、「让角色说说这周」周评、逐样本原始历史）——阿萌决定不做（2026-10-08 确认）。
+- **Finance 后续**（Amazon 邮件 / 订单匹配、角色批量写分类）——阿萌决定不做：全自动记账会让她对花钱没概念，手动记这一步本身是有用的。
 - 上游文件里只影响 `tsc`、不影响运行的纯类型瑕疵（避免给 merge 埋冲突）。
 - `docs/dev-debug.md` 里低价值的日志支线，等真的踩到再接。
 
