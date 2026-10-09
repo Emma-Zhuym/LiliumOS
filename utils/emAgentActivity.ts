@@ -32,6 +32,8 @@ export interface ChronicleEntry {
     /** true = 试跑，没有真的执行。 */
     shadow: boolean;
     at: string;
+    /** 这次醒来实际做了的事（「发朋友圈」「和林越聊天」）。只存说法不存内容：惊喜礼物买了什么不能漏出来。旧副本没有。 */
+    deeds?: string[];
 }
 
 const keyFor = (charId: string) => `${KEY_PREFIX}${charId}`;
@@ -70,18 +72,57 @@ export const mergeChronicle = (charId: string, incoming: ChronicleEntry[]): Chro
     return merged;
 };
 
+const WORK_DEED: Record<string, (who: string) => string> = {
+    group: () => '在工作群里说事',
+    dm: who => `和${who}谈工作`,
+    email: who => `和${who}邮件往来`,
+};
+
+/**
+ * 这次醒来**做了**什么，一件一句。activity 是 TA 自己的一句话，常常只写心情；
+ * 这里按后端记下的实际动作（发消息、工作往来、私人生活里的小事）给出明确的说法。
+ *
+ * 只说做了哪件事、跟谁，不带内容（跟起居注里手机动静只说「打开了什么」一个口径）。
+ * 后端一跳同时有工作往来和生活小事时只记了工作那份，生活那件这里看不到。
+ */
+export const describeRunDeeds = (run: Pick<AgentModelRun, 'outcome' | 'shadow' | 'episode'>): string[] => {
+    const deeds: string[] = [];
+    if (run.outcome === 'message') deeds.push(run.shadow ? '想给你发消息' : '给你发了消息');
+    const episode = run.episode as Record<string, any> | null | undefined;
+    if (episode && typeof episode.channel === 'string' && typeof episode.with === 'string') {
+        deeds.push((WORK_DEED[episode.channel] ?? (() => '处理工作'))(episode.with));
+    }
+    const life = episode?.life as Record<string, any> | undefined;
+    const who = typeof life?.with === 'string' ? life.with.trim() : '';
+    switch (life?.kind) {
+        case 'chat': deeds.push(who ? `和${who}聊天` : '和朋友聊天'); break;
+        case 'social': deeds.push(who ? `约了${who}` : '和朋友出去'); break;
+        case 'delivery': deeds.push('点外卖'); break;
+        case 'order': deeds.push('网购'); break;
+        // 礼物：给阿萌买的，不论是不是惊喜都只说渠道——起居注就是阿萌在翻
+        case 'gift': deeds.push(life.via === 'food' ? '点外卖' : '网购'); break;
+        case 'moment': deeds.push('发朋友圈'); break;
+        case 'xhs': deeds.push('逛小红书'); break;
+    }
+    return deeds;
+};
+
 /** 后端一条动脑记录 → 起居注条目。起居注页和聊天注入共用这一份映射。 */
-export const runToChronicleEntry = (run: AgentModelRun): ChronicleEntry => ({
-    id: run.id,
-    charId: run.charId,
-    activity: run.activity,
-    outcome: run.outcome,
-    skipGate: run.skipGate,
-    proposedText: run.proposedText,
-    reason: run.reason,
-    shadow: run.shadow,
-    at: run.startedAt,
-});
+export const runToChronicleEntry = (run: AgentModelRun): ChronicleEntry => {
+    const deeds = describeRunDeeds(run);
+    return {
+        id: run.id,
+        charId: run.charId,
+        activity: run.activity,
+        outcome: run.outcome,
+        skipGate: run.skipGate,
+        proposedText: run.proposedText,
+        reason: run.reason,
+        shadow: run.shadow,
+        at: run.startedAt,
+        ...(deeds.length ? { deeds } : {}),
+    };
+};
 
 /**
  * 一次把所有角色的起居注拉回本地。

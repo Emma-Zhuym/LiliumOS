@@ -256,6 +256,11 @@ export default function ChronicleApp({ targetChar, accent, phoneEvents = [] }: P
                                 <p className="mt-1 text-[14px] font-light text-white/90 leading-relaxed" style={{ fontFamily: SERIF }}>
                                     {row.segment.entry.activity || '（什么都没记下来）'}
                                 </p>
+                                {!!row.segment.entry.deeds?.length && (
+                                    <p className="mt-1 text-[10px] text-white/40 tracking-wide">
+                                        {row.segment.entry.deeds.join(' · ')}
+                                    </p>
+                                )}
                                 {row.segment.entry.proposedText && (
                                     <p className="mt-2 text-[12px] text-white/50 leading-relaxed pl-2.5 border-l"
                                         style={{ borderColor: `${accent}44` }}>

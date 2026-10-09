@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import {
-    buildChronicleInjection, clearChronicle, foldPhoneEvents, loadChronicle, mergeChronicle, toSegments, type ChronicleEntry,
+    buildChronicleInjection, clearChronicle, describeRunDeeds, foldPhoneEvents, loadChronicle, mergeChronicle, toSegments, type ChronicleEntry,
 } from './emAgentActivity';
 
 const CHAR = 'lumi';
@@ -131,6 +131,28 @@ describe('手机动静合并', () => {
             { id: 'c', at: at(2), label: '逛了逛淘宝' },
         ]);
         expect(folded.map(item => item.id)).toEqual(['a', 'b', 'c']);
+    });
+});
+
+describe('describeRunDeeds：这次醒来做了什么', () => {
+    it('发消息 + 生活小事，各说一句', () => {
+        expect(describeRunDeeds({ outcome: 'message', shadow: false, episode: { life: { kind: 'chat', with: '林越' } } }))
+            .toEqual(['给你发了消息', '和林越聊天']);
+    });
+    it('工作往来按渠道说', () => {
+        expect(describeRunDeeds({ outcome: 'noop', shadow: false, episode: { channel: 'email', with: '周总' } }))
+            .toEqual(['和周总邮件往来']);
+    });
+    it('试跑的消息只是「想发」', () => {
+        expect(describeRunDeeds({ outcome: 'message', shadow: true, episode: null })).toEqual(['想给你发消息']);
+    });
+    it('给阿萌买的礼物只说渠道，不漏买了什么', () => {
+        const deeds = describeRunDeeds({ outcome: 'noop', shadow: false,
+            episode: { life: { kind: 'gift', via: 'net', surprise: true, detail: '一条围巾' } } });
+        expect(deeds).toEqual(['网购']);
+    });
+    it('什么都没做就是空的，交给界面退回原来的结论', () => {
+        expect(describeRunDeeds({ outcome: 'noop', shadow: false, episode: null })).toEqual([]);
     });
 });
 

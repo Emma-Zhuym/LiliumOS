@@ -100,8 +100,8 @@ export interface AgentModelRun {
     rawOutput?: string | null;
     /** 这一跳有没有「过会儿找 ta」的念头；有的话下一跳会兑现。 */
     urge?: 'none' | 'later' | 'now' | null;
-    /** 这一跳产出的工作往来（审计副本；手机上看的那份在信箱里）。 */
-    episode?: { channel: string; with: string } | null;
+    /** 这一跳产出的工作往来（审计副本；手机上看的那份在信箱里）。没有工作往来时是 `{ life }`：私人生活里的那件小事。 */
+    episode?: { channel?: string; with?: string; life?: Record<string, unknown> } | null;
 }
 
 export interface AgentDevice {

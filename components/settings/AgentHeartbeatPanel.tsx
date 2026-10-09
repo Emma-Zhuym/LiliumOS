@@ -22,6 +22,7 @@ import {
     type AgentCharacter,
     type AgentModelRun,
 } from '../../utils/emAgentBackend';
+import { describeRunDeeds } from '../../utils/emAgentActivity';
 import Modal from '../os/Modal';
 
 /** 平均醒来间隔的可选档位（后端只收 30–480）。实际每一跳会在平均值上下浮动，见下方 rangeText。 */
@@ -233,10 +234,14 @@ export default function AgentHeartbeatPanel({ open, onClose }: Props) {
                                 <span className="text-xs font-bold text-slate-600">
                                     {characters.find(char => char.id === item.charId)?.name || item.charId}
                                 </span>
-                                <span className="text-[10px] text-slate-400">
-                                    {OUTCOME_LABELS[item.outcome || ''] || item.outcome}
+                                {/* 做了什么就写做了什么；什么都没做时才退回「想了想，没说话」这类结论 */}
+                                <span className="text-[10px] text-slate-400 text-right">
+                                    {describeRunDeeds(item).join(' · ') || OUTCOME_LABELS[item.outcome || ''] || item.outcome}
                                 </span>
                             </div>
+                            {item.activity && (
+                                <p className="mt-1 text-[11px] leading-relaxed text-slate-600">{item.activity}</p>
+                            )}
                             {item.outcome === 'skipped' && item.skipGate && (
                                 <p className="mt-1 text-[10px] text-slate-400">{GATE_LABELS[item.skipGate] || item.skipGate}</p>
                             )}

@@ -53,6 +53,9 @@ export const buildCircle = (char: CharacterProfile, userName?: string): NonNulla
         .filter(contact => PRIVATE_GROUPS.has(resolveContactGroup(contact)))
         .sort((a, b) => (b.lastInteraction || b.createdAt) - (a.lastInteraction || a.createdAt))
         .slice(0, MAX_CIRCLE)
+        // 挑人还是按最近联系挑，但给模型看时把最久没聊的放前面：模型爱选名单第一个，
+        // 最近聊过的排第一会越聊越是那一个（聊完 lastInteraction 更新，又回到第一）。
+        .reverse()
         .map(contact => ({
             name: contact.name,
             ...(contact.identity ? { relation: contact.identity } : {}),

@@ -112,7 +112,7 @@ describe('dailyRhythm 进快照', () => {
 });
 
 describe('circle 进快照', () => {
-    it('只带虚构、还是好友、私人生活里的人；按最近联系排，不带阿萌本人', async () => {
+    it('只带虚构、还是好友、私人生活里的人；最久没聊的在前（防止心跳老找同一个人），不带阿萌本人', async () => {
         const phoneChar = {
             ...char,
             phoneState: {
@@ -129,8 +129,8 @@ describe('circle 进快照', () => {
         } as unknown as CharacterProfile;
         const snapshot = await buildCharacterSnapshot(phoneChar, [], { userName: '阿萌' });
         expect(snapshot.payload.circle).toEqual([
-            { name: '表姐', relation: '表姐', group: 'family' },
             { name: '老周', relation: '发小', group: 'friend' },
+            { name: '表姐', relation: '表姐', group: 'family' },
         ]);
     });
 
