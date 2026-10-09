@@ -66,6 +66,7 @@ import { shouldUseGithubProxy } from '../utils/githubClient';
 import CloudBackupRestoreList, { type CloudBackupListState } from '../components/settings/CloudBackupRestoreList';
 import GithubBackupRoute from '../components/settings/GithubBackupRoute';
 import ClayDialog from '../components/os/ClayDialog';
+import { groupApiPresets, listPresetGroups } from '../utils/apiPresetGroups'; // [EM: api-preset-group]
 // [EM-END: github-backup-status]
 
 const MOTION_ENABLED_KEY = 'liliumos_motion_enabled';
@@ -555,6 +556,7 @@ const Settings: React.FC = () => {
   const [newPresetName, setNewPresetName] = useState('');
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
   const [editPresetName, setEditPresetName] = useState('');
+  const [editPresetGroup, setEditPresetGroup] = useState(''); // [EM: api-preset-group]
   const [editPresetUrl, setEditPresetUrl] = useState('');
   const [editPresetKey, setEditPresetKey] = useState('');
   const [editPresetModel, setEditPresetModel] = useState('');
@@ -1022,6 +1024,7 @@ const Settings: React.FC = () => {
       const isActive = activePresetId === preset.id;
       setEditingPresetId(preset.id);
       setEditPresetName(preset.name);
+      setEditPresetGroup(preset.group || ''); // [EM: api-preset-group]
       setEditPresetUrl(preset.config.baseUrl || '');
       setEditPresetKey(preset.config.apiKey || '');
       setEditPresetModel(preset.config.model || '');
@@ -1055,7 +1058,7 @@ const Settings: React.FC = () => {
       };
       // 「正在用的就是这条」要在改之前问，改完值就对不上了
       const wasActive = activePresetId === preset.id;
-      updateApiPreset(preset.id, name, nextConfig);
+      updateApiPreset(preset.id, name, nextConfig, editPresetGroup); // [EM: api-preset-group]
       // 改的正好是当前生效那条 → 生效配置跟着走，否则界面写着新 Key、请求还在用旧的
       if (wasActive) commitApiConfig(configFromPreset({ ...preset, name, config: nextConfig }));
       // 独立绑定这条预设的角色也有后台任务；普通 API 保持原值，角色从新预设读取凭据。
@@ -2514,7 +2517,10 @@ const Settings: React.FC = () => {
             {apiPresets.length > 0 && (
                 <div className="mb-4 space-y-2">
                     <p className="text-xs px-1" style={{ color: F.textSecondary }}>我的预设</p>
-                    {apiPresets.map(preset => (
+                    {/* [EM-START: api-preset-group] 按手填的分组排，未分组的在最前、不带组标题 */}
+                    {groupApiPresets(apiPresets).map(section => <React.Fragment key={section.group || '__ungrouped'}>
+                    {section.group && <p className="text-xs px-1 pt-2 font-semibold" style={{ color: F.textSecondary }}>{section.group}</p>}
+                    {section.presets.map(preset => (
                         <div key={preset.id} className="flex items-center gap-1 p-1" style={{
                             borderRadius: R.smallCard, background: F.surface, boxShadow: S.raisedSoft,
                         }}>
@@ -2545,8 +2551,10 @@ const Settings: React.FC = () => {
                             </button>
                         </div>
                     ))}
+                    </React.Fragment>)}
+                    {/* [EM-END: api-preset-group] */}
                     <p className="text-xs px-1 leading-relaxed" style={{ color: F.textSecondary }}>
-                        点名称立即切换；铅笔编辑预设；长按或双击 × 删除。
+                        点名称立即切换；铅笔编辑预设（可填分组）；长按或双击 × 删除。
                     </p>
                 </div>
             )}
@@ -4475,6 +4483,18 @@ const Settings: React.FC = () => {
                       autoComplete="off" className="w-full min-h-11 px-3 py-2 text-sm outline-none"
                       style={{ borderRadius: R.input, background: F.surfaceSunken, boxShadow: S.sunken, color: F.textPrimary }} />
               </label>)}
+              {/* [EM-START: api-preset-group] */}
+              <label className="block space-y-2 text-xs">
+                  <span style={{ color: F.textSecondary }}>分组（可不填，比如中转站的名字）</span>
+                  <input aria-label="预设分组" type="text" value={editPresetGroup} list="api-preset-groups"
+                      onChange={event => setEditPresetGroup(event.target.value)} placeholder="不分组"
+                      autoComplete="off" className="w-full min-h-11 px-3 py-2 text-sm outline-none"
+                      style={{ borderRadius: R.input, background: F.surfaceSunken, boxShadow: S.sunken, color: F.textPrimary }} />
+                  <datalist id="api-preset-groups">
+                      {listPresetGroups(apiPresets).map(group => <option key={group} value={group} />)}
+                  </datalist>
+              </label>
+              {/* [EM-END: api-preset-group] */}
               <div className="space-y-4 p-4" style={{ background: F.surfaceSunken, boxShadow: S.sunken, borderRadius: R.smallCard }}>
                   <div className="flex items-center justify-between gap-3">
                       <span className="text-sm">流式输出</span>

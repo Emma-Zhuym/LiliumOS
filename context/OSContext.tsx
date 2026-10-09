@@ -374,7 +374,7 @@ interface OSContextType {
   // API Presets
   apiPresets: ApiPreset[];
   addApiPreset: (name: string, config: APIConfig) => void;
-  updateApiPreset: (id: string, name: string, config: APIConfig) => void;
+  updateApiPreset: (id: string, name: string, config: APIConfig, group?: string) => void; // [EM: api-preset-group]
   removeApiPreset: (id: string) => void;
 
   // 实时配置 (天气、新闻、Notion等)
@@ -3222,8 +3222,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     localStorage.setItem('os_api_presets', JSON.stringify(next));
     setApiPresets(next);
   };
-  const updateApiPreset = (id: string, name: string, config: APIConfig) => {
-    const next = apiPresets.map(p => p.id === id ? normalizeApiPreset({ ...p, name, config }) : p);
+  const updateApiPreset = (id: string, name: string, config: APIConfig, group?: string) => { // [EM: api-preset-group]
+    const next = apiPresets.map(p => p.id === id ? normalizeApiPreset({ ...p, name, config, ...(group !== undefined ? { group } : {}) }) : p); // [EM: api-preset-group]
     localStorage.setItem('os_api_presets', JSON.stringify(next));
     setApiPresets(next);
   };

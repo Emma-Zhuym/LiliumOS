@@ -34,6 +34,7 @@ import { stripSensitiveCardFields } from '../utils/characterCard';
 import { confirmExportSafety } from '../utils/exportGuard';
 import { trackEvent } from '../utils/analytics';
 import { sortCharacterGroups, GROUP_FILTER_UNGROUPED } from '../components/character/CharacterGroupFilter';
+import { groupApiPresets } from '../utils/apiPresetGroups'; // [EM: api-preset-group]
 import {
     EXTERNAL_MEMORY_MAX_CHARS,
     extractExternalMemoryText,
@@ -1480,9 +1481,17 @@ ${isInitialGeneration ? `
                                    {formData.chatApiPresetId && !apiPresets.some((preset) => preset.id === formData.chatApiPresetId) && (
                                        <option value={formData.chatApiPresetId}>原预设已删除（现在跟随主 API）</option>
                                    )}
-                                   {apiPresets.map((preset) => (
+                                   {/* [EM-START: api-preset-group] */}
+                                   {groupApiPresets(apiPresets).map(section => section.group ? (
+                                       <optgroup key={section.group} label={section.group}>
+                                           {section.presets.map((preset) => (
+                                               <option key={preset.id} value={preset.id}>{preset.name} · {preset.config.model || '未填模型'}</option>
+                                           ))}
+                                       </optgroup>
+                                   ) : section.presets.map((preset) => (
                                        <option key={preset.id} value={preset.id}>{preset.name} · {preset.config.model || '未填模型'}</option>
-                                   ))}
+                                   )))}
+                                   {/* [EM-END: api-preset-group] */}
                                </select>
                                {formData.chatApiPresetId && !apiPresets.some((preset) => preset.id === formData.chatApiPresetId) && (
                                    <p className="mt-2 text-[10px] leading-relaxed text-amber-500">

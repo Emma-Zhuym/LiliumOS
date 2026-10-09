@@ -594,6 +594,7 @@ export interface ApiPreset {
   id: string;
   name: string;
   config: APIConfig;
+  group?: string; // [EM: api-preset-group] 用户手填的分组名；空 = 未分组
 }
 
 export interface CharacterBuff {
