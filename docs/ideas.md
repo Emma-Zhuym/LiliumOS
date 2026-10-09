@@ -107,12 +107,6 @@ Ombre-Brain、Haven-Ombre、Serein、Latent-memory 都是 Python 自部署服务
 
 - 角色发动态配图（心跳发朋友圈现在只有文字；你发的图 TA 能看，TA 自己发不了）
 
-## 工程 / 体验
-
-- **前端错误提示分不清「被 CORS 拦」和「mini 在休眠」** —— 客户端把所有 fetch 失败
-  都归成 `UNREACHABLE`，所以一个被浏览器自己拦下的请求，显示出来跟 mini 关机一模一样。
-  2026-09-25 的日历可见性 bug 就因此先怀疑了半天后端。
-
 ## UI
 
 - 换皮「F」2026-09-25 已定稿上线（见 changelog）。

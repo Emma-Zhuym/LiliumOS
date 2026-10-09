@@ -586,6 +586,11 @@ const extractFirstXsecToken = (data: any): string | undefined => {
 const describeXhsConnectFailure = (e: any, serverUrl: string): string => {
     const host = parseTargetUrl(serverUrl).host || serverUrl;
     const kind = classifyFetchFailure({ url: serverUrl, error: e });
+    // [EM-START: xhs-mini-mcp] 自托管在 mini 上时，最常见的是 mini 不在线，梯子那套排查放后面
+    if (detectMode(serverUrl) === 'mcp' && (kind === 'timeout' || kind === 'blocked')) {
+        return `连不上 ${host}。小红书服务在 Mac mini 上：先看 mini 是不是开着、没在休眠（每天 4–7 点会睡）、Tailscale 是否在线，以及 mini 上的 xiaohongshu-mcp 有没有在跑。都正常的话再查网络：在新标签页直接打开 ${serverUrl.replace(/\/+$/, '')} 看有没有响应。`;
+    }
+    // [EM-END: xhs-mini-mcp]
     switch (kind) {
         case 'timeout':
             return `连接 ${host} 超时（10 秒一个字节都没回）。连接是挂住不返回、不是被拒——多半是该域名没走代理走了直连，或代理节点到上游是黑洞。优先换个梯子节点、或把这个域名显式加进代理规则。`;

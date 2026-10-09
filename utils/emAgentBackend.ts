@@ -11,6 +11,7 @@
 
 import { getOrCreateSubscription } from './proactivePushConfig';
 import { loadPushVapid } from './pushVapid';
+import { probeOriginReachability, type ReachabilityVerdict } from './networkFailureDiagnosis';
 
 const STORAGE_KEY = 'em_agent_backend_v1';
 
@@ -185,6 +186,29 @@ export class AgentBackendError extends Error {
 
 const REQUEST_TIMEOUT_MS = 15_000;
 
+/**
+ * 请求失败后再用 no-cors 碰一下 mini 的域名：碰得到说明 mini 在线，是这次请求被浏览器拦了
+ * （多半是跨域 CORS——后端没放行这个网页地址）；碰不到才是真的休眠 / 断网。
+ * 以前两种都报 UNREACHABLE，显示得跟 mini 关机一模一样（2026-09-25 日历可见性 bug 先怀疑了半天后端）。
+ * 同一个地址 30 秒内的结论复用，一串请求一起失败时只探一次。
+ */
+const PROBE_REUSE_MS = 30_000;
+let lastProbe: { origin: string; at: number; verdict: ReachabilityVerdict } | null = null;
+
+const probeBackend = async (baseUrl: string): Promise<ReachabilityVerdict> => {
+    let origin = '';
+    try { origin = new URL(baseUrl).origin; } catch { return 'skipped'; }
+    const now = Date.now();
+    if (lastProbe && lastProbe.origin === origin && now - lastProbe.at < PROBE_REUSE_MS) return lastProbe.verdict;
+    const verdict = await probeOriginReachability(baseUrl, fetch, { timeoutMs: 5000 });
+    // 全局冷却挡住了这次探测：没有新结论，别把「不知道」记成结论
+    if (verdict !== 'cooldown' && verdict !== 'skipped') lastProbe = { origin, at: now, verdict };
+    return verdict;
+};
+
+/** 测试用 */
+export const resetBackendProbeForTest = () => { lastProbe = null; };
+
 const request = async <T>(
     path: string,
     init: { method?: 'GET' | 'POST'; body?: unknown; config?: AgentBackendConfig; auth?: boolean; timeoutMs?: number } = {},
@@ -210,7 +234,16 @@ const request = async <T>(
     } catch (cause) {
         // 后端休眠、Tailscale 没开、地址填错，浏览器给的都是同一句 "Failed to fetch"。
         // 这里统一成一个可识别的 code，上层据此显示「后台休息中」而不是报错。
-        const reason = controller.signal.aborted ? '超时没响应' : (cause as Error)?.message || '连不上';
+        const aborted = controller.signal.aborted;
+        const reason = aborted ? '超时没响应' : (cause as Error)?.message || '连不上';
+        // [EM-START: agent-backend-cors-probe] 不是超时的失败，先分清「mini 不在」还是「浏览器拦了」
+        if (!aborted && await probeBackend(config.baseUrl) === 'reachable') {
+            throw new AgentBackendError(
+                `Mac mini 在线，但这次请求被浏览器拦下或中途断了（${reason}）。最常见是跨域（CORS）：后端没放行当前这个网页地址；也可能是浏览器扩展拦截`,
+                'BLOCKED', 0,
+            );
+        }
+        // [EM-END: agent-backend-cors-probe]
         throw new AgentBackendError(`连不上 Mac mini 后端（${reason}）`, 'UNREACHABLE', 0);
     } finally {
         clearTimeout(timer);

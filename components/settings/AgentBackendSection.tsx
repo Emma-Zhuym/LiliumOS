@@ -42,6 +42,7 @@ export default function AgentBackendSection() {
     const [config, setConfig] = useState(loadAgentConfig);
     const [status, setStatus] = useState<AgentStatus | null>(null);
     const [reachable, setReachable] = useState<boolean | null>(null);
+    const [blocked, setBlocked] = useState<string | null>(null); // [EM: agent-backend-cors-probe] mini 在线但请求被浏览器拦了
     const [revoked, setRevoked] = useState(false);
     const [loading, setLoading] = useState(false);
     const [messages, setMessages] = useState<AgentMessage[]>([]);
@@ -67,6 +68,7 @@ export default function AgentBackendSection() {
             setStatus(next);
             setReachable(true);
             setRevoked(false);
+            setBlocked(null); // [EM: agent-backend-cors-probe]
         } catch (error) {
             if (mine !== version.current) return;
             // 连不上和「后端报错」是两回事：前者是休眠，后者才值得红字。
@@ -74,6 +76,7 @@ export default function AgentBackendSection() {
             // 这台设备在后端被作废后，本机钥匙还留着，看起来就像「状态未知」。
             // 说清楚是钥匙失效，否则只能靠猜——重新配对才是出路。
             setRevoked(error instanceof AgentBackendError && error.status === 401);
+            setBlocked(error instanceof AgentBackendError && error.code === 'BLOCKED' ? error.message : null); // [EM: agent-backend-cors-probe]
         } finally {
             if (mine === version.current) setLoading(false);
         }
@@ -220,6 +223,11 @@ export default function AgentBackendSection() {
                     </p>
                 )}
 
+                {/* [EM-START: agent-backend-cors-probe] */}
+                {paired && !revoked && blocked && (
+                    <p className="text-[10px] text-amber-600 leading-relaxed px-1">{blocked}</p>
+                )}
+                {/* [EM-END: agent-backend-cors-probe] */}
                 {paired && !revoked && reachable === false && (
                     <p className="text-[10px] text-slate-400 leading-relaxed px-1">
                         现在连不上。Mac mini 每天 4–7 点休眠，这段时间属于正常情况。

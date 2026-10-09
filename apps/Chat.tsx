@@ -1477,7 +1477,7 @@ const Chat: React.FC = () => {
                     // 有小红书 MCP/Lite 才抓详情补全（正文/封面/作者/赞数）。
                     const mcpUrl = realtimeConfig?.xhsMcpConfig?.serverUrl;
                     if (mcpUrl && realtimeConfig?.xhsMcpConfig?.enabled) {
-                        addToast('卡片已发出，正在打开笔记读正文和评论（mini 上要一分钟左右），读完再让 TA 回复', 'info');
+                        addToast('卡片已发出，正在打开笔记读正文和评论（mini 上要等一会儿），读完再让 TA 回复', 'info');
                         const baseNote = note;
                         xhsDetailPromise = (async () => {
                             try {
@@ -1521,7 +1521,7 @@ const Chat: React.FC = () => {
                     }
                     // [EM-END: xhs-share-instant-card]
                 } else {
-                    addToast(`小红书链接解析失败，原消息已保留。通常是网络或代理导致短链无法展开：请尝试开启/关闭科学上网、切换 Wi‑Fi/流量，并检查网络代理与小红书 Lite 配置。${shortLinkError ? `（${shortLinkError}）` : ''}`, 'error');
+                    addToast(`小红书链接解析失败，原消息已保留。通常是网络或代理导致短链无法展开：请尝试开启/关闭科学上网、切换 Wi‑Fi/流量，并检查 设置 → 自定义网络代理 (Worker)（短链是经它展开的）。${shortLinkError ? `（${shortLinkError}）` : ''}`, 'error');
                 }
             }
 
