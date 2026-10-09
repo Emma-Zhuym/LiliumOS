@@ -33,6 +33,10 @@ export const XHS_BLOCKED_TOOLS = new Set([
     'delete_cookies',
 ]);
 const XHS_MAX_BODY = 1024 * 1024;
+// B 站：mini 上的 bilibili-mcp（server/bilibili-mcp，stdio 外包一层 apple-events-bridge）。对外 /bili/*，去前缀转发；
+// 工具全是只读的（读视频、字幕、评论、搜索、收藏夹），不需要停用名单。鉴权由桥自己的 Bearer 做。
+const BILI_MCP_TARGET = new URL(getArg('--bili-mcp-target', 'http://127.0.0.1:8768'));
+const BILI_PREFIX = '/bili';
 const ALLOWED_ORIGINS = new Set(
     getArg('--origins', 'https://emma-zhuym.github.io,http://localhost:5173,http://127.0.0.1:5173')
         .split(',')
@@ -54,6 +58,9 @@ if (AGENT_BACKEND_TARGET.protocol !== 'http:' && AGENT_BACKEND_TARGET.protocol !
 }
 if (XHS_MCP_TARGET.protocol !== 'http:' && XHS_MCP_TARGET.protocol !== 'https:') {
     throw new Error('Only HTTP and HTTPS Xiaohongshu MCP targets are supported');
+}
+if (BILI_MCP_TARGET.protocol !== 'http:' && BILI_MCP_TARGET.protocol !== 'https:') {
+    throw new Error('Only HTTP and HTTPS Bilibili MCP targets are supported');
 }
 
 const corsHeaders = origin => ({
@@ -101,7 +108,7 @@ const server = createServer((request, response) => {
         });
         response.end(JSON.stringify({
             status: 'ok',
-            routes: { homeAssistant: '/api/*', appleEvents: '/mcp', agentBackend: '/agent/*', xiaohongshu: '/xhs/mcp' },
+            routes: { homeAssistant: '/api/*', appleEvents: '/mcp', agentBackend: '/agent/*', xiaohongshu: '/xhs/mcp', bilibili: '/bili/mcp' },
         }));
         return;
     }
@@ -127,7 +134,11 @@ const server = createServer((request, response) => {
         const isAgentBackendPath = incoming.pathname.startsWith('/agent/');
         // 只放 MCP 端点和健康检查：它的 /api/v1/* REST 接口（发帖、删 cookie…）不从公网开
         const xhsPath = incoming.pathname.startsWith(`${XHS_PREFIX}/`) ? incoming.pathname.slice(XHS_PREFIX.length) : null;
-        if (xhsPath === '/mcp' || xhsPath === '/health') {
+        const biliPath = incoming.pathname.startsWith(`${BILI_PREFIX}/`) ? incoming.pathname.slice(BILI_PREFIX.length) : null;
+        if (biliPath === '/mcp' || biliPath === '/health') {
+            target = new URL(`${biliPath}${incoming.search}`, BILI_MCP_TARGET);
+            upstreamName = 'Bilibili MCP';
+        } else if (xhsPath === '/mcp' || xhsPath === '/health') {
             target = new URL(`${xhsPath}${incoming.search}`, XHS_MCP_TARGET);
             upstreamName = 'Xiaohongshu MCP';
         } else if (isAppleEventsPath) {
@@ -148,7 +159,8 @@ const server = createServer((request, response) => {
     const isAgentBackendPath = target.origin === AGENT_BACKEND_TARGET.origin
         && target.pathname.startsWith('/agent/');
     const isXhsMcpPath = upstreamName === 'Xiaohongshu MCP';
-    if (!isHomeAssistantPath && !isAppleEventsPath && !isAgentBackendPath && !isXhsMcpPath) {
+    const isBiliMcpPath = upstreamName === 'Bilibili MCP';
+    if (!isHomeAssistantPath && !isAppleEventsPath && !isAgentBackendPath && !isXhsMcpPath && !isBiliMcpPath) {
         response.writeHead(404, corsHeaders(origin));
         response.end();
         return;
@@ -295,4 +307,5 @@ server.listen(PORT, HOST, () => {
     console.log(`Forwarding /mcp requests to ${APPLE_EVENTS_TARGET.origin}`);
     console.log(`Forwarding /agent requests to ${AGENT_BACKEND_TARGET.origin}`);
     console.log(`Forwarding /xhs/mcp requests to ${XHS_MCP_TARGET.origin}`);
+    console.log(`Forwarding /bili/mcp requests to ${BILI_MCP_TARGET.origin}`);
 });

@@ -13,6 +13,9 @@ the HTTP transport already supported by LiliumOS.
 - `/health` reports process health only and does not expose calendar data.
 - Sessions idle for 30 minutes are closed and their child process reaped.
   Override with `LILIUM_MCP_SESSION_IDLE_MS`.
+- `LILIUM_MCP_TIMEOUT_MS` (default 35000) caps each request; `LILIUM_MCP_LABEL`
+  only renames log lines. The same bridge code also fronts `bilibili-mcp`
+  (`server/bilibili-mcp/`).
 
 Each MCP session owns one `mcp-server-apple-events` child process. Clients are
 not required to send `DELETE /mcp`, and LiliumOS never does, so the bridge

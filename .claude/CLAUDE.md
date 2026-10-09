@@ -273,6 +273,13 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - 心跳：`server/agent-backend/heartbeat.mjs` 的 `DUTY_RULE`（心跳不读世界书，只读角色设定，所以不能靠世界书）；**改措辞两边一起改**
 - 某个角色要例外（设定就是不上班的人）写进那个角色自己的设定，聊天和心跳都读设定
 
+### 31. B 站 MCP 常驻 mini（只读）
+- `server/bilibili-mcp/` — `@xzxzzx/bilibili-mcp@1.14.2`（stdio）外套 `server/apple-events-bridge/index.mjs` 同一份转接代码，单独实例只听 `127.0.0.1:8768`，Bearer 令牌在 `agent-tools/secrets/bilibili-mcp-token`；网关 `/bili/mcp`、`/bili/health` 去前缀转发
+- 12 个工具全只读（视频信息 / 字幕 / 章节 / 评论 / 搜视频 / 搜 UP 主 / 收藏夹），不需要停用名单；阿萌 2026-10-08 定「只读，不需要输出」，不得加发评论 / 弹幕 / 动态类工具
+- **启动必须 `node <真实路径>/dist/cli.js`**，`npx` / `.bin` 软链接在 Node 23/24 上静默退出；**必须 `USER_AGENT=bilibili-mcp/1.14.2`**，默认浏览器 UA 读视频被 B 站 412。两条都在 `run-macos.sh`
+- 登录 Cookie 在 mini 的 `~/.bilibili-mcp/config.json`，扫码要在 mini 本人的大终端窗口里做；没装 ASR，无字幕视频读不到正文
+- 心跳自己逛 B 站、聊天里发链接自动读字幕还没做（`docs/ideas.md`）
+
 ## 合并时常见坑（踩过的 bug）
 
 ### PhoneShell.tsx — messageSubView 必须解构
