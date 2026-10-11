@@ -40,7 +40,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
 
   const layout = useMemo(() => fridgeLayout(lots, foods), [lots, foods]);
   // 便利贴的「今天 / 明天」按打开厨房的那一刻算
-  const reminders = useMemo(() => stickyReminders(lots, foods), [lots, foods]);
+  const reminders = useMemo(() => stickyReminders(lots, foods, events), [lots, foods, events]);
   const receipt = useMemo(() => latestReceipt(events, foods), [events, foods]);
   const contentsRef = useRef({ layout, reminders, receipt });
   contentsRef.current = { layout, reminders, receipt };
@@ -114,26 +114,22 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
     };
     const crisper = { z: 0, v: 0, to: 0 };
     const cam = { pos: new THREE.Vector3(), tgt: new THREE.Vector3(), from: { pos: new THREE.Vector3(), tgt: new THREE.Vector3() }, to: { pos: new THREE.Vector3(), tgt: new THREE.Vector3() }, k: 1, kv: 0 };
-    const LOOK = new THREE.Vector3(1.2, 8.9, 0);
-    const home = new THREE.Vector3();
-    const fitHome = () => {
-      const half = THREE.MathUtils.degToRad(camera.fov / 2);
-      const d = Math.max(18.6 / (2 * Math.tan(half)), 9.4 / (2 * Math.tan(half) * camera.aspect));
-      home.copy(LOOK).add(new THREE.Vector3(0.2, 0.06, 1).normalize().multiplyScalar(d));
+    /**
+     * 每个镜头说清楚要框住什么（中心、至少多宽多高、从哪个方向看），距离按画面比例现算。
+     * 关门时只框冷冻门和冷藏门上半截（门上的纸和窗格影子是主角），冰箱底和地板出画；
+     * 开哪扇门就平视那一格，把往左开的门内置物架也框进来，地板最多露一条边。
+     */
+    const SHOTS = {
+      home: { center: new THREE.Vector3(1.0, 8.7, 0), w: 9.0, h: 11.8, dir: new THREE.Vector3(0.2, 0.06, 1) },
+      fridge: { center: new THREE.Vector3(-1.7, 6.5, -0.4), w: 9.6, h: 11.4, dir: new THREE.Vector3(0.24, 0.03, 1) },
+      freezer: { center: new THREE.Vector3(-1.7, 14.1, -0.4), w: 9.6, h: 7.4, dir: new THREE.Vector3(0.24, 0.05, 1) },
+      both: { center: new THREE.Vector3(-1.5, 9.4, -0.4), w: 9.8, h: 17.4, dir: new THREE.Vector3(0.24, 0.04, 1) },
     };
-    /** 开了哪扇门就往那边探一下身、低一下头；人不换位置 */
     const shotFor = (state: Record<Zone, boolean>) => {
-      const tgt = LOOK.clone(), pos = home.clone();
-      const only = state.fridge !== state.freezer ? (state.fridge ? 'fridge' : 'freezer') : null;
-      if (only) {
-        // 门往左开，门内的置物架在左边：镜头往左挪一点把门内侧也框进来，只往前探一点点
-        const door = only === 'fridge' ? FRIDGE.fridgeDoor : FRIDGE.freezerDoor;
-        tgt.set(-1.2, (door.y0 + door.y1) / 2 + (only === 'fridge' ? 0.3 : -0.6), -1.2);
-        pos.x -= 2.2; pos.lerp(tgt, only === 'fridge' ? 0.06 : 0.14); pos.y += only === 'fridge' ? -0.6 : 0.6;
-      } else if (state.fridge && state.freezer) {
-        tgt.x -= 1.2; pos.x -= 2.2;
-      }
-      return { pos, tgt };
+      const shot = state.fridge && state.freezer ? SHOTS.both : state.fridge ? SHOTS.fridge : state.freezer ? SHOTS.freezer : SHOTS.home;
+      const half = THREE.MathUtils.degToRad(camera.fov / 2);
+      const d = Math.max(shot.h / (2 * Math.tan(half)), shot.w / (2 * Math.tan(half) * camera.aspect));
+      return { pos: shot.center.clone().add(shot.dir.clone().normalize().multiplyScalar(d)), tgt: shot.center.clone() };
     };
     const aim = (state: Record<Zone, boolean>, instant = false) => {
       const shot = shotFor(state);
@@ -148,7 +144,6 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
       renderer.setSize(w, h, false);
       composer?.setSize(w, h);
       camera.aspect = w / h; camera.updateProjectionMatrix();
-      fitHome();
       if (cam.k >= 1) aim(stateRef.current.open, true);
       invalidate();
     }
@@ -311,7 +306,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
     document.addEventListener('visibilitychange', invalidate);
     const lost = (event: Event) => { event.preventDefault(); failed = true; cancelAnimationFrame(frame); setStatus('error'); };
     canvas.addEventListener('webglcontextlost', lost);
-    fitHome(); aim(stateRef.current.open, true); resize();
+    aim(stateRef.current.open, true); resize();
 
     return () => {
       disposed = true;

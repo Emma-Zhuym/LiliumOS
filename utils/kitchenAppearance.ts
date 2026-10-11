@@ -64,8 +64,10 @@ const startOfDay = (time: number) => { const date = new Date(time); date.setHour
  * 便利贴：最要紧的三件事。先是过期 / 快过期（两天内），再是快用完。
  * 只看真的放在冰箱、冷冻和柜子里的；待收纳的还没放好，不提醒。
  */
-export function stickyReminders(lots: KitchenLot[], foods: KitchenFood[], now = Date.now(), limit = 3): DoorNoteLine[] {
+export function stickyReminders(lots: KitchenLot[], foods: KitchenFood[], events: KitchenEvent[] = [], now = Date.now(), limit = 3): DoorNoteLine[] {
   const names = new Map(foods.map(food => [food.id, food.name]));
+  // 「只剩一个」只对买的时候不止一个的提醒：本来就只买了一颗西兰花，不用天天提醒它只剩一个
+  const boughtMany = new Set(events.filter(event => event.type === 'ADD' && !event.undoneAt && event.quantityAfter > 1).map(event => event.lotId));
   const today = startOfDay(now);
   const notes: { rank: number; line: DoorNoteLine }[] = [];
   for (const lot of lots) {
@@ -82,7 +84,7 @@ export function stickyReminders(lots: KitchenLot[], foods: KitchenFood[], now = 
     }
     const lowOpened = lot.trackingMode === 'divisible' && lot.quantity <= 1
       && lot.openContainerRemaining !== undefined && lot.openContainerRemaining <= 0.25;
-    const lastOne = lot.trackingMode !== 'divisible' && lot.quantity === 1 && lot.unit === 'piece';
+    const lastOne = lot.trackingMode !== 'divisible' && lot.quantity === 1 && lot.unit === 'piece' && boughtMany.has(lot.id);
     if (lowOpened || lastOne) notes.push({ rank: 10, line: { lotId: lot.id, text: lastOne ? `${name}只剩一个` : `${name}快用完了` } });
   }
   return notes.sort((a, b) => a.rank - b.rank).slice(0, limit).map(note => note.line);

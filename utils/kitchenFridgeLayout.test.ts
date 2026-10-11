@@ -98,7 +98,11 @@ describe('门上的纸', () => {
       lot(5, { expiresAt: '2026-11-01' }),
     ];
     const foods = ['酸奶', '豆腐', '牛奶', '鸡蛋', '面包', '黄油'].map((name, i) => food(i, name));
-    expect(stickyReminders(lots, foods, now).map(line => line.text)).toEqual(['豆腐过期了', '酸奶明天到期', '牛奶快用完了']);
+    expect(stickyReminders(lots, foods, [], now).map(line => line.text)).toEqual(['豆腐过期了', '酸奶明天到期', '牛奶快用完了']);
+    // 鸡蛋买了一盒十二个、现在剩一个才提醒；没有买入记录（或本来就买一个）不提醒
+    const bought = [{ id: 'e3', operationId: 'o3', type: 'ADD' as const, lotId: 'lot-3', foodId: 'food-3', quantityDelta: 12, quantityBefore: 0, quantityAfter: 12, unit: 'piece' as const, occurredAt: 0 }];
+    expect(stickyReminders([lots[3]], foods, bought, now).map(line => line.text)).toEqual(['鸡蛋只剩一个']);
+    expect(stickyReminders([lots[3]], foods, [], now)).toEqual([]);
   });
   it('小票：最近一天放进来的几样，撤销掉的不算', () => {
     const add = (i: number, at: number, extra: Partial<KitchenEvent> = {}): KitchenEvent => ({
