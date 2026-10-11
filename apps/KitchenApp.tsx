@@ -147,8 +147,10 @@ const KitchenApp: React.FC = () => {
   </div>;
   const inSheet = showAdd || !!selectedLot;
 
+  // 首页整屏都是厨房（2026-10-11 Emma 定）：场景铺满，顶栏透明浮在画面上，底下只留一排纸签
+  const stage = view === 'home' && !loading && !loadFailed;
   return <div className="kitchen-paper" style={KITCHEN_PAPER_VARS}>
-    <div ref={background} className="kitchen-page">
+    <div ref={background} className={stage ? 'kitchen-page is-stage' : 'kitchen-page'}>
       <header className="kitchen-header">
         <div className="kitchen-header-actions"><button type="button" className="kitchen-icon" aria-label={view === 'home' ? '返回' : '返回厨房'}
           onClick={() => view === 'home' ? closeApp() : setView('home')}><CaretLeft size={22} weight="bold" /></button></div>
@@ -165,19 +167,14 @@ const KitchenApp: React.FC = () => {
           : view === 'home' ? <>
             {/* 常温柜不做 3D（2026-10-11）：柜子里的零食饮料速食写在冷藏门左下那张「柜子里」清单上 */}
             <Suspense fallback={<div className="kitchen-empty" role="status">正在打开冰箱…</div>}>
-              <KitchenFridgeScene lots={lots} foods={foods} events={events} onOpenLot={openLot}
+              <KitchenFridgeScene fullBleed lots={lots} foods={foods} events={events} onOpenLot={openLot}
                 onOpenHistory={() => setView('history')} onOpenPantry={() => openList(false, 'pantry')} />
             </Suspense>
-            <div className="kitchen-home-footer">
-              <button type="button" className="kitchen-row" aria-label="食材清单" onClick={() => openList()}>
-                <span className="kitchen-heading">食材清单</span><span>{activeLots.length} 条</span><CaretRight size={18} />
-              </button>
-              {stagedCount > 0 && <button type="button" className="kitchen-text-button" onClick={() => openList(false, 'staging')}>{stagedCount} 条食材还没收好</button>}
-              <button type="button" className="kitchen-button kitchen-button-primary" onClick={() => { setNotice(null); setShowAdd(true); }}>
-                <Plus size={19} />放进食物
-              </button>
-              <button type="button" className="kitchen-text-button" onClick={() => setView('history')}><ClockCounterClockwise size={16} />操作记录</button>
-            </div>
+            <nav className="kitchen-stage-chips" aria-label="厨房">
+              <button type="button" className="kitchen-button" aria-label="食材清单" onClick={() => openList()}>食材清单 · {activeLots.length}</button>
+              {stagedCount > 0 && <button type="button" className="kitchen-button" onClick={() => openList(false, 'staging')}>{stagedCount} 条还没收好</button>}
+              <button type="button" className="kitchen-button" onClick={() => setView('history')}><ClockCounterClockwise size={16} />操作记录</button>
+            </nav>
           </> : view === 'list' ? <>
             <div className="kitchen-list-tools">
               <input ref={searchField} className="kitchen-field" aria-label="搜索食材" placeholder="找找家里有什么" value={search} onChange={event => setSearch(event.target.value)} />

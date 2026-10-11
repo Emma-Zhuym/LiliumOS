@@ -339,3 +339,15 @@ p.kitchen-note { margin: 0; padding: 0; border: 0; background: transparent; colo
   .kitchen-paper *, .kitchen-paper *::before, .kitchen-paper *::after { animation: none !important; transition: none !important; }
   .kitchen-paper button:active:not(:disabled) { transform: none; }
 }
+
+/*
+ * 首页整屏都是厨房（2026-10-11，APP_CONVENTIONS P14）：场景铺满，顶栏不要底色、直接浮在画面上
+ * （画面上方一直是浅色的墙或内胆，深色字始终看得清；不做半透明条，也不做渐变）；
+ * 底下只留一排纸签。清单页、记录页仍是普通纸页布局。
+ */
+.kitchen-page.is-stage { position: relative; }
+.kitchen-page.is-stage > .kitchen-header { position: absolute; z-index: 2; top: 0; left: 0; right: 0; background: none; }
+.kitchen-page.is-stage > .kitchen-content { position: absolute; inset: 0; padding: 0; overflow: hidden; }
+.kitchen-stage-chips { position: absolute; z-index: 2; left: 16px; right: 16px; bottom: calc(var(--safe-bottom) + 16px); display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.kitchen-stage-chips > .kitchen-button { min-height: 44px; padding: 0 16px; font-size: 14px; }
+.kitchen-paper:has(.is-stage) .kitchen-toast { bottom: calc(var(--safe-bottom) + 76px); }

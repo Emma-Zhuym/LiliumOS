@@ -18,6 +18,8 @@ interface Props {
   onOpenHistory?: () => void;
   /** 点「柜子里」那张纸的空白处：去看常温柜的完整清单 */
   onOpenPantry?: () => void;
+  /** 铺满整个页面（首页整屏厨房）：开门按钮只留给读屏，取景照演示 */
+  fullBleed?: boolean;
 }
 
 type Zone = 'fridge' | 'freezer';
@@ -29,7 +31,7 @@ const CRISPER_OUT = 2.3;
  * 动效只跟着操作发生：门有一点回弹、开门时纸被风压平再掀起、磁贴拔了会吸回去、内灯闪两下再亮稳。
  * 静止时不渲染；减少动态效果时一律直接到终点。
  */
-const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenLot, onOpenHistory, onOpenPantry }) => {
+const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenLot, onOpenHistory, onOpenPantry, fullBleed = false }) => {
   const [open, setOpen] = useState<Record<Zone, boolean>>({ fridge: false, freezer: false });
   const [crisperOpen, setCrisperOpen] = useState(false);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -123,7 +125,13 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
      * 关门时只框冷冻门和冷藏门上半截（门上的纸和窗格影子是主角），冰箱底和地板出画；
      * 开哪扇门就正对那一格，里面占满画面（不做门内置物架，门开到画面外去）。
      */
-    const SHOTS = {
+    // 整屏是竖长画面，宽度先撑满：关门照演示框到冷冻门和整扇冷藏门（地板只在最底下一条，压在纸签后面）
+    const SHOTS = fullBleed ? {
+      home: { center: new THREE.Vector3(1.3, 10.4, 0), w: 9.6, h: 12.6, dir: new THREE.Vector3(0.2, 0.08, 1) },
+      fridge: { center: new THREE.Vector3(0.3, 7.6, -1.4), w: 7.8, h: 11.0, dir: new THREE.Vector3(0.14, 0.05, 1) },
+      freezer: { center: new THREE.Vector3(0.3, 13.2, -1.4), w: 7.8, h: 6.6, dir: new THREE.Vector3(0.14, 0.03, 1) },
+      both: { center: new THREE.Vector3(0.3, 9.4, -1.2), w: 8.0, h: 17.2, dir: new THREE.Vector3(0.14, 0.04, 1) },
+    } : {
       home: { center: new THREE.Vector3(1.0, 8.7, 0), w: 9.0, h: 11.8, dir: new THREE.Vector3(0.2, 0.06, 1) },
       fridge: { center: new THREE.Vector3(0.3, 6.3, -1.4), w: 7.6, h: 11.0, dir: new THREE.Vector3(0.14, 0.04, 1) },
       freezer: { center: new THREE.Vector3(0.3, 14.1, -1.4), w: 7.6, h: 6.6, dir: new THREE.Vector3(0.14, 0.04, 1) },
@@ -336,8 +344,8 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
   const visibleItems = layout.entries.filter(entry => open[entry.zone] && (entry.spot !== 'crisper' || crisperOpen));
   const control: React.CSSProperties = { minHeight: 44, padding: `${SP[1]}px ${SP[2]}px`, borderRadius: R.button, color: PAPER.blueInk, fontSize: 12, fontWeight: 500 };
   return (
-    <section className="kitchen-scene" aria-label="冰箱">
-      <div className="relative" style={{ height: 'min(64vh, 600px)', overflow: 'hidden', background: PAPER.well }}>
+    <section className="kitchen-scene" aria-label="冰箱" style={fullBleed ? { position: 'absolute', inset: 0 } : undefined}>
+      <div className="relative" style={{ height: fullBleed ? '100%' : 'min(64vh, 600px)', overflow: 'hidden', background: PAPER.well }}>
         <div ref={host} className="absolute inset-0" />
         {status !== 'ready' && <div role="status" className="absolute inset-0 flex items-center justify-center text-center"
           style={{ padding: SP[3], color: PAPER.muted, fontSize: 13 }}>
@@ -351,7 +359,8 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
           {pantry && onOpenPantry && <li><button type="button" onClick={onOpenPantry}>看柜子里的全部</button></li>}
         </ul>}
       </div>
-      <div className="kitchen-scene-footer">
+      {/* 整屏时点门、点抽屉就开关；这排按钮只留给读屏和键盘 */}
+      <div className={fullBleed ? 'sr-only' : 'kitchen-scene-footer'}>
         <div className="kitchen-scene-controls flex items-center justify-center flex-wrap" style={{ gap: SP[1], padding: `${SP[1]}px ${SP[2]}px` }}>
           {(['freezer', 'fridge'] as const).map(zone => <button key={zone} type="button" disabled={status !== 'ready'} aria-pressed={open[zone]}
             className="disabled:opacity-40" style={control} onClick={() => setOpen(value => ({ ...value, [zone]: !value[zone] }))}>
