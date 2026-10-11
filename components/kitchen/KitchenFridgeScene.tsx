@@ -1,406 +1,361 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { F, HUE, R, SP } from '../../utils/clayTokens';
+import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
+import { R, SP } from '../../utils/clayTokens';
 import { KITCHEN_PAPER as PAPER } from '../../utils/kitchenPaperTokens';
-import type { KitchenFood, KitchenLot } from '../../utils/kitchenDb';
-import { FRIDGE_SHELVES, fridgeDoorParent } from '../../utils/kitchenFridgeSpec';
-import { eggVisibleCount, fridgeLayout } from '../../utils/kitchenSceneLayout';
-import { createKitchenBackdrop } from '../../utils/kitchenBackdrop';
-import { spaceKitchenMarkers } from '../../utils/kitchenSceneMarkers';
+import type { KitchenEvent, KitchenFood, KitchenLot } from '../../utils/kitchenDb';
+import { FRIDGE } from '../../utils/kitchenFridgeSpec';
+import { fridgeLayout } from '../../utils/kitchenFridgeLayout';
+import { latestReceipt, stickyReminders } from '../../utils/kitchenAppearance';
+import { bendPaper, buildKitchenScene, HAND_FONT, type KitchenRig } from './kitchenFridgeBuild';
 
 interface Props {
   lots: KitchenLot[];
   foods: KitchenFood[];
+  events?: KitchenEvent[];
   onOpenLot: (id: string) => void;
+  /** 点门上的小票：去看操作记录 */
+  onOpenHistory?: () => void;
 }
 
-const DOOR_OPEN_ANGLE = -THREE.MathUtils.degToRad(112);
+type Zone = 'fridge' | 'freezer';
+const OPEN = THREE.MathUtils.degToRad(104);
+const CRISPER_OUT = 2.3;
 
-function disposeObjects(objects: THREE.Object3D[]) {
-  const geometries = new Set<THREE.BufferGeometry>();
-  const materials = new Set<THREE.Material>();
-  const textures = new Set<THREE.Texture>();
-  for (const object of objects) object.traverse(node => {
-    if (!(node instanceof THREE.Mesh)) return;
-    geometries.add(node.geometry);
-    for (const material of Array.isArray(node.material) ? node.material : [node.material]) {
-      materials.add(material);
-      for (const value of Object.values(material)) if (value instanceof THREE.Texture) textures.add(value);
-    }
-  });
-  geometries.forEach(value => value.dispose());
-  materials.forEach(value => value.dispose());
-  textures.forEach(value => value.dispose());
-}
-
-const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, onOpenLot }) => {
-  const [doorsOpen, setDoorsOpen] = useState({ fridge: true, freezer: true });
-  const [drawersOpen, setDrawersOpen] = useState(false);
+/**
+ * 冰箱门（APP_CONVENTIONS P14）：门是首页的主体，门上贴着便利贴和小票；点门打开看里面。
+ * 动效只跟着操作发生：门有一点回弹、开门时纸被风压平再掀起、磁贴拔了会吸回去、内灯闪两下再亮稳。
+ * 静止时不渲染；减少动态效果时一律直接到终点。
+ */
+const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenLot, onOpenHistory }) => {
+  const [open, setOpen] = useState<Record<Zone, boolean>>({ fridge: false, freezer: false });
+  const [crisperOpen, setCrisperOpen] = useState(false);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [markers, setMarkers] = useState<{ lotId: string; x: number; y: number }[]>([]);
   const host = useRef<HTMLDivElement>(null);
-  const onOpenLotRef = useRef(onOpenLot);
-  onOpenLotRef.current = onOpenLot;
-  const controller = useRef<{ setOpen: (value: typeof doorsOpen) => void; setDrawers: (value: boolean) => void }>();
-  const openRef = useRef(doorsOpen);
-  const drawersRef = useRef(drawersOpen);
-  drawersRef.current = drawersOpen;
-  openRef.current = doorsOpen;
-  const layout = useMemo(() => {
-    const cold = fridgeLayout(lots, foods);
-    const frozen = fridgeLayout(lots, foods, 'freezer');
-    return { entries: [...frozen.entries, ...cold.entries], total: cold.total + frozen.total };
-  }, [lots, foods]);
-  const isOpen = (zone: string) => zone === 'freezer' ? doorsOpen.freezer : doorsOpen.fridge;
-  const toggleDoor = (zone: 'fridge' | 'freezer') => setDoorsOpen(value => ({ ...value, [zone]: !value[zone] }));
+  const callbacks = useRef({ onOpenLot, onOpenHistory });
+  callbacks.current = { onOpenLot, onOpenHistory };
+  const controller = useRef<{ sync: (open: Record<Zone, boolean>, crisper: boolean) => void; fill: () => void } | null>(null);
+  const stateRef = useRef({ open, crisperOpen });
+  stateRef.current = { open, crisperOpen };
 
-  useEffect(() => { controller.current?.setOpen(doorsOpen); }, [doorsOpen]);
-  useEffect(() => { controller.current?.setDrawers(doorsOpen.fridge && drawersOpen); }, [doorsOpen.fridge, drawersOpen]);
+  const layout = useMemo(() => fridgeLayout(lots, foods), [lots, foods]);
+  // 便利贴的「今天 / 明天」按打开厨房的那一刻算
+  const reminders = useMemo(() => stickyReminders(lots, foods), [lots, foods]);
+  const receipt = useMemo(() => latestReceipt(events, foods), [events, foods]);
+  const contentsRef = useRef({ layout, reminders, receipt });
+  contentsRef.current = { layout, reminders, receipt };
+
+  useEffect(() => { controller.current?.sync(open, crisperOpen); }, [open, crisperOpen]);
+  useEffect(() => { controller.current?.fill(); }, [layout, reminders, receipt]);
 
   useEffect(() => {
-    const element = host.current;
-    if (!element) return;
-    let disposed = false;
-    let failed = false;
-    let frame = 0;
-    let door: THREE.Object3D | undefined;
-    let freezerDoor: THREE.Object3D | undefined;
-    let drawers: THREE.Object3D[] = [];
-    let drawerTarget = openRef.current.fridge && drawersRef.current ? 0.3 : 0;
-    let targetAngle = openRef.current.fridge ? DOOR_OPEN_ANGLE : 0;
-    let freezerAngle = openRef.current.freezer ? DOOR_OPEN_ANGLE : 0;
-    const foodSlots: { id: string; object: THREE.Group }[] = [];
-    let inView = true;
+    const maybeElement = host.current;
+    if (!maybeElement) return;
+    const element: HTMLDivElement = maybeElement;
+    let disposed = false, failed = false, frame = 0, inView = true;
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
     let renderer: THREE.WebGLRenderer;
-    setStatus('loading');
-    setMarkers([]);
-    try {
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    } catch {
-      setStatus('error');
-      return;
-    }
+    try { renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' }); }
+    catch { setStatus('error'); return; }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1;
+    renderer.toneMappingExposure = 1.12;
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.VSMShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
+    RectAreaLightUniformsLib.init();
     const canvas = renderer.domElement;
-    canvas.style.display = 'block';
-    canvas.style.width = '100%';
-    canvas.style.height = '100%';
+    Object.assign(canvas.style, { display: 'block', width: '100%', height: '100%', touchAction: 'none' });
     canvas.setAttribute('aria-hidden', 'true');
     element.appendChild(canvas);
-    const scene = new THREE.Scene();
-    const backdrop = createKitchenBackdrop();
-    scene.add(backdrop);
-    const environment = new RoomEnvironment();
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    const environmentMap = pmrem.fromScene(environment, 0.04);
-    scene.environment = environmentMap.texture;
-    scene.environmentIntensity = 0.32;
-    environment.dispose();
-    pmrem.dispose();
-    const camera = new THREE.OrthographicCamera(-1.4, 1.4, 1.4, -1.4, 0.1, 30);
-    camera.position.set(-0.12, 1.65, 6);
-    camera.lookAt(-0.12, 1.3, 0);
-    scene.add(new THREE.HemisphereLight(F.surfaceRaised, HUE.gray.soft, 0.3));
-    const light = new THREE.DirectionalLight(F.surfaceRaised, 2.7);
-    light.position.set(-3, 5, 4);
-    light.castShadow = true;
-    light.shadow.mapSize.set(1024, 1024);
-    light.shadow.radius = 4;
-    light.shadow.blurSamples = 8;
-    light.shadow.camera.left = -2.4; light.shadow.camera.right = 2.4;
-    light.shadow.camera.top = 2.6; light.shadow.camera.bottom = -2.6;
-    light.shadow.camera.near = 0.1; light.shadow.camera.far = 12;
-    light.shadow.normalBias = 0.015; light.shadow.bias = -0.0003;
-    light.target.position.set(-0.2, 1.1, 0);
-    scene.add(light, light.target);
-    const rimLight = new THREE.DirectionalLight(HUE.blue.tint, 0.6);
-    rimLight.position.set(3, 3, -1);
-    scene.add(rimLight);
-    // Interior fill follows each door. Only the exterior key renders a shadow map.
-    const interiorLights: THREE.PointLight[] = [];
-    for (const y of [1.6, 2.41]) {
-      const fill = new THREE.PointLight(F.surfaceRaised, 0, 1.6, 2);
-      fill.position.set(0, y, 0.12); scene.add(fill);
-      interiorLights.push(fill);
-    }
-    // Soft contact shading stays inexpensive and anchors items on transparent shelves.
-    const shadowCanvas = document.createElement('canvas');
-    shadowCanvas.width = shadowCanvas.height = 64;
-    const shadowContext = shadowCanvas.getContext('2d')!;
-    const gradient = shadowContext.createRadialGradient(32, 32, 4, 32, 32, 32);
-    gradient.addColorStop(0, F.textPrimary);
-    gradient.addColorStop(1, `${F.textPrimary}00`);
-    shadowContext.fillStyle = gradient;
-    shadowContext.fillRect(0, 0, 64, 64);
-    const contactTexture = new THREE.CanvasTexture(shadowCanvas);
-    contactTexture.colorSpace = THREE.SRGBColorSpace;
-    const contactShadow = (width: number, depth: number, opacity: number) => {
-      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), new THREE.MeshBasicMaterial({
-        map: contactTexture, transparent: true, opacity, depthWrite: false, toneMapped: false,
-      }));
-      mesh.rotation.x = -Math.PI / 2;
-      mesh.raycast = () => {};
-      return mesh;
-    };
-    const ground = contactShadow(2.7, 1.5, 0.22);
-    ground.position.y = -0.012;
-    scene.add(ground);
-    const loaded: THREE.Object3D[] = [ground, backdrop];
-    const raycaster = new THREE.Raycaster();
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
 
-    const draw = () => {
-      frame = 0;
-      if (disposed || failed || !inView || document.hidden) return;
-      if (door && !(targetAngle === 0 && drawers.some(drawer => drawer.position.z > 0.002))) {
-        const difference = targetAngle - door.rotation.y;
-        door.rotation.y = reducedMotion.matches || Math.abs(difference) < 0.002
-          ? targetAngle : door.rotation.y + difference * 0.16;
-      }
-      if (freezerDoor) {
-        const delta = freezerAngle - freezerDoor.rotation.y;
-        freezerDoor.rotation.y = reducedMotion.matches || Math.abs(delta) < 0.002 ? freezerAngle : freezerDoor.rotation.y + delta * 0.16;
-      }
-      for (const drawer of drawers) {
-        const delta = drawerTarget - drawer.position.z;
-        drawer.position.z = reducedMotion.matches || Math.abs(delta) < 0.002 ? drawerTarget : drawer.position.z + delta * 0.16;
-      }
-      interiorLights.forEach((fill, index) => {
-        const angle = (index === 0 ? door : freezerDoor)?.rotation.y ?? 0;
-        fill.intensity = (index === 0 ? 0.38 : 0.18) * Math.min(1, Math.abs(angle) / 0.5);
-      });
-      renderer.render(scene, camera);
-      setMarkers(spaceKitchenMarkers(foodSlots.filter(slot => openRef.current[slot.object.userData.zone as 'fridge' | 'freezer']).map(slot => {
-        const point = slot.object.localToWorld(new THREE.Vector3(0, slot.object.userData.markerHeight, 0)).project(camera);
-        return { lotId: slot.id, x: (point.x + 1) * element.clientWidth / 2, y: (1 - point.y) * element.clientHeight / 2 };
-      }), element.clientWidth, element.clientHeight));
-      if ((door && door.rotation.y !== targetAngle) || (freezerDoor && freezerDoor.rotation.y !== freezerAngle)
-        || drawers.some(drawer => drawer.position.z !== drawerTarget)) frame = requestAnimationFrame(draw);
+    const rig: KitchenRig = buildKitchenScene(renderer);
+    const camera = new THREE.PerspectiveCamera(36, 1, 0.5, 200);
+
+    /* 后期：环境光遮蔽 + 很淡的颗粒和暗角。加载失败就直接画，不影响使用 */
+    let composer: { render: () => void; setSize: (w: number, h: number) => void; dispose?: () => void } | null = null;
+    let grainSeed: { value: number } | null = null;
+    void (async () => {
+      try {
+        const [{ EffectComposer }, { RenderPass }, { GTAOPass }, { OutputPass }, { ShaderPass }] = await Promise.all([
+          import('three/addons/postprocessing/EffectComposer.js'), import('three/addons/postprocessing/RenderPass.js'),
+          import('three/addons/postprocessing/GTAOPass.js'), import('three/addons/postprocessing/OutputPass.js'),
+          import('three/addons/postprocessing/ShaderPass.js'),
+        ]);
+        if (disposed) return;
+        const c = new EffectComposer(renderer);
+        c.addPass(new RenderPass(rig.scene, camera));
+        const ao = new GTAOPass(rig.scene, camera, 1, 1);
+        ao.updateGtaoMaterial({ radius: 0.5, distanceExponent: 1.6, thickness: 0.6, scale: 1, samples: 12 });
+        ao.blendIntensity = 0.85;
+        c.addPass(ao);
+        c.addPass(new OutputPass());
+        const grain = new ShaderPass({
+          uniforms: { tDiffuse: { value: null }, uSeed: { value: 0 } },
+          vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+          fragmentShader: `uniform sampler2D tDiffuse; uniform float uSeed; varying vec2 vUv;
+            float h(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233)) + uSeed) * 43758.5453); }
+            void main(){ vec4 c = texture2D(tDiffuse, vUv);
+              c.rgb += (h(gl_FragCoord.xy) - 0.5) * 0.026;
+              float d = distance(vUv, vec2(0.5, 0.48)); c.rgb *= mix(1.0, 0.84, smoothstep(0.34, 0.92, d));
+              gl_FragColor = c; }`,
+        });
+        c.addPass(grain);
+        grainSeed = grain.uniforms.uSeed as { value: number };
+        composer = c;
+        resize();
+      } catch { /* 没有环境光遮蔽也照常画 */ }
+    })();
+
+    /* 弹簧状态 */
+    const doors = {
+      fridge: { a: stateRef.current.open.fridge ? OPEN : 0, v: 0, to: stateRef.current.open.fridge ? OPEN : 0, openedAt: -1e9 },
+      freezer: { a: stateRef.current.open.freezer ? OPEN : 0, v: 0, to: stateRef.current.open.freezer ? OPEN : 0, openedAt: -1e9 },
     };
-    const invalidate = () => {
-      if (!disposed && !frame && !failed) frame = requestAnimationFrame(draw);
+    const crisper = { z: 0, v: 0, to: 0 };
+    const cam = { pos: new THREE.Vector3(), tgt: new THREE.Vector3(), from: { pos: new THREE.Vector3(), tgt: new THREE.Vector3() }, to: { pos: new THREE.Vector3(), tgt: new THREE.Vector3() }, k: 1, kv: 0 };
+    const LOOK = new THREE.Vector3(1.2, 8.9, 0);
+    const home = new THREE.Vector3();
+    const fitHome = () => {
+      const half = THREE.MathUtils.degToRad(camera.fov / 2);
+      const d = Math.max(18.6 / (2 * Math.tan(half)), 9.4 / (2 * Math.tan(half) * camera.aspect));
+      home.copy(LOOK).add(new THREE.Vector3(0.2, 0.06, 1).normalize().multiplyScalar(d));
     };
-    controller.current = {
-      setOpen: value => { targetAngle = value.fridge ? DOOR_OPEN_ANGLE : 0; freezerAngle = value.freezer ? DOOR_OPEN_ANGLE : 0; invalidate(); },
-      setDrawers: value => { drawerTarget = value ? 0.3 : 0; invalidate(); },
+    /** 开了哪扇门就往那边探一下身、低一下头；人不换位置 */
+    const shotFor = (state: Record<Zone, boolean>) => {
+      const tgt = LOOK.clone(), pos = home.clone();
+      const only = state.fridge !== state.freezer ? (state.fridge ? 'fridge' : 'freezer') : null;
+      if (only) {
+        // 门往左开，门内的置物架在左边：镜头往左挪一点把门内侧也框进来，只往前探一点点
+        const door = only === 'fridge' ? FRIDGE.fridgeDoor : FRIDGE.freezerDoor;
+        tgt.set(-1.2, (door.y0 + door.y1) / 2 + (only === 'fridge' ? 0.3 : -0.6), -1.2);
+        pos.x -= 2.2; pos.lerp(tgt, only === 'fridge' ? 0.06 : 0.14); pos.y += only === 'fridge' ? -0.6 : 0.6;
+      } else if (state.fridge && state.freezer) {
+        tgt.x -= 1.2; pos.x -= 2.2;
+      }
+      return { pos, tgt };
     };
-    const resize = () => {
+    const aim = (state: Record<Zone, boolean>, instant = false) => {
+      const shot = shotFor(state);
+      cam.from.pos.copy(cam.pos); cam.from.tgt.copy(cam.tgt); cam.to.pos.copy(shot.pos); cam.to.tgt.copy(shot.tgt);
+      if (instant || reduce.matches) { cam.pos.copy(shot.pos); cam.tgt.copy(shot.tgt); cam.k = 1; } else { cam.k = 0; cam.kv = 0; }
+    };
+
+    function resize() {
       if (disposed) return;
-      const width = element.clientWidth;
-      const height = element.clientHeight;
-      if (!width || !height) return;
-      renderer.setSize(width, height, false);
-      const aspect = width / height;
-      const halfHeight = Math.max(1.4, 1.2 / aspect);
-      camera.left = -halfHeight * aspect;
-      camera.right = halfHeight * aspect;
-      camera.top = halfHeight;
-      camera.bottom = -halfHeight;
-      camera.updateProjectionMatrix();
-      camera.updateMatrixWorld();
+      const w = element.clientWidth, h = element.clientHeight;
+      if (!w || !h) return;
+      renderer.setSize(w, h, false);
+      composer?.setSize(w, h);
+      camera.aspect = w / h; camera.updateProjectionMatrix();
+      fitHome();
+      if (cam.k >= 1) aim(stateRef.current.open, true);
+      invalidate();
+    }
+
+    const fill = () => {
+      const { layout: l, reminders: r, receipt: rc } = contentsRef.current;
+      rig.setContents(l.entries, r, rc);
+      if (!reduce.matches) for (const p of rig.papers) p.v += p.key === 'receipt' ? 1.2 : 0.7;   // 换上新纸时轻轻晃一下
       invalidate();
     };
-    const resizeObserver = new ResizeObserver(resize);
-    resizeObserver.observe(element);
-    const visibilityObserver = new IntersectionObserver(([entry]) => { inView = entry.isIntersecting; invalidate(); });
-    visibilityObserver.observe(element);
-    document.addEventListener('visibilitychange', invalidate);
-    const contextLost = (event: Event) => {
-      event.preventDefault();
-      failed = true;
-      cancelAnimationFrame(frame);
-      setStatus('error');
+    // 手写字体到了再写字（最多等 2.5 秒），不然胶带和便利贴上是系统字
+    const fontsReady = Promise.race([
+      Promise.all([document.fonts.load(`60px ${HAND_FONT}`, '牛奶快用完了'), document.fonts.load('600 46px "Noto Serif SC"', '牛奶')]).catch(() => null),
+      new Promise(resolve => setTimeout(resolve, 2500)),
+    ]);
+    void fontsReady.then(() => { if (disposed) return; fill(); setStatus('ready'); });
+
+    let flickerUntil = 0;
+    controller.current = {
+      sync: (state, crisperState) => {
+        for (const zone of ['fridge', 'freezer'] as const) {
+          const target = state[zone] ? OPEN : 0;
+          if (target !== doors[zone].to) {
+            doors[zone].to = target;
+            if (target) { doors[zone].openedAt = performance.now(); flickerUntil = performance.now() + 520; }
+            if (reduce.matches) { doors[zone].a = target; doors[zone].v = 0; }
+          }
+        }
+        crisper.to = state.fridge && crisperState ? CRISPER_OUT : 0;
+        if (reduce.matches) crisper.z = crisper.to;
+        aim(state);
+        invalidate();
+      },
+      fill: () => { void fontsReady.then(() => { if (!disposed) fill(); }); },
     };
-    canvas.addEventListener('webglcontextlost', contextLost);
-    let pointerStart: { x: number; y: number } | null = null;
-    const pointerDown = (event: PointerEvent) => { pointerStart = { x: event.clientX, y: event.clientY }; };
-    const pointerUp = (event: PointerEvent) => {
-      if (!pointerStart || Math.hypot(event.clientX - pointerStart.x, event.clientY - pointerStart.y) > 8) return;
-      pointerStart = null;
+
+    const settled = () => (['fridge', 'freezer'] as const).every(z => Math.abs(doors[z].v) < 2e-3 && Math.abs(doors[z].a - doors[z].to) < 2e-3)
+      && Math.abs(crisper.v) < 2e-3 && Math.abs(crisper.z - crisper.to) < 2e-3
+      && rig.papers.every(p => Math.abs(p.v) < 2e-3 && Math.abs(p.s) < 2e-3 && Math.abs(p.liftV) < 2e-3 && Math.abs(p.lift - p.liftTo) < 2e-3)
+      && rig.magnets.every(m => Math.abs(m.v) < 2e-3 && Math.abs(m.z - m.to) < 2e-3 && !m.released)
+      && cam.k >= 1 && performance.now() > flickerUntil;
+
+    let last = performance.now();
+    const draw = (now: number) => {
+      frame = 0;
+      if (disposed || failed || !inView || document.hidden) return;
+      const dt = Math.min(0.033, (now - last) / 1000); last = now;
+      const time = now / 1000, still = reduce.matches;
+      const omega: Record<Zone, number> = { fridge: 0, freezer: 0 };
+      for (const zone of ['fridge', 'freezer'] as const) {
+        const d = doors[zone], prev = d.a;
+        // 稍微欠阻尼：开到头有一点点回弹；关门时先把抽屉收回去
+        const target = zone === 'fridge' && d.to === 0 && crisper.z > 0.05 ? Math.max(d.a, 0.6) : d.to;
+        if (!still) { d.v += (-26 * (d.a - target) - 7.2 * d.v) * dt; d.a = Math.max(-0.02, d.a + d.v * dt); } else d.a = target;
+        (zone === 'fridge' ? rig.fridgeHinge : rig.freezerHinge).rotation.y = -d.a;
+        omega[zone] = (d.a - prev) / Math.max(dt, 1e-4);
+        const since = now - d.openedAt;
+        const flick = still || since > 520 ? 1 : since < 90 ? 0.2 : since < 160 ? 0.9 : since < 230 ? 0.35 : 1;
+        const k = Math.min(1, d.a / 0.5) * flick, l = rig.lights[zone];
+        l.area.intensity = (zone === 'fridge' ? 5 : 3.5) * k; l.point.intensity = (zone === 'fridge' ? 9 : 6) * k;
+        (l.strip.material as THREE.MeshBasicMaterial).color.setScalar(0.55 + 0.45 * k);
+      }
+      if (!still) { crisper.v += (-60 * (crisper.z - crisper.to) - 13 * crisper.v) * dt; crisper.z += crisper.v * dt; } else crisper.z = crisper.to;
+      rig.crisper.position.z = -FRIDGE.depth / 2 + 0.1 + crisper.z;
+      // 纸：门转起来时空气往回压，纸被带着掀；之后自己晃几下停住
+      for (const p of rig.papers) {
+        if (!still) {
+          const acc = -70 * p.s - 3.4 * p.v - omega.fridge * (p.key === 'receipt' ? 0.55 : 0.32) * 9;
+          p.v += acc * dt; p.s += p.v * dt;
+          p.liftV += (-60 * (p.lift - p.liftTo) - 11 * p.liftV) * dt; p.lift += p.liftV * dt;
+        } else { p.s = 0; p.v = 0; p.lift = p.liftTo; p.liftV = 0; }
+        bendPaper(p, time);
+      }
+      for (const m of rig.magnets) {
+        if (!still) {
+          m.v += (-150 * (m.z - m.to) - 9 * m.v) * dt; m.z += m.v * dt;
+          if (m.snapArmed && m.z < 0.02 && m.v < 0) { m.snapArmed = false; m.paper.v += -2.2; m.z = Math.max(0, m.z); m.v = -m.v * 0.25; }
+        } else { m.z = m.to; m.v = 0; m.snapArmed = false; }
+        m.group.position.z = FRIDGE.doorThickness / 2 + 0.032 + Math.max(0, m.z);
+        m.group.rotation.z = Math.max(0, m.z) * 0.35;
+      }
+      if (cam.k < 1) {
+        cam.kv += (-(cam.k - 1) * 40 - cam.kv * 11) * dt; cam.k = Math.min(1, cam.k + cam.kv * dt);
+        if (1 - cam.k < 2e-3) cam.k = 1;
+        cam.pos.lerpVectors(cam.from.pos, cam.to.pos, cam.k); cam.tgt.lerpVectors(cam.from.tgt, cam.to.tgt, cam.k);
+      }
+      camera.position.copy(cam.pos); camera.lookAt(cam.tgt);
+      if (grainSeed) grainSeed.value = (time * 7.3) % 100;
+      if (composer) composer.render(); else renderer.render(rig.scene, camera);
+      if (!settled()) frame = requestAnimationFrame(draw);
+    };
+    function invalidate() {
+      if (!disposed && !frame && !failed) { last = performance.now(); frame = requestAnimationFrame(draw); }
+    }
+
+    /* 点哪儿：食物 → 打开那一样；便利贴的某一行 → 那一样；小票 → 操作记录；磁贴 → 拔一下；门 / 抽屉 → 开关 */
+    const ray = new THREE.Raycaster();
+    let downAt: { x: number; y: number } | null = null;
+    const toggleDoor = (zone: Zone) => setOpen(value => ({ ...value, [zone]: !value[zone] }));
+    const popMagnet = (m: KitchenRig['magnets'][number]) => {
+      if (m.released) return;
+      m.released = true; m.to = 0.7; m.paper.liftTo = 0.55; if (!reduce.matches) m.paper.v += -3.2;
+      window.setTimeout(() => { m.to = 0; m.paper.liftTo = 0; m.released = false; m.snapArmed = true; invalidate(); }, reduce.matches ? 300 : 420);
+      invalidate();
+    };
+    const nearestItem = (x: number, y: number) => {
+      // 东西小、手指粗：没点正时，取 36px 以内最近的那一样（只算开着的那格里的）
       const bounds = canvas.getBoundingClientRect();
-      raycaster.setFromCamera(new THREE.Vector2((event.clientX - bounds.left) / bounds.width * 2 - 1,
-        -(event.clientY - bounds.top) / bounds.height * 2 + 1), camera);
-      const hit = raycaster.intersectObjects(scene.children, true)[0];
-      if (!hit) return;
-      let object: THREE.Object3D | null = hit.object;
-      while (object) {
-        if (object.userData.lotId && openRef.current[object.userData.zone as 'fridge' | 'freezer']) { onOpenLotRef.current(object.userData.lotId); return; }
-        if (object.name === 'DoorPivot') { toggleDoor('fridge'); return; }
-        if (object.name === 'FreezerDoorPivot') { toggleDoor('freezer'); return; }
-        if (object.name.startsWith('Crisper') && openRef.current.fridge) { setDrawersOpen(value => !value); return; }
-        object = object.parent;
+      let best: { id: string; d: number } | null = null;
+      for (const item of rig.items) {
+        const zone = item.userData.zone as Zone;
+        if (!stateRef.current.open[zone]) continue;
+        if (item.userData.spot === 'crisper' && !stateRef.current.crisperOpen) continue;
+        const p = item.getWorldPosition(new THREE.Vector3()).project(camera);
+        const d = Math.hypot((p.x + 1) / 2 * bounds.width - x, (1 - p.y) / 2 * bounds.height - y);
+        if (d < 36 && (!best || d < best.d)) best = { id: item.userData.lotId, d };
+      }
+      return best?.id ?? null;
+    };
+    const onDown = (event: PointerEvent) => { downAt = { x: event.clientX, y: event.clientY }; };
+    const onUp = (event: PointerEvent) => {
+      if (!downAt || Math.hypot(event.clientX - downAt.x, event.clientY - downAt.y) > 10) { downAt = null; return; }
+      downAt = null;
+      const bounds = canvas.getBoundingClientRect();
+      const lx = event.clientX - bounds.left, ly = event.clientY - bounds.top;
+      ray.setFromCamera(new THREE.Vector2(lx / bounds.width * 2 - 1, -ly / bounds.height * 2 + 1), camera);
+      const hit = ray.intersectObjects(rig.pickables, true).find(h => !h.object.userData.skip);
+      const o = hit?.object;
+      if (o?.userData.lotId) { callbacks.current.onOpenLot(o.userData.lotId); return; }
+      if (o?.userData.magnet) { const m = rig.magnets.find(item => item.key === o.userData.magnet); if (m) popMagnet(m); return; }
+      if (o?.userData.paper) {
+        const paper = rig.papers.find(p => p.key === o.userData.paper)!;
+        if (paper.key === 'receipt') { paper.v += reduce.matches ? 0 : 1.4; invalidate(); callbacks.current.onOpenHistory?.(); return; }
+        const row = hit!.uv ? Math.floor(((1 - hit!.uv.y) * 512 - 90) / 116) : 0;
+        const line = paper.lines[Math.max(0, Math.min(paper.lines.length - 1, row))];
+        paper.v += reduce.matches ? 0 : 1.2; invalidate();
+        if (line) callbacks.current.onOpenLot(line.lotId);
+        return;
+      }
+      const near = nearestItem(lx, ly);
+      if (near) { callbacks.current.onOpenLot(near); return; }
+      let node: THREE.Object3D | null = o ?? null;
+      while (node) {
+        if (node === rig.crisper) { if (stateRef.current.open.fridge) setCrisperOpen(value => !value); return; }
+        if (node === rig.fridgeHinge) { toggleDoor('fridge'); return; }
+        if (node === rig.freezerHinge) { toggleDoor('freezer'); return; }
+        node = node.parent;
+      }
+      // 点到冰箱里面（开着门时的内胆、层板）：按高度判断是哪一格，关上它
+      if (hit) {
+        const y = hit.point.y;
+        const zone: Zone = y >= FRIDGE.freezerDoor.y0 ? 'freezer' : 'fridge';
+        if (stateRef.current.open[zone] && Math.abs(hit.point.x) < FRIDGE.width / 2 + 0.2) toggleDoor(zone);
       }
     };
-    canvas.addEventListener('pointerdown', pointerDown);
-    canvas.addEventListener('pointerup', pointerUp);
-    const loader = new GLTFLoader();
-    const load = async (name: string) => {
-      const result = await loader.loadAsync(`${import.meta.env.BASE_URL}kitchen/models/${name}.glb`);
-      if (disposed) { disposeObjects([result.scene]); return null; }
-      loaded.push(result.scene);
-      return result.scene;
-    };
-    const build = async () => {
-      const results = await Promise.allSettled([load('fridge'), ...layout.entries.map(entry => load(entry.model))]);
-      if (disposed) return;
-      const fridgeResult = results[0];
-      if (fridgeResult.status !== 'fulfilled' || !fridgeResult.value) throw new Error('Fridge unavailable');
-      const fridge = fridgeResult.value;
-      door = fridge.getObjectByName('DoorPivot');
-      freezerDoor = fridge.getObjectByName('FreezerDoorPivot');
-      if (!door || !freezerDoor) throw new Error('Door unavailable');
-      drawers = ['CrisperLeft', 'CrisperRight'].map(name => fridge.getObjectByName(name)).filter((object): object is THREE.Object3D => !!object);
-      drawers.forEach(drawer => { drawer.position.z = drawerTarget; });
-      door.rotation.y = targetAngle;
-      freezerDoor.rotation.y = freezerAngle;
-      fridge.traverse(node => {
-        if (!(node instanceof THREE.Mesh)) return;
-        const material = Array.isArray(node.material) ? node.material[0] : node.material;
-        node.castShadow = !material.transparent;
-        // Thin internal mouldings self-shadow noisily at mobile shadow-map resolution.
-        node.receiveShadow = !material.transparent && ['Sculpted enamel door', 'Rounded side', 'Crown'].includes(node.name);
-      });
-      // Broad, feathered contact masks on the liner imply recess depth without
-      // shadow-map acne on thin mouldings. They never participate in picking.
-      const linerShade = (width: number, height: number, opacity: number,
-        position: [number, number, number], rotationY = 0) => {
-        const shade = contactShadow(width, height, opacity);
-        shade.rotation.set(0, rotationY, 0);
-        shade.position.set(...position);
-        fridge.add(shade);
-      };
-      for (const [bottom, top] of [[0.18, 1.68], [1.79, 2.45]]) {
-        const center = (bottom + top) / 2;
-        for (const side of [-1, 1]) {
-          linerShade(0.2, top - bottom, 0.26, [side * 0.46, center, -0.338]);
-          linerShade(0.3, top - bottom, 0.2, [side * 0.546, center, -0.22], -side * Math.PI / 2);
-        }
-        linerShade(1.06, 0.16, 0.28, [0, top - 0.06, -0.338]);
-      }
-      for (const top of [...FRIDGE_SHELVES.fridge, ...FRIDGE_SHELVES.freezer]) {
-        linerShade(1.05, 0.12, 0.26, [0, top - 0.045, -0.338]);
-      }
-      for (const drawer of drawers) {
-        const shade = contactShadow(0.56, 0.46, 0.32);
-        shade.position.set(0, -0.008, -0.14);
-        drawer.add(shade);
-      }
-      scene.add(fridge);
-      layout.entries.forEach((entry, index) => {
-        const result = results[index + 1];
-        let object: THREE.Object3D;
-        if (result.status === 'fulfilled' && result.value) {
-          object = result.value;
-          const bounds = new THREE.Box3().setFromObject(object);
-          const size = bounds.getSize(new THREE.Vector3());
-          const scale = entry.model === 'egg-carton' ? Math.min(1, entry.maxHeight / size.y) : Math.min(0.27 / size.x, entry.maxHeight / size.y, (entry.placement === 'shelf' ? 0.3 : 0.24) / size.z);
-          if (entry.model === 'egg-carton') object.traverse(node => {
-            if (/^Egg-\d+$/.test(node.name)) node.visible = Number(node.name.slice(4)) < eggVisibleCount(entry.lot);
-          });
-          object.scale.multiplyScalar(scale);
-          const center = bounds.getCenter(new THREE.Vector3());
-          object.position.set(-center.x * scale, -bounds.min.y * scale, -center.z * scale);
-        } else {
-          // A missing decorative model must not hide real inventory.
-          object = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.23, 0.2), new THREE.MeshStandardMaterial({ color: HUE.green.soft }));
-          object.position.y = 0.115;
-          loaded.push(object);
-        }
-        const slot = new THREE.Group();
-        slot.userData.lotId = entry.lot.id;
-        slot.userData.zone = entry.lot.storageZone;
-        slot.position.set(...entry.position);
-        slot.userData.markerHeight = new THREE.Box3().setFromObject(object).max.y + 0.045;
-        object.traverse(node => { if (node instanceof THREE.Mesh) { node.castShadow = true; node.receiveShadow = true; } });
-        slot.scale.setScalar(entry.scale);
-        slot.add(object);
-        const footprint = new THREE.Box3().setFromObject(object).getSize(new THREE.Vector3());
-        const contact = contactShadow(footprint.x * 1.12, footprint.z * 1.12, 0.2);
-        contact.position.y = 0.002;
-        slot.add(contact); loaded.push(contact);
-        if (entry.placement !== 'shelf') fridge.getObjectByName(fridgeDoorParent(entry.lot.storageZone as 'fridge' | 'freezer'))!.add(slot);
-        else scene.add(slot);
-        foodSlots.push({ id: entry.lot.id, object: slot });
-      });
-      setStatus('ready');
-      resize();
-    };
-    void build().catch(() => { if (!disposed) { failed = true; setStatus('error'); } });
-    resize();
+    canvas.addEventListener('pointerdown', onDown);
+    canvas.addEventListener('pointerup', onUp);
+    const resizeObserver = new ResizeObserver(resize); resizeObserver.observe(element);
+    const visibility = new IntersectionObserver(([entry]) => { inView = entry.isIntersecting; invalidate(); }); visibility.observe(element);
+    document.addEventListener('visibilitychange', invalidate);
+    const lost = (event: Event) => { event.preventDefault(); failed = true; cancelAnimationFrame(frame); setStatus('error'); };
+    canvas.addEventListener('webglcontextlost', lost);
+    fitHome(); aim(stateRef.current.open, true); resize();
+
     return () => {
       disposed = true;
-      controller.current = undefined;
+      controller.current = null;
       cancelAnimationFrame(frame);
-      resizeObserver.disconnect();
-      visibilityObserver.disconnect();
+      resizeObserver.disconnect(); visibility.disconnect();
       document.removeEventListener('visibilitychange', invalidate);
-      canvas.removeEventListener('webglcontextlost', contextLost);
-      canvas.removeEventListener('pointerdown', pointerDown);
-      canvas.removeEventListener('pointerup', pointerUp);
-      disposeObjects(loaded);
-      light.shadow.map?.dispose();
-      light.shadow.mapPass?.dispose();
-      environmentMap.dispose();
-      renderer.dispose();
-      renderer.forceContextLoss();
-      canvas.remove();
+      canvas.removeEventListener('webglcontextlost', lost);
+      canvas.removeEventListener('pointerdown', onDown); canvas.removeEventListener('pointerup', onUp);
+      (composer as { dispose?: () => void } | null)?.dispose?.();
+      rig.dispose();
+      renderer.dispose(); renderer.forceContextLoss(); canvas.remove();
     };
-  }, [layout]);
+  }, []);
 
-  const buttonStyle: React.CSSProperties = {
-    minHeight: 44,
-    padding: `${SP[1]}px ${SP[2]}px`,
-    borderRadius: R.button,
-    color: PAPER.blueInk,
-    fontSize: 12,
-    fontWeight: 500,
-  };
+  const visibleItems = layout.entries.filter(entry => open[entry.zone] && (entry.spot !== 'crisper' || crisperOpen));
+  const control: React.CSSProperties = { minHeight: 44, padding: `${SP[1]}px ${SP[2]}px`, borderRadius: R.button, color: PAPER.blueInk, fontSize: 12, fontWeight: 500 };
   return (
-    <section className="kitchen-scene" aria-label="冰箱可视化">
-      <div className="relative" style={{ aspectRatio: '1 / 1.18', maxHeight: 420,
-        overflow: 'hidden', background: HUE.blue.tint }}>
+    <section className="kitchen-scene" aria-label="冰箱">
+      <div className="relative" style={{ height: 'min(64vh, 600px)', overflow: 'hidden', background: PAPER.well }}>
         <div ref={host} className="absolute inset-0" />
         {status !== 'ready' && <div role="status" className="absolute inset-0 flex items-center justify-center text-center"
           style={{ padding: SP[3], color: PAPER.muted, fontSize: 13 }}>
-          {status === 'loading' ? '正在整理冰箱…' : '冰箱画面暂时打不开，请从「食材清单」继续记录。'}
+          {status === 'loading' ? '正在打开冰箱…' : '冰箱画面暂时打不开，请从「食材清单」继续记录。'}
         </div>}
-        {status === 'ready' && layout.entries.map((entry, index) => {
-          if (!isOpen(entry.lot.storageZone)) return null;
-          const marker = markers.find(item => item.lotId === entry.lot.id);
-          if (!marker) return null;
-          return <button key={entry.lot.id} type="button"
-            aria-label={`查看${entry.name}`}
-            onClick={() => onOpenLot(entry.lot.id)}
-            className="absolute flex items-center justify-center"
-            style={{ left: marker.x - 22, top: marker.y - 22, width: 44, height: 44 }}>
-            <span style={{ background: PAPER.surface, color: PAPER.blueInk, borderRadius: R.pill,
-              border: `1px solid ${PAPER.line}`, width: 24, height: 24, lineHeight: '22px', fontSize: 12 }}>{index + 1}</span>
-          </button>;
-        })}
+        {/* 读屏 / 键盘：开着的那格里有什么，一样一个按钮 */}
+        {status === 'ready' && <ul className="sr-only" aria-label="冰箱里看得见的食材">
+          {visibleItems.map(entry => <li key={entry.lot.id}><button type="button" onClick={() => onOpenLot(entry.lot.id)}>查看{entry.name}</button></li>)}
+          {reminders.map(line => <li key={`r-${line.lotId}`}><button type="button" onClick={() => onOpenLot(line.lotId)}>便利贴：{line.text}</button></li>)}
+        </ul>}
       </div>
       <div className="kitchen-scene-footer">
         <div className="kitchen-scene-controls flex items-center justify-center flex-wrap" style={{ gap: SP[1], padding: `${SP[1]}px ${SP[2]}px` }}>
-          {(['freezer', 'fridge'] as const).map(value => <button key={value} type="button"
-            disabled={status !== 'ready'} aria-pressed={doorsOpen[value]}
-            className="disabled:opacity-40" style={buttonStyle}
-            onClick={() => toggleDoor(value)}>
-            {doorsOpen[value] ? '关上' : '打开'}{value === 'fridge' ? '冷藏门' : '冷冻门'}
+          {(['freezer', 'fridge'] as const).map(zone => <button key={zone} type="button" disabled={status !== 'ready'} aria-pressed={open[zone]}
+            className="disabled:opacity-40" style={control} onClick={() => setOpen(value => ({ ...value, [zone]: !value[zone] }))}>
+            {open[zone] ? '关上' : '打开'}{zone === 'fridge' ? '冷藏门' : '冷冻门'}
           </button>)}
-          <button type="button" disabled={status !== 'ready' || !doorsOpen.fridge}
-            aria-pressed={doorsOpen.fridge && drawersOpen} className="disabled:opacity-40" style={buttonStyle}
-            onClick={() => setDrawersOpen(value => !value)}>
-            {drawersOpen ? '推回抽屉' : '拉开抽屉'}
+          <button type="button" disabled={status !== 'ready' || !open.fridge} aria-pressed={open.fridge && crisperOpen}
+            className="disabled:opacity-40" style={control} onClick={() => setCrisperOpen(value => !value)}>
+            {crisperOpen ? '推回抽屉' : '拉开抽屉'}
           </button>
         </div>
         <p className="kitchen-scene-note" style={{ color: PAPER.muted, fontSize: 12, textAlign: 'center', padding: `0 ${SP[3]}px ${SP[3]}px` }}>
-          {layout.total === 0 ? '冰箱还空着，把新买的食物放进来吧。' : '点食材，记下还剩多少 · 也可以打开食材清单'}
+          {layout.total === 0 ? '冰箱还空着，把新买的食物放进来吧。' : '点门打开 · 点食材记下还剩多少 · 点便利贴直接找到那一样'}
         </p>
       </div>
     </section>

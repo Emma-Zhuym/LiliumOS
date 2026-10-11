@@ -170,7 +170,7 @@ const KitchenApp: React.FC = () => {
               <button type="button" aria-pressed={cupboard === 'pantry'} onClick={() => setCupboard('pantry')}>常温柜</button>
             </nav>
             {cupboard === 'fridge' ? <Suspense fallback={<div className="kitchen-empty" role="status">正在打开冰箱…</div>}>
-              <KitchenFridgeScene lots={lots} foods={foods} onOpenLot={openLot} />
+              <KitchenFridgeScene lots={lots} foods={foods} events={events} onOpenLot={openLot} onOpenHistory={() => setView('history')} />
             </Suspense> : <section className="kitchen-pantry" aria-label="常温柜食材">
               <div className="kitchen-pantry-title"><Leaf size={24} /><h2 className="kitchen-heading">柜子里的小储备</h2><span>{pantryLots.length} 条</span></div>
               {pantryLots.length ? renderRows(pantryLots) : <div className="kitchen-empty"><Package size={26} /><p>米面、罐头和小零食，放在这里。</p></div>}
