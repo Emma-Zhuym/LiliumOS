@@ -1,0 +1,167 @@
+// [EM-START: agent-life]
+/**
+ * 私人生活里的小事，从 Mac mini 心跳送来后落进「查手机」里对应的 App：
+ * 和朋友家人聊几句 → 联系人里那段聊天；点外卖 → 外卖；网购 → 淘宝；发朋友圈 → 朋友圈。
+ * 跟朋友当场有点来往（social：临时出门、约好上线打游戏）→ 跟聊天一样落在那个人的聊天里，不新开 App。
+ *
+ * 和工作往来（emWork.ts）是两条线：工作的只在「工作」App 里，这里的才进通讯录和短信那一侧。
+ * 全是纯函数，返回新的 phoneState；没有要改的就返回 null（调用方据此跳过写库）。
+ */
+
+import type { CharacterProfile, PhoneContact, PhoneEvidence } from '../types';
+import { normalizeContactGroup } from './contactGroups';
+import { normName, upsertContact } from './relationshipChat';
+import { normalizeMomentExtras } from './moments'; // [EM: moments]
+
+type PhoneState = NonNullable<CharacterProfile['phoneState']>;
+
+export interface LifeEpisode {
+    kind: 'chat' | 'social' | 'delivery' | 'order' | 'moment' | 'gift' | 'xhs';
+    with?: string;
+    relation?: string;
+    group?: string;
+    lines?: { who: string; text: string }[];
+    detail?: string;
+    value?: string;
+    /** gift：网购还是点外卖、要不要当惊喜、附言 */
+    via?: 'net' | 'food';
+    surprise?: boolean;
+    note?: string;
+    /** delivery / order / gift：后端定好的送达时刻（ISO）。旧数据没有，投喂站退回写死的估计 */
+    eta?: string;
+    /** moment：亲友评论、虚拟赞数、不给哪些分组看 */
+    comments?: { who: string; relation?: string; text: string }[];
+    likes?: number;
+    hide?: string[];
+    /** chat / social：顺口约的以后的事。dueAt 由后端按时区解析好；约定本身由后端记着，这里只随记录带过来 */
+    plan?: { what: string; at: string; dueAt?: string };
+    /** xhs：mini 上真实刷到的首页，和其中多看了两眼的几条（note 是 TA 为什么停下来看）。落地见 emLifeXhs.ts */
+    feed?: XhsFeedNote[];
+    /** 多看了两眼的；liked / faved 是真的点成了，error 是想点没点成 */
+    picks?: (XhsFeedNote & { note?: string; liked?: boolean; faved?: boolean; error?: string })[];
+    /** 替 TA 点开看过的那一条（正文开头 + 评论数） */
+    opened?: { noteId: string; title: string; author?: string; desc?: string; comments?: number };
+    /** 转发给阿萌的那条（消息本身走聊天，这里只是记一笔） */
+    share?: { note: XhsFeedNote; text: string };
+}
+
+export interface XhsFeedNote {
+    noteId: string;
+    title: string;
+    author?: string;
+    likes?: number;
+    video?: boolean;
+    xsecToken?: string;
+}
+
+export interface LifeEvent {
+    messageId: string;
+    createdAt: string;
+    life: LifeEpisode;
+}
+
+const MINE = '我';
+/** 一条记录里最多记多少个来源 id：只用来去重，太旧的不可能再被取回来。 */
+const MAX_SOURCE_IDS = 50;
+
+const RECORD_TYPE: Record<Exclude<LifeEpisode['kind'], 'chat' | 'social' | 'gift' | 'xhs'>, string> = {
+    delivery: 'delivery',
+    order: 'order',
+    moment: 'social',
+};
+
+const clock = (at: number) =>
+    new Date(at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+/** 转成查手机聊天记录的「我: / 对方:」逐行格式（parseTranscript 认的就是这个）。 */
+const toTranscript = (lines: NonNullable<LifeEpisode['lines']>) =>
+    lines.map(line => `${line.who === MINE ? '我' : '对方'}: ${line.text.replace(/\n+/g, ' ')}`).join('\n');
+
+const alreadyApplied = (records: PhoneEvidence[], messageId: string) =>
+    records.some(record => record.id === `ag-${messageId}` || record.agentSourceIds?.includes(messageId));
+
+export const applyLifeEpisode = (
+    phone: CharacterProfile['phoneState'] | undefined,
+    event: LifeEvent,
+    { userName }: { userName?: string } = {},
+): PhoneState | null => {
+    const records = phone?.records ?? [];
+    if (alreadyApplied(records, event.messageId)) return null;
+    const at = Date.parse(event.createdAt) || Date.now();
+    const { life } = event;
+
+    // social 跟 chat 同类：约人 / 当时的那几句接进那个人的聊天。没写那几句的就不落
+    // （查手机的聊天只认「我 / 对方」逐行格式，凭 detail 编出对话来不如不写；这件事照样在起居注里）。
+    if (life.kind === 'chat' || life.kind === 'social') {
+        const name = life.with?.trim();
+        const lines = (life.lines ?? []).filter(line => line.who?.trim() && line.text?.trim());
+        if (!name || lines.length === 0) return null;
+        if (userName && normName(name) === normName(userName)) return null;
+        const contacts = phone?.contacts ?? [];
+        const existing = contacts.find(contact => normName(contact.name) === normName(name));
+        // 真人角色之间的对话要两边手机同步；单方面写一段会对不上，宁可不写。
+        if (existing && (existing.kind === 'real' || existing.linkedCharId)) return null;
+        // 被删、被拉黑的人不会突然又聊起来。
+        if (existing && existing.status !== 'friend') return null;
+
+        // 称呼和分组只给新认识的人定：已经在通讯录里的人，心跳随口一句不能改掉阿萌或扫描定下的称呼。
+        const nextContacts = upsertContact(contacts, existing
+            ? { name, lastInteraction: at }
+            : {
+                name,
+                kind: 'npc',
+                identity: life.relation?.trim() || undefined,
+                group: normalizeContactGroup(life.group),
+                lastInteraction: at,
+            });
+        const contact = nextContacts.find(item => normName(item.name) === normName(name)) as PhoneContact;
+        const transcript = toTranscript(lines);
+        const record = records.find(item => item.type === 'chat'
+            && (item.contactId === contact.id || normName(item.title) === normName(name)));
+        const nextRecords = record
+            ? records.map(item => item.id !== record.id ? item : {
+                ...item,
+                contactId: contact.id,
+                detail: item.detail ? `${item.detail}\n${transcript}` : transcript,
+                timestamp: at,
+                agentSourceIds: [...(item.agentSourceIds ?? []), event.messageId].slice(-MAX_SOURCE_IDS),
+            })
+            : [...records, {
+                id: `ag-${event.messageId}`,
+                type: 'chat',
+                title: name,
+                detail: transcript,
+                timestamp: at,
+                contactId: contact.id,
+                agentSourceIds: [event.messageId],
+            }];
+        return { ...phone, records: nextRecords, contacts: nextContacts };
+    }
+
+    // 给阿萌买的东西这里不写：这条记录会出现在 TA 的淘宝 / 外卖里，而查手机就是阿萌在看，
+    // 直接写出来惊喜当场就穿帮了。改由投喂站那一单（OSContext 落库）实时映射进 TA 的手机，
+    // 送到之前只显示「一个包裹」（shopOrdersAsPhoneRecords + isHiddenFromUser）。
+    if (life.kind === 'gift') return null;
+    // 逛小红书不进查手机：落在小红书 App 的活动记录里（emLifeXhs.ts，OSContext 那边写库）。
+    if (life.kind === 'xhs') return null;
+
+    const type = RECORD_TYPE[life.kind];
+    if (!type) return null;
+    const detail = life.detail?.trim() ?? '';
+    const title = life.kind === 'moment' ? clock(at) : life.with?.trim();
+    if (!title || (life.kind === 'moment' && !detail)) return null;
+    const record: PhoneEvidence = {
+        id: `ag-${event.messageId}`,
+        type,
+        title,
+        detail: detail || '…',
+        timestamp: at,
+        ...(life.value?.trim() && life.kind !== 'moment' ? { value: life.value.trim() } : {}),
+        agentSourceIds: [event.messageId],
+        ...(life.kind !== 'moment' && Date.parse(life.eta ?? '') ? { eta: Date.parse(life.eta!) } : {}),
+        // [EM: moments] 亲友评论和动态同一跳写出来，挂在这条记录上，朋友圈 App 直接读
+        ...(life.kind === 'moment' && normalizeMomentExtras(life) ? { moment: normalizeMomentExtras(life) } : {}),
+    };
+    return { ...phone, records: [...records, record] };
+};
+// [EM-END: agent-life]

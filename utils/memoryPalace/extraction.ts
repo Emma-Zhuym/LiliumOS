@@ -12,6 +12,7 @@ import { safeFetchJson } from '../safeApi';
 import { safeParseJsonArray } from './jsonUtils';
 import { formatMessageForPrompt } from '../messageFormat';
 import { readRecallRuntimeSnapshot } from './trace';
+import { emMemoryCauseRule } from '../emPromptAddons'; // [EM: memory-keep-cause]
 
 function generateId(): string {
     return `mn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -66,7 +67,7 @@ function buildRulesBlock(charName: string, userLabel: string, includeEntities: b
    - 近期事件："${userLabel}后天考试" → pinDays: 3
    - 临时约定："${userLabel}让我这几天提醒TA喝水" → pinDays: 5
    - 身体状态："${userLabel}感冒了" → pinDays: 5
-   不适用：长期事实（生日、喜好）、已经过去的事件、情感记忆。大多数记忆不需要置顶。
+   不适用：长期事实（生日、喜好）、已经过去的事件、情感记忆。大多数记忆不需要置顶。${emMemoryCauseRule(userLabel)}
 
 **日期标注（date，必填）**：每条消息前缀都带了 \`[YYYY-MM-DD HH:MM]\` 时间戳。每条记忆必须根据**该事件实际发生的那一天**填 date 字段（"YYYY-MM-DD"），而不是套用整批的某一天。同一批对话跨多天时，跨日的记忆要分别标各自的日期。`;
 }

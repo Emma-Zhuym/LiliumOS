@@ -65,3 +65,9 @@ xiaohongshu-skills/
 # TIAO-Capacitor local Android toolchain and caches (D: only, never committed)
 .android-sdk/
 .gradle-user-home/
+
+# Playwright MCP local browser snapshots and logs
+.playwright-mcp/
+
+# This project uses pnpm; ignore npm's accidental lockfile.
+package-lock.json

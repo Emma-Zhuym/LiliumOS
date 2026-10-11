@@ -1,57 +1,68 @@
-/* Emma Soft Clay UI v0.1 — CSS custom properties (V2 cooler foundation)
-   Import once, then reference var(--*). Values are the single source of truth. */
+/* Emma Soft Clay UI v1.0「F」— CSS custom properties
+   Import once, then reference var(--*). Mirrors utils/clayTokens.ts.
+   全平：无投影、无凹陷阴影；分层靠 1px 细线与明度差；浮层用雾面材质。 */
 
 :root {
   /* ---- Foundation ---- */
-  --app-bg:          #F7F6F2;
-  --surface:         #FFFEFC;
-  --surface-warm:    #FAF6EF;
-  --surface-sunken:  #ECE8E1;
+  --app-bg:          #F8F9F7;
+  --surface:         #FFFFFF;
+  --surface-warm:    #F2F4F0;
+  --surface-sunken:  #EDEFEA;
   --surface-raised:  #FFFFFF;
 
-  --text-primary:    #2E2A28;
-  --text-secondary:  #6E665F;
-  --text-tertiary:   #9E9891;
+  --text-primary:    #23262A;
+  --text-secondary:  #5D635F;
+  --text-tertiary:   #959B96;
 
-  --border-soft:     #E8E1D8;
-  --border-strong:   #D8CFC4;
-  --divider:         #EEE8E0;
+  --border-soft:     #E3E6E0;
+  --border-strong:   #CBCFC8;
+  --divider:         #EBEEE8;
 
-  --accent:          #C7834B;
+  --accent:          #B4402F;
 
   /* ---- Status ---- */
-  --success-tint:#E6F7E9; --success:#35A853; --success-ink:#1E6F36;
-  --warning-tint:#FFF1D0; --warning:#D99612; --warning-ink:#7A5200;
-  --danger-tint: #FFE6EA; --danger: #D94B72; --danger-ink: #8F2443;
-  --info-tint:   #EAF1FF; --info:   #4A88FF; --info-ink:   #2457B8;
+  --success-tint:#E7F3E9; --success:#53A768; --success-ink:#246135;
+  --warning-tint:#F7EDE2; --warning:#ECA84A; --warning-ink:#7B510D;
+  --danger-tint:#FCEBE9; --danger:#CA6862; --danger-ink:#7F3B37;
+  --info-tint:#E7F0FC; --info:#4982C9; --info-ink:#2B5386;
 
-  /* ---- Hue palette (tint / soft / main / ink) ---- */
-  --red-tint:#FFE8E8;--red-soft:#FFC6C6;--red-main:#F45B5B;--red-ink:#A83232;
-  --rose-tint:#FFE6EF;--rose-soft:#FFC1D6;--rose-main:#F45D8A;--rose-ink:#A92D56;
-  --orange-tint:#FFEBDD;--orange-soft:#FFC89F;--orange-main:#F47B3F;--orange-ink:#9B431D;
-  --amber-tint:#FFF1D0;--amber-soft:#FFD98A;--amber-main:#F5A914;--amber-ink:#8A5A00;
-  --yellow-tint:#FFF7CC;--yellow-soft:#FFE985;--yellow-main:#E8C21A;--yellow-ink:#776300;
-  --lime-tint:#EEF9D6;--lime-soft:#D4F09A;--lime-main:#8BCF32;--lime-ink:#4F7D18;
-  --green-tint:#E6F7E9;--green-soft:#BCECC6;--green-main:#35C45A;--green-ink:#1F7A3A;
-  --mint-tint:#E3F7EE;--mint-soft:#B7EBD3;--mint-main:#35B985;--mint-ink:#1E7354;
-  --teal-tint:#E2F5F2;--teal-soft:#B3E4DC;--teal-main:#39B4A6;--teal-ink:#1F7068;
-  --cyan-tint:#E3F6FA;--cyan-soft:#B8E8F2;--cyan-main:#36B6D5;--cyan-ink:#1D7185;
-  --blue-tint:#EAF1FF;--blue-soft:#C9DCFF;--blue-main:#4A88FF;--blue-ink:#2457B8;
-  --indigo-tint:#ECEEFF;--indigo-soft:#CDD3FF;--indigo-main:#6377F2;--indigo-ink:#3745A5;
-  --purple-tint:#F0E8FF;--purple-soft:#D7C3FF;--purple-main:#9B6CFF;--purple-ink:#5E3CB8;
-  --violet-tint:#F5E8FF;--violet-soft:#E6C5FF;--violet-main:#B66BEE;--violet-ink:#743CA0;
-  --brown-tint:#F5E9DA;--brown-soft:#E8CBAA;--brown-main:#C98B52;--brown-ink:#7A4D28;
-  --gray-tint:#F0EFEC;--gray-soft:#DDD9D3;--gray-main:#8D8780;--gray-ink:#4D4843;
+  /* ---- Hue palette (tint / soft / main / ink) — OKLCH 公式 ---- */
+  --red-tint:#FCEBE9;--red-soft:#FFCBC5;--red-main:#CA6862;--red-ink:#7F3B37;
+  --rose-tint:#FBEAEE;--rose-soft:#FCC9D6;--rose-main:#CC6C89;--rose-ink:#7C3A4E;
+  --orange-tint:#FAECE4;--orange-soft:#FACFB5;--orange-main:#D87E42;--orange-ink:#844A23;
+  --amber-tint:#F7EDE2;--amber-soft:#F2D3AE;--amber-main:#ECA84A;--amber-ink:#7B510D;
+  --yellow-tint:#F3EFE1;--yellow-soft:#E5D9AD;--yellow-main:#E6C959;--yellow-ink:#6C5904;
+  --lime-tint:#ECF2E4;--lime-soft:#D0E1B6;--lime-main:#A4C661;--lime-ink:#4F6422;
+  --green-tint:#E7F3E9;--green-soft:#BEE5C5;--green-main:#53A768;--green-ink:#246135;
+  --mint-tint:#E4F3ED;--mint-soft:#B3E6D2;--mint-main:#37B78F;--mint-ink:#006249;
+  --teal-tint:#E2F4F1;--teal-soft:#ACE7E0;--teal-main:#0CABA2;--teal-ink:#05605A;
+  --cyan-tint:#E2F3F7;--cyan-soft:#ACE4F2;--cyan-main:#06B1CE;--cyan-ink:#025D6D;
+  --blue-tint:#E7F0FC;--blue-soft:#C1DCFE;--blue-main:#4982C9;--blue-ink:#2B5386;
+  --indigo-tint:#EBEFFC;--indigo-soft:#CED7FE;--indigo-main:#6170C0;--indigo-ink:#434D87;
+  --purple-tint:#F0EDFB;--purple-soft:#DDD1FC;--purple-main:#8A6EC1;--purple-ink:#594680;
+  --violet-tint:#F5EBF7;--violet-soft:#EBCDF2;--violet-main:#AA6FB8;--violet-ink:#694073;
+  --brown-tint:#F8EEE7;--brown-soft:#E3CCBB;--brown-main:#9F7655;--brown-ink:#614731;
+  --gray-tint:#EEF1EF;--gray-soft:#D1D6D1;--gray-main:#818882;--gray-ink:#434A44;
 
   /* ---- Radius ---- */
-  --r-tiny:6px; --r-small:10px; --r-medium:14px; --r-large:18px;
-  --r-panel:24px; --r-sheet:28px; --r-pill:999px;
+  --r-tiny:4px; --r-small:8px; --r-medium:10px; --r-large:12px;
+  --r-panel:14px; --r-sheet:16px; --r-pill:999px;
 
-  /* ---- Elevation ---- */
-  --shadow-raised-soft:   0 2px 6px rgba(70,66,58,.06), 0 8px 20px rgba(70,66,58,.06);
-  --shadow-raised-medium: 0 4px 10px rgba(70,66,58,.08), 0 14px 28px rgba(70,66,58,.08);
-  --shadow-floating:      0 8px 18px rgba(70,66,58,.10), 0 20px 40px rgba(70,66,58,.10);
-  --shadow-sunken:        inset 2px 2px 5px rgba(70,66,58,.10), inset -2px -2px 5px rgba(255,255,255,.8);
+  /* ---- Elevation：全平 ---- */
+  --shadow-raised-soft:   none;
+  --shadow-raised-medium: none;
+  --shadow-floating:      none;
+  --shadow-sunken:        none;
+
+  /* ---- Overlay（sheet / 提示条） ---- */
+  --overlay-bg:        rgba(250,251,249,.66);
+  --overlay-blur:      blur(26px) saturate(175%);
+  --overlay-edge:      1px solid rgba(255,255,255,.78);
+  --overlay-hairline:  0 -.5px 0 rgba(35,38,42,.14);
+  --overlay-well:      rgba(118,124,140,.12);
+  --overlay-toast-bg:  rgba(232,235,230,.80);
+  --overlay-toast-edge:1px solid rgba(35,38,42,.14);
+  --overlay-scrim-modal:rgba(35,38,42,.22);
 
   /* ---- Spacing ---- */
   --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:20px;
@@ -59,10 +70,13 @@
 
   /* ---- Type ---- */
   --font: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+  --font-heading: 'Noto Serif SC', 'Songti SC', serif;
 
   /* ---- Motion ---- */
   --dur-tap:100ms; --dur-hover:140ms; --dur-card:180ms; --dur-sheet:240ms; --dur-page:280ms;
   --ease: cubic-bezier(.2,.8,.2,1);
+  --ease-sheet: cubic-bezier(.32,.72,0,1);
+  --ease-pop: cubic-bezier(.34,1.36,.64,1);
 }
 
 /* ---------- Reference component recipes (optional) ---------- */
@@ -70,52 +84,59 @@
   background: var(--surface);
   border: 1px solid var(--border-soft);
   border-radius: var(--r-large);
-  padding: 18px;
-  box-shadow: var(--shadow-raised-soft);
+  padding: 16px;
 }
 .clay-btn {
-  height: 48px; padding: 0 20px; border: none;
+  height: 46px; padding: 0 20px; border: none;
   border-radius: var(--r-medium);
   background: var(--text-primary); color: var(--surface);
   font: 600 15px var(--font); cursor: pointer;
-  box-shadow: var(--shadow-raised-soft);
-  transition: all var(--dur-tap) var(--ease);
+  transition: transform 240ms var(--ease);
 }
-.clay-btn:active { transform: translateY(1px); box-shadow: 0 1px 3px rgba(70,66,58,.12); }
+.clay-btn:active { transform: scale(.95); transition-duration: 70ms; }
 .clay-btn--secondary {
   height: 44px; background: var(--surface);
   border: 1px solid var(--border-soft); color: var(--text-primary);
 }
+.clay-icon-btn {
+  width: 44px; height: 44px; border: none; background: transparent; color: var(--text-primary);
+  border-radius: var(--r-pill); transition: opacity 240ms ease;
+}
+.clay-icon-btn:active { opacity: .4; transition-duration: 70ms; }
 .clay-input {
-  height: 52px; padding: 0 18px; border: 1px solid transparent;
+  height: 48px; padding: 0 16px; border: 1px solid transparent;
   border-radius: var(--r-medium);
   background: var(--surface-sunken); color: var(--text-primary);
   font: 400 15px var(--font); outline: none;
-  box-shadow: var(--shadow-sunken);
-  transition: all var(--dur-hover) var(--ease);
+  transition: border-color var(--dur-hover) var(--ease);
 }
-.clay-input:focus { border-color: var(--accent); background: var(--app-bg); box-shadow: var(--shadow-raised-soft); }
+.clay-input:focus { border-color: var(--accent); }
 .clay-input::placeholder { color: var(--text-tertiary); }
 .clay-segment {
-  display: flex; gap: 5px; padding: 5px;
-  border-radius: var(--r-large);
+  position: relative; display: flex; gap: 2px; padding: 2px;
+  border-radius: var(--r-medium);
   background: var(--surface-sunken);
-  box-shadow: var(--shadow-sunken);
 }
-.clay-segment > .seg { flex: 1; height: 42px; display: flex; align-items: center; justify-content: center;
-  border-radius: var(--r-medium); font: 500 14px var(--font); color: var(--text-secondary);
-  cursor: pointer; transition: all var(--dur-hover) var(--ease); }
-.clay-segment > .seg[aria-selected="true"] {
-  background: var(--surface-raised); color: var(--text-primary); font-weight: 600;
-  box-shadow: var(--shadow-raised-soft);
+.clay-segment > .seg { position: relative; flex: 1; height: 32px; display: flex; align-items: center; justify-content: center;
+  border-radius: calc(var(--r-medium) - 2px); font: 500 13px var(--font); color: var(--text-secondary);
+  cursor: pointer; transition: color 220ms ease; }
+.clay-segment > .seg[aria-selected="true"] { color: var(--text-primary); font-weight: 600; }
+/* 选中白块用一个绝对定位的 .thumb，transform 滑动（var(--ease-sheet) 340ms），不要切换背景跳过去 */
+.clay-segment > .thumb { position: absolute; top: 2px; bottom: 2px; left: 2px;
+  background: var(--surface-raised); border-radius: calc(var(--r-medium) - 2px);
+  transition: transform 340ms var(--ease-sheet); }
+.clay-sheet {
+  background: var(--overlay-bg); -webkit-backdrop-filter: var(--overlay-blur); backdrop-filter: var(--overlay-blur);
+  border-top: var(--overlay-edge); box-shadow: var(--overlay-hairline);
+  border-radius: var(--r-sheet) var(--r-sheet) 0 0;
 }
 
 /* ---------- Ring progress (SVG recipe — see tokens.json "ringProgress") ----------
-   Track: sunken groove — circle div with background var(--surface-sunken) +
-   box-shadow var(--shadow-sunken); inner disc var(--surface) to form the groove.
+   Track: flat groove — stroke var(--surface-sunken), no inner shadow.
    Fill: SVG stroke = hue Main, stroke-linecap round, starts at 12 o'clock.
    Overfill (>100%): SAME ring path, no offset/thicken/inner-outer rings.
    Overfill arc starts EXACTLY at hue Main (zero seam), deepens linearly along
    the arc from 100% onward, ends at hue Ink with a round cap (the dark cap
    marks how far past 100%). NB: SVG gradient coords rotate with the element's
-   transform — pre-rotate the gradient vector to compensate. */
+   transform — pre-rotate the gradient vector to compensate.
+   Entrance: rings draw in outer → inner, 100ms apart (clay-draw / clay-draw-dash). */

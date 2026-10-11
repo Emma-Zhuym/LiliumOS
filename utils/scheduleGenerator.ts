@@ -552,3 +552,86 @@ ${chatSummary}
         return null;
     }
 }
+
+// [EM-START: daily-rhythm-draft]
+export interface DailyRhythmDraftOptions {
+    /** TA 现在已经有的日常节律。老角色的作息可能是相处中慢慢改的，不该被一份纯读人设的新草稿无视重写。 */
+    currentRhythm?: string;
+    /** 最近的聊天摘要（简单的"谁: 说了什么"列表即可），用来发现聊天里已经透出的作息变化。 */
+    recentChatText?: string;
+    /** 阿萌这次想怎么调整——最高优先级，比如"他最近加班多了""这段不用写这么细"。 */
+    instruction?: string;
+}
+
+/**
+ * 给「神经链接」角色详情页的「日常节律」生成一份草稿。
+ *
+ * 只在阿萌主动点「生成/更新」时跑一次，从不自动覆盖已有内容——生成结果只回填到
+ * 编辑框里等阿萌确认或改了再用。跟每天都在跑的 generateDailyScheduleForChar
+ * 是两件事：那个生成的是「今天」，这个生成的是「TA 平时大概是怎么生活的」这份
+ * 更稳定的参考本身，格式要跟阿萌手写时一致（固定时段当锚点、概述当基调）。
+ *
+ * 四处是阿萌实测反馈后加的：
+ * 1. 纯读人设写出来的时间点太糊（"白天""晚上"），日程生成器拿到这种当不了真正的锚点；
+ * 2. 老角色的作息会随相处变化（比如为了阿萌调整了作息），不能每次都当新角色从人设重编；
+ * 3. 需要一个"告诉 LLM 往哪改"的入口，而不是只能整段重生成再赌它猜得对不对；
+ * 4. 就算时间点写具体了，混在一整篇洋洋洒洒、时间点埋在长句子里的叙事文章里，
+ *    日程生成器（也是个 LLM）也未必能可靠地把每个时间点摘出来——**格式必须是分行的条目**，
+ *    时间锚点写在行首，不能是一整段连续叙事。
+ */
+export function buildDailyRhythmDraftPrompt(
+    char: Pick<CharacterProfile, 'name' | 'systemPrompt' | 'description' | 'worldview'>,
+    user: Pick<UserProfile, 'name'>,
+    options: DailyRhythmDraftOptions = {},
+): { system: string; user: string } {
+    const details = [
+        char.systemPrompt?.trim() ? `核心设定：\n${char.systemPrompt.trim()}` : '',
+        char.description?.trim() ? `简介：${char.description.trim()}` : '',
+        char.worldview?.trim() ? `世界观：${char.worldview.trim()}` : '',
+    ].filter(Boolean);
+    const identity = details.length
+        ? [`名字：${char.name}`, ...details].join('\n\n')
+        : `名字：${char.name}\n（这个角色还没有填写详细设定，按名字直觉写一份泛用的参考即可，对方的名字是「${user.name}」）`;
+
+    const currentRhythm = options.currentRhythm?.trim();
+    const recentChatText = options.recentChatText?.trim();
+    const instruction = options.instruction?.trim();
+
+    const revisionRule = currentRhythm
+        ? `\n\n### 相处会改变作息（重要）
+TA 已经有一份节律了（见下方"TA 现在的节律"）。这不是从零重写——相处是会变的：如果最近的聊天记录或阿萌的调整说明透出作息真的变了（换了工作、为了阿萌调整了时间、习惯变了），以最新的实际情况为准，在现有基础上改；**没有新证据支持的部分照抄现有节律**，别没来由地推翻重编一份不相关的。`
+        : '';
+    const instructionRule = instruction
+        ? `\n\n### 阿萌的调整说明（最优先，照这个改）\n${instruction}`
+        : '';
+
+    const system = `### 任务
+根据下面这份角色设定${currentRhythm ? '、TA 现在的节律' : ''}${recentChatText ? '、最近的聊天记录' : ''}，写一段这个角色**平时**的生活节律参考——不是「今天」的日程，是「TA 一般来说是怎么生活的」这种更稳定的框架。这段文字会被日程生成器和 TA 的自主活动长期参考，不会每天重写。${revisionRule}${instructionRule}
+
+### 输出要求（格式是硬性的，不是建议）
+- **必须是分行的条目，绝不能写成连续叙事的文章**。一件事一行，时间锚点放在行首，格式固定为「时间：内容」——这段文字要被另一个 LLM（日程生成器）逐条抽取时间锚点，写成大段夹叙夹议的长句子，时间点会被埋进从句里，那个 LLM 大概率抽不准。宁可写得像备忘录，也不要写得像小说。
+- 每行开头的"时间"，要么是具体钟点区间（"06:00-06:40"），要么是一个清楚的场合标签（"晚间"、"周末"、"出差期间"、"和{{user}}相处时"）——不能是一句话里顺带提一嘴的时间状语。
+- **有固定钟点的事，钟点必须具体**：写"6:00 起床"而不是"早晨起床"，写"8:00-12:00 高管例会"而不是"上午处理公务"。真的没有固定时间的事（心情、临时安排）才允许整行都是概述，但那一行本身还是要独立成行，别并进别的时间点那句话里。
+- 保留人物质感没问题——每行冒号后面可以写得具体、带细节，但**不要为了文笔把两三个不同时间点的事揉进同一句话/同一段**。
+- 贴着人设走：TA 是学生就该有课表和作息，是自由职业就该有更随性的规律，是不需要睡觉的存在就别写睡眠时间。
+- 如果人设暗示了固定的职业/学业身份，尽量把这个身份体现在里面（在哪工作、大概什么时候在忙），不要写成「整天很自由」这种什么都没说的话。
+- 涉及跟对方互动的地方写 {{user}} 占位符，不要直接写死对方名字。
+- 8-15 行左右，每行别太长；不要写成一整段连续叙事的长文章，即使文笔很好也不行。
+
+### 格式范例（内容随便举例，只看形状——一行一件事，时间在最前面）
+06:00-06:40：晨跑或健身房训练
+07:00：出门去上班
+08:00-12:00：核心工作时段，开会、审批
+午间：多在外面吃，很少回家
+下午：处理事务，偶尔外出办事
+晚间：约三成的晚上有应酬，没应酬就早点回家，看书、独处
+周末：陪家里人，剩下时间给{{user}}或者自己
+出差期间：一个月一到两次，联系会变少，回来后主动补偿`;
+
+    const userParts = [identity];
+    if (currentRhythm) userParts.push(`TA 现在的节律：\n${currentRhythm}`);
+    if (recentChatText) userParts.push(`最近的聊天记录（供参考，看有没有透出作息变化）：\n${recentChatText}`);
+
+    return { system, user: userParts.join('\n\n') };
+}
+// [EM-END: daily-rhythm-draft]

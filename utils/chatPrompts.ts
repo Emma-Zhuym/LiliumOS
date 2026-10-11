@@ -16,7 +16,7 @@ import { FISH_VOICE_ACTING_GUIDE } from './fishAudioTts';
 import { getTtsProvider, getVoicePromptOverride } from './ttsProvider';
 import { resolveCharTimeZone, nowInTimeZone } from './timezone';
 // [EM-START: prompt-addons] 个人化提示词全部在 emPromptAddons.ts，merge 时保住这行 import 和下面的调用点
-import { emSendPhotoAddon, emQuoteSection, emNotionDiarySection, emFeishuDiarySection, emUserNotesSection, emXhsSection, emNotionDiaryNudgePrompt, emFavPhotoAddon, emVoiceAwareAddon } from './emPromptAddons';
+import { emSendPhotoAddon, emQuoteSection, emNotionDiarySection, emFeishuDiarySection, emUserNotesSection, emXhsSection, emNotionDiaryNudgePrompt, emFavPhotoAddon, emVoiceAwareAddon, emDutySection } from './emPromptAddons';
 // [EM-END: prompt-addons]
 import { buildLifeRecordInjection } from './lifeRecords';
 import { isWorkerReachableUrl } from './amsgToolPack';
@@ -26,6 +26,10 @@ import { getLocalDateKey } from './localDate';
 import { buildNotionDiaryCadenceReminder } from './notionDiaryCadence';
 import { getDailyScheduleForChar } from './dailySchedule';
 import { buildEmScribeInjection } from './emScribe'; // [EM: em-scribe]
+import { buildChronicleInjection } from './emAgentActivity'; // [EM: agent-backend-chronicle]
+import { buildMomentsChatInjection } from './emMomentsContext'; // [EM: moments-chat-context]
+import { buildPlansChatInjection } from './emAgentPlans'; // [EM: agent-plans]
+import { buildTemporalInjection } from './emTemporal'; // [EM: calendar-temporal]
 import { formatRelativeAge } from './groupChat/relativeTime';
 import { isBlobRef } from './blobRef';
 
@@ -602,6 +606,30 @@ ${groupLogStr}\n`;
             );
         }
         // [EM-END: notion-diary-cadence]
+        // [EM-START: agent-backend-chronicle] 心跳里想过的事接进聊天（读本地起居注副本，不等网络）
+        if (!forFirePack) {
+            try { volatileState += buildChronicleInjection(char.id, { timeZone: charTz || undefined }); } catch (e) { console.error('Failed to inject chronicle:', e); }
+        }
+        // [EM-END: agent-backend-chronicle]
+        // [EM-START: moments-chat-context] 最近的朋友圈：阿萌发的、TA 自己发的，和底下的评论（读内存副本，不等 IndexedDB）
+        if (!forFirePack) {
+            try { volatileState += buildMomentsChatInjection(char, userProfile.name); } catch (e) { console.error('Failed to inject moments:', e); }
+        }
+        // [EM-END: moments-chat-context]
+        // [EM-START: agent-plans] TA 在心跳里跟亲友约下、还没到的事（读本机缓存）
+        if (!forFirePack) {
+            try { volatileState += buildPlansChatInjection(char.id, { timeZone: charTz || undefined }); } catch (e) { console.error('Failed to inject plans:', e); }
+        }
+        // [EM-END: agent-plans]
+        // [EM-START: calendar-temporal] 阿萌真实的日历 / 提醒（读本机缓存，不等网络）。
+        // fire_pack 不烤：里面有「此刻在忙什么」，打包时算的那一句到点就过期了。
+        if (!forFirePack) {
+            try {
+                const temporal = buildTemporalInjection(userProfile.name);
+                if (temporal) volatileState += `\n${temporal}\n`;
+            } catch (e) { console.error('Failed to inject temporal context:', e); }
+        }
+        // [EM-END: calendar-temporal]
         baseSystemPrompt += feishuDiaryText;
         baseSystemPrompt += notionNotesText;
         baseSystemPrompt += lifeRecordText;
@@ -673,6 +701,7 @@ ${uname} 的化身正挂在《彼方》的【${roomName}】${act ? `，状态写
             **严格注意，你正在手机聊天，无论之前是什么模式，哪怕上一句话你们还面对面在一起，当前，你都是已经处于线上聊天状态了，请不要输出你的行为**
 1. **沉浸感**: 保持角色扮演。使用适合即时通讯(IM)的口语化风格。
 2. **行为模式**: 不要总是围绕用户转。分享你自己的生活、想法或随意的观察。有时候要”任性”或”以自我为中心”一点，这更像真人，具体的程度视你的性格而定。
+${emDutySection(userProfile.name)}
 2.5 **对话质量 (极其重要)**:
    - **拒绝空话**: 不要说”我会一直在”、”我不会离开你”这类万能安慰句。这些话谁都能说，毫无信息量。
    - **相对更浓烈的表达**: 在只有文字沟通的前提下，往往情绪的传达会被淡化，说话前思考一下：这样真的能传达我的心情吗？根据对方的性格，这样说会让ta产生不必要的误解吗？
@@ -957,6 +986,14 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
                          if (index === historySlice.length - 1 && timeGapHint && m.role === 'user') textPart += `\n\n${timeGapHint}`;
                          return { role: m.role, content: textPart };
                      }
+                     // [EM-START: assistant-photo-text] 角色自己发的照片只给文字：图片只能出现在 user 消息里（OpenAI / Claude 规范），
+                     // assistant 带 image_url 时 OpenRouter 会兼容，但直连官方的中转站一律 400，而且那张图之后每一轮都会带上。
+                     // 画面描述就是 TA 生图时写的那句，TA 知道自己发了什么就够了。
+                     if (m.role === 'assistant') {
+                         const photoPrompt = typeof m.metadata?.photoPrompt === 'string' ? m.metadata.photoPrompt.trim() : '';
+                         return { role: m.role, content: `${timeStr} [你发了一张照片${photoPrompt ? `：${photoPrompt}` : ''}]` };
+                     }
+                     // [EM-END: assistant-photo-text]
                      // 向下兼容：如果图片数据缺失（例如只导入了文字备份），不要把空 URL 发给 API，否则会报错无法回应
                      // 图片有三种形态：base64 data URL、外链 http(s)、本机的 blobref 令牌
                      // （二进制在 blob_assets，见 utils/blobRef.ts）。令牌既不以 data: 也不以 http 开头，

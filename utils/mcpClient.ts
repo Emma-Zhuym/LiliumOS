@@ -167,6 +167,10 @@ const isHomeAssistantServer = (server: McpServerConfig): boolean =>
     || HOME_ASSISTANT_PATH_RE.test(server.url || '')
     || (server.tools || []).some((tool) => HOME_ASSISTANT_TOOL_RE.test(tool.name || ''));
 
+/** 复用现有 MCP 角色绑定，作为该角色是否可读取同一台 HA 内私密数据的权限开关。 */
+export const hasHomeAssistantMcpAccess = (charId?: string): boolean =>
+    getEnabledMcpServers(charId).some(isHomeAssistantServer);
+
 const messageContentText = (content: unknown): string => {
     if (typeof content === 'string') return content;
     if (Array.isArray(content)) return content.map((part) => messageContentText(part)).filter(Boolean).join(' ');
@@ -183,15 +187,11 @@ const HOME_OPERATION_RE = /(?:打开|开启|开一下|开到|开着|关掉|关�
 const HOME_SCENE_RE = /(?:(?:回家|离家|晚安|起床|睡眠|专注).{0,5}(?:模式|场景)|(?:启动|打开|开启|切换|设置).{0,8}(?:回家|离家|晚安|起床|睡眠|专注)(?:模式|场景))/i;
 const HOME_SHORT_COMMAND_RE = /(?:(?:开|关)(?:一下|下|个)?(?:床头|台|夜|吊)?灯|(?:开|关)(?:一下|下)?(?:空气)?净化器|lights?\s+(?:on|off))/i;
 const HOME_FOLLOWUP_RE = /(?:再?(?:亮|暗|高|低|强|弱)(?:一|两)?点|(?:把它)?(?:换|调|设|变)(?:成|为|到)?\s*(?:红|橙|黄|绿|青|蓝|紫|粉|白|暖白|冷白)(?:色)?|(?:红|橙|黄|绿|青|蓝|紫|粉|白|暖白|冷白)(?:色)?(?:吧|呢)?|把?它(?:打开|关掉|关闭|调亮|调暗)|再?(?:打开|关掉|关闭|调高|调低)(?:一点)?|(?:调到)?\s*\d{1,3}\s*%|(?:brighter|dimmer|turn\s+it\s+(?:on|off)))/i;
-const HEALTH_DATA_RE = /(?:apple\s*health|healthsync|健康数据|步数|(?:走|行走).{0,5}步|活动能量|锻炼时间|睡眠|睡了|入睡|起床时间|心率|静息心率|HRV|心率变异|血氧|呼吸率|VO2|最大摄氧|体重|体脂|血压|血糖|workout|steps?|sleep|heart\s*rate)/i;
-const HEALTH_QUERY_RE = /(?:查看|看看|查询|查一下|读一下|同步|多少|多久|怎么样|如何|什么情况|趋势|数据|记录|有没有|是否|达标|完成|分析|为什么|偏高|偏低|高不高|低不低|how\s+(?:many|much|long)|show|check|status|trend)/i;
-
 const hasDirectHomeAssistantIntent = (text: string): boolean => {
     const normalized = text.trim();
     if (!normalized) return false;
     return HOME_SCENE_RE.test(normalized)
         || HOME_SHORT_COMMAND_RE.test(normalized)
-        || (HEALTH_DATA_RE.test(normalized) && HEALTH_QUERY_RE.test(normalized))
         || (HOME_DEVICE_RE.test(normalized) && HOME_OPERATION_RE.test(normalized));
 };
 

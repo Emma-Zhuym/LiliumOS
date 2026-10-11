@@ -1,4 +1,5 @@
 import AppearanceEmergency from '../components/settings/AppearanceEmergency';
+import AgentBackendSection from '../components/settings/AgentBackendSection'; // [EM: agent-backend-panel]
 import FirecrawlSettings from '../components/settings/FirecrawlSettings';
 
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
@@ -16,7 +17,7 @@ import { bucketRetryCount, trackEvent } from '../utils/analytics';
 import Modal from '../components/os/Modal';
 import { NotionManager, FeishuManager, RealtimeContextManager } from '../utils/realtimeContext';
 import { searchCities, fetchOpenMeteoCurrent, resolveWeatherCoords, formatLocationLabel, type WeatherLocation } from '../utils/openMeteo'; // [EM: weather-openmeteo]
-import { XhsMcpClient } from '../utils/xhsMcpClient';
+import { XhsMcpClient, type XhsLoginQrcode } from '../utils/xhsMcpClient'; // [EM: xhs-mini-mcp] 扫码登录
 import { getMcdToken, setMcdToken as saveMcdToken, isMcdEnabled, setMcdEnabled as saveMcdEnabled, testMcdConnection, resetMcdSession } from '../utils/mcdMcpClient';
 import { getLuckinToken, setLuckinToken as saveLuckinToken, isLuckinEnabled, setLuckinEnabled as saveLuckinEnabled, testLuckinConnection, resetLuckinSession } from '../utils/luckinMcpClient';
 import { getProxyWorkerUrl, setProxyWorkerUrl, DEFAULT_PROXY_WORKER } from '../utils/proxyWorker';
@@ -65,6 +66,7 @@ import { shouldUseGithubProxy } from '../utils/githubClient';
 import CloudBackupRestoreList, { type CloudBackupListState } from '../components/settings/CloudBackupRestoreList';
 import GithubBackupRoute from '../components/settings/GithubBackupRoute';
 import ClayDialog from '../components/os/ClayDialog';
+import { groupApiPresets, listPresetGroups } from '../utils/apiPresetGroups'; // [EM: api-preset-group]
 // [EM-END: github-backup-status]
 
 const MOTION_ENABLED_KEY = 'liliumos_motion_enabled';
@@ -554,6 +556,7 @@ const Settings: React.FC = () => {
   const [newPresetName, setNewPresetName] = useState('');
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
   const [editPresetName, setEditPresetName] = useState('');
+  const [editPresetGroup, setEditPresetGroup] = useState(''); // [EM: api-preset-group]
   const [editPresetUrl, setEditPresetUrl] = useState('');
   const [editPresetKey, setEditPresetKey] = useState('');
   const [editPresetModel, setEditPresetModel] = useState('');
@@ -680,6 +683,21 @@ const Settings: React.FC = () => {
   const [rtXhsCookie, setRtXhsCookie] = useState(realtimeConfig.xhsMcpConfig?.cookie || '');
   const [rtXhsPlatform, setRtXhsPlatform] = useState<'xhs' | 'rednote' | undefined>(realtimeConfig.xhsMcpConfig?.platform);
   const [rtXhsGuideOpen, setRtXhsGuideOpen] = useState(false);
+  // [EM-START: xhs-mini-mcp] mini 上自托管的 xiaohongshu-mcp：Bearer 令牌 + 在这里扫码登录
+  const [rtXhsAuthToken, setRtXhsAuthToken] = useState(realtimeConfig.xhsMcpConfig?.authToken || '');
+  const [rtXhsQr, setRtXhsQr] = useState<{ status: string; image?: string }>({ status: '' });
+  const xhsLocalAuthToken = () => (rtXhsMode === 'local' ? rtXhsAuthToken.trim() || undefined : undefined);
+  const fetchXhsLoginQr = async () => {
+      if (!rtXhsLocalUrl) { setRtXhsQr({ status: '请先填写服务器 URL' }); return; }
+      setRtXhsQr({ status: '正在向服务器要二维码…它要先打开小红书登录页，mini 在国外时一分钟左右很正常（最多等 2 分钟）' });
+      XhsMcpClient.setAuthToken(rtXhsAuthToken);
+      const result = await XhsMcpClient.getQrcode(rtXhsLocalUrl);
+      if (!result.success) { setRtXhsQr({ status: `获取失败：${result.error}` }); return; }
+      const qr = result.data as XhsLoginQrcode;
+      if (qr.loggedIn || !qr.imageDataUrl) { setRtXhsQr({ status: qr.message || '服务器上已经是登录状态' }); return; }
+      setRtXhsQr({ status: `${qr.message}\n扫完点一下「测试连接」确认。`, image: qr.imageDataUrl });
+  };
+  // [EM-END: xhs-mini-mcp]
   const [rtTestStatus, setRtTestStatus] = useState('');
 
   // 麦当劳 MCP (token / 启用态都直接存 localStorage, 不进 realtimeConfig)
@@ -1006,6 +1024,7 @@ const Settings: React.FC = () => {
       const isActive = activePresetId === preset.id;
       setEditingPresetId(preset.id);
       setEditPresetName(preset.name);
+      setEditPresetGroup(preset.group || ''); // [EM: api-preset-group]
       setEditPresetUrl(preset.config.baseUrl || '');
       setEditPresetKey(preset.config.apiKey || '');
       setEditPresetModel(preset.config.model || '');
@@ -1039,7 +1058,7 @@ const Settings: React.FC = () => {
       };
       // 「正在用的就是这条」要在改之前问，改完值就对不上了
       const wasActive = activePresetId === preset.id;
-      updateApiPreset(preset.id, name, nextConfig);
+      updateApiPreset(preset.id, name, nextConfig, editPresetGroup); // [EM: api-preset-group]
       // 改的正好是当前生效那条 → 生效配置跟着走，否则界面写着新 Key、请求还在用旧的
       if (wasActive) commitApiConfig(configFromPreset({ ...preset, name, config: nextConfig }));
       // 独立绑定这条预设的角色也有后台任务；普通 API 保持原值，角色从新预设读取凭据。
@@ -1925,6 +1944,7 @@ const Settings: React.FC = () => {
               enabled: rtXhsMcpEnabled,
               serverUrl: rtXhsMode === 'lite' ? XHS_LITE_URL : rtXhsLocalUrl,
               cookie: rtXhsMode === 'lite' ? (rtXhsCookie.trim() || undefined) : undefined,
+              authToken: xhsLocalAuthToken(), // [EM: xhs-mini-mcp]
               platform: rtXhsMode === 'lite' ? rtXhsPlatform : undefined,
               loggedInNickname: rtXhsNickname || undefined,
               loggedInUserId: rtXhsUserId || undefined,
@@ -2021,6 +2041,7 @@ const Settings: React.FC = () => {
           return;
       }
       setRtTestStatus('正在连接...');
+      XhsMcpClient.setAuthToken(xhsLocalAuthToken()); // [EM: xhs-mini-mcp]
       try {
           const result = await XhsMcpClient.testConnection(
               urlToUse,
@@ -2045,6 +2066,7 @@ const Settings: React.FC = () => {
                       enabled: rtXhsMcpEnabled,
                       serverUrl: urlToUse,
                       cookie: cookieToUse,
+                      authToken: xhsLocalAuthToken(), // [EM: xhs-mini-mcp]
                       platform: result.platform,
                       loggedInNickname: rtXhsNickname || result.nickname,
                       loggedInUserId: rtXhsUserId || result.userId,
@@ -2495,7 +2517,10 @@ const Settings: React.FC = () => {
             {apiPresets.length > 0 && (
                 <div className="mb-4 space-y-2">
                     <p className="text-xs px-1" style={{ color: F.textSecondary }}>我的预设</p>
-                    {apiPresets.map(preset => (
+                    {/* [EM-START: api-preset-group] 按手填的分组排，未分组的在最前、不带组标题 */}
+                    {groupApiPresets(apiPresets).map(section => <React.Fragment key={section.group || '__ungrouped'}>
+                    {section.group && <p className="text-xs px-1 pt-2 font-semibold" style={{ color: F.textSecondary }}>{section.group}</p>}
+                    {section.presets.map(preset => (
                         <div key={preset.id} className="flex items-center gap-1 p-1" style={{
                             borderRadius: R.smallCard, background: F.surface, boxShadow: S.raisedSoft,
                         }}>
@@ -2526,8 +2551,10 @@ const Settings: React.FC = () => {
                             </button>
                         </div>
                     ))}
+                    </React.Fragment>)}
+                    {/* [EM-END: api-preset-group] */}
                     <p className="text-xs px-1 leading-relaxed" style={{ color: F.textSecondary }}>
-                        点名称立即切换；铅笔编辑预设；长按或双击 × 删除。
+                        点名称立即切换；铅笔编辑预设（可填分组）；长按或双击 × 删除。
                     </p>
                 </div>
             )}
@@ -3907,6 +3934,10 @@ const Settings: React.FC = () => {
             </section>
         )}
 
+        {/* [EM-START: agent-backend-panel] 放在最后：日常用不到，不该挤在备份和 API 前面 */}
+        <AgentBackendSection />
+        {/* [EM-END: agent-backend-panel] */}
+
         <VersionInfo />
 
         {/* QQ 小群入口不主动曝光：接近水印，仅在 hover / 键盘聚焦 / 按住时略微显现。 */}
@@ -4452,6 +4483,18 @@ const Settings: React.FC = () => {
                       autoComplete="off" className="w-full min-h-11 px-3 py-2 text-sm outline-none"
                       style={{ borderRadius: R.input, background: F.surfaceSunken, boxShadow: S.sunken, color: F.textPrimary }} />
               </label>)}
+              {/* [EM-START: api-preset-group] */}
+              <label className="block space-y-2 text-xs">
+                  <span style={{ color: F.textSecondary }}>分组（可不填，比如中转站的名字）</span>
+                  <input aria-label="预设分组" type="text" value={editPresetGroup} list="api-preset-groups"
+                      onChange={event => setEditPresetGroup(event.target.value)} placeholder="不分组"
+                      autoComplete="off" className="w-full min-h-11 px-3 py-2 text-sm outline-none"
+                      style={{ borderRadius: R.input, background: F.surfaceSunken, boxShadow: S.sunken, color: F.textPrimary }} />
+                  <datalist id="api-preset-groups">
+                      {listPresetGroups(apiPresets).map(group => <option key={group} value={group} />)}
+                  </datalist>
+              </label>
+              {/* [EM-END: api-preset-group] */}
               <div className="space-y-4 p-4" style={{ background: F.surfaceSunken, boxShadow: S.sunken, borderRadius: R.smallCard }}>
                   <div className="flex items-center justify-between gap-3">
                       <span className="text-sm">流式输出</span>
@@ -4785,7 +4828,22 @@ const Settings: React.FC = () => {
                               <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">服务器 URL</label>
                               <input value={rtXhsLocalUrl} onChange={e => setRtXhsLocalUrl(e.target.value)} className="w-full bg-white/80 border border-red-200 rounded-xl px-3 py-2 text-[11px] font-mono" placeholder="http://localhost:18060/mcp" />
                           </div>
+                          {/* [EM-START: xhs-mini-mcp] */}
+                          <div>
+                              <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">访问令牌（可选）</label>
+                              <input type="password" autoComplete="off" value={rtXhsAuthToken} onChange={e => setRtXhsAuthToken(e.target.value)} className="w-full bg-white/80 border border-red-200 rounded-xl px-3 py-2 text-[11px] font-mono" placeholder="mini 上 xhs-mcp-token 文件里那串；本机直连可留空" />
+                          </div>
+                          {/* [EM-END: xhs-mini-mcp] */}
                           <button onClick={testXhsMcp} className="w-full py-2 bg-red-100 text-red-600 text-xs font-bold rounded-xl active:scale-95 transition-transform">测试连接</button>
+                          {/* [EM-START: xhs-mini-mcp] 登录在服务器那个浏览器里：拿二维码用手机小红书扫 */}
+                          <button type="button" onClick={fetchXhsLoginQr} className="w-full py-2 bg-white/80 border border-red-200 text-red-600 text-xs font-bold rounded-xl active:scale-95 transition-transform">扫码登录</button>
+                          {rtXhsQr.status && (
+                              <div className="bg-white/80 border border-red-100 rounded-xl p-3 space-y-2">
+                                  <p className="text-[10px] text-slate-600 whitespace-pre-wrap leading-relaxed">{rtXhsQr.status}</p>
+                                  {rtXhsQr.image && <img src={rtXhsQr.image} alt="小红书登录二维码" className="w-40 h-40 mx-auto" />}
+                              </div>
+                          )}
+                          {/* [EM-END: xhs-mini-mcp] */}
                           <div className="grid grid-cols-2 gap-2">
                               <div>
                                   <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">小红书昵称</label>
@@ -4798,6 +4856,7 @@ const Settings: React.FC = () => {
                           </div>
                           <p className="text-[10px] text-red-500/70 leading-relaxed">
                               下载并运行 xiaohongshu-mcp，URL 填 http://localhost:18060/mcp（代理则 18061/mcp）。
+                              {/* [EM: xhs-mini-mcp] */} 跑在 Mac mini 上时，URL 填 https://（mini 的 Funnel 域名）/xhs/mcp，再填访问令牌；二维码最好在电脑上打开这页扫。
                           </p>
                       </div>
                   )}

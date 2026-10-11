@@ -7,13 +7,13 @@ import { mergeMessageFavorites, removeMessageFavoriteEntry, type MessageFavorite
 import TokenImg from '../os/TokenImg';
 import FavoriteMessageBody from './FavoriteMessageBody';
 import { normalizeChatSearchText, searchableChatMessageText } from '../../utils/chatMessageSearch';
-import { F, HUE, R, S, STATUS } from '../../utils/clayTokens';
+import { F, FONT, HUE, R, S, STATUS } from '../../utils/clayTokens';
 
 type FavoriteTab = 'all' | MessageFavoriteEntry['kind'];
 interface FavoritesPortalProps { onClose: () => void; onJumpToMessage?: (charId: string, messageId: number) => void; }
 const tabs = [{ value: 'all', label: '全部' }, { value: 'text', label: '文字' }, { value: 'image', label: '图片' }, { value: 'voice', label: '语音' }, { value: 'html', label: '卡片' }] as const;
 const timeFormatter = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-const roundButton = { width: 44, height: 44, borderRadius: R.pill, background: F.surface, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft, color: F.textSecondary };
+const roundButton = { width: 44, height: 44, borderRadius: R.pill, background: 'transparent', border: 'none', boxShadow: 'none', color: F.textPrimary };
 const PAGE_SIZE = 20;
 
 const FavoritesPortal: React.FC<FavoritesPortalProps> = ({ onClose, onJumpToMessage }) => {
@@ -66,7 +66,7 @@ const FavoritesPortal: React.FC<FavoritesPortalProps> = ({ onClose, onJumpToMess
         <header className="shrink-0 px-4 pb-3" style={{ paddingTop: 'var(--chrome-top)' }}>
             <div className="relative flex items-center justify-between pb-3">
                 <button type="button" onClick={onClose} className="grid place-items-center" style={roundButton} aria-label="返回"><CaretLeft size={20} weight="bold" /></button>
-                <h1 className="pointer-events-none absolute left-1/2 -translate-x-1/2 text-base font-semibold">收藏夹</h1>
+                <h1 className="pointer-events-none absolute left-1/2 -translate-x-1/2" style={{ ...FONT.navTitle, fontFamily: FONT.heading }}>收藏夹</h1>
                 <button type="button" onClick={() => { setSearchOpen(value => !value); setSearchQuery(''); }} className="grid place-items-center" style={roundButton} aria-label={searchOpen ? '关闭收藏搜索' : '搜索收藏'} aria-pressed={searchOpen}><MagnifyingGlass size={20} weight="bold" /></button>
             </div>
             <div className="grid grid-cols-5 gap-1 p-1" style={{ background: F.surfaceSunken, borderRadius: R.large, boxShadow: S.sunken }}>
@@ -78,7 +78,7 @@ const FavoritesPortal: React.FC<FavoritesPortalProps> = ({ onClose, onJumpToMess
         </header>
         <main className="min-h-0 flex-1 overflow-y-auto px-4 pb-[max(2rem,var(--safe-bottom))]">
             {error && <div role="alert" className="mb-3 p-4 text-sm" style={{ background: STATUS.warning.tint, color: STATUS.warning.ink, borderRadius: R.smallCard }}>{error}<button onClick={() => void refresh()} className="ml-2 min-h-11 underline">重新读取</button></div>}
-            {loading ? <p role="status" className="py-10 text-center text-sm">正在整理收藏…</p> : !visible.length ? <div className="flex min-h-40 flex-col items-center justify-center gap-3 p-5" style={{ background: F.surfaceSunken, color: F.textTertiary, borderRadius: R.bigCard, boxShadow: S.sunken }}><Star size={18} /><p className="text-sm">{normalizedQuery ? '没有找到匹配的收藏' : '这里还没有收藏'}</p></div> : <div className="px-3" style={{ background: F.surface, borderRadius: R.bigCard, boxShadow: S.raisedSoft }}>
+            {loading ? <p role="status" className="py-10 text-center text-sm">正在整理收藏…</p> : !visible.length ? <div className="flex min-h-40 flex-col items-center justify-center gap-3 p-5" style={{ background: F.surfaceSunken, color: F.textTertiary, borderRadius: R.bigCard, boxShadow: S.sunken }}><Star size={18} /><p className="text-sm">{normalizedQuery ? '没有找到匹配的收藏' : '这里还没有收藏'}</p></div> : <div className="px-3" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, boxShadow: S.raisedSoft }}>
                 {visible.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((entry, index) => {
                     const userOwned = !!entry.voice || entry.content?.owners.some(owner => owner.kind === 'user');
                     return <article key={entry.id} className="min-w-0 py-4" style={{ borderTop: index ? `1px solid ${F.divider}` : undefined }}>

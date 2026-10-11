@@ -81,22 +81,44 @@ export const withMcpDedupeSuffix = (base: string, i: number, maxLen = DEFAULT_MA
     return base.slice(0, Math.max(0, maxLen - suffix.length)) + suffix;
 };
 
+/** 值是「名字 → 子 schema」的映射，本身不是 schema（一个叫 items 的属性不该被当成数组声明）。 */
+const SCHEMA_MAP_KEYS = new Set(['properties', 'patternProperties', '$defs', 'definitions']);
+/** 值本身就是 schema，或是一串 schema。 */
+const SCHEMA_KEYS = new Set([
+    'items', 'additionalItems', 'additionalProperties', 'contains', 'propertyNames',
+    'not', 'if', 'then', 'else', 'anyOf', 'oneOf', 'allOf', 'prefixItems',
+]);
+
 /**
  * Gemini's function declaration protobuf only accepts strings in `enum`, while
  * standard JSON Schema also permits numeric and boolean enum values. Some
  * OpenAI-compatible Gemini gateways reject the entire tools array instead of
  * adapting those values. Move non-string enum constraints into the description
  * on the model-facing copy; the stored schema remains the source of truth.
+ *
+ * 同样被 Gemini 整批退回的还有两种写法（一个工具写错，26 个工具一起 400）：
+ *
+ * - `{ type: 'string', items: {...} }` —— Home Assistant 的 `GetLiveContext.domain`
+ *   就长这样（voluptuous 的 `vol.All(cv.ensure_list, [str])` 转出来的），Gemini 说
+ *   「有 items 就必须是 ARRAY」。这里**不把它改宽成数组**：声明成数组、服务端却只认
+ *   标量的话就真调错了。留着标量类型、去掉矛盾的 items —— HA 那边本来就 ensure_list，
+ *   模型发个标量它收得下。只有在**没写 type** 时才按 items 补上 array。
+ * - `type: ['string', 'null']` 这种联合类型 Gemini 也不收，取其中一个。
  */
 export const normalizeMcpToolSchemaForLLM = (schema: any): any => {
-    const visit = (value: any, depth: number): any => {
+    const visit = (value: any, depth: number, isSchema: boolean): any => {
         if (depth > 40 || value === null || typeof value !== 'object') return value;
-        if (Array.isArray(value)) return value.map(item => visit(item, depth + 1));
+        if (Array.isArray(value)) return value.map(item => visit(item, depth + 1, isSchema));
 
         const normalized: Record<string, any> = {};
         for (const [key, child] of Object.entries(value)) {
-            normalized[key] = visit(child, depth + 1);
+            // 不在 schema 位置上的（properties 这种映射），它的每个值才是 schema
+            if (!isSchema) normalized[key] = visit(child, depth + 1, true);
+            else if (SCHEMA_MAP_KEYS.has(key)) normalized[key] = visit(child, depth + 1, false);
+            else if (SCHEMA_KEYS.has(key)) normalized[key] = visit(child, depth + 1, true);
+            else normalized[key] = child;
         }
+        if (!isSchema) return normalized;
 
         const enumValues = Array.isArray(value.enum) ? value.enum : [];
         if (enumValues.length > 0) {
@@ -117,10 +139,23 @@ export const normalizeMcpToolSchemaForLLM = (schema: any): any => {
                 normalized.description = description ? `${description} ${suffix}` : suffix;
             }
         }
+
+        // 联合类型取一个：有 items 的选 array，否则取第一个认识的。
+        if (Array.isArray(normalized.type)) {
+            const types = normalized.type.filter((item: unknown) => typeof item === 'string' && item !== 'null');
+            normalized.type = (normalized.items !== undefined && types.includes('array') ? 'array' : types[0]) ?? 'string';
+        }
+
+        // items 和 type 对不上：没写 type 就按 items 补 array，写了别的就把 items 去掉。
+        if (normalized.items !== undefined) {
+            if (typeof normalized.type !== 'string') normalized.type = 'array';
+            else if (normalized.type !== 'array') delete normalized.items;
+        }
+
         return normalized;
     };
 
-    return visit(schema || { type: 'object', properties: {} }, 0);
+    return visit(schema || { type: 'object', properties: {} }, 0, true);
 };
 
 const serverSlug = (server: McpFireServer, maxLen = DEFAULT_MAX_TOOL_NAME_LEN): string =>

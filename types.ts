@@ -43,6 +43,8 @@ export enum AppID {
   WorldHome = 'world_home', // 家园 — 同世界观多角色共同生活的大世界（观测驱动演绎，每角色独立 LLM 调用 + NPC 世界引擎）
   Shopping = 'shopping', // EM: 投喂站 — 角色扮演购物模块（网购+外卖）
   SmartHome = 'smart_home', // EM: 共栖舱 — Home Assistant 统一设备控制
+  Calendar = 'calendar', // [EM: calendar-temporal] 日历 — 阿萌真实的 Apple 日历 / 提醒（mini 每天同步）
+  Moments = 'moments', // [EM: moments] 朋友圈 — 所有人的动态汇总，用户可发图文、点赞评论
   Kitchen = 'kitchen', // [EM: kitchen-app] Lilian Kitchen — 现实食品库存与小厨房
 }
 
@@ -73,6 +75,12 @@ export interface DesktopDecoration {
   opacity: number;  // 0-1
   zIndex: number;
   flip?: boolean;
+}
+
+export interface LauncherFolder {
+  id: string;
+  name: string;
+  appIds: AppID[];
 }
 
 export type ScheduleCardPresetId =
@@ -122,8 +130,13 @@ export interface OSTheme {
   launcherWidgets?: Record<string, string>; // slots: 'tl' | 'tr' | 'wide' | 'dsq' (legacy 'bl' / 'br' are banned)
   /** 默认桌面长按编辑后的 App / Dock / 第二页风车组件顺序。 */
   launcherAppOrder?: string[];
+  launcherFolders?: LauncherFolder[]; // [EM: launcher-folders]
+  /** 三页工具小组件是否已添加到桌面；undefined 兼容首版并视为已添加。 */
+  launcherUtilityWidgetEnabled?: boolean;
   launcherDockOrder?: string[];
   launcherPinwheelOrder?: Array<'music' | 'appsA' | 'appsB' | 'image'>;
+  /** Desktop grid cells for apps, folders, and widgets. Older orders seed this on first use. */
+  launcherDesktopLayout?: Record<string, { page: number; row: number; col: number }>;
   /** 自定义透明图标是否保留原始轮廓并移除系统圆角底框。默认 false。 */
   preserveCustomIconOutlines?: boolean;
   /** 默认皮肤桌面「正在播放」音乐卡片改用浅色系样式（新安装默认 true）。 */
@@ -582,6 +595,7 @@ export interface ApiPreset {
   id: string;
   name: string;
   config: APIConfig;
+  group?: string; // [EM: api-preset-group] 用户手填的分组名；空 = 未分组
 }
 
 export interface CharacterBuff {
@@ -938,6 +952,19 @@ export interface PhoneEvidence {
     /** 人际关系系统：本条记录归属的联系人（phoneState.contacts 里的 id） */
     contactId?: string;
     topicStart?: number; // [EM: phone-topic-boundary] 当前话题在完整对话中的气泡起点
+    agentSourceIds?: string[]; // [EM: agent-life] 这条记录里有哪几段来自 Mac mini 心跳（幂等键；也用来在起居注里去重）
+    // [EM-START: shopping-eta] 心跳买的东西：后端定好的送达时刻；阿萌在投喂站帮 TA 退掉的时刻
+    eta?: number;
+    refundedAt?: number;
+    // [EM-END: shopping-eta]
+    // [EM-START: moments] 朋友圈：和动态同一次生成的亲友评论（3–5 条）、虚拟点赞数、屏蔽的通讯录分组、配图
+    moment?: {
+        comments?: { who: string; relation?: string; text: string }[];
+        likes?: number;
+        hide?: string[];
+        images?: string[];
+    };
+    // [EM-END: moments]
 }
 
 /**
@@ -954,9 +981,52 @@ export interface ConvTopic {
     span?: number;
 }
 
+// [EM-START: work-app]
+/** 「工作」App 里的一句话（群聊 / 私聊 / 邮件）。来自 Mac mini 上心跳的工作往来，只增不改。 */
+export interface WorkMessage {
+    id: string;
+    /** 后端 outbox 的 messageId，用来幂等：同一段往来被取回两次不会重复写。 */
+    sourceId: string;
+    at: number;
+    /** 会话键：g:群名 / d:人名 / e:邮件主题。同一个键的消息落在同一个会话里。 */
+    channel: string;
+    channelTitle: string;
+    kind: 'group' | 'dm' | 'email';
+    /** 说话人的名字；机主自己是「我」。 */
+    from: string;
+    mine: boolean;
+    text: string;
+    subject?: string;
+}
+
+/** 正在推进的事：标题 + 最新进展 + 一路走来的进展记录。 */
+export interface WorkThread {
+    id: string;
+    title: string;
+    summary: string;
+    status: 'open' | 'done';
+    updatedAt: number;
+    history: { at: number; text: string }[];
+}
+
+export interface CharacterWorkState {
+    messages: WorkMessage[];
+    threads: WorkThread[];
+}
+// [EM-END: work-app]
+
+// [EM-START: contact-groups]
+/** 联系人分组。固定这几类，方便模型输出稳定；缺省时按关系备注关键词推断，见 utils/contactGroups.ts。 */
+export type ContactGroupId = 'family' | 'friend' | 'work' | 'school' | 'service' | 'online' | 'other';
+// [EM-END: contact-groups]
+
 export interface PhoneContact {
     id: string;
     name: string;
+    /** [EM: contact-groups] 分组；缺省时按 identity 推断成某一组，都对不上就是「其他」。 */
+    group?: ContactGroupId;
+    /** [EM: contact-groups] 分组是用户手动指定的：之后扫描/对话回填不得改回去。 */
+    groupManual?: boolean;
     /** 身份/关系标签，如「辅导员」「中间人」 */
     identity?: string;
     /** 置顶：每次「刷新消息列表」时保证抽中该联系人（0~3 个置顶联系人 + 其余随机），不被随机生成漏掉 */
@@ -2882,6 +2952,7 @@ export interface CharacterProfile {
 
   phoneState?: {
       records: PhoneEvidence[];
+      work?: CharacterWorkState; // [EM: work-app] 「工作」App：同事往来与正在推进的事
       customApps?: PhoneCustomApp[];
       simLogs?: PhoneSimLog[]; // 「生活记录」：人格模拟演出留存
       chatReadAt?: number;     // 上次打开 Messages 的时间戳，用于计算未读
@@ -3569,6 +3640,8 @@ export interface RecurringRule {
 
 export type FinanceTxType = 'expense' | 'income' | 'refund' | 'transfer';
 
+export type FinanceAnalysisTreatment = 'auto' | 'keep' | 'pass_through' | 'one_off' | 'other'; // [EM: finance-analysis-scope]
+
 export type FinanceCategoryReviewStatus =
     | 'unrecognized'
     | 'snoozed'
@@ -3590,6 +3663,8 @@ export interface FinanceTransaction {
     toAmount?: number;
     toCurrency?: string;
     refundForTxId?: string;
+    /** Local analysis choice only; never changes cash flow, source amount or visibility. */
+    analysisTreatment?: FinanceAnalysisTreatment; // [EM: finance-analysis-scope]
     charComments?: { charId: string; comment: string; timestamp: number }[];
     source?: 'manual' | 'simplefin';
     externalId?: string;
@@ -3601,6 +3676,13 @@ export interface FinanceTransaction {
     excludedFromReporting?: boolean;
     /** Posted provider transaction that replaced this authorization hold. */
     supersededByExternalId?: string;
+    /** 银行撤掉了这笔预扣款（SimpleFIN 的数据里已经没有它）时的同步时刻。再出现就清掉。 */
+    pendingDroppedAt?: number; // [EM: finance-dropped-holds]
+    /**
+     * 阿萌手动定的去留，优先于一切自动判断（同步也不改）：true = 不计入（重复预扣、错账），
+     * false = 手动恢复过、自动规则别再排除它。不填 = 交给自动规则。
+     */
+    excludedByUser?: boolean; // [EM: finance-manual-exclude]
     importedAt?: number;
     sourceUpdatedAt?: number;
     /** New synced transaction awaiting the user's local category confirmation. */
@@ -4340,6 +4422,7 @@ export interface FullBackupData {
     emShoppingCart?: any[];
     emShoppingOrders?: any[];
     emShoppingSettings?: { key: string; value: unknown }[];
+    emMoments?: import('./utils/momentsDb').MomentsBackup; // [EM: moments] 朋友圈（文字备份不带图）
     emMapWorlds?: any[];
     emKitchenFoods?: any[];
     emKitchenLots?: any[];
@@ -4489,6 +4572,7 @@ export interface XhsMcpConfig {
     enabled: boolean;
     serverUrl: string;  // MCP: "http://localhost:18060/mcp" | Skills: "http://localhost:18061/api" | Lite Worker: "https://xhs-lite.<acct>.workers.dev/api"
     cookie?: string;    // Lite 模式：登录后的小红书完整 cookie（含 a1 / web_session）。仅 lite Worker 用。
+    authToken?: string; // [EM: xhs-mini-mcp] 自托管 xiaohongshu-mcp 的 Bearer 令牌（mini 上的 AUTH_TOKEN）；本地 / Lite 模式不用
     platform?: 'xhs' | 'rednote'; // Lite 自动识别出的国内小红书 / 全球 RedNote 后端
     rnoteApiKey?: string; // Lite 模式可选：用户自己的 Rnote Key，仅用于读取真实评论。
     loggedInUserId?: string;   // 登录用户的 user_id，连接测试成功后自动获取

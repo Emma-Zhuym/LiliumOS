@@ -207,16 +207,21 @@ const requestText = async (config: SmartHomeConfig, path: string, init?: Request
 
 export const fetchHomeAssistantStates = async (
     config: SmartHomeConfig,
-    options: { timeoutMs?: number } = {},
+    options: { timeoutMs?: number; suppressTimeoutLog?: boolean } = {},
 ): Promise<HomeAssistantState[]> => {
     const timeoutMs = options.timeoutMs ?? 8000;
     const controller = typeof AbortController === 'undefined' ? undefined : new AbortController();
     const timer = controller && timeoutMs > 0
-        ? globalThis.setTimeout(() => controller.abort(), timeoutMs)
+        ? globalThis.setTimeout(() => controller.abort(new DOMException('Home Assistant request timed out', 'TimeoutError')), timeoutMs)
         : undefined;
     try {
         return await requestJson<HomeAssistantState[]>(config, '/api/states', {
             signal: controller?.signal,
+            // 全局 fetch 拦截器会读取这个本地元数据；浏览器原生 fetch 会忽略未知字段。
+            // 后台缓存刷新超时属于预期降级，不应该污染系统错误日志。
+            ...((options.suppressTimeoutLog
+                ? { __sullySuppressNetworkTimeoutLog: true }
+                : {}) as RequestInit),
         });
     } finally {
         if (timer !== undefined) globalThis.clearTimeout(timer);
@@ -236,7 +241,7 @@ export const callHomeAssistantActionWithResponse = async <T>(
     const timeoutMs = options.timeoutMs ?? 8000;
     const controller = typeof AbortController === 'undefined' ? undefined : new AbortController();
     const timer = controller && timeoutMs > 0
-        ? globalThis.setTimeout(() => controller.abort(), timeoutMs)
+        ? globalThis.setTimeout(() => controller.abort(new DOMException('Home Assistant request timed out', 'TimeoutError')), timeoutMs)
         : undefined;
     try {
         const response = await requestJson<HomeAssistantActionResponse<T>>(
@@ -262,7 +267,7 @@ export const renderHomeAssistantTemplate = async (
     const timeoutMs = options.timeoutMs ?? 8000;
     const controller = typeof AbortController === 'undefined' ? undefined : new AbortController();
     const timer = controller && timeoutMs > 0
-        ? globalThis.setTimeout(() => controller.abort(), timeoutMs)
+        ? globalThis.setTimeout(() => controller.abort(new DOMException('Home Assistant request timed out', 'TimeoutError')), timeoutMs)
         : undefined;
     try {
         return (await requestText(config, '/api/template', {
@@ -570,3 +575,25 @@ export const createDemoSmartHomeDevices = (): SmartHomeDevice[] => [
         state: 'scening', available: true,
     },
 ];
+
+const SMART_HOME_DEMO_STATES_KEY = 'liliumos.smart_home.demo_states';
+export const SMART_HOME_DEMO_CHANGED_EVENT = 'liliumos:smart-home-demo-changed';
+
+export const loadDemoSmartHomeDevices = (): SmartHomeDevice[] => {
+    const devices = createDemoSmartHomeDevices();
+    try {
+        const saved = JSON.parse(localStorage.getItem(SMART_HOME_DEMO_STATES_KEY) || '{}') as Record<string, string>;
+        return devices.map(device => saved[device.entityId] === 'on' || saved[device.entityId] === 'off'
+            ? { ...device, state: saved[device.entityId] } : device);
+    } catch {
+        return devices;
+    }
+};
+
+export const saveDemoSmartHomeDevices = (devices: SmartHomeDevice[], source: 'widget' | 'app' = 'widget'): void => {
+    const states = Object.fromEntries(devices
+        .filter(device => device.kind === 'light' || device.kind === 'fan')
+        .map(device => [device.entityId, device.state]));
+    localStorage.setItem(SMART_HOME_DEMO_STATES_KEY, JSON.stringify(states));
+    window.dispatchEvent(new CustomEvent(SMART_HOME_DEMO_CHANGED_EVENT, { detail: { source } }));
+};

@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import TokenImg from '../components/os/TokenImg'; // [EM: token-img-avatars]
 import { Wallet, Receipt, ChartPie, CaretLeft, CaretRight, CaretDown, Plus, Trash, Gear, CreditCard, PiggyBank, Money, Coffee, ChartLine, ArrowsClockwise, ArrowSquareOut, Clock, Lightbulb, type Icon } from '@phosphor-icons/react';
 import { useOS } from '../context/OSContext';
 import { FinanceDB } from '../utils/financeDb';
@@ -15,14 +16,26 @@ import { normalizeUserImpression } from '../utils/impression';
 import { MemoryNodeDB, bm25Search } from '../utils/memoryPalace';
 import type { MemoryNode } from '../utils/memoryPalace/types';
 import { FinanceAccount, FinanceCategory, FinanceTransaction, FinanceTxType, CharacterProfile, RecurringRule, RecurringFrequency } from '../types';
-import { F, S, R, HUE, STATUS, MOTION } from '../utils/clayTokens';
+import { F, FONT, S, R, HUE, STATUS, MOTION } from '../utils/clayTokens';
 import { syncSimpleFinIfStale } from '../utils/simplefinSync';
 import { SimpleFinSettingsCard } from '../components/finance/SimpleFinSettingsCard';
+import { FinanceAnalysisPanel, FinanceTreatmentSelect } from '../components/finance/FinanceAnalysisPanel';
+import {
+  ANALYSIS_TREATMENT_LABELS, analysisTreatment, buildFinanceAnalysis, describeFinanceAnalysis,
+  DEFAULT_FINANCE_ANALYSIS, FINANCE_ANALYSIS_KEY, financeAnalysisCacheKey,
+  normalizeFinanceAnalysisSettings, type FinanceAnalysisSettings,
+} from '../utils/financeAnalysis';
 import {
   announceFinanceReviewChanged,
   isAmazonTransaction,
   reviewStatusForCategory,
 } from '../utils/financeReview';
+import {
+  announceLauncherFinanceSettingsChanged,
+  LAUNCHER_FINANCE_SETTINGS_KEY,
+  normalizeLauncherFinanceSettings,
+  type LauncherFinanceSettings,
+} from '../utils/launcherFinanceSettings';
 import {
   CREDIT_CARD_PAYMENT_CATEGORY_ID,
   findCreditCardPaymentCounterpart,
@@ -85,6 +98,8 @@ const BankApp: React.FC = () => {
   const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
   const [categories, setCategories] = useState<FinanceCategory[]>([]);
   const [transactions, setTransactions] = useState<FinanceTransaction[]>([]);
+  // [EM: finance-manual-exclude] 被排除的同步账目（重复预扣、手动排除）：不进流水和统计，但要看得到、能恢复
+  const [excludedTransactions, setExcludedTransactions] = useState<FinanceTransaction[]>([]);
   const [balances, setBalances] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [showTxFilters, setShowTxFilters] = useState(false);
@@ -104,6 +119,7 @@ const BankApp: React.FC = () => {
     setAccounts(accs);
     setCategories(cats);
     setTransactions(txs.filter(isFinanceTransactionReportable));
+    setExcludedTransactions(txs.filter(t => t.source === 'simplefin' && !isFinanceTransactionReportable(t))); // [EM: finance-manual-exclude]
     const bals: Record<string, number> = {};
     for (const a of accs) {
       bals[a.id] = await FinanceDB.calcAccountBalance(a);
@@ -157,12 +173,12 @@ const BankApp: React.FC = () => {
       <div className="shrink-0 relative flex items-center px-5 py-3" style={{ paddingTop: 'var(--chrome-top)' }}>
         <button
           onClick={closeApp}
-          className="flex items-center justify-center active:translate-y-[2px] transition-transform z-10"
-          style={{ width: 44, height: 44, borderRadius: R.pill, background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft, color: F.textSecondary }}
+          className="flex items-center justify-center active:opacity-40 transition-opacity z-10"
+          style={{ width: 44, height: 44, borderRadius: R.pill, background: 'transparent', border: 'none', boxShadow: 'none', color: F.textPrimary }}
         >
-          <CaretLeft className="w-5 h-5" weight="bold" />
+          <CaretLeft size={22} weight="bold" />
         </button>
-        <span className="absolute left-0 right-0 flex justify-center text-sm font-semibold pointer-events-none" style={{ color: F.textPrimary }}>
+        <span className="absolute left-0 right-0 flex justify-center pointer-events-none" style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: F.textPrimary }}>
           {activeTab === 'assets' ? '资产' : activeTab === 'transactions' ? (
             <button
               onClick={() => setShowTxFilters(f => !f)}
@@ -206,10 +222,10 @@ const BankApp: React.FC = () => {
         <div className="ml-auto flex items-center gap-2 z-10">
           <button
             onClick={() => setShowSettings(true)}
-            className="flex items-center justify-center active:translate-y-[2px] transition-transform"
-            style={{ width: 44, height: 44, borderRadius: R.pill, background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft, color: F.textSecondary }}
+            className="flex items-center justify-center active:opacity-40 transition-opacity"
+            style={{ width: 44, height: 44, borderRadius: R.pill, background: 'transparent', border: 'none', boxShadow: 'none', color: F.textPrimary }}
           >
-            <Gear size={16} weight="bold" style={{ color: F.textTertiary }} />
+            <Gear size={21} weight="bold" style={{ color: F.textPrimary }} />
           </button>
         </div>
       </div>
@@ -232,6 +248,7 @@ const BankApp: React.FC = () => {
         {activeTab === 'transactions' && (
           <TransactionsTab
             transactions={transactions}
+            excludedTransactions={excludedTransactions} // [EM: finance-manual-exclude]
             accounts={accounts}
             categories={categories}
             onRefresh={refreshData}
@@ -264,7 +281,7 @@ const BankApp: React.FC = () => {
       {/* 底部 Tab Bar — floating pill */}
       <div
         className="shrink-0 flex items-center justify-around mx-5 p-1.5"
-        style={{ background: F.surfaceRaised, borderRadius: R.panel, boxShadow: S.raisedMedium, marginBottom: 'calc(0.5rem + var(--safe-bottom))' /* [EM: safe-bottom] */ }}
+        style={{ background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, borderRadius: R.panel, boxShadow: S.raisedMedium, marginBottom: 'calc(0.5rem + var(--safe-bottom))' /* [EM: safe-bottom] */ }}
       >
         {TABS.map(tab => {
           const isActive = activeTab === tab.id;
@@ -370,12 +387,12 @@ const AccountForm: React.FC<{
       {/* Header */}
       <div className="shrink-0 flex items-center justify-between px-4 py-3" style={{ paddingTop: 'var(--chrome-top)' }}>
         <button onClick={onClose}
-          className="flex items-center justify-center active:translate-y-[1px] transition-transform"
-          style={{ width: 44, height: 44, borderRadius: R.pill, background: F.surfaceRaised,
-                   border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}>
-          <CaretLeft size={20} weight="bold" style={{ color: F.textSecondary }} />
+          className="flex items-center justify-center active:opacity-40 transition-opacity"
+          style={{ width: 44, height: 44, borderRadius: R.pill, background: 'transparent',
+                   border: 'none', boxShadow: 'none' }}>
+          <CaretLeft size={22} weight="bold" style={{ color: F.textPrimary }} />
         </button>
-        <span className="text-sm font-semibold" style={{ color: F.textPrimary }}>
+        <span style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: F.textPrimary }}>
           {isSynced ? '账户详情' : isEdit ? '编辑账户' : '新建账户'}
         </span>
         <button
@@ -603,12 +620,12 @@ const SettingsPage: React.FC<{
     <div className="absolute inset-0 z-50 flex flex-col" style={{ background: F.appBg }}>
       <div className="shrink-0 flex items-center justify-between px-4 py-3" style={{ paddingTop: 'var(--chrome-top)' }}>
         <button onClick={onClose}
-          className="flex items-center justify-center active:translate-y-[1px] transition-transform"
-          style={{ width: 44, height: 44, borderRadius: R.pill, background: F.surfaceRaised,
-                   border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}>
-          <CaretLeft size={20} weight="bold" style={{ color: F.textSecondary }} />
+          className="flex items-center justify-center active:opacity-40 transition-opacity"
+          style={{ width: 44, height: 44, borderRadius: R.pill, background: 'transparent',
+                   border: 'none', boxShadow: 'none' }}>
+          <CaretLeft size={22} weight="bold" style={{ color: F.textPrimary }} />
         </button>
-        <span className="text-sm font-semibold" style={{ color: F.textPrimary }}>设置</span>
+        <span style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: F.textPrimary }}>设置</span>
         <div className="w-12" />
       </div>
 
@@ -834,12 +851,12 @@ const CategoryEditForm: React.FC<{
     <div className="absolute inset-0 z-50 flex flex-col" style={{ background: F.appBg }}>
       <div className="shrink-0 flex items-center justify-between px-4 py-3" style={{ paddingTop: 'var(--chrome-top)' }}>
         <button onClick={onClose}
-          className="flex items-center justify-center active:translate-y-[1px] transition-transform"
-          style={{ width: 44, height: 44, borderRadius: R.pill, background: F.surfaceRaised,
-                   border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}>
-          <CaretLeft size={20} weight="bold" style={{ color: F.textSecondary }} />
+          className="flex items-center justify-center active:opacity-40 transition-opacity"
+          style={{ width: 44, height: 44, borderRadius: R.pill, background: 'transparent',
+                   border: 'none', boxShadow: 'none' }}>
+          <CaretLeft size={22} weight="bold" style={{ color: F.textPrimary }} />
         </button>
-        <span className="text-sm font-semibold" style={{ color: F.textPrimary }}>
+        <span style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: F.textPrimary }}>
           {isEdit ? '编辑分类' : (parentId ? '新建子分类' : '新建一级分类')}
         </span>
         <button
@@ -1064,12 +1081,12 @@ const RecurringRuleForm: React.FC<{
     <div className="overflow-hidden mb-4 p-4" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, boxShadow: S.raisedSoft }}>
       <div className="flex items-center justify-between mb-3">
         <button onClick={onClose}
-          className="flex items-center justify-center active:translate-y-[1px] transition-transform"
-          style={{ width: 44, height: 44, borderRadius: R.pill, background: F.surfaceRaised,
-                   border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}>
-          <CaretLeft size={20} weight="bold" style={{ color: F.textSecondary }} />
+          className="flex items-center justify-center active:opacity-40 transition-opacity"
+          style={{ width: 44, height: 44, borderRadius: R.pill, background: 'transparent',
+                   border: 'none', boxShadow: 'none' }}>
+          <CaretLeft size={22} weight="bold" style={{ color: F.textPrimary }} />
         </button>
-        <span className="text-sm font-semibold" style={{ color: F.textPrimary }}>{initial ? '编辑规则' : '新建规则'}</span>
+        <span style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: F.textPrimary }}>{initial ? '编辑规则' : '新建规则'}</span>
         <button onClick={handleSave} disabled={!parseFloat(amount)} className="text-xs font-semibold" style={{ color: !parseFloat(amount) ? F.textTertiary : F.accent }}>保存</button>
       </div>
 
@@ -1191,6 +1208,8 @@ const TransactionForm: React.FC<{
   const [toAccountId, setToAccountId] = useState(initial?.toAccountId || '');
   const [categoryId, setCategoryId] = useState(initial?.categoryId || '');
   const [note, setNote] = useState(initial?.note || '');
+  const [treatment, setTreatment] = useState(analysisTreatment(initial || {}));
+  const [excluded, setExcluded] = useState(initial?.excludedFromReporting === true); // [EM: finance-manual-exclude]
   const [dateStr, setDateStr] = useState(initial?.dateStr || new Date().toISOString().split('T')[0]);
   const [expandedTopCat, setExpandedTopCat] = useState<string | null>(null);
   const [newCategoryParentId, setNewCategoryParentId] = useState<string | null | undefined>(undefined);
@@ -1254,6 +1273,11 @@ const TransactionForm: React.FC<{
       categoryReviewStatus: reviewStatus,
       categoryReviewedAt: isSynced && reviewStatus !== 'unrecognized' ? Date.now() : initial?.categoryReviewedAt,
       autoCategoryConfidence: isSynced && reviewStatus !== 'auto' ? undefined : initial?.autoCategoryConfidence,
+      analysisTreatment: treatment,
+      // [EM: finance-manual-exclude] 手动排除：同步也不会把它加回账上；关掉就是手动恢复
+      ...(isSynced && excluded !== (initial?.excludedFromReporting === true)
+        ? { excludedFromReporting: excluded, excludedByUser: excluded, ...(excluded ? {} : { pendingDroppedAt: undefined, supersededByExternalId: undefined }) }
+        : {}),
     });
   };
 
@@ -1303,12 +1327,12 @@ const TransactionForm: React.FC<{
     <div className="absolute inset-0 z-50 flex flex-col" style={{ background: F.appBg }}>
       <div className="shrink-0 flex items-center justify-between px-4 py-3" style={{ paddingTop: 'var(--chrome-top)' }}>
         <button onClick={onClose}
-          className="flex items-center justify-center active:translate-y-[1px] transition-transform"
-          style={{ width: 44, height: 44, borderRadius: R.pill, background: F.surfaceRaised,
-                   border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}>
-          <CaretLeft size={20} weight="bold" style={{ color: F.textSecondary }} />
+          className="flex items-center justify-center active:opacity-40 transition-opacity"
+          style={{ width: 44, height: 44, borderRadius: R.pill, background: 'transparent',
+                   border: 'none', boxShadow: 'none' }}>
+          <CaretLeft size={22} weight="bold" style={{ color: F.textPrimary }} />
         </button>
-        <span className="text-sm font-semibold" style={{ color: F.textPrimary }}>{isEdit ? '编辑交易' : '新增交易'}</span>
+        <span style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: F.textPrimary }}>{isEdit ? '编辑交易' : '新增交易'}</span>
         <button
           onClick={handleSave}
           disabled={!canSave}
@@ -1335,7 +1359,7 @@ const TransactionForm: React.FC<{
               <button
                 onClick={handleSnooze}
                 className="shrink-0 px-2.5 py-1.5 text-[10px] font-semibold active:translate-y-[1px] transition-transform"
-                style={{ borderRadius: R.medium, background: F.surfaceRaised, color: STATUS.info.ink, boxShadow: S.raisedSoft }}
+                style={{ borderRadius: R.medium, background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, color: STATUS.info.ink, boxShadow: S.raisedSoft }}
               >
                 先放着
               </button>
@@ -1359,7 +1383,7 @@ const TransactionForm: React.FC<{
               <button
                 onClick={showCategoryPicker}
                 className="min-h-[56px] px-2 py-2 flex flex-col items-center justify-center gap-1 text-[10px] font-medium active:translate-y-[1px] transition-transform"
-                style={{ borderRadius: R.medium, background: F.surfaceRaised, color: F.textSecondary, boxShadow: S.raisedSoft }}
+                style={{ borderRadius: R.medium, background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, color: F.textSecondary, boxShadow: S.raisedSoft }}
               >
                 <Lightbulb size={17} weight="bold" style={{ color: HUE.amber.ink }} />
                 我记得是什么
@@ -1367,7 +1391,7 @@ const TransactionForm: React.FC<{
               <button
                 onClick={() => window.open('https://www.amazon.com/gp/css/order-history', '_blank', 'noopener,noreferrer')}
                 className="min-h-[56px] px-2 py-2 flex flex-col items-center justify-center gap-1 text-[10px] font-medium active:translate-y-[1px] transition-transform"
-                style={{ borderRadius: R.medium, background: F.surfaceRaised, color: F.textSecondary, boxShadow: S.raisedSoft }}
+                style={{ borderRadius: R.medium, background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, color: F.textSecondary, boxShadow: S.raisedSoft }}
               >
                 <ArrowSquareOut size={17} weight="bold" style={{ color: HUE.amber.ink }} />
                 去 Amazon 查
@@ -1375,7 +1399,7 @@ const TransactionForm: React.FC<{
               <button
                 onClick={handleSnooze}
                 className="min-h-[56px] px-2 py-2 flex flex-col items-center justify-center gap-1 text-[10px] font-medium active:translate-y-[1px] transition-transform"
-                style={{ borderRadius: R.medium, background: F.surfaceRaised, color: F.textSecondary, boxShadow: S.raisedSoft }}
+                style={{ borderRadius: R.medium, background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, color: F.textSecondary, boxShadow: S.raisedSoft }}
               >
                 <Clock size={17} weight="bold" style={{ color: HUE.amber.ink }} />
                 先放着
@@ -1427,6 +1451,12 @@ const TransactionForm: React.FC<{
             />
           </div>
         </div>
+
+        {txType !== 'transfer' && <div className="p-4 mb-4" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard }}>
+          <div className="text-xs mb-2" style={{ color: F.textSecondary }}>分析标记</div>
+          <FinanceTreatmentSelect value={treatment} onChange={setTreatment} />
+          <p className="text-xs mt-2 leading-relaxed" style={{ color: F.textTertiary }}>仅在分析的排除视图生效，流水和余额不变。代充的收款与付款分别选“代收代付”；家具可选“一次性支出”。“始终保留”不会被大额筛选排除。</p>
+        </div>}
 
         {/* 分类（转账不需要） */}
         {txType !== 'transfer' && (
@@ -1547,6 +1577,27 @@ const TransactionForm: React.FC<{
             />
           </FormRow>
         </div>
+
+        {/* [EM-START: finance-manual-exclude] 同步来的账删了下次还会回来，所以给「不计入」而不是删除 */}
+        {isEdit && isSynced && (
+          <div className="mb-4" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, boxShadow: S.raisedSoft }}>
+            <div className="flex items-center gap-3 px-4 py-3.5">
+              <div className="flex-1 min-w-0">
+                <div className="text-sm" style={{ color: F.textPrimary }}>不计入账本</div>
+                <div className="text-[11px] mt-0.5 leading-relaxed" style={{ color: F.textTertiary }}>
+                  重复的预扣款、银行已撤销的错账。同步不会把它加回来，可以在流水底部「已排除」里恢复。
+                </div>
+              </div>
+              <button type="button" role="switch" aria-checked={excluded} aria-label="不计入账本"
+                onClick={() => setExcluded(v => !v)}
+                className="relative w-12 h-7 shrink-0"
+                style={{ background: excluded ? HUE.blue.main : F.surfaceSunken, borderRadius: R.pill, boxShadow: S.sunken, transition: `background ${MOTION.hover} ${MOTION.ease}` }}>
+                <span className="absolute top-1 left-1 w-5 h-5" style={{ background: F.surfaceRaised, borderRadius: R.pill, boxShadow: S.raisedSoft, transform: excluded ? 'translateX(20px)' : 'none', transition: `transform ${MOTION.hover} ${MOTION.ease}` }} />
+              </button>
+            </div>
+          </div>
+        )}
+        {/* [EM-END: finance-manual-exclude] */}
 
         {/* 删除 */}
         {isEdit && onDelete && (
@@ -1926,12 +1977,14 @@ const SunkenSelector: React.FC<{ children: React.ReactNode; className?: string }
 
 const TransactionsTab: React.FC<{
   transactions: FinanceTransaction[];
+  excludedTransactions?: FinanceTransaction[]; // [EM: finance-manual-exclude]
   accounts: FinanceAccount[];
   categories: FinanceCategory[];
   onRefresh: () => Promise<void>;
   showFilters: boolean;
   setShowFilters: React.Dispatch<React.SetStateAction<boolean>>;
-}> = ({ transactions, accounts, categories, onRefresh, showFilters, setShowFilters }) => {
+}> = ({ transactions, excludedTransactions = [], accounts, categories, onRefresh, showFilters, setShowFilters }) => {
+  const [showExcluded, setShowExcluded] = useState(false); // [EM: finance-manual-exclude]
   const { characters, apiConfig, userProfile } = useOS();
   const [timeRange, setTimeRange] = useState<TimeRange>('all');
   const [filterAccountIds, setFilterAccountIds] = useState<Set<string>>(new Set());
@@ -2160,7 +2213,7 @@ const TransactionsTab: React.FC<{
             <div className="flex items-center gap-1.5">
               <span className="text-[10px]" style={{ color: F.textTertiary }}>关于</span>
               {gossipChar.avatar ? (
-                <img src={gossipChar.avatar} className="w-4 h-4 rounded-full object-cover" />
+                <TokenImg value={gossipChar.avatar} className="w-4 h-4 rounded-full object-cover" />
               ) : (
                 <div className="w-4 h-4 rounded-full flex items-center justify-center text-[9px]" style={{ background: F.borderStrong, color: F.textSecondary }}>
                   {gossipChar.name[0]}
@@ -2221,6 +2274,7 @@ const TransactionsTab: React.FC<{
                         <div className="text-sm truncate" style={{ color: F.textPrimary }}>{t.note || cat?.name || '未分类'}</div>
                         <div className="flex items-center gap-1.5 text-[11px]" style={{ color: F.textTertiary }}>
                           <span>#{accountDisplayName(acc) || '未知账户'}</span>
+                          {analysisTreatment(t) !== 'auto' && <span className="text-[10px]" style={{ color: HUE.indigo.ink }}>{ANALYSIS_TREATMENT_LABELS[analysisTreatment(t)]}</span>}
                           {(t.categoryReviewStatus === 'unrecognized' || (t.categoryReviewStatus == null && t.needsCategoryReview)) && (
                             <span className="px-1.5 py-0.5 text-[9px] font-medium" style={{ borderRadius: R.pill, color: STATUS.warning.ink, background: STATUS.warning.tint }}>
                               值得确认
@@ -2251,6 +2305,52 @@ const TransactionsTab: React.FC<{
           );
         })
       )}
+
+      {/* [EM-START: finance-manual-exclude] 不计入的同步账目：重复的预扣款、手动排除的。看得到、能恢复 */}
+      {excludedTransactions.length > 0 && (
+        <div className="mb-4" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, boxShadow: S.raisedSoft }}>
+          <button type="button" onClick={() => setShowExcluded(v => !v)} aria-expanded={showExcluded}
+            className="w-full flex items-center justify-between px-4 min-h-[44px]">
+            <span className="text-sm" style={{ color: F.textSecondary }}>已排除 {excludedTransactions.length} 笔（重复的预扣款等）</span>
+            <CaretDown className="w-4 h-4" weight="bold" style={{ color: F.textTertiary, transform: showExcluded ? 'rotate(180deg)' : 'none', transition: `transform ${MOTION.hover} ${MOTION.ease}` }} />
+          </button>
+          {showExcluded && [...excludedTransactions].sort((a, b) => b.timestamp - a.timestamp).map(t => {
+            const reason = t.excludedByUser ? '手动排除'
+              : t.pendingDroppedAt ? '银行已撤销的预扣'
+                : t.supersededByExternalId ? '已被实付款替代'
+                  : '不计入';
+            const acc = accounts.find(a => a.id === t.accountId);
+            const sym = acc?.currency === 'USD' ? '$' : acc?.currency === 'CNY' ? '¥' : '';
+            return (
+              <div key={t.id} className="flex items-center gap-3 px-4 py-3" style={{ borderTop: `1px solid ${F.borderSoft}` }}>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm truncate" style={{ color: F.textSecondary }}>{t.note || t.sourceDescription}</div>
+                  <div className="text-[11px] mt-0.5" style={{ color: F.textTertiary }}>{t.dateStr} · {reason}</div>
+                </div>
+                <div className="text-sm line-through" style={{ color: F.textTertiary }}>{sym}{t.amount.toLocaleString()}</div>
+                <button type="button"
+                  onClick={async () => {
+                    // 手动恢复：自动规则以后也不再排除它（excludedByUser: false）
+                    await FinanceDB.saveTransaction({
+                      ...t,
+                      excludedFromReporting: false,
+                      excludedByUser: false,
+                      pendingDroppedAt: undefined,
+                      supersededByExternalId: undefined,
+                    });
+                    announceFinanceReviewChanged();
+                    await onRefresh();
+                  }}
+                  className="shrink-0 px-3 min-h-[36px] text-xs font-medium"
+                  style={{ color: HUE.blue.ink, background: HUE.blue.tint, borderRadius: R.pill }}>
+                  恢复
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {/* [EM-END: finance-manual-exclude] */}
 
       {/* 新增按钮 */}
       <button
@@ -2423,6 +2523,7 @@ function buildTAReadPrompt(
   notableTxs: NotableTx[],
   tone: Tone,
   memoryContext?: string,
+  analysisContext?: string,
 ): string {
   const toneInstructions: Record<Tone, string> = {
     teasing: `用调侃、打趣的语气。可以毒舌但不伤人，像真正了解${userName}的人在吐槽——你知道ta的哪些消费习惯是老毛病，哪些是可以拿来开玩笑的。`,
@@ -2460,6 +2561,7 @@ function buildTAReadPrompt(
 
   prompt += `### 消费数据（${periodLabel}）\n`;
   prompt += `币种: ${currency}\n`;
+  if (analysisContext) prompt += `${analysisContext}\n以下仅为所选口径的支出，不能把被排除的代付或一次性消费说成日常消费，也不能把筛选差额说成节省。\n`;
   prompt += `总支出: ${formatAmount(totalExpense, currency)}\n`;
   prompt += `分类汇总:\n${breakdown}\n\n`;
 
@@ -2518,6 +2620,68 @@ const AnalyticsTab: React.FC<{
   const [commentary, setCommentary] = useState<string | null>(null);
   const [loadingComment, setLoadingComment] = useState(false);
   const commentCache = useRef<Map<string, string>>(new Map());
+  const [analysisSettings, setAnalysisSettings] = useState(DEFAULT_FINANCE_ANALYSIS);
+  const pendingAnalysisSettings = useRef(DEFAULT_FINANCE_ANALYSIS);
+  const savedAnalysisSettings = useRef(DEFAULT_FINANCE_ANALYSIS);
+  const analysisSaveQueue = useRef(Promise.resolve());
+  const [analysisReady, setAnalysisReady] = useState(false);
+  const [analysisSaving, setAnalysisSaving] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [launcherFinanceSettings, setLauncherFinanceSettings] = useState<LauncherFinanceSettings>({ excludedCategoryIds: [] });
+  const [launcherSettingsReady, setLauncherSettingsReady] = useState(false);
+  const activeCommentKey = useRef('');
+  useEffect(() => {
+    let active = true;
+    FinanceDB.getSetting(FINANCE_ANALYSIS_KEY).then(value => {
+      if (active) {
+        const settings = normalizeFinanceAnalysisSettings(value);
+        pendingAnalysisSettings.current = savedAnalysisSettings.current = settings;
+        setAnalysisSettings(settings); setAnalysisReady(true);
+      }
+    }).catch(() => { if (active) setAnalysisError('分析设置读取失败，请重新进入此页。'); });
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    let active = true;
+    FinanceDB.getSetting(LAUNCHER_FINANCE_SETTINGS_KEY).then(value => {
+      if (active) {
+        setLauncherFinanceSettings(normalizeLauncherFinanceSettings(value));
+        setLauncherSettingsReady(true);
+      }
+    }).catch(() => { if (active) setLauncherSettingsReady(true); });
+    return () => { active = false; };
+  }, []);
+  const saveAnalysisSettings = async (patch: Partial<FinanceAnalysisSettings>) => {
+    setAnalysisSaving(true); setAnalysisError(null);
+    // A percentile blur and a view click may arrive before React rerenders.
+    // Merge against the latest request and serialize writes so neither is lost.
+    const next = normalizeFinanceAnalysisSettings({ ...pendingAnalysisSettings.current, ...patch });
+    pendingAnalysisSettings.current = next;
+    const write = analysisSaveQueue.current.then(async () => {
+      await FinanceDB.saveSetting(FINANCE_ANALYSIS_KEY, next);
+      savedAnalysisSettings.current = next;
+      setAnalysisSettings(next);
+    });
+    analysisSaveQueue.current = write.catch(() => {});
+    try { await write; }
+    catch {
+      if (pendingAnalysisSettings.current === next) {
+        pendingAnalysisSettings.current = savedAnalysisSettings.current;
+        setAnalysisError('设置未保存，请重试。');
+      }
+    } finally {
+      if (pendingAnalysisSettings.current === next || pendingAnalysisSettings.current === savedAnalysisSettings.current) setAnalysisSaving(false);
+    }
+  };
+
+  const saveLauncherFinanceSettings = async (excludedCategoryIds: string[]) => {
+    const next = normalizeLauncherFinanceSettings({ excludedCategoryIds });
+    setLauncherFinanceSettings(next);
+    await FinanceDB.saveSetting(LAUNCHER_FINANCE_SETTINGS_KEY, next);
+    announceLauncherFinanceSettingsChanged();
+  };
+
+
 
   // 加载 IndexedDB 中已缓存的评论
   useEffect(() => {
@@ -2552,27 +2716,16 @@ const AnalyticsTab: React.FC<{
     setPeriodOffset(0);
   };
 
-  const periodTxs = transactions.filter(t => {
-    if (t.dateStr < fromDate || t.dateStr > toDate) return false;
-    if (filterAccountId && t.accountId !== filterAccountId) return false;
-    if (t.currency !== activeCurrency) return false;
-    const reportingType = reportingTransactionType(t, catMap);
-    if (reportingType === 'transfer') return false;
-    if (filterType === 'expense' && reportingType !== 'expense') return false;
-    if (filterType === 'income' && reportingType !== 'income' && reportingType !== 'refund') return false;
-    return true;
+  const analysisOptions = { ...analysisSettings, from: fromDate, to: toDate, currency: activeCurrency, accountId: filterAccountId };
+  const analysis = buildFinanceAnalysis(transactions, catMap, analysisOptions);
+  const analysisKey = financeAnalysisCacheKey(analysis, analysisOptions);
+  activeCommentKey.current = `${selectedCharId}_${tone}_${analysisKey}`;
+  const periodTxs = analysis.selected.filter(t => {
+    const type = reportingTransactionType(t, catMap);
+    return filterType === 'all' || (filterType === 'expense' ? type === 'expense' : type === 'income' || type === 'refund');
   });
-
-  // "收支" 模式：分别计算收入支出
-  const expenseTxs = transactions.filter(t => t.dateStr >= fromDate && t.dateStr <= toDate && t.currency === activeCurrency && reportingTransactionType(t, catMap) === 'expense' && (!filterAccountId || t.accountId === filterAccountId));
-  const incomeTxs = transactions.filter(t => {
-    const reportingType = reportingTransactionType(t, catMap);
-    return t.dateStr >= fromDate
-      && t.dateStr <= toDate
-      && t.currency === activeCurrency
-      && (reportingType === 'income' || reportingType === 'refund')
-      && (!filterAccountId || t.accountId === filterAccountId);
-  });
+  const expenseTxs = analysis.selectedExpenses;
+  const incomeTxs = analysis.selectedIncome;
   const totalExpense = expenseTxs.reduce((s, t) => s + t.amount, 0);
   const totalIncome = incomeTxs.reduce((s, t) => s + t.amount, 0);
   const netBalance = totalIncome - totalExpense;
@@ -2607,21 +2760,21 @@ const AnalyticsTab: React.FC<{
   useEffect(() => {
     setCommentary(null);
     setSelectedCharId(null);
-  }, [period, periodOffset, filterAccountId, filterType, activeCurrency]);
+  }, [period, periodOffset, filterAccountId, filterType, activeCurrency, analysisKey]);
 
   const handleSelectChar = (charId: string) => {
     setSelectedCharId(charId);
-    const cacheKey = `${charId}_${period}${periodOffset}_${tone}_${filterAccountId || 'all'}_${filterType}_${activeCurrency}`;
+    const cacheKey = `${charId}_${tone}_${analysisKey}`;
     const cached = commentCache.current.get(cacheKey);
     setCommentary(cached || null);
   };
 
   const generateCommentary = async () => {
-    if (!selectedCharId || !apiConfig?.baseUrl) return;
+    if (!selectedCharId || !apiConfig?.baseUrl || !analysisReady) return;
     const char = characters.find(c => c.id === selectedCharId);
     if (!char) return;
 
-    const cacheKey = `${selectedCharId}_${period}${periodOffset}_${tone}_${filterAccountId || 'all'}_${filterType}_${activeCurrency}`;
+    const cacheKey = `${selectedCharId}_${tone}_${analysisKey}`;
     const cached = commentCache.current.get(cacheKey);
     if (cached) { setCommentary(cached); return; }
 
@@ -2629,12 +2782,13 @@ const AnalyticsTab: React.FC<{
     setCommentary(null);
 
     try {
-      const catBreakdown = catList.map(c => ({
-        name: c.cat?.name || '未分类',
-        amount: c.amount,
-        pct: c.pct,
-      }));
-      const notableTxs = findNotableTransactions(periodTxs, transactions.filter(transaction => transaction.currency === activeCurrency), catMap);
+      const expenseCategories = new Map<string, number>();
+      for (const transaction of expenseTxs) {
+        const name = catMap.get(transaction.categoryId)?.name || '未分类';
+        expenseCategories.set(name, (expenseCategories.get(name) || 0) + transaction.amount);
+      }
+      const catBreakdown = [...expenseCategories].map(([name, amount]) => ({ name, amount, pct: totalExpense ? Math.round(amount / totalExpense * 100) : 0 })).sort((a, b) => b.amount - a.amount);
+      const notableTxs = findNotableTransactions(expenseTxs, expenseTxs, catMap);
 
       // 从记忆宫殿检索消费相关记忆
       let memoryContext = '';
@@ -2658,7 +2812,7 @@ const AnalyticsTab: React.FC<{
 
       const prompt = buildTAReadPrompt(
         char, userProfile?.name || '用户', periodLabel,
-        totalAmount, activeCurrency, catBreakdown, notableTxs, tone, memoryContext,
+        totalExpense, activeCurrency, catBreakdown, notableTxs, tone, memoryContext, describeFinanceAnalysis(analysis, activeCurrency),
       );
 
       const baseUrl = apiConfig.baseUrl.replace(/\/+$/, '');
@@ -2683,14 +2837,14 @@ const AnalyticsTab: React.FC<{
       const reply = extractContent(data).trim();
       if (reply) {
         commentCache.current.set(cacheKey, reply);
-        setCommentary(reply);
+        if (activeCommentKey.current === cacheKey) setCommentary(reply);
         // 持久化到 IndexedDB
         FinanceDB.saveTAComment({ id: cacheKey, text: reply, createdAt: Date.now() }).catch(() => {});
 
         // 回传记忆宫殿 — 让角色记住自己评论过用户的消费
         const userName = userProfile?.name || '用户';
         const topCats = catBreakdown.slice(0, 3).map(c => c.name).join('、');
-        const memoryContent = `${char.name}看了${userName}${periodLabel}的${activeCurrency}消费记录（${topCats}等，总计${formatAmount(totalAmount, activeCurrency)}），评价道：「${reply.slice(0, 150)}」`;
+        const memoryContent = `${char.name}看了${userName}${periodLabel}的${activeCurrency}消费记录（${topCats}等，${describeFinanceAnalysis(analysis, activeCurrency)}；当前口径总计${formatAmount(totalExpense, activeCurrency)}），评价道：「${reply.slice(0, 150)}」`;
         const memNode: MemoryNode = {
           id: `bank_ta_${Date.now()}_${char.id}`,
           charId: char.id,
@@ -2717,7 +2871,7 @@ const AnalyticsTab: React.FC<{
         }).catch(() => {});
       }
     } catch (e) {
-      setCommentary('生成失败，请检查 API 配置。');
+      if (activeCommentKey.current === cacheKey) setCommentary('生成失败，请检查 API 配置。');
     } finally {
       setLoadingComment(false);
     }
@@ -2726,7 +2880,7 @@ const AnalyticsTab: React.FC<{
   const handleToneChange = (t: Tone) => {
     setTone(t);
     if (selectedCharId) {
-      const cacheKey = `${selectedCharId}_${period}${periodOffset}_${t}_${filterAccountId || 'all'}_${filterType}_${activeCurrency}`;
+      const cacheKey = `${selectedCharId}_${t}_${analysisKey}`;
       const cached = commentCache.current.get(cacheKey);
       setCommentary(cached || null);
     }
@@ -2822,6 +2976,43 @@ const AnalyticsTab: React.FC<{
         )}
       </div>
 
+      <FinanceAnalysisPanel from={fromDate} to={toDate} monthly={period === 'year'} result={analysis} currency={activeCurrency} ready={analysisReady}
+        saving={analysisSaving} error={analysisError} onSettingsChange={saveAnalysisSettings} />
+
+      <details className="mb-4 p-4" style={{ background: F.surface, borderRadius: R.bigCard, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}>
+        <summary className="cursor-pointer text-sm font-medium" style={{ color: F.textSecondary }}>桌面小组件排除分类</summary>
+        <p className="text-[11px] leading-relaxed mt-2 mb-3" style={{ color: F.textTertiary }}>
+          这里只影响桌面上的“本月支出”小组件，不会改动流水或分析结果。选择一级分类时会连同它的子分类一起排除。
+        </p>
+        {!launcherSettingsReady ? (
+          <div className="text-xs" style={{ color: F.textTertiary }}>读取中…</div>
+        ) : categories.length === 0 ? (
+          <div className="text-xs" style={{ color: F.textTertiary }}>暂无可选分类</div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            {categories.map(category => {
+              const parent = category.parentId ? catMap.get(category.parentId) : undefined;
+              const checked = launcherFinanceSettings.excludedCategoryIds.includes(category.id);
+              return (
+                <label key={category.id} className="flex items-center gap-2 min-w-0 px-3 py-2 cursor-pointer" style={{ background: checked ? HUE.lime.tint : F.surfaceSunken, borderRadius: R.medium, boxShadow: checked ? S.raisedSoft : S.sunken }}>
+                  <input type="checkbox" checked={checked} onChange={event => {
+                    const next = event.target.checked
+                      ? [...launcherFinanceSettings.excludedCategoryIds, category.id]
+                      : launcherFinanceSettings.excludedCategoryIds.filter(id => id !== category.id);
+                    void saveLauncherFinanceSettings(next);
+                  }} className="accent-lime-600 shrink-0" />
+                  <span className="truncate text-xs" style={{ color: F.textPrimary }} title={parent ? `${parent.name}／${category.name}` : category.name}>
+                    {parent ? `${parent.name}／` : ''}{category.name}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        )}
+      </details>
+
+      <details className="mb-5">
+        <summary className="text-sm font-medium py-3 cursor-pointer" style={{ color: F.textSecondary }}>分类分布</summary>
       {/* 饼图 */}
       <div className="p-4 mb-5" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, boxShadow: S.raisedSoft }}>
         {catList.length === 0 ? (
@@ -2873,7 +3064,7 @@ const AnalyticsTab: React.FC<{
                 {budget && budgetPct !== null && filterType === 'expense' && (period === 'month' || period === 'week') && (
                   <div className="mt-2 ml-[22px]">
                     <div className="flex items-center justify-between mb-0.5">
-                      <span className="text-[10px]" style={{ color: F.textTertiary }}>预算 {formatAmount(budget, activeCurrency)}</span>
+                      <span className="text-[10px]" style={{ color: F.textTertiary }}>预算 {formatAmount(budget, activeCurrency)} · 按当前口径</span>
                       <span className="text-[10px] font-medium" style={{ color: overBudget ? STATUS.danger.main : F.textTertiary }}>
                         {Math.round(budgetPct)}%{overBudget ? ' 超支' : ''}
                       </span>
@@ -2895,10 +3086,12 @@ const AnalyticsTab: React.FC<{
         </div>
       )}
 
+      </details>
+
       {/* TA 读区域 */}
       <div className="p-4" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, boxShadow: S.raisedSoft }}>
         <div className="text-sm font-medium mb-3" style={{ color: F.textPrimary }}>TA 怎么看</div>
-        <div className="text-xs mb-3" style={{ color: F.textTertiary }}>选一个角色来评价你{periodLabel}的消费</div>
+        <div className="text-xs mb-3" style={{ color: F.textTertiary }}>选一个角色来评价你{periodLabel}当前口径的支出</div>
 
         {/* 角色选择 — 直接用全量 characters */}
         <div className="mb-3">
@@ -2919,7 +3112,7 @@ const AnalyticsTab: React.FC<{
                   }}
                 >
                   {c.avatar ? (
-                    <img src={c.avatar} className="w-4 h-4 rounded-full object-cover" />
+                    <TokenImg value={c.avatar} className="w-4 h-4 rounded-full object-cover" />
                   ) : null}
                   {c.name}
                 </button>
@@ -2947,7 +3140,7 @@ const AnalyticsTab: React.FC<{
             </div>
             <button
               onClick={() => {
-                const cacheKey = `${selectedCharId}_${period}${periodOffset}_${tone}_${filterAccountId || 'all'}_${filterType}_${activeCurrency}`;
+                const cacheKey = `${selectedCharId}_${tone}_${analysisKey}`;
                 commentCache.current.delete(cacheKey);
                 generateCommentary();
               }}
@@ -2962,17 +3155,17 @@ const AnalyticsTab: React.FC<{
           <div className="text-center py-6">
             <button
               onClick={generateCommentary}
-              disabled={loadingComment || totalAmount === 0}
+              disabled={loadingComment || !analysisReady || totalExpense === 0}
               className="px-5 py-2.5 text-sm font-medium active:scale-95 transition-transform"
               style={{
                 borderRadius: R.medium,
-                background: loadingComment || totalAmount === 0 ? F.borderStrong : HUE.blue.main,
-                color: loadingComment || totalAmount === 0 ? F.textTertiary : F.surfaceRaised,
+                background: loadingComment || !analysisReady || totalExpense === 0 ? F.borderStrong : HUE.blue.main,
+                color: loadingComment || !analysisReady || totalExpense === 0 ? F.textTertiary : F.surfaceRaised,
               }}
             >
               {loadingComment ? '生成中...' : `让${characters.find(c => c.id === selectedCharId)?.name || 'TA'}来说说`}
             </button>
-            {totalAmount === 0 && (
+            {totalExpense === 0 && (
               <div className="text-[11px] mt-2" style={{ color: F.textTertiary }}>没有{typeLabel}数据</div>
             )}
           </div>

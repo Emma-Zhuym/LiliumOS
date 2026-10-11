@@ -53,6 +53,27 @@ const resolveLiteCookie = (): string => {
     return '';
 };
 
+// [EM-START: xhs-mini-mcp]
+// 自托管的 xiaohongshu-mcp（Mac mini + Tailscale Funnel）开了 AUTH_TOKEN，每个请求都要带
+// Authorization: Bearer。和 cookie 一样：设置页显式 set 的优先，否则直接读持久化配置，
+// 聊天、自由漫游这些调用点都不用改。
+let mcpAuthToken = '';
+const resolveMcpAuthToken = (): string => {
+    if (mcpAuthToken) return mcpAuthToken;
+    try {
+        const raw = localStorage.getItem('os_realtime_config');
+        if (raw) return JSON.parse(raw)?.xhsMcpConfig?.authToken || '';
+    } catch { /* ignore */ }
+    return '';
+};
+const withMcpAuth = (headers: Record<string, string>): Record<string, string> => {
+    const token = resolveMcpAuthToken().trim();
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return headers;
+};
+const MCP_UNAUTHORIZED = '小红书服务拒绝了访问令牌（HTTP 401）：检查设置里的「访问令牌」和 mini 上的是否一致';
+// [EM-END: xhs-mini-mcp]
+
 const resolvePersistedLitePlatform = (): XhsPlatform | 'auto' => {
     try {
         const raw = localStorage.getItem('os_realtime_config');
@@ -347,17 +368,19 @@ const mcpPost = async (
     serverUrl: string,
     body: McpJsonRpcRequest,
     expectResponse = true,
+    signal?: AbortSignal, // [EM: xhs-mini-mcp] 扫码那一趟要能超时
 ): Promise<{ response: McpJsonRpcResponse | null; sessionId: string | null }> => {
-    const headers: Record<string, string> = {
+    const headers: Record<string, string> = withMcpAuth({ // [EM: xhs-mini-mcp]
         'Content-Type': 'application/json',
         'Accept': 'application/json, text/event-stream',
-    };
+    });
     if (mcpSessionId) headers['Mcp-Session-Id'] = mcpSessionId;
 
-    const resp = await fetch(serverUrl, { method: 'POST', headers, body: JSON.stringify(body) });
+    const resp = await fetch(serverUrl, { method: 'POST', headers, body: JSON.stringify(body), signal });
     const sessionId = resp.headers.get('Mcp-Session-Id') || resp.headers.get('mcp-session-id');
 
     if (resp.status === 202) return { response: null, sessionId };
+    if (resp.status === 401) throw new Error(MCP_UNAUTHORIZED); // [EM: xhs-mini-mcp]
     if (!resp.ok) {
         const errText = await resp.text().catch(() => '');
         throw new Error(`MCP HTTP ${resp.status}: ${errText.slice(0, 200)}`);
@@ -379,6 +402,24 @@ const mcpInitialize = async (serverUrl: string): Promise<void> => {
     if (sessionId) mcpSessionId = sessionId;
     if (response?.error) throw new Error(`MCP Initialize failed: ${response.error.message}`);
 
+    // [EM-START: xhs-mini-mcp]
+    // 新版 xiaohongshu-mcp 跑的是无状态模式（Stateless: true），压根不发 Mcp-Session-Id。
+    // 这时没有 session 也能用：握手成功就直接拿 tools/list 验一下，通了就是无状态服务器；
+    // 不通才是「有状态但响应头被 CORS 挡住」，照旧给代理的提示。
+    if (!mcpSessionId && response?.result) {
+        try {
+            const probe = await mcpPost(serverUrl, mcpBuildRequest('tools/list'));
+            if (probe.response?.result?.tools) {
+                mcpDiscoveredTools = probe.response.result.tools.map((t: any) => ({ name: t.name, description: t.description }));
+                mcpInitialized = true;
+                return;
+            }
+        } catch (e: any) {
+            if (e?.message === MCP_UNAUTHORIZED) throw e;
+            /* 落到下面的 CORS 提示 */
+        }
+    }
+    // [EM-END: xhs-mini-mcp]
     if (!mcpSessionId) {
         console.warn(
             '[MCP] ⚠️ 无法读取 Mcp-Session-Id 响应头（CORS 限制）。\n' +
@@ -433,13 +474,14 @@ const mcpCallTool = async (serverUrl: string, toolName: string, args: Record<str
         if (resolved !== toolName) console.log(`[MCP] 工具名映射: ${toolName} → ${resolved}`);
 
         const body = mcpBuildRequest('tools/call', { name: resolved, arguments: adapted });
-        const headers: Record<string, string> = {
+        const headers: Record<string, string> = withMcpAuth({ // [EM: xhs-mini-mcp]
             'Content-Type': 'application/json',
             'Accept': 'application/json, text/event-stream',
-        };
+        });
         if (mcpSessionId) headers['Mcp-Session-Id'] = mcpSessionId;
 
         const resp = await fetch(serverUrl, { method: 'POST', headers, body: JSON.stringify(body) });
+        if (resp.status === 401) return { success: false, error: MCP_UNAUTHORIZED }; // [EM: xhs-mini-mcp]
         if (!resp.ok) {
             const errText = await resp.text().catch(() => '');
             return { success: false, error: `MCP HTTP ${resp.status}: ${errText.slice(0, 200)}` };
@@ -544,6 +586,11 @@ const extractFirstXsecToken = (data: any): string | undefined => {
 const describeXhsConnectFailure = (e: any, serverUrl: string): string => {
     const host = parseTargetUrl(serverUrl).host || serverUrl;
     const kind = classifyFetchFailure({ url: serverUrl, error: e });
+    // [EM-START: xhs-mini-mcp] 自托管在 mini 上时，最常见的是 mini 不在线，梯子那套排查放后面
+    if (detectMode(serverUrl) === 'mcp' && (kind === 'timeout' || kind === 'blocked')) {
+        return `连不上 ${host}。小红书服务在 Mac mini 上：先看 mini 是不是开着、没在休眠（每天 4–7 点会睡）、Tailscale 是否在线，以及 mini 上的 xiaohongshu-mcp 有没有在跑。都正常的话再查网络：在新标签页直接打开 ${serverUrl.replace(/\/+$/, '')} 看有没有响应。`;
+    }
+    // [EM-END: xhs-mini-mcp]
     switch (kind) {
         case 'timeout':
             return `连接 ${host} 超时（10 秒一个字节都没回）。连接是挂住不返回、不是被拒——多半是该域名没走代理走了直连，或代理节点到上游是黑洞。优先换个梯子节点、或把这个域名显式加进代理规则。`;
@@ -572,6 +619,14 @@ export const XhsMcpClient = {
         mcpRequestIdCounter = 0;
         mcpDiscoveredTools = [];
     },
+
+    // [EM-START: xhs-mini-mcp] 自托管 MCP 的 Bearer 令牌；换了令牌就重新握手
+    setAuthToken: (token?: string) => {
+        const next = (token || '').trim();
+        if (next !== mcpAuthToken) XhsMcpClient.resetSession();
+        mcpAuthToken = next;
+    },
+    // [EM-END: xhs-mini-mcp]
 
     // Lite Worker auth: register the XHS cookie used for x-xhs-cookie header.
     setCookie: (cookie?: string) => {
@@ -718,7 +773,11 @@ export const XhsMcpClient = {
         }
         const args: Record<string, any> = { url: noteUrl };
         if (xsecToken) args.xsec_token = xsecToken;
-        if (loadAllComments) { args.load_all_comments = true; args.click_more_replies = true; }
+        // [EM-START: xhs-detail-fast]
+        // 自托管 xiaohongshu-mcp 不传 load_all_comments 时只取前 10 条一级评论、不开浏览器滚动；
+        // 一开就要滚评论区 + 展开二级回复，一篇 40–85 秒。角色回应笔记，看十条主评论足够。
+        void loadAllComments;
+        // [EM-END: xhs-detail-fast]
         return mcpCallTool(serverUrl, 'get_note_detail', args);
     },
 
@@ -809,9 +868,9 @@ export const XhsMcpClient = {
         return { success: false, error: '登录功能仅在 Skills (Bridge) 模式下可用' };
     },
 
-    getQrcode: async (serverUrl: string): Promise<McpToolResult> => {
+    getQrcode: async (serverUrl: string, timeoutMs?: number): Promise<McpToolResult> => {
         if (detectMode(serverUrl) === 'bridge') return bridgePost(serverUrl, 'get-qrcode');
-        return { success: false, error: '二维码功能仅在 Skills (Bridge) 模式下可用' };
+        return mcpLoginQrcode(serverUrl, timeoutMs); // [EM: xhs-mini-mcp]
     },
 
     logout: async (serverUrl: string): Promise<McpToolResult> => {
@@ -819,6 +878,53 @@ export const XhsMcpClient = {
         return { success: false, error: '登出功能仅在 Skills (Bridge) 模式下可用' };
     },
 };
+
+// [EM-START: xhs-mini-mcp]
+/**
+ * 服务器上那个浏览器的扫码登录：get_login_qrcode 回的是一段文字 + 一张 PNG（MCP image content）。
+ * mcpCallTool 只取文字，所以单独走一趟把图拿出来，给设置页直接显示。
+ * 已经登录时服务器只回一句「你当前已处于登录状态」，没有图。
+ */
+export interface XhsLoginQrcode {
+    loggedIn: boolean;
+    message: string;
+    imageDataUrl?: string;
+}
+
+/**
+ * 服务器那边要先用浏览器打开小红书登录页才截得到码；mini 在国外时一分钟左右是常事。
+ * 不设上限的话它一卡住，设置页就永远停在「正在要二维码」。
+ */
+export const XHS_QRCODE_TIMEOUT_MS = 120_000;
+
+const mcpLoginQrcode = async (serverUrl: string, timeoutMs = XHS_QRCODE_TIMEOUT_MS): Promise<McpToolResult> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        await mcpEnsureInitialized(serverUrl);
+        const name = mcpDiscoveredTools.some(t => t.name === 'get_login_qrcode') ? 'get_login_qrcode' : mcpResolveToolName('get_login_qrcode');
+        const { response } = await mcpPost(serverUrl, mcpBuildRequest('tools/call', { name, arguments: {} }), true, controller.signal);
+        if (response?.error) return { success: false, error: `MCP Error [${response.error.code}]: ${response.error.message}` };
+        const content: any[] = Array.isArray(response?.result?.content) ? response.result.content : [];
+        const message = content.filter(c => c?.type === 'text').map(c => c.text).join('\n').trim();
+        if (response?.result?.isError) return { success: false, error: message || '获取登录二维码失败' };
+        const image = content.find(c => c?.type === 'image' && typeof c.data === 'string');
+        const data: XhsLoginQrcode = {
+            loggedIn: !image && /已处于登录状态|已登录/.test(message),
+            message,
+            ...(image ? { imageDataUrl: `data:${image.mimeType || 'image/png'};base64,${image.data}` } : {}),
+        };
+        return { success: true, data };
+    } catch (e: any) {
+        if (controller.signal.aborted) {
+            return { success: false, error: `服务器 ${Math.round(timeoutMs / 1000)} 秒都没把二维码拿回来（它在打开小红书登录页），再点一次试试` };
+        }
+        return { success: false, error: e.message };
+    } finally {
+        clearTimeout(timer);
+    }
+};
+// [EM-END: xhs-mini-mcp]
 
 // ==================== Helpers ====================
 
@@ -979,7 +1085,8 @@ export const normalizeNote = (n: any): {
 } => {
     const card = n.noteCard || n.note_card || n.notecard;
     // 封面：cover 对象 / 字符串，或笔记图片列表首图（feed detail 返回 image_list）。
-    const coverObj = card?.cover || n.cover || n.image_list?.[0] || card?.image_list?.[0];
+    const coverObj = card?.cover || n.cover || n.image_list?.[0] || card?.image_list?.[0]
+        || n.imageList?.[0] || card?.imageList?.[0]; // [EM: xhs-share-instant-card] mini 上的 xiaohongshu-mcp 详情用驼峰 imageList
     const rawCoverUrl = typeof coverObj === 'string' ? coverObj
         : coverObj?.urlDefault || coverObj?.url_default || coverObj?.url || coverObj?.urlPre
         || coverObj?.info_list?.[0]?.url || undefined;

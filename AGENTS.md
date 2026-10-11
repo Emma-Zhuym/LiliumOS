@@ -1,6 +1,10 @@
 # LiliumOS Agent Instructions
 
-LiliumOS 是 Emma 基于 SullyOS 维护的个人 fork。开始仓库工作前先阅读 `.claude/CLAUDE.md`；其中的 EM 功能清单、哨兵约定、架构原则和合并规则同样适用于 Codex。判断当前功能进度时以 `docs/roadmap.md` 和 `progress.md` 为准，不从旧规格标题推断状态。
+LiliumOS 是 Emma 基于 SullyOS 维护的个人 fork。开始仓库工作前先阅读 `.claude/CLAUDE.md`；其中的 EM 功能清单、哨兵约定、架构原则和合并规则同样适用于 Codex。判断当前功能进度时以 `docs/roadmap.md`（接下来做什么、待验收）和 `docs/changelog.md`（做完了什么）为准，不从旧规格标题推断状态。
+
+## 改动日志
+
+每完成一件事（合进 `main` 或上线），在 `docs/changelog.md` 对应月份最上面加一条：日期 · 标题、**操作：Codex（Elias）**、提交号 / PR、改了什么。格式见该文件开头。做完的事从 `docs/roadmap.md` 的「做了，等验收」里删掉或更新。
 
 ## MacBook / Mac mini 代码同步
 

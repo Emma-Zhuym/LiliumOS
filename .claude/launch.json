@@ -20,6 +20,8 @@
       "runtimeArgs": ["run", "preview"],
       "port": 4173,
       "autoPort": true
+    },
+    {
       "name": "sullyos-dev",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["run", "dev"],

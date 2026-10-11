@@ -1,12 +1,13 @@
 /**
  * shoppingContextBuilder.ts — 购物感知注入
  *
- * 外卖（food）：ETA 精确到分钟，到时间自动标 done
- * 快递（net）：ETA 只有日期，到日期提醒但不自动标 done，等用户手动确认收货
+ * 外卖和快递：ETA 精确到分钟，到时间自动标 done（sweepDeliveries）
+ * 快递当天还没到点：提一句「今天会到」
  */
 
 import { ShoppingDB, type ShopOrder } from './shoppingDb';
-import { sweepFoodDeliveries } from './shoppingDeliverySweep';
+import { sweepDeliveries } from './shoppingDeliverySweep';
+import { buildFamilyShoppingContext, FAMILY_LINKS_KEY, isHiddenFromChar, normalizeFamilyLinks, orderItemsText } from './shoppingFamily'; // [EM: shopping-family]
 
 function isEtaDateReached(etaTimestamp: number): boolean {
   const eta = new Date(etaTimestamp);
@@ -18,8 +19,8 @@ function isEtaDateReached(etaTimestamp: number): boolean {
 
 export async function buildShoppingDeliveryContext(charId: string): Promise<string | null> {
   try {
-    // 外卖到点自动收货+发卡片（先于读订单，保证下面读到的状态是最新的）
-    await sweepFoodDeliveries();
+    // 到点自动收货+发卡片（先于读订单，保证下面读到的状态是最新的）
+    await sweepDeliveries();
     const [orders, products] = await Promise.all([ShoppingDB.getOrders(), ShoppingDB.getProducts()]);
     const now = Date.now();
 
@@ -33,13 +34,16 @@ export async function buildShoppingDeliveryContext(charId: string): Promise<stri
 
     for (const o of orders) {
       if (!o.receiverCharId || o.receiverCharId !== charId) continue;
+      if (o.selfOrder) continue; // [EM: shopping-family] 自己给自己买的不是投喂
 
-      const items = o.lines.map(l => {
-        const p = products.find(x => x.id === l.id);
-        return p ? `${p.name}×${l.qty}` : '';
-      }).filter(Boolean).join('、');
+      const items = orderItemsText(o, products); // [EM: shopping-family] 填单 / 心跳订单不在商品目录里
 
       if (!items) continue;
+      // [EM-START: shopping-family] 惊喜礼物：送到前收礼一方不知道内容，送达那轮正常揭晓
+      const hiddenFromChar = isHiddenFromChar(o, now);
+      const shownItems = hiddenFromChar ? '一个惊喜包裹，用户没告诉你里面是什么' : items;
+      const keepSecret = o.surprise && o.isGiftFromChar ? '。这是惊喜，别提前说漏里面是什么' : '';
+      // [EM-END: shopping-family]
 
       const isGift = !!o.isGiftFromChar;
       const noteClause = o.note ? `，${isGift ? '你的留言' : '用户附言'}：「${o.note}」` : '';
@@ -65,10 +69,10 @@ export async function buildShoppingDeliveryContext(charId: string): Promise<stri
         } else {
           const remainMin = Math.ceil((o.etaTimestamp - now) / 60000);
           if (o.type === 'food') {
-            giftInTransit.push(`你给用户点的外卖（${items}）在路上，还有约 ${remainMin} 分钟`);
+            giftInTransit.push(`你给用户点的外卖（${items}）在路上，还有约 ${remainMin} 分钟${keepSecret}`); // [EM: shopping-family]
           } else {
             const d = new Date(o.etaTimestamp);
-            giftInTransit.push(`你给用户买的快递（${items}）在路上，预计 ${d.getMonth() + 1}月${d.getDate()}日 到`);
+            giftInTransit.push(`你给用户买的快递（${items}）在路上，预计 ${d.getMonth() + 1}月${d.getDate()}日 到${keepSecret}`); // [EM: shopping-family]
           }
         }
       } else if (o.type === 'food') {
@@ -78,21 +82,22 @@ export async function buildShoppingDeliveryContext(charId: string): Promise<stri
         } else {
           const remainMin = Math.ceil((o.etaTimestamp - now) / 60000);
           if (now - o.placedAt < 5 * 60 * 1000) {
-            justOrdered.push(`用户刚给你点了外卖（${items}），大概 ${remainMin} 分钟后到${noteClause}`);
+            justOrdered.push(`用户刚给你点了外卖（${shownItems}），大概 ${remainMin} 分钟后到${noteClause}`); // [EM: shopping-family]
           } else {
-            inTransit.push(`你有一份外卖（${items}）在路上，还有约 ${remainMin} 分钟`);
+            inTransit.push(`你有一份外卖（${shownItems}）在路上，还有约 ${remainMin} 分钟`); // [EM: shopping-family]
           }
         }
       } else {
         if (isEtaDateReached(o.etaTimestamp)) {
-          netArrived.push(`快递（${items}）今天应该到了${noteClause}`);
+          const d = new Date(o.etaTimestamp);
+          inTransit.push(`你有一个快递（${shownItems}）今天 ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')} 左右到`); // [EM: shopping-refund] 到点前不揭晓
         } else {
           const d = new Date(o.etaTimestamp);
           const etaStr = `${d.getMonth() + 1}月${d.getDate()}日`;
           if (now - o.placedAt < 5 * 60 * 1000) {
-            justOrdered.push(`用户刚给你买了快递（${items}），预计 ${etaStr} 到${noteClause}`);
+            justOrdered.push(`用户刚给你买了快递（${shownItems}），预计 ${etaStr} 到${noteClause}`); // [EM: shopping-family]
           } else {
-            inTransit.push(`你有一个快递（${items}）在路上，预计 ${etaStr} 到`);
+            inTransit.push(`你有一个快递（${shownItems}）在路上，预计 ${etaStr} 到`); // [EM: shopping-family]
           }
         }
       }
@@ -116,6 +121,12 @@ export async function buildShoppingDeliveryContext(charId: string): Promise<stri
     if (giftInTransit.length > 0) {
       parts.push(`🎁 你送的礼物配送中：${giftInTransit.join('；')}。你知道自己给用户买了东西在路上，可以偶尔提一嘴期待。`);
     }
+
+    // [EM-START: shopping-family]
+    const familyLinks = normalizeFamilyLinks(await ShoppingDB.getSetting(FAMILY_LINKS_KEY));
+    const family = buildFamilyShoppingContext(orders, products, charId, familyLinks, now);
+    if (family) parts.push(family);
+    // [EM-END: shopping-family]
 
     if (parts.length === 0) return null;
 

@@ -89,6 +89,7 @@ export function upsertContact(
             name: incoming.name,
             identity: incoming.identity,
             identityManual: incoming.identityManual,
+            group: incoming.group, groupManual: incoming.groupManual, // [EM: contact-groups]
             note: incoming.note,
             avatar: incoming.avatar,
             kind: incoming.kind || 'npc',
@@ -117,6 +118,12 @@ export function upsertContact(
         merged.identity = cur.identity;
         merged.identityManual = true;
     }
+    // [EM-START: contact-groups] 已经有分组的联系人，后续扫描/对话回填不改它；只有用户手动指定（groupManual）才能改。
+    if (cur.group && !incoming.groupManual) {
+        merged.group = cur.group;
+        merged.groupManual = cur.groupManual;
+    }
+    // [EM-END: contact-groups]
     merged.affinity = incoming.affinity != null ? clampAffinity(incoming.affinity) : cur.affinity;
     merged.createdAt = cur.createdAt;
     merged.id = cur.id;

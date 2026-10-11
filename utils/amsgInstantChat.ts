@@ -48,6 +48,7 @@ export interface AmsgInstantChatPending {
   acceptedAt: number;
   /** 角色名快照（全局横幅显示用）。必填：唯一写入方恒定带上（角色名为空就是空串）。 */
   charName: string;
+  via?: 'mini'; // [EM: agent-instant-chat] 这一轮交给了 Mac mini，状态点名走 mini 不走 amsg
 }
 
 type PendingMap = Record<string, AmsgInstantChatPending>;
@@ -67,6 +68,7 @@ const readPendingMap = (): PendingMap => {
           uuid: record.uuid,
           acceptedAt: record.acceptedAt,
           charName: typeof record.charName === 'string' ? record.charName : '',
+          ...(record.via === 'mini' ? { via: 'mini' as const } : {}), // [EM: agent-instant-chat]
         };
       }
     }
@@ -102,9 +104,10 @@ export const setInstantChatPending = (
   uuid: string,
   acceptedAt = Date.now(),
   charName = '',
+  via?: 'mini', // [EM: agent-instant-chat]
 ): void => {
   const map = readPendingMap();
-  map[charId] = { charId, uuid, acceptedAt, charName };
+  map[charId] = { charId, uuid, acceptedAt, charName, ...(via ? { via } : {}) }; // [EM: agent-instant-chat]
   writePendingMap(map);
   announcePendingChanged(charId);
 };

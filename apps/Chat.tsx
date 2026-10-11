@@ -8,6 +8,9 @@ import { AppID } from '../types';
 import React, { useState, useEffect, useRef, useLayoutEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useOS } from '../context/OSContext';
+// [EM: agent-backend-presence] 在场信号 + 近况快照，后端离线时全程静默
+import { scheduleSnapshotUpload, signalAgentPresence } from '../utils/emAgentBackend';
+import { buildCharacterSnapshot } from '../utils/emAgentSnapshot';
 import { DB } from '../utils/db';
 import { isVisibleChatMessage } from '../utils/chatMessageVisibility';
 import { createChatHistoryWindow, expandChatHistoryWindow, type ChatHistoryWindowRange } from '../utils/chatHistoryWindow';
@@ -86,6 +89,9 @@ import { markAmsgStateDirty, markAmsgStateDirtyForAll } from '../utils/amsgState
 import { generatePersistedChatImage } from '../utils/chatGeneratedImage';
 import { AMSG_INSTANT_CHAT_PENDING_EVENT, AMSG_INSTANT_CHAT_PENDING_LS_KEY, getInstantChatPending } from '../utils/amsgInstantChat';
 import { formatAmsgToolTrace } from '../utils/amsgToolTrace';
+// [EM: mcp-call-trace] 本地角色聊天的可展开 MCP 调用记录。
+import McpToolTraceCard from '../components/chat/McpToolTraceCard';
+import { readMcpToolTraceRecord } from '../utils/mcpToolTraceRecord';
 import { formatHours } from '../utils/format';
 import {
     CONTENT_FAVORITES_CHANGED_EVENT,
@@ -461,6 +467,23 @@ const Chat: React.FC = () => {
         updateCharacter,
         charAvailability: charStatusInfo.status,
     });
+
+    // [EM-START: agent-backend-reply-sync]
+    // TA 在聊天里回过之后也传一份近况。原来只在阿萌发消息时传：她发完隔天才点生成，
+    // 后端一直以为那几条没回，心跳醒来会再回一遍。
+    const lastSyncedReplyRef = useRef<string | number | null>(null);
+    useEffect(() => {
+        if (!char || isTyping) return;
+        const last = messages[messages.length - 1];
+        if (!last || last.role !== 'assistant' || last.id === lastSyncedReplyRef.current) return;
+        lastSyncedReplyRef.current = last.id;
+        scheduleSnapshotUpload(char.id, async () => buildCharacterSnapshot(
+            char,
+            await DB.getMessagesByCharId(char.id),
+            { userName: userProfile?.name },
+        ));
+    }, [char, messages, isTyping, userProfile?.name]);
+    // [EM-END: agent-backend-reply-sync]
 
     // [EM-START: offline-auto-reply] offline → online 时自动触发角色回复（补回 offline 期间的未回复消息）
     useEffect(() => {
@@ -1405,6 +1428,7 @@ const Chat: React.FC = () => {
         if (type === 'text') {
             let xhsCardCreated = false;
             let webpageCardCreated = false;
+            let xhsDetailPromise: Promise<void> | null = null; // [EM: xhs-share-instant-card]
             const xhsFullNoteId = extractXhsNoteId(text);
             // 同时识别桌面/旧版 xhslink.com 与手机版新版 xhslink.cn。
             const xhsShortUrl = detectXhsShortUrl(text);
@@ -1432,52 +1456,72 @@ const Chat: React.FC = () => {
                 // 告诉用户如何排查。此前这里完全静默，表现就是“角色能分享、用户分享不了”。
                 if (noteId) {
                     // 基础卡数据来自分享文案，零后端依赖。
-                    let note: any = {
+                    const note: any = {
                         noteId, title: titleFromText || '', desc: '', author: '',
                         authorId: '', likes: 0, xsecToken,
                     };
 
-                    // 有小红书 MCP/Lite 才抓详情补全（正文/封面/作者/赞数）。
-                    const mcpUrl = realtimeConfig?.xhsMcpConfig?.serverUrl;
-                    if (mcpUrl && realtimeConfig?.xhsMcpConfig?.enabled) {
-                        try {
-                            const noteUrl = `https://www.xiaohongshu.com/explore/${noteId}${xsecToken ? `?xsec_token=${xsecToken}&xsec_source=pc_share` : ''}`;
-                            // loadAllComments：和角色自己浏览笔记 (XHS_DETAIL) 一致地把评论区也抓回来，
-                            // 否则 user 分享的笔记只有标题/正文，角色读不到评论（char 分享给 user 的却能看到）。
-                            const result = await XhsMcpClient.getNoteDetail(mcpUrl, noteUrl, xsecToken, { loadAllComments: true });
-                            if (isDevDebugAvailable()) console.log('[卡片调试] 小红书抓取 result =', result);
-                            if (result.success && result.data) {
-                                const fetched = normalizeXhsLiteDetail(result.data);
-                                // 抓到的字段补全基础卡；id/标题/token 保底，标题优先文案标题（更完整可读）。
-                                note = { ...note, ...fetched, noteId: fetched.noteId || note.noteId, title: titleFromText || fetched.title || note.title, xsecToken: fetched.xsecToken || xsecToken };
-                            } else if (!result.success) {
-                                // 基础卡仍然可以发送，只提示详情读取失败，避免误以为整次分享失败。
-                                addToast(`小红书正文读取失败，已发送基础卡片。请尝试开启/关闭科学上网、切换 Wi‑Fi/流量，或检查 Lite 配置。${result.error ? `（${result.error}）` : ''}`, 'info');
-                            }
-                        } catch (e) {
-                            console.warn('XHS link fetch via MCP failed (已用文案兜底):', e);
-                            addToast('小红书正文读取失败，已发送基础卡片。请尝试开启/关闭科学上网、切换 Wi‑Fi/流量，或检查 Lite 配置。', 'info');
-                        }
-                    }
-
-                    await DB.saveMessage({
+                    // [EM-START: xhs-share-instant-card]
+                    // 先存基础卡、马上显示，详情放到后台补。mini 上的 xiaohongshu-mcp 要真开浏览器
+                    // 打开笔记、滚动加载评论，一次 40–85 秒；原来等它读完才存卡，这段时间界面上
+                    // 什么都没有，看起来就像「转发了没变成卡片」，提前点回复的话角色也只读到一条链接。
+                    const cardMsgId = await DB.saveMessage({
                         charId: char.id,
                         role: 'user',
                         type: 'xhs_card',
                         content: note.title || '小红书笔记',
                         metadata: { xhsNote: note }
                     });
-                    // F12 调试（仅开发分支）：打印卡片存了啥 + 角色实际会读到的文本。
-                    if (isDevDebugAvailable()) {
+                    xhsCardCreated = true;
+
+                    // 有小红书 MCP/Lite 才抓详情补全（正文/封面/作者/赞数）。
+                    const mcpUrl = realtimeConfig?.xhsMcpConfig?.serverUrl;
+                    if (mcpUrl && realtimeConfig?.xhsMcpConfig?.enabled) {
+                        addToast('卡片已发出，正在打开笔记读正文和评论（mini 上要等一会儿），读完再让 TA 回复', 'info');
+                        const baseNote = note;
+                        xhsDetailPromise = (async () => {
+                            try {
+                                const noteUrl = `https://www.xiaohongshu.com/explore/${noteId}${xsecToken ? `?xsec_token=${xsecToken}&xsec_source=pc_share` : ''}`;
+                                // loadAllComments：和角色自己浏览笔记 (XHS_DETAIL) 一致地把评论区也抓回来，
+                                // 否则 user 分享的笔记只有标题/正文，角色读不到评论（char 分享给 user 的却能看到）。
+                                const result = await XhsMcpClient.getNoteDetail(mcpUrl, noteUrl, xsecToken, { loadAllComments: true });
+                                if (isDevDebugAvailable()) console.log('[卡片调试] 小红书抓取 result =', result);
+                                if (result.success && result.data) {
+                                    const fetched = normalizeXhsLiteDetail(result.data);
+                                    // 抓到的字段补全基础卡；id/标题/token 保底，标题优先文案标题（更完整可读）。
+                                    const merged = { ...baseNote, ...fetched, noteId: fetched.noteId || baseNote.noteId, title: titleFromText || fetched.title || baseNote.title, xsecToken: fetched.xsecToken || xsecToken };
+                                    await DB.updateMessageMetadata(cardMsgId, prev => ({ ...(prev || {}), xhsNote: merged }));
+                                    if (merged.title && merged.title !== baseNote.title) await DB.updateMessage(cardMsgId, merged.title);
+                                    if (isDevDebugAvailable()) {
+                                        console.log('[卡片调试] 小红书卡片·metadata =', merged);
+                                        console.log('[卡片调试] 小红书卡片·角色将读到 =\n' + normalizeMessageContent(
+                                            { type: 'xhs_card', role: 'user', content: merged.title || '小红书笔记', metadata: { xhsNote: merged } } as any,
+                                            char.name, userProfile.name,
+                                        ));
+                                    }
+                                    const commentCount = Array.isArray(merged.comments) ? merged.comments.length : 0;
+                                    addToast(merged.desc ? `笔记读好了${commentCount ? `，带 ${commentCount} 条评论` : ''}，可以让 TA 回复了` : '笔记打开了，但没读到正文，TA 只能看到标题', 'info');
+                                    if (activeCharIdRef.current === char.id) await reloadMessages(visibleCountRef.current);
+                                } else if (!result.success) {
+                                    // 基础卡已经发出，只提示详情读取失败，避免误以为整次分享失败。
+                                    addToast(`小红书正文读取失败，卡片只有标题。请检查 mini 上的小红书服务是否在线、是否还登录着。${result.error ? `（${result.error}）` : ''}`, 'info');
+                                }
+                            } catch (e) {
+                                console.warn('XHS link fetch via MCP failed (已用文案兜底):', e);
+                                addToast('小红书正文读取失败，卡片只有标题。请检查 mini 上的小红书服务是否在线、是否还登录着。', 'info');
+                            }
+                        })();
+                    } else if (isDevDebugAvailable()) {
+                        // F12 调试（仅开发分支）：打印卡片存了啥 + 角色实际会读到的文本。
                         console.log('[卡片调试] 小红书卡片·metadata =', note);
                         console.log('[卡片调试] 小红书卡片·角色将读到 =\n' + normalizeMessageContent(
                             { type: 'xhs_card', role: 'user', content: note.title || '小红书笔记', metadata: { xhsNote: note } } as any,
                             char.name, userProfile.name,
                         ));
                     }
-                    xhsCardCreated = true;
+                    // [EM-END: xhs-share-instant-card]
                 } else {
-                    addToast(`小红书链接解析失败，原消息已保留。通常是网络或代理导致短链无法展开：请尝试开启/关闭科学上网、切换 Wi‑Fi/流量，并检查网络代理与小红书 Lite 配置。${shortLinkError ? `（${shortLinkError}）` : ''}`, 'error');
+                    addToast(`小红书链接解析失败，原消息已保留。通常是网络或代理导致短链无法展开：请尝试开启/关闭科学上网、切换 Wi‑Fi/流量，并检查 设置 → 自定义网络代理 (Worker)（短链是经它展开的）。${shortLinkError ? `（${shortLinkError}）` : ''}`, 'error');
                 }
             }
 
@@ -1529,6 +1573,13 @@ const Chat: React.FC = () => {
             if ((xhsCardCreated || webpageCardCreated) && savedUserMsgId) {
                 await DB.deleteMessage(savedUserMsgId);
             }
+            // [EM-START: xhs-share-instant-card]
+            // 发完会自动回复的话，先让卡片露面，再等正文读完，免得角色只看到标题就开口。
+            if (xhsDetailPromise && (inputPreferences.autoReply || (isInstantConfigReady(loadInstantConfig()) && loadInstantConfig().autoTriggerOnSend))) {
+                await reloadMessages(visibleCountRef.current);
+                await xhsDetailPromise;
+            }
+            // [EM-END: xhs-share-instant-card]
         }
 
         await reloadMessages(visibleCountRef.current);
@@ -1575,6 +1626,18 @@ const Chat: React.FC = () => {
         const finish = autoReply.beginSend(char?.id || null);
         try {
             const sent = await sendText(customContent, customType, metadata);
+            // [EM-START: agent-backend-presence]
+            // 告诉 Mac mini 后端「人在」，并把近况排进防抖上传。两者都静默失败：
+            // 后端离线是常态，不该在聊天里冒出任何提示。
+            if (sent === true && char) {
+                signalAgentPresence(char.id);
+                scheduleSnapshotUpload(char.id, async () => buildCharacterSnapshot(
+                    char,
+                    await DB.getMessagesByCharId(char.id),
+                    { userName: userProfile?.name },
+                ));
+            }
+            // [EM-END: agent-backend-presence]
             finish(sent === true && (!customType || ['text', 'image', 'emoji'].includes(customType)));
         } catch (error) {
             finish(false);
@@ -3943,6 +4006,13 @@ const Chat: React.FC = () => {
                     const pushMessageId = (m.metadata as any)?.activeMsg2?.messageId;
                     const showToolTrace = !!toolTraceText
                         && !(pushMessageId && (nextMessage?.metadata as any)?.activeMsg2?.messageId === pushMessageId);
+                    // [EM-START: mcp-call-trace]
+                    // 后处理可能把同一轮回复拆成多个气泡，共享同一份 metadata；只在本轮最后一条下显示一次。
+                    const mcpToolTrace = selectionMode
+                        ? null : readMcpToolTraceRecord((m.metadata as any)?.mcpToolTrace);
+                    const nextMcpRunId = (nextMessage?.metadata as any)?.mcpToolTrace?.runId;
+                    const showMcpToolTrace = !!mcpToolTrace && nextMcpRunId !== mcpToolTrace.runId;
+                    // [EM-END: mcp-call-trace]
                     return (
                         <div
                             key={m.id || i}
@@ -4006,6 +4076,15 @@ const Chat: React.FC = () => {
                                 </div>
                             </div>
                         )}
+                        {/* [EM-START: mcp-call-trace] */}
+                        {showMcpToolTrace && mcpToolTrace && (
+                            <div className={`px-3 mb-4 ${breaksWithNext ? toolTracePullClass : ''}`}>
+                                <div className="ml-12 max-w-[72%]">
+                                    <McpToolTraceCard trace={mcpToolTrace} />
+                                </div>
+                            </div>
+                        )}
+                        {/* [EM-END: mcp-call-trace] */}
                         </div>
                     );
                 })}

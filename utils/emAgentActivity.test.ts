@@ -1,0 +1,189 @@
+// [EM-START: agent-backend-chronicle]
+import { beforeEach, describe, expect, it } from 'vitest';
+
+import {
+    buildChronicleInjection, clearChronicle, describeRunDeeds, foldPhoneEvents, loadChronicle, mergeChronicle, toSegments, type ChronicleEntry,
+} from './emAgentActivity';
+
+const CHAR = 'lumi';
+
+const entry = (id: number, at: string, overrides: Partial<ChronicleEntry> = {}): ChronicleEntry => ({
+    id,
+    charId: CHAR,
+    activity: `做了第 ${id} 件事`,
+    outcome: 'noop',
+    skipGate: null,
+    proposedText: null,
+    shadow: true,
+    at,
+    ...overrides,
+});
+
+describe('起居注本地缓存', () => {
+    beforeEach(() => clearChronicle(CHAR));
+
+    it('按时间倒序合并，新的在前', () => {
+        mergeChronicle(CHAR, [entry(1, '2026-09-22T10:00:00.000Z')]);
+        const merged = mergeChronicle(CHAR, [entry(2, '2026-09-22T12:00:00.000Z')]);
+        expect(merged.map(item => item.id)).toEqual([2, 1]);
+    });
+
+    it('同一个 id 以新取到的为准：服务端才是事实来源', () => {
+        mergeChronicle(CHAR, [entry(1, '2026-09-22T10:00:00.000Z', { activity: '旧的说法' })]);
+        const merged = mergeChronicle(CHAR, [entry(1, '2026-09-22T10:00:00.000Z', { activity: '新的说法' })]);
+        expect(merged).toHaveLength(1);
+        expect(merged[0].activity).toBe('新的说法');
+    });
+
+    it('每个角色最多留 200 条', () => {
+        const many = Array.from({ length: 260 }, (_, index) =>
+            entry(index, new Date(Date.parse('2026-09-01T00:00:00.000Z') + index * 60_000).toISOString()));
+        const merged = mergeChronicle(CHAR, many);
+        expect(merged).toHaveLength(200);
+        // 留下的是最新的那 200 条。
+        expect(merged[0].id).toBe(259);
+    });
+
+    it('存坏了当没有，不抛错', () => {
+        localStorage.setItem('em_agent_chronicle_v1:lumi', '不是 JSON');
+        expect(loadChronicle(CHAR)).toEqual([]);
+    });
+});
+
+const skipped = (id: number, gate: string) =>
+    entry(id, '2026-09-22T20:00:00.000Z', { outcome: 'skipped', skipGate: gate, activity: null });
+
+describe('起居注时间轴', () => {
+    it('连着被拦下的醒来折成一段，而不是刷满整页', () => {
+        const segments = toSegments([
+            entry(1, '2026-09-22T20:05:00.000Z'),
+            skipped(2, 'sleeping'),
+            skipped(3, 'sleeping'),
+            skipped(4, 'daily_budget'),
+            entry(5, '2026-09-22T19:00:00.000Z'),
+        ]);
+        expect(segments.map(s => s.kind)).toEqual(['entry', 'quiet', 'entry']);
+        const quiet = segments[1] as { kind: 'quiet'; count: number; gates: string[] };
+        expect(quiet.count).toBe(3);
+        // 理由去重，最多留两个：列全了反而看不出重点。
+        expect(quiet.gates).toEqual(['在睡觉', '今天已经想了很多次']);
+    });
+
+    it('两段安静之间隔着一次活动时，不会被合并', () => {
+        const segments = toSegments([
+            skipped(1, 'sleeping'),
+            entry(2, '2026-09-22T19:30:00.000Z'),
+            skipped(3, 'sleeping'),
+        ]);
+        expect(segments.map(s => s.kind)).toEqual(['quiet', 'entry', 'quiet']);
+    });
+
+    it('出错的那次也算「没做什么」，但说法不一样', () => {
+        const segments = toSegments([
+            entry(1, '2026-09-22T20:00:00.000Z', { outcome: 'error', activity: null }),
+        ]);
+        const quiet = segments[0] as { kind: 'quiet'; gates: string[] };
+        expect(quiet.gates).toEqual(['出了点岔子']);
+    });
+
+    it('全是活动时不会冒出安静段', () => {
+        const segments = toSegments([
+            entry(1, '2026-09-22T20:00:00.000Z'),
+            entry(2, '2026-09-22T19:00:00.000Z', { outcome: 'message', proposedText: '在吗' }),
+        ]);
+        expect(segments.every(s => s.kind === 'entry')).toBe(true);
+    });
+});
+describe('手机动静合并', () => {
+    const at = (min: number) => Date.parse('2026-09-23T12:00:00.000Z') - min * 60_000;
+
+    it('刷一次刷出好几条，合成一行', () => {
+        const folded = foldPhoneEvents([
+            { id: 'a', at: at(0), label: '逛了逛淘宝' },
+            { id: 'b', at: at(0), label: '逛了逛淘宝' },
+            { id: 'c', at: at(1), label: '逛了逛淘宝' },
+        ]);
+        expect(folded).toHaveLength(1);
+        // 时间取最晚的那条。
+        expect(folded[0].at).toBe(at(0));
+    });
+
+    it('隔得够久的两次翻看不合并', () => {
+        const folded = foldPhoneEvents([
+            { id: 'a', at: at(0), label: '逛了逛淘宝' },
+            { id: 'b', at: at(40), label: '逛了逛淘宝' },
+        ]);
+        expect(folded).toHaveLength(2);
+    });
+
+    it('不同 App 挨着也不合并', () => {
+        const folded = foldPhoneEvents([
+            { id: 'a', at: at(0), label: '逛了逛淘宝' },
+            { id: 'b', at: at(1), label: '刷了刷朋友圈' },
+        ]);
+        expect(folded).toHaveLength(2);
+    });
+
+    it('中间隔了别的 App，前后同款不会被跨过去合并', () => {
+        const folded = foldPhoneEvents([
+            { id: 'a', at: at(0), label: '逛了逛淘宝' },
+            { id: 'b', at: at(1), label: '刷了刷朋友圈' },
+            { id: 'c', at: at(2), label: '逛了逛淘宝' },
+        ]);
+        expect(folded.map(item => item.id)).toEqual(['a', 'b', 'c']);
+    });
+});
+
+describe('describeRunDeeds：这次醒来做了什么', () => {
+    it('发消息 + 生活小事，各说一句', () => {
+        expect(describeRunDeeds({ outcome: 'message', shadow: false, episode: { life: { kind: 'chat', with: '林越' } } }))
+            .toEqual(['给你发了消息', '和林越聊天']);
+    });
+    it('工作往来按渠道说', () => {
+        expect(describeRunDeeds({ outcome: 'noop', shadow: false, episode: { channel: 'email', with: '周总' } }))
+            .toEqual(['和周总邮件往来']);
+    });
+    it('试跑的消息只是「想发」', () => {
+        expect(describeRunDeeds({ outcome: 'message', shadow: true, episode: null })).toEqual(['想给你发消息']);
+    });
+    it('给阿萌买的礼物只说渠道，不漏买了什么', () => {
+        const deeds = describeRunDeeds({ outcome: 'noop', shadow: false,
+            episode: { life: { kind: 'gift', via: 'net', surprise: true, detail: '一条围巾' } } });
+        expect(deeds).toEqual(['网购']);
+    });
+    it('什么都没做就是空的，交给界面退回原来的结论', () => {
+        expect(describeRunDeeds({ outcome: 'noop', shadow: false, episode: null })).toEqual([]);
+    });
+});
+
+describe('buildChronicleInjection', () => {
+    const NOW = Date.parse('2026-09-23T20:00:00Z');
+    const entry = (id: number, minutesAgo: number, extra: Partial<ChronicleEntry> = {}): ChronicleEntry => ({
+        id, charId: 'inj', activity: `活动${id}`, outcome: 'noop', skipGate: null, proposedText: null,
+        reason: `心声${id}`, shadow: false, at: new Date(NOW - minutesAgo * 60_000).toISOString(), ...extra,
+    });
+
+    it('把最近动过脑的片刻按时间正序写进聊天，拦下的和太久以前的不算', () => {
+        mergeChronicle('inj', [
+            entry(1, 30),
+            entry(2, 90, { reason: '忙完哄她' }),
+            entry(3, 20, { outcome: 'skipped', activity: null, reason: null, skipGate: 'sleeping' }),
+            entry(4, 13 * 60),
+        ]);
+        const text = buildChronicleInjection('inj', { now: NOW, timeZone: 'America/Chicago' });
+        expect(text).toContain('忙完哄她');
+        expect(text.indexOf('活动2')).toBeLessThan(text.indexOf('活动1'));
+        expect(text).not.toContain('活动4');
+        expect(text).not.toContain('sleeping');
+    });
+
+    it('试跑的片刻不进聊天', () => {
+        mergeChronicle('shadowy', [{ ...entry(9, 10), charId: 'shadowy', shadow: true, activity: '试跑里的事' }]);
+        expect(buildChronicleInjection('shadowy', { now: NOW })).toBe('');
+    });
+
+    it('没有记录就什么都不加', () => {
+        expect(buildChronicleInjection('nobody', { now: NOW })).toBe('');
+    });
+});
+// [EM-END: agent-backend-chronicle]

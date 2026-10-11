@@ -4,6 +4,7 @@ import {
     buildHomeAssistantMcpUrl,
     callHomeAssistantActionWithResponse,
     exportSmartHomeLocal,
+    fetchHomeAssistantStates,
     fetchSmartHomeDevices,
     importSmartHomeLocal,
     loadSmartHomeConfig,
@@ -230,6 +231,18 @@ describe('smartHome Home Assistant adapter', () => {
         expect(fetchMock.mock.calls[0][0]).toBe(
             'https://proxy.example.com?target=https%3A%2F%2Fha.example.com%2Fapi%2Fstates',
         );
+        fetchMock.mockRestore();
+    });
+
+    it('marks background HA refreshes so the global logger can suppress expected timeouts', async () => {
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('[]', {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+        }));
+
+        await fetchHomeAssistantStates(config, { suppressTimeoutLog: true });
+
+        expect((fetchMock.mock.calls[0][1] as any)?.__sullySuppressNetworkTimeoutLog).toBe(true);
         fetchMock.mockRestore();
     });
 });

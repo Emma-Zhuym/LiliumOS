@@ -37,11 +37,14 @@ describe('桌面小组件图的 blobref 读写路径', () => {
     // 首页方图（DesktopSquareImage）
     expect(launcherSource).toContain('<TokenImg value={image} alt="" className="w-full h-full object-cover" loading="lazy" />');
     expect(launcherSource).not.toContain('<img src={image} alt="" className="w-full h-full object-cover" loading="lazy" />');
-    // 第三页的 tl / tr 与 wide
-    expect(launcherSource).toContain('<TokenImg value={w[key]}');
-    expect(launcherSource).toContain("<TokenImg value={w['wide']}");
+    // [EM-START: launcher-desktop-layout] 自由网格重写后，tl / tr / wide 三个槽位合并成
+    // 同一处渲染（按 imageSlot 取），不再是各自一段 JSX。上游原来的 w[key] / w['wide']
+    // 写法在这份 Launcher 里已经不存在，断言跟着改，要守的规矩不变：一律走 TokenImg。
+    expect(launcherSource).toContain('<TokenImg value={theme.launcherWidgets[imageSlot]}');
+    expect(launcherSource).not.toContain('<img src={theme.launcherWidgets[imageSlot]}');
     expect(launcherSource).not.toContain('<img src={w[key]}');
     expect(launcherSource).not.toContain("<img src={w['wide']}");
+    // [EM-END: launcher-desktop-layout]
   });
 
   it('外观设置页的槽位缩略图与 DIY 预览都走 TokenImg', () => {

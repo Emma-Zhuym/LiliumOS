@@ -149,8 +149,7 @@ DeviceMotion API 加速度计，判断静止 / 走路 / 跑步 / 摇晃，注入
 
 部署：**Vercel**（绑 GitHub main 分支自动部署）或 **GitHub Pages**（构建命令 `pnpm build`，输出目录 `dist`）。
 
-当前开发进度见 [`docs/roadmap.md`](./docs/roadmap.md) 和 [`progress.md`](./progress.md)。
-当前 `main` 发布基线为 `d214bf16`。公开仓库为 [Emma-Zhuym/LiliumOS](https://github.com/Emma-Zhuym/LiliumOS)，GitHub Pages 地址为 [emma-zhuym.github.io/LiliumOS](https://emma-zhuym.github.io/LiliumOS/)。
+改动记录见 [`docs/changelog.md`](./docs/changelog.md)，接下来的计划见 [`docs/roadmap.md`](./docs/roadmap.md)。公开仓库为 [Emma-Zhuym/LiliumOS](https://github.com/Emma-Zhuym/LiliumOS)，GitHub Pages 地址为 [emma-zhuym.github.io/LiliumOS](https://emma-zhuym.github.io/LiliumOS/)。
 
 ---
 

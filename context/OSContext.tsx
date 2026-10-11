@@ -94,6 +94,19 @@ import { exportDesktopSkinLocal } from '../utils/desktopSkinBackup';
 import { assertSupportedSullyBackup } from '../utils/backupImportPolicy';
 import { createBuiltinSullyLive2DConfig, isBuiltinSullyLive2D, upgradeBuiltinSullyLive2DDefaults } from '../utils/builtinSullyLive2D';
 import { normalizeCharacterRoomAssetsInPlace } from '../utils/roomTemplateAssets';
+// [EM: agent-backend-inbox] 后端信箱 → 聊天，打开 App / 回前台各取一次
+import { syncAgentMessagesIntoChat } from '../utils/emAgentInbox';
+import { refreshAllChronicles } from '../utils/emAgentActivity'; // [EM: agent-backend-chronicle]
+import { refreshHeartbeatSnapshots } from '../utils/emAgentSnapshotSync'; // [EM: agent-backend-snapshot-refresh]
+import { refreshMomentsCache } from '../utils/emMomentsContext'; // [EM: moments-chat-context]
+import { refreshPlansCache } from '../utils/emAgentPlans'; // [EM: agent-plans]
+import { ensureAgentPushRegistered } from '../utils/emAgentBackend'; // [EM: agent-push-resubscribe]
+import { refreshTemporalCache } from '../utils/emTemporal'; // [EM: calendar-temporal]
+import { applyWorkEpisode } from '../utils/emWork'; // [EM: work-app]
+import { applyLifeEpisode } from '../utils/emLife'; // [EM: agent-life]
+import { xhsActivitiesFromLife, xhsChatNote } from '../utils/emLifeXhs'; // [EM: heartbeat-xhs]
+import { ShoppingDB } from '../utils/shoppingDb'; // [EM: shopping-family]
+import { giftOrderFromLife } from '../utils/shoppingFamily'; // [EM: shopping-family]
 
 interface ProactiveQueueEntry {
   charId: string;
@@ -361,7 +374,7 @@ interface OSContextType {
   // API Presets
   apiPresets: ApiPreset[];
   addApiPreset: (name: string, config: APIConfig) => void;
-  updateApiPreset: (id: string, name: string, config: APIConfig) => void;
+  updateApiPreset: (id: string, name: string, config: APIConfig, group?: string) => void; // [EM: api-preset-group]
   removeApiPreset: (id: string) => void;
 
   // 实时配置 (天气、新闻、Notion等)
@@ -1264,7 +1277,10 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   updateApiRequestCaptureUsage({ captureId: apiRequestCaptureId, ok: false });
                   recordApiCall({ requestId: (config as any)?.__sullyApiCallId, url: urlStr, body: (sendArgs[1] as any)?.body, ok: false, meta: (config as any)?.__sullyMeta || ambientMetaAtStart, durationMs: Date.now() - fetchStartedAt });
               }
-              if (!isAnalyticsRequestUrl(urlStr)) {
+              const failureKind = classifyFetchFailure({ url: urlStr, error: err });
+              const suppressExpectedTimeout = Boolean((config as any)?.__sullySuppressNetworkTimeoutLog)
+                  && (failureKind === 'timeout' || failureKind === 'aborted');
+              if (!isAnalyticsRequestUrl(urlStr) && !suppressExpectedTimeout) {
                   // 光秃秃一句 "Failed to fetch" + 一个 URL 排查不了任何东西（社区里这条卡过好几个人）。
                   // 这里把浏览器肯在 JS 侧交出来的旁证一次性补齐：方法、耗时、在线状态、是否跨域、
                   // Resource Timing 里那条记录，再给一句初判；随后异步做一次 no-cors 连通性复检，
@@ -1292,7 +1308,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   }, ...prev.slice(0, 49)]);
 
                   // 复检走 originalFetch，否则它自己失败会再写一条日志滚雪球。
-                  if (shouldProbeReachability(classifyFetchFailure({ url: urlStr, error: err }))) {
+                  if (shouldProbeReachability(failureKind)) {
                       void (async () => {
                           const verdict = await probeOriginReachability(urlStr, originalFetch);
                           const line = describeReachabilityProbe(verdict, parseTargetUrl(urlStr).host, method);
@@ -1943,6 +1959,103 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           document.removeEventListener('visibilitychange', onVisible);
       };
   }, [characters, sendProactiveNativeNotification]);
+
+  // [EM-START: agent-backend-inbox]
+  // Mac mini 后端信箱：打开 App 和每次回到前台各取一次。
+  //
+  // 推送只是「按门铃」，送达保证在信箱——不来这儿取的话，角色在 App 关着时说的话
+  // 会停在后端，你只看得到通知。全程静默：mini 每天 4–7 点休眠是正常状态。
+  useEffect(() => {
+      let alive = true;
+      const pull = async () => {
+          if (document.visibilityState !== 'visible') return;
+          // 起居注副本顺手刷新：聊天注入读的是它，发消息那一刻不能再等网络。
+          void refreshAllChronicles();
+          // [EM: agent-backend-snapshot-refresh] 没发消息也补传近况：不然后端拿着昨天的日程过今天
+          void refreshHeartbeatSnapshots(charactersRef.current, userProfileRef.current?.name);
+          void refreshMomentsCache(charactersRef.current); // [EM: moments-chat-context] 聊天读的朋友圈副本
+          void refreshPlansCache(); // [EM: agent-plans] 角色们的约定：聊天和日历读本机副本
+          void ensureAgentPushRegistered(); // [EM: agent-push-resubscribe] 手机换了推送订阅就重新告诉 mini
+          // [EM: calendar-temporal] 阿萌的现实安排同理：聊天提示词读本机缓存，这里顺手续上（一小时才真去问一次）
+          void refreshTemporalCache();
+          const result = await syncAgentMessagesIntoChat(Date.now(), {
+              // [EM: work-app] 工作往来落进那个角色的 phoneState.work；重复取回由 applyWorkEpisode 按 messageId 去重
+              onWorkEvent: ({ charId, ...event }) => {
+                  void updateCharacter(charId, cur => ({
+                      phoneState: {
+                          ...cur.phoneState,
+                          records: cur.phoneState?.records ?? [],
+                          work: applyWorkEpisode(cur.phoneState?.work, event),
+                      },
+                  }));
+              },
+              // [EM: agent-life] 私人生活里的小事落进查手机：联系人聊天 / 外卖 / 淘宝 / 朋友圈
+              onLifeEvent: async ({ charId, ...event }) => {
+                  void updateCharacter(charId, cur => {
+                      const next = applyLifeEpisode(cur.phoneState, event, { userName: userProfileRef.current?.name });
+                      return next ? { phoneState: next } : {};
+                  });
+                  // [EM-START: shopping-family] TA 给阿萌买的东西同时进投喂站；落库失败就抛出，不 ack，下次再收
+                  if (event.life.kind === 'gift') {
+                      const char = charactersRef.current.find(c => c.id === charId);
+                      const order = char ? giftOrderFromLife(event, char) : null;
+                      if (order && !(await ShoppingDB.getOrders()).some(o => o.id === order.id)) await ShoppingDB.saveOrder(order);
+                  }
+                  // [EM-END: shopping-family]
+                  // [EM-START: heartbeat-xhs] 心跳自己逛了小红书：进小红书 App 的活动记录，私聊里留一条自由活动消息。
+                  // 以活动 id 去重（同一条取回两次不重复写）；落库失败就抛出，不 ack，下次再收。
+                  if (event.life.kind === 'xhs') {
+                      const [activity, ...rest] = xhsActivitiesFromLife(event, charId);
+                      const already = activity && (await DB.getXhsActivities(charId)).some(a => a.id === activity.id);
+                      if (activity && !already) {
+                          for (const extra of rest) await DB.saveXhsActivity(extra);
+                          await DB.saveXhsActivity(activity);
+                          const char = charactersRef.current.find(c => c.id === charId);
+                          await DB.saveMessage({ charId, role: 'system', type: 'text', content: xhsChatNote(activity, char?.name || 'TA', event.life), timestamp: activity.timestamp });
+                      }
+                  }
+                  // [EM-END: heartbeat-xhs]
+              },
+          });
+          // [EM: agent-instant-chat] 信箱里取回的即时回复已经放进收件箱，冲刷一下走聊天后处理
+          if (alive && result.chatReplies > 0) {
+              const { flushInboxToChat } = await import('../utils/activeMsgRuntime');
+              await flushInboxToChat('轮询补收');
+          }
+          if (!alive || result.delivered === 0) return;
+          // 落库了要让正在看的那个聊天刷新出来；复用主动消息那条既有广播。
+          // 监听方要的是 { charId, charName, body }：少了名字通知就成了「undefined sent a proactive message」，
+          // 少了正文就看不到说了什么。每个角色一次，正文取这次收到的最后一句（跟上游一样是内容预览）。
+          for (const charId of result.charIds) {
+              const charName = charactersRef.current.find(c => c.id === charId)?.name ?? '';
+              const spoken = result.lines.filter(line => line.charId === charId).map(line => line.text);
+              window.dispatchEvent(new CustomEvent('proactive-message-sent', {
+                  detail: { charId, charName, body: (spoken[spoken.length - 1] ?? '').slice(0, 120) },
+              }));
+          }
+      };
+      void pull();
+      document.addEventListener('visibilitychange', pull);
+      window.addEventListener('em-agent-pull', pull); // [EM: agent-instant-chat] 回复太长只推了「去取」信号
+      return () => {
+          alive = false;
+          document.removeEventListener('visibilitychange', pull);
+          window.removeEventListener('em-agent-pull', pull); // [EM: agent-instant-chat]
+      };
+  }, []);
+  // [EM-END: agent-backend-inbox]
+
+  // [EM-START: agent-push-stale-notice] 推送到不了手机：弹一个要点掉才消失的说明，别让回复悄悄变慢
+  useEffect(() => {
+      const onStale = (event: Event) => {
+          void import('../utils/emAgentChat').then(({ pushStaleNoticeText }) => {
+              setErrorDialog({ title: 'Mac mini 的推送没送到', details: pushStaleNoticeText((event as CustomEvent).detail ?? {}) });
+          });
+      };
+      window.addEventListener('em-agent-push-stale', onStale);
+      return () => window.removeEventListener('em-agent-push-stale', onStale);
+  }, []);
+  // [EM-END: agent-push-stale-notice]
 
   // ─── Global Proactive Message Handler ───
   // Registered at OS level so it works even when Chat is not open.
@@ -3109,8 +3222,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     localStorage.setItem('os_api_presets', JSON.stringify(next));
     setApiPresets(next);
   };
-  const updateApiPreset = (id: string, name: string, config: APIConfig) => {
-    const next = apiPresets.map(p => p.id === id ? normalizeApiPreset({ ...p, name, config }) : p);
+  const updateApiPreset = (id: string, name: string, config: APIConfig, group?: string) => { // [EM: api-preset-group]
+    const next = apiPresets.map(p => p.id === id ? normalizeApiPreset({ ...p, name, config, ...(group !== undefined ? { group } : {}) }) : p); // [EM: api-preset-group]
     localStorage.setItem('os_api_presets', JSON.stringify(next));
     setApiPresets(next);
   };
@@ -4192,6 +4305,18 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   }
               })(),
               // [EM-END: shopping-backup-export]
+              // [EM-START: moments] 朋友圈：自己发的动态 + 所有点赞评论；文字备份不带图
+              ...await (async () => {
+                  if (mode !== 'text_only' && mode !== 'full') return {};
+                  try {
+                      const { MomentsDB } = await import('../utils/momentsDb');
+                      return { emMoments: await MomentsDB.exportAll(mode === 'full') };
+                  } catch (error) {
+                      console.warn('EM MomentsDB backup failed:', error);
+                      return {};
+                  }
+              })(),
+              // [EM-END: moments]
 
               // [EM-START: map-backup-export] LiliumOS 地图系统（legacy IndexedDB: SullyEM_Map）
               ...await (async () => {
@@ -5166,6 +5291,14 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               } catch (e) { console.warn('EM ShoppingDB restore failed:', e); }
           }
           // [EM-END: shopping-backup-restore]
+          // [EM-START: moments]
+          if (data.emMoments !== undefined) {
+              try {
+                  const { MomentsDB } = await import('../utils/momentsDb');
+                  await MomentsDB.importAll(data.emMoments);
+              } catch (e) { console.warn('EM MomentsDB restore failed:', e); }
+          }
+          // [EM-END: moments]
 
           // [EM-START: map-backup-restore] LiliumOS 地图系统（legacy IndexedDB: SullyEM_Map）
           if (data.emMapWorlds !== undefined) {

@@ -1,0 +1,151 @@
+import type { FinanceAnalysisTreatment, FinanceCategory, FinanceTransaction } from '../types';
+import { isFinanceTransactionReportable, reportingTransactionType } from './financeTransfers';
+
+export type FinanceAnalysisView = 'all' | 'manual' | 'trimmed';
+export type FinanceOutlierMethod = 'iqr' | 'percentile';
+export interface FinanceAnalysisSettings { view: FinanceAnalysisView; method: FinanceOutlierMethod; percentile: number }
+export const FINANCE_ANALYSIS_KEY = 'financeAnalysisSettings';
+export const DEFAULT_FINANCE_ANALYSIS: FinanceAnalysisSettings = { view: 'manual', method: 'iqr', percentile: 95 };
+export const ANALYSIS_VIEW_LABELS: Record<FinanceAnalysisView, string> = {
+  all: '全部', manual: '个人', trimmed: '日常',
+};
+export const ANALYSIS_TREATMENT_LABELS: Record<FinanceAnalysisTreatment, string> = {
+  auto: '正常计入', keep: '始终保留', pass_through: '代收代付', one_off: '一次性支出', other: '其他排除',
+};
+
+export function analysisTreatment(transaction: Pick<FinanceTransaction, 'analysisTreatment'>): FinanceAnalysisTreatment {
+  const value = transaction.analysisTreatment;
+  return value && Object.prototype.hasOwnProperty.call(ANALYSIS_TREATMENT_LABELS, value) ? value : 'auto';
+}
+
+export function isManuallyExcluded(transaction: Pick<FinanceTransaction, 'analysisTreatment'>): boolean {
+  return ['pass_through', 'one_off', 'other'].includes(analysisTreatment(transaction));
+}
+
+export function normalizeFinanceAnalysisSettings(value: unknown): FinanceAnalysisSettings {
+  const source = value && typeof value === 'object' ? value as Partial<FinanceAnalysisSettings> : {};
+  return {
+    method: source.method === 'percentile' ? 'percentile' : 'iqr',
+    view: source.view === 'all' || source.view === 'trimmed' || source.view === 'manual'
+      ? source.view : DEFAULT_FINANCE_ANALYSIS.view,
+    percentile: typeof source.percentile === 'number' && Number.isFinite(source.percentile)
+      && source.percentile >= 50 && source.percentile <= 100 ? source.percentile : 95,
+  };
+}
+
+/** R's type-7 sample quantile: interpolate at zero-based index (n - 1) * p. */
+export function expensePercentile(amounts: number[], percentile: number): number | null {
+  if (!Number.isFinite(percentile) || percentile < 0 || percentile > 100) return null;
+  const sorted = amounts.filter(x => Number.isFinite(x) && x > 0).sort((a, b) => a - b);
+  if (!sorted.length) return null;
+  const index = (sorted.length - 1) * percentile / 100;
+  const low = Math.floor(index);
+  return sorted[low] + (sorted[Math.ceil(index)] - sorted[low]) * (index - low);
+}
+
+export interface FinanceAnalysisOptions extends FinanceAnalysisSettings {
+  from: string;
+  to: string;
+  currency: string;
+  accountId?: string | null;
+}
+
+export function buildFinanceAnalysis(
+  transactions: FinanceTransaction[],
+  categories: ReadonlyMap<string, FinanceCategory>,
+  options: FinanceAnalysisOptions,
+) {
+  const settings = normalizeFinanceAnalysisSettings(options);
+  const scoped = transactions.filter(t => isFinanceTransactionReportable(t)
+    && t.dateStr >= options.from && t.dateStr <= options.to && t.currency === options.currency
+    && (!options.accountId || t.accountId === options.accountId)
+    && Number.isFinite(t.amount) && t.amount > 0
+    && reportingTransactionType(t, categories) !== 'transfer');
+  const pending = scoped.filter(t => t.pending);
+  const posted = scoped.filter(t => !t.pending);
+  const expenses = posted.filter(t => reportingTransactionType(t, categories) === 'expense');
+  const manualExpenses = expenses.filter(t => !isManuallyExcluded(t));
+  const amounts = manualExpenses.map(t => t.amount);
+  const q1 = expensePercentile(amounts, 25);
+  const q3 = expensePercentile(amounts, 75);
+  const iqr = q1 === null || q3 === null ? null : q3 - q1;
+  const threshold = settings.method === 'iqr'
+    ? (q3 === null || iqr === null ? null : q3 + 1.5 * iqr)
+    : expensePercentile(amounts, settings.percentile);
+  // Strictly greater: ties at the threshold stay together. Never iterate/recompute
+  // after trimming, and never persist percentile results onto source transactions.
+  const outliers = manualExpenses.filter(t => analysisTreatment(t) !== 'keep'
+    && threshold !== null && t.amount > threshold);
+  const outlierIds = new Set(outliers.map(t => t.id));
+  const trimmedExpenses = manualExpenses.filter(t => !outlierIds.has(t.id));
+  const rowsByView = { all: expenses, manual: manualExpenses, trimmed: trimmedExpenses };
+  const selected = posted.filter(t => settings.view === 'all' || (
+    !isManuallyExcluded(t) && (settings.view !== 'trimmed' || !outlierIds.has(t.id))
+  ));
+  const sum = (rows: FinanceTransaction[]) => rows.reduce((total, t) => total + t.amount, 0);
+  const comparisons = (['all', 'manual', 'trimmed'] as const).map(view => ({
+    view, count: rowsByView[view].length, total: sum(rowsByView[view]),
+  }));
+  return {
+    settings, posted, pending, expenses, manualExpenses, outliers, outlierIds, selected,
+    selectedExpenses: rowsByView[settings.view],
+    selectedIncome: selected.filter(t => ['income', 'refund'].includes(reportingTransactionType(t, categories))),
+    manualExcluded: posted.filter(isManuallyExcluded),
+    manualExcludedExpenseTotal: sum(expenses.filter(isManuallyExcluded)),
+    outlierTotal: sum(outliers), comparisons, threshold, q1, q3, iqr, sampleSize: manualExpenses.length,
+    smallSample: manualExpenses.length > 0 && manualExpenses.length < 20,
+  };
+}
+
+export type FinanceAnalysisResult = ReturnType<typeof buildFinanceAnalysis>;
+
+export function describeFinanceAnalysis(result: FinanceAnalysisResult, currency: string): string {
+  const { settings, sampleSize, threshold } = result;
+  return `分析口径：${ANALYSIS_VIEW_LABELS[settings.view]}；仅已入账记录，币种 ${currency}。`
+    + `原始支出 ${result.comparisons[0].total.toFixed(2)}，手动排除后 ${result.comparisons[1].total.toFixed(2)}，`
+    + `${settings.method === 'iqr' ? 'IQR（P75 + 1.5 × 四分位距）' : `P${settings.percentile}`} 后 ${result.comparisons[2].total.toFixed(2)}。`
+    + `大额筛选样本 ${sampleSize} 笔，阈值 ${threshold === null ? '无' : threshold.toFixed(2)}；`
+    + '仅筛选分析，不代表钱没花、节省了钱或交易有错；代收代付不代表个人消费或劳动收入。';
+}
+
+/** Content-sensitive key: comments must not survive edits to the report's rows or scope. */
+export function financeAnalysisCacheKey(result: FinanceAnalysisResult, options: FinanceAnalysisOptions): string {
+  const data = JSON.stringify([options, result.posted.map(t => [
+    t.id, t.amount, t.dateStr, t.categoryId, t.type, t.note, t.sourceDescription, t.analysisTreatment,
+  ]).sort((a, b) => String(a[0]).localeCompare(String(b[0])))]);
+  let hash = 2166136261;
+  for (let i = 0; i < data.length; i++) hash = Math.imul(hash ^ data.charCodeAt(i), 16777619);
+  return `analysis-v2-${(hash >>> 0).toString(16)}`;
+}
+
+/** Zero-filled calendar buckets; all scopes use the same baseline and y-axis. */
+export function financeSpendingSeries(result: FinanceAnalysisResult, from: string, to: string, monthly = false) {
+  const buckets = new Map<string, { date: string; label: string; all: number; selected: number }>();
+  const cursor = new Date(`${from}T00:00:00Z`);
+  const end = new Date(`${to}T00:00:00Z`);
+  if (!Number.isFinite(cursor.getTime()) || !Number.isFinite(end.getTime())) return [];
+  while (cursor <= end) {
+    const date = cursor.toISOString().slice(0, 10);
+    const key = monthly ? date.slice(0, 7) : date;
+    if (!buckets.has(key)) buckets.set(key, { date: key, label: monthly ? `${Number(date.slice(5, 7))}月` : `${Number(date.slice(5, 7))}/${Number(date.slice(8))}`, all: 0, selected: 0 });
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  for (const [rows, field] of [[result.expenses, 'all'], [result.selectedExpenses, 'selected']] as const) {
+    for (const row of rows) {
+      const bucket = buckets.get(monthly ? row.dateStr.slice(0, 7) : row.dateStr);
+      if (bucket) bucket[field] += row.amount;
+    }
+  }
+  return [...buckets.values()];
+}
+
+/** Reference lines summarize calendar totals, including zero-spend days/months. */
+export function spendingReferenceValues(series: Array<{ selected: number }>) {
+  if (!series.length) return { mean: 0, median: 0 };
+  const amounts = series.map(bucket => bucket.selected).sort((a, b) => a - b);
+  const middle = Math.floor(amounts.length / 2);
+  return {
+    mean: amounts.reduce((sum, amount) => sum + amount, 0) / amounts.length,
+    median: amounts.length % 2 ? amounts[middle] : (amounts[middle - 1] + amounts[middle]) / 2,
+  };
+}

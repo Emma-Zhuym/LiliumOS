@@ -40,7 +40,8 @@ describe('KitchenDB inventory ledger', () => {
     await expect(KitchenDB.moveLot(pantry.lot.id, 'door-upper')).rejects.toThrow('冷藏或冷冻');
     await expect(KitchenDB.moveLot('missing', 'shelf')).rejects.toThrow();
     await expect(KitchenDB.moveLot(lot.id, 'bad-slot' as never)).rejects.toThrow('有效');
-    expect((await KitchenDB.getLots())[0]).toMatchObject({ storageZone: 'freezer', quantity: 1 });
+    // getLots 按随机 id 排序，不能拿第一条当「冷冻牛肉」
+    expect((await KitchenDB.getLots()).find(item => item.id === lot.id)).toMatchObject({ storageZone: 'freezer', quantity: 1 });
     const cold = await KitchenDB.addLot({ name: '牛奶', quantity: 1, unit: 'pack', storageZone: 'fridge' });
     await KitchenDB.changeLot({ type: 'FINISH', lotId: cold.lot.id });
     await expect(KitchenDB.moveLot(cold.lot.id, 'door-lower')).rejects.toThrow();

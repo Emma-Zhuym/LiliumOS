@@ -48,9 +48,12 @@ export function normalizeApiConfig(config: APIConfig): APIConfig {
 }
 
 export function normalizeApiPreset(preset: ApiPreset): ApiPreset {
+  const { group: _group, ...rest } = preset; // [EM: api-preset-group]
+  const group = String(preset.group ?? '').trim(); // [EM: api-preset-group]
   return {
-    ...preset,
+    ...rest,
     name: String(preset.name ?? '').trim(),
     config: normalizeApiConfig(preset.config),
+    ...(group ? { group } : {}), // [EM: api-preset-group]
   };
 }

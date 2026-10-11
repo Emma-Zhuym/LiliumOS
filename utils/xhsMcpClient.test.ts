@@ -263,3 +263,41 @@ describe('Spider v3 hidden client patch', () => {
         });
     });
 });
+
+// [EM-START: xhs-share-instant-card]
+describe('xiaohongshu-mcp get_feed_detail（mini 自托管）', () => {
+    it('读出正文、作者、赞数、封面和评论', () => {
+        const payload = {
+            feed_id: '6a9bd53600000000290185bc',
+            data: {
+                note: {
+                    noteId: '6a9bd53600000000290185bc',
+                    xsecToken: 'tok',
+                    title: '标题',
+                    desc: '正文内容',
+                    type: 'normal',
+                    ipLocation: '上海',
+                    user: { userId: 'u1', nickname: '作者', nickName: '作者', avatar: '' },
+                    interactInfo: { likedCount: '1.2万', commentCount: '30', collectedCount: '88', sharedCount: '5' },
+                    imageList: [{ width: 1, height: 1, urlDefault: 'http://sns-img/1.jpg', urlPre: 'http://sns-img/pre.jpg' }],
+                },
+                comments: {
+                    list: [{ id: 'c1', content: '好看', likeCount: '3', userInfo: { userId: 'u2', nickname: '路人' }, subComments: [] }],
+                    cursor: '', hasMore: false,
+                },
+            },
+        };
+        const detail = normalizeXhsLiteDetail(payload);
+        expect(detail).toMatchObject({
+            noteId: '6a9bd53600000000290185bc',
+            title: '标题',
+            desc: '正文内容',
+            author: '作者',
+            likes: 12000,
+            coverUrl: 'https://sns-img/1.jpg',
+            commentReadStatus: 'loaded',
+        });
+        expect(detail.comments?.[0]).toMatchObject({ author: '路人', content: '好看', likes: 3 });
+    });
+});
+// [EM-END: xhs-share-instant-card]

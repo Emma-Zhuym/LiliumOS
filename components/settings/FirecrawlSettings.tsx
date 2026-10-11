@@ -21,7 +21,7 @@ export default function FirecrawlSettings() {
         }
     };
     return (
-        <details style={{ background: F.surface, borderRadius: R.smallCard, boxShadow: S.raisedSoft, color: F.textSecondary }}>
+        <details style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.smallCard, boxShadow: S.raisedSoft, color: F.textSecondary }}>
             <summary className="flex items-center gap-3 p-4 cursor-pointer" style={{ minHeight: 64 }}>
                 <Globe size={20} /><span className="text-sm font-semibold">Firecrawl 网页读取</span>
             </summary>
@@ -32,7 +32,7 @@ export default function FirecrawlSettings() {
                     <input type="password" autoComplete="off" value={key} disabled={busy} onChange={event => { setKey(event.target.value); setResult(null); }} className="block w-full mt-2 p-3 text-sm" style={{ borderRadius: R.input, background: F.surfaceSunken, boxShadow: S.sunken, color: F.textPrimary }} />
                 </label>
                 <div className="flex gap-3">
-                    <button type="button" disabled={busy} onClick={() => { setFirecrawlApiKey(''); setKey(''); setResult({ ok: true, text: '已停用，网页读取继续使用原有方式' }); }} className="px-4 text-sm" style={{ minHeight: 48, borderRadius: R.button, background: F.surface, boxShadow: S.raisedSoft }}>停用</button>
+                    <button type="button" disabled={busy} onClick={() => { setFirecrawlApiKey(''); setKey(''); setResult({ ok: true, text: '已停用，网页读取继续使用原有方式' }); }} className="px-4 text-sm" style={{ minHeight: 48, borderRadius: R.button, background: F.surface, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}>停用</button>
                     <button type="button" disabled={busy || !key.trim()} onClick={() => void save()} className="flex-1 px-4 text-sm disabled:opacity-50" style={{ minHeight: 48, borderRadius: R.button, background: F.textPrimary, color: F.surface }}>{busy ? '检查中…' : '保存并检查额度'}</button>
                 </div>
                 {result && <p role="status" className="text-xs leading-relaxed" style={{ color: result.ok ? STATUS.success.ink : STATUS.danger.ink }}>{result.text}</p>}

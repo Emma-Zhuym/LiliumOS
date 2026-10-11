@@ -25,16 +25,17 @@ Emma 会在 MacBook 和 Mac mini 上交替修改 LiliumOS。日常开发以自�
 
 ## ⚠️ UI 铁律（写任何界面代码前必须遵守——这是规则，不是建议）
 
-规则全文：`../design_prototype/design-system/`（`DESIGN_SYSTEM.md` + `APP_CONVENTIONS.md`）。
-**动 UI 前必须完整读过 APP_CONVENTIONS.md 的 §0 页面骨架硬规格**，并且：
+规则全文在仓库内：`design-system/DESIGN_SYSTEM.md` + `APP_CONVENTIONS.md`（v1.0「F」，2026-09-25 定稿）。
+**动 UI 前必须读过这两份**，并且：
 
-1. **样式取值只能来自 `utils/clayTokens.ts` 常量（F/S/R/HUE/STATUS/MOTION）**。
+1. **样式取值只能来自 `utils/clayTokens.ts` 常量（F/S/R/HUE/STATUS/FONT/OVERLAY/MOTION）**。
    UI 代码里出现裸 hex 颜色、手写 boxShadow 字符串、自造 borderRadius = 违规，必须返工。
+   v1.0 是全平：`S.*` 全为 none，不许用手写阴影把「凸起感」加回来。
    tokens 里没有需要的值 → **停下来问阿萌**，不许自己发明阴影/颜色/圆角。
-2. **顶栏/返回钮/标题逐字抄 §0.2/0.3/0.4 配方**：新 App 进 `utils/safeAreaApps.ts` 自理名单、
-   让位只写 `var(--chrome-top)`（禁止手拼 safe-top 算式）、返回钮 = 44px 凸起圆钮
-   （CaretLeft 20px bold textSecondary，子页/表单页同样，禁止裸文字"‹ 返回"）、
-   居中标题 16px/600、顶栏放滚动容器外 shrink-0。
+2. **顶栏**：新 App 进 `utils/safeAreaApps.ts` 自理名单、让位只写 `var(--chrome-top)`（禁止手拼 safe-top 算式）、
+   返回钮 = **裸 icon**（CaretLeft 22px bold textPrimary，无底无描边无阴影，**触控区 44×44**；
+   子页/表单页同样，禁止裸文字"‹ 返回"）、居中标题 = 衬线 `FONT.heading` + `FONT.navTitle`（17/700）、
+   顶栏放滚动容器外 shrink-0。
 3. **每屏彩色预算**：1 Product 主色 + ≤1 辅助色 + 状态色；大面积只许 Tint；
    全系统禁止渐变填充；界面 chrome 禁止 emoji（用 2px 描边 icon）。
 4. **完工自查**：新页面与 Health/Bank 截图摆一起对比顶栏——不像同一个系统 = 抄漏了，回 §0 重对。
@@ -76,7 +77,7 @@ merge 时 `grep -rn "EM-START\|\[EM:" --include="*.ts" --include="*.tsx"` 就能
 ### merge 后必跑自检
 
 ```bash
-bash scripts/check-em-patches.sh   # 当前 80 项锚点检查，红了就是功能被冲掉
+bash scripts/check-em-patches.sh   # 当前 131 项锚点检查，红了就是功能被冲掉
 pnpm vitest run                    # 单元测试
 ```
 
@@ -127,10 +128,10 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - `types.ts` 里 `AgendaItem` 的 `dateTime?`, `charId?`, `reminderMinutes?`, `createdAt?`
   - `dateTime` 是 optional，代码中访问时必须用 `item.dateTime ?? ''` 防 undefined
 
-### 7. 桌面图标排序
-- `context/OSContext.tsx` 里的 `appOrder` / `setAppOrder` state
-- `apps/Launcher.tsx` 里长按拖拽排序逻辑
-- 第一页固定 12 个图标
+### 7. 桌面图标与组件布局
+- `context/OSContext.tsx` 里的 `appOrder` / `setAppOrder` 保留软件顺序；`theme.launcherDesktopLayout` 保存每个桌面项的页、行、列
+- `apps/Launcher.tsx` 里长按进入编辑模式；时钟页恢复固定排版，其余页面的软件、文件夹、小组件在 4×6 网格中拖动；尺寸和冲突处理见 `utils/launcherDesktopLayout.ts`
+- 默认打开中间的固定时钟页，保留 12 个图标；左侧是合并的月历与近期事件页。自由网格不占用时钟页
 
 ### 8. 默认壁纸
 - `context/OSContext.tsx` 里 `export const DEFAULT_WALLPAPER = 'linear-gradient(...)'`
@@ -163,6 +164,11 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - `apps/ShoppingApp.tsx` — 网购/外卖；整页、店铺目录与折叠店内商品列表都必须可滚动
 - `context/OSContext.tsx` — 商品、店铺、订单、Wish 等 Shopping 数据随全量备份
 - `constants.tsx` 中 Shopping 使用 `Storefront` 图标，不得回退为齿轮
+- `utils/shoppingFamily.ts` — 四种订单互通：我给 TA 自动进 TA 查手机的淘宝和外卖（只读映射）；TA 给我只由心跳 `gift` 下单（惊喜由 TA 定），投喂站不再手动录；「给自己」与家属关联角色心跳下的单只在关联后互相可见
+- **惊喜礼物三处都要藏住**：投喂站、TA 查手机里那条（查手机就是阿萌在翻，所以礼物单一律由 `shopOrdersAsPhoneRecords` 实时映射、`emLife` 不写记录）、起居注那一句（后端 `veilSurprise` 换成不点破的说法，买了什么留在 `model_runs.episode.life`）。送到即揭晓
+- 网购是直接填单（名称/价格/规格），不走商品目录和购物车；外卖保留店铺目录 + 购物车
+- **送达时间由后端定**（`server/agent-backend/shopping.mjs`）：心跳抽中买东西先抽送达时刻写进提示词（网购分当天达 / 次日达 / 普通快递三档，**选哪档由模型按买的东西定（`ship`），几点到由程序定**），`life.eta` 带去前端（查手机记录 `PhoneEvidence.eta`、礼物单 `etaTimestamp`）；没有 `eta` 的旧数据退回写死估计，别删这条退路。同一处把最近 7 天买过的列给 TA，防重复下单
+- 外卖和网购都由 `sweepDeliveries` 到点自动签收；**退单不删单**：状态 `cancelled` + `cancelledAt`，TA 自己的心跳单退款标在查手机那条记录上（`refundedAt` + 「（已退款）」），跟 TA 有关的退单在私聊留一条系统消息（`refundNotice`）
 
 ### 17. EM 角色代记
 - `utils/emScribe.ts` — 代记指令执行与去重
@@ -218,6 +224,62 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - `utils/mcpFireCore.ts` 的模型 schema 归一化必须同时供前台和 amsg worker 使用：非字符串 enum 只从模型声明副本移除，原始 MCP schema 与真实调用参数不得改写
 - 该能力依赖 mini 在线且用户已登录；不能写成完整 Agent Backend、主动心跳或 Apple Health 已完成
 - 详细部署与边界见 `server/apple-events-bridge/README.md`、`docs/mcp-client.md`
+### 25. 朋友圈 App
+- `apps/MomentsApp.tsx` / `utils/moments.ts` / `utils/momentsDb.ts` / `utils/momentsLook.ts` — 所有人的动态汇总：角色动态直接读查手机 `type: 'social'` 记录，用户动态、点赞评论存 `LiliumOS_Moments`
+- 亲友评论（3–5 条）、虚拟赞数、屏蔽分组与动态**同一次生成**，存在 `PhoneEvidence.moment`（查手机刷新和心跳 `life.moment` 两处都写）；npc 不接话
+- 用户动态可选「谁可以看」；「让大家看看」用各角色自己的 API 立即刷一遍（带图识图、带最近 30 条私聊）
+- **心跳刷朋友圈**：快照 `userMoments` 带阿萌 48 小时内、TA 没回应过的动态（只有文字和配图张数）；后端 `moments.mjs` 记「看过了」（`moments_seen:<charId>`），醒来顺手点赞 / 评论，`moment_reaction` 静默送回、`utils/emMomentsContext.ts` 写进 `LiliumOS_Moments`；回消息的那一跳不刷
+- **聊天看得到朋友圈**：`buildMomentsChatInjection` 把 48 小时内阿萌发的和 TA 自己发的（含评论）放进 volatileState
+- `context/OSContext.tsx` 的 `emMoments` 随备份导出/恢复，文字备份不带图且恢复时保留本机图片
+
+### 26. 日历（现实时间接入）
+- `apps/CalendarApp.tsx` / `utils/emTemporal.ts` / `components/settings/AgentTemporalPanel.tsx` — 阿萌真实的 Apple 日历与提醒，mini 每天同步一次到后端缓存，手机只读缓存
+- **手机端永远不直连桥接**：列日历（`calendar_calendars`）在 EventKit 那边就要三十秒，只有设置页那一下允许等，聊天和 App 路径一律读缓存
+- 可见性默认**全部不给看**，逐个日历 / 提醒清单选 不给看 / 只知道我在忙 / 能看到标题；`busy` 档进角色上下文时只剩「有安排」，地点一律不进
+- 重复事件按 `occurrence_key`（事件 ID + 开始时间）存，别退回拿事件 ID 当主键——那样一门课只剩第一次
+- 写回苹果（建提醒 / 勾完成）走同步接口、不排队；写完只把那一条塞进缓存，整表重写留给每天那次同步
+- 桥接建不了重复规则，事件的重复只能在苹果日历里建
+- 日历内容和桥接 Token 一样不得进日志、文档、Engram 或备份
+- **角色的约定**（心跳里 TA 跟亲友约下的事，后端 `life_threads.due_at`）经 `GET /plans` 拉到本机 `utils/emAgentPlans.ts` 缓存：日历 App 摆在对应那天（中性灰 + 角色头像），聊天提示词告诉 TA 自己两周内约了什么
+
+### 27. 换皮「F」（2026-09-25）
+- `utils/clayTokens.ts` 是唯一取值来源：全平（`S.*` = none）、中性底、圆角 12、OKLCH 16 色、`FONT` 衬线标题、`OVERLAY` 雾面浮层、`MOTION` 三条曲线
+- `utils/clayMotion.css` 由 clayTokens 顶部 `import './clayMotion.css';` 引入；删掉这行所有动效（sheet 滑入、提示条、圆环画出、选中日弹出）都会失效
+- **两处上游文件补丁**：`components/PhoneShell.tsx` 的提示条改为渲染 `components/os/ClayToast`（`[EM: skin-f-toast]`，一行 import + 一处替换）；`index.html` 字体链接末尾追加 `Noto+Serif+SC:wght@600;700`（上一行有 `[EM: skin-f]` 注释）。合并上游时保住这两处
+- 其余 22 个引用 clayTokens 的上游文件不改代码、被动跟着换皮；其中 VRWorld / 记忆宫殿 / Launcher / Chat / CallApp 有上游手写阴影，暂时新旧混搭，按约定不改
+- sheet 打开时自动聚焦必须 `focus({ preventScroll: true })`：sheet 从屏幕外滑入，普通 focus 会把整页外层滚上去（日历「记一件事」踩过）
+- 日历与健康是样板：以后其他 App 迁移照这两个改
+- `scripts/check-em-patches.sh` 的「换皮 F」一节有 8 个锚点
+
+### 28. 小红书 MCP 常驻 mini
+- `server/xhs-mcp/` — 上游 `xiaohongshu-mcp` 的 LaunchAgent 部署：只听 `127.0.0.1:18060`，用上游自带 `AUTH_TOKEN`（令牌文件 `agent-tools/secrets/xhs-mcp-token`），登录态由 `COOKIES_PATH` 存在私有目录；在 LiliumOS 设置里扫码登录，不再手抄 cookie
+- `scripts/home-assistant-proxy.mjs` — Funnel 网关多一条 `/xhs/*`（去前缀转发），**只放行** `/xhs/mcp` 与 `/xhs/health`，上游 `/api/v1/*` REST 不从公网开
+- `utils/xhsMcpClient.ts` — 请求带 Bearer（`xhsMcpConfig.authToken`）；新版上游是无状态服务器、不发 `Mcp-Session-Id`，握手后用 `tools/list` 验证即可，不得再一律报 CORS；`get_login_qrcode` 的图片内容转成 data URL 给设置页
+- `utils/amsgToolPack.ts` / `worker/amsg/src/index.ts` — 令牌随工具配置上云，worker 直连 Funnel 时同样带上；改完要重跑 `node scripts/build-workers.mjs`
+- 令牌和登录 cookie 不得进仓库、plist、日志、Engram 或备份；部署与排查见 `server/xhs-mcp/README.md`
+- **心跳逛小红书**（`server/agent-backend/xhsFeed.mjs`）：生活小事里 `xhs` 占 0.08（从朋友圈分出）。程序先经本机直连 `list_feeds` 刷真实首页，模型只挑编号写感想，标题作者一律用首页真值；程序替 TA 点开第一条多看两眼的（`get_feed_detail`，第二次调模型）；点赞 / 收藏一跳最多两次；`share` 转发给阿萌时算开口（不能开口的那一跳丢弃），消息 payload 带 `xhsNote`，`utils/emAgentInbox.ts` 在话后接 xhs_card。心跳只准调 `XHS_BACKEND_TOOLS` 四个。角色没开小红书（快照 `xhsEnabled`）、后端没有 `xhs-mcp-token`、首页刷不到时退回发朋友圈。前端 `utils/emLifeXhs.ts` 落进小红书 App 活动记录 + 私聊一条自由活动系统消息
+- **小红书只看不发**（阿萌 2026-09-26 定）：网关 `XHS_BLOCKED_TOOLS` 停用发帖 / 发视频 / 评论 / 回复评论 / 回复通知 / 删登录（tools/call 拒绝、tools/list 隐藏）；`emXhsSection` 不再教发帖评论；手动自由活动的 post 决策改为刷首页。不得把这几项加回来
+
+### 29. 聊天交给 Mac mini 回复（即时回复）
+- 规格 `docs/spec-agent-backend-instant-chat.md`；阶段一已做，阶段二（主动消息排程搬到 mini）、阶段三（退役 amsg）待做
+- 手机端 `utils/emAgentChat.ts`（开关、探活、提交、60 秒点名、信箱回复→收件箱）；`useChatAI.ts` 的 `[EM-START: agent-instant-chat]` 路由优先于 amsg 即时对话，mini 不在就本地生成
+- 复用 amsg 即时对话：待收记录 `via:'mini'`（`amsgInstantChat.ts`），`activeMsgRuntime.ts` 的状态点名把 mini 轮次分走（否则会去 amsg 查无此行被判死）；回复推送是 amsg content 形状，SW 直接进收件箱走后处理
+- 后端 `server/agent-backend/chatTurns.mjs`：`POST/GET /chat/turns`，凭据只在内存，重启后未跑的那轮判失败让手机重发；>3.5KB 只推 `agent-pull` 信号（`amsgResults.ts`）
+- 心跳：`lastChatMessageAt` 把 `chat_reply` 算作回过；即时回复在跑时 `chat_turn_running` 不开口
+
+### 30. 角色是活在社会里的人（社会责任）
+- 阿萌 2026-10-01 定：她受伤、出事，角色可以放下工作赶来；她想逛超市角色就早退、她生气角色就推掉工作跨国飞来，不行。**她明确说不是日程规则的问题**（改日程可以），是角色整个没有社会责任——所以写的是「你是什么样的人」，不要改成条款或去动日程块
+- 聊天：`utils/emPromptAddons.ts` 的 `emDutySection`（行为规范 2.1，主动消息打包也带）；`chatPrompts.ts` 只有一处调用
+- 心跳：`server/agent-backend/heartbeat.mjs` 的 `DUTY_RULE`（心跳不读世界书，只读角色设定，所以不能靠世界书）；**改措辞两边一起改**
+- 某个角色要例外（设定就是不上班的人）写进那个角色自己的设定，聊天和心跳都读设定
+
+### 31. B 站 MCP 常驻 mini（只读）
+- `server/bilibili-mcp/` — `@xzxzzx/bilibili-mcp@1.14.2`（stdio）外套 `server/apple-events-bridge/index.mjs` 同一份转接代码，单独实例只听 `127.0.0.1:8768`，Bearer 令牌在 `agent-tools/secrets/bilibili-mcp-token`；网关 `/bili/mcp`、`/bili/health` 去前缀转发
+- 12 个工具全只读（视频信息 / 字幕 / 章节 / 评论 / 搜视频 / 搜 UP 主 / 收藏夹），不需要停用名单；阿萌 2026-10-08 定「只读，不需要输出」，不得加发评论 / 弹幕 / 动态类工具
+- **启动必须 `node <真实路径>/dist/cli.js`**，`npx` / `.bin` 软链接在 Node 23/24 上静默退出；**必须 `USER_AGENT=bilibili-mcp/1.14.2`**，默认浏览器 UA 读视频被 B 站 412。两条都在 `run-macos.sh`
+- 登录 Cookie 在 mini 的 `~/.bilibili-mcp/config.json`，扫码要在 mini 本人的大终端窗口里做；没装 ASR，无字幕视频读不到正文
+- 心跳自己逛 B 站、聊天里发链接自动读字幕还没做（`docs/ideas.md`）
+
 ## 合并时常见坑（踩过的 bug）
 
 ### PhoneShell.tsx — messageSubView 必须解构
@@ -300,18 +362,24 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - `ScheduleCard.tsx` — 编辑时可手动覆盖状态
 - 三层判断优先级：手动覆盖 > LLM 生成 > 关键词 fallback
 
-## 未来功能计划
+## 点子和待办往哪写
 
-当前优先级和完成记录统一维护在 `docs/roadmap.md`；这里仅保留会影响架构边界的摘要，避免两份清单再次漂移。
+**新点子只写 `docs/ideas.md`，别再开新清单文档了**（2026-09-25 定，起因是同一批想法散在
+五个地方，还有几条掉进 Engram 里找不回来）。
 
-1. **Health 外部数据链收尾**：Notion 同步、完整历史角色工具、角色周评。
-2. **Notion 高级管理 App**：独立 `apps/NotionApp.tsx`，不重写 Settings；整合多库权限、模板和标签。
-3. **位置感知聊天**：`utils/locationService.ts` + Google Places + 显式权限/隐私开关。
-4. **日记系统整理**：独立 `apps/DiaryApp.tsx`，统一交换日记与 Notion 日记。
-5. **共读增强**：批注回信支路、文字高亮、PDF。
-6. **角色时区/多人日程尾项**：先按 `docs/character-timezone.md` 的产品决策处理，不要把角色时间和设备时间混用。
+| 东西 | 写哪 |
+|---|---|
+| 还没决定做的点子 | `docs/ideas.md` ← **唯一入口** |
+| 决定要做了 / 已排期 | `docs/roadmap.md` 的优先级 |
+| 做了但还没验收 / 体验 | `docs/roadmap.md` 的「做了，等验收」表 |
+| 要交给另一个 session 独立做完的 | `docs/spec-<功能名>.md`（照 `spec-photo-favorites.md` 的骨架：数据层 / 各端改动 / **本次不做** / EM 惯例 / 验收） |
+| 做完了 | `docs/changelog.md`（日期 · 标题 · **操作：Claude（小帕）** · 提交号 · 内容；最新在上，格式见文件开头） |
+| 代码层面的技术待办 | `notes/todo.md` |
+| 跨 agent 交接、踩过的坑 | Engram（**不存点子**） |
 
-已完成、不要重复立项：地图×日程、Intiface、Finance 重设计、照片收藏、Token 召回面板、Offline 状态系统。
+已完成、不要重复立项：地图×日程、Intiface、Finance 重设计、照片收藏、Token 召回面板、Offline 状态系统。其余做过什么先翻 `docs/changelog.md`。
+
+**每完成一件事都要写 changelog**（2026-09-26 阿萌定）：合进 `main` 或上线后，在 `docs/changelog.md` 对应月份最上面加一条，操作者写 `Claude（小帕）`；同时把 roadmap「做了，等验收」里对应的那行删掉或更新。cloud session 看不到 Engram，changelog 是两边 Agent 和阿萌都一定看得到的那份记录。
 
 ## 文件说明
 
@@ -319,16 +387,20 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - `.claude/launch.json` — Vite dev/preview server 配置
 - 部署：Vercel（绑 GitHub main 分支自动部署）+ GitHub Pages
 
-## UI 设计系统 — Emma Soft Clay UI
+## UI 设计系统 — Emma Soft Clay UI v1.0「F」
 
-**所有 UI 改动必须遵循 [`design-system/DESIGN_SYSTEM.md`](../design-system/DESIGN_SYSTEM.md) 的规则。**
+**所有 UI 改动必须遵循 [`design-system/DESIGN_SYSTEM.md`](../design-system/DESIGN_SYSTEM.md) 与 [`APP_CONVENTIONS.md`](../APP_CONVENTIONS.md)。**
+2026-09-25 换皮定稿，替换 v0.1 的奶黄底 + 凹凸并存；七套备选和取舍过程见 https://claude.ai/artifact/4WQXnVEqsbsGbhGcuWbmD3
 
-- 颜色、圆角、阴影、间距、字体、动画的值只从 `design-system/tokens.json` / `tokens.css` 取，不许自己编 hex 值
-- 基底色是 V2 cooler-neutral（`#F7F6F2`），不是纯白也不是暖黄
-- 核心质感：**凹凸并存** — 凹陷区（输入框、segmented、进度条）+ 凸起区（按钮、卡片、sheet）
-- 色彩比例硬性规定：暖中性底 ~75%、模块 Tint ~18%、高饱和 Main ~7%
-- 每屏最多 1 主色 + 1 辅色 + 1 状态色
-- 参考 HTML 样例：`design-system/Emma Soft Clay UI v2.dc.html`
+- 颜色、圆角、阴影、间距、字体、浮层、动效的值只从 `utils/clayTokens.ts` 取（`tokens.json` / `tokens.css` 是镜像），不许自己编 hex 值
+- 基底 `#F8F9F7` 中性去黄，卡片纯白，靠明度差和 1px borderSoft 分层
+- 核心质感：**全平**——无投影、无凹陷内阴影；「凹槽」只是 surfaceSunken 平底色块；图标钮是裸 icon
+- 浮在内容上的 sheet / 提示条用 `OVERLAY` 雾面（iOS 18 材质，不是 iOS 26 液态玻璃）；普通卡片不许加玻璃
+- 标题（顶栏、sheet、section）用衬线 Noto Serif SC；数字、正文一律无衬线
+- 色板 16 色按 OKLCH 公式算：五颜六色但饱和度封顶；amber / yellow / lime 不做白字按钮底
+- 色彩比例：中性底 ~75%、模块 Tint ~18%、高饱和 Main ~7%；每屏最多 1 主色 + 1 辅色 + 1 状态色
+- 动效在 `utils/clayMotion.css`：三条曲线，一屏只一个 hero 时刻
+- `design-system/Emma Soft Clay UI v2.dc.html` 是 v0.1 旧样例，仅供参考历史，不再代表现行风格
 
 ## 技术栈
 

@@ -60,6 +60,8 @@ const MapApp = lazyApp(() => import('../apps/MapApp'));
 const HealthApp = lazyApp(() => import('../apps/HealthApp'));
 const ShoppingApp = lazyApp(() => import('../apps/ShoppingApp'));
 const SmartHomeApp = lazyApp(() => import('../apps/SmartHomeApp'));
+const MomentsApp = lazyApp(() => import('../apps/MomentsApp')); // [EM: moments]
+const CalendarApp = lazyApp(() => import('../apps/CalendarApp')); // [EM: calendar-temporal]
 const KitchenApp = lazyApp(() => import('../apps/KitchenApp')); // [EM: kitchen-app]
 const ContactsList = lazyApp(() => import('../components/chat/ContactsList'));
 
@@ -70,7 +72,7 @@ const APP_IDLE_PRELOAD_ORDER: PreloadableLazy[] = [
   StudyApp, GameApp, NovelApp, BankApp, WorldbookApp, MemoryPalaceApp, HandbookApp,
   VRWorldApp, WorldHomeApp, LifeSimApp, SongwritingApp, GuidebookApp, FAQApp, HotNewsApp,
   XhsStockApp, XhsFreeRoamApp, BrowserApp, VoiceDesignerApp, ThemeMaker, QQBridge,
-  SpecialMomentsApp, CharCreatorDevApp, SmartHomeApp, KitchenApp, // [EM: kitchen-app]
+  SpecialMomentsApp, CharCreatorDevApp, SmartHomeApp, MomentsApp, CalendarApp, KitchenApp, // [EM: moments] [EM: calendar-temporal] [EM: kitchen-app]
 ];
 
 const IDLE_PRELOAD_START_MS = 600;
@@ -93,7 +95,7 @@ const APP_BY_ID: Partial<Record<AppID, PreloadableLazy>> = {
   [AppID.Handbook]: HandbookApp, [AppID.QQBridge]: QQBridge, [AppID.HotNews]: HotNewsApp,
   [AppID.VRWorld]: VRWorldApp, [AppID.CharCreatorDev]: CharCreatorDevApp, [AppID.SpecialMoments]: SpecialMomentsApp,
   [AppID.WorldHome]: WorldHomeApp,
-  [AppID.Map]: MapApp, [AppID.Health]: HealthApp, [AppID.Shopping]: ShoppingApp, [AppID.SmartHome]: SmartHomeApp, // EM
+  [AppID.Map]: MapApp, [AppID.Health]: HealthApp, [AppID.Shopping]: ShoppingApp, [AppID.SmartHome]: SmartHomeApp, [AppID.Moments]: MomentsApp, [AppID.Calendar]: CalendarApp, // EM
   [AppID.Kitchen]: KitchenApp, // [EM: kitchen-app]
 };
 // 注入负载预热器：AppIcon 的 pointerdown → preloadApp(id) → 这里 warmLazy，连 React.lazy 负载一起解析。
@@ -123,6 +125,7 @@ import DreamSimIndicator from './os/DreamSimIndicator';
 import ErrorDialog from './os/ErrorDialog';
 import BootSequence from './os/BootSequence';
 import { setAppPayloadWarmer, shouldUseIdleAppPreload } from './os/appPreload';
+import ClayToast from './os/ClayToast'; // [EM: skin-f-toast]
 
 const DISCLAIMER_KEY = 'sullyos_disclaimer_accepted';
 
@@ -850,6 +853,8 @@ const PhoneShell: React.FC = () => {
       case AppID.Health: return <HealthApp />;
       case AppID.Shopping: return <ShoppingApp />;
       case AppID.SmartHome: return <SmartHomeApp />;
+      case AppID.Moments: return <MomentsApp />; // [EM: moments]
+      case AppID.Calendar: return <CalendarApp />; // [EM: calendar-temporal]
       case AppID.Kitchen: return <KitchenApp />; // [EM: kitchen-app]
       case AppID.SpecialMoments: return <SpecialMomentsApp />;
       case AppID.VRWorld: return <VRWorldApp />;
@@ -941,12 +946,7 @@ const PhoneShell: React.FC = () => {
           {/* Overlays: Toasts (Top) */}
           <div className="absolute top-12 left-0 w-full flex flex-col items-center gap-2 pointer-events-none z-[60]">
               {toasts.map(toast => (
-                 <div key={toast.id} className="animate-fade-in bg-white/95 backdrop-blur-xl px-4 py-3 rounded-2xl shadow-xl border border-black/5 flex items-start gap-3 max-w-[85%] ring-1 ring-white/20">
-                     {toast.type === 'success' && <div className="w-2.5 h-2.5 rounded-full bg-green-500 shrink-0"></div>}
-                     {toast.type === 'error' && <div className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0"></div>}
-                     {toast.type === 'info' && <div className="w-2.5 h-2.5 rounded-full bg-primary shrink-0"></div>}
-                     <span className="min-w-0 text-left text-xs font-bold text-slate-800 whitespace-normal break-words [overflow-wrap:anywhere] leading-5">{toast.message}</span>
-                 </div>
+                 <ClayToast key={toast.id} message={toast.message} type={toast.type} /> // [EM: skin-f-toast]
               ))}
            </div>
        </div>

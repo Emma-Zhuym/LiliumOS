@@ -9,6 +9,7 @@ import { isIOSStandaloneWebApp } from '../../utils/iosStandalone';
 import { trackEvent } from '../../utils/analytics';
 import { F, S, R, HUE } from '../../utils/clayTokens'; // [EM: input-preferences-clay]
 import { findEmojiSuggestions } from '../../utils/emojiSuggestions';
+import { groupApiPresets } from '../../utils/apiPresetGroups'; // [EM: api-preset-group]
 
 const EMOJI_PAGE_SIZE = 40;
 
@@ -772,7 +773,9 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                 {/* [EM-END: chat-role-api-follow-main] */}
                                 {apiPresets.length === 0 ? (
                                     <div className={`px-2 py-3 text-[11px] ${isDiscordStyle ? 'text-slate-400' : isPixelStyle ? 'text-[#8f674a]' : 'text-slate-400'}`}>暂无预设，先去设置里保存当前 API 配置。</div>
-                                ) : apiPresets.map((preset) => {
+                                ) : groupApiPresets(apiPresets).map(section => <React.Fragment key={section.group || '__ungrouped'}>{/* [EM: api-preset-group] */}
+                                {section.group && <div className={`px-2 pb-1 pt-2 text-[11px] font-bold ${isDiscordStyle ? 'text-slate-400' : isPixelStyle ? 'text-[#8f674a]' : 'text-slate-400'}`}>{section.group}</div>}{/* [EM: api-preset-group] */}
+                                {section.presets.map((preset) => {
                                     const isActive = preset.id === currentApiPreset?.id;
                                     return (
                                         <button
@@ -796,6 +799,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                         </button>
                                     );
                                 })}
+                                </React.Fragment>)}{/* [EM: api-preset-group] */}
                             </div>
                         </div>
                     )}

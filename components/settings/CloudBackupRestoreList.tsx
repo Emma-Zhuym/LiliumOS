@@ -17,7 +17,7 @@ export default function CloudBackupRestoreList({ state, error, files, onRetry, o
     if (state !== 'ready' || !files.length) return <div role={state === 'error' ? 'alert' : 'status'} className="flex min-h-40 flex-col items-center justify-center gap-3 p-5 text-center" style={{ background: F.surfaceSunken, borderRadius: R.bigCard, boxShadow: S.sunken, color: F.textSecondary }}>
         <CloudArrowDown size={18} weight="bold" />
         <p className="text-sm">{state === 'error' ? '云端备份列表读取失败' : state === 'ready' ? '还没有云端备份' : '正在读取云端备份…'}</p>
-        {state === 'error' && <><p className="break-words text-xs leading-5">{error || '请检查连接后重试'}</p><button type="button" onClick={onRetry} className="min-h-11 px-5 text-xs font-semibold" style={{ background: F.surface, color: F.textPrimary, borderRadius: R.button, boxShadow: S.raisedSoft }}>重新读取</button></>}
+        {state === 'error' && <><p className="break-words text-xs leading-5">{error || '请检查连接后重试'}</p><button type="button" onClick={onRetry} className="min-h-11 px-5 text-xs font-semibold" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, color: F.textPrimary, borderRadius: R.button, boxShadow: S.raisedSoft }}>重新读取</button></>}
     </div>;
     return <div style={{ color: F.textPrimary }}>
         <p className="mb-3 text-xs" style={{ color: F.textSecondary }}>选择要恢复的备份。上传不完整的文件暂时不能恢复。</p>

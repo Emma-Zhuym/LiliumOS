@@ -7,6 +7,8 @@ const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 8765;
 const DEFAULT_TIMEOUT_MS = 35_000;
 const MAX_BODY_BYTES = 1024 * 1024;
+const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+const DEFAULT_SWEEP_INTERVAL_MS = 60_000;
 
 const isLoopbackHost = (host) => ['127.0.0.1', '::1', 'localhost'].includes(host);
 
@@ -27,10 +29,12 @@ const parseOrigins = (value) => String(value || '')
   .filter(Boolean);
 
 class StdioSession {
-  constructor({ command, args, env, timeoutMs, onExit }) {
+  constructor({ command, args, env, timeoutMs, label, onExit }) {
+    this.label = label;
     this.pending = new Map();
     this.buffer = '';
     this.timeoutMs = timeoutMs;
+    this.lastUsedAt = Date.now();
     this.child = spawn(command, args, {
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -39,10 +43,10 @@ class StdioSession {
     this.child.stdout.setEncoding('utf8');
     this.child.stdout.on('data', (chunk) => this.#onStdout(chunk));
     this.child.stderr.setEncoding('utf8');
-    this.child.stderr.on('data', (chunk) => process.stderr.write(`[apple-events] ${chunk}`));
+    this.child.stderr.on('data', (chunk) => process.stderr.write(`[${label}] ${chunk}`));
     this.child.once('error', (error) => this.#failAll(error));
     this.child.once('exit', (code, signal) => {
-      this.#failAll(new Error(`Apple Events MCP exited (${signal || code})`));
+      this.#failAll(new Error(`${label} MCP exited (${signal || code})`));
       onExit?.();
     });
   }
@@ -60,10 +64,11 @@ class StdioSession {
       try {
         message = JSON.parse(line);
       } catch {
-        process.stderr.write('[apple-events] Ignored non-JSON stdout line\n');
+        process.stderr.write(`[${this.label}] Ignored non-JSON stdout line\n`);
         continue;
       }
 
+      this.lastUsedAt = Date.now();
       if (message.id === undefined) continue;
       const key = JSON.stringify(message.id);
       const pending = this.pending.get(key);
@@ -83,7 +88,8 @@ class StdioSession {
   }
 
   send(message) {
-    if (!this.child.stdin.writable) throw new Error('Apple Events MCP is not writable');
+    if (!this.child.stdin.writable) throw new Error(`${this.label} MCP is not writable`);
+    this.lastUsedAt = Date.now();
     this.child.stdin.write(`${JSON.stringify(message)}\n`);
   }
 
@@ -95,7 +101,7 @@ class StdioSession {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(key);
-        reject(new Error(`Apple Events MCP timed out after ${this.timeoutMs}ms`));
+        reject(new Error(`${this.label} MCP timed out after ${this.timeoutMs}ms`));
       }, this.timeoutMs);
       this.pending.set(key, { resolve, reject, timer });
       try {
@@ -137,6 +143,10 @@ export const createAppleEventsBridge = ({
   args = [],
   childEnv = process.env,
   timeoutMs = DEFAULT_TIMEOUT_MS,
+  idleTimeoutMs = DEFAULT_IDLE_TIMEOUT_MS,
+  sweepIntervalMs = DEFAULT_SWEEP_INTERVAL_MS,
+  // Same bridge also fronts other stdio MCP servers (bilibili-mcp); label only changes log lines.
+  label = 'apple-events',
 } = {}) => {
   if (!command) throw new Error('APPLE_EVENTS_COMMAND is required');
   if (!isLoopbackHost(host) && !token) {
@@ -145,6 +155,29 @@ export const createAppleEventsBridge = ({
 
   const origins = new Set(allowedOrigins);
   const sessions = new Map();
+  let sweepTimer = null;
+
+  const dropSession = (id) => {
+    const session = sessions.get(id);
+    if (!session) return false;
+    sessions.delete(id);
+    session.close();
+    return true;
+  };
+
+  // Clients never send DELETE: browser tabs just close and worker calls are one-shot.
+  // Idle sessions must be reclaimed here, or each one keeps an EventKit child alive forever.
+  const sweepIdleSessions = (now = Date.now()) => {
+    let closed = 0;
+    for (const [id, session] of sessions) {
+      if (now - session.lastUsedAt < idleTimeoutMs) continue;
+      sessions.delete(id);
+      session.close();
+      closed += 1;
+    }
+    if (closed) process.stderr.write(`[${label}] Closed ${closed} idle session(s)\n`);
+    return closed;
+  };
 
   const corsHeaders = (origin) => {
     if (!origin || !origins.has(origin)) return {};
@@ -181,10 +214,7 @@ export const createAppleEventsBridge = ({
 
     const sessionId = String(req.headers['mcp-session-id'] || '');
     if (req.method === 'DELETE') {
-      const session = sessions.get(sessionId);
-      if (!session) return json(res, 404, { error: 'Unknown MCP session' }, cors);
-      sessions.delete(sessionId);
-      session.close();
+      if (!dropSession(sessionId)) return json(res, 404, { error: 'Unknown MCP session' }, cors);
       res.writeHead(204, cors);
       return res.end();
     }
@@ -196,12 +226,15 @@ export const createAppleEventsBridge = ({
       let responseSessionId = sessionId;
 
       if (message.method === 'initialize') {
+        // A re-handshake means the client dropped the old session; close it or the child is orphaned.
+        if (sessionId) dropSession(sessionId);
         responseSessionId = randomUUID();
         session = new StdioSession({
           command,
           args,
           env: childEnv,
           timeoutMs,
+          label,
           onExit: () => sessions.delete(responseSessionId),
         });
         sessions.set(responseSessionId, session);
@@ -223,10 +256,7 @@ export const createAppleEventsBridge = ({
           ...(message.method === 'initialize' ? { 'Mcp-Session-Id': responseSessionId } : {}),
         });
       } catch (error) {
-        if (message.method === 'initialize') {
-          sessions.delete(responseSessionId);
-          session.close();
-        }
+        if (message.method === 'initialize') dropSession(responseSessionId);
         throw error;
       }
     } catch (error) {
@@ -238,14 +268,19 @@ export const createAppleEventsBridge = ({
   return {
     server,
     sessions,
+    sweepIdleSessions,
     listen: () => new Promise((resolve, reject) => {
       server.once('error', reject);
       server.listen(port, host, () => {
         server.off('error', reject);
+        sweepTimer = setInterval(() => sweepIdleSessions(), sweepIntervalMs);
+        sweepTimer.unref?.();
         resolve(server.address());
       });
     }),
     close: () => new Promise((resolve, reject) => {
+      if (sweepTimer) clearInterval(sweepTimer);
+      sweepTimer = null;
       for (const session of sessions.values()) session.close();
       sessions.clear();
       server.close((error) => error ? reject(error) : resolve());
@@ -266,9 +301,12 @@ const main = async () => {
     token: process.env.LILIUM_MCP_TOKEN || '',
     allowedOrigins: parseOrigins(process.env.LILIUM_ALLOWED_ORIGINS),
     childEnv: process.env,
+    idleTimeoutMs: Number(process.env.LILIUM_MCP_SESSION_IDLE_MS || DEFAULT_IDLE_TIMEOUT_MS),
+    timeoutMs: Number(process.env.LILIUM_MCP_TIMEOUT_MS || DEFAULT_TIMEOUT_MS),
+    label: process.env.LILIUM_MCP_LABEL || 'apple-events',
   });
   await bridge.listen();
-  console.log(`LiliumOS Apple Events bridge listening on http://${host}:${port}`);
+  console.log(`LiliumOS ${process.env.LILIUM_MCP_LABEL || 'Apple Events'} bridge listening on http://${host}:${port}`);
 
   const shutdown = async () => {
     await bridge.close();

@@ -1,4 +1,5 @@
 import React, { useMemo, useEffect, useLayoutEffect, useState, useRef, useCallback } from 'react';
+import { X } from '@phosphor-icons/react';
 import { isPaperWallpaper, useOS } from '../context/OSContext';
 import { INSTALLED_APPS, DOCK_APPS } from '../constants';
 import { isDevDebugAvailable, subscribeDevDebugAvailability } from '../utils/devDebug';
@@ -7,16 +8,21 @@ import TokenImg from '../components/os/TokenImg';
 import { useBlobRefUrl } from '../utils/blobRef';
 import { DB } from '../utils/db';
 import { isChatPreviewMessage } from '../utils/chatMessageVisibility';
-import { CharacterProfile, Anniversary, AppID, DailySchedule } from '../types';
+import { CharacterProfile, Anniversary, AppID, DailySchedule, LauncherFolder, AppConfig } from '../types';
 import { ScheduleHomeWidget, ScheduleFullscreenViewer } from '../components/schedule/ScheduleHomeWidget';
 import NowPlayingSquareWidget from '../components/os/NowPlayingSquareWidget';
+import LauncherWidgetStack from '../components/os/LauncherWidgetStack'; // [EM: launcher-widget-stack]
+import { LauncherFolderIcon, LauncherFolderPanel, LauncherFolderEditor } from '../components/os/LauncherFolder'; // [EM: launcher-folders]
+import { normalizeLauncherFolders, rootLauncherIds } from '../utils/launcherFolders'; // [EM: launcher-folders]
 import MobileGameHome from '../components/os/MobileGameHome';
 import TamagotchiHome from '../components/os/TamagotchiHome';
 import { getDailyScheduleForChar } from '../utils/dailySchedule';
+import { sortAnniversariesByNextOccurrence } from '../utils/anniversaryNext';
 import { useLocalDateKey } from '../hooks/useLocalDateKey';
 import { resolveCharTimeZone } from '../utils/timezone';
-import { paginateLauncherApps } from '../utils/launcherPagination';
+import { DESKTOP_COLUMNS, DESKTOP_ROWS, DESKTOP_WIDGET_IDS, defaultDesktopLayout, desktopItemSize, desktopPageCount, moveDesktopItem, normalizeDesktopLayout, swapDockApp, swapHomeDesktopItem, type DesktopLayout } from '../utils/launcherDesktopLayout';
 import { useContactRemark } from '../utils/contactRemarks'; // [EM: desktop-contact-remark]
+import { F, R, S, SP } from '../utils/clayTokens';
 
 const CompanionHome = React.lazy(() => import('../components/os/CompanionHome'));
 
@@ -27,6 +33,8 @@ const DesktopClock = React.memo(() => {
     const { virtualTime, theme } = useOS();
     const contentColor = theme.contentColor || '#ffffff';
     const paper = theme.skin !== 'animalcrossing' && theme.skin !== 'mobilegame' && theme.skin !== 'tamagotchi' && isPaperWallpaper(theme.wallpaper);
+    const serifClock = theme.skin !== 'animalcrossing' && theme.skin !== 'mobilegame' && theme.skin !== 'tamagotchi'
+        && (theme.desktopVariant === 'paper' || (!theme.desktopVariant && paper));
 
     const days = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
     const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
@@ -54,7 +62,7 @@ const DesktopClock = React.memo(() => {
                 <div className="text-[13px] font-extrabold tracking-wide" style={{ color: '#8a7a5c' }}>
                     🍃 {greeting}, Resident
                 </div>
-                <div className="text-[3.5rem] font-extrabold leading-none mt-1.5 tracking-[2px]" style={{ color: '#8b7355' }}>
+                <div className="text-[clamp(4rem,20vw,6rem)] font-extrabold leading-none mt-1.5 tracking-[2px]" style={{ color: '#8b7355' }}>
                     {hh}<span className="animate-pulse" style={{ color: '#cfcab2' }}>:</span>{mm}
                 </div>
                 <div className="text-[15px] font-bold mt-1.5" style={{ color: '#725C4E' }}>
@@ -65,7 +73,7 @@ const DesktopClock = React.memo(() => {
     }
 
     return (
-        <div className="flex flex-col mb-5 mt-5 relative animate-fade-in" style={{ color: contentColor }}>
+        <div className="w-full flex flex-col mb-5 mt-5 relative animate-fade-in" style={{ color: contentColor }}>
             {/* 顶部装饰 — 状态胶囊 + 细线 */}
             <div className="flex items-center gap-2 mb-3 opacity-90">
                 <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full"
@@ -88,8 +96,8 @@ const DesktopClock = React.memo(() => {
             {/* 主时钟 */}
             <div className="flex items-end gap-4">
                 <div className="relative">
-                    <div className={`${paper ? 'text-[5.65rem] font-semibold tracking-[-0.055em] drop-shadow-[0_2px_0_rgba(255,255,255,0.34)]' : 'text-[6.25rem] font-black tracking-tighter drop-shadow-2xl'} leading-[0.84]`}
-                        style={{ fontFamily: paper ? `'Iowan Old Style', 'Baskerville', 'Times New Roman', serif` : `'Space Grotesk', 'SF Pro Display', sans-serif`, fontFeatureSettings: '"tnum"' }}>
+                    <div className={`${serifClock ? 'text-[clamp(5rem,24vw,8rem)] font-normal tracking-[-0.045em] drop-shadow-[0_2px_0_rgba(255,255,255,0.34)]' : 'text-[clamp(4.5rem,21vw,7.5rem)] font-black tracking-tighter drop-shadow-2xl'} leading-[0.82]`}
+                        style={{ fontFamily: serifClock ? `'DM Serif Display', 'Iowan Old Style', 'Baskerville', 'Times New Roman', serif` : `'Space Grotesk', 'SF Pro Display', sans-serif`, fontFeatureSettings: '"tnum"' }}>
                         <span>{virtualTime.hours.toString().padStart(2, '0')}</span>
                         <span className="opacity-35 font-thin mx-0.5 animate-pulse">:</span>
                         <span>{virtualTime.minutes.toString().padStart(2, '0')}</span>
@@ -119,6 +127,7 @@ const CharacterWidget = React.memo(({
     onClick, 
     contentColor,
     paper = false,
+    fixedRow = false,
 }: { 
     char: CharacterProfile | null, 
     unreadCount: number, 
@@ -126,17 +135,21 @@ const CharacterWidget = React.memo(({
     onClick: () => void,
     contentColor: string,
     paper?: boolean,
+    fixedRow?: boolean,
 }) => {
     const { theme } = useOS();
     const contactRemark = useContactRemark(char?.id || ''); // [EM: desktop-contact-remark]
     const acnh = theme.skin === 'animalcrossing'; // 动森彩蛋：会"说话"的村民卡
     // 卡片底的虚化头像画在 CSS background-image 上，吃不到 TokenImg 的解析，这里自己解析一次。
     const avatarUrl = useBlobRefUrl(char?.avatar);
+    const fixedRowCardStyle: React.CSSProperties = fixedRow
+        ? { height: 'calc(var(--launcher-cell) + 12px)', top: '-12px' }
+        : {};
 
     // 动森：村民头像 + AC 对话气泡（显示最近消息，点开聊天）
     if (acnh) {
         return (
-            <div className="mb-4 animate-fade-in" onClick={onClick}>
+            <div className="mb-4 animate-fade-in" onClick={onClick} style={fixedRow ? { height: 'var(--launcher-cell)' } : undefined}>
                 <div className="flex items-end gap-2.5 cursor-pointer active:scale-[0.98] transition-transform">
                     {/* 村民头像（圆角方块 + 白边） */}
                     <div className="relative w-[60px] h-[60px] shrink-0 rounded-[26%] overflow-hidden bg-[#e8e2d6]"
@@ -170,24 +183,27 @@ const CharacterWidget = React.memo(({
     }
 
     return (
-        <div className="mb-3 group animate-fade-in">
+        <div className="mb-3 group animate-fade-in" style={fixedRow ? { height: 'var(--launcher-cell)' } : undefined}>
              <div
-                className="relative h-24 w-full overflow-hidden rounded-3xl cursor-pointer transition-transform duration-300 active:scale-[0.98]"
+                className={`relative ${fixedRow ? '' : 'h-24'} w-full overflow-hidden rounded-3xl cursor-pointer transition-transform duration-300 active:scale-[0.98]`}
                 onClick={onClick}
                 style={paper ? {
                     background: 'rgba(224,221,215,0.40)',
                     border: '1px solid rgba(91,72,51,0.07)',
                     boxShadow: '0 5px 16px rgba(91,72,51,0.055)',
+                    ...fixedRowCardStyle,
                 } : acnh ? {
                     background: 'rgb(247,243,223)',
                     border: '2px solid #e8e2d6',
                     boxShadow: '0 8px 24px 0 rgba(61,52,40,0.14)',
+                    ...fixedRowCardStyle,
                 } : {
                     background: 'rgba(255,255,255,0.08)',
                     backdropFilter: 'blur(24px) saturate(1.4)',
                     WebkitBackdropFilter: 'blur(24px) saturate(1.4)',
                     border: '1px solid rgba(255,255,255,0.12)',
                     boxShadow: '0 8px 32px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.08)',
+                    ...fixedRowCardStyle,
                 }}
              >
                  {/* 背景虚化角色头像（动森模式下省略，避免糊在奶油底上） */}
@@ -250,52 +266,11 @@ const CharacterWidget = React.memo(({
     );
 });
 
-// 3. Grid Page Component
-const AppGridPage = React.memo(({
-    apps,
-    openApp,
-    acnh = false,
-    editing = false,
-}: {
-    apps: typeof INSTALLED_APPS,
-    openApp: (id: AppID) => void,
-    acnh?: boolean,
-    editing?: boolean,
-}) => {
-    return (
-        <div className={`grid place-items-center animate-fade-in relative ${acnh ? 'grid-cols-4 gap-y-6 gap-x-2' : 'grid-cols-4 gap-y-6 gap-x-2'}`}>
-             {apps.map(app => (
-                 <div
-                    key={app.id}
-                    data-launcher-item={app.id}
-                    data-launcher-kind="app"
-                    className={`relative transition-transform duration-200 active:scale-95 ${editing ? 'launcher-edit-item' : ''}`}
-                 >
-                     <AppIcon
-                        app={app}
-                        onClick={() => { if (!editing) openApp(app.id); }}
-                        size="md"
-                     />
-                 </div>
-             ))}
-        </div>
-    );
-});
-
-// 3b. Small 2x2 app grid for pinwheel cells
-const AppQuadGrid = React.memo(({ apps, openApp, editing = false }: { apps: typeof INSTALLED_APPS, openApp: (id: AppID) => void, editing?: boolean }) => {
-    return (
-        <div className="w-full h-full grid grid-cols-2 grid-rows-2 place-items-center gap-x-2 gap-y-3">
-            {apps.map(app => (
-                <div key={app.id} data-launcher-item={app.id} data-launcher-kind="app" className={`relative transition-transform duration-200 active:scale-95 ${editing ? 'launcher-edit-item' : ''}`}>
-                    <AppIcon app={app} onClick={() => { if (!editing) openApp(app.id); }} />
-                </div>
-            ))}
-        </div>
-    );
-});
-
-// 3c. Square image slot for pinwheel (bottom-right)
+const UTILITY_WIDGET_ID = 'widget:utilities';
+const FREE_TWO_CELL_HEIGHT = 'calc(2 * var(--launcher-cell) + 10px)';
+const FREE_PAGE_HEIGHT = 'calc(6 * var(--launcher-cell) + 90px)';
+type LauncherGridItem = { kind: 'app'; app: AppConfig } | { kind: 'folder'; folder: LauncherFolder } | { kind: 'widget' };
+// Square image widget, kept separate from the placement grid.
 const DesktopSquareImage = React.memo(({ image, contentColor, onClick, acnh = false }: {
     image?: string,
     contentColor: string,
@@ -373,13 +348,16 @@ const WidgetsPage = React.memo(({ contentColor, openApp, anniversaries, characte
     const paddingDays = Array.from({ length: startOffset }, () => null);
 
     // --- Upcoming events: only today + future, soonest first (non-mutating), paginated ---
-    const todayStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    const upcomingEvents = useMemo(
-        () => [...(anniversaries as any[])]
-            .filter((a: any) => a.date >= todayStr)
-            .sort((a: any, b: any) => a.date.localeCompare(b.date)),
-        [anniversaries, todayStr]
+    const upcomingAnniversaryRows = useMemo(
+        () => sortAnniversariesByNextOccurrence(anniversaries as Anniversary[]),
+        [anniversaries]
     );
+    const calendarEventDates = useMemo(() => new Set(
+        upcomingAnniversaryRows
+            .filter(({ next }) => next.getFullYear() === currentYear && next.getMonth() === currentMonth)
+            .map(({ next }) => `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`)
+    ), [currentMonth, currentYear, upcomingAnniversaryRows]);
+    const upcomingEvents = upcomingAnniversaryRows;
     const EVENTS_PER_PAGE = 4;
     const eventPageCount = Math.max(1, Math.ceil(upcomingEvents.length / EVENTS_PER_PAGE));
     const [eventPage, setEventPage] = useState(0);
@@ -390,7 +368,7 @@ const WidgetsPage = React.memo(({ contentColor, openApp, anniversaries, characte
     const pagedEvents = upcomingEvents.slice(eventPage * EVENTS_PER_PAGE, eventPage * EVENTS_PER_PAGE + EVENTS_PER_PAGE);
 
     return (
-        <div className="w-full flex-shrink-0 snap-center snap-always flex flex-col px-6 pt-24 pb-8 space-y-6 h-full overflow-y-auto no-scrollbar">
+        <div className="w-full flex flex-col gap-6">
               <div className={`rounded-3xl p-6 ${acnh ? 'shadow-sm' : paper ? '' : 'bg-white/25 border border-white/25 shadow-xl'}`} style={paper ? { background: 'rgba(224,221,215,0.36)', border: '1px solid rgba(91,72,51,0.07)', boxShadow: '0 5px 16px rgba(91,72,51,0.05)' } : acCard}>
                   <div className="flex justify-between items-center mb-4" style={{ color: contentColor }}>
                       <h3 className="text-xl font-bold tracking-widest">{monthName} {currentYear}</h3>
@@ -408,7 +386,7 @@ const WidgetsPage = React.memo(({ contentColor, openApp, anniversaries, characte
                       {calendarDays.map(day => {
                           const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                           const isToday = day === now.getDate();
-                          const hasEvent = anniversaries.some((a: any) => a.date === dateStr);
+                          const hasEvent = calendarEventDates.has(dateStr);
                           
                           return (
                               <div key={day} className="flex flex-col items-center justify-center h-8 relative">
@@ -425,7 +403,7 @@ const WidgetsPage = React.memo(({ contentColor, openApp, anniversaries, characte
                   </div>
               </div>
 
-              <div className={`rounded-3xl p-5 flex flex-col flex-1 min-h-[200px] ${acnh ? 'shadow-sm' : paper ? '' : 'bg-white/25 border border-white/25 shadow-xl'}`} style={paper ? { background: 'rgba(224,221,215,0.36)', border: '1px solid rgba(91,72,51,0.07)', boxShadow: '0 5px 16px rgba(91,72,51,0.05)' } : acCard}>
+              <div className={`rounded-3xl p-5 flex flex-col min-h-[200px] ${acnh ? 'shadow-sm' : paper ? '' : 'bg-white/25 border border-white/25 shadow-xl'}`} style={paper ? { background: 'rgba(224,221,215,0.36)', border: '1px solid rgba(91,72,51,0.07)', boxShadow: '0 5px 16px rgba(91,72,51,0.05)' } : acCard}>
                   <div className="flex items-center justify-between mb-4">
                       <h3 className="text-xs font-bold opacity-60 uppercase tracking-widest flex items-center gap-2" style={{ color: contentColor }}>
                           <span className="w-2 h-2 rounded-full" style={{ background: acDot || (paper ? '#a66f52' : '#c084fc') }}></span> Upcoming Events
@@ -453,11 +431,11 @@ const WidgetsPage = React.memo(({ contentColor, openApp, anniversaries, characte
                       )}
                   </div>
                   <div className="space-y-3">
-                      {upcomingEvents.length > 0 ? pagedEvents.map((anni: any) => (
+                      {upcomingEvents.length > 0 ? pagedEvents.map(({ anni, next }) => (
                           <div key={anni.id} className={`flex items-center gap-3 p-3 rounded-xl ${acnh ? 'bg-[#efe7d4] border border-[#e0d6c0]' : paper ? 'bg-[#f3ecdf]/70 border border-[#5b4833]/10' : 'bg-white/5 border border-white/10'}`}>
                               <div className={`w-10 h-10 shrink-0 rounded-lg flex flex-col items-center justify-center ${acnh ? 'bg-[#82D5BB] text-white border border-[#6cc0a6]' : paper ? 'bg-[#a66f52]/12 text-[#8c5d46] border border-[#a66f52]/15' : 'bg-purple-500/20 text-purple-200 border border-purple-500/30'}`}>
-                                  <span className="text-[9px] opacity-70">{anni.date.split('-')[1]}</span>
-                                  <span className="text-sm font-bold leading-none">{anni.date.split('-')[2]}</span>
+                                  <span className="text-[9px] opacity-70">{String(next.getMonth() + 1).padStart(2, '0')}</span>
+                                  <span className="text-sm font-bold leading-none">{String(next.getDate()).padStart(2, '0')}</span>
                               </div>
                               <div className="flex-1 min-w-0">
                                   <div className="text-sm font-bold truncate" style={{ color: contentColor }}>{anni.title}</div>
@@ -474,7 +452,7 @@ const WidgetsPage = React.memo(({ contentColor, openApp, anniversaries, characte
 });
 
 // --- Persist scroll page across remounts (e.g. returning from apps) ---
-let _lastPageIndex = 0;
+let _lastPageIndex = 1;
 
 // --- Main Launcher ---
 
@@ -489,6 +467,8 @@ const Launcher: React.FC = () => {
   const [scheduleCharId, setScheduleCharId] = useState<string | null>(null);
   const [scheduleViewerOpen, setScheduleViewerOpen] = useState(false);
   const [layoutEditing, setLayoutEditing] = useState(false);
+  const [openFolderId, setOpenFolderId] = useState<string | null>(null); // [EM: launcher-folders]
+  const [editingFolderId, setEditingFolderId] = useState<string | 'new' | null>(null); // [EM: launcher-folders]
   const layoutPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const layoutPointer = useRef<{
       pointerId: number;
@@ -503,6 +483,8 @@ const Launcher: React.FC = () => {
       grabOffsetY?: number;
       lastTarget?: string;
       targetElement?: HTMLElement;
+      originLayout?: DesktopLayout;
+      lastCell?: string;
   } | null>(null);
   const suppressLayoutClickUntil = useRef(0);
   const layoutPageTurnTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -510,6 +492,8 @@ const Launcher: React.FC = () => {
 
   const [activePageIndex, setActivePageIndex] = useState(_lastPageIndex);
   const activePageIndexRef = useRef(_lastPageIndex);
+  const initialPageRef = useRef(_lastPageIndex);
+  const initialPageReadyRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Mouse Drag Logic refs
@@ -524,11 +508,10 @@ const Launcher: React.FC = () => {
   // 会让它锁在 mount 时的初值。
   const [devDebugVisible, setDevDebugVisible] = useState(() => isDevDebugAvailable());
   useEffect(() => subscribeDevDebugAvailability(setDevDebugVisible), []);
-  const availableGridApps = useMemo(() => {
+  const availableLauncherApps = useMemo(() => {
     return INSTALLED_APPS.filter(app =>
-      !DOCK_APPS.includes(app.id)
       // 「捏脸·开发」仅在开发模式（右下角开发徽标可见或手动解锁时）显示
-      && (app.id !== AppID.CharCreatorDev || devDebugVisible)
+      app.id !== AppID.CharCreatorDev || devDebugVisible
     );
   }, [devDebugVisible]);
 
@@ -537,17 +520,27 @@ const Launcher: React.FC = () => {
       return [...(saved || []).filter((id, index, all) => valid.has(id) && all.indexOf(id) === index), ...available.filter(id => !(saved || []).includes(id))];
   }, []);
 
-  const availableGridIds = useMemo(() => availableGridApps.map(app => app.id), [availableGridApps]);
-  const [launcherAppOrder, setLauncherAppOrder] = useState<string[]>(() => normalizeOrder(theme.launcherAppOrder, INSTALLED_APPS.filter(app => !DOCK_APPS.includes(app.id)).map(app => app.id)));
-  const [launcherDockOrder, setLauncherDockOrder] = useState<string[]>(() => normalizeOrder(theme.launcherDockOrder, DOCK_APPS));
-  const [pinwheelOrder, setPinwheelOrder] = useState<Array<'music' | 'appsA' | 'appsB' | 'image'>>(() => {
-      const available = ['music', 'appsA', 'appsB', 'image'] as const;
-      const saved = theme.launcherPinwheelOrder || [];
-      return [...saved.filter((id, index) => available.includes(id) && saved.indexOf(id) === index), ...available.filter(id => !saved.includes(id))];
-  });
-  const launcherAppOrderRef = useRef(launcherAppOrder);
+  const normalizeDockOrder = useCallback((saved: string[] | undefined) => {
+      const valid = new Set(availableLauncherApps.map(app => app.id));
+      const selected = (saved || []).filter((id, index, all) => valid.has(id as AppID) && all.indexOf(id) === index).slice(0, 4);
+      for (const id of DOCK_APPS) {
+          if (selected.length === 4) break;
+          if (valid.has(id) && !selected.includes(id)) selected.push(id);
+      }
+      return selected;
+  }, [availableLauncherApps]);
+  const [launcherDockOrder, setLauncherDockOrder] = useState<string[]>(() => normalizeDockOrder(theme.launcherDockOrder));
   const launcherDockOrderRef = useRef(launcherDockOrder);
-  const pinwheelOrderRef = useRef(pinwheelOrder);
+  const dockIds = useMemo(() => new Set(launcherDockOrder), [launcherDockOrder]);
+  const availableGridApps = useMemo(() => availableLauncherApps.filter(app => !dockIds.has(app.id)), [availableLauncherApps, dockIds]); // [EM: launcher-editable-dock]
+  const folders = useMemo(() => normalizeLauncherFolders(theme.launcherFolders, availableGridApps.map(app => app.id)), [theme.launcherFolders, availableGridApps]);
+  const utilityWidgetEnabled = theme.launcherUtilityWidgetEnabled !== false;
+  const availableGridIds = useMemo(() => [
+      ...rootLauncherIds(availableGridApps.map(app => app.id), folders),
+      ...(utilityWidgetEnabled ? [UTILITY_WIDGET_ID] : []),
+  ], [availableGridApps, folders, utilityWidgetEnabled]);
+  const [launcherAppOrder, setLauncherAppOrder] = useState<string[]>(() => normalizeOrder(theme.launcherAppOrder, availableGridIds));
+  const launcherAppOrderRef = useRef(launcherAppOrder);
 
   useEffect(() => {
       setLauncherAppOrder(prev => {
@@ -558,43 +551,66 @@ const Launcher: React.FC = () => {
   }, [availableGridIds, normalizeOrder, theme.launcherAppOrder]);
   useEffect(() => { launcherAppOrderRef.current = launcherAppOrder; }, [launcherAppOrder]);
   useEffect(() => { launcherDockOrderRef.current = launcherDockOrder; }, [launcherDockOrder]);
-  useEffect(() => { pinwheelOrderRef.current = pinwheelOrder; }, [pinwheelOrder]);
   useEffect(() => {
       if (layoutEditing) return;
-      const next = normalizeOrder(theme.launcherDockOrder, DOCK_APPS);
+      const next = normalizeDockOrder(theme.launcherDockOrder);
       launcherDockOrderRef.current = next;
       setLauncherDockOrder(next);
-  }, [layoutEditing, normalizeOrder, theme.launcherDockOrder]);
-  useEffect(() => {
-      if (layoutEditing) return;
-      const available = ['music', 'appsA', 'appsB', 'image'] as const;
-      const saved = theme.launcherPinwheelOrder || [];
-      const next = [...saved.filter((id, index) => available.includes(id) && saved.indexOf(id) === index), ...available.filter(id => !saved.includes(id))];
-      pinwheelOrderRef.current = next;
-      setPinwheelOrder(next);
-  }, [layoutEditing, theme.launcherPinwheelOrder]);
+  }, [layoutEditing, normalizeDockOrder, theme.launcherDockOrder]);
 
-  const gridApps = useMemo(() => {
+  const gridItems = useMemo(() => {
       const byId = new Map(availableGridApps.map(app => [app.id, app]));
-      return launcherAppOrder.map(id => byId.get(id as AppID)).filter(Boolean) as typeof INSTALLED_APPS;
-  }, [availableGridApps, launcherAppOrder]);
+      const folderById = new Map(folders.map(folder => [folder.id, folder]));
+      return launcherAppOrder.flatMap((id): LauncherGridItem[] => {
+          if (id === UTILITY_WIDGET_ID && utilityWidgetEnabled) return [{ kind: 'widget' }];
+          const folder = folderById.get(id);
+          if (folder) return [{ kind: 'folder', folder }];
+          const app = byId.get(id as AppID);
+          return app && availableGridIds.includes(id) ? [{ kind: 'app', app }] : [];
+      });
+  }, [availableGridApps, availableGridIds, folders, launcherAppOrder, utilityWidgetEnabled]);
+
+  // The original clock home stays a fixed composition; later pages remain movable.
+  const fixedHomeItems = useMemo(() => gridItems.filter((item): item is Extract<LauncherGridItem, { kind: 'app' | 'folder' }> => item.kind !== 'widget').slice(0, 12), [gridItems]);
+  const fixedHomeIds = useMemo(() => new Set(fixedHomeItems.map(item => item.kind === 'app' ? item.app.id : item.folder.id)), [fixedHomeItems]);
+
+  // [EM-START: free-launcher-layout] Every desktop tile uses the same saved 4-column grid.
+  const desktopIds = useMemo(() => [
+      DESKTOP_WIDGET_IDS.schedule,
+      DESKTOP_WIDGET_IDS.music, DESKTOP_WIDGET_IDS.image,
+      ...availableGridIds.filter(id => !fixedHomeIds.has(id)),
+      ...(['tl', 'tr', 'wide'] as const).filter(slot => !!theme.launcherWidgets?.[slot]).map(slot => `widget:image:${slot}`),
+  ], [availableGridIds, fixedHomeIds, theme.launcherWidgets]);
+  const desktopDefaults = useMemo(() => {
+      const defaults = defaultDesktopLayout(launcherAppOrder, utilityWidgetEnabled, theme.launcherPinwheelOrder);
+      delete defaults[DESKTOP_WIDGET_IDS.clock];
+      delete defaults[DESKTOP_WIDGET_IDS.character];
+      delete defaults[DESKTOP_WIDGET_IDS.agenda];
+      for (const id of fixedHomeIds) delete defaults[id];
+      defaults['widget:image:tl'] = { page: 3, row: 0, col: 0 };
+      defaults['widget:image:tr'] = { page: 3, row: 0, col: 2 };
+      defaults['widget:image:wide'] = { page: 3, row: 2, col: 0 };
+      return defaults;
+  }, [launcherAppOrder, utilityWidgetEnabled, theme.launcherPinwheelOrder, fixedHomeIds]);
+  const savedFreeLayout = useMemo(() => Object.fromEntries(Object.entries(theme.launcherDesktopLayout || {}).filter(([, position]) => position.page >= 2)) as DesktopLayout, [theme.launcherDesktopLayout]);
+  const [desktopLayout, setDesktopLayout] = useState<DesktopLayout>(() => normalizeDesktopLayout(desktopIds, savedFreeLayout, desktopDefaults));
+  const desktopLayoutRef = useRef(desktopLayout);
+  useEffect(() => {
+      const next = normalizeDesktopLayout(desktopIds, theme.launcherDesktopLayout ? savedFreeLayout : desktopLayoutRef.current, desktopDefaults);
+      desktopLayoutRef.current = next;
+      setDesktopLayout(next);
+  }, [desktopIds, desktopDefaults, theme.launcherDesktopLayout, savedFreeLayout]);
+  useEffect(() => { desktopLayoutRef.current = desktopLayout; }, [desktopLayout]);
+  const desktopItemById = useMemo(() => new Map(gridItems.map(item => [item.kind === 'app' ? item.app.id : item.kind === 'folder' ? item.folder.id : UTILITY_WIDGET_ID, item])), [gridItems]);
+  const desktopPages = desktopPageCount(desktopLayout);
+  // [EM-END: free-launcher-layout]
 
   const dockAppsConfig = useMemo(() => {
       const byId = new Map(INSTALLED_APPS.map(app => [app.id, app]));
       return launcherDockOrder.map(id => byId.get(id as AppID)).filter(Boolean) as typeof INSTALLED_APPS;
   }, [launcherDockOrder]);
 
-  // Page 1 keeps three icon rows below its widgets, page 2 keeps the 2x2 pinwheel
-  // quads, and ordinary pages use the full five-row grid.
-  const appPages = useMemo(() => paginateLauncherApps(gridApps), [gridApps]);
-
-  // Page 2 (pinwheel) uses appPages[1]: split into two 2x2 quads
-  const page2Apps = appPages[1] || [];
-  const page2QuadA = useMemo(() => page2Apps.slice(0, 4), [page2Apps]);
-  const page2QuadB = useMemo(() => page2Apps.slice(4, 8), [page2Apps]);
-
-  // Total pages = App Pages + 1 Widget Page
-  const totalPages = appPages.length + 1;
+  const totalPages = desktopPages;
 
   useEffect(() => { activePageIndexRef.current = activePageIndex; }, [activePageIndex]);
 
@@ -656,17 +672,25 @@ const Launcher: React.FC = () => {
   // Restore scroll position BEFORE paint to avoid visible flash/slide
   useLayoutEffect(() => {
       const el = scrollContainerRef.current;
-      if (el && _lastPageIndex > 0) {
-          // Temporarily disable smooth scroll so jump is instant
-          el.style.scrollBehavior = 'auto';
-          el.scrollLeft = el.clientWidth * _lastPageIndex;
-          // Re-enable on next frame
-          requestAnimationFrame(() => { el.style.scrollBehavior = 'smooth'; });
-      }
+      if (!el) return;
+      el.style.scrollBehavior = 'auto';
+      el.style.scrollSnapType = 'none';
+      const frame = requestAnimationFrame(() => {
+          const index = Math.min(initialPageRef.current, Math.max(0, el.children.length - 1));
+          el.scrollLeft = el.clientWidth * index;
+          requestAnimationFrame(() => {
+              el.style.scrollSnapType = 'x mandatory';
+              el.style.scrollBehavior = 'smooth';
+              initialPageReadyRef.current = true;
+              activePageIndexRef.current = index;
+              setActivePageIndex(index);
+          });
+      });
+      return () => cancelAnimationFrame(frame);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleScroll = () => {
-      if (scrollContainerRef.current) {
+      if (initialPageReadyRef.current && scrollContainerRef.current) {
           const width = scrollContainerRef.current.clientWidth;
           const scrollLeft = scrollContainerRef.current.scrollLeft;
           const index = Math.round(scrollLeft / width);
@@ -732,18 +756,10 @@ const Launcher: React.FC = () => {
           next.splice(to, 0, moved);
           return next;
       };
-      if (kind === 'app') {
-          const next = reorder(launcherAppOrderRef.current);
-          launcherAppOrderRef.current = next;
-          setLauncherAppOrder(next);
-      } else if (kind === 'dock') {
+      if (kind === 'dock') {
           const next = reorder(launcherDockOrderRef.current);
           launcherDockOrderRef.current = next;
           setLauncherDockOrder(next);
-      } else if (kind === 'widget') {
-          const next = reorder(pinwheelOrderRef.current) as Array<'music' | 'appsA' | 'appsB' | 'image'>;
-          pinwheelOrderRef.current = next;
-          setPinwheelOrder(next);
       }
   }, []);
 
@@ -761,26 +777,36 @@ const Launcher: React.FC = () => {
   const activateLayoutDrag = useCallback((pointer: NonNullable<typeof layoutPointer.current>) => {
       if (pointer.ghost) return;
       const rect = pointer.element.getBoundingClientRect();
-      const ghost = pointer.element.cloneNode(true) as HTMLElement;
+      const ghost = pointer.kind === 'desktop' && pointer.key.startsWith('widget:')
+          ? document.createElement('div') : pointer.element.cloneNode(true) as HTMLElement;
+      if (pointer.kind === 'desktop' && pointer.key.startsWith('widget:')) {
+          ghost.textContent = pointer.element.dataset.launcherLabel || '小组件';
+          ghost.className = 'flex items-center justify-center text-sm font-semibold';
+          ghost.style.background = F.surface;
+          ghost.style.border = `1px solid ${F.borderSoft}`;
+          ghost.style.borderRadius = `${R.bigCard}px`;
+          ghost.style.boxShadow = S.raisedSoft;
+      }
       ghost.removeAttribute('data-launcher-item');
       ghost.removeAttribute('data-launcher-kind');
       ghost.classList.remove('launcher-edit-item', 'launcher-drop-target');
       ghost.classList.add('launcher-drag-ghost');
       Object.assign(ghost.style, {
           position: 'fixed',
-          left: `${rect.left}px`,
-          top: `${rect.top}px`,
+          left: '0',
+          top: '0',
           width: `${rect.width}px`,
           height: `${rect.height}px`,
           margin: '0',
           pointerEvents: 'none',
           zIndex: '9999',
-          transform: 'scale(1.055)',
+          transform: `translate3d(${rect.left}px, ${rect.top}px, 0) scale(1.055)`,
           transformOrigin: 'center',
           transition: 'none',
       });
       document.body.appendChild(ghost);
       pointer.ghost = ghost;
+      if (pointer.kind === 'desktop' || pointer.kind === 'fixed' || pointer.kind === 'dock') pointer.originLayout = desktopLayoutRef.current; // [EM: launcher-home-cross-page]
       pointer.grabOffsetX = pointer.x - rect.left;
       pointer.grabOffsetY = pointer.y - rect.top;
       pointer.element.classList.add('launcher-dragging');
@@ -794,12 +820,13 @@ const Launcher: React.FC = () => {
       const turn = () => {
           const pointer = layoutPointer.current;
           const scroller = scrollContainerRef.current;
-          if (!pointer?.active || pointer.kind !== 'app' || !scroller || layoutPageTurnDirection.current !== direction) {
+          if (!pointer?.active || (pointer.kind !== 'desktop' && pointer.kind !== 'fixed' && pointer.kind !== 'dock') || !scroller || layoutPageTurnDirection.current !== direction) {
               clearLayoutPageTurn();
               return;
           }
-          const maxAppPage = Math.max(0, appPages.length - 1);
-          const nextPage = Math.max(0, Math.min(maxAppPage, activePageIndexRef.current + direction));
+          const maxAppPage = Math.max(0, desktopPages - 1);
+          const minPage = pointer.key.startsWith('widget:') ? 2 : 1;
+          const nextPage = Math.max(minPage, Math.min(maxAppPage, activePageIndexRef.current + direction)); // [EM: launcher-home-cross-page]
           if (nextPage === activePageIndexRef.current) {
               clearLayoutPageTurn();
               return;
@@ -814,7 +841,7 @@ const Launcher: React.FC = () => {
           layoutPageTurnTimer.current = setTimeout(turn, 760);
       };
       layoutPageTurnTimer.current = setTimeout(turn, 560);
-  }, [appPages.length, clearLayoutPageTurn]);
+  }, [desktopPages, clearLayoutPageTurn]);
 
   useEffect(() => () => {
       clearLayoutPressTimer();
@@ -861,17 +888,83 @@ const Launcher: React.FC = () => {
       }
       e.preventDefault();
       if (pointer.ghost) {
-          pointer.ghost.style.left = `${e.clientX - (pointer.grabOffsetX || 0)}px`;
-          pointer.ghost.style.top = `${e.clientY - (pointer.grabOffsetY || 0)}px`;
+          pointer.ghost.style.transform = `translate3d(${e.clientX - (pointer.grabOffsetX || 0)}px, ${e.clientY - (pointer.grabOffsetY || 0)}px, 0) scale(1.055)`;
       }
       const rootRect = e.currentTarget.getBoundingClientRect();
-      if (pointer.kind === 'app' && e.clientX <= rootRect.left + 72) queueLayoutPageTurn(-1);
-      else if (pointer.kind === 'app' && e.clientX >= rootRect.right - 72) queueLayoutPageTurn(1);
+      if (e.clientX <= rootRect.left + 40) queueLayoutPageTurn(-1);
+      else if (e.clientX >= rootRect.right - 40) queueLayoutPageTurn(1);
       else clearLayoutPageTurn();
+      if (pointer.kind === 'desktop') {
+          const dockTarget = desktopItemById.get(pointer.key)?.kind === 'app'
+              ? document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('[data-launcher-kind="dock"]')
+              : null;
+          const dockId = dockTarget?.dataset.launcherItem;
+          if (dockId && launcherDockOrderRef.current.includes(dockId)) {
+              if (pointer.targetElement !== dockTarget) {
+                  pointer.targetElement?.classList.remove('launcher-drop-target');
+                  dockTarget.classList.add('launcher-drop-target');
+                  pointer.targetElement = dockTarget;
+              }
+              pointer.lastTarget = dockId;
+              pointer.lastCell = undefined;
+              if (pointer.originLayout && desktopLayoutRef.current !== pointer.originLayout) {
+                  desktopLayoutRef.current = pointer.originLayout;
+                  setDesktopLayout(pointer.originLayout);
+              }
+              return;
+          }
+          const fixedTarget = !pointer.key.startsWith('widget:')
+              ? document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('[data-launcher-kind="fixed"]')
+              : null;
+          const homeId = fixedTarget?.dataset.launcherItem;
+          if (homeId && fixedHomeIds.has(homeId)) {
+              if (pointer.targetElement !== fixedTarget) {
+                  pointer.targetElement?.classList.remove('launcher-drop-target');
+                  fixedTarget.classList.add('launcher-drop-target');
+                  pointer.targetElement = fixedTarget;
+              }
+              pointer.lastTarget = homeId;
+              pointer.lastCell = undefined;
+              if (pointer.originLayout && desktopLayoutRef.current !== pointer.originLayout) {
+                  desktopLayoutRef.current = pointer.originLayout;
+                  setDesktopLayout(pointer.originLayout);
+              }
+              return;
+          }
+          pointer.targetElement?.classList.remove('launcher-drop-target');
+          pointer.targetElement = undefined;
+          pointer.lastTarget = undefined;
+          const grid = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('[data-desktop-page]');
+          if (!grid || !pointer.originLayout) return;
+          const rect = grid.getBoundingClientRect();
+          const size = desktopItemSize(pointer.key);
+          const page = Number(grid.dataset.desktopPage);
+          const col = Math.min(DESKTOP_COLUMNS - size.cols, Math.max(0, Math.floor((e.clientX - rect.left) / (rect.width / DESKTOP_COLUMNS))));
+          const styles = getComputedStyle(grid);
+          const tracks = styles.gridTemplateRows.split(' ').map(value => Number.parseFloat(value));
+          const gap = Number.parseFloat(styles.rowGap) || 0;
+          let row = 0;
+          let rowBottom = 0;
+          while (row < DESKTOP_ROWS - 1 && e.clientY - rect.top >= (rowBottom += (tracks[row] || rect.height / DESKTOP_ROWS) + gap)) row++;
+          row = Math.min(DESKTOP_ROWS - size.rows, row);
+          const cell = `${page}:${row}:${col}`;
+          if (cell === pointer.lastCell) return;
+          pointer.lastCell = cell;
+          const next = moveDesktopItem(pointer.originLayout, pointer.key, { page, row, col });
+          desktopLayoutRef.current = next;
+          setDesktopLayout(next);
+          return;
+      }
       const target = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('[data-launcher-item]');
       const targetKey = target?.dataset.launcherItem;
       const targetKind = target?.dataset.launcherKind;
-      const validTarget = !!targetKey && targetKind === pointer.kind && targetKey !== pointer.key;
+      const validTarget = !!targetKey && targetKey !== pointer.key && (
+          (pointer.kind === 'fixed' && (targetKind === 'fixed' ||
+              (targetKind === 'desktop' && desktopItemById.get(targetKey)?.kind !== 'widget' && desktopItemById.has(targetKey)) ||
+              (targetKind === 'dock' && desktopItemById.get(pointer.key)?.kind === 'app')))
+          || (pointer.kind === 'dock' && (targetKind === 'dock' ||
+              ((targetKind === 'fixed' || targetKind === 'desktop') && desktopItemById.get(targetKey)?.kind === 'app')))
+      ); // [EM: launcher-home-cross-page] [EM: launcher-editable-dock]
       if (!validTarget) {
           pointer.targetElement?.classList.remove('launcher-drop-target');
           pointer.targetElement = undefined;
@@ -885,23 +978,81 @@ const Launcher: React.FC = () => {
       pointer.lastTarget = targetKey;
   };
 
-  const finishLayoutPointer = (e?: React.PointerEvent<HTMLDivElement>) => {
+  const finishLayoutPointer = (e?: React.PointerEvent<HTMLDivElement>, cancelled = false) => {
       const pointer = layoutPointer.current;
       if (e && pointer && pointer.pointerId !== e.pointerId) return;
       clearLayoutPressTimer();
       clearLayoutPageTurn();
       if (pointer?.active) {
+          const dropElement = e
+              ? document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>('[data-launcher-item]')
+              : pointer.targetElement;
+          const dropId = dropElement?.dataset.launcherItem;
+          const dropKind = dropElement?.dataset.launcherKind;
           suppressLayoutClickUntil.current = Date.now() + 500;
           pointer.element.style.pointerEvents = '';
           pointer.element.classList.remove('launcher-dragging');
           pointer.ghost?.remove();
           pointer.targetElement?.classList.remove('launcher-drop-target');
-          if (pointer.lastTarget) reorderByTarget(pointer.kind, pointer.key, pointer.lastTarget);
-          void updateTheme({
-              launcherAppOrder: launcherAppOrderRef.current,
-              launcherDockOrder: launcherDockOrderRef.current,
-              launcherPinwheelOrder: pinwheelOrderRef.current,
-          });
+          const swapWithHome = (homeId: string, desktopId: string) => {
+              const swapped = swapHomeDesktopItem(launcherAppOrderRef.current, pointer.originLayout || desktopLayoutRef.current, homeId, desktopId);
+              if (!swapped) return;
+              launcherAppOrderRef.current = swapped.order;
+              setLauncherAppOrder(swapped.order);
+              desktopLayoutRef.current = swapped.layout;
+              setDesktopLayout(swapped.layout);
+              void updateTheme({ launcherAppOrder: swapped.order, launcherDesktopLayout: swapped.layout });
+          }; // [EM: launcher-home-cross-page]
+          const swapWithDock = (dockId: string, appId: string) => {
+              if (desktopItemById.get(appId)?.kind !== 'app') return;
+              const swapped = swapDockApp(launcherDockOrderRef.current, launcherAppOrderRef.current, pointer.originLayout || desktopLayoutRef.current, dockId, appId);
+              if (!swapped) return;
+              launcherDockOrderRef.current = swapped.dockOrder;
+              setLauncherDockOrder(swapped.dockOrder);
+              launcherAppOrderRef.current = swapped.appOrder;
+              setLauncherAppOrder(swapped.appOrder);
+              desktopLayoutRef.current = swapped.layout;
+              setDesktopLayout(swapped.layout);
+              void updateTheme({ launcherDockOrder: swapped.dockOrder, launcherAppOrder: swapped.appOrder, launcherDesktopLayout: swapped.layout });
+          }; // [EM: launcher-editable-dock]
+          if (pointer.kind === 'desktop') {
+              if (cancelled && pointer.originLayout) {
+                  desktopLayoutRef.current = pointer.originLayout;
+                  setDesktopLayout(pointer.originLayout);
+              } else if (dropKind === 'dock' && dropId) {
+                  swapWithDock(dropId, pointer.key);
+              } else if (dropKind === 'fixed' && dropId && fixedHomeIds.has(dropId) && !pointer.key.startsWith('widget:')) {
+                  swapWithHome(dropId, pointer.key);
+              } else if (activePageIndexRef.current < 2 && pointer.originLayout) {
+                  desktopLayoutRef.current = pointer.originLayout;
+                  setDesktopLayout(pointer.originLayout);
+              } else void updateTheme({ launcherDesktopLayout: desktopLayoutRef.current });
+          } else if (pointer.kind === 'fixed') {
+              if (!cancelled && dropId && dropId !== pointer.key && fixedHomeIds.has(pointer.key)) {
+                  if (dropKind === 'dock') {
+                      swapWithDock(dropId, pointer.key);
+                  } else if (dropKind === 'desktop' && desktopItemById.get(dropId)?.kind !== 'widget' && desktopItemById.has(dropId)) {
+                      swapWithHome(pointer.key, dropId);
+                  } else if (dropKind === 'fixed' && fixedHomeIds.has(dropId)) {
+                      const nextOrder = [...launcherAppOrderRef.current];
+                      const from = nextOrder.indexOf(pointer.key);
+                      const to = nextOrder.indexOf(dropId);
+                      if (from >= 0 && to >= 0) {
+                          [nextOrder[from], nextOrder[to]] = [nextOrder[to], nextOrder[from]];
+                          launcherAppOrderRef.current = nextOrder;
+                          setLauncherAppOrder(nextOrder);
+                          void updateTheme({ launcherAppOrder: nextOrder });
+                      }
+                  }
+              }
+          } else if (!cancelled && dropId && dropId !== pointer.key) {
+              if (dropKind === 'fixed' || dropKind === 'desktop') {
+                  swapWithDock(pointer.key, dropId);
+              } else if (dropKind === 'dock') {
+                  reorderByTarget(pointer.kind, pointer.key, dropId);
+                  void updateTheme({ launcherDockOrder: launcherDockOrderRef.current });
+              }
+          }
       }
       layoutPointer.current = null;
   };
@@ -910,6 +1061,68 @@ const Launcher: React.FC = () => {
       finishLayoutPointer();
       setLayoutEditing(false);
   };
+
+  const restoreDefaultDesktopLayout = () => {
+      const next = normalizeDesktopLayout(desktopIds, undefined, desktopDefaults);
+      desktopLayoutRef.current = next;
+      setDesktopLayout(next);
+      void updateTheme({ launcherDesktopLayout: next });
+  };
+
+  // [EM-START: launcher-folders] Keep folders in the theme backup alongside icon order.
+  const activeFolder = folders.find(folder => folder.id === openFolderId);
+  const folderBeingEdited = folders.find(folder => folder.id === editingFolderId);
+  const editorApps = availableGridApps.filter(app => !folders.some(folder => folder.id !== editingFolderId && folder.appIds.includes(app.id)));
+  const saveFolder = (name: string, appIds: AppID[]) => {
+      const id = folderBeingEdited?.id || `folder:${crypto.randomUUID()}`;
+      const nextFolders = normalizeLauncherFolders(
+          folderBeingEdited
+              ? folders.map(folder => folder.id === id ? { id, name, appIds } : folder)
+              : [...folders, { id, name, appIds }],
+          availableGridApps.map(app => app.id),
+      );
+      const nextRootIds = [...rootLauncherIds(availableGridApps.map(app => app.id), nextFolders), ...(utilityWidgetEnabled ? [UTILITY_WIDGET_ID] : [])];
+      const oldOrder = launcherAppOrderRef.current;
+      const firstMemberIndex = Math.min(...appIds.map(appId => oldOrder.indexOf(appId)).filter(index => index >= 0));
+      const candidate = oldOrder.filter(item => !appIds.includes(item as AppID));
+      if (!folderBeingEdited && Number.isFinite(firstMemberIndex)) candidate.splice(Math.min(firstMemberIndex, candidate.length), 0, id);
+      const nextOrder = normalizeOrder(candidate, nextRootIds);
+      launcherAppOrderRef.current = nextOrder;
+      setLauncherAppOrder(nextOrder);
+      void updateTheme({ launcherFolders: nextFolders, launcherAppOrder: nextOrder });
+      setOpenFolderId(id);
+      setEditingFolderId(null);
+      setLayoutEditing(false);
+  };
+  const deleteFolder = () => {
+      if (!folderBeingEdited) return;
+      const nextFolders = folders.filter(folder => folder.id !== folderBeingEdited.id);
+      const nextOrder = normalizeOrder(
+          launcherAppOrderRef.current.filter(id => id !== folderBeingEdited.id),
+          [...rootLauncherIds(availableGridApps.map(app => app.id), nextFolders), ...(utilityWidgetEnabled ? [UTILITY_WIDGET_ID] : [])],
+      );
+      launcherAppOrderRef.current = nextOrder;
+      setLauncherAppOrder(nextOrder);
+      void updateTheme({ launcherFolders: nextFolders, launcherAppOrder: nextOrder });
+      setOpenFolderId(null);
+      setEditingFolderId(null);
+  };
+  // [EM-END: launcher-folders]
+
+  // [EM-START: launcher-utility-widget] One movable widget with three manually switched views.
+  const addUtilityWidget = () => {
+      const next = [...launcherAppOrderRef.current.filter(id => id !== UTILITY_WIDGET_ID), UTILITY_WIDGET_ID];
+      launcherAppOrderRef.current = next;
+      setLauncherAppOrder(next);
+      void updateTheme({ launcherUtilityWidgetEnabled: true, launcherAppOrder: next });
+  };
+  const removeUtilityWidget = () => {
+      const next = launcherAppOrderRef.current.filter(id => id !== UTILITY_WIDGET_ID);
+      launcherAppOrderRef.current = next;
+      setLauncherAppOrder(next);
+      void updateTheme({ launcherUtilityWidgetEnabled: false, launcherAppOrder: next });
+  };
+  // [EM-END: launcher-utility-widget]
 
   const contentColor = theme.contentColor || '#ffffff';
   const acnh = theme.skin === 'animalcrossing'; // 动森彩蛋：Dock 换奶油木质底
@@ -945,9 +1158,12 @@ const Launcher: React.FC = () => {
       onPointerDown={handleLayoutPointerDown}
       onPointerMove={handleLayoutPointerMove}
       onPointerUp={finishLayoutPointer}
-      onPointerCancel={finishLayoutPointer}
+      onPointerCancel={event => finishLayoutPointer(event, true)}
       onContextMenu={(e) => {
-          if ((e.target as HTMLElement).closest('[data-launcher-item]')) e.preventDefault();
+          if ((e.target as HTMLElement).closest('[data-launcher-item]')) {
+              e.preventDefault();
+              setLayoutEditing(true);
+          }
       }}
     >
       <style>{`
@@ -978,8 +1194,13 @@ const Launcher: React.FC = () => {
       {layoutEditing && (
           <div className="absolute top-[calc(var(--safe-top)+0.65rem)] left-4 right-4 z-50 flex items-center justify-between rounded-full px-3 py-2"
               style={{ background: 'rgba(75,65,54,0.88)', color: '#fffdf8', boxShadow: '0 8px 24px rgba(75,65,54,0.20)' }}>
-              <span className="text-[10px] font-semibold tracking-wide">按住拖动，松手交换位置</span>
-              <button onClick={finishLayoutEditing} className="ml-3 px-3 py-1 rounded-full text-[10px] font-bold bg-white/15 active:scale-95">完成</button>
+              <span className="text-[10px] font-semibold tracking-wide">拖动调整位置</span>
+              <div className="flex items-center gap-2">
+                {!utilityWidgetEnabled && <button onClick={addUtilityWidget} className="px-2 py-1 rounded-full text-[10px] font-bold bg-white/15">添加小组件</button>}
+                <button onClick={restoreDefaultDesktopLayout} className="px-2 py-1 rounded-full text-[10px] font-bold bg-white/15">恢复默认</button>
+                <button onClick={() => setEditingFolderId('new')} className="px-2 py-1 rounded-full text-[10px] font-bold bg-white/15">新建文件夹</button>
+                <button onClick={finishLayoutEditing} className="px-3 py-1 rounded-full text-[10px] font-bold bg-white/15 active:scale-95">完成</button>
+              </div>
           </div>
       )}
       
@@ -1014,143 +1235,69 @@ const Launcher: React.FC = () => {
             WebkitOverflowScrolling: 'touch',
         }}
       >
-          {/* Render App Pages */}
-          {appPages.map((pageApps, idx) => (
+          {/* [EM-START: free-launcher-layout] Fixed clock home, with free grids on the other pages. */}
+          {Array.from({ length: desktopPages }, (_, idx) => (
               <div
                 key={idx}
-                className="w-full flex-shrink-0 snap-center snap-always flex flex-col px-6 pt-12 pb-8 h-full"
-                style={{ contentVisibility: 'auto', contain: 'layout paint', transform: 'translateZ(0)' }}
+                className={`w-full flex-shrink-0 snap-center snap-always flex flex-col h-full overflow-y-auto no-scrollbar ${idx === 1 ? 'px-5 py-16' : 'px-5 py-8'}`}
+                style={{ contentVisibility: 'auto', contain: 'layout paint', transform: 'translateZ(0)', containerType: idx === 0 || idx >= 1 ? 'inline-size' : undefined }}
               >
-                  {idx === 0 ? (
-                      // Page 1 (original): Clock + Chat + 4x3 App Grid
-                      <>
-                        <DesktopClock />
-                        <CharacterWidget
-                            char={widgetChar}
-                            unreadCount={widgetUnread}
-                            lastMessage={lastMessage}
-                            onClick={() => openApp(AppID.Chat)}
-                            contentColor={contentColor}
-                            paper={paper}
-                        />
-                        <div className="flex-1">
-                            <AppGridPage apps={pageApps} openApp={openApp} acnh={acnh} editing={layoutEditing} />
-                        </div>
-                      </>
-                  ) : idx === 1 ? (
-                      // Page 2: Schedule 4x2 widget on top + Pinwheel (Music / 2x2 icons / 2x2 icons / Image) below
-                      <div className="flex-1 min-h-0 w-full flex flex-col gap-5 justify-center">
-                          {scheduleChar && (
-                              <ScheduleHomeWidget
-                                  schedule={scheduleData}
-                                  character={scheduleChar}
-                                  contentColor={contentColor}
-                                  onOpen={() => setScheduleViewerOpen(true)}
-                                  acnh={acnh}
-                                  paper={paper}
-                              />
-                          )}
-                          <div className="grid grid-cols-2 gap-x-3 gap-y-5 w-full">
-                              {pinwheelOrder.map(cell => (
-                                  <div
-                                      key={cell}
-                                      data-launcher-item={cell}
-                                      data-launcher-kind="widget"
-                                      className={`aspect-square min-w-0 ${layoutEditing ? 'launcher-edit-item' : ''}`}
-                                  >
-                                      {cell === 'music' ? (
-                                          <NowPlayingSquareWidget contentColor={contentColor} />
-                                      ) : cell === 'appsA' ? (
-                                          <AppQuadGrid apps={page2QuadA} openApp={openApp} editing={layoutEditing} />
-                                      ) : cell === 'appsB' ? (
-                                          <AppQuadGrid apps={page2QuadB} openApp={openApp} editing={layoutEditing} />
-                                      ) : (
-                                          <DesktopSquareImage
-                                              image={theme.launcherWidgets?.['dsq']}
-                                              contentColor={contentColor}
-                                              onClick={() => { if (!layoutEditing) openApp(AppID.Appearance); }}
-                                              acnh={acnh}
-                                          />
-                                      )}
-                                  </div>
-                              ))}
-                          </div>
-                      </div>
-                  ) : (
-                      // Page 3+: Widget Images (idx===2 only) + Free Decorations + Apps
-                      <div className="pt-10 flex-1 flex flex-col relative">
-                          {idx === 2 && (() => {
-                            const raw = theme.launcherWidgets || {};
-                            const w = { ...raw };
-                            const hasAny = w['tl'] || w['tr'] || w['wide'];
-                            const hasTopRow = w['tl'] || w['tr'];
-                            return (
-                              <>
-                                {hasAny && (
-                                  <div className="mb-3 space-y-2 relative z-10">
-                                    {hasTopRow && (
-                                      <div className="flex gap-2">
-                                        {['tl', 'tr'].map(key => w[key] ? (
-                                          <div key={key} className="flex-1 aspect-square rounded-2xl overflow-hidden shadow-md border border-white/20">
-                                            <TokenImg value={w[key]} className="w-full h-full object-cover" alt="" loading="lazy" />
-                                          </div>
-                                        ) : <div key={key} className="flex-1"></div>)}
-                                      </div>
-                                    )}
-                                    {w['wide'] && (
-                                      <div className="w-full h-32 rounded-2xl overflow-hidden shadow-md border border-white/20">
-                                        <TokenImg value={w['wide']} className="w-full h-full object-cover" alt="" loading="lazy" />
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                                {/* Free-positioned Desktop Decorations (z-20 to float above widgets z-10) */}
-                                {theme.desktopDecorations && theme.desktopDecorations.length > 0 && (
-                                  <div className="absolute inset-0 pointer-events-none overflow-hidden z-20">
-                                    {theme.desktopDecorations.map(deco => (
-                                      <img
-                                        key={deco.id}
-                                        src={deco.content}
-                                        alt=""
-                                        loading="lazy"
-                                        className="absolute w-16 h-16 object-contain select-none"
-                                        style={{
-                                          left: `${deco.x}%`,
-                                          top: `${deco.y}%`,
-                                          transform: `translate(-50%, -50%) scale(${deco.scale}) rotate(${deco.rotation}deg)${deco.flip ? ' scaleX(-1)' : ''}`,
-                                          opacity: deco.opacity,
-                                          zIndex: deco.zIndex,
-                                          filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))',
-                                        }}
-                                      />
-                                    ))}
-                                  </div>
-                                )}
-                              </>
-                            );
-                          })()}
-
-                          <AppGridPage
-                                apps={pageApps}
-                                openApp={openApp}
-                                acnh={acnh}
-                                editing={layoutEditing}
-                          />
-                          <div className="flex-1"></div>
-                      </div>
-                  )}
+                  {idx === 0 ? <div className="w-full flex-none my-auto" style={{ height: FREE_PAGE_HEIGHT }}><WidgetsPage contentColor={contentColor} openApp={openApp} anniversaries={anniversaries} characters={characters}
+                    acnh={acnh} paper={paper} /></div> : idx === 1 ? <div className="w-full flex-none flex flex-col my-auto" style={{ '--launcher-cell': 'calc((100cqw - 30px) / 4)', height: FREE_PAGE_HEIGHT } as React.CSSProperties}>
+                    <div className="w-full flex-none flex items-center"
+                      style={{ height: FREE_TWO_CELL_HEIGHT, transform: 'translateY(calc(-0.28 * var(--launcher-cell)))' }}>
+                      <DesktopClock />
+                    </div>
+                    <CharacterWidget char={widgetChar} unreadCount={widgetUnread} lastMessage={lastMessage}
+                      onClick={() => { if (!layoutEditing) openApp(AppID.Chat); }} contentColor={contentColor} paper={paper} fixedRow />
+                    <div className="flex-1 grid grid-cols-4 auto-rows-[4.5rem] place-items-center gap-x-2 gap-y-6 animate-fade-in relative">
+                    {fixedHomeItems.map(item => {
+                      const id = item.kind === 'app' ? item.app.id : item.folder.id;
+                      return <div key={id} data-launcher-item={id} data-launcher-kind="fixed" className={`min-w-0 flex items-center justify-center ${layoutEditing ? 'launcher-edit-item' : ''}`}>
+                        {item.kind === 'app' ? <AppIcon app={item.app} onClick={() => { if (!layoutEditing) openApp(item.app.id); }} size="md" />
+                          : <LauncherFolderIcon folder={item.folder} onOpen={() => { if (!layoutEditing) setOpenFolderId(item.folder.id); }} />}
+                      </div>;
+                    })}
+                    </div>
+                  </div> : <div data-desktop-page={idx} className="relative grid w-full flex-none my-auto gap-x-2.5 gap-y-[18px]"
+                       style={{ '--launcher-cell': 'calc((100cqw - 30px) / 4)', gridTemplateColumns: `repeat(${DESKTOP_COLUMNS}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${DESKTOP_ROWS}, var(--launcher-cell))` } as React.CSSProperties}>
+                    {Object.entries(desktopLayout).filter(([, position]) => position.page === idx).map(([id, position]) => {
+                      const size = desktopItemSize(id);
+                      const item = desktopItemById.get(id);
+                      const imageSlot = id.startsWith('widget:image:') ? id.slice('widget:image:'.length) : null;
+                      const label = item?.kind === 'app' ? item.app.name : item?.kind === 'folder' ? item.folder.name
+                        : ({ [DESKTOP_WIDGET_IDS.agenda]: '月历与近期事件', [DESKTOP_WIDGET_IDS.clock]: '时钟', [DESKTOP_WIDGET_IDS.character]: '聊天', [DESKTOP_WIDGET_IDS.schedule]: '日程', [DESKTOP_WIDGET_IDS.music]: '音乐', [DESKTOP_WIDGET_IDS.image]: '图片', [DESKTOP_WIDGET_IDS.utilities]: '功能小组件' } as Record<string, string>)[id] || '图片';
+                      return <div key={id} data-launcher-item={id} data-launcher-kind="desktop" data-launcher-label={label}
+                        className={`relative min-w-0 min-h-0 ${size.cols === 1 ? 'flex items-center justify-center' : size.rows === 2 ? 'flex items-center' : ''} ${layoutEditing ? 'launcher-edit-item' : ''}`}
+                        style={{ gridColumn: `${position.col + 1} / span ${size.cols}`, gridRow: `${position.row + 1} / span ${size.rows}` }}>
+                        {item?.kind === 'app' ? <AppIcon app={item.app} onClick={() => { if (!layoutEditing) openApp(item.app.id); }} size="md" />
+                          : item?.kind === 'folder' ? <LauncherFolderIcon folder={item.folder} onOpen={() => { if (!layoutEditing) setOpenFolderId(item.folder.id); }} />
+                          : id === DESKTOP_WIDGET_IDS.clock ? <DesktopClock />
+                          : id === DESKTOP_WIDGET_IDS.character ? <CharacterWidget char={widgetChar} unreadCount={widgetUnread} lastMessage={lastMessage}
+                              onClick={() => { if (!layoutEditing) openApp(AppID.Chat); }} contentColor={contentColor} paper={paper} />
+                          : id === DESKTOP_WIDGET_IDS.schedule ? scheduleChar && <div className="w-full px-[5px]" style={{ height: `calc(${FREE_TWO_CELL_HEIGHT} - ${SP[1]}px)`, marginTop: SP[1] }}><ScheduleHomeWidget schedule={scheduleData} character={scheduleChar} contentColor={contentColor}
+                              onOpen={() => { if (!layoutEditing) setScheduleViewerOpen(true); }} acnh={acnh} paper={paper} /></div>
+                          : id === DESKTOP_WIDGET_IDS.music ? <div className="w-full" style={{ height: FREE_TWO_CELL_HEIGHT }}><NowPlayingSquareWidget contentColor={contentColor} /></div>
+                          : id === DESKTOP_WIDGET_IDS.image ? <div className="w-full" style={{ height: FREE_TWO_CELL_HEIGHT }}><DesktopSquareImage image={theme.launcherWidgets?.dsq} contentColor={contentColor}
+                              onClick={() => { if (!layoutEditing) openApp(AppID.Appearance); }} acnh={acnh} /></div>
+                          : id === DESKTOP_WIDGET_IDS.utilities ? <div className="w-full px-[5px]" style={{ height: FREE_TWO_CELL_HEIGHT }}><LauncherWidgetStack /></div>
+                          : imageSlot && theme.launcherWidgets?.[imageSlot] ? <div className={`${imageSlot === 'wide' ? 'mx-[5px]' : 'w-full'} overflow-hidden`} style={{ height: FREE_TWO_CELL_HEIGHT, borderRadius: R.bigCard, boxShadow: S.raisedSoft }}>
+                              <TokenImg value={theme.launcherWidgets[imageSlot]} className="w-full h-full object-cover" alt="" loading="lazy" />
+                            </div> : null}
+                        {id === DESKTOP_WIDGET_IDS.utilities && layoutEditing && <button type="button" aria-label="移除小组件"
+                          onPointerDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); removeUtilityWidget(); }}
+                          className="absolute -top-2 -left-2 z-20 w-8 h-8 flex items-center justify-center"
+                          style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.pill, boxShadow: S.raisedSoft }}><X size={16} weight="bold" /></button>}
+                      </div>;
+                    })}
+                    {idx === 2 && theme.desktopDecorations?.map(deco => <img key={deco.id} src={deco.content} alt="" loading="lazy"
+                      className="absolute w-16 h-16 object-contain pointer-events-none" style={{ left: `${deco.x}%`, top: `${deco.y}%`,
+                        transform: `translate(-50%, -50%) scale(${deco.scale}) rotate(${deco.rotation}deg)${deco.flip ? ' scaleX(-1)' : ''}`,
+                        opacity: deco.opacity, zIndex: deco.zIndex }} />)}
+                  </div>}
               </div>
           ))}
-
-          {/* Final Page: Widgets */}
-          <WidgetsPage
-            contentColor={contentColor}
-            openApp={openApp}
-            anniversaries={anniversaries}
-            characters={characters}
-            acnh={acnh}
-            paper={paper}
-          />
+          {/* [EM-END: free-launcher-layout] */}
 
       </div>
 
@@ -1204,6 +1351,11 @@ const Launcher: React.FC = () => {
           activeCharacter={scheduleChar}
           contentColor={contentColor}
       />
+
+      {activeFolder && !editingFolderId && <LauncherFolderPanel folder={activeFolder} onClose={() => setOpenFolderId(null)}
+        onOpenApp={id => { setOpenFolderId(null); openApp(id); }} onEdit={() => setEditingFolderId(activeFolder.id)} />}
+      {editingFolderId && <LauncherFolderEditor key={editingFolderId} folder={folderBeingEdited} availableApps={editorApps}
+        onClose={() => setEditingFolderId(null)} onSave={saveFolder} onDelete={folderBeingEdited ? deleteFolder : undefined} />}
 
     </div>
   );

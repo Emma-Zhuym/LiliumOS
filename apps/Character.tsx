@@ -21,9 +21,12 @@ import TokenImg from '../components/os/TokenImg';
 import { resolveBlobRefsDeep, migrateDataUrlToRef } from '../utils/blobRef';
 import { characterLaunch } from '../utils/characterLaunch';
 import { safeFetchJson, extractContent } from '../utils/safeApi';
+import { buildDailyRhythmDraftPrompt } from '../utils/scheduleGenerator'; // [EM: character-daily-rhythm-draft]
 import { fetchMiniMaxVoices, MiniMaxVoiceItem } from '../utils/minimaxVoice';
 import { resolveMiniMaxApiKey } from '../utils/minimaxApiKey';
 import { normalizeUserImpression } from '../utils/impression';
+import { parseImpressionReply } from '../utils/emImpressionParse'; // [EM: impression-json-tolerant]
+import { emImpressionJsonNote } from '../utils/emPromptAddons'; // [EM: impression-json-tolerant]
 import { injectMemoryPalace } from '../utils/memoryPalace/pipeline';
 import { COMMON_TIMEZONES } from '../utils/timezone';
 import { toMountedWorldbook } from '../utils/worldbook';
@@ -31,6 +34,7 @@ import { stripSensitiveCardFields } from '../utils/characterCard';
 import { confirmExportSafety } from '../utils/exportGuard';
 import { trackEvent } from '../utils/analytics';
 import { sortCharacterGroups, GROUP_FILTER_UNGROUPED } from '../components/character/CharacterGroupFilter';
+import { groupApiPresets } from '../utils/apiPresetGroups'; // [EM: api-preset-group]
 import {
     EXTERNAL_MEMORY_MAX_CHARS,
     extractExternalMemoryText,
@@ -138,6 +142,11 @@ const Character: React.FC = () => {
   
   // Race Condition Guards
   const editingIdRef = useRef<string | null>(null);
+  // [EM-START: character-daily-rhythm-draft]
+  const [rhythmDraft, setRhythmDraft] = useState<string | null>(null);
+  const [rhythmDraftLoading, setRhythmDraftLoading] = useState(false);
+  const [rhythmInstruction, setRhythmInstruction] = useState('');
+  // [EM-END: character-daily-rhythm-draft]
   
   // Modals
   const [showImportModal, setShowImportModal] = useState(false);
@@ -523,6 +532,67 @@ const Character: React.FC = () => {
           }
       } catch (e: any) { addToast(`精炼失败: ${e.message}`, 'error'); }
   };
+
+  // [EM-START: character-daily-rhythm-draft]
+  // 只在阿萌主动点「生成草稿」时跑一次，结果先落进 rhythmDraft 预览，
+  // 由阿萌确认「采用」才写回 formData——绝不直接覆盖已有的日常节律。
+  const handleGenerateDailyRhythm = async () => {
+      if (!apiConfig.apiKey) { addToast('请先配置 API Key', 'error'); return; }
+      if (!formData) return;
+      const targetId = formData.id;
+      trackEvent('生成日常节律草稿');
+
+      // 老角色的作息可能是相处中慢慢改的：带上最近的聊天记录，让草稿有机会顺着
+      // 实际相处调整，而不是每次都从人设重新瞎猜一份（阿萌反馈：纯读人设很怪）。
+      let recentChatText = '';
+      try {
+          const recent = await DB.getRecentMessagesByCharId(targetId, 40, true);
+          recentChatText = recent
+              .filter(m => m.type !== 'system' && m.type !== 'interaction')
+              .map(m => `${m.role === 'user' ? userProfile.name : formData.name}: ${m.type === 'text' ? m.content : `[${m.type}]`}`)
+              .join('\n')
+              .slice(-4000);
+      } catch { /* 拿不到聊天记录不影响生成，退化成只读人设 */ }
+
+      const { system, user: userMsg } = buildDailyRhythmDraftPrompt(formData, userProfile, {
+          currentRhythm: formData.dailyRhythm,
+          recentChatText,
+          instruction: rhythmInstruction.trim() || undefined,
+      });
+      setRhythmDraftLoading(true);
+      try {
+          const data = await safeFetchJson(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
+              body: JSON.stringify({
+                  model: apiConfig.model,
+                  messages: [
+                      { role: 'system', content: system },
+                      { role: 'user', content: userMsg },
+                  ],
+                  temperature: 0.7,
+              }),
+          }, 0);
+          const draft = extractContent(data).trim();
+          if (!draft) { addToast('生成失败：模型返回为空', 'error'); return; }
+          if (editingIdRef.current !== targetId) {
+              addToast('已经离开这个角色，草稿没有保留', 'info');
+              return;
+          }
+          setRhythmDraft(draft.slice(0, 3000));
+      } catch (e: any) {
+          addToast(`生成失败: ${e.message}`, 'error');
+      } finally {
+          setRhythmDraftLoading(false);
+      }
+  };
+  const applyDailyRhythmDraft = () => {
+      if (!rhythmDraft) return;
+      handleChange('dailyRhythm', rhythmDraft);
+      setRhythmDraft(null);
+      addToast('已采用，随时可以再改', 'success');
+  };
+  // [EM-END: character-daily-rhythm-draft]
 
   const handleDeleteMemories = (ids: string[]) => { if (!formData) return; handleChange('memories', (formData.memories || []).filter(m => !ids.includes(m.id))); addToast(`已删除 ${ids.length} 条记忆`, 'success'); };
   const handleUpdateMemory = (id: string, newSummary: string) => { if (!formData) return; handleChange('memories', (formData.memories || []).map(m => m.id === id ? { ...m, summary: newSummary } : m)); addToast('记忆已更新', 'success'); };
@@ -917,7 +987,7 @@ ${isInitialGeneration ? `
     ${changesInstruction}
   ]
 }
-注意：observed_changes 的每一项必须是纯字符串（string），例如 ["最近变得更开朗了", "开始主动分享日常"]。严禁使用对象格式如 {"period": "...", "description": "..."}。`;
+注意：observed_changes 的每一项必须是纯字符串（string），例如 ["最近变得更开朗了", "开始主动分享日常"]。严禁使用对象格式如 {"period": "...", "description": "..."}。${emImpressionJsonNote()}`;
 
           const data = await safeFetchJson(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
               method: 'POST',
@@ -935,7 +1005,7 @@ ${isInitialGeneration ? `
           let content = extractContent(data);
 
           content = content.replace(/```json/g, '').replace(/```/g, '').trim();
-const parsed = normalizeUserImpression(JSON.parse(content));
+          const parsed = normalizeUserImpression(parseImpressionReply(content)); // [EM: impression-json-tolerant] 回包带闲话 / 内层引号没转义时不再整次作废
           if (!parsed) throw new Error('印象生成结果不完整');
 
           if (editingIdRef.current === targetId) {
@@ -1411,9 +1481,17 @@ const parsed = normalizeUserImpression(JSON.parse(content));
                                    {formData.chatApiPresetId && !apiPresets.some((preset) => preset.id === formData.chatApiPresetId) && (
                                        <option value={formData.chatApiPresetId}>原预设已删除（现在跟随主 API）</option>
                                    )}
-                                   {apiPresets.map((preset) => (
+                                   {/* [EM-START: api-preset-group] */}
+                                   {groupApiPresets(apiPresets).map(section => section.group ? (
+                                       <optgroup key={section.group} label={section.group}>
+                                           {section.presets.map((preset) => (
+                                               <option key={preset.id} value={preset.id}>{preset.name} · {preset.config.model || '未填模型'}</option>
+                                           ))}
+                                       </optgroup>
+                                   ) : section.presets.map((preset) => (
                                        <option key={preset.id} value={preset.id}>{preset.name} · {preset.config.model || '未填模型'}</option>
-                                   ))}
+                                   )))}
+                                   {/* [EM-END: api-preset-group] */}
                                </select>
                                {formData.chatApiPresetId && !apiPresets.some((preset) => preset.id === formData.chatApiPresetId) && (
                                    <p className="mt-2 text-[10px] leading-relaxed text-amber-500">
@@ -1442,6 +1520,59 @@ const parsed = normalizeUserImpression(JSON.parse(content));
                                     placeholder="在这个世界里，魔法是存在的..."
                                 />
                            </div>
+
+                           {/* [EM-START: character-daily-rhythm-draft] */}
+                           {/* 同一个字段（char.dailyRhythm），聊天工具栏「日程/情绪」面板也能编辑——
+                               这里加一个入口是为了让它跟人设、世界观挨在一起，新建角色时顺手就填了，
+                               不用再想起来去聊天里翻。'mindful' 角色没有物理生活，这份对它没意义，隐藏。 */}
+                           {formData.scheduleStyle !== 'mindful' && (
+                               <div className="bg-white rounded-3xl p-4 shadow-sm border border-slate-100 space-y-3">
+                                   <div>
+                                       <label className="text-[10px] font-bold text-teal-500 uppercase tracking-widest block">日常节律 <span className="font-normal normal-case text-slate-400">可选</span></label>
+                                       <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">TA 平时怎么生活、上不上班——写死时段是锚点，写大致规律更灵活。日程生成和 TA 自己的活动都会参考这份。</p>
+                                   </div>
+                                   <textarea
+                                        value={formData.dailyRhythm || ''}
+                                        onChange={(e) => handleChange('dailyRhythm', e.target.value)}
+                                        maxLength={6000}
+                                        placeholder={'例如：\n09:00-18:00：在公司上班\n晚上大多在家，偶尔加班\n周末较自由'}
+                                        className="w-full h-28 bg-slate-50 rounded-2xl p-3 text-xs leading-relaxed resize-none outline-none focus:ring-1 focus:ring-primary/20"
+                                    />
+                                   <div className="flex items-center justify-between gap-3">
+                                       <span className="text-[9px] text-slate-400">{(formData.dailyRhythm || '').length}/6000</span>
+                                   </div>
+                                   <div className="rounded-2xl bg-slate-50 p-2.5 space-y-2">
+                                       <input
+                                            value={rhythmInstruction}
+                                            onChange={(e) => setRhythmInstruction(e.target.value)}
+                                            maxLength={500}
+                                            placeholder="想让 TA 怎么调整？可选，例如「他最近升职了，周末也偶尔加班」"
+                                            className="w-full bg-white rounded-xl px-3 py-2 text-[11px] outline-none border border-slate-200 focus:ring-1 focus:ring-primary/20"
+                                        />
+                                       <p className="text-[9px] text-slate-400 leading-relaxed">已有节律和最近的聊天记录都会一起参考——有变化会顺着改，没提到的部分不会被无缘无故推翻重写。</p>
+                                       <button
+                                            type="button"
+                                            onClick={handleGenerateDailyRhythm}
+                                            disabled={rhythmDraftLoading}
+                                            className="w-full rounded-xl px-3 py-2 text-[11px] font-bold text-white disabled:opacity-60"
+                                            style={{ background: '#0d9488' }}
+                                        >
+                                            {rhythmDraftLoading ? '生成中…' : (formData.dailyRhythm?.trim() ? '按上面的说明更新草稿' : '从人设生成草稿')}
+                                       </button>
+                                   </div>
+                                   {rhythmDraft && (
+                                       <div className="rounded-2xl border border-teal-200 bg-teal-50 p-3 space-y-2">
+                                           <p className="text-[10px] font-bold text-teal-600">生成的草稿（还没保存）</p>
+                                           <p className="text-xs text-slate-600 whitespace-pre-wrap leading-relaxed">{rhythmDraft}</p>
+                                           <div className="flex gap-2">
+                                               <button type="button" onClick={applyDailyRhythmDraft} className="flex-1 py-2 rounded-xl text-white text-[11px] font-bold" style={{ background: '#0d9488' }}>采用这份</button>
+                                               <button type="button" onClick={() => setRhythmDraft(null)} className="flex-1 py-2 rounded-xl bg-white border border-slate-200 text-[11px] font-bold text-slate-500">不用了</button>
+                                           </div>
+                                       </div>
+                                   )}
+                               </div>
+                           )}
+                           {/* [EM-END: character-daily-rhythm-draft] */}
 
                            {/* 时间感知 & 时区：三个独立开关，可任意组合（聊天时间感知 / 自定义时区 / 线下时间感知） */}
                            <div className="bg-white rounded-3xl p-4 shadow-sm border border-slate-100 space-y-4">

@@ -2,7 +2,7 @@ import { loadCharacterContextMessages } from '../utils/chatContextRange';
 import React, { useState, useEffect, useRef } from 'react';
 import { useOS } from '../context/OSContext';
 import { DB } from '../utils/db';
-import { CharacterProfile, PhoneEvidence, PhoneCustomApp, PhoneContact, PhoneSimLog, ConvTopic, AiSession, AiServiceKind, TavernCard, GalleryImage, APIConfig } from '../types';
+import { CharacterProfile, PhoneEvidence, PhoneCustomApp, PhoneContact, PhoneSimLog, ConvTopic, AiSession, AiServiceKind, TavernCard, GalleryImage, APIConfig, ContactGroupId } from '../types';
 import { ContextBuilder } from '../utils/context';
 import Modal from '../components/os/Modal';
 import TokenImg from '../components/os/TokenImg';
@@ -14,10 +14,20 @@ import {
     clampAffinity, normName, flipTranscript, parseTranscript, serializeTurns, appendLearned,
     phoneConversationContext, topicText, summarizeConversation, applyRealConversationToPhoneState, mergePhoneScanResults,
 } from '../utils/relationshipChat';
+// [EM: contact-groups] 联系人分组：家人 / 朋友 / 工作 / 学校 / 生活服务 / 网友 / 其他
+import { CONTACT_GROUPS, CONTACT_GROUP_PROMPT, groupContacts, normalizeContactGroup, resolveContactGroup } from '../utils/contactGroups';
 import PersonaSim, { LifeLog, generatePersonaScript } from './PersonaSim';
+// [EM: agent-backend-chronicle] 起居注：TA 自己醒来做了什么
+import ChronicleApp from '../components/checkphone/ChronicleApp';
+// [EM: work-app] 工作：TA 的工作群 / 私聊 / 邮件 / 正在推进的事（和短信、通讯录是两条独立的线）
+import WorkApp from '../components/checkphone/WorkApp';
 import { usePersonaSim, personaSimStore } from '../utils/personaSimStore';
 import { getLastInnerState } from '../utils/emotionApply';
 import { normalizePhoneEvidence, phoneFieldToText } from '../utils/phoneEvidence';
+import { ShoppingDB } from '../utils/shoppingDb'; // [EM: shopping-family]
+import { isShopRecord, shopOrdersAsPhoneRecords } from '../utils/shoppingFamily'; // [EM: shopping-family]
+import { buildMomentExtrasPrompt, formatMomentTime, normalizeMomentExtras, recordPostId } from '../utils/moments'; // [EM: moments]
+import { MomentsDB } from '../utils/momentsDb'; // [EM: moments]
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
 import { CHECK_PHONE_API_CHANGED_EVENT, getCheckPhoneApi, resolveCheckPhoneApi, setCheckPhoneApi } from '../utils/checkPhoneApi';
 import {
@@ -25,7 +35,8 @@ import {
     Plus, SignOut, CaretLeft, CaretRight, Cloud, ImagesSquare, LockSimple, Package,
     Storefront, Heart, ArrowsClockwise, Tray, DotsThree, ClockCounterClockwise, Sparkle,
     UsersThree, UserPlus, Prohibit, LinkSimple, PaperPlaneTilt, PencilSimple, Trash,
-    Robot, Brain, MaskHappy, Question, PaintBrush
+    Robot, Brain, MaskHappy, Question, PaintBrush, PencilSimpleLine,
+    Briefcase // [EM: work-app]
 } from '@phosphor-icons/react';
 
 type LayoutId = NonNullable<PhoneCustomApp['layout']>;
@@ -58,8 +69,9 @@ const PhotoCarouselWidget: React.FC<{ photos: GalleryImage[] }> = ({ photos }) =
     if (!cur) return null;
     return (
         <div className="relative w-full h-full" style={{ background: '#efe9dd' }}>
-            {prev && <img src={prev.url} className="absolute inset-0 w-full h-full object-cover" alt="" />}
-            <img key={idx} src={cur.url} className="absolute inset-0 w-full h-full object-cover" style={{ animation: 'emPhotoFade 0.8s ease both' }} alt="" loading="lazy" />
+            {/* 相册 url 会被「优化资源存储」换成 blobref 令牌，裸 <img> 加载不了，必须走 TokenImg */}
+            {prev && <TokenImg value={prev.url} className="absolute inset-0 w-full h-full object-cover" alt="" />}
+            <TokenImg key={idx} value={cur.url} className="absolute inset-0 w-full h-full object-cover" style={{ animation: 'emPhotoFade 0.8s ease both' }} alt="" loading="lazy" />
             <style>{`@keyframes emPhotoFade { from { opacity: 0 } to { opacity: 1 } }`}</style>
         </div>
     );
@@ -349,6 +361,12 @@ const CheckPhone: React.FC = () => {
     const [ncName, setNcName] = useState('');
     const [ncKind, setNcKind] = useState<'real' | 'npc'>('npc');
     const [ncLinkedId, setNcLinkedId] = useState('');
+    // [EM-START: contacts-manual-detail] 手动添加联系人时也能顺手写清楚关系与备注——
+    // 之前只有名字/类型两个字段，手填的人在列表里全是「—」，反而比扫描出来的还空。
+    const [ncIdentity, setNcIdentity] = useState('');
+    const [ncNote, setNcNote] = useState('');
+    // [EM-END: contacts-manual-detail]
+    const [ncGroup, setNcGroup] = useState<ContactGroupId | ''>(''); // [EM: contact-groups] 空 = 按关系备注自动归
     // 改绑定弹窗（把联系人改绑到正确的真实角色 / 转为虚构）
     const [showRebindModal, setShowRebindModal] = useState(false);
     // 「允许虚构 NPC」开关的说明展开态
@@ -423,6 +441,35 @@ const CheckPhone: React.FC = () => {
 
     // Derived state for evidence records
     const records = (targetChar?.phoneState?.records || []).map(normalizePhoneEvidence);
+    // [EM-START: shopping-family] 投喂站里我给 TA / TA 给我的单，只读混进淘宝和外卖
+    const [shopRecords, setShopRecords] = useState<PhoneEvidence[]>([]);
+    useEffect(() => {
+        const charId = targetChar?.id;
+        if (!charId) { setShopRecords([]); return; }
+        let cancelled = false;
+        Promise.all([ShoppingDB.getOrders(), ShoppingDB.getProducts()])
+            .then(([orders, products]) => {
+                if (!cancelled) setShopRecords(shopOrdersAsPhoneRecords(orders, products, charId, userProfile?.name || ''));
+            })
+            .catch(() => { if (!cancelled) setShopRecords([]); });
+        return () => { cancelled = true; };
+    }, [targetChar?.id, activeAppId, userProfile?.name]);
+    // [EM-END: shopping-family]
+    // [EM-START: moments] 朋友圈的赞和评论是真的（来自朋友圈 App），不再用假数字
+    const [momentCounts, setMomentCounts] = useState<Record<string, { likes: number; comments: number }>>({});
+    useEffect(() => {
+        let cancelled = false;
+        MomentsDB.getInteractions()
+            .then(all => { if (!cancelled) setMomentCounts(Object.fromEntries(all.map(i => [i.postId, { likes: i.likes.length, comments: i.comments.length }]))); })
+            .catch(() => {});
+        return () => { cancelled = true; };
+    }, [activeAppId]);
+    // 亲友评论 / 虚拟赞随动态一起生成（record.moment），加上朋友圈 App 里大家后来的点赞评论
+    const momentCountOf = (r: PhoneEvidence) => {
+        const live = (targetChar && momentCounts[recordPostId(targetChar.id, r.id)]) || { likes: 0, comments: 0 };
+        return { likes: live.likes + (r.moment?.likes ?? 0), comments: live.comments + (r.moment?.comments?.length ?? 0) };
+    };
+    // [EM-END: moments]
     const customApps = targetChar?.phoneState?.customApps || [];
     const contacts = targetChar?.phoneState?.contacts || [];
     const allowFictional = targetChar?.phoneState?.allowFictionalContacts !== false;
@@ -861,7 +908,8 @@ ${pinnedSection}
 2. **对话感**: 有来有回的对话脚本（3-4句），体现真实的关系。
 3. **格式**: 严格用 "我:..." 代表主角(你)，"对方:..." 代表联系人。
 4. **好感**: 给出该角色对此联系人的好感度 "affinity"（-100~100）。
-格式JSON数组: [{ "title": "真实角色填原名/虚构填名字", "kind": "real|npc", "linkedName": "若 real 填真实角色原名否则留空", "identity": "机主对 TA 的称呼/关系备注", "affinity": 30, "detail": "对方: 最近怎么样？\\n我: 还活着。\\n对方: 那就好。" }, ...]`;
+5. **分组**: ${CONTACT_GROUP_PROMPT}。按这个人和你的真实关系归，别都堆在同一组。
+格式JSON数组: [{ "title": "真实角色填原名/虚构填名字", "kind": "real|npc", "linkedName": "若 real 填真实角色原名否则留空", "identity": "机主对 TA 的称呼/关系备注", "group": "friend", "affinity": 30, "detail": "对方: 最近怎么样？\\n我: 还活着。\\n对方: 那就好。" }, ...]`;
                     logPrefix = "聊天软件";
                 } else if (type === 'contacts') {
                     promptInstruction = `扫描并生成**你（${targetChar.name}）自己**手机通讯录里的${myContacts.length ? ' 0-2 个新' : ' 4-6 个'}**联系人**（你自己的社交圈，第一人称，不是用户的人脉；不要对话，只要联系人本身）。
@@ -869,8 +917,8 @@ ${pinnedSection}
 ${realCharRule}
 
 已有联系人（固定保留，禁止重新生成或改写他们）：${myContacts.map(c => c.name).join('、') || '暂无'}。只补充合理的新联系人，没有新人就返回 []。
-每个联系人给出：姓名、关系备注(identity)、机主对 TA 的好感度(-100~100)、一句机主视角的备注(detail)。真实角色要符合上面的设定与已知关系，别瞎安。
-格式JSON数组: [{ "title": "真实角色填原名/虚构填名字", "kind": "real|npc", "linkedName": "若 real 填真实角色原名否则留空", "identity": "机主对 TA 的称呼/关系，如 学长/前任/彼方网友", "affinity": 20, "detail": "一句备注，比如：在彼方认识的，聊得来；或：欠我一顿饭，最近老已读不回。" }, ...]`;
+每个联系人给出：姓名、关系备注(identity)、分组(group)、机主对 TA 的好感度(-100~100)、一句机主视角的备注(detail)。${CONTACT_GROUP_PROMPT}。按这个人和你的真实关系归，别都堆在同一组。真实角色要符合上面的设定与已知关系，别瞎安。
+格式JSON数组: [{ "title": "真实角色填原名/虚构填名字", "kind": "real|npc", "linkedName": "若 real 填真实角色原名否则留空", "identity": "机主对 TA 的称呼/关系，如 学长/前任/彼方网友", "group": "school", "affinity": 20, "detail": "一句备注，比如：在彼方认识的，聊得来；或：欠我一顿饭，最近老已读不回。" }, ...]`;
                     logPrefix = "通讯录";
                 } else if (type === 'call') {
                     promptInstruction = `生成 3 条该角色的近期**通话记录**。
@@ -887,10 +935,13 @@ ${realCharRule}
                 } else if (type === 'social') {
                     promptInstruction = `生成 2 条该角色的朋友圈/社交媒体动态。
     格式JSON数组: [{ "title": "时间/状态", "detail": "正文内容" }, ...]`;
+                    // [EM-START: moments] 亲友评论、虚拟赞数、屏蔽分组和动态一起写出来
+                    promptInstruction += `\n\n${buildMomentExtrasPrompt(targetChar)}\n格式JSON数组: [{ "title": "时间/状态", "detail": "正文内容", "comments": [{ "who": "通讯录里的名字", "relation": "同事", "text": "评论" }], "likes": 18, "hide": ["family"] }, ...]`;
+                    // [EM-END: moments]
                     logPrefix = "朋友圈";
                 }
             }
-            promptInstruction += `\n\n**JSON 字段类型硬约束**：每条记录的 "title"、"detail"、"value" 只能是字符串（value 可省略），绝不能返回对象或数组；标签、阅读进度、摘录、批注等结构请先整理成 detail 中的普通文本。`;
+            promptInstruction += `\n\n**JSON 字段类型硬约束**：每条记录的 "title"、"detail"、"value" 只能是字符串（value 可省略），绝不能返回对象或数组${type === 'social' ? '（朋友圈的 comments / likes / hide 按上面的格式写）' : ''}；标签、阅读进度、摘录、批注等结构请先整理成 detail 中的普通文本。`;
 
             const perspectiveLock = `### [视角锁定 · 极重要]
 接下来要生成的是**你（${targetChar.name}）自己手机里的东西**——你自己的生活、社交、记录。
@@ -958,6 +1009,7 @@ ${realCharRule}
                         contactsAcc = upsertContact(contactsAcc, {
                             name: contactName,
                             identity: item.identity,
+                            group: normalizeContactGroup(item.group), // [EM: contact-groups]
                             kind,
                             linkedCharId: linkedId,
                             avatar: linkedId ? realChar?.avatar : undefined,
@@ -1000,6 +1052,7 @@ ${realCharRule}
                         timestamp: Date.now(),
                         systemMessageId: savedMsgId,
                         contactId,
+                        ...(type === 'social' && normalizeMomentExtras(item) ? { moment: normalizeMomentExtras(item) } : {}), // [EM: moments]
                     });
 
                     await new Promise(r => setTimeout(r, 50));
@@ -1572,6 +1625,11 @@ ${olderText}
         mutateContacts(cs => cs.map(c => c.id === contact.id ? { ...c, affinity: clampAffinity(value) } : c));
     };
 
+    // [EM: contact-groups] 手动换分组会锁住，之后扫描/对话回填不会改回去
+    const handleSetContactGroup = (contact: PhoneContact, group: ContactGroupId) => {
+        mutateContacts(cs => cs.map(c => c.id === contact.id ? { ...c, group, groupManual: true } : c));
+    };
+
     const handleSaveNote = (contact: PhoneContact) => {
         mutateContacts(cs => cs.map(c => c.id === contact.id ? { ...c, note: noteDraft } : c));
         setEditingNote(false);
@@ -1747,9 +1805,17 @@ ${olderText}
         } else if (!name) {
             addToast('请填写联系人名字', 'error'); return;
         }
-        mutateContacts(cs => upsertContact(cs, { name, kind: ncKind, linkedCharId, affinity: 0, status: 'friend' }));
+        // [EM: contacts-manual-detail] identity/note 手填时就带上，不再是空白联系人；
+        // identityManual 锁住手填的关系备注，跟「联系人详情页手动编辑」用同一条保护，避免下次扫描把它覆盖掉。
+        const identity = ncIdentity.trim();
+        mutateContacts(cs => upsertContact(cs, {
+            name, kind: ncKind, linkedCharId, affinity: 0, status: 'friend',
+            identity: identity || undefined, identityManual: identity ? true : undefined,
+            note: ncNote.trim() || undefined,
+            group: ncGroup || undefined, groupManual: ncGroup ? true : undefined, // [EM: contact-groups]
+        }));
         setShowContactModal(false);
-        setNcName(''); setNcKind('npc'); setNcLinkedId('');
+        setNcName(''); setNcKind('npc'); setNcLinkedId(''); setNcIdentity(''); setNcNote(''); setNcGroup('');
         addToast('已添加联系人', 'success');
     };
 
@@ -2129,6 +2195,19 @@ ${olderText}
     };
 
     const fmtClock = (t: number) => new Date(t).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+    const fmtWhen = (t: number) => formatMomentTime(t); // [EM: moments] 列表条目带日期：今天 / 昨天 / 9月24日
+
+    /** [EM: agent-backend-chronicle] 起居注只记「几点看了看什么」，正文留在各自 App 里。 */
+    const phoneActionLabel = (type: string): string => {
+        switch (type) {
+            case 'social': return '刷了刷朋友圈';
+            case 'order': return '逛了逛淘宝';
+            case 'delivery': return '看了看外卖';
+            case 'call': return '打了个电话';
+            case 'chat': return '看了看短信';
+            default: return `看了看${appLabel(type)}`;
+        }
+    };
 
     const lastSeenText = (() => {
         if (!lastTs) return 'Awaiting first sync';
@@ -2223,7 +2302,7 @@ ${olderText}
                                 <div className="flex-1 min-w-0">
                                     <div className="flex justify-between items-baseline gap-2">
                                         <span className="font-semibold text-[13.5px] text-white/95 truncate">{r.title}</span>
-                                        <span className="text-[10px] text-white/35 tabular-nums shrink-0">{fmtClock(r.timestamp)}</span>
+                                        <span className="text-[10px] text-white/35 tabular-nums shrink-0">{fmtWhen(r.timestamp)}</span>
                                     </div>
                                     <div className="text-[11.5px] text-white/45 truncate mt-0.5">{last}</div>
                                 </div>
@@ -2354,8 +2433,8 @@ ${olderText}
                                 {r.detail || '这条动态没有文字内容。'}
                             </div>
                             <div className="flex items-center gap-7 py-3 border-y border-white/[0.07] text-white/45">
-                                <span className="flex items-center gap-2 text-[12px]"><Heart size={16} weight="fill" style={{ color: accent }} /> {3 + (r.id.length % 30)} 个赞</span>
-                                <span className="flex items-center gap-2 text-[12px]"><ChatCircle size={16} /> {1 + (r.id.length % 9)} 条互动</span>
+                                <span className="flex items-center gap-2 text-[12px]"><Heart size={16} weight="fill" style={{ color: accent }} /> {r.type === 'social' ? momentCountOf(r).likes : 3 + (r.id.length % 30)} 个赞</span>{/* [EM: moments] */}
+                                <span className="flex items-center gap-2 text-[12px]"><ChatCircle size={16} /> {r.type === 'social' ? momentCountOf(r).comments : 1 + (r.id.length % 9)} 条互动</span>
                             </div>
                         </article>
                     ) : (
@@ -2409,12 +2488,14 @@ ${olderText}
                         <div className="flex justify-between gap-4"><dt className="text-white/30">记录编号</dt><dd className="text-white/40 text-right font-mono">#{r.id.slice(-8).toUpperCase()}</dd></div>
                     </dl>
 
+                    {!isShopRecord(r) && ( // [EM: shopping-family] 投喂站的单去投喂站管
                     <button onClick={() => askConfirm({
                         title: '删除这条记录？', desc: '删除「' + r.title + '」后无法恢复。', confirmLabel: '删除', danger: true,
                         onConfirm: () => handleDeleteRecord(r),
                     })} className="w-full mt-2 py-3 rounded-2xl text-[12px] font-semibold text-rose-200 bg-rose-400/10 border border-rose-400/20 active:scale-[0.99] transition flex items-center justify-center gap-2">
                         <Trash size={15} weight="bold" /> 删除记录
                     </button>
+                    )}
                 </div>
             </SubAppShell>
         );
@@ -2447,7 +2528,7 @@ ${olderText}
                                     </div>
                                     {r.detail && <div className="text-[10.5px] text-white/30 mt-1 italic truncate">“{r.detail}”</div>}
                                 </div>
-                                <span className="text-[10px] text-white/30 tabular-nums shrink-0">{fmtClock(r.timestamp)}</span>
+                                <span className="text-[10px] text-white/30 tabular-nums shrink-0">{fmtWhen(r.timestamp)}</span>
                                 <DelBtn onDelete={() => handleDeleteRecord(r)} />
                             </div>
                         );
@@ -2460,7 +2541,7 @@ ${olderText}
 
     const renderShop = () => {
         const accent = '#ff7a45';
-        const list = records.filter(r => r.type === 'order').sort((a, b) => b.timestamp - a.timestamp);
+        const list = [...records, ...shopRecords].filter(r => r.type === 'order').sort((a, b) => b.timestamp - a.timestamp); // [EM: shopping-family]
         return (
             <SubAppShell>
                 <TermHeader title="淘宝" sub="my orders" accent={accent} onBack={() => setActiveAppId('home')}
@@ -2493,7 +2574,7 @@ ${olderText}
                                     <span className="text-[9px] px-2 py-0.5 rounded-full bg-white/[0.06] text-white/50 tracking-wider flex items-center gap-0.5">已下单 <CaretRight size={10} /></span>
                                 </div>
                             </div>
-                            <DelBtn onDelete={() => handleDeleteRecord(r)} />
+                            {!isShopRecord(r) && <DelBtn onDelete={() => handleDeleteRecord(r)} />}{/* [EM: shopping-family] 投喂站的单去投喂站管 */}
                         </div>
                     ))}
                 </div>
@@ -2504,7 +2585,7 @@ ${olderText}
 
     const renderFood = () => {
         const accent = '#fbbf24';
-        const list = records.filter(r => r.type === 'delivery').sort((a, b) => b.timestamp - a.timestamp);
+        const list = [...records, ...shopRecords].filter(r => r.type === 'delivery').sort((a, b) => b.timestamp - a.timestamp); // [EM: shopping-family]
         return (
             <SubAppShell>
                 <TermHeader title="外卖" sub="recent orders" accent={accent} onBack={() => setActiveAppId('home')}
@@ -2521,14 +2602,14 @@ ${olderText}
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <div className="text-[13.5px] font-semibold text-white/95 truncate">{r.title}</div>
-                                    <div className="text-[10px] text-white/35 mt-0.5">{fmtClock(r.timestamp)} · 已送达</div>
+                                    <div className="text-[10px] text-white/35 mt-0.5">{fmtWhen(r.timestamp)} · 已送达</div>
                                 </div>
                                 {r.value && <span className="text-[14px] font-bold shrink-0" style={{ color: accent }}>{r.value}</span>}
                             </div>
                             <div className="text-[11.5px] text-white/50 mt-2.5 leading-relaxed pl-1 border-l-2" style={{ borderColor: `${accent}55` }}>
                                 <span className="pl-2">{r.detail}</span>
                             </div>
-                            <DelBtn onDelete={() => handleDeleteRecord(r)} />
+                            {!isShopRecord(r) && <DelBtn onDelete={() => handleDeleteRecord(r)} />}{/* [EM: shopping-family] 投喂站的单去投喂站管 */}
                         </div>
                     ))}
                 </div>
@@ -2555,13 +2636,13 @@ ${olderText}
                                     : <div className="w-9 h-9 rounded-full" style={{ background: accent }} />}
                                 <div className="min-w-0">
                                     <div className="text-[13px] font-semibold text-white/95">{charName}</div>
-                                    <div className="text-[10px] text-white/35">{r.title || fmtClock(r.timestamp)}</div>
+                                    <div className="text-[10px] text-white/35">{fmtWhen(r.timestamp)}</div>
                                 </div>
                             </div>
                             <div className="text-[13px] text-white/80 leading-relaxed whitespace-pre-wrap">{r.detail}</div>
                             <div className="flex items-center gap-5 mt-3 pt-2.5 border-t border-white/[0.06] text-white/40">
-                                <span className="flex items-center gap-1.5 text-[11px]"><Heart size={14} weight="fill" style={{ color: accent }} /> {3 + (r.id.length % 30)}</span>
-                                <span className="flex items-center gap-1.5 text-[11px]"><ChatCircle size={14} /> {1 + (r.id.length % 9)}</span>
+                                <span className="flex items-center gap-1.5 text-[11px]"><Heart size={14} weight="fill" style={{ color: accent }} /> {momentCountOf(r).likes}</span>{/* [EM: moments] */}
+                                <span className="flex items-center gap-1.5 text-[11px]"><ChatCircle size={14} /> {momentCountOf(r).comments}</span>
                                 <span className="ml-auto flex items-center gap-0.5 text-[10px]" style={{ color: accent }}>查看详情 <CaretRight size={10} /></span>
                             </div>
                             <DelBtn onDelete={() => handleDeleteRecord(r)} />
@@ -2586,6 +2667,7 @@ ${olderText}
         const accent = '#f472b6';
         // 人际关系里不出现用户自己
         const list = contacts.filter(c => !isUserName(c.name)).sort((a, b) => (b.lastInteraction || b.createdAt) - (a.lastInteraction || a.createdAt));
+        const sections = groupContacts(list); // [EM: contact-groups] 家人 / 朋友 / 工作…，组内仍按最近联系排
         return (
             <SubAppShell>
                 <TermHeader title={contactSelectMode ? `已选 ${selectedContactIds.length}` : '联系人'} sub={contactSelectMode ? '长按进入了多选' : `${list.length} contacts`} accent={accent}
@@ -2623,7 +2705,16 @@ ${olderText}
                 </div>
                 <div className="flex-1 overflow-y-auto px-4 pt-2 space-y-2.5 no-scrollbar pb-28 overscroll-contain">
                     {list.length === 0 && <EmptyState text="还没有联系人 · 在下面生成通讯录" />}
-                    {list.map(c => {
+                    {sections.map(section => (
+                    <React.Fragment key={section.group.id}>
+                    {/* [EM-START: contact-groups] */}
+                    <div className="flex items-center gap-2 px-1 pt-2 -mb-0.5">
+                        <span className="text-[10px] tracking-[0.2em] uppercase text-white/45">{section.group.label}</span>
+                        <span className="text-[9px] tabular-nums text-white/25">{section.contacts.length}</span>
+                        <div className="flex-1 h-px bg-white/[0.06]" />
+                    </div>
+                    {/* [EM-END: contact-groups] */}
+                    {section.contacts.map(c => {
                         const badge = kindBadge(c);
                         const dimmed = c.status === 'deleted' || c.status === 'blocked';
                         const av = contactAvatar(c);
@@ -2666,6 +2757,8 @@ ${olderText}
                             </div>
                         );
                     })}
+                    </React.Fragment>
+                    ))}
                 </div>
                 {contactSelectMode ? (
                     <div className="absolute bottom-7 inset-x-0 flex justify-center gap-2 px-6 z-30 pointer-events-none">
@@ -2761,7 +2854,7 @@ ${olderText}
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center justify-between gap-2">
                                         <div className="font-semibold text-[13.5px] text-white/95 truncate">{s.title}</div>
-                                        <span className="text-[10px] text-white/30 tabular-nums shrink-0">{fmtClock(s.updatedAt)}</span>
+                                        <span className="text-[10px] text-white/30 tabular-nums shrink-0">{fmtWhen(s.updatedAt)}</span>
                                     </div>
                                     <div className="text-[10.5px] text-white/40 mt-0.5">{s.serviceName} · {lines.length} 条</div>
                                     {last && <div className="text-[11px] text-white/55 mt-1 truncate italic">「{last.text}」</div>}
@@ -3165,6 +3258,27 @@ ${olderText}
                                 </div>
                             </div>
 
+                            {/* [EM-START: contact-groups] 分组：没手动选过就是按关系备注自动归的 */}
+                            <div className="rounded-2xl p-4 bg-white/[0.04] border border-white/[0.06]">
+                                <div className="flex items-center justify-between mb-2">
+                                    <span className="text-[10px] tracking-[0.2em] uppercase text-white/40">分组</span>
+                                    <span className="text-[9px] text-white/30">{c.groupManual ? '已手动指定' : '自动归类，点一下可改'}</span>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {CONTACT_GROUPS.map(g => {
+                                        const active = resolveContactGroup(c) === g.id;
+                                        return (
+                                            <button key={g.id} onClick={() => handleSetContactGroup(c, g.id)}
+                                                className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition active:scale-95 ${active ? 'text-white border-transparent' : 'text-white/55 border-white/10 bg-white/[0.03]'}`}
+                                                style={active ? { background: accent } : undefined}>
+                                                {g.label}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                            {/* [EM-END: contact-groups] */}
+
                             {/* 真人联系人列表里显示的备注名 / 关系（可人工锁定，后续扫描不覆盖） */}
                             {isReal && (
                                 <div className="rounded-2xl p-4 bg-white/[0.04] border border-white/[0.06]">
@@ -3324,7 +3438,7 @@ ${olderText}
                             <div className="w-9 h-9 rounded-full flex items-center justify-center text-lg" style={{ background: `linear-gradient(135deg, ${accent}55, ${accent}15)` }}>{app.icon}</div>
                             <div className="min-w-0">
                                 <div className="text-[13px] font-semibold text-white/95">{charName}</div>
-                                <div className="text-[10px] text-white/35">{r.title || fmtClock(r.timestamp)}</div>
+                                <div className="text-[10px] text-white/35">{fmtWhen(r.timestamp)}</div>
                             </div>
                         </div>
                         <div className="text-[13px] text-white/80 leading-relaxed whitespace-pre-wrap">{r.detail}</div>
@@ -3347,7 +3461,7 @@ ${olderText}
                         <div className="flex items-center gap-3 mt-2.5 text-[10px] text-white/35">
                             <span className="flex items-center gap-1">{app.icon} {charName}</span>
                             <span>· {1 + (r.id.length % 200)} 回复</span>
-                            <span>· {fmtClock(r.timestamp)}</span>
+                            <span>· {fmtWhen(r.timestamp)}</span>
                         </div>
                         <DelBtn onDelete={() => handleDeleteRecord(r)} />
                     </div>
@@ -3361,7 +3475,7 @@ ${olderText}
                         <div className="text-[12.5px] text-white/60 leading-loose line-clamp-4 whitespace-pre-wrap" style={{ fontFamily: "'Shippori Mincho','Noto Sans SC',serif" }}>{r.detail}</div>
                         <div className="flex items-center justify-between mt-3 pt-2 border-t border-white/[0.06] text-[10px] text-white/30">
                             <span>{r.value || '连载中'}</span>
-                            <span className="tabular-nums">{fmtClock(r.timestamp)}</span>
+                            <span className="tabular-nums">{fmtWhen(r.timestamp)}</span>
                         </div>
                         <DelBtn onDelete={() => handleDeleteRecord(r)} />
                     </div>
@@ -3375,7 +3489,7 @@ ${olderText}
                             {r.value && <span className="text-[12px] font-bold px-2 py-0.5 rounded-full shrink-0" style={{ color: accent, background: `${accent}1f` }}>{r.value}</span>}
                         </div>
                         <div className="text-[12px] text-white/55 leading-relaxed whitespace-pre-wrap">{r.detail}</div>
-                        <div className="text-[9.5px] text-white/25 mt-2 text-right tabular-nums">{fmtClock(r.timestamp)}</div>
+                        <div className="text-[9.5px] text-white/25 mt-2 text-right tabular-nums">{fmtWhen(r.timestamp)}</div>
                         <DelBtn onDelete={() => handleDeleteRecord(r)} />
                     </div>
                 );
@@ -3420,6 +3534,9 @@ ${olderText}
         { id: 'chat', icon: <ChatCircleDots size={cpIconSize} weight="light" />, label: '短信', bg: '#e7decd' },
         { id: 'aiagent', icon: <Robot size={cpIconSize} weight="light" />, label: '智能体', bg: '#e2ddd4' },
         { id: 'persona', icon: <MaskHappy size={cpIconSize} weight="light" />, label: '人格', bg: '#ede6da' },
+        { id: 'work', icon: <Briefcase size={cpIconSize} weight="light" />, label: '工作', bg: '#e4eaf3' }, // [EM: work-app]
+        // [EM: agent-backend-chronicle]
+        { id: 'chronicle', icon: <PencilSimpleLine size={cpIconSize} weight="light" />, label: '起居注', bg: '#eee7d9' },
         ...(customApps.length > 0 ? [{ id: '__myapps__', icon: <DotsThree size={cpIconSize} weight="bold" />, label: '更多', bg: '#e8e2d6' }] : []),
         { id: '__add__', icon: <Plus size={cpIconSize} weight="light" />, label: '添加', bg: '#e8e2d6' },
     ];
@@ -3459,7 +3576,7 @@ ${olderText}
                     <div className="shrink-0 ml-3 flex flex-col items-center gap-1">
                         <div className="w-12 h-12 rounded-full overflow-hidden shadow-sm" style={{ border: `2px solid ${CF.border}` }}>
                             {targetChar?.avatar
-                                ? <img src={targetChar.avatar} className="w-full h-full object-cover" alt="" />
+                                ? <TokenImg value={targetChar.avatar} className="w-full h-full object-cover" alt="" />
                                 : <div className="w-full h-full flex items-center justify-center text-lg" style={{ background: '#efe9dd', color: CF.sub }}>?</div>}
                         </div>
                         <span className="text-[10px] font-medium truncate max-w-[60px]" style={{ color: CF.text }}>{charName}</span>
@@ -3808,6 +3925,35 @@ ${olderText}
                         <PersonaSim targetChar={targetChar} onExit={() => setActiveAppId('home')} openLifeLog={() => setActiveAppId('lifelog')}
                             sim={sim} onStart={runSim} onConsumed={() => personaSimStore.reset()} />
                     )}
+                    {/* [EM-START: work-app] */}
+                    {activeAppId === 'work' && targetChar && (
+                        <SubAppShell>
+                            <TermHeader title="工作" sub="work" accent="#6ea8ff" onBack={() => setActiveAppId('home')} />
+                            <WorkApp work={targetChar.phoneState?.work} accent="#6ea8ff" charName={targetChar.name} />
+                        </SubAppShell>
+                    )}
+                    {/* [EM-END: work-app] */}
+                    {/* [EM-START: agent-backend-chronicle] */}
+                    {activeAppId === 'chronicle' && targetChar && (
+                        <SubAppShell>
+                            <TermHeader title="起居注" sub="daily record" accent="#c9683e" onBack={() => setActiveAppId('home')} />
+                            {/* 刷手机刷出来的记录也是 TA 做过的事，一并并进那条轴（本机数据，不用后台） */}
+                            <ChronicleApp
+                                targetChar={targetChar}
+                                accent="#c9683e"
+                                phoneEvents={records
+                                    .filter(record => Number.isFinite(record.timestamp))
+                                    // [EM: agent-life] 心跳写进来的那几条，起居注里已经有那一跳的原话，不再重复一行
+                                    .filter(record => !record.agentSourceIds?.length)
+                                    .map(record => ({
+                                        id: record.id,
+                                        at: record.timestamp,
+                                        label: phoneActionLabel(record.type),
+                                    }))}
+                            />
+                        </SubAppShell>
+                    )}
+                    {/* [EM-END: agent-backend-chronicle] */}
                     {activeAppId === 'lifelog' && targetChar && (
                         <LifeLog targetChar={targetChar} onBack={() => setActiveAppId('home')}
                             onRequestDelete={requestDeleteSimLog}
@@ -3974,7 +4120,7 @@ ${olderText}
                                         <button key={s.id} onClick={() => { setAiCardView(null); setSelectedAiSessionId(s.id); setActiveAppId('ai_session'); }}
                                             className="w-full text-left rounded-xl p-2.5 bg-slate-50 active:bg-slate-100 transition">
                                             <div className="text-[13px] font-semibold text-slate-700 truncate">{s.title}</div>
-                                            <div className="text-[10px] text-slate-400">{parseTranscript(s.transcript).length} 条 · {fmtClock(s.updatedAt)}</div>
+                                            <div className="text-[10px] text-slate-400">{parseTranscript(s.transcript).length} 条 · {fmtWhen(s.updatedAt)}</div>
                                         </button>
                                     ))}
                                 </div>
@@ -4067,6 +4213,30 @@ ${olderText}
                     ) : (
                         <input value={ncName} onChange={e => setNcName(e.target.value)} placeholder="联系人名字（虚构）" className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm" />
                     )}
+                    {/* [EM-START: contacts-manual-detail] */}
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">关系备注 <span className="normal-case font-normal">可选</span></label>
+                        <input value={ncIdentity} onChange={e => setNcIdentity(e.target.value)} placeholder="机主对 TA 的称呼，如「发小」「上司」「前任」" className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm" />
+                        <p className="text-[9px] text-slate-400 mt-1">会作为联系人列表里显示的备注名，也会告诉 TA 这个人是谁。</p>
+                    </div>
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">一句描述 <span className="normal-case font-normal">可选</span></label>
+                        <textarea value={ncNote} onChange={e => setNcNote(e.target.value)} placeholder="机主视角的一句话，比如「大学室友，毕业后还经常约饭」——这是已确立的事实，扫描/对话不会覆盖它" className="w-full h-16 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs resize-none" />
+                    </div>
+                    {/* [EM-END: contacts-manual-detail] */}
+                    {/* [EM-START: contact-groups] */}
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1.5">分组 <span className="normal-case font-normal">可选，不选就按关系备注自动归</span></label>
+                        <div className="flex flex-wrap gap-1.5">
+                            {CONTACT_GROUPS.map(g => (
+                                <button key={g.id} type="button" onClick={() => setNcGroup(ncGroup === g.id ? '' : g.id)}
+                                    className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition ${ncGroup === g.id ? 'bg-pink-500 text-white border-transparent' : 'bg-slate-50 text-slate-500 border-slate-200'}`}>
+                                    {g.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    {/* [EM-END: contact-groups] */}
                 </div>
             </Modal>
 

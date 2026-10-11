@@ -6,14 +6,21 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { CaretLeft, CaretRight, CaretDown, Plus, Minus, House, Package, CheckCircle, ShoppingCart, Clock, PencilSimple, Trash } from '@phosphor-icons/react';
+import TokenImg from '../components/os/TokenImg'; // [EM: token-img-avatars]
+import { CaretLeft, CaretRight, CaretDown, Plus, Minus, House, Package, CheckCircle, ShoppingCart, Clock, PencilSimple, Trash, UsersThree } from '@phosphor-icons/react';
 import { useOS } from '../context/OSContext';
 import { ShoppingDB, type ShopProduct, type CartItem, type ShopOrder } from '../utils/shoppingDb';
-import { sweepFoodDeliveries } from '../utils/shoppingDeliverySweep';
+import { sweepDeliveries } from '../utils/shoppingDeliverySweep';
 import { DB } from '../utils/db';
-import { F, S, R, HUE, STATUS } from '../utils/clayTokens';
+import { F, FONT, S, R, HUE, STATUS } from '../utils/clayTokens';
+import { canRefund, charSelfOrders, FAMILY_LINKS_KEY, formatYuan, isHiddenFromUser, normalizeFamilyLinks, orderCardLines, orderPriceText, orderStatusText, REFUND_MARK, refundNotice } from '../utils/shoppingFamily'; // [EM: shopping-family]
 
-type Screen = 'home' | 'net' | 'food' | 'cart' | 'checkout' | 'orders' | 'detail' | 'add';
+const LAST_RECEIVER_KEY = 'lastReceiverCharId';
+const FOOD_ETA_OPTIONS = [15, 20, 25, 30, 45, 60];
+const NET_DAY_OPTIONS = [1, 2, 3, 5, 7, 14];
+
+type OrderDirection = 'toChar' | 'self'; // [EM: shopping-family] TA 送我的由 TA 在心跳里自己下单
+type Screen = 'home' | 'netOrder' | 'food' | 'cart' | 'checkout' | 'orders' | 'detail' | 'add' | 'family'; // [EM: shopping-family]
 
 const TEAL = HUE.teal;
 const AMBER = HUE.amber;
@@ -51,7 +58,8 @@ const mono = (s: string) => s?.trim()[0] || '?';
 
 const CharAvatar: React.FC<{ name: string; avatar?: string; size: number; bg?: string }> = ({ name, avatar, size, bg }) => {
   if (avatar) {
-    return <img src={avatar} alt={name} style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover' }} />;
+    // 角色头像可能是 blobref 令牌；TokenImg 对非令牌值原样透传，行为与普通 <img> 一致
+    return <TokenImg value={avatar} alt={name} style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover' }} />;
   }
   return (
     <div className="flex items-center justify-center shrink-0" style={{ width: size, height: size, borderRadius: '50%', background: bg || F.surfaceSunken, fontSize: size * 0.38, fontWeight: 700, color: F.textTertiary }}>
@@ -64,8 +72,8 @@ const yuan = (n: number) => '¥' + (Math.round(n * 100) / 100).toString().replac
 // ── Shared UI Components ──
 
 const IconBtn: React.FC<{ onClick: () => void; children: React.ReactNode }> = ({ onClick, children }) => (
-  <button onClick={onClick} className="flex items-center justify-center active:translate-y-[1px] transition-transform"
-    style={{ width: 44, height: 44, borderRadius: R.pill, background: F.surfaceRaised, border: `1px solid ${F.borderSoft}`, boxShadow: S.raisedSoft }}>
+  <button onClick={onClick} className="flex items-center justify-center active:opacity-40 transition-opacity"
+    style={{ width: 44, height: 44, borderRadius: R.pill, background: 'transparent', border: 'none', boxShadow: 'none' }}>
     {children}
   </button>
 );
@@ -112,7 +120,7 @@ const EmptyState: React.FC<{ icon: React.ReactNode; text: string }> = ({ icon, t
 // ── Main App ──
 
 const ShoppingApp: React.FC = () => {
-  const { closeApp, characters } = useOS();
+  const { closeApp, characters, userProfile, updateCharacter } = useOS(); // [EM: shopping-family]
   const [screen, setScreen] = useState<Screen>('home');
   const screenStack = React.useRef<Screen[]>(['home']);
   const [products, setProducts] = useState<ShopProduct[]>([]);
@@ -120,15 +128,26 @@ const ShoppingApp: React.FC = () => {
   const [orders, setOrders] = useState<ShopOrder[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [ordersTab, setOrdersTab] = useState<'active' | 'done'>('active');
+  const [ordersTab, setOrdersTab] = useState<'active' | 'done' | 'cancelled'>('active'); // [EM: shopping-refund]
   const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
   const [receiver, setReceiver] = useState('');
   const [receiverCharId, setReceiverCharId] = useState('');
   const [noteText, setNoteText] = useState('');
   const [toast, setToast] = useState('');
-  const [customEtaMin, setCustomEtaMin] = useState<number | null>(null);
-  const [showEtaPicker, setShowEtaPicker] = useState(false);
-  const [isGiftFromChar, setIsGiftFromChar] = useState(false);
+  // 网购和外卖各自的送达时长（分钟），没选就用默认
+  const [customEta, setCustomEta] = useState<{ food?: number; net?: number }>({});
+  const [etaPickerType, setEtaPickerType] = useState<'food' | 'net' | null>(null);
+  // [EM-START: shopping-family]
+  const [direction, setDirection] = useState<OrderDirection>('toChar');
+  const [surprise, setSurprise] = useState(false);
+  const [familyLinks, setFamilyLinks] = useState<string[]>([]);
+  const forSelf = direction === 'self';
+  // 网购直接填单：网购的东西很少回购，不用先建商品再加购物车
+  const [nName, setNName] = useState('');
+  const [nPrice, setNPrice] = useState('');
+  const [nSpec, setNSpec] = useState('');
+  const [nDays, setNDays] = useState(3);
+  // [EM-END: shopping-family]
 
   // add/edit form
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
@@ -143,18 +162,22 @@ const ShoppingApp: React.FC = () => {
   const roles = characters.map(c => ({ id: c.id, name: c.name, avatar: c.avatar }));
 
   const refresh = useCallback(async () => {
-    await sweepFoodDeliveries();
-    const [p, c, o] = await Promise.all([ShoppingDB.getProducts(), ShoppingDB.getCart(), ShoppingDB.getOrders()]);
+    await sweepDeliveries();
+    const [p, c, o, links] = await Promise.all([ShoppingDB.getProducts(), ShoppingDB.getCart(), ShoppingDB.getOrders(), ShoppingDB.getSetting(FAMILY_LINKS_KEY)]);
     setProducts(p);
     setCart(c);
     setOrders(o.sort((a, b) => b.placedAt - a.placedAt));
+    setFamilyLinks(normalizeFamilyLinks(links)); // [EM: shopping-family]
   }, []);
 
   useEffect(() => {
     (async () => {
       await ShoppingDB.init();
       await refresh();
-      if (roles.length > 0 && !receiver) { setReceiver(roles[0].name); setReceiverCharId(roles[0].id); }
+      // 默认选上次下单的角色，找不到再用第一个
+      const lastId = await ShoppingDB.getSetting<string>(LAST_RECEIVER_KEY).catch(() => undefined);
+      const initial = roles.find(r => r.id === lastId) ?? roles[0];
+      if (initial && !receiver) { setReceiver(initial.name); setReceiverCharId(initial.id); }
       setLoading(false);
     })();
   }, [refresh]);
@@ -162,7 +185,7 @@ const ShoppingApp: React.FC = () => {
   const go = (s: Screen) => {
     screenStack.current.push(s);
     setScreen(s);
-    if (s === 'checkout') { setCustomEtaMin(null); setShowEtaPicker(false); setIsGiftFromChar(false); }
+    if (s === 'checkout' || s === 'netOrder') { setCustomEta({}); setEtaPickerType(null); setDirection('toChar'); setSurprise(false); } // [EM: shopping-family]
   };
   const back = () => {
     screenStack.current.pop();
@@ -206,37 +229,143 @@ const ShoppingApp: React.FC = () => {
     if (existing) await ShoppingDB.saveCartItem({ ...existing, note: note || undefined });
   };
 
-  const placeOrder = async () => {
-    if (cart.length === 0) return;
-    const firstProduct = products.find(p => p.id === cart[0].id);
-    const type = firstProduct?.type || 'net';
-    const now = Date.now();
-    const defaultMin = type === 'food'
-      ? (firstProduct?.shop ? ShoppingDB.getShopEta(firstProduct.shop) : 30)
-      : 3 * 24 * 60;
-    const etaTimestamp = now + (customEtaMin ?? defaultMin) * 60 * 1000;
+  const defaultEtaMin = (type: 'food' | 'net', shop?: string) =>
+    type === 'food' ? (shop ? ShoppingDB.getShopEta(shop) : 30) : 3 * 24 * 60;
 
+  // 购物车里网购和外卖混着放时拆成两单：送达方式不一样，不能按第一件商品一刀切
+  const placeOrder = async () => {
+    const picked = cart.map(c => ({ c, p: products.find(x => x.id === c.id) }))
+      .filter((x): x is { c: CartItem; p: ShopProduct } => !!x.p);
+    if (picked.length === 0) return;
+    if (!forSelf && !receiverCharId) { flash('先选一位角色'); return; }
+    const now = Date.now();
+    const groups = (['food', 'net'] as const)
+      .map(type => ({ type, items: picked.filter(x => x.p.type === type) }))
+      .filter(g => g.items.length > 0);
+    const created: ShopOrder[] = groups.map((g, i) => ({
+      id: 'o' + (now + i),
+      type: g.type,
+      receiver: forSelf ? (userProfile?.name || '我') : receiver,
+      receiverCharId: forSelf ? undefined : receiverCharId,
+      status: 'active',
+      note: noteText.trim(),
+      placedAt: now,
+      etaTimestamp: now + (customEta[g.type] ?? defaultEtaMin(g.type, g.items[0].p.shop)) * 60 * 1000,
+      lines: g.items.map(({ c }) => ({ id: c.id, qty: c.qty, ...(c.note ? { note: c.note } : {}) })),
+      // [EM-START: shopping-family]
+      ...(forSelf ? { selfOrder: 'user' as const } : {}),
+      ...(surprise && !forSelf ? { surprise: true } : {}),
+      // [EM-END: shopping-family]
+    }));
+    for (const o of created) await ShoppingDB.saveOrder(o);
+    await ShoppingDB.clearCart();
+    if (!forSelf) await ShoppingDB.saveSetting(LAST_RECEIVER_KEY, receiverCharId);
+    setNoteText('');
+    await refresh();
+    if (created.length === 1) {
+      setCurrentOrderId(created[0].id);
+      screenStack.current = ['home', 'orders', 'detail'];
+      setScreen('detail');
+    } else {
+      screenStack.current = ['home', 'orders'];
+      setScreen('orders');
+      setOrdersTab('active');
+    }
+    const who = forSelf ? '给自己' : `送给 ${receiver}${surprise ? '（惊喜）' : ''}`;
+    flash(created.length > 1 ? `已下单 · 网购和外卖分成两单` : `已下单 · ${who}`);
+  };
+
+  // 取消要点两下，防手滑
+  // [EM-START: shopping-refund] 取消 / 退货不再删单：留在「已退款」里，跟 TA 有关的告诉 TA 一声
+  const [cancelArmed, setCancelArmed] = useState(false);
+  const cancelOrder = async (o: ShopOrder) => {
+    if (!cancelArmed) { setCancelArmed(true); setTimeout(() => setCancelArmed(false), 2500); return; }
+    setCancelArmed(false);
+    const now = Date.now();
+    const notice = refundNotice(o, products, userProfile?.name || '');
+    const charId = o.receiverCharId;
+    if (o.selfOrder === 'char' && charId) {
+      // TA 自己在心跳里下的单：投喂站里是实时映射，真正的记录在 TA 查手机里，标在那条上
+      const recordId = o.id.slice(`hb-${charId}-`.length);
+      await updateCharacter(charId, cur => ({
+        phoneState: {
+          ...cur.phoneState,
+          records: (cur.phoneState?.records ?? []).map(r => r.id === recordId
+            ? { ...r, refundedAt: now, detail: `${r.detail.replace(REFUND_MARK, '').trim()}${REFUND_MARK}` }
+            : r),
+        },
+      }));
+    } else {
+      await ShoppingDB.saveOrder({ ...o, status: 'cancelled', cancelledAt: now, awaitingReply: false });
+    }
+    if (notice && charId) await DB.saveMessage({ charId, role: 'system', type: 'text', content: notice });
+    await refresh();
+    setOrdersTab('cancelled');
+    flash(o.status === 'done' ? '已退货退款' : '订单已取消');
+  };
+  // [EM-END: shopping-refund]
+
+  const clearNetForm = () => { setNName(''); setNPrice(''); setNSpec(''); setNDays(3); };
+
+  const placeNetOrder = async () => {
+    const price = parseFloat(nPrice);
+    if (!nName.trim() || !Number.isFinite(price)) { flash('填上商品名和价格'); return; }
+    if (!forSelf && !receiverCharId) { flash('先选一位角色'); return; }
+    const now = Date.now();
     const order: ShopOrder = {
       id: 'o' + now,
-      type,
-      receiver,
-      receiverCharId: receiverCharId || undefined,
+      type: 'net',
+      receiver: forSelf ? (userProfile?.name || '我') : receiver,
+      receiverCharId: forSelf ? undefined : receiverCharId,
       status: 'active',
-      note: noteText || (isGiftFromChar ? '' : '记得趁热喝,爱你 ♡'),
+      note: noteText.trim(),
       placedAt: now,
-      etaTimestamp,
-      lines: cart.map(c => ({ id: c.id, qty: c.qty, ...(c.note ? { note: c.note } : {}) })),
-      ...(isGiftFromChar ? { isGiftFromChar: true } : {}),
+      etaTimestamp: now + nDays * 24 * 60 * 60 * 1000,
+      lines: [],
+      custom: { title: nName.trim(), ...(nSpec.trim() ? { detail: nSpec.trim() } : {}), price: formatYuan(price) },
+      ...(forSelf ? { selfOrder: 'user' as const } : {}),
+      ...(surprise && !forSelf ? { surprise: true } : {}),
     };
     await ShoppingDB.saveOrder(order);
-    await ShoppingDB.clearCart();
+    if (!forSelf) await ShoppingDB.saveSetting(LAST_RECEIVER_KEY, receiverCharId);
+    clearNetForm();
     setNoteText('');
-    setCurrentOrderId(order.id);
     await refresh();
-    screenStack.current = ['home', 'orders'];
-    setScreen('orders');
-    setOrdersTab('active');
-    flash(isGiftFromChar ? `已下单 · ${receiver} 送的礼物` : '已下单 · 送给 ' + receiver);
+    setCurrentOrderId(order.id);
+    screenStack.current = ['home', 'orders', 'detail'];
+    setScreen('detail');
+    flash(forSelf ? '已下单 · 给自己' : `已下单 · 送给 ${receiver}${surprise ? '（惊喜）' : ''}`);
+  };
+
+  /** 买过的网购：来自以前的填单和旧的网购商品，按名字去重，最近的在前 */
+  const pastNetItems = (() => {
+    const seen = new Set<string>();
+    const fromOrders = orders
+      .filter(o => o.type === 'net' && o.custom && !o.agentSourceId)
+      .map(o => ({ name: o.custom!.title, price: String(parseFloat((o.custom!.price ?? '').replace(/[^0-9.]/g, '')) || ''), spec: o.custom!.detail ?? '' }));
+    const fromProducts = products.filter(p => p.type === 'net').map(p => ({ name: p.name, price: String(p.price), spec: p.note || p.brand }));
+    return [...fromOrders, ...fromProducts].filter(item => item.name && !seen.has(item.name) && seen.add(item.name)).slice(0, 10);
+  })();
+
+  const reorder = async (o: ShopOrder) => {
+    if (o.custom) {
+      setNName(o.custom.title);
+      setNPrice(String(parseFloat((o.custom.price ?? '').replace(/[^0-9.]/g, '')) || ''));
+      setNSpec(o.custom.detail ?? '');
+      screenStack.current = ['home'];
+      go('netOrder');
+      return;
+    }
+    const existing = await ShoppingDB.getCart();
+    for (const l of o.lines) {
+      if (!products.some(p => p.id === l.id)) continue;
+      const inCart = existing.find(c => c.id === l.id);
+      await ShoppingDB.saveCartItem(inCart ? { ...inCart, qty: inCart.qty + l.qty } : { id: l.id, qty: l.qty, ...(l.note ? { note: l.note } : {}) });
+    }
+    await refresh();
+    screenStack.current = ['home', 'cart'];
+    setScreen('cart');
+    flash('已加入购物车');
   };
 
   const saveProduct = async () => {
@@ -279,6 +408,8 @@ const ShoppingApp: React.FC = () => {
   };
 
   const orderTitle = (o: ShopOrder) => {
+    if (isHiddenFromUser(o)) return '惊喜礼物 · 送到才揭晓'; // [EM: shopping-family]
+    if (o.custom) return o.custom.title; // [EM: shopping-family]
     const totalQty = o.lines.reduce((a, l) => a + l.qty, 0);
     const first = products.find(x => x.id === o.lines[0]?.id);
     const name = first?.name || '';
@@ -291,7 +422,6 @@ const ShoppingApp: React.FC = () => {
     const p = products.find(x => x.id === c.id);
     return a + (p ? p.price * c.qty : 0);
   }, 0);
-  const netProducts = products.filter(p => p.type === 'net');
   const foodItems = products.filter(p => p.type === 'food');
   const shopOrder: string[] = [];
   foodItems.forEach(p => { if (p.shop && !shopOrder.includes(p.shop)) shopOrder.push(p.shop); });
@@ -301,13 +431,38 @@ const ShoppingApp: React.FC = () => {
     items: foodItems.filter(p => p.shop === shop),
   }));
   const findAvatar = (name: string) => roles.find(r => r.name === name)?.avatar;
-  const favProducts = products.filter(p => p.fav).slice(0, 4);
-  const activeOrders = orders.filter(o => o.status === 'active');
-  const doneOrders = orders.filter(o => o.status === 'done');
-  const shownOrders = ordersTab === 'active' ? activeOrders : doneOrders;
-  const currentOrder = orders.find(o => o.id === currentOrderId);
+  // [EM-START: shopping-family]
+  const giftSourceIds = orders.map(o => o.agentSourceId).filter((id): id is string => !!id);
+  const allOrders = [...orders, ...charSelfOrders(characters, familyLinks, Date.now(), giftSourceIds)].sort((a, b) => b.placedAt - a.placedAt);
+  const orderAvatar = (o: ShopOrder) => o.selfOrder === 'user' ? userProfile?.avatar : findAvatar(o.receiver);
+  const directionLabel = (o: ShopOrder) =>
+    (o.selfOrder === 'user' ? '给自己'
+      : o.selfOrder === 'char' ? `${o.receiver} 给自己买的`
+        : o.isGiftFromChar ? `来自 ${o.receiver}` : `送给 ${o.receiver}`) + (o.surprise ? ' · 惊喜' : '');
+  const shownPrice = (o: ShopOrder) => isHiddenFromUser(o) ? '¥ ?' : orderPriceText(o, products);
+  const toggleFamilyLink = async (charId: string) => {
+    const next = familyLinks.includes(charId) ? familyLinks.filter(id => id !== charId) : [...familyLinks, charId];
+    setFamilyLinks(next);
+    await ShoppingDB.saveSetting(FAMILY_LINKS_KEY, next);
+  };
+  // [EM-END: shopping-family]
+  const activeOrders = allOrders.filter(o => o.status === 'active'); // [EM: shopping-family]
+  const doneOrders = allOrders.filter(o => o.status === 'done'); // [EM: shopping-family]
+  const cancelledOrders = allOrders.filter(o => o.status === 'cancelled'); // [EM: shopping-refund]
+  const shownOrders = ordersTab === 'active' ? activeOrders : ordersTab === 'done' ? doneOrders : cancelledOrders; // [EM: shopping-refund]
+  const currentOrder = allOrders.find(o => o.id === currentOrderId); // [EM: shopping-family]
 
+  // [EM-START: shopping-refund] 送达时间精确到分钟：网购也写几点到
+  const clockOf = (ts: number) => { const d = new Date(ts); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; };
+  const dayClockOf = (ts: number) => {
+    const d = new Date(ts);
+    const today = new Date();
+    const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
+    const day = d.toDateString() === today.toDateString() ? '今天' : d.toDateString() === tomorrow.toDateString() ? '明天' : `${d.getMonth() + 1}月${d.getDate()}日`;
+    return `${day} ${clockOf(ts)}`;
+  };
   const formatEta = (o: ShopOrder) => {
+    if (o.status === 'cancelled') return o.cancelledAt ? `${dayClockOf(o.cancelledAt)} 退款` : '已退款';
     if (o.status === 'done') return '已送达';
     if (!o.etaTimestamp) return '配送中';
     const remaining = Math.max(0, o.etaTimestamp - Date.now());
@@ -315,9 +470,9 @@ const ShoppingApp: React.FC = () => {
       const mins = Math.ceil(remaining / 60000);
       return mins > 0 ? `还有 ${mins} 分钟送达` : '即将送达';
     }
-    const d = new Date(o.etaTimestamp);
-    return `预计 ${d.getMonth() + 1}月${d.getDate()}日 送达`;
+    return `预计 ${dayClockOf(o.etaTimestamp)} 送达`;
   };
+  // [EM-END: shopping-refund]
 
   const formatTime = (ts: number) => {
     const d = new Date(ts);
@@ -374,12 +529,12 @@ const ShoppingApp: React.FC = () => {
     <>
       {/* 网购 / 外卖 入口 */}
       <div className="grid grid-cols-2 gap-3">
-        <button onClick={() => go('net')} className="flex flex-col gap-2.5 active:scale-[.98] transition-transform text-left"
+        <button onClick={() => { clearNetForm(); go('netOrder'); }} className="flex flex-col gap-2.5 active:scale-[.98] transition-transform text-left"
           style={{ borderRadius: R.bigCard, background: TEAL.tint, padding: 16, boxShadow: S.raisedSoft }}>
           <div className="flex items-center justify-center" style={{ width: 44, height: 44, borderRadius: R.medium, background: TEAL.main, boxShadow: S.raisedSoft }}>
             <ShoppingCart size={24} weight="bold" color={F.surfaceRaised} />
           </div>
-          <div><div style={{ fontSize: 16, fontWeight: 600, color: TEAL.ink }}>网购</div><div style={{ fontSize: 12, color: TEAL.ink, opacity: 0.7, marginTop: 2 }}>按日期送达</div></div>
+          <div><div style={{ fontSize: 16, fontWeight: 600, color: TEAL.ink }}>网购</div><div style={{ fontSize: 12, color: TEAL.ink, opacity: 0.7, marginTop: 2 }}>填好就下单</div></div>
         </button>
         <button onClick={() => go('food')} className="flex flex-col gap-2.5 active:scale-[.98] transition-transform text-left"
           style={{ borderRadius: R.bigCard, background: AMBER.tint, padding: 16, boxShadow: S.raisedSoft }}>
@@ -393,6 +548,24 @@ const ShoppingApp: React.FC = () => {
           <div><div style={{ fontSize: 16, fontWeight: 600, color: AMBER.ink }}>外卖</div><div style={{ fontSize: 12, color: AMBER.ink, opacity: 0.7, marginTop: 2 }}>按时长送达</div></div>
         </button>
       </div>
+
+      {/* [EM-START: shopping-family] 家属关联入口 */}
+      <button onClick={() => go('family')} className="flex items-center gap-3.5 active:scale-[.99] transition-transform text-left"
+        style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, padding: '14px 16px', boxShadow: S.raisedSoft }}>
+        <div className="flex items-center justify-center shrink-0" style={{ width: 44, height: 44, borderRadius: R.medium, background: F.surfaceSunken, boxShadow: S.sunken }}>
+          <UsersThree size={22} weight="bold" color={F.textSecondary} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div style={{ fontSize: 15, fontWeight: 600, color: F.textPrimary }}>家属关联</div>
+          <div className="truncate" style={{ fontSize: 13, color: F.textTertiary, marginTop: 2 }}>
+            {familyLinks.length > 0
+              ? `已关联 ${roles.filter(r => familyLinks.includes(r.id)).map(r => r.name).join('、')}`
+              : '互相看到对方给自己买的东西'}
+          </div>
+        </div>
+        <CaretRight size={18} weight="bold" color={F.textTertiary} />
+      </button>
+      {/* [EM-END: shopping-family] */}
 
       {/* 进行中的订单 */}
       {activeOrders.length > 0 && (
@@ -409,7 +582,7 @@ const ShoppingApp: React.FC = () => {
                 className="flex items-center gap-3.5 active:scale-[.99] transition-transform text-left"
                 style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, padding: '14px 16px', boxShadow: S.raisedSoft }}>
                 <div className="shrink-0" style={{ width: 44, height: 44, borderRadius: R.medium, overflow: 'hidden', background: c.tint, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <CharAvatar name={o.receiver} avatar={findAvatar(o.receiver)} size={44} bg={c.tint} />
+                  <CharAvatar name={o.receiver} avatar={orderAvatar(o)} size={44} bg={c.tint} />{/* [EM: shopping-family] */}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="truncate" style={{ fontSize: 15, fontWeight: 600, color: F.textPrimary }}>{title}</div>
@@ -419,33 +592,6 @@ const ShoppingApp: React.FC = () => {
               </button>
             );
           })}
-        </>
-      )}
-
-      {/* 常送给 TA */}
-      {favProducts.length > 0 && (
-        <>
-          <div className="px-1 pt-1.5" style={{ fontSize: 16, fontWeight: 600, color: F.textPrimary }}>常送给 TA</div>
-          <div className="grid grid-cols-2 gap-3">
-            {favProducts.map(p => {
-              const c = pal(p.type);
-              return (
-                <div key={p.id} style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.large, overflow: 'hidden', boxShadow: S.raisedSoft }}>
-                  <div className="flex items-center justify-center" style={{ height: 76, background: c.tint }}>
-                    <CatIcon cat={p.cat} color={c.ink} size={34} />
-                  </div>
-                  <div style={{ padding: '10px 12px' }}>
-                    <div style={{ fontSize: 11, color: F.textTertiary }}>{p.brand}</div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: F.textPrimary }}>{p.name}</div>
-                    <div className="flex items-center justify-between" style={{ marginTop: 6 }}>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: c.ink }}>{yuan(p.price)}</span>
-                      <AddBtn onClick={() => addToCart(p.id)} color={c.main} />
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
         </>
       )}
 
@@ -460,37 +606,6 @@ const ShoppingApp: React.FC = () => {
   );
 
   // ── SCREEN: Net List ──
-  const renderNetList = () => (
-    <>
-      <div className="grid grid-cols-2 gap-3">
-        {netProducts.map(p => (
-          <div key={p.id} className="relative" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.large, overflow: 'hidden', boxShadow: S.raisedSoft }}>
-            <button onClick={() => startEdit(p)} className="absolute top-2 right-2 flex items-center justify-center active:scale-90 transition-transform"
-              style={{ width: 28, height: 28, borderRadius: R.tiny, background: `${F.surface}cc`, backdropFilter: 'blur(4px)' }}>
-              <PencilSimple size={14} weight="bold" color={F.textTertiary} />
-            </button>
-            <div className="flex items-center justify-center" style={{ height: 104, background: TEAL.tint }}>
-              <CatIcon cat={p.cat} color={TEAL.ink} size={34} />
-            </div>
-            <div style={{ padding: '10px 12px' }}>
-              <div style={{ fontSize: 11, color: F.textTertiary }}>{p.brand}</div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: F.textPrimary }}>{p.name}</div>
-              <div className="flex items-center justify-between" style={{ marginTop: 6 }}>
-                <span style={{ fontSize: 15, fontWeight: 700, color: TEAL.ink }}>{yuan(p.price)}</span>
-                <AddBtn onClick={() => addToCart(p.id)} color={TEAL.main} />
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-      <button onClick={() => { clearForm(); setFType('net'); setFCat('toy'); go('add'); }}
-        className="flex items-center justify-center gap-2 active:scale-[.99] transition-transform"
-        style={{ height: 52, borderRadius: R.smallCard, border: `1.5px dashed ${TEAL.soft}`, background: 'transparent', color: TEAL.ink, fontSize: 15, fontWeight: 600 }}>
-        <Plus size={18} weight="bold" />新增网购商品
-      </button>
-    </>
-  );
-
   // ── SCREEN: Food List (shop grouped, collapsible) ──
   // [EM-START: shopping-scroll]
   const toggleShop = (shop: string) => {
@@ -620,7 +735,139 @@ const ShoppingApp: React.FC = () => {
     );
   };
 
+  // ── 下单共用：送给谁 / 惊喜 / 留言（外卖结账和网购填单都用） ──
+  const Toggle: React.FC<{ on: boolean; color: string }> = ({ on, color }) => (
+    <div className="shrink-0" style={{
+      width: 36, height: 20, borderRadius: R.pill, padding: 2,
+      background: on ? color : F.surfaceSunken, boxShadow: on ? S.raisedSoft : S.sunken,
+      transition: 'background 0.2s, box-shadow 0.2s',
+    }}>
+      <div style={{
+        width: 16, height: 16, borderRadius: '50%', background: F.surfaceRaised, boxShadow: S.raisedSoft,
+        transform: on ? 'translateX(16px)' : 'translateX(0)', transition: 'transform 0.2s',
+      }} />
+    </div>
+  );
+
+  const label = (text: string) => (
+    <div style={{ fontSize: 13, fontWeight: 600, color: F.textSecondary, paddingLeft: 4 }}>{text}</div>
+  );
+
+  const renderRecipient = (C: typeof TEAL | typeof AMBER) => {
+    const linkedNames = roles.filter(r => familyLinks.includes(r.id)).map(r => r.name).join('、');
+    return (
+      <>
+        {/* 谁买给谁 */}
+        <SunkenBox>
+          <SegBtn label="送给 TA" active={direction === 'toChar'} onClick={() => setDirection('toChar')} />
+          <SegBtn label="给自己" active={direction === 'self'} onClick={() => { setDirection('self'); setSurprise(false); }} />
+        </SunkenBox>
+
+        {forSelf ? (
+          <div style={{ fontSize: 12, color: F.textTertiary, paddingLeft: 4, lineHeight: 1.5 }}>
+            {linkedNames ? `家属关联的 ${linkedNames} 能看到这一单` : '没有关联家属，只有你自己看得到'}
+          </div>
+        ) : (
+          <>
+            {label('送给谁')}
+            <div className="flex gap-2.5 overflow-x-auto" style={{ paddingBottom: 4 }}>
+              {roles.map(r => {
+                const active = receiverCharId === r.id;
+                return (
+                  <button key={r.id} onClick={() => { setReceiver(r.name); setReceiverCharId(r.id); }}
+                    className="flex flex-col items-center gap-1.5 active:scale-[.98] transition-transform" style={{ cursor: 'pointer' }}>
+                    <div style={{
+                      width: 56, height: 56, borderRadius: '50%', overflow: 'hidden',
+                      border: active ? `3px solid ${C.main}` : '3px solid transparent',
+                      background: active ? C.main : F.surfaceSunken,
+                      boxShadow: active ? S.raisedSoft : 'none',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <CharAvatar name={r.name} avatar={r.avatar} size={50} bg={active ? C.main : F.surfaceSunken} />
+                    </div>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: active ? C.ink : F.textTertiary }}>{r.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* 惊喜礼物 */}
+            <button onClick={() => setSurprise(v => !v)}
+              className="flex items-center gap-3 active:scale-[.99] transition-transform text-left"
+              style={{ padding: '12px 16px', borderRadius: R.smallCard, background: surprise ? C.tint : F.surface, border: `1px solid ${surprise ? C.soft : F.borderSoft}`, boxShadow: S.raisedSoft }}>
+              <Toggle on={surprise} color={C.main} />
+              <div className="flex-1 min-w-0">
+                <div style={{ fontSize: 14, fontWeight: 600, color: surprise ? C.ink : F.textSecondary }}>惊喜礼物</div>
+                <div style={{ fontSize: 12, color: F.textTertiary, marginTop: 1 }}>
+                  送到之前 {receiver || 'TA'} 不知道里面是什么
+                </div>
+              </div>
+            </button>
+          </>
+        )}
+      </>
+    );
+  };
+
+  const renderNoteField = () => (
+    <>
+      {label(forSelf ? '备注' : '写给 TA 的话')}
+      <InputField value={noteText} onChange={e => setNoteText(e.target.value)}
+        placeholder={forSelf ? '犒劳一下自己' : '记得趁热喝，爱你 ♡'} />
+    </>
+  );
+
+  // ── SCREEN: Net Order（网购直接填单） ──
+  const renderNetOrder = () => (
+    <>
+      {renderRecipient(TEAL)}
+
+      {label('买什么')}
+      <InputField value={nName} onChange={e => setNName(e.target.value)} placeholder="比如：羊毛围巾" />
+      {pastNetItems.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto" style={{ paddingBottom: 2 }}>
+          {pastNetItems.map(item => (
+            <button key={item.name} onClick={() => { setNName(item.name); setNPrice(item.price); setNSpec(item.spec); }}
+              className="shrink-0 active:scale-95 transition-transform"
+              style={{ height: 34, padding: '0 12px', borderRadius: R.pill, fontSize: 13, fontWeight: 600, background: F.surface, border: `1px solid ${F.borderSoft}`, color: F.textSecondary }}>
+              {item.name}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="flex flex-col gap-2">
+          {label('价格')}
+          <InputField value={nPrice} onChange={e => setNPrice(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="129" inputMode="decimal" />
+        </div>
+        <div className="flex flex-col gap-2">
+          {label('规格（可不填）')}
+          <InputField value={nSpec} onChange={e => setNSpec(e.target.value)} placeholder="灰色 / 均码" />
+        </div>
+      </div>
+
+      {label('几天送到')}
+      <div className="flex flex-wrap gap-2">
+        {NET_DAY_OPTIONS.map(v => {
+          const active = nDays === v;
+          return (
+            <button key={v} onClick={() => setNDays(v)} className="active:scale-95 transition-transform"
+              style={{
+                height: 36, padding: '0 16px', borderRadius: R.button, fontSize: 13, fontWeight: 600,
+                background: active ? TEAL.main : F.surfaceRaised, color: active ? F.surfaceRaised : F.textSecondary, boxShadow: S.raisedSoft,
+              }}>
+              {v} 天
+            </button>
+          );
+        })}
+      </div>
+
+      {renderNoteField()}
+    </>
+  );
+
   // ── SCREEN: Checkout ──
+  // 顺序：先定这单是谁买给谁（三选一），再选角色、看商品、定送达时间、写留言
   const renderCheckout = () => {
     const cartLines = cart.map(c => {
       const p = products.find(x => x.id === c.id);
@@ -629,136 +876,93 @@ const ShoppingApp: React.FC = () => {
       return { ...c, p, cp };
     }).filter(Boolean) as { id: string; qty: number; note?: string; p: ShopProduct; cp: typeof TEAL }[];
 
-    const firstProduct = cartLines[0]?.p;
-    const isFood = firstProduct?.type === 'food';
-    const C = isFood ? AMBER : TEAL;
-    const defaultEtaMin = isFood && firstProduct?.shop
-      ? ShoppingDB.getShopEta(firstProduct.shop) : (isFood ? 30 : 3 * 24 * 60);
-    const etaMin = customEtaMin ?? defaultEtaMin;
-    const foodOptions = [15, 20, 25, 30, 45, 60];
-    const netDayOptions = [1, 2, 3, 5, 7, 14];
+    const groups = (['food', 'net'] as const)
+      .map(type => ({ type, lines: cartLines.filter(l => l.p.type === type) }))
+      .filter(g => g.lines.length > 0);
+    const mixed = groups.length > 1;
+    const C = groups[0]?.type === 'food' ? AMBER : TEAL;
 
     return (
       <>
-        {/* 角色选择 */}
-        <div style={{ fontSize: 13, fontWeight: 600, color: F.textSecondary, paddingLeft: 4 }}>
-          {isGiftFromChar ? '谁送的' : '收货角色'}
-        </div>
-        <div className="flex gap-2.5 overflow-x-auto" style={{ paddingBottom: 4 }}>
-          {roles.map(r => {
-            const active = receiver === r.name;
-            return (
-              <button key={r.id} onClick={() => { setReceiver(r.name); setReceiverCharId(r.id); }}
-                className="flex flex-col items-center gap-1.5 active:scale-[.98] transition-transform" style={{ cursor: 'pointer' }}>
-                <div style={{
-                  width: 56, height: 56, borderRadius: '50%', overflow: 'hidden',
-                  border: active ? `3px solid ${C.main}` : '3px solid transparent',
-                  background: active ? C.main : F.surfaceSunken,
-                  boxShadow: active ? S.raisedSoft : 'none',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}>
-                  <CharAvatar name={r.name} avatar={r.avatar} size={50} bg={active ? C.main : F.surfaceSunken} />
-                </div>
-                <span style={{ fontSize: 12, fontWeight: 600, color: active ? C.ink : F.textTertiary }}>{r.name}</span>
-              </button>
-            );
-          })}
-        </div>
+        {renderRecipient(C)}
 
-        {/* 礼物方向切换 */}
-        <button onClick={() => setIsGiftFromChar(v => !v)}
-          className="flex items-center gap-3 active:scale-[.99] transition-transform"
-          style={{ padding: '12px 16px', borderRadius: R.smallCard, background: isGiftFromChar ? C.tint : F.surface, border: `1px solid ${isGiftFromChar ? C.soft : F.borderSoft}`, boxShadow: S.raisedSoft }}>
-          <div style={{
-            width: 36, height: 20, borderRadius: R.pill, padding: 2,
-            background: isGiftFromChar ? C.main : F.surfaceSunken,
-            boxShadow: isGiftFromChar ? S.raisedSoft : S.sunken,
-            transition: 'background 0.2s, box-shadow 0.2s',
-          }}>
-            <div style={{
-              width: 16, height: 16, borderRadius: '50%', background: F.surfaceRaised, boxShadow: S.raisedSoft,
-              transform: isGiftFromChar ? 'translateX(16px)' : 'translateX(0)',
-              transition: 'transform 0.2s',
-            }} />
-          </div>
-          <span style={{ fontSize: 14, fontWeight: 600, color: isGiftFromChar ? C.ink : F.textSecondary }}>
-            这是 {receiver} 送给我的
-          </span>
-        </button>
+        {/* 商品：网购和外卖混在一起时分组显示，下单会拆成两单 */}
+        {groups.map(g => {
+          const gc = pal(g.type);
+          const etaMin = customEta[g.type] ?? defaultEtaMin(g.type, g.lines[0].p.shop);
+          const picking = etaPickerType === g.type;
+          return (
+            <React.Fragment key={g.type}>
+              {label(mixed ? (g.type === 'food' ? '外卖（单独一单）' : '网购（单独一单）') : '商品')}
+              <div style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, overflow: 'hidden', boxShadow: S.raisedSoft }}>
+                {g.lines.map((c, i) => (
+                  <React.Fragment key={c.id}>
+                    {i > 0 && <div style={{ height: 1, background: F.divider, margin: '0 16px' }} />}
+                    <div className="flex items-center gap-3.5" style={{ padding: '14px 16px' }}>
+                      <div className="flex items-center justify-center shrink-0" style={{ width: 48, height: 48, borderRadius: R.medium, background: c.cp.tint }}>
+                        <CatIcon cat={c.p.cat} color={c.cp.ink} size={24} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div style={{ fontSize: 15, fontWeight: 600, color: F.textPrimary }}>{c.p.name}</div>
+                        {(c.p.brand || c.note) && <div style={{ fontSize: 12, color: F.textTertiary, marginTop: 1 }}>{c.p.brand}{c.note ? ' · ' + c.note : ''}</div>}
+                        <div style={{ fontSize: 13, color: c.cp.ink, fontWeight: 600, marginTop: 2 }}>{yuan(c.p.price)}</div>
+                      </div>
+                      <div className="flex items-center gap-2" style={{ padding: 4, borderRadius: R.medium, background: F.surfaceSunken, boxShadow: S.sunken }}>
+                        <button onClick={() => updateQty(c.id, -1)} className="flex items-center justify-center active:scale-90 transition-transform"
+                          style={{ width: 28, height: 28, borderRadius: R.tiny, background: F.surfaceRaised, boxShadow: S.raisedSoft, color: F.textSecondary }}>
+                          <Minus size={14} weight="bold" />
+                        </button>
+                        <span style={{ minWidth: 16, textAlign: 'center', fontSize: 14, fontWeight: 600, color: F.textPrimary }}>{c.qty}</span>
+                        <button onClick={() => updateQty(c.id, 1)} className="flex items-center justify-center active:scale-90 transition-transform"
+                          style={{ width: 28, height: 28, borderRadius: R.tiny, background: c.cp.main, boxShadow: S.raisedSoft, color: F.surfaceRaised }}>
+                          <Plus size={14} weight="bold" />
+                        </button>
+                      </div>
+                    </div>
+                  </React.Fragment>
+                ))}
+              </div>
 
-        {/* 商品 */}
-        <div style={{ fontSize: 13, fontWeight: 600, color: F.textSecondary, paddingLeft: 4 }}>商品</div>
-        <div style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, overflow: 'hidden', boxShadow: S.raisedSoft }}>
-          {cartLines.map((c, i) => (
-            <React.Fragment key={c.id}>
-              {i > 0 && <div style={{ height: 1, background: F.divider, margin: '0 16px' }} />}
-              <div className="flex items-center gap-3.5" style={{ padding: '14px 16px' }}>
-                <div className="flex items-center justify-center shrink-0" style={{ width: 48, height: 48, borderRadius: R.medium, background: c.cp.tint }}>
-                  <CatIcon cat={c.p.cat} color={c.cp.ink} size={24} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div style={{ fontSize: 15, fontWeight: 600, color: F.textPrimary }}>{c.p.name}</div>
-                  {(c.p.brand || c.note) && <div style={{ fontSize: 12, color: F.textTertiary, marginTop: 1 }}>{c.p.brand}{c.note ? ' · ' + c.note : ''}</div>}
-                  <div style={{ fontSize: 13, color: c.cp.ink, fontWeight: 600, marginTop: 2 }}>{yuan(c.p.price)}</div>
-                </div>
-                {/* sunken stepper */}
-                <div className="flex items-center gap-2" style={{ padding: 4, borderRadius: R.medium, background: F.surfaceSunken, boxShadow: S.sunken }}>
-                  <button onClick={() => updateQty(c.id, -1)} className="flex items-center justify-center active:scale-90 transition-transform"
-                    style={{ width: 28, height: 28, borderRadius: R.tiny, background: F.surfaceRaised, boxShadow: S.raisedSoft, color: F.textSecondary }}>
-                    <Minus size={14} weight="bold" />
-                  </button>
-                  <span style={{ minWidth: 16, textAlign: 'center', fontSize: 14, fontWeight: 600, color: F.textPrimary }}>{c.qty}</span>
-                  <button onClick={() => updateQty(c.id, 1)} className="flex items-center justify-center active:scale-90 transition-transform"
-                    style={{ width: 28, height: 28, borderRadius: R.tiny, background: c.cp.main, boxShadow: S.raisedSoft, color: F.surfaceRaised }}>
-                    <Plus size={14} weight="bold" />
-                  </button>
-                </div>
+              {/* 预计送达 */}
+              <div>
+                <button onClick={() => setEtaPickerType(picking ? null : g.type)} className="flex items-center gap-3 w-full"
+                  style={{ height: 52, padding: '0 18px', borderRadius: R.input, background: F.surfaceSunken, boxShadow: S.sunken, cursor: 'pointer' }}>
+                  <Clock size={18} weight="bold" color={F.textTertiary} />
+                  <span style={{ fontSize: 14, color: F.textSecondary }}>{mixed ? (g.type === 'food' ? '外卖送达' : '网购送达') : '预计送达'}</span>
+                  <span className="flex-1" />
+                  <span style={{ fontSize: 14, fontWeight: 600, color: F.textPrimary }}>
+                    {g.type === 'food' ? `约 ${etaMin} 分钟后` : `约 ${Math.round(etaMin / 60 / 24)} 天后`}
+                  </span>
+                  <CaretRight size={16} weight="bold" color={F.textTertiary}
+                    style={{ transform: picking ? 'rotate(90deg)' : 'none', transition: 'transform .2s' }} />
+                </button>
+                {picking && (
+                  <div className="flex flex-wrap gap-2" style={{ marginTop: 10, padding: '0 4px' }}>
+                    {(g.type === 'food' ? FOOD_ETA_OPTIONS : NET_DAY_OPTIONS).map(v => {
+                      const min = g.type === 'food' ? v : v * 24 * 60;
+                      const active = etaMin === min;
+                      return (
+                        <button key={v} onClick={e => { e.stopPropagation(); setCustomEta(prev => ({ ...prev, [g.type]: min })); setEtaPickerType(null); }}
+                          className="active:scale-95 transition-transform"
+                          style={{
+                            height: 36, padding: '0 16px', borderRadius: R.button, fontSize: 13, fontWeight: 600,
+                            background: active ? gc.main : F.surfaceRaised,
+                            color: active ? F.surfaceRaised : F.textSecondary,
+                            boxShadow: S.raisedSoft,
+                          }}>
+                          {g.type === 'food' ? `${v} 分钟` : `${v} 天`}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </React.Fragment>
-          ))}
-        </div>
-
-        {/* 预计送达 */}
-        <div>
-          <button onClick={() => setShowEtaPicker(v => !v)} className="flex items-center gap-3 w-full"
-            style={{ height: 52, padding: '0 18px', borderRadius: R.input, background: F.surfaceSunken, boxShadow: S.sunken, cursor: 'pointer' }}>
-            <Clock size={18} weight="bold" color={F.textTertiary} />
-            <span style={{ fontSize: 14, color: F.textSecondary }}>预计送达</span>
-            <span className="flex-1" />
-            <span style={{ fontSize: 14, fontWeight: 600, color: F.textPrimary }}>
-              {isFood ? `约 ${etaMin} 分钟后` : `约 ${Math.round(etaMin / 60 / 24)} 天后`}
-            </span>
-            <CaretRight size={16} weight="bold" color={F.textTertiary}
-              style={{ transform: showEtaPicker ? 'rotate(90deg)' : 'none', transition: 'transform .2s' }} />
-          </button>
-          {showEtaPicker && (
-            <div className="flex flex-wrap gap-2" style={{ marginTop: 10, padding: '0 4px' }}>
-              {(isFood ? foodOptions : netDayOptions).map(v => {
-                const min = isFood ? v : v * 24 * 60;
-                const active = etaMin === min;
-                return (
-                  <button key={v} onClick={e => { e.stopPropagation(); setCustomEtaMin(min); setShowEtaPicker(false); }}
-                    className="active:scale-95 transition-transform"
-                    style={{
-                      height: 36, padding: '0 16px', borderRadius: R.button, fontSize: 13, fontWeight: 600,
-                      background: active ? C.main : F.surfaceRaised,
-                      color: active ? F.surfaceRaised : F.textSecondary,
-                      boxShadow: S.raisedSoft,
-                    }}>
-                    {isFood ? `${v} 分钟` : `${v} 天`}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
+          );
+        })}
 
         {/* 留言 */}
-        <div style={{ fontSize: 13, fontWeight: 600, color: F.textSecondary, paddingLeft: 4 }}>
-          {isGiftFromChar ? `${receiver} 的留言` : '写给 TA 的话'}
-        </div>
-        <InputField value={noteText} onChange={e => setNoteText(e.target.value)}
-          placeholder={isGiftFromChar ? '给你买的，不用谢~' : '记得趁热喝,爱你 ♡'} />
+        {renderNoteField()}
       </>
     );
   };
@@ -769,6 +973,7 @@ const ShoppingApp: React.FC = () => {
       <SunkenBox>
         <SegBtn label="进行中" active={ordersTab === 'active'} onClick={() => setOrdersTab('active')} />
         <SegBtn label="已完成" active={ordersTab === 'done'} onClick={() => setOrdersTab('done')} />
+        <SegBtn label="已退款" active={ordersTab === 'cancelled'} onClick={() => setOrdersTab('cancelled')} />{/* [EM: shopping-refund] */}
       </SunkenBox>
       {shownOrders.length === 0 ? (
         <EmptyState icon={<Package size={22} weight="bold" color={F.textTertiary} />} text="这里还没有订单" />
@@ -776,26 +981,25 @@ const ShoppingApp: React.FC = () => {
         shownOrders.map(o => {
           const c = pal(o.type);
           const title = orderTitle(o);
-          const total = o.lines.reduce((a, l) => { const p = products.find(x => x.id === l.id); return a + (p ? p.price * l.qty : 0); }, 0);
           return (
             <button key={o.id} onClick={() => { setCurrentOrderId(o.id); go('detail'); }}
               className="flex flex-col gap-3 active:scale-[.99] transition-transform text-left"
               style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, padding: 16, boxShadow: S.raisedSoft }}>
               <div className="flex items-center gap-2.5">
                 <div className="shrink-0" style={{ width: 36, height: 36, borderRadius: R.small, overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: c.tint }}>
-                  <CharAvatar name={o.receiver} avatar={findAvatar(o.receiver)} size={36} bg={c.tint} />
+                  <CharAvatar name={o.receiver} avatar={orderAvatar(o)} size={36} bg={c.tint} />{/* [EM: shopping-family] */}
                 </div>
-                <div className="flex-1"><span style={{ fontSize: 12, color: F.textTertiary }}>{o.type === 'food' ? '外卖' : '网购'} · {o.isGiftFromChar ? `来自 ${o.receiver}` : `送给 ${o.receiver}`}</span></div>
+                <div className="flex-1"><span style={{ fontSize: 12, color: F.textTertiary }}>{o.type === 'food' ? '外卖' : '网购'} · {directionLabel(o)}</span></div>{/* [EM: shopping-family] */}
                 <span className="shrink-0" style={{
                   padding: '4px 10px', borderRadius: R.pill, fontSize: 12, fontWeight: 600,
-                  background: o.status === 'done' ? HUE.gray.tint : c.tint,
-                  color: o.status === 'done' ? F.textSecondary : c.ink,
-                }}>{o.status === 'done' ? '已完成' : (o.type === 'food' ? '配送中' : '运送中')}</span>
+                  background: o.status !== 'active' ? HUE.gray.tint : c.tint,
+                  color: o.status !== 'active' ? F.textSecondary : c.ink,
+                }}>{orderStatusText(o)}</span>{/* [EM: shopping-refund] */}
               </div>
               <div className="truncate" style={{ fontSize: 15, fontWeight: 600, color: F.textPrimary }}>{title}</div>
               <div className="flex items-center justify-between">
                 <span style={{ fontSize: 13, color: F.textSecondary }}>{formatEta(o)}</span>
-                <span style={{ fontSize: 15, fontWeight: 700, color: c.ink }}>{yuan(total)}</span>
+                <span style={{ fontSize: 15, fontWeight: 700, color: c.ink }}>{shownPrice(o)}</span>{/* [EM: shopping-family] */}
               </div>
             </button>
           );
@@ -809,21 +1013,22 @@ const ShoppingApp: React.FC = () => {
     if (!currentOrder) return null;
     const o = currentOrder;
     const c = pal(o.type);
-    const total = o.lines.reduce((a, l) => { const p = products.find(x => x.id === l.id); return a + (p ? p.price * l.qty : 0); }, 0);
 
     return (
       <>
         {/* receiver hero */}
         <div className="flex items-center gap-3" style={{ padding: '14px 16px', borderRadius: R.bigCard, background: c.tint, boxShadow: S.raisedSoft }}>
           <div className="shrink-0" style={{ width: 48, height: 48, borderRadius: '50%', overflow: 'hidden', boxShadow: S.raisedSoft }}>
-            <CharAvatar name={o.receiver} avatar={findAvatar(o.receiver)} size={48} bg={c.main} />
+            <CharAvatar name={o.receiver} avatar={orderAvatar(o)} size={48} bg={c.main} />{/* [EM: shopping-family] */}
           </div>
           <div className="flex-1">
-            <div style={{ fontSize: 13, opacity: 0.75, color: c.ink }}>{o.isGiftFromChar ? '来自' : '送给'}</div>
-            <div style={{ fontSize: 16, fontWeight: 600, color: c.ink }}>{o.receiver}</div>
+            {/* [EM-START: shopping-family] */}
+            <div style={{ fontSize: 13, opacity: 0.75, color: c.ink }}>{o.selfOrder ? '给自己买的' : o.isGiftFromChar ? '来自' : '送给'}</div>
+            <div style={{ fontSize: 16, fontWeight: 600, color: c.ink }}>{o.selfOrder === 'user' ? '我' : o.receiver}</div>
+            {/* [EM-END: shopping-family] */}
           </div>
           <span style={{ padding: '5px 12px', borderRadius: R.pill, background: F.surface, fontSize: 12, fontWeight: 600, color: c.ink }}>
-            {o.status === 'done' ? '已完成' : (o.type === 'food' ? '配送中' : '运送中')}
+            {orderStatusText(o)}{/* [EM: shopping-refund] */}
           </span>
         </div>
 
@@ -849,11 +1054,7 @@ const ShoppingApp: React.FC = () => {
             <div className="flex-1 pb-3.5">
               <div style={{ fontSize: 14, fontWeight: 600, color: F.textPrimary }}>{o.type === 'food' ? '配送中' : '运送中'}</div>
               <div style={{ fontSize: 12, fontWeight: 600, marginTop: 1, color: c.main }}>
-                {o.etaTimestamp
-                  ? (o.type === 'food'
-                    ? `预计 ${new Date(o.etaTimestamp).getHours()}:${String(new Date(o.etaTimestamp).getMinutes()).padStart(2, '0')} 送达`
-                    : `预计 ${new Date(o.etaTimestamp).getMonth() + 1}月${new Date(o.etaTimestamp).getDate()}日 送达`)
-                  : '配送中'}
+                {o.etaTimestamp ? `预计 ${dayClockOf(o.etaTimestamp)} 送达` : '配送中'}{/* [EM: shopping-refund] */}
               </div>
             </div>
           </div>
@@ -865,14 +1066,46 @@ const ShoppingApp: React.FC = () => {
                 boxShadow: o.status === 'done' ? `0 0 0 3px ${c.tint}` : S.sunken }} />
             </div>
             <div className="flex-1 pb-3">
-              <div style={{ fontSize: 14, fontWeight: o.status === 'done' ? 700 : 600, color: o.status === 'done' ? c.ink : F.textTertiary }}>送达</div>
+              {/* [EM-START: shopping-refund] 退掉的单：最后一格写退款时间 */}
+              <div style={{ fontSize: 14, fontWeight: o.status === 'active' ? 600 : 700, color: o.status === 'done' ? c.ink : o.status === 'cancelled' ? F.textSecondary : F.textTertiary }}>
+                {o.status === 'cancelled' ? '已退款' : '送达'}
+              </div>
+              {o.status === 'cancelled' && o.cancelledAt && (
+                <div style={{ fontSize: 12, color: F.textTertiary, marginTop: 1 }}>{dayClockOf(o.cancelledAt)}</div>
+              )}
+              {/* [EM-END: shopping-refund] */}
             </div>
           </div>
         </div>
 
         {/* items */}
         <div style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, overflow: 'hidden', boxShadow: S.raisedSoft }}>
-          {o.lines.map((l, i) => {
+          {/* [EM-START: shopping-family] 心跳订单不在商品目录里 */}
+          {o.custom && (
+            <div className="flex items-center gap-3.5" style={{ padding: '12px 16px' }}>
+              <div className="flex items-center justify-center shrink-0" style={{ width: 44, height: 44, borderRadius: R.medium, background: c.tint }}>
+                <CatIcon cat={o.type === 'food' ? 'meal' : 'other'} color={c.ink} size={22} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div style={{ fontSize: 15, fontWeight: 600, color: F.textPrimary }}>{o.custom.title}</div>
+                {o.custom.detail && <div style={{ fontSize: 12, color: F.textTertiary, marginTop: 1, lineHeight: 1.5 }}>{o.custom.detail}</div>}
+              </div>
+              {o.custom.price && <span style={{ fontSize: 15, fontWeight: 600, color: c.ink }}>{o.custom.price}</span>}
+            </div>
+          )}
+          {/* [EM-END: shopping-family] */}
+          {isHiddenFromUser(o) && (
+            <div className="flex items-center gap-3.5" style={{ padding: '14px 16px' }}>
+              <div className="flex items-center justify-center shrink-0" style={{ width: 44, height: 44, borderRadius: R.medium, background: c.tint }}>
+                <Package size={22} weight="bold" color={c.ink} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div style={{ fontSize: 15, fontWeight: 600, color: F.textPrimary }}>包得严严实实</div>
+                <div style={{ fontSize: 12, color: F.textTertiary, marginTop: 1 }}>{o.receiver} 说是惊喜，送到才能拆</div>
+              </div>
+            </div>
+          )}
+          {!isHiddenFromUser(o) && o.lines.map((l, i) => {
             const p = products.find(x => x.id === l.id);
             if (!p) return null;
             return (
@@ -891,17 +1124,35 @@ const ShoppingApp: React.FC = () => {
         </div>
 
         {/* messages */}
+        {/* [EM-START: shopping-family] 给自己买的没有角色回应，只显示备注 */}
+        {o.selfOrder ? (o.note ? (
+          <div style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, padding: 16, boxShadow: S.raisedSoft }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: F.textSecondary }}>备注</div>
+            <div style={{ fontSize: 14, color: F.textPrimary, marginTop: 6, lineHeight: 1.5 }}>{o.note}</div>
+          </div>
+        ) : null) : (
         <div style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, padding: 16, boxShadow: S.raisedSoft }} className="flex flex-col gap-3">
           <div className="flex items-center gap-2">
             <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={c.main} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
             <span style={{ fontSize: 15, fontWeight: 600, color: F.textPrimary }}>留言</span>
           </div>
-          {/* user bubble - right */}
+          {/* user bubble - right；TA 送的礼物，留言是 TA 写的，放左边 */}
+          {o.isGiftFromChar ? (o.note ? (
+            <div className="flex gap-2.5 items-end">
+              <div className="shrink-0" style={{ width: 32, height: 32, borderRadius: '50%', overflow: 'hidden' }}>
+                <CharAvatar name={o.receiver} avatar={findAvatar(o.receiver)} size={32} bg={c.tint} />
+              </div>
+              <div style={{ maxWidth: '78%', padding: '10px 14px', borderRadius: `4px ${R.medium}px ${R.medium}px ${R.medium}px`, background: c.tint }}>
+                <span style={{ fontSize: 14, color: c.ink, lineHeight: 1.5 }}>{o.note}</span>
+              </div>
+            </div>
+          ) : null) : (
           <div className="flex justify-end">
             <div style={{ maxWidth: '78%', padding: '10px 14px', borderRadius: `${R.medium}px ${R.medium}px 4px ${R.medium}px`, background: c.main, boxShadow: S.raisedSoft }}>
               <span style={{ fontSize: 14, color: F.surfaceRaised, lineHeight: 1.5 }}>{o.note}</span>
             </div>
           </div>
+          )}
           {/* char reply - left */}
           <div className="flex gap-2.5 items-end">
             <div className="shrink-0" style={{ width: 32, height: 32, borderRadius: '50%', overflow: 'hidden' }}>
@@ -914,6 +1165,8 @@ const ShoppingApp: React.FC = () => {
             </div>
           </div>
         </div>
+        )}
+        {/* [EM-END: shopping-family] */}
       </>
     );
   };
@@ -927,11 +1180,13 @@ const ShoppingApp: React.FC = () => {
       <InputField value={fBrand} onChange={e => setFBrand(e.target.value)} placeholder="奈雪的茶" />
       <div style={{ fontSize: 13, fontWeight: 600, color: F.textSecondary, paddingLeft: 4 }}>价格</div>
       <InputField value={fPrice} onChange={e => setFPrice(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="38" inputMode="numeric" />
-      <div style={{ fontSize: 13, fontWeight: 600, color: F.textSecondary, paddingLeft: 4 }}>类型</div>
-      <SunkenBox>
-        <SegBtn label="外卖(按时长)" active={fType === 'food'} onClick={() => setFType('food')} />
-        <SegBtn label="网购(按日期)" active={fType === 'net'} onClick={() => setFType('net')} />
-      </SunkenBox>
+      {fType === 'net' && <div style={{ fontSize: 13, fontWeight: 600, color: F.textSecondary, paddingLeft: 4 }}>类型</div>}
+      {fType === 'net' && ( // 旧的网购商品还能改；新建的都是外卖
+        <SunkenBox>
+          <SegBtn label="外卖(按时长)" active={false} onClick={() => setFType('food')} />
+          <SegBtn label="网购(按日期)" active onClick={() => setFType('net')} />
+        </SunkenBox>
+      )}
       <div style={{ fontSize: 13, fontWeight: 600, color: F.textSecondary, paddingLeft: 4 }}>类目</div>
       <div className="flex flex-wrap gap-2">
         {ALL_CATS.map(([key, label]) => {
@@ -965,6 +1220,46 @@ const ShoppingApp: React.FC = () => {
     </>
   );
 
+  // [EM-START: shopping-family]
+  // ── SCREEN: Family Links ──
+  const renderFamily = () => (
+    <>
+      <div style={{ fontSize: 13, color: F.textSecondary, lineHeight: 1.6, padding: '0 4px' }}>
+        关联之后，你们能互相看到对方给自己买的东西：TA 平时自己下的网购和外卖会出现在「我的订单」里，你给自己买的 TA 也看得到，可能会顺口问一句。给 TA 买和 TA 给你买的不需要关联，TA 手机的淘宝和外卖里本来就有。
+      </div>
+      {roles.length === 0 ? (
+        <EmptyState icon={<UsersThree size={22} weight="bold" color={F.textTertiary} />} text="还没有角色" />
+      ) : (
+        <div style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, overflow: 'hidden', boxShadow: S.raisedSoft }}>
+          {roles.map((r, i) => {
+            const linked = familyLinks.includes(r.id);
+            return (
+              <React.Fragment key={r.id}>
+                {i > 0 && <div style={{ height: 1, background: F.divider, margin: '0 16px' }} />}
+                <button onClick={() => toggleFamilyLink(r.id)} className="w-full flex items-center gap-3.5 text-left" style={{ padding: '12px 16px' }}>
+                  <CharAvatar name={r.name} avatar={r.avatar} size={40} />
+                  <span className="flex-1 min-w-0 truncate" style={{ fontSize: 15, fontWeight: 600, color: F.textPrimary }}>{r.name}</span>
+                  <div style={{
+                    width: 36, height: 20, borderRadius: R.pill, padding: 2,
+                    background: linked ? F.accent : F.surfaceSunken,
+                    boxShadow: linked ? S.raisedSoft : S.sunken,
+                    transition: 'background 0.2s, box-shadow 0.2s',
+                  }}>
+                    <div style={{
+                      width: 16, height: 16, borderRadius: '50%', background: F.surfaceRaised, boxShadow: S.raisedSoft,
+                      transform: linked ? 'translateX(16px)' : 'translateX(0)', transition: 'transform 0.2s',
+                    }} />
+                  </div>
+                </button>
+              </React.Fragment>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+  // [EM-END: shopping-family]
+
   // ── Layout ──
   const showTab = screen === 'home' || screen === 'orders';
   const showCartFooter = screen === 'cart' && cartCount > 0;
@@ -972,13 +1267,14 @@ const ShoppingApp: React.FC = () => {
   // Screen-specific TopBar config (rendered outside scroll container)
   const topBarConfig: Record<Screen, { title: string; onBack: () => void; right?: React.ReactNode } | null> = {
     home: { title: '投喂站', onBack: closeApp, right: <div className="relative"><CartBtn /></div> },
-    net: { title: '网购', onBack: back, right: <div className="relative"><CartBtn /></div> },
+    netOrder: { title: '网购下单', onBack: back },
     food: { title: '外卖', onBack: back, right: <div className="relative"><CartBtn /></div> },
     cart: { title: '购物车', onBack: back },
     checkout: { title: '确认订单', onBack: back },
     orders: { title: '我的订单', onBack: closeApp },
     detail: { title: '订单详情', onBack: back },
     add: { title: editingProductId ? '编辑商品' : '新增商品', onBack: () => { clearForm(); back(); } },
+    family: { title: '家属关联', onBack: back }, // [EM: shopping-family]
   };
 
   return (
@@ -988,9 +1284,9 @@ const ShoppingApp: React.FC = () => {
         <div className="shrink-0" style={{ paddingTop: 'var(--chrome-top)' }}>
           <div className="relative flex items-center justify-between py-3" style={{ minHeight: 44, padding: '0 20px' }}>
             <IconBtn onClick={topBarConfig[screen]!.onBack}>
-              <CaretLeft size={20} weight="bold" color={F.textSecondary} />
+              <CaretLeft size={22} weight="bold" color={F.textPrimary} />
             </IconBtn>
-            <span className="absolute left-0 right-0 flex justify-center font-semibold pointer-events-none" style={{ fontSize: 16, color: F.textPrimary }}>{topBarConfig[screen]!.title}</span>
+            <span className="absolute left-0 right-0 flex justify-center pointer-events-none" style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: F.textPrimary }}>{topBarConfig[screen]!.title}</span>
             {topBarConfig[screen]!.right || <div style={{ width: 44 }} />}
           </div>
         </div>
@@ -1007,13 +1303,14 @@ const ShoppingApp: React.FC = () => {
         }}
       >
         {screen === 'home' && renderHome()}
-        {screen === 'net' && renderNetList()}
+        {screen === 'netOrder' && renderNetOrder()}
         {screen === 'food' && renderFoodList()}
         {screen === 'cart' && renderCart()}
         {screen === 'checkout' && renderCheckout()}
         {screen === 'orders' && renderOrders()}
         {screen === 'detail' && renderDetail()}
         {screen === 'add' && renderAdd()}
+        {screen === 'family' && renderFamily()}{/* [EM: shopping-family] */}
       </div>
 
       {/* bottom area */}
@@ -1027,6 +1324,18 @@ const ShoppingApp: React.FC = () => {
             <button onClick={() => go('checkout')} className="inline-flex items-center active:translate-y-[1px] transition-transform"
               style={{ height: 44, padding: '0 24px', borderRadius: R.button, background: F.textPrimary, color: F.surfaceRaised, fontSize: 15, fontWeight: 600, boxShadow: S.raisedSoft }}>
               去结算
+            </button>
+          </div>
+        )}
+        {screen === 'netOrder' && (
+          <div className="flex items-center gap-3.5">
+            <div className="flex-1">
+              <span style={{ fontSize: 13, color: F.textTertiary }}>合计</span>
+              <div style={{ fontSize: 22, fontWeight: 700, color: TEAL.ink }}>{nPrice ? formatYuan(parseFloat(nPrice) || 0) : '¥ --'}</div>
+            </div>
+            <button onClick={placeNetOrder} className="inline-flex items-center active:translate-y-[1px] transition-transform"
+              style={{ height: 52, padding: '0 32px', borderRadius: R.button, background: TEAL.main, color: F.surfaceRaised, fontSize: 16, fontWeight: 600, boxShadow: S.raisedMedium }}>
+              下单
             </button>
           </div>
         )}
@@ -1046,29 +1355,46 @@ const ShoppingApp: React.FC = () => {
             </div>
           );
         })()}
-        {screen === 'detail' && currentOrder?.status === 'active' && (
-          <button onClick={async () => {
-            const o = currentOrder!;
-            const orderLines = o.lines.map(l => {
-              const p = products.find(x => x.id === l.id);
-              return p ? { name: p.name, qty: l.qty, price: p.price } : null;
-            }).filter(Boolean) as { name: string; qty: number; price: number }[];
-            const items = orderLines.map(l => l.name);
-            const total = orderLines.reduce((s, l) => s + l.price * l.qty, 0);
-            const typeLabel = o.type === 'food' ? '外卖' : '快递';
-            await ShoppingDB.saveOrder({ ...o, status: 'done', awaitingReply: true });
-            if (o.receiverCharId) {
-              const kind = o.isGiftFromChar ? 'gift_delivered' : 'delivery_arrived';
-              await DB.saveMessage({ charId: o.receiverCharId, role: 'user', type: 'interaction', content: `📦`, metadata: { kind, typeLabel, items, receiver: o.receiver, isGiftFromChar: !!o.isGiftFromChar, orderLines, total, orderType: o.type, note: o.note } });
-            }
-            await refresh();
-            flash('已确认收货 ✓');
-          }} className="w-full flex items-center justify-center gap-2 active:translate-y-[1px] transition-transform"
-            style={{ height: 48, borderRadius: R.button, background: pal(currentOrder.type).main, color: F.surfaceRaised, fontSize: 15, fontWeight: 600, boxShadow: S.raisedMedium }}>
-            <CheckCircle size={20} weight="bold" />
-            确认收货
-          </button>
+        {/* 订单操作：进行中 = 取消 + 确认收货；已完成 = 退货（网购）+ 再买一次；TA 自己的单只能帮 TA 退 */}
+        {/* [EM-START: shopping-refund] */}
+        {screen === 'detail' && currentOrder && (canRefund(currentOrder) || (currentOrder.status === 'done' && currentOrder.selfOrder !== 'char')) && (
+          <div className="flex gap-3">
+            {canRefund(currentOrder) && (
+              <button onClick={() => cancelOrder(currentOrder)} className={`${currentOrder.selfOrder === 'char' ? 'flex-1 ' : ''}flex items-center justify-center active:translate-y-[1px] transition-transform`}
+                style={{ height: 48, padding: '0 18px', borderRadius: R.button, background: F.surfaceSunken, boxShadow: S.sunken, color: F.textSecondary, fontSize: 14, fontWeight: 600 }}>
+                {cancelArmed ? '再点一次' : currentOrder.status === 'done' ? '退货退款' : currentOrder.selfOrder === 'char' ? '帮 TA 取消' : '取消订单'}
+              </button>
+            )}
+            {currentOrder.status === 'active' && currentOrder.selfOrder !== 'char' && (
+              <button onClick={async () => {
+                const o = currentOrder!;
+                const orderLines = orderCardLines(o, products); // [EM: shopping-family]
+                const items = orderLines.map(l => l.name);
+                const total = orderLines.reduce((s, l) => s + l.price * l.qty, 0);
+                const typeLabel = o.type === 'food' ? '外卖' : '快递';
+                await ShoppingDB.saveOrder({ ...o, status: 'done', awaitingReply: true });
+                if (o.receiverCharId) {
+                  const kind = o.isGiftFromChar ? 'gift_delivered' : 'delivery_arrived';
+                  await DB.saveMessage({ charId: o.receiverCharId, role: 'user', type: 'interaction', content: `📦`, metadata: { kind, typeLabel, items, receiver: o.receiver, isGiftFromChar: !!o.isGiftFromChar, orderLines, total, orderType: o.type, note: o.note } });
+                }
+                await refresh();
+                flash('已确认收货 ✓');
+              }} className="flex-1 flex items-center justify-center gap-2 active:translate-y-[1px] transition-transform"
+                style={{ height: 48, borderRadius: R.button, background: pal(currentOrder.type).main, color: F.surfaceRaised, fontSize: 15, fontWeight: 600, boxShadow: S.raisedMedium }}>
+                <CheckCircle size={20} weight="bold" />
+                确认收货
+              </button>
+            )}
+            {currentOrder.status === 'done' && currentOrder.selfOrder !== 'char' && !currentOrder.isGiftFromChar && (currentOrder.custom || currentOrder.lines.some(l => products.some(p => p.id === l.id))) && (
+              <button onClick={() => reorder(currentOrder)} className="flex-1 flex items-center justify-center gap-2 active:translate-y-[1px] transition-transform"
+                style={{ height: 48, borderRadius: R.button, background: F.surface, border: `1px solid ${F.borderSoft}`, color: F.textPrimary, fontSize: 15, fontWeight: 600, boxShadow: S.raisedSoft }}>
+                <ShoppingCart size={18} weight="bold" />
+                再买一次
+              </button>
+            )}
+          </div>
         )}
+        {/* [EM-END: shopping-refund] */}
         {showTab && <TabBar />}
       </div>
 

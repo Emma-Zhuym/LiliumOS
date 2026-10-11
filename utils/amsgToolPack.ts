@@ -63,6 +63,7 @@ export interface AmsgToolConfig extends AgenticToolRealtimeConfig {
     enabled: boolean;
     serverUrl: string;
     cookie?: string;
+    authToken?: string; // [EM: xhs-mini-mcp]
     platform?: 'xhs' | 'rednote';
     loggedInUserId?: string;
     loggedInNickname?: string;
@@ -154,6 +155,7 @@ export const buildToolConfig = (
             enabled: !!xhs.enabled,
             serverUrl: xhs.serverUrl,
             ...(xhs.cookie ? { cookie: xhs.cookie } : {}),
+            ...(xhs.authToken ? { authToken: xhs.authToken } : {}), // [EM: xhs-mini-mcp] mini 上的服务：worker 直连 Funnel 也要带令牌
             ...(xhs.platform ? { platform: xhs.platform } : {}),
             ...(xhs.loggedInUserId ? { loggedInUserId: xhs.loggedInUserId } : {}),
             ...(xhs.loggedInNickname ? { loggedInNickname: xhs.loggedInNickname } : {}),

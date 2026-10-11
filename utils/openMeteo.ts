@@ -133,6 +133,16 @@ export const formatLocationLabel = (loc: WeatherLocation): string =>
  * - city: 已存 weatherLocation；未选 → null
  * 显示名：有 weatherLocation 用其 name，geo 模式无存城市时用「你所在地」（prompt 里不需要精确城市名）。
  */
+/**
+ * 给提示词看的地名：城市 + 州/省 + 国家。只写「伯明翰」的话，模型会默认是英国那个，
+ * 连带着把钱按英镑算（美国阿拉巴马州也有一个伯明翰）。
+ */
+export const placeName = (loc: Pick<WeatherLocation, 'name' | 'admin1' | 'country'>): string =>
+    [loc.name, loc.admin1, loc.country]
+        .map(part => (part ?? '').trim())
+        .filter((part, index, all) => part && all.indexOf(part) === index)
+        .join('，');
+
 export const resolveWeatherCoords = async (
     mode: 'geo' | 'city',
     savedLocation?: WeatherLocation,
@@ -140,18 +150,18 @@ export const resolveWeatherCoords = async (
     if (mode === 'geo') {
         try {
             const pos = await getCurrentPositionSmart();
-            return { latitude: pos.latitude, longitude: pos.longitude, displayName: savedLocation?.name || '你所在地' };
+            return { latitude: pos.latitude, longitude: pos.longitude, displayName: savedLocation ? placeName(savedLocation) : '你所在地' };
         } catch (e: any) {
             console.warn('[weather] 定位失败，尝试降级已存城市:', e?.message || e);
             if (savedLocation) {
-                return { latitude: savedLocation.latitude, longitude: savedLocation.longitude, displayName: savedLocation.name };
+                return { latitude: savedLocation.latitude, longitude: savedLocation.longitude, displayName: placeName(savedLocation) };
             }
             return null;
         }
     }
     // city 模式
     if (savedLocation) {
-        return { latitude: savedLocation.latitude, longitude: savedLocation.longitude, displayName: savedLocation.name };
+        return { latitude: savedLocation.latitude, longitude: savedLocation.longitude, displayName: placeName(savedLocation) };
     }
     return null;
 };
