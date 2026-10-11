@@ -57,7 +57,8 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
     let renderer: THREE.WebGLRenderer;
     try { renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' }); }
     catch { setStatus('error'); return; }
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+    // 最多按两倍渲染：iPhone 是三倍屏，1.5 倍放大后发糊；静止时不渲染，两倍的开销只花在动的那一下
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.12;

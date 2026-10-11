@@ -38,9 +38,11 @@ class Bin {
 }
 
 type Draw = (ctx: CanvasRenderingContext2D, w: number, h: number) => void;
-function canvasTex(bin: Bin, w: number, h: number, draw: Draw, opts: { srgb?: boolean; repeat?: [number, number]; aniso?: number } = {}) {
-  const canvas = document.createElement('canvas'); canvas.width = w; canvas.height = h;
-  const ctx = canvas.getContext('2d')!; draw(ctx, w, h);
+/** scale：画布按几倍像素画（字和纸纹凑近看不糊）；画的代码照旧用 w × h 的坐标 */
+function canvasTex(bin: Bin, w: number, h: number, draw: Draw, opts: { srgb?: boolean; repeat?: [number, number]; aniso?: number; scale?: number } = {}) {
+  const scale = opts.scale ?? 1;
+  const canvas = document.createElement('canvas'); canvas.width = Math.round(w * scale); canvas.height = Math.round(h * scale);
+  const ctx = canvas.getContext('2d')!; ctx.scale(scale, scale); draw(ctx, w, h);
   const texture = bin.add(new THREE.CanvasTexture(canvas));
   if (opts.srgb !== false) texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = opts.aniso ?? 4;
@@ -335,7 +337,8 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
     const cb = contentBin; const cr = mulberry(31);
     const cgeo = <T extends THREE.BufferGeometry>(g: T) => cb.add(g);
     const cmat = <T extends THREE.Material>(m: T) => cb.add(m);
-    const ctex = (w: number, h: number, draw: Draw) => canvasTex(cb, w, h, draw, { aniso });
+    // 标签、胶带、便利贴、小票：按两倍像素画，凑近看字也清楚
+    const ctex = (w: number, h: number, draw: Draw) => canvasTex(cb, w, h, draw, { aniso, scale: 2 });
     const part = (g: THREE.BufferGeometry, m: THREE.Material, parent: THREE.Object3D, shadow = true) => {
       const o = new THREE.Mesh(cgeo(g), m); o.castShadow = shadow; o.receiveShadow = true; parent.add(o); return o;
     };
