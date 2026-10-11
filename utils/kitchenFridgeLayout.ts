@@ -2,13 +2,13 @@
  * 冰箱里的东西摆在哪：只读投影，不写库存（位置只存语义上的「层板 / 门内上中下层」）。
  *
  * - 层板：一层放不下就挪到最空的那层；一层太挤就整层等比缩小，绝不丢东西。
- * - 门内置物架：保留用户选的那层；架子浅，东西缩小一点。
- * - 果蔬抽屉：冷藏层板上的散装蔬果自动进抽屉（磨砂，只看见色块），选了门架的照样放门架。
- * 坐标：层板和抽屉用冰箱坐标（中线 x = 0，前脸 z = 0）；门架用门轴坐标（x 从铰链往右量）。
+ * - 果蔬抽屉：冷藏的散装蔬果自动进抽屉（磨砂，只看见色块）。
+ * - 不做门内置物架（2026-10-11）：旧数据里选过门架的，照样放层板。
+ * 坐标：冰箱坐标（中线 x = 0，前脸 z = 0）。
  */
-import type { KitchenFood, KitchenFridgePlacement, KitchenLot } from './kitchenDb';
+import type { KitchenFood, KitchenLot } from './kitchenDb';
 import { kitchenLookFor, type KitchenLook } from './kitchenAppearance';
-import { FRIDGE, RACK_WIDTH, SHELF_WIDTH } from './kitchenFridgeSpec';
+import { FRIDGE, SHELF_WIDTH } from './kitchenFridgeSpec';
 
 /** 每种容器的占地（宽、高、深），场景照这个尺寸画 */
 export const LOOK_SIZE: Record<KitchenLook, { w: number; h: number; d: number }> = {
@@ -23,7 +23,7 @@ export const LOOK_SIZE: Record<KitchenLook, { w: number; h: number; d: number }>
 };
 const GAP = 0.18;
 
-export type FridgeSpot = 'shelf' | 'crisper' | Exclude<KitchenFridgePlacement, 'shelf'>;
+export type FridgeSpot = 'shelf' | 'crisper';
 
 export interface FridgeEntry {
   lot: KitchenLot;
@@ -60,11 +60,8 @@ export function fridgeLayout(lots: KitchenLot[], foods: KitchenFood[]): { entrie
   for (const zone of ['fridge', 'freezer'] as const) {
     const inZone = active.filter(lot => lot.storageZone === zone).map(lot => {
       const name = names.get(lot.foodId) ?? '未命名食物';
-      const racks = FRIDGE.doorRacks[zone];
-      const placement = lot.fridgePlacement && lot.fridgePlacement !== 'shelf' && racks[lot.fridgePlacement] !== undefined
-        ? lot.fridgePlacement : 'shelf';
       const look = kitchenLookFor(name, lot);
-      const spot: FridgeSpot = placement !== 'shelf' ? placement : zone === 'fridge' && look === 'produce' ? 'crisper' : 'shelf';
+      const spot: FridgeSpot = zone === 'fridge' && look === 'produce' ? 'crisper' : 'shelf';
       return { lot, name, look, spot };
     });
 
@@ -82,16 +79,6 @@ export function fridgeLayout(lots: KitchenLot[], foods: KitchenFood[]): { entrie
       row.items.forEach((item, index) => {
         const fit = Math.min(placed[index].scale, maxHeight / LOOK_SIZE[item.look].h);
         entries.push({ ...item, zone, position: [placed[index].x, row.y, -FRIDGE.depth / 2 - 0.2], scale: fit });
-      });
-    }
-
-    // 门内置物架：门轴坐标，x 从铰链往右；架子浅，东西缩到 0.7 倍
-    for (const [placement, y] of Object.entries(FRIDGE.doorRacks[zone])) {
-      const items = inZone.filter(item => item.spot === placement);
-      const placed = lineUp(items.map(item => ({ width: LOOK_SIZE[item.look].w * 0.7 })), RACK_WIDTH);
-      items.forEach((item, index) => {
-        const fit = Math.min(0.7 * placed[index].scale, 1.9 / LOOK_SIZE[item.look].h);
-        entries.push({ ...item, zone, position: [FRIDGE.width / 2 + placed[index].x, y!, -FRIDGE.doorThickness / 2 - 0.62], scale: fit });
       });
     }
 

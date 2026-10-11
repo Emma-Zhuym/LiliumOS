@@ -3,7 +3,6 @@ import { CaretRight, PencilSimple, Trash } from '@phosphor-icons/react';
 import { KitchenDB, type KitchenLot, type KitchenFridgePlacement } from '../../utils/kitchenDb';
 import { describeLotStock, formatQuantity, makeOperationId, quickAmount, UNIT_LABELS, ZONE_LABELS } from '../../utils/kitchenPresentation';
 import { formatPackageAmount, formatPortionInput, parsePortionInput } from '../../utils/kitchenQuantity';
-import { fridgePlacementOptions } from '../../utils/kitchenFridgeSpec';
 
 interface Props {
   lot: KitchenLot;
@@ -74,12 +73,6 @@ export default function KitchenLotActions({ lot, busy, run, onError, onEdit }: P
     {lot.quantity > 1 && <p className="kitchen-note">“已用完”会清空这条记录的全部 {formatQuantity(lot.quantity, lot.unit)}，记错可以撤销。</p>}
     <details className="kitchen-form-details">
       <summary>收纳与其他操作</summary>
-      {(lot.storageZone === 'fridge' || lot.storageZone === 'freezer') && <label className="kitchen-label">摆放位置
-        <select className="kitchen-field" aria-label="摆放位置" disabled={busy} value={lot.fridgePlacement ?? 'shelf'}
-          onChange={event => { void run(() => KitchenDB.moveLot(lot.id, event.target.value as KitchenFridgePlacement), '摆放位置已保存'); }}>
-          {fridgePlacementOptions(lot.storageZone).map(option => <option value={option.value} key={option.value}>{option.label}</option>)}
-        </select>
-      </label>}
       <button className="kitchen-row" type="button" onClick={onEdit} disabled={busy}>
         <PencilSimple size={18} /><span>详情与编辑</span><CaretRight size={16} />
       </button>

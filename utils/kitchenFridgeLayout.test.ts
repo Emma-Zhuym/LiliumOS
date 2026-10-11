@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { KitchenEvent, KitchenFood, KitchenLot } from './kitchenDb';
 import { eggVisibleCount, fridgeLayout, LOOK_SIZE } from './kitchenFridgeLayout';
-import { FRIDGE, SHELF_WIDTH, fridgePlacementOptions } from './kitchenFridgeSpec';
+import { FRIDGE, SHELF_WIDTH } from './kitchenFridgeSpec';
 import { kitchenLookFor, latestReceipt, produceTint, stickyReminders, tapeLabel } from './kitchenAppearance';
 
 const lot = (index: number, extra: Partial<KitchenLot> = {}): KitchenLot => ({
@@ -51,20 +51,15 @@ describe('冰箱里怎么摆', () => {
       for (const entry of row) expect(Math.abs(entry.position[0]) + LOOK_SIZE[entry.look].w * entry.scale / 2).toBeLessThanOrEqual(SHELF_WIDTH / 2 + 1e-6);
     }
   });
-  it('门架保留用户选的那层；冷冻门没有中层时退回层板', () => {
-    const { entries } = fridgeLayout([
-      lot(0, { fridgePlacement: 'door-middle' }),
-      lot(1, { storageZone: 'freezer', fridgePlacement: 'door-middle' }),
-      lot(2, { storageZone: 'freezer', fridgePlacement: 'door-upper' }),
-    ], []);
-    expect(entries.find(entry => entry.lot.id === 'lot-0')).toMatchObject({ spot: 'door-middle', zone: 'fridge' });
-    expect(entries.find(entry => entry.lot.id === 'lot-1')).toMatchObject({ spot: 'shelf', zone: 'freezer' });
-    expect(entries.find(entry => entry.lot.id === 'lot-2')!.position[1]).toBe(FRIDGE.doorRacks.freezer['door-upper']);
+  it('不做门架：旧数据里选过门架的也放层板', () => {
+    const { entries } = fridgeLayout([lot(0, { fridgePlacement: 'door-middle' }), lot(1, { storageZone: 'freezer', fridgePlacement: 'door-upper' })], []);
+    expect(entries.map(entry => entry.spot)).toEqual(['shelf', 'shelf']);
+    expect(FRIDGE.shelves.fridge).toContain(entries.find(entry => entry.lot.id === 'lot-0')!.position[1]);
   });
-  it('冷藏层板上的散装蔬果进抽屉；放在门架上的蔬果照样在门架', () => {
-    const { entries } = fridgeLayout([lot(0), lot(1, { fridgePlacement: 'door-lower' })], [food(0, '西兰花'), food(1, '柠檬')]);
+  it('冷藏的散装蔬果进抽屉，冷冻的蔬菜不进', () => {
+    const { entries } = fridgeLayout([lot(0), lot(1, { storageZone: 'freezer' })], [food(0, '西兰花'), food(1, '豌豆玉米')]);
     expect(entries.find(entry => entry.lot.id === 'lot-0')!.spot).toBe('crisper');
-    expect(entries.find(entry => entry.lot.id === 'lot-1')!.spot).toBe('door-lower');
+    expect(entries.find(entry => entry.lot.id === 'lot-1')!.spot).toBe('shelf');
   });
   it('不放进冰箱的、吃完的都不出现；东西不会高过这一层', () => {
     const { entries, total } = fridgeLayout([
@@ -76,13 +71,11 @@ describe('冰箱里怎么摆', () => {
     const water = entries.find(entry => entry.lot.id === 'lot-3')!;
     expect(LOOK_SIZE[water.look].h * water.scale).toBeLessThanOrEqual(FRIDGE.rowHeight.freezer + 1e-6);
   });
-  it('鸡蛋显示个数、摆放选项', () => {
+  it('鸡蛋显示个数', () => {
     const egg = lot(0, { unit: 'piece', quantity: 5 });
     expect(eggVisibleCount(egg)).toBe(5);
     expect(eggVisibleCount({ ...egg, quantity: 20 })).toBe(12);
     expect(eggVisibleCount({ ...egg, unit: 'box' })).toBe(12);
-    expect(fridgePlacementOptions('fridge').map(option => option.value)).toEqual(['shelf', 'door-upper', 'door-middle', 'door-lower']);
-    expect(fridgePlacementOptions('freezer').map(option => option.value)).toEqual(['shelf', 'door-upper', 'door-lower']);
   });
 });
 

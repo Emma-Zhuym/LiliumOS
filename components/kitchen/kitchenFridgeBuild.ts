@@ -6,6 +6,7 @@
  * - 主光从左边窗户进来，带窗格图案；补光压低，阴影才有颜色
  * - 环境反射里放一扇四格窗，烤漆上映得出窗格
  * - 环境光遮蔽 + 很淡的颗粒和暗角（在 KitchenFridgeScene 里接）
+ * 不做门内置物架（2026-10-11 Emma 定），开门正对冰箱里面。
  * 冰箱里不逐个建模：几种通用容器 + 现写的标签；剩菜和认不出的进保鲜盒贴手写胶带；蔬果进磨砂抽屉只见色块。
  *
  * 场景里的颜色是「东西本身的颜色」（墙、木头、烤漆、食物），不是界面 chrome，按 P12 不走 Clay tokens。
@@ -256,10 +257,9 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
     l.position.set(0, (y0 + y1) / 2, -D / 2 - 0.05); fridge.add(l);
   };
   liner(FD.y0 + 0.3, FD.y1 - 0.15); liner(ZD.y0 + 0.2, ZD.y1 - 0.3);
-  // 层板比箱体浅一截：关门时门内置物架要伸进来
-  const shelfGeo = geo(new RoundedBoxGeometry(W - 1.15, 0.08, D - 2.0, 2, 0.03));
+  const shelfGeo = geo(new RoundedBoxGeometry(W - 1.15, 0.08, D - 1.2, 2, 0.03));
   for (const y of [...FRIDGE.shelves.fridge, ...FRIDGE.shelves.freezer]) {
-    const g = new THREE.Mesh(shelfGeo, glassMat); g.position.set(0, y - 0.04, -D / 2 - 0.6); g.userData.skip = true; fridge.add(g);
+    const g = new THREE.Mesh(shelfGeo, glassMat); g.position.set(0, y - 0.04, -D / 2 - 0.2); g.userData.skip = true; fridge.add(g);
   }
   // 内灯：顶上一条亮片 + 面光 + 往外漏的一点光
   const lamp = (y: number, color: string) => {
@@ -297,16 +297,6 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
   const freezerHinge = door(ZD.y0, ZD.y1, -1.2, 2.6);
   const fridgeHinge = door(FD.y0, FD.y1, 3.3, 4.6);
   freezerHinge.userData.zone = 'freezer'; fridgeHinge.userData.zone = 'fridge';
-  // 门内置物架：浅浅的透明槽
-  const racks = (hinge: THREE.Group, zone: 'fridge' | 'freezer') => {
-    const cy = hinge.position.y;
-    for (const y of Object.values(FRIDGE.doorRacks[zone])) {
-      const base = mesh(new THREE.BoxGeometry(W - 1.4, 0.08, 1.0), binMat, hinge, false); base.position.set(W / 2, y! - cy, -T / 2 - 0.72);
-      const lipM = mesh(new THREE.BoxGeometry(W - 1.4, 0.6, 0.06), binMat, hinge, false); lipM.position.set(W / 2, y! - cy + 0.3, -T / 2 - 1.2);
-    }
-  };
-  racks(fridgeHinge, 'fridge'); racks(freezerHinge, 'freezer');
-
   /* 光：窗户进来的聚光（带窗格图案）是主光；补光压低 */
   const cookie = tex(512, 512, (x, w, h) => {
     x.fillStyle = '#000'; x.fillRect(0, 0, w, h); x.fillStyle = '#fff'; x.shadowColor = '#fff'; x.shadowBlur = 18;
@@ -442,11 +432,8 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
       item.scale.setScalar(entry.scale);
       item.userData.lotId = entry.lot.id; item.userData.zone = entry.zone; item.userData.spot = entry.spot;
       item.traverse(o => { o.userData.lotId = entry.lot.id; });
-      const parent = entry.spot === 'crisper' ? crisper
-        : entry.spot === 'shelf' ? contents
-        : entry.zone === 'freezer' ? freezerHinge : fridgeHinge;
+      const parent = entry.spot === 'crisper' ? crisper : contents;
       if (entry.spot === 'crisper') item.position.set(entry.position[0], 0.1, 0);
-      else if (entry.spot !== 'shelf') item.position.y -= parent.position.y;   // 门架坐标换成门轴坐标
       parent.add(item);
       rig.items.push(item);
     }

@@ -118,13 +118,13 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
     /**
      * 每个镜头说清楚要框住什么（中心、至少多宽多高、从哪个方向看），距离按画面比例现算。
      * 关门时只框冷冻门和冷藏门上半截（门上的纸和窗格影子是主角），冰箱底和地板出画；
-     * 开哪扇门就平视那一格，把往左开的门内置物架也框进来，地板最多露一条边。
+     * 开哪扇门就正对那一格，里面占满画面（不做门内置物架，门开到画面外去）。
      */
     const SHOTS = {
       home: { center: new THREE.Vector3(1.0, 8.7, 0), w: 9.0, h: 11.8, dir: new THREE.Vector3(0.2, 0.06, 1) },
-      fridge: { center: new THREE.Vector3(-1.7, 6.5, -0.4), w: 9.6, h: 11.4, dir: new THREE.Vector3(0.24, 0.03, 1) },
-      freezer: { center: new THREE.Vector3(-1.7, 14.1, -0.4), w: 9.6, h: 7.4, dir: new THREE.Vector3(0.24, 0.05, 1) },
-      both: { center: new THREE.Vector3(-1.5, 9.4, -0.4), w: 9.8, h: 17.4, dir: new THREE.Vector3(0.24, 0.04, 1) },
+      fridge: { center: new THREE.Vector3(0.3, 6.3, -1.4), w: 7.6, h: 11.0, dir: new THREE.Vector3(0.14, 0.04, 1) },
+      freezer: { center: new THREE.Vector3(0.3, 14.1, -1.4), w: 7.6, h: 6.6, dir: new THREE.Vector3(0.14, 0.04, 1) },
+      both: { center: new THREE.Vector3(0.3, 9.2, -1.2), w: 8.0, h: 17.2, dir: new THREE.Vector3(0.14, 0.04, 1) },
     };
     const shotFor = (state: Record<Zone, boolean>) => {
       const shot = state.fridge && state.freezer ? SHOTS.both : state.fridge ? SHOTS.fridge : state.freezer ? SHOTS.freezer : SHOTS.home;
