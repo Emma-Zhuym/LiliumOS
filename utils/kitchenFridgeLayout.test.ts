@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { KitchenEvent, KitchenFood, KitchenLot } from './kitchenDb';
 import { eggVisibleCount, fridgeLayout, LOOK_SIZE } from './kitchenFridgeLayout';
 import { FRIDGE, SHELF_WIDTH } from './kitchenFridgeSpec';
-import { kitchenLookFor, latestReceipt, produceTint, stickyReminders, tapeLabel } from './kitchenAppearance';
+import { kitchenLookFor, latestReceipt, pantryList, produceTint, stickyReminders, tapeLabel } from './kitchenAppearance';
 
 const lot = (index: number, extra: Partial<KitchenLot> = {}): KitchenLot => ({
   id: `lot-${index}`, foodId: `food-${index}`, createdAt: index, updatedAt: index,
@@ -109,5 +109,17 @@ describe('门上的纸', () => {
     expect(receipt!.items.map(item => item.name)).toEqual(['牛奶', '鸡蛋']);
     expect(receipt!.items[0].amount).toBe('+2 盒');
     expect(latestReceipt([], [])).toBeNull();
+  });
+  it('柜子里：只列常温柜里还有的，最近动过的在前，最多六样，多的写还有几样', () => {
+    const lots = Array.from({ length: 8 }, (_, i) => lot(i, { storageZone: 'pantry', unit: 'bag', quantity: i + 1, updatedAt: i }));
+    lots.push(lot(8, { storageZone: 'fridge' }), lot(9, { storageZone: 'pantry', quantity: 0, updatedAt: 99 }));
+    lots.push(lot(10, { storageZone: 'pantry', trackingMode: 'divisible', quantity: 1, openContainerRemaining: 0.5, updatedAt: 50 }));
+    const foods = Array.from({ length: 11 }, (_, i) => food(i, `零食${i}`));
+    const list = pantryList(lots, foods)!;
+    expect(list.lines.map(line => line.text)).toEqual(['零食10', '零食7', '零食6', '零食5', '零食4', '零食3']);
+    expect(list.lines[0].amount).toBe('开封');
+    expect(list.lines[1].amount).toBe('8 袋');
+    expect(list.more).toBe(3);
+    expect(pantryList([lot(0)], [])).toBeNull();
   });
 });

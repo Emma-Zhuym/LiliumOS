@@ -296,10 +296,6 @@ p.kitchen-note { margin: 0; padding: 0; border: 0; background: transparent; colo
 .kitchen-history-head > .kitchen-text-button { justify-self: start; }
 .kitchen-history { margin: 0; padding: 0; list-style: none; }
 .kitchen-history > .kitchen-row > strong { flex-shrink: 0; color: var(--k-green-ink); font-size: 13px; font-variant-numeric: tabular-nums; }
-.kitchen-pantry { margin-top: 12px; padding: 20px 16px; min-height: 240px; border: 1px solid var(--k-line); border-radius: var(--k-radius-card); background-color: var(--k-surface); background-image: var(--k-texture); }
-.kitchen-pantry-title { display: flex; align-items: center; gap: 8px; color: var(--k-green-ink); }
-.kitchen-pantry-title > .kitchen-heading { flex: 1; font-size: 17px; }
-.kitchen-pantry-title > span { color: var(--k-muted); font-size: 12px; }
 .kitchen-inline-notice { padding: 12px; margin-bottom: 16px; border: 1px solid var(--k-line); border-radius: var(--k-radius-field); background: var(--k-blue); color: var(--k-blue-ink); font-size: 13px; line-height: 1.6; }
 .kitchen-inline-notice[role="alert"] { color: var(--k-danger); background: var(--k-well); }
 

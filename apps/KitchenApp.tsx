@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowCounterClockwise, CaretLeft, CaretRight, ClockCounterClockwise, Leaf, MagnifyingGlass, Package, Plus, Snowflake, X } from '@phosphor-icons/react';
+import { ArrowCounterClockwise, CaretLeft, CaretRight, ClockCounterClockwise, MagnifyingGlass, Package, Plus, Snowflake, X } from '@phosphor-icons/react';
 import { useOS } from '../context/OSContext';
 import KitchenLotDetail from '../components/kitchen/KitchenLotDetail';
 import KitchenSheet from '../components/kitchen/KitchenSheet';
@@ -25,7 +25,6 @@ const KitchenApp: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [view, setView] = useState<View>('home');
-  const [cupboard, setCupboard] = useState<'fridge' | 'pantry'>('fridge');
   const [showAdd, setShowAdd] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
@@ -73,7 +72,6 @@ const KitchenApp: React.FC = () => {
     .sort((a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id)), [lots]);
   const visibleLots = activeLots.filter(lot => (zoneFilter === 'all' || lot.storageZone === zoneFilter)
     && (foodById.get(lot.foodId)?.name ?? '').toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
-  const pantryLots = activeLots.filter(lot => lot.storageZone === 'pantry');
   const stagedCount = activeLots.filter(lot => lot.storageZone === 'staging').length;
   const visibleEvents = events.filter(hasKitchenEventChange);
   const canUndo = visibleEvents.some(event => event.type !== 'UNDO' && !event.undoneAt);
@@ -165,16 +163,11 @@ const KitchenApp: React.FC = () => {
         {loading ? <div className="kitchen-empty" role="status">正在打开小厨房…</div>
           : loadFailed ? <div className="kitchen-empty"><p>食材暂时没有读出来。</p><button type="button" className="kitchen-button" onClick={() => { void load(); }}>重新打开</button></div>
           : view === 'home' ? <>
-            <nav className="kitchen-tabs" aria-label="厨房收纳空间">
-              <button type="button" aria-pressed={cupboard === 'fridge'} onClick={() => setCupboard('fridge')}>冰箱</button>
-              <button type="button" aria-pressed={cupboard === 'pantry'} onClick={() => setCupboard('pantry')}>常温柜</button>
-            </nav>
-            {cupboard === 'fridge' ? <Suspense fallback={<div className="kitchen-empty" role="status">正在打开冰箱…</div>}>
-              <KitchenFridgeScene lots={lots} foods={foods} events={events} onOpenLot={openLot} onOpenHistory={() => setView('history')} />
-            </Suspense> : <section className="kitchen-pantry" aria-label="常温柜食材">
-              <div className="kitchen-pantry-title"><Leaf size={24} /><h2 className="kitchen-heading">柜子里的小储备</h2><span>{pantryLots.length} 条</span></div>
-              {pantryLots.length ? renderRows(pantryLots) : <div className="kitchen-empty"><Package size={26} /><p>米面、罐头和小零食，放在这里。</p></div>}
-            </section>}
+            {/* 常温柜不做 3D（2026-10-11）：柜子里的零食饮料速食写在冷藏门左下那张「柜子里」清单上 */}
+            <Suspense fallback={<div className="kitchen-empty" role="status">正在打开冰箱…</div>}>
+              <KitchenFridgeScene lots={lots} foods={foods} events={events} onOpenLot={openLot}
+                onOpenHistory={() => setView('history')} onOpenPantry={() => openList(false, 'pantry')} />
+            </Suspense>
             <div className="kitchen-home-footer">
               <button type="button" className="kitchen-row" aria-label="食材清单" onClick={() => openList()}>
                 <span className="kitchen-heading">食材清单</span><span>{activeLots.length} 条</span><CaretRight size={18} />
@@ -215,7 +208,7 @@ const KitchenApp: React.FC = () => {
       label={showAdd ? '放进食物' : '食材操作'} busy={busy} backgroundRef={background}
       onClose={() => { setShowAdd(false); setSelectedId(null); setNotice(null); }}>
       {notice && <p className="kitchen-inline-notice" role={notice.error ? 'alert' : 'status'}>{notice.text}</p>}
-      {showAdd ? <KitchenAddForm initialZone={cupboard === 'pantry' ? 'pantry' : 'fridge'} busy={busy} onAdd={addFood} />
+      {showAdd ? <KitchenAddForm initialZone="fridge" busy={busy} onAdd={addFood} />
         : <KitchenLotActions key={selectedLot!.id} lot={selectedLot!} busy={busy}
           run={(work, message, close) => run(work, message, close, close === true)} onError={text => setNotice({ text, error: true })}
           onEdit={() => { setDetailId(selectedId); setSelectedId(null); setNotice(null); }} />}

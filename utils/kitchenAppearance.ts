@@ -6,7 +6,7 @@
  * 散装蔬果放进磨砂抽屉，只显示色块。
  */
 import type { KitchenEvent, KitchenFood, KitchenLot } from './kitchenDb';
-import { formatEventAmount } from './kitchenPresentation';
+import { formatEventAmount, formatQuantity } from './kitchenPresentation';
 
 export type KitchenLook = 'carton' | 'eggs' | 'bottle' | 'jar' | 'box' | 'produce' | 'tray' | 'bag';
 
@@ -107,4 +107,24 @@ export function latestReceipt(events: KitchenEvent[], foods: KitchenFood[], limi
     .sort((a, b) => a.occurredAt - b.occurredAt)
     .map(event => ({ name: names.get(event.foodId) ?? '食物', amount: formatEventAmount(event), lotId: event.lotId }));
   return { day, items: items.slice(0, limit) };
+}
+
+export interface PantryList { lines: (DoorNoteLine & { amount: string })[]; more: number }
+
+/**
+ * 「柜子里」清单：常温柜不做 3D（零食饮料速食，阿萌 2026-10-11 定），贴一张手写清单在冷藏门上。
+ * 最近动过的在前，最多六样，再多写「还有 N 样」。开封的分次包装只写「开封」，不写分数。
+ */
+export function pantryList(lots: KitchenLot[], foods: KitchenFood[], limit = 6): PantryList | null {
+  const names = new Map(foods.map(food => [food.id, food.name]));
+  const inPantry = lots.filter(lot => lot.quantity > 0 && lot.storageZone === 'pantry')
+    .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
+  if (!inPantry.length) return null;
+  const lines = inPantry.slice(0, limit).map(lot => ({
+    lotId: lot.id,
+    text: names.get(lot.foodId) ?? '食物',
+    amount: lot.trackingMode === 'divisible' && lot.openContainerRemaining !== undefined && lot.quantity <= 1
+      ? '开封' : formatQuantity(lot.quantity, lot.unit),
+  }));
+  return { lines, more: inPantry.length - lines.length };
 }

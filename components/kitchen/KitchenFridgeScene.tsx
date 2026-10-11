@@ -6,7 +6,7 @@ import { KITCHEN_PAPER as PAPER } from '../../utils/kitchenPaperTokens';
 import type { KitchenEvent, KitchenFood, KitchenLot } from '../../utils/kitchenDb';
 import { FRIDGE } from '../../utils/kitchenFridgeSpec';
 import { fridgeLayout } from '../../utils/kitchenFridgeLayout';
-import { latestReceipt, stickyReminders } from '../../utils/kitchenAppearance';
+import { latestReceipt, pantryList, stickyReminders } from '../../utils/kitchenAppearance';
 import { bendPaper, buildKitchenScene, HAND_FONT, type KitchenRig } from './kitchenFridgeBuild';
 
 interface Props {
@@ -16,6 +16,8 @@ interface Props {
   onOpenLot: (id: string) => void;
   /** 点门上的小票：去看操作记录 */
   onOpenHistory?: () => void;
+  /** 点「柜子里」那张纸的空白处：去看常温柜的完整清单 */
+  onOpenPantry?: () => void;
 }
 
 type Zone = 'fridge' | 'freezer';
@@ -27,13 +29,13 @@ const CRISPER_OUT = 2.3;
  * 动效只跟着操作发生：门有一点回弹、开门时纸被风压平再掀起、磁贴拔了会吸回去、内灯闪两下再亮稳。
  * 静止时不渲染；减少动态效果时一律直接到终点。
  */
-const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenLot, onOpenHistory }) => {
+const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenLot, onOpenHistory, onOpenPantry }) => {
   const [open, setOpen] = useState<Record<Zone, boolean>>({ fridge: false, freezer: false });
   const [crisperOpen, setCrisperOpen] = useState(false);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const host = useRef<HTMLDivElement>(null);
-  const callbacks = useRef({ onOpenLot, onOpenHistory });
-  callbacks.current = { onOpenLot, onOpenHistory };
+  const callbacks = useRef({ onOpenLot, onOpenHistory, onOpenPantry });
+  callbacks.current = { onOpenLot, onOpenHistory, onOpenPantry };
   const controller = useRef<{ sync: (open: Record<Zone, boolean>, crisper: boolean) => void; fill: () => void } | null>(null);
   const stateRef = useRef({ open, crisperOpen });
   stateRef.current = { open, crisperOpen };
@@ -42,11 +44,12 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
   // 便利贴的「今天 / 明天」按打开厨房的那一刻算
   const reminders = useMemo(() => stickyReminders(lots, foods, events), [lots, foods, events]);
   const receipt = useMemo(() => latestReceipt(events, foods), [events, foods]);
-  const contentsRef = useRef({ layout, reminders, receipt });
-  contentsRef.current = { layout, reminders, receipt };
+  const pantry = useMemo(() => pantryList(lots, foods), [lots, foods]);
+  const contentsRef = useRef({ layout, reminders, receipt, pantry });
+  contentsRef.current = { layout, reminders, receipt, pantry };
 
   useEffect(() => { controller.current?.sync(open, crisperOpen); }, [open, crisperOpen]);
-  useEffect(() => { controller.current?.fill(); }, [layout, reminders, receipt]);
+  useEffect(() => { controller.current?.fill(); }, [layout, reminders, receipt, pantry]);
 
   useEffect(() => {
     const maybeElement = host.current;
@@ -150,8 +153,8 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
     }
 
     const fill = () => {
-      const { layout: l, reminders: r, receipt: rc } = contentsRef.current;
-      rig.setContents(l.entries, r, rc);
+      const { layout: l, reminders: r, receipt: rc, pantry: pt } = contentsRef.current;
+      rig.setContents(l.entries, r, rc, pt);
       if (!reduce.matches) for (const p of rig.papers) p.v += p.key === 'receipt' ? 1.2 : 0.7;   // 换上新纸时轻轻晃一下
       invalidate();
     };
@@ -278,9 +281,16 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
       if (o?.userData.paper) {
         const paper = rig.papers.find(p => p.key === o.userData.paper)!;
         if (paper.key === 'receipt') { paper.v += reduce.matches ? 0 : 1.4; invalidate(); callbacks.current.onOpenHistory?.(); return; }
-        const row = hit!.uv ? Math.floor(((1 - hit!.uv.y) * 512 - 90) / 116) : 0;
-        const line = paper.lines[Math.max(0, Math.min(paper.lines.length - 1, row))];
+        // 按点到的高度换算是第几行；柜子清单点到标题或「还有 N 样」就去看完整清单
+        const rows = paper.rows;
+        const row = rows && hit!.uv ? Math.floor(((1 - hit!.uv.y) * rows.texH - rows.top) / rows.height) : -1;
         paper.v += reduce.matches ? 0 : 1.2; invalidate();
+        if (paper.key === 'pantry') {
+          const line = paper.lines[row];
+          if (line) callbacks.current.onOpenLot(line.lotId); else callbacks.current.onOpenPantry?.();
+          return;
+        }
+        const line = paper.lines[Math.max(0, Math.min(paper.lines.length - 1, row))];
         if (line) callbacks.current.onOpenLot(line.lotId);
         return;
       }
@@ -337,6 +347,8 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
         {status === 'ready' && <ul className="sr-only" aria-label="冰箱里看得见的食材">
           {visibleItems.map(entry => <li key={entry.lot.id}><button type="button" onClick={() => onOpenLot(entry.lot.id)}>查看{entry.name}</button></li>)}
           {reminders.map(line => <li key={`r-${line.lotId}`}><button type="button" onClick={() => onOpenLot(line.lotId)}>便利贴：{line.text}</button></li>)}
+          {pantry?.lines.map(line => <li key={`p-${line.lotId}`}><button type="button" onClick={() => onOpenLot(line.lotId)}>柜子里：{line.text} {line.amount}</button></li>)}
+          {pantry && onOpenPantry && <li><button type="button" onClick={onOpenPantry}>看柜子里的全部</button></li>}
         </ul>}
       </div>
       <div className="kitchen-scene-footer">
