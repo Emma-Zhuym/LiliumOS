@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { KitchenEvent, KitchenFood, KitchenLot } from './kitchenDb';
 import { eggVisibleCount, fridgeLayout, LOOK_SIZE } from './kitchenFridgeLayout';
 import { FRIDGE, SHELF_WIDTH } from './kitchenFridgeSpec';
-import { kitchenLookFor, latestReceipt, pantryList, produceTint, stickyReminders, tapeLabel } from './kitchenAppearance';
+import { kitchenLookFor, latestReceipt, pantryList, produceTint, shoppingTrips, stickyReminders, tapeLabel } from './kitchenAppearance';
 
 const lot = (index: number, extra: Partial<KitchenLot> = {}): KitchenLot => ({
   id: `lot-${index}`, foodId: `food-${index}`, createdAt: index, updatedAt: index,
@@ -97,7 +97,7 @@ describe('门上的纸', () => {
     expect(stickyReminders([lots[3]], foods, bought, now).map(line => line.text)).toEqual(['鸡蛋只剩一个']);
     expect(stickyReminders([lots[3]], foods, [], now)).toEqual([]);
   });
-  it('小票：最近一天放进来的几样，撤销掉的不算', () => {
+  it('小票：最近一次采购放进来的几样，撤销掉的不算', () => {
     const add = (i: number, at: number, extra: Partial<KitchenEvent> = {}): KitchenEvent => ({
       id: `e${i}`, operationId: `o${i}`, type: 'ADD', lotId: `lot-${i}`, foodId: `food-${i}`,
       quantityDelta: 2, quantityBefore: 0, quantityAfter: 2, unit: 'box', occurredAt: at, ...extra,
@@ -124,23 +124,41 @@ describe('门上的纸', () => {
   });
 });
 
-describe('操作记录的小票', () => {
-  it('按天一张，新的在上；一张里从早到晚；撤销的不算数', async () => {
-    const { historyReceipts } = await import('./kitchenPresentation');
-    const ev = (i: number, type: KitchenEvent['type'], at: number, extra: Partial<KitchenEvent> = {}): KitchenEvent => ({
-      id: `e${i}`, operationId: `o${i}`, type, lotId: 'lot-0', foodId: 'food-0',
-      quantityDelta: type === 'ADD' ? 2 : -1, quantityBefore: 0, quantityAfter: 0, unit: 'box', occurredAt: at, ...extra,
-    });
-    const d1 = new Date(2026, 9, 11, 9).getTime(), d2 = new Date(2026, 9, 12, 20).getTime();
-    const receipts = historyReceipts([
-      ev(1, 'CONSUME', d2), ev(2, 'ADD', d1 + 3_600_000), ev(3, 'ADD', d1), ev(4, 'CONSUME', d1 + 7_200_000, { undoneAt: d2 }),
-    ], () => '牛奶');
-    expect(receipts.map(r => new Date(r.day).getDate())).toEqual([12, 11]);
-    expect(receipts[1].lines.map(l => l.id)).toEqual(['e3', 'e2', 'e4']);
-    expect(receipts[1].lines[0]).toMatchObject({ time: '09:00', verb: '放进', name: '牛奶', amount: '+2 盒', undone: false });
-    expect(receipts[1]).toMatchObject({ added: 2, used: 0 });
-    expect(receipts[1].lines[2].undone).toBe(true);
-    expect(receipts[1].no).toMatch(/^[0-9A-F]{6}$/);
-    expect(receipts[1].no).not.toBe(receipts[0].no);
+describe('操作记录：一次采购一张小票', () => {
+  const ev = (i: number, type: KitchenEvent['type'], at: number, extra: Partial<KitchenEvent> = {}): KitchenEvent => ({
+    id: `e${i}`, operationId: `o${i}`, type, lotId: `lot-${i}`, foodId: `food-${i}`,
+    quantityDelta: type === 'ADD' ? 2 : -1, quantityBefore: 0, quantityAfter: 0, unit: 'box', occurredAt: at, ...extra,
+  });
+  const h = 3_600_000;
+  const t0 = new Date(2026, 9, 4, 10).getTime(), t1 = new Date(2026, 9, 11, 17).getTime();
+  const foods = ['牛奶', '鸡蛋', '薯片', '番茄炖牛腩', '酸奶', '面包'].map((name, i) => food(i, name));
+
+  it('两小时内放进来的算一次；之后吃掉、做的菜接在后半截；隔一周再买开新的一张', () => {
+    const trips = shoppingTrips([
+      ev(0, 'ADD', t0), ev(1, 'ADD', t0 + 0.5 * h), ev(2, 'ADD', t0 + 2 * h),         // 同一次（每次都跟上一样不到两小时）
+      ev(3, 'ADD', t0 + 30 * h),                                                     // 自己做的菜，不算采购
+      ev(4, 'CONSUME', t0 + 50 * h, { lotId: 'lot-1', foodId: 'food-1' }),
+      ev(5, 'CONSUME', t0 + 60 * h, { lotId: 'lot-0', foodId: 'food-0', undoneAt: t0 + 61 * h }),
+      ev(6, 'UNDO', t0 + 61 * h),
+      ev(7, 'ADD', t1, { foodId: 'food-4' }),
+    ], foods);
+    expect(trips).toHaveLength(2);
+    const [latest, first] = trips;
+    expect(latest.bought.map(l => l.name)).toEqual(['酸奶']);
+    expect(first.bought.map(l => l.name)).toEqual(['牛奶', '鸡蛋', '薯片']);
+    expect(first.after.map(l => `${l.verb} ${l.name}`)).toEqual(['做了 番茄炖牛腩', '吃掉 鸡蛋', '吃掉 牛奶']);
+    expect(first.after[2].undone).toBe(true);
+    expect(first.tally).toEqual({ bought: 3, used: 1, discarded: 0, cooked: 1 });
+    expect(first.opening).toBe(false);
+    expect(first.no).toMatch(/^[0-9A-F]{6}$/);
+    expect(first.no).not.toBe(latest.no);
+  });
+  it('第一次买东西之前的零碎记在开张那张；撤销掉的买入不单开一张', () => {
+    const trips = shoppingTrips([
+      ev(0, 'CONSUME', t0), ev(1, 'ADD', t0 + 5 * h, { undoneAt: t0 + 6 * h }), ev(2, 'ADD', t1),
+    ], foods);
+    expect(trips.map(t => t.opening)).toEqual([false, true]);
+    expect(trips[1].after.map(l => l.id)).toEqual(['e0', 'e1']);
+    expect(trips[0].bought.map(l => l.id)).toEqual(['e2']);
   });
 });

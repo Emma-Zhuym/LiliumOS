@@ -1,5 +1,5 @@
 import React from 'react';
-import type { HistoryReceipt } from '../../utils/kitchenPresentation';
+import type { ShoppingTrip, TripLine } from '../../utils/kitchenAppearance';
 
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
@@ -22,26 +22,45 @@ const TornEdge: React.FC = () => <svg className="kitchen-receipt-edge" viewBox="
   <path d={`M0 0 ${Array.from({ length: 30 }, (_, i) => `L${i * 4 + 2} 4 L${i * 4 + 4} 0`).join(' ')} Z`} />
 </svg>;
 
-const KitchenHistoryReceipts: React.FC<{ receipts: HistoryReceipt[] }> = ({ receipts }) => <ol className="kitchen-receipts">
-  {receipts.map(receipt => {
-    const date = new Date(receipt.day);
-    const tally = [receipt.added && `放进 ${receipt.added}`, receipt.used && `用掉 ${receipt.used}`].filter(Boolean).join(' · ');
-    return <li key={receipt.day} className="kitchen-receipt">
+const hm = (at: number) => new Date(at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+const md = (at: number) => { const d = new Date(at); return `${d.getMonth() + 1}/${d.getDate()}`; };
+
+const Line: React.FC<{ line: TripLine; when?: string }> = ({ line, when }) => <li className={line.undone ? 'is-undone' : undefined}>
+  {when && <span className="kitchen-receipt-time">{when}</span>}
+  <span className="kitchen-receipt-name">{line.verb === '放进' ? '' : `${line.verb} `}{line.name}{line.undone && <em>已撤销</em>}</span>
+  <span className="kitchen-receipt-amount">{line.amount}</span>
+</li>;
+
+/** 一次采购一张：上半截买回来的，撕痕下面是到下一次采购之前用掉的 */
+const KitchenHistoryReceipts: React.FC<{ trips: ShoppingTrip[] }> = ({ trips }) => <ol className="kitchen-receipts">
+  {trips.map(trip => {
+    const date = new Date(trip.start);
+    const { bought, used, discarded, cooked } = trip.tally;
+    const tally = [bought && `买 ${bought} 样`, used && `吃掉 ${used}`, cooked && `做了 ${cooked}`, discarded && `丢掉 ${discarded}`].filter(Boolean).join(' · ');
+    // 后半截跨好几天：换了一天才写日期
+    let lastDay = '';
+    return <li key={trip.start} className="kitchen-receipt">
       <div className="kitchen-receipt-paper">
         <header className="kitchen-receipt-head">
-          <span><strong>小厨房</strong><small>NO. {receipt.no}</small></span>
-          <time dateTime={date.toISOString().slice(0, 10)}>{date.getMonth() + 1}/{date.getDate()}<small>{WEEKDAYS[date.getDay()]}</small></time>
+          <span><strong>{trip.opening ? '小厨房 · 开张' : '小厨房 · 采购'}</strong><small>NO. {trip.no}</small></span>
+          <time dateTime={date.toISOString()}>{md(trip.start)}<small>{WEEKDAYS[date.getDay()]} {hm(trip.start)}</small></time>
         </header>
-        <ul className="kitchen-receipt-lines">
-          {receipt.lines.map(line => <li key={line.id} className={line.undone ? 'is-undone' : undefined}>
-            <span className="kitchen-receipt-time">{line.time}</span>
-            <span className="kitchen-receipt-name">{line.verb} {line.name}{line.undone && <em>已撤销</em>}</span>
-            <span className="kitchen-receipt-amount">{line.amount}</span>
-          </li>)}
-        </ul>
+        {trip.bought.length > 0 && <ul className="kitchen-receipt-lines">
+          {trip.bought.map(line => <Line key={line.id} line={line} />)}
+        </ul>}
+        {trip.after.length > 0 && <>
+          {trip.bought.length > 0 && <p className="kitchen-receipt-section">之 后</p>}
+          <ul className="kitchen-receipt-lines kitchen-receipt-lines--after">
+            {trip.after.map(line => {
+              const day = md(line.at), when = day === lastDay ? hm(line.at) : `${day} ${hm(line.at)}`;
+              lastDay = day;
+              return <Line key={line.id} line={line} when={when} />;
+            })}
+          </ul>
+        </>}
         <footer className="kitchen-receipt-foot">
-          <Barcode code={receipt.no} />
-          <span>{tally || '只是看了看'}</span>
+          <Barcode code={trip.no} />
+          <span>{tally || '都撤销了'}</span>
         </footer>
         <p className="kitchen-receipt-tear">— — 沿 此 撕 下 — —</p>
       </div>

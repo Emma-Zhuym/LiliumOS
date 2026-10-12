@@ -45,7 +45,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
   const layout = useMemo(() => fridgeLayout(lots, foods), [lots, foods]);
   // 便利贴的「今天 / 明天」按打开厨房的那一刻算
   const reminders = useMemo(() => stickyReminders(lots, foods, events), [lots, foods, events]);
-  const receipt = useMemo(() => latestReceipt(events, foods), [events, foods]);
+  const receipt = useMemo(() => latestReceipt(events, foods, lots), [events, foods, lots]);
   const pantry = useMemo(() => pantryList(lots, foods), [lots, foods]);
   const contentsRef = useRef({ layout, reminders, receipt, pantry });
   contentsRef.current = { layout, reminders, receipt, pantry };

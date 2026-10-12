@@ -6,6 +6,7 @@
  * 散装蔬果放进磨砂抽屉，只显示色块。
  */
 import type { KitchenEvent, KitchenFood, KitchenLot } from './kitchenDb';
+import { hasKitchenEventChange } from './kitchenDb';
 import { formatEventAmount, formatQuantity } from './kitchenPresentation';
 
 export type KitchenLook = 'carton' | 'eggs' | 'bottle' | 'jar' | 'box' | 'produce' | 'tray' | 'bag';
@@ -27,6 +28,10 @@ const PRODUCE: [RegExp, string][] = [
   [/蘑菇|香菇|土豆|姜|蒜|山药|\b(mushroom|potato|ginger|garlic)/i, '#b49a78'],
   [/西兰花|青菜|菠菜|生菜|白菜|油麦菜|黄瓜|青椒|芹菜|葱|香菜|豆角|四季豆|秋葵|西葫芦|牛油果|猕猴桃|青提|\b(broccoli|spinach|lettuce|cabbage|cucumber|celery|scallion|cilantro|bean|zucchini|avocado|kiwi|kale|herb)/i, '#4d7f42'],
 ];
+
+/** 自己做的菜 / 剩菜：放进冰箱不算买回来的 */
+export const isDish = (name: string, foodState?: KitchenLot['foodState']) =>
+  foodState === 'leftover' || foodState === 'prepared' || DISH.test(name);
 
 export const produceTint = (name: string): string | null => PRODUCE.find(([pattern]) => pattern.test(name))?.[1] ?? null;
 
@@ -90,23 +95,80 @@ export function stickyReminders(lots: KitchenLot[], foods: KitchenFood[], events
   return notes.sort((a, b) => a.rank - b.rank).slice(0, limit).map(note => note.line);
 }
 
+/**
+ * 一次采购一张小票（阿萌 2026-10-12 定：一周最多买一次，按天撕会被每天的「吃掉」淹掉）。
+ * - 买回来的（放进、不是自己做的菜）前后相隔不到 TRIP_GAP 算同一次；以后拍小票入库，一张照片就是一次。
+ * - 两次采购之间吃掉、丢掉、核对、做的菜，接在上一张小票的后半截。
+ * - 第一次采购之前的零碎记在「开张」那张。
+ * - 撤销本身不单列，被撤销的那一行划掉。
+ * 新的一张在前。
+ */
+export const TRIP_GAP = 2 * 3_600_000;
+
+export interface TripLine { id: string; lotId: string; at: number; verb: string; name: string; amount: string; undone: boolean }
+export interface ShoppingTrip {
+  start: number;
+  /** 小票号：由开始时间算出，不会变 */
+  no: string;
+  opening: boolean;
+  bought: TripLine[];
+  after: TripLine[];
+  tally: { bought: number; used: number; discarded: number; cooked: number };
+}
+
+const TRIP_VERBS: Record<KitchenEvent['type'], string> = { ADD: '放进', CONSUME: '吃掉', DISCARD: '丢掉', ADJUST: '核对', UNDO: '撤销' };
+
+export function shoppingTrips(events: KitchenEvent[], foods: KitchenFood[], lots: KitchenLot[] = []): ShoppingTrip[] {
+  const names = new Map(foods.map(food => [food.id, food.name]));
+  const states = new Map(lots.map(lot => [lot.id, lot.foodState]));
+  const trips: (ShoppingTrip & { lastBuy: number })[] = [];
+  const sorted = events.filter(event => event.type !== 'UNDO' && hasKitchenEventChange(event))
+    .sort((a, b) => a.occurredAt - b.occurredAt || a.id.localeCompare(b.id));
+  const open = (start: number, opening: boolean) => {
+    const trip = { start, opening, lastBuy: start, bought: [], after: [], tally: { bought: 0, used: 0, discarded: 0, cooked: 0 },
+      no: ((Math.floor(start / 60_000) * 2654435761) >>> 0).toString(16).toUpperCase().padStart(8, '0').slice(-6) };
+    trips.push(trip);
+    return trip;
+  };
+  for (const event of sorted) {
+    const name = names.get(event.foodId) ?? '食物';
+    const dish = event.type === 'ADD' && isDish(name, states.get(event.lotId));
+    const buying = event.type === 'ADD' && event.quantityDelta > 0 && !dish;
+    let trip = trips[trips.length - 1];
+    const sameTrip = trip && !trip.opening && event.occurredAt - trip.lastBuy <= TRIP_GAP;
+    // 买回来的、隔得久了：新开一张（撤销掉的买入不单独开一张）
+    if (buying && !sameTrip && !event.undoneAt) trip = open(event.occurredAt, false);
+    else if (!trip) trip = open(event.occurredAt, true);
+    const line: TripLine = {
+      id: event.id, lotId: event.lotId, at: event.occurredAt, name, amount: formatEventAmount(event), undone: Boolean(event.undoneAt),
+      verb: dish ? '做了' : TRIP_VERBS[event.type],
+    };
+    if (buying && (sameTrip || trip.bought.length === 0 && !trip.opening)) {
+      trip.bought.push(line);
+      if (!event.undoneAt) { trip.lastBuy = event.occurredAt; trip.tally.bought += 1; }
+    } else {
+      trip.after.push(line);
+      if (!event.undoneAt) {
+        if (dish) trip.tally.cooked += 1;
+        else if (event.type === 'CONSUME') trip.tally.used += 1;
+        else if (event.type === 'DISCARD') trip.tally.discarded += 1;
+      }
+    }
+  }
+  return trips.reverse().map(({ lastBuy: _lastBuy, ...trip }) => trip);
+}
+
 export interface DoorReceipt { day: number; items: { name: string; amount: string; lotId: string }[] }
 
 /**
- * 小票：最近一次「放进食物」的那一天，那天放进来的几样。撤销掉的不算。
+ * 门上的小票：最近一次采购买回来的几样（跟操作记录里最上面那张是同一次，见 kitchenTrips）。撤销掉的不算。
  * 以后拍小票入库，就是这张小票反过来用。
  */
-export function latestReceipt(events: KitchenEvent[], foods: KitchenFood[], limit = 8): DoorReceipt | null {
-  const names = new Map(foods.map(food => [food.id, food.name]));
-  const adds = events.filter(event => event.type === 'ADD' && !event.undoneAt && event.quantityDelta > 0);
-  if (!adds.length) return null;
-  const last = Math.max(...adds.map(event => event.occurredAt));
-  const day = startOfDay(last);
-  const items = adds
-    .filter(event => event.occurredAt >= day && event.occurredAt < day + DAY)
-    .sort((a, b) => a.occurredAt - b.occurredAt)
-    .map(event => ({ name: names.get(event.foodId) ?? '食物', amount: formatEventAmount(event), lotId: event.lotId }));
-  return { day, items: items.slice(0, limit) };
+export function latestReceipt(events: KitchenEvent[], foods: KitchenFood[], lots: KitchenLot[] = [], limit = 8): DoorReceipt | null {
+  const trip = shoppingTrips(events, foods, lots).find(item => !item.opening);
+  if (!trip) return null;
+  const items = trip.bought.filter(line => !line.undone).map(line => ({ name: line.name, amount: line.amount, lotId: line.lotId }));
+  return items.length ? { day: trip.start, items: items.slice(0, limit) } : null;
 }
 
 export interface PantryList { lines: (DoorNoteLine & { amount: string })[]; more: number }

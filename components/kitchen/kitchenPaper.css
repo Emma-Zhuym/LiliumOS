@@ -359,8 +359,11 @@ p.kitchen-note { margin: 0; padding: 0; border: 0; background: transparent; colo
 .kitchen-receipt-head strong { font-family: var(--k-heading); font-size: 17px; font-weight: 700; letter-spacing: .08em; }
 .kitchen-receipt-head small { color: var(--k-muted); font-family: var(--k-mono); font-size: 12px; letter-spacing: .06em; }
 .kitchen-receipt-head > time { justify-items: end; font-family: var(--k-mono); font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.kitchen-receipt-lines { display: grid; gap: 10px; margin: 0; padding: 14px 0; list-style: none; border-bottom: 2px solid var(--k-ink); }
-.kitchen-receipt-lines > li { display: grid; grid-template-columns: auto 1fr auto; align-items: baseline; gap: 12px; font-size: 15px; line-height: 1.5; }
+.kitchen-receipt-lines { display: grid; gap: 10px; margin: 0; padding: 14px 0; list-style: none; }
+.kitchen-receipt-lines:last-of-type { border-bottom: 2px solid var(--k-ink); }
+.kitchen-receipt-lines > li { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 12px; font-size: 15px; line-height: 1.5; }
+.kitchen-receipt-lines--after > li { grid-template-columns: auto 1fr auto; }
+.kitchen-receipt-section { margin: 0; padding: 8px 0 0; border-top: 1px dashed var(--k-faint); color: var(--k-muted); font-family: var(--k-mono); font-size: 11px; letter-spacing: .2em; text-align: center; }
 .kitchen-receipt-time { color: var(--k-muted); font-family: var(--k-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
 .kitchen-receipt-name { min-width: 0; overflow-wrap: anywhere; }
 .kitchen-receipt-name > em { margin-left: 6px; color: var(--k-faint); font-size: 11px; font-style: normal; }

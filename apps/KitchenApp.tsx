@@ -6,13 +6,14 @@ import KitchenSheet from '../components/kitchen/KitchenSheet';
 import KitchenAddForm from '../components/kitchen/KitchenAddForm';
 import KitchenLotActions from '../components/kitchen/KitchenLotActions';
 import KitchenHistoryReceipts from '../components/kitchen/KitchenHistoryReceipts';
+import { shoppingTrips } from '../utils/kitchenAppearance';
 import { KITCHEN_PAPER_VARS } from '../utils/kitchenPaperTokens';
 import '../components/kitchen/kitchenPaper.css';
 import {
   KitchenDB, hasKitchenEventChange, type AddKitchenLotInput, type KitchenFood,
   type KitchenLot, type KitchenEvent, type KitchenStorageZone, type UpdateKitchenLotDetailsInput,
 } from '../utils/kitchenDb';
-import { describeLotStock, historyReceipts, makeOperationId, STORAGE_UNIT_OPTIONS, UNIT_LABELS, ZONE_LABELS } from '../utils/kitchenPresentation';
+import { describeLotStock, makeOperationId, STORAGE_UNIT_OPTIONS, UNIT_LABELS, ZONE_LABELS } from '../utils/kitchenPresentation';
 
 const KitchenFridgeScene = lazy(() => import('../components/kitchen/KitchenFridgeScene'));
 type View = 'home' | 'list' | 'history';
@@ -192,7 +193,7 @@ const KitchenApp: React.FC = () => {
               <button type="button" className="kitchen-text-button" disabled={busy || !canUndo} onClick={() => { void undo(); }}><ArrowCounterClockwise size={18} />撤销最近操作</button>
             </div>
             {visibleEvents.length === 0 ? <div className="kitchen-empty">还没有操作记录。</div>
-              : <KitchenHistoryReceipts receipts={historyReceipts(visibleEvents, id => foodById.get(id)?.name)} />}
+              : <KitchenHistoryReceipts trips={shoppingTrips(visibleEvents, foods, lots)} />}
           </>}
       </main>
     </div>
