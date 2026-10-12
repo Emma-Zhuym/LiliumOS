@@ -112,7 +112,7 @@ export function FinanceAnalysisPanel({ result, currency, ready, saving, error, o
         <div id="finance-percentile-help" className="leading-relaxed pb-2">
           <p>全部保留完整支出；个人排除手动标记；日常再筛去大额。手动标记在交易编辑页修改，流水和余额保留。</p>
           <p className="mt-2">{result.settings.method === 'iqr' ? 'IQR：P75 + 1.5 ×（P75 − P25），不固定排除多少笔。' : '按单笔金额排名筛选，P100 不排大额。'}等于界线或标记“始终保留”的交易仍计入。</p>
-          <p className="mt-2">仅统计已入账记录；收入不做大额筛选，退款仍按收入展示。筛除差额不代表节省。</p>
+          <p className="mt-2">已入账和待入账（pending）都计入；收入不做大额筛选，退款仍按收入展示。筛除差额不代表节省。</p>
         </div>
       </details>
       </div>}

@@ -61,8 +61,10 @@ export function buildFinanceAnalysis(
     && (!options.accountId || t.accountId === options.accountId)
     && Number.isFinite(t.amount) && t.amount > 0
     && reportingTransactionType(t, categories) !== 'transfer');
+  // 待入账（pending）也计入：流水列表和桌面小组件都算它，分析页不算就会「同步了却没进统计」。
+  // 重复的预扣款由同步时的配对/撤销逻辑标成 excludedFromReporting，上面已经过滤掉了。
   const pending = scoped.filter(t => t.pending);
-  const posted = scoped.filter(t => !t.pending);
+  const posted = scoped;
   const expenses = posted.filter(t => reportingTransactionType(t, categories) === 'expense');
   const manualExpenses = expenses.filter(t => !isManuallyExcluded(t));
   const amounts = manualExpenses.map(t => t.amount);
@@ -101,7 +103,7 @@ export type FinanceAnalysisResult = ReturnType<typeof buildFinanceAnalysis>;
 
 export function describeFinanceAnalysis(result: FinanceAnalysisResult, currency: string): string {
   const { settings, sampleSize, threshold } = result;
-  return `分析口径：${ANALYSIS_VIEW_LABELS[settings.view]}；仅已入账记录，币种 ${currency}。`
+  return `分析口径：${ANALYSIS_VIEW_LABELS[settings.view]}；含待入账记录，币种 ${currency}。`
     + `原始支出 ${result.comparisons[0].total.toFixed(2)}，手动排除后 ${result.comparisons[1].total.toFixed(2)}，`
     + `${settings.method === 'iqr' ? 'IQR（P75 + 1.5 × 四分位距）' : `P${settings.percentile}`} 后 ${result.comparisons[2].total.toFixed(2)}。`
     + `大额筛选样本 ${sampleSize} 笔，阈值 ${threshold === null ? '无' : threshold.toFixed(2)}；`
