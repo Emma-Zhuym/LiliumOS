@@ -5,13 +5,14 @@ import KitchenLotDetail from '../components/kitchen/KitchenLotDetail';
 import KitchenSheet from '../components/kitchen/KitchenSheet';
 import KitchenAddForm from '../components/kitchen/KitchenAddForm';
 import KitchenLotActions from '../components/kitchen/KitchenLotActions';
+import KitchenHistoryReceipts from '../components/kitchen/KitchenHistoryReceipts';
 import { KITCHEN_PAPER_VARS } from '../utils/kitchenPaperTokens';
 import '../components/kitchen/kitchenPaper.css';
 import {
   KitchenDB, hasKitchenEventChange, type AddKitchenLotInput, type KitchenFood,
   type KitchenLot, type KitchenEvent, type KitchenStorageZone, type UpdateKitchenLotDetailsInput,
 } from '../utils/kitchenDb';
-import { describeLotStock, formatEventAmount, makeOperationId, STORAGE_UNIT_OPTIONS, UNIT_LABELS, ZONE_LABELS } from '../utils/kitchenPresentation';
+import { describeLotStock, historyReceipts, makeOperationId, STORAGE_UNIT_OPTIONS, UNIT_LABELS, ZONE_LABELS } from '../utils/kitchenPresentation';
 
 const KitchenFridgeScene = lazy(() => import('../components/kitchen/KitchenFridgeScene'));
 type View = 'home' | 'list' | 'history';
@@ -190,14 +191,8 @@ const KitchenApp: React.FC = () => {
             <div className="kitchen-history-head"><p className="kitchen-note">每次添置、用掉，都记在这页。</p>
               <button type="button" className="kitchen-text-button" disabled={busy || !canUndo} onClick={() => { void undo(); }}><ArrowCounterClockwise size={18} />撤销最近操作</button>
             </div>
-            {visibleEvents.length === 0 ? <div className="kitchen-empty">还没有操作记录。</div> : <ol className="kitchen-history">
-              {visibleEvents.map(event => <li key={event.id} className="kitchen-row" style={{ opacity: event.undoneAt ? 0.5 : 1 }}>
-                <span className="kitchen-food-copy"><strong>{foodById.get(event.foodId)?.name ?? '食材'}</strong>
-                  <span>{event.type === 'UNDO' ? '撤销操作' : event.note ?? ({ ADD: '放进厨房', CONSUME: '吃掉', DISCARD: '丢弃', ADJUST: '核对库存' }[event.type])}{event.undoneAt ? ' · 已撤销' : ''}</span>
-                  <time>{new Date(event.occurredAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</time>
-                </span><strong>{formatEventAmount(event)}</strong>
-              </li>)}
-            </ol>}
+            {visibleEvents.length === 0 ? <div className="kitchen-empty">还没有操作记录。</div>
+              : <KitchenHistoryReceipts receipts={historyReceipts(visibleEvents, id => foodById.get(id)?.name)} />}
           </>}
       </main>
     </div>

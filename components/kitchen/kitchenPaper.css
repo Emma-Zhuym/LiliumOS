@@ -294,8 +294,6 @@ p.kitchen-note { margin: 0; padding: 0; border: 0; background: transparent; colo
 .kitchen-food-row > svg { flex-shrink: 0; color: var(--k-faint); }
 .kitchen-history-head { display: grid; gap: 4px; padding: 12px 0; }
 .kitchen-history-head > .kitchen-text-button { justify-self: start; }
-.kitchen-history { margin: 0; padding: 0; list-style: none; }
-.kitchen-history > .kitchen-row > strong { flex-shrink: 0; color: var(--k-green-ink); font-size: 13px; font-variant-numeric: tabular-nums; }
 .kitchen-inline-notice { padding: 12px; margin-bottom: 16px; border: 1px solid var(--k-line); border-radius: var(--k-radius-field); background: var(--k-blue); color: var(--k-blue-ink); font-size: 13px; line-height: 1.6; }
 .kitchen-inline-notice[role="alert"] { color: var(--k-danger); background: var(--k-well); }
 
@@ -351,3 +349,25 @@ p.kitchen-note { margin: 0; padding: 0; border: 0; background: transparent; colo
 .kitchen-stage-chips { position: absolute; z-index: 2; left: 16px; right: 16px; bottom: calc(var(--safe-bottom) + 16px); display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
 .kitchen-stage-chips > .kitchen-button { min-height: 44px; padding: 0 16px; font-size: 14px; }
 .kitchen-paper:has(.is-stage) .kitchen-toast { bottom: calc(var(--safe-bottom) + 76px); }
+
+/* 操作记录：一天一张热敏小票，往下一张张叠着 */
+.kitchen-receipts { display: grid; gap: 20px; margin: 4px 0 0; padding: 0 0 24px; list-style: none; }
+.kitchen-receipt-paper { padding: 20px 20px 12px; background-color: var(--k-surface); background-image: var(--k-texture); color: var(--k-ink); }
+.kitchen-receipt-edge { display: block; width: 100%; height: 8px; fill: var(--k-surface); }
+.kitchen-receipt-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding-bottom: 12px; border-bottom: 1px dashed var(--k-faint); }
+.kitchen-receipt-head > span, .kitchen-receipt-head > time { display: grid; gap: 4px; }
+.kitchen-receipt-head strong { font-family: var(--k-heading); font-size: 17px; font-weight: 700; letter-spacing: .08em; }
+.kitchen-receipt-head small { color: var(--k-muted); font-family: var(--k-mono); font-size: 12px; letter-spacing: .06em; }
+.kitchen-receipt-head > time { justify-items: end; font-family: var(--k-mono); font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.kitchen-receipt-lines { display: grid; gap: 10px; margin: 0; padding: 14px 0; list-style: none; border-bottom: 2px solid var(--k-ink); }
+.kitchen-receipt-lines > li { display: grid; grid-template-columns: auto 1fr auto; align-items: baseline; gap: 12px; font-size: 15px; line-height: 1.5; }
+.kitchen-receipt-time { color: var(--k-muted); font-family: var(--k-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+.kitchen-receipt-name { min-width: 0; overflow-wrap: anywhere; }
+.kitchen-receipt-name > em { margin-left: 6px; color: var(--k-faint); font-size: 11px; font-style: normal; }
+.kitchen-receipt-amount { font-family: var(--k-mono); font-size: 13px; font-variant-numeric: tabular-nums; }
+.kitchen-receipt-lines > li.is-undone > :is(.kitchen-receipt-time, .kitchen-receipt-amount) { color: var(--k-faint); text-decoration: line-through; }
+.kitchen-receipt-lines > li.is-undone > .kitchen-receipt-name { color: var(--k-faint); text-decoration: line-through; }
+.kitchen-receipt-foot { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; padding-top: 14px; }
+.kitchen-receipt-foot > span { color: var(--k-muted); font-family: var(--k-mono); font-size: 11px; letter-spacing: .08em; }
+.kitchen-receipt-barcode { width: 120px; height: 32px; fill: var(--k-ink); }
+.kitchen-receipt-tear { margin: 14px 0 0; color: var(--k-faint); font-family: var(--k-mono); font-size: 10px; letter-spacing: .1em; text-align: center; }

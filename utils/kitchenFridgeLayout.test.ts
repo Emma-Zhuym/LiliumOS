@@ -123,3 +123,24 @@ describe('门上的纸', () => {
     expect(pantryList([lot(0)], [])).toBeNull();
   });
 });
+
+describe('操作记录的小票', () => {
+  it('按天一张，新的在上；一张里从早到晚；撤销的不算数', async () => {
+    const { historyReceipts } = await import('./kitchenPresentation');
+    const ev = (i: number, type: KitchenEvent['type'], at: number, extra: Partial<KitchenEvent> = {}): KitchenEvent => ({
+      id: `e${i}`, operationId: `o${i}`, type, lotId: 'lot-0', foodId: 'food-0',
+      quantityDelta: type === 'ADD' ? 2 : -1, quantityBefore: 0, quantityAfter: 0, unit: 'box', occurredAt: at, ...extra,
+    });
+    const d1 = new Date(2026, 9, 11, 9).getTime(), d2 = new Date(2026, 9, 12, 20).getTime();
+    const receipts = historyReceipts([
+      ev(1, 'CONSUME', d2), ev(2, 'ADD', d1 + 3_600_000), ev(3, 'ADD', d1), ev(4, 'CONSUME', d1 + 7_200_000, { undoneAt: d2 }),
+    ], () => '牛奶');
+    expect(receipts.map(r => new Date(r.day).getDate())).toEqual([12, 11]);
+    expect(receipts[1].lines.map(l => l.id)).toEqual(['e3', 'e2', 'e4']);
+    expect(receipts[1].lines[0]).toMatchObject({ time: '09:00', verb: '放进', name: '牛奶', amount: '+2 盒', undone: false });
+    expect(receipts[1]).toMatchObject({ added: 2, used: 0 });
+    expect(receipts[1].lines[2].undone).toBe(true);
+    expect(receipts[1].no).toMatch(/^[0-9A-F]{6}$/);
+    expect(receipts[1].no).not.toBe(receipts[0].no);
+  });
+});
