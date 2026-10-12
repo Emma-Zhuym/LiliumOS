@@ -1986,7 +1986,7 @@ const TransactionsTab: React.FC<{
 }> = ({ transactions, excludedTransactions = [], accounts, categories, onRefresh, showFilters, setShowFilters }) => {
   const [showExcluded, setShowExcluded] = useState(false); // [EM: finance-manual-exclude]
   const { characters, apiConfig, userProfile } = useOS();
-  const [timeRange, setTimeRange] = useState<TimeRange>('all');
+  const [timeRange, setTimeRange] = useState<TimeRange>('month'); // 默认只看本月，全部太长
   const [filterAccountIds, setFilterAccountIds] = useState<Set<string>>(new Set());
   const [filterType, setFilterType] = useState<'all' | 'expense' | 'income'>('all');
   const [editingTx, setEditingTx] = useState<FinanceTransaction | 'new' | null>(null);
