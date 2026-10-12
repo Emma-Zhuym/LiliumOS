@@ -311,12 +311,13 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
         if (node === rig.freezerHinge) { toggleDoor('freezer'); return; }
         node = node.parent;
       }
-      // 点到冰箱里面（开着门时的内胆、层板）：按高度判断是哪一格，关上它
-      if (hit) {
-        const y = hit.point.y;
-        const zone: Zone = y >= FRIDGE.freezerDoor.y0 ? 'freezer' : 'fridge';
-        if (stateRef.current.open[zone] && Math.abs(hit.point.x) < FRIDGE.width / 2 + 0.2) toggleDoor(zone);
-      }
+      // 开着门时点空处（内胆、层板、墙）就关门：整屏时冰箱两边几乎没有空地，不能只认门外。
+      // 两扇都开着时按点的高度关那一格
+      const open = stateRef.current.open;
+      if (!open.fridge && !open.freezer) return;
+      const front = ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), new THREE.Vector3());
+      const byHeight: Zone = front && front.y >= FRIDGE.freezerDoor.y0 ? 'freezer' : 'fridge';
+      toggleDoor(open.fridge && open.freezer ? byHeight : open.fridge ? 'fridge' : 'freezer');
     };
     canvas.addEventListener('pointerdown', onDown);
     canvas.addEventListener('pointerup', onUp);
