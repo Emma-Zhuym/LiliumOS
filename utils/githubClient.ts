@@ -27,6 +27,8 @@ const DEFAULT_REPO = 'sully-backup';
 const TAG_PREFIX = 'sully-backup-';
 const TRANSACTIONAL_TAG_PREFIX = `${TAG_PREFIX}v2-`;
 const RELEASE_NAME_PREFIX = 'Sully Backup ';
+// [EM: github-401-hint]
+const GITHUB_TOKEN_FIX_HINT = '去 github.com/settings/tokens 重新生成一个（Expiration 选 No expiration，权限勾 repo），再到 设置 → 云端备份 → 修改配置 粘贴新的。';
 
 // 32 MB / 片。备份超过这个体积时会自动切成多个 asset 上传到同一个
 // release，恢复时再拼回来。
@@ -174,7 +176,8 @@ const describeGithubHttpError = async (stage: string, response: GhResponse): Pro
     } catch { /* response body is only diagnostic */ }
     detail = detail.replace(/\s+/g, ' ').trim().slice(0, 180);
 
-    if (response.status === 401) return new Error(`${stage}失败：GitHub Token 无效或已过期（HTTP 401）。`);
+    // [EM: github-401-hint] 401 几乎都是 token 到期（创建页默认 90 天）或被撤销，直接说怎么修
+    if (response.status === 401) return new Error(`${stage}失败：GitHub Token 过期或被撤销了（HTTP 401）。${GITHUB_TOKEN_FIX_HINT}`);
     if (response.status === 403) {
         if (response.headers['retry-after'] || response.headers['x-ratelimit-remaining'] === '0') {
             return new Error(`${stage}失败：GitHub 请求过于频繁，请稍后重试（HTTP 403）。`);
@@ -355,7 +358,7 @@ export const verifyToken = async (
             const data = await res.json();
             return { ok: true, login: data.login, message: '已连接 GitHub' };
         }
-        if (res.status === 401) return { ok: false, message: 'Token 无效或已过期' };
+        if (res.status === 401) return { ok: false, message: `Token 不能用：过期、被撤销或粘贴不完整。${GITHUB_TOKEN_FIX_HINT}` }; // [EM: github-401-hint]
         if (res.status === 403) return { ok: false, message: '权限不足，请确认 Token 勾选了 repo 范围' };
         return { ok: false, message: `GitHub 返回 ${res.status}` };
     } catch (e: any) {

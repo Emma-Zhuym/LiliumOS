@@ -251,6 +251,7 @@ check "自动备份 hook 挂在 OSContext" context/OSContext.tsx "[EM-START: aut
 check "自动备份静默打包" context/OSContext.tsx "opts?.silent ? () => {} : setSysOperationForExport"
 check "手动 / 自动备份分开清理" context/OSContext.tsx "pruneCloudBackups(await loadBackupProvider(), cloudBackupConfig)"
 check "设置页显示自动备份状态" apps/Settings.tsx "<CloudBackupAutoStatus config={cloudBackupConfig} />"
+check "GitHub 401 报错写明怎么修" utils/githubClient.ts "GITHUB_TOKEN_FIX_HINT"
 
 echo ""
 if [ $FAIL -gt 0 ]; then

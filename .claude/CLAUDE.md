@@ -287,6 +287,7 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - 缓存名带 `SW_VERSION`，activate 只清自己前缀的旧缓存；不碰 IndexedDB / localStorage
 - 自动备份：`utils/autoCloudBackup.ts` + `hooks/useAutoCloudBackup.ts`，OSContext 的 `[EM-START: auto-cloud-backup]` 挂 hook、`exportSystem(mode, { silent })` 静默打包。启动 / 回前台 30 秒后，超 24 小时没成功就备份纯文字，失败隔 1 小时再试，超 3 天一天提醒一次
 - 自动备份文件名带 `_auto_`，清理时与手动备份**分开数**（自动留 7、手动留 5），手动备份的清理也走 `pruneCloudBackups`，不要改回 `cleanupOldBackups`（那会让每天的自动备份挤掉手点的完整备份）
+- GitHub 备份 401 的报错直接写怎么修（`utils/githubClient.ts` 的 `GITHUB_TOKEN_FIX_HINT`，`[EM: github-401-hint]`）：token 创建页默认 90 天过期，阿萌踩过「老是 401」
 - 根目录 `manifest.json`（`start_url: "/"`）没有被引用；实际生效的是 `public/manifest.webmanifest`（`./` 相对路径，在 `/LiliumOS/` 下解析正确）
 
 ## 合并时常见坑（踩过的 bug）
