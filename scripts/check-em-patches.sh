@@ -244,6 +244,14 @@ check "SimpleFIN 金额调整过的预扣款" utils/simplefinSync.ts "[EM-START:
 check "账本手动不计入 / 已排除列表" apps/BankApp.tsx "[EM-START: finance-manual-exclude]"
 check "朋友圈评论带上私聊" apps/MomentsApp.tsx "runCharacterLook(char, items, readInter, characters, userName, api, recentChat)"
 
+echo "── 离线打开 + 自动备份 ──"
+check "SW 离线 app shell 接线" worker/sw-keep-alive.ts "[EM-START: sw-offline-shell]"
+check "SW 离线 app shell 已打包" public/sw-keep-alive.js "liliumos-shell-"
+check "自动备份 hook 挂在 OSContext" context/OSContext.tsx "[EM-START: auto-cloud-backup]"
+check "自动备份静默打包" context/OSContext.tsx "opts?.silent ? () => {} : setSysOperationForExport"
+check "手动 / 自动备份分开清理" context/OSContext.tsx "pruneCloudBackups(await loadBackupProvider(), cloudBackupConfig)"
+check "设置页显示自动备份状态" apps/Settings.tsx "<CloudBackupAutoStatus config={cloudBackupConfig} />"
+
 echo ""
 if [ $FAIL -gt 0 ]; then
     echo "🔴 $FAIL 项缺失（$PASS 项通过）——EM 功能被 merge 冲掉了，对照 .claude/CLAUDE.md 补回来"

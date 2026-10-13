@@ -107,6 +107,8 @@ import { applyLifeEpisode } from '../utils/emLife'; // [EM: agent-life]
 import { xhsActivitiesFromLife, xhsChatNote } from '../utils/emLifeXhs'; // [EM: heartbeat-xhs]
 import { ShoppingDB } from '../utils/shoppingDb'; // [EM: shopping-family]
 import { giftOrderFromLife } from '../utils/shoppingFamily'; // [EM: shopping-family]
+import { pruneCloudBackups } from '../utils/autoCloudBackup'; // [EM: auto-cloud-backup]
+import { useAutoCloudBackup } from '../hooks/useAutoCloudBackup'; // [EM: auto-cloud-backup]
 
 interface ProactiveQueueEntry {
   charId: string;
@@ -440,7 +442,7 @@ interface OSContextType {
   listCloudBackups: () => Promise<CloudBackupFile[]>;
 
   // System
-  exportSystem: (mode: 'text_only' | 'media_only' | 'full') => Promise<Blob>;
+  exportSystem: (mode: 'text_only' | 'media_only' | 'full', opts?: { silent?: boolean }) => Promise<Blob>; // [EM: auto-cloud-backup] silent
   importSystem: (fileOrJson: File | string) => Promise<void>; // Accept File or String
   resetSystem: () => Promise<void>;
   sysOperation: { status: 'idle' | 'processing', message: string, progress: number }; // Progress state
@@ -3123,7 +3125,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   };
 
   const cloudBackupToWebDAV = async (mode: 'text_only' | 'media_only' | 'full') => {
-      const { uploadBackup, cleanupOldBackups } = await loadBackupProvider();
+      const { uploadBackup } = await loadBackupProvider();
       try {
           setSysOperation({ status: 'processing', message: '正在打包备份数据...', progress: 0 });
           const blob = await exportSystem(mode);
@@ -3142,7 +3144,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           updateCloudBackupConfig({ lastBackupTime: Date.now(), lastBackupSize: blob.size });
 
           // Cleanup old backups (keep latest 5)
-          await cleanupOldBackups(cloudBackupConfig, 5).catch(() => {});
+          // [EM: auto-cloud-backup] 手动 / 自动分开数，自动备份不会挤掉手点的完整备份
+          await pruneCloudBackups(await loadBackupProvider(), cloudBackupConfig).catch(() => {});
 
           setSysOperation({ status: 'idle', message: '', progress: 100 });
           addToast('云端备份完成', 'success');
@@ -3895,7 +3898,11 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   };
 
   // --- MODIFIED EXPORT SYSTEM WITH SEPARATED ASSETS ZIP ---
-  const exportSystem = async (mode: 'text_only' | 'media_only' | 'full'): Promise<Blob> => {
+  // [EM-START: auto-cloud-backup] 自动备份静默打包：进度不推到设置页的遮罩上
+  const setSysOperationForExport = setSysOperation;
+  const exportSystem = async (mode: 'text_only' | 'media_only' | 'full', opts?: { silent?: boolean }): Promise<Blob> => {
+      const setSysOperation: typeof setSysOperationForExport = opts?.silent ? () => {} : setSysOperationForExport;
+  // [EM-END: auto-cloud-backup]
       try {
           setSysOperation({ status: 'processing', message: '正在初始化打包引擎...', progress: 0 });
           
@@ -5465,6 +5472,16 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           closeApp();
       }
   }, [activeApp, closeApp]);
+
+  // [EM-START: auto-cloud-backup] 启动 / 回前台超过 24 小时没成功备份就静默备份一次
+  useAutoCloudBackup({
+    config: cloudBackupConfig,
+    exportTextBackup: () => exportSystem('text_only', { silent: true }),
+    onSuccess: ({ at, size }) => updateCloudBackupConfig({ lastBackupTime: at, lastBackupSize: size }),
+    isBusy: () => sysOperation.status === 'processing',
+    notify: (message) => addToast(message, 'info'),
+  });
+  // [EM-END: auto-cloud-backup]
 
   const value: OSContextType = {
     activeApp,
