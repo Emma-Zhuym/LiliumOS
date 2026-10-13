@@ -86,17 +86,26 @@ const KitchenHistoryReceipts: React.FC<{ trips: ShoppingTrip[] }> = ({ trips }) 
       {going.map(trip => <li key={trip.start} className="kitchen-receipt"><Receipt trip={trip} /></li>)}
     </ol>}
     {done.length > 0 && <>
-      <p className="kitchen-receipts-label">吃完了</p>
+      <p className="kitchen-receipts-label"><span>吃完了的小票</span></p>
       <ol className="kitchen-receipts kitchen-receipts--done">
         {done.map(trip => {
           const expanded = openKeys.has(trip.start), date = new Date(trip.start);
-          return <li key={trip.start} className="kitchen-receipt">
-            <button type="button" className="kitchen-receipt-strip" aria-expanded={expanded} onClick={() => toggle(trip.start)}>
-              <strong>{trip.opening ? '开张' : '采购'}</strong>
-              <span>{md(trip.start)} {WEEKDAYS[date.getDay()]}</span>
-              <small>{trip.opening ? '买东西以前的零碎' : `${trip.bought.filter(line => !line.undone && !line.slow).length} 样都划掉了`}</small>
+          const eaten = trip.bought.filter(line => !line.undone && !line.slow), slow = trip.bought.filter(line => !line.undone && line.slow);
+          return <li key={trip.start} className={`kitchen-receipt${expanded ? ' is-open' : ''}`}>
+            {/* 折起来：一截撕下来的短小票——日期、一小段条形码，那次买的东西划掉了排一行，慢慢吃的淡淡跟在后面 */}
+            <button type="button" className="kitchen-receipt-stub" aria-expanded={expanded} onClick={() => toggle(trip.start)}
+              aria-label={`${md(trip.start)} ${trip.opening ? '开张' : '采购'}的小票，${expanded ? '收起' : '展开'}`}>
+              <span className="kitchen-receipt-stub-head">
+                <time dateTime={date.toISOString()}>{md(trip.start)}<small>{WEEKDAYS[date.getDay()]}</small></time>
+                {expanded ? <span className="kitchen-receipt-stub-fold">收起</span> : <Barcode code={trip.no} />}
+              </span>
+              {/* 展开时整张小票就在下面，票根只留日期和「收起」，不重复 */}
+              {!expanded && <span className="kitchen-receipt-stub-items">
+                {trip.opening && !eaten.length ? <em>买东西以前的零碎</em> : eaten.map(line => <s key={line.id}>{line.name}</s>)}
+                {slow.length > 0 && <em>· {slow.map(line => line.name).join('、')}慢慢吃</em>}
+              </span>}
             </button>
-            {expanded && <Receipt trip={trip} />}
+            {expanded ? <Receipt trip={trip} /> : <TornEdge />}
           </li>;
         })}
       </ol>
