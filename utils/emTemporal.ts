@@ -298,14 +298,55 @@ export const buildTemporalInjection = (userName: string, now = new Date()): stri
 // ── 同步状态 ────────────────────────────────────────────────────
 /** 「上次同步：刚刚 / 3 小时前 / 昨天」这一句。没同步过就说还没同步过。 */
 export const syncText = (sync: { lastAt?: string; lastError?: string | null } | undefined, now = Date.now()): string => {
-    if (!sync?.lastAt) return '还没同步过';
-    const at = Date.parse(sync.lastAt);
-    if (!Number.isFinite(at)) return '还没同步过';
+    // 后端同步成功会把 lastError 清掉，所以它还在就说明最近一次失败了。
+    // 以前只写「N 天前同步」，10-10 起连续两天 400 在界面上完全看不出来。
+    const failed = sync?.lastError ? `上次同步失败（${sync.lastError}）` : '';
+    const at = sync?.lastAt ? Date.parse(sync.lastAt) : NaN;
+    if (!Number.isFinite(at)) return failed || '还没同步过';
     const minutes = Math.floor((now - at) / 60_000);
-    if (minutes < 2) return '刚刚同步过';
-    if (minutes < 60) return `${minutes} 分钟前同步`;
     const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours} 小时前同步`;
-    return `${Math.floor(hours / 24)} 天前同步`;
+    const when = minutes < 2 ? '刚刚'
+        : minutes < 60 ? `${minutes} 分钟前`
+        : hours < 24 ? `${hours} 小时前`
+        : `${Math.floor(hours / 24)} 天前`;
+    if (failed) return `${failed} · ${when}成功过`;
+    return minutes < 2 ? '刚刚同步过' : `${when}同步`;
+};
+
+/**
+ * 「立刻同步」只是给 mini 排一条任务，真跑完要十来秒（EventKit 慢）。
+ * 每隔一会儿读一次 GET /temporal，等后端记下的成功或失败时间晚于点按钮的那一刻再返回；
+ * 等不到（mini 睡了 / 任务还在排队）就返回 null，让调用方说一声。
+ * `startedAt` 往前放 10 秒，抵掉手机和 mini 之间的一点时钟差。
+ */
+export const waitForTemporalSync = async (
+    startedAt: number,
+    {
+        timeoutMs = 90_000,
+        intervalMs = 3_000,
+        fetchSnapshot = () => AgentBackend.temporal(),
+        sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)),
+        clock = () => Date.now(),
+    }: {
+        timeoutMs?: number;
+        intervalMs?: number;
+        fetchSnapshot?: () => Promise<TemporalSnapshot>;
+        sleep?: (ms: number) => Promise<void>;
+        clock?: () => number;
+    } = {},
+): Promise<TemporalSnapshot | null> => {
+    const since = startedAt - 10_000;
+    const after = (value?: string) => (value ? Date.parse(value) >= since : false);
+    while (clock() - startedAt < timeoutMs) {
+        await sleep(intervalMs);
+        try {
+            const snapshot = await fetchSnapshot();
+            const { lastAt, lastError, lastErrorAt } = snapshot.sync ?? {};
+            if ((after(lastAt) && !lastError) || (lastError && after(lastErrorAt))) return snapshot;
+        } catch {
+            // 读一次失败不算数，下一轮再试；整体超时才放弃
+        }
+    }
+    return null;
 };
 // [EM-END: calendar-temporal]
