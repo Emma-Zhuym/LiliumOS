@@ -1562,7 +1562,7 @@ export const createHeartbeatHandler = ({
     // 新约的事：落成一条带时间的 thread，之后每跳都记得，到点那一跳去做。
     if (life?.plan?.dueAt) {
         applyThread(db, character.charId, {
-            title: life.plan.what, summary: `约在${life.plan.at}`, status: 'open', dueAt: life.plan.dueAt,
+            title: life.plan.what, summary: `约在${life.plan.at}`, status: 'open', dueAt: life.plan.dueAt, timeZone: timezone,
         }, startedAt);
     }
     // 逛小红书时想点赞 / 收藏的，真的去做（影子期不做：上面已经返回了）。

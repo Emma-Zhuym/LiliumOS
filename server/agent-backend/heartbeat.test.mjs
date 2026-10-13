@@ -20,7 +20,7 @@ import {
     MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, withPlanTime, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule, unansweredProactive, lastUserSpokeAt, unansweredFactor, reachOutTimeRule, recentOwnMessages, fillMomentComments, DUTY_RULE, PHOTO_HOW, previewWithoutPhotoTags,
 } from './heartbeat.mjs';
 import { chatCompletionsUrl, createApiRunner, extractContentText, parseEpisode, parseHeartbeatOutput, parseLife } from './runner.mjs';
-import { applyThread, closePassedPlans, closeStaleThreads, isPlanDue, listOpenThreads, listPlans } from './lifeThreads.mjs';
+import { applyThread, closePassedPlans, closeStaleThreads, isPlanDue, isPlanThread, listOpenThreads, listPlans } from './lifeThreads.mjs';
 import { feedResult } from './xhsFeed.fixture.mjs';
 import { formatMomentsForPrompt, markMomentsSeen, parseMomentReactions, resolveMomentReactions, unseenMoments } from './moments.mjs';
 
@@ -324,6 +324,41 @@ test('模型输出：掉格式也能解析出来', () => {
     // action=message 但没正文，按解析失败处理，宁可不说话。
     assert.equal(parseHeartbeatOutput('{"action":"message","text":"  "}').ok, false);
     assert.equal(parseHeartbeatOutput('我今天不想说话').ok, false);
+});
+
+test('模型输出：strict schema 被代理忽略、只漏 action 时按正文安全推断', () => {
+    const living = parseHeartbeatOutput(JSON.stringify({
+        activity: '收拾厨房',
+        reason: '做完手头的事',
+        urge: 'later',
+        life: { kind: 'chat', with: '老徐', lines: [{ who: '老徐', text: '周末打球？' }] },
+    }));
+    assert.equal(living.ok, true);
+    assert.equal(living.output.action, 'noop');
+    assert.equal(living.output.life.with, '老徐');
+
+    const speaking = parseHeartbeatOutput(JSON.stringify({ activity: '想她', reason: '很久没说话', text: '睡了吗？' }));
+    assert.equal(speaking.ok, true);
+    assert.equal(speaking.output.action, 'message');
+    assert.equal(speaking.output.text, '睡了吗？');
+
+    assert.equal(parseHeartbeatOutput('{"unrelated":true}').ok, false, '任意 JSON 不能冒充心跳');
+    assert.equal(parseHeartbeatOutput('{"action":"sleep","activity":"休息"}').ok, false, '明确写错的 action 不猜');
+});
+
+test('模型输出：供应商拒绝扮演时单独报清原因，不冒充普通 JSON 损坏', () => {
+    const english = parseHeartbeatOutput("I'm Kiro. I can't roleplay as this character or pretend to be in a relationship.");
+    assert.equal(english.ok, false);
+    assert.match(english.error, /拒绝执行角色心跳/);
+
+    const chinese = parseHeartbeatOutput('我不能扮演这个角色，也无法进行角色扮演。');
+    assert.equal(chinese.ok, false);
+    assert.match(chinese.error, /拒绝执行角色心跳/);
+
+    assert.equal(
+        parseHeartbeatOutput('普通的非 JSON 说明文字').error,
+        '模型输出解析不出合法的心跳结果',
+    );
 });
 
 test('API 运行器：没配凭据就明说，不会去调别的大脑', async () => {
@@ -1232,6 +1267,40 @@ test('迁移 9：旧 thread 的 due_at 是 NULL，行为不变；约定和正在
     const miss = applyThread(db, CHAR, { id: plan.id.slice(0, 8), title: '新工作', summary: '', status: 'open' }, AT);
     assert.notEqual(miss.id, plan.id);
     assert.equal(miss.dueAt, null);
+});
+
+test('约定去重：同一件事同一天只更新一条，不同日期仍是两件事', () => {
+    const db = freshDb();
+    seedCharacter(db);
+    const first = applyThread(db, CHAR, {
+        title: '和周鹏、老徐打球', summary: '第一次说', dueAt: '2026-10-17T18:00:00.000Z', timeZone: 'America/Chicago',
+    }, AT);
+    const repeated = applyThread(db, CHAR, {
+        title: ' 和周鹏 老徐打球 ', summary: '后来确认两点', dueAt: '2026-10-17T19:00:00.000Z', timeZone: 'America/Chicago',
+    }, new Date(AT.getTime() + 60_000));
+    assert.equal(repeated.id, first.id);
+    assert.equal(repeated.summary, '后来确认两点');
+    assert.equal(repeated.dueAt, '2026-10-17T19:00:00.000Z');
+    assert.equal(listOpenThreads(db, CHAR).filter(isPlanThread).length, 1);
+
+    const tomorrow = applyThread(db, CHAR, {
+        title: '和周鹏老徐打球', dueAt: '2026-10-18T19:00:00.000Z', timeZone: 'America/Chicago',
+    }, new Date(AT.getTime() + 120_000));
+    assert.notEqual(tomorrow.id, first.id);
+    assert.equal(listOpenThreads(db, CHAR).filter(isPlanThread).length, 2);
+});
+
+test('约定去重：历史里完全相同的行在提示词和日历接口只出现一次', () => {
+    const db = freshDb();
+    seedCharacter(db);
+    const dueAt = '2026-09-26T20:00:00.000Z';
+    applyThread(db, CHAR, { title: '和林越去看展', dueAt }, AT);
+    db.prepare(
+        `INSERT INTO life_threads (id, char_id, title, summary, status, created_at, updated_at, due_at)
+         VALUES ('duplicate-plan', ?, '和林越去看展', '', 'open', ?, ?, ?)`,
+    ).run(CHAR, AT.toISOString(), new Date(AT.getTime() + 1000).toISOString(), dueAt);
+    assert.equal(listOpenThreads(db, CHAR).filter(isPlanThread).length, 1);
+    assert.equal(listPlans(db, { now: AT }).filter(plan => plan.title === '和林越去看展').length, 1);
 });
 
 test('约定窗口：前后 45 分钟内算到点，过了窗口还开着的静默收掉', () => {
