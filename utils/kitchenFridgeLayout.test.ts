@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { KitchenEvent, KitchenFood, KitchenLot, KitchenShoppingItem } from './kitchenDb';
 import { eggVisibleCount, fridgeLayout, LOOK_SIZE } from './kitchenFridgeLayout';
 import { FRIDGE, SHELF_WIDTH } from './kitchenFridgeSpec';
-import { heatList, kitchenLookFor, lastedText, shoppingPaper, shoppingSuggestions, latestReceipt, pantryList, produceTint, shoppingTrips, stickyReminders, tapeLabel } from './kitchenAppearance';
+import { heatList, isLongKeeping, kitchenLookFor, lastedText, shoppingPaper, shoppingSuggestions, latestReceipt, pantryList, produceTint, shoppingTrips, stickyReminders, tapeLabel } from './kitchenAppearance';
 
 const lot = (index: number, extra: Partial<KitchenLot> = {}): KitchenLot => ({
   id: `lot-${index}`, foodId: `food-${index}`, createdAt: index, updatedAt: index,
@@ -214,6 +214,28 @@ describe('操作记录：一次采购一张小票', () => {
     expect(trip.bought.map(l => l.gone)).toEqual(['吃完', '丢了', undefined]);
     expect(latestReceipt(events, foods, lots)!.items.map(it => it.gone)).toEqual(['当天吃完', '1 天丢了', undefined]);
     expect([lastedText(0, 13 * 86_400_000), lastedText(0, 20 * 86_400_000), lastedText(0, 95 * 86_400_000)]).toEqual(['13 天', '3 周', '3 个月']);
+  });
+  it('耐放的放在慢慢吃：不算进吃到哪了，番茄酱不让小票一直挂着', () => {
+    const day = 86_400_000;
+    const lots = [
+      lot(0, { quantity: 0 }),                                                        // 牛奶：吃完了
+      lot(1, { quantity: 1, expiresAt: new Date(t0 + 120 * day).toISOString().slice(0, 10) }),  // 番茄酱：保质期四个月
+      lot(2, { quantity: 1 }),                                                        // 酱油：没填保质期，按名字认
+      lot(3, { quantity: 1, storageZone: 'pantry' }),                                 // 薯片：放常温柜
+      lot(4, { quantity: 0, expiresAt: new Date(t0 + 7 * day).toISOString().slice(0, 10) }),    // 酸奶：一周，吃完了
+    ];
+    const names = ['牛奶', '番茄酱', '酱油', '薯片', '酸奶'].map((name, i) => food(i, name));
+    const events = [0, 1, 2, 3, 4].map(i => ev(i, 'ADD', t0 + i * 60_000))
+      .concat([ev(5, 'CONSUME', t0 + day, { lotId: 'lot-0', foodId: 'food-0' }), ev(6, 'CONSUME', t0 + 2 * day, { lotId: 'lot-4', foodId: 'food-4' })]);
+    const [trip] = shoppingTrips(events, names, lots);
+    expect(trip.bought.map(l => `${l.name}${l.slow ? '·慢' : ''}`)).toEqual(['牛奶', '番茄酱·慢', '酱油·慢', '薯片·慢', '酸奶']);
+    expect(trip.finished).toBe(true);
+    // 牛奶还没吃完：没划完
+    const [open] = shoppingTrips(events.slice(0, 5), names, [{ ...lots[0], quantity: 1 }, ...lots.slice(1)]);
+    expect(open.finished).toBe(false);
+    // 门上：要吃掉的在前，耐放的在后
+    expect(latestReceipt(events, names, lots)!.items.map(it => `${it.name}${it.slow ? '·慢' : ''}`)).toEqual(['牛奶', '酸奶', '番茄酱·慢', '酱油·慢', '薯片·慢']);
+    expect(isLongKeeping('番茄炖牛腩', { storageZone: 'fridge' }, t0)).toBe(false);
   });
   it('第一次买东西之前的零碎记在开张那张；撤销掉的买入不单开一张', () => {
     const trips = shoppingTrips([

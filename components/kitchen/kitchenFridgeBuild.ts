@@ -462,9 +462,12 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
       makePaper('sticky', 2.6, 2.6, 16, 16, sticky, [2.05, 2.6], -0.05, 0.22, 0.02, 0.18, reminders, { top: 90, height: 116, texH: 512 });
     }
     if (receipt && receipt.items.length) {
-      const rows = receipt.items.length;
-      const ph = Math.min(6.2, 2.7 + rows * 0.42);
-      const texH = Math.round(ph / 1.7 * 320);
+      // 要吃掉的在前；耐放的在「慢慢吃」那段，字小一号、淡一点（看划掉多少决定什么时候再去买菜，它们不算）
+      const slowAt = receipt.items.findIndex(it => it.slow);
+      const rows = receipt.items.length + (slowAt >= 0 ? 1 : 0);
+      // 纸长跟着内容走（以前按固定公式，底下空一大截）
+      const texH = Math.min(Math.round(6.2 / 1.7 * 320), 218 + rows * 44 + 96);
+      const ph = texH / 320 * 1.7;
       const date = new Date(receipt.day);
       const paperTex = ctex(320, texH, (x, w, h) => {
         x.clearRect(0, 0, w, h);
@@ -479,21 +482,25 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
         print('小厨房 · 采购', w / 2, 112, 30, 500, 'center');
         print(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`, w / 2, 148, 20, 400, 'center', 0.7);
         dash(172);
+        if (slowAt >= 0) {
+          const y = 218 + slowAt * 44;
+          dash(y - 26); print('慢 慢 吃', w / 2, y + 4, 18, 400, 'center', 0.55);
+        }
         receipt.items.forEach((it, i) => {
-          let name = it.name; x.font = `400 24px ${SANS}`;
+          const size = it.slow ? 21 : 24, faint = it.slow ? 0.6 : 1;
+          let name = it.name; x.font = `400 ${size}px ${SANS}`;
           while (x.measureText(name).width > w - 140 && name.length > 1) name = name.slice(0, -1);
-          const text = name === it.name ? name : `${name}…`, y = 218 + i * 44;
-          if (!it.gone) { print(text, 26, y); print(it.amount, w - 26, y, 22, 400, 'right'); return; }
+          const text = name === it.name ? name : `${name}…`, y = 218 + (slowAt >= 0 && i >= slowAt ? i + 1 : i) * 44;
+          if (!it.gone) { print(text, 26, y, size, 400, 'left', 0.86 * faint); print(it.amount, w - 26, y, size - 2, 400, 'right', 0.86 * faint); return; }
           // 吃完 / 丢了：字淡下去，手写一道线划掉，右边手写「3 天吃完」
-          print(text, 26, y, 24, 400, 'left', 0.42);
-          x.font = `400 24px ${SANS}`; const tw = x.measureText(text).width;
+          print(text, 26, y, size, 400, 'left', 0.42);
+          x.font = `400 ${size}px ${SANS}`; const tw = x.measureText(text).width;
           x.strokeStyle = '#2e4a5e'; x.lineWidth = 2.6; x.lineCap = 'round'; x.globalAlpha = 0.9;
           x.beginPath(); x.moveTo(20, y - 8 + cr() * 2); x.quadraticCurveTo(26 + tw / 2, y - 12 + cr() * 4, 32 + tw, y - 8 + cr() * 2); x.stroke();
           x.globalAlpha = 1; x.font = `26px ${HAND_FONT}`; x.fillStyle = it.gone.endsWith('丢了') ? '#8f7a68' : '#2e4a5e'; x.textAlign = 'right';
           x.fillText(it.gone, w - 26, y + 2); x.textAlign = 'left';
         });
         dash(218 + rows * 44 - 12);
-        print(`共 ${rows} 样`, 26, 218 + rows * 44 + 30, 24, 500);
         print('放好了', w / 2, h - 50, 20, 400, 'center', 0.65);
         x.restore();
       });

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { goneText, type ShoppingTrip, type TripLine } from '../../utils/kitchenAppearance';
 
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
@@ -32,39 +32,76 @@ const Line: React.FC<{ line: TripLine; when?: string }> = ({ line, when }) => <l
   <span className="kitchen-receipt-amount">{line.gone ? goneText(line) : line.amount}</span>
 </li>;
 
-/** 一次采购一张：上半截买回来的，撕痕下面是到下一次采购之前用掉的 */
-const KitchenHistoryReceipts: React.FC<{ trips: ShoppingTrip[] }> = ({ trips }) => <ol className="kitchen-receipts">
-  {trips.map(trip => {
-    const date = new Date(trip.start);
-    // 后半截跨好几天：换了一天才写日期
-    let lastDay = '';
-    return <li key={trip.start} className="kitchen-receipt">
-      <div className="kitchen-receipt-paper">
-        <header className="kitchen-receipt-head">
-          <span><strong>{trip.opening ? '小厨房 · 开张' : '小厨房 · 采购'}</strong><small>NO. {trip.no}</small></span>
-          <time dateTime={date.toISOString()}>{md(trip.start)}<small>{WEEKDAYS[date.getDay()]} {hm(trip.start)}</small></time>
-        </header>
-        {trip.bought.length > 0 && <ul className="kitchen-receipt-lines">
-          {trip.bought.map(line => <Line key={line.id} line={line} />)}
-        </ul>}
-        {trip.after.length > 0 && <>
-          {trip.bought.length > 0 && <p className="kitchen-receipt-section">之 后</p>}
-          <ul className="kitchen-receipt-lines kitchen-receipt-lines--after">
-            {trip.after.map(line => {
-              const day = md(line.at), when = day === lastDay ? hm(line.at) : `${day} ${hm(line.at)}`;
-              lastDay = day;
-              return <Line key={line.id} line={line} when={when} />;
-            })}
-          </ul>
-        </>}
-        <footer className="kitchen-receipt-foot">
-          <Barcode code={trip.no} />
-        </footer>
-        <p className="kitchen-receipt-tear">— — 沿 此 撕 下 — —</p>
-      </div>
-      <TornEdge />
-    </li>;
-  })}
-</ol>;
+/** 一张完整的小票：买回来的（要吃掉的在前、耐放的在「慢慢吃」那段），撕痕下面是到下一次采购之前用掉的 */
+const Receipt: React.FC<{ trip: ShoppingTrip }> = ({ trip }) => {
+  const date = new Date(trip.start);
+  const eat = trip.bought.filter(line => !line.slow), slow = trip.bought.filter(line => line.slow);
+  // 后半截跨好几天：换了一天才写日期
+  let lastDay = '';
+  return <>
+    <div className="kitchen-receipt-paper">
+      <header className="kitchen-receipt-head">
+        <span><strong>{trip.opening ? '小厨房 · 开张' : '小厨房 · 采购'}</strong><small>NO. {trip.no}</small></span>
+        <time dateTime={date.toISOString()}>{md(trip.start)}<small>{WEEKDAYS[date.getDay()]} {hm(trip.start)}</small></time>
+      </header>
+      {eat.length > 0 && <ul className="kitchen-receipt-lines">
+        {eat.map(line => <Line key={line.id} line={line} />)}
+      </ul>}
+      {slow.length > 0 && <>
+        <p className="kitchen-receipt-section">慢 慢 吃</p>
+        <ul className="kitchen-receipt-lines kitchen-receipt-lines--slow">
+          {slow.map(line => <Line key={line.id} line={line} />)}
+        </ul>
+      </>}
+      {trip.after.length > 0 && <>
+        {trip.bought.length > 0 && <p className="kitchen-receipt-section">之 后</p>}
+        <ul className="kitchen-receipt-lines kitchen-receipt-lines--after">
+          {trip.after.map(line => {
+            const day = md(line.at), when = day === lastDay ? hm(line.at) : `${day} ${hm(line.at)}`;
+            lastDay = day;
+            return <Line key={line.id} line={line} when={when} />;
+          })}
+        </ul>
+      </>}
+      <footer className="kitchen-receipt-foot">
+        <Barcode code={trip.no} />
+      </footer>
+      <p className="kitchen-receipt-tear">— — 沿 此 撕 下 — —</p>
+    </div>
+    <TornEdge />
+  </>;
+};
+
+/**
+ * 小票分两块（阿萌 2026-10-13：看划掉多少决定什么时候再去买菜）：
+ * 还没吃完的整张展开，新的在上；要吃掉的都划掉了的折成一条窄纸条放在下面，点开再看整张。
+ * 耐放的（慢慢吃）不算，番茄酱不会让旧小票一直挂在上面。
+ */
+const KitchenHistoryReceipts: React.FC<{ trips: ShoppingTrip[] }> = ({ trips }) => {
+  const [openKeys, setOpenKeys] = useState<Set<number>>(() => new Set());
+  const going = trips.filter(trip => !trip.finished), done = trips.filter(trip => trip.finished);
+  const toggle = (key: number) => setOpenKeys(keys => { const next = new Set(keys); if (next.has(key)) next.delete(key); else next.add(key); return next; });
+  return <>
+    {going.length > 0 && <ol className="kitchen-receipts">
+      {going.map(trip => <li key={trip.start} className="kitchen-receipt"><Receipt trip={trip} /></li>)}
+    </ol>}
+    {done.length > 0 && <>
+      <p className="kitchen-receipts-label">吃完了</p>
+      <ol className="kitchen-receipts kitchen-receipts--done">
+        {done.map(trip => {
+          const expanded = openKeys.has(trip.start), date = new Date(trip.start);
+          return <li key={trip.start} className="kitchen-receipt">
+            <button type="button" className="kitchen-receipt-strip" aria-expanded={expanded} onClick={() => toggle(trip.start)}>
+              <strong>{trip.opening ? '开张' : '采购'}</strong>
+              <span>{md(trip.start)} {WEEKDAYS[date.getDay()]}</span>
+              <small>{trip.opening ? '买东西以前的零碎' : `${trip.bought.filter(line => !line.undone && !line.slow).length} 样都划掉了`}</small>
+            </button>
+            {expanded && <Receipt trip={trip} />}
+          </li>;
+        })}
+      </ol>
+    </>}
+  </>;
+};
 
 export default KitchenHistoryReceipts;

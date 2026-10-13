@@ -114,7 +114,24 @@ export interface TripLine {
   gone?: GoneLabel;
   /** 从买回来到吃完 / 丢掉用了多久（「3 天」「2 周」「3 个月」）：看自己吃得多快 */
   lasted?: string;
+  /** 耐放的（番茄酱、米面油）：小票上放在「慢慢吃」那段，不算进这次吃到哪了 */
+  slow?: boolean;
 }
+
+/**
+ * 耐放：阿萌用小票划掉多少来决定什么时候再去买菜（2026-10-13），番茄酱这种要吃几个月的
+ * 不能让小票一直挂着「没吃完」。看保质期：买回来时能放 30 天以上就算；没填保质期按名字认，
+ * 放常温柜的也算。跟放在哪无关——番茄酱照样在冷藏室。
+ */
+const LONG_KEEPING = /酱|调料|调味|香料|蜂蜜|醋|盐|糖|食用油|橄榄油|菜籽油|花生油|芝麻油|香油|蚝油|黄油|大米|糙米|小米|糯米|面粉|挂面|意面|意大利面|罐头|咖啡豆|茶叶|干货|\b(ketchup|mustard|mayo|sauce|vinegar|honey|oil|rice|flour|pasta|spices?|canned)\b/i;
+export const SLOW_DAYS = 30;
+export const isLongKeeping = (name: string, lot: Pick<KitchenLot, 'expiresAt' | 'storageZone'> | undefined, boughtAt: number): boolean => {
+  if (lot?.expiresAt) {
+    const expiry = new Date(`${lot.expiresAt.slice(0, 10)}T12:00:00`).getTime();
+    if (Number.isFinite(expiry)) return expiry - boughtAt >= SLOW_DAYS * DAY;
+  }
+  return lot?.storageZone === 'pantry' || LONG_KEEPING.test(name);
+};
 export type GoneLabel = '吃完' | '丢了';
 
 /** 用了多久：两周内按天，两个月内按周，再久按月 */
@@ -145,6 +162,8 @@ export interface ShoppingTrip {
   opening: boolean;
   bought: TripLine[];
   after: TripLine[];
+  /** 要吃掉的那些（不算耐放的、撤销的）全划掉了：记录页折起来 */
+  finished: boolean;
 }
 
 const TRIP_VERBS: Record<KitchenEvent['type'], string> = { ADD: '放进', CONSUME: '吃掉', DISCARD: '丢掉', ADJUST: '核对', UNDO: '撤销' };
@@ -157,7 +176,7 @@ export function shoppingTrips(events: KitchenEvent[], foods: KitchenFood[], lots
   const sorted = events.filter(event => event.type !== 'UNDO' && hasKitchenEventChange(event))
     .sort((a, b) => a.occurredAt - b.occurredAt || a.id.localeCompare(b.id));
   const open = (start: number, opening: boolean) => {
-    const trip = { start, opening, lastBuy: start, bought: [], after: [],
+    const trip = { start, opening, lastBuy: start, bought: [], after: [], finished: false,
       no: ((Math.floor(start / 60_000) * 2654435761) >>> 0).toString(16).toUpperCase().padStart(8, '0').slice(-6) };
     trips.push(trip);
     return trip;
@@ -179,16 +198,20 @@ export function shoppingTrips(events: KitchenEvent[], foods: KitchenFood[], lots
     if (buying && (sameTrip || trip.bought.length === 0 && !trip.opening)) {
       const gone = line.undone ? undefined : goneFor(event.lotId, lotById, events);
       if (gone) { line.gone = gone.label; line.lasted = lastedText(event.occurredAt, gone.at); }
+      if (isLongKeeping(name, lotById.get(event.lotId), event.occurredAt)) line.slow = true;
       trip.bought.push(line);
       if (!event.undoneAt) trip.lastBuy = event.occurredAt;
     } else {
       trip.after.push(line);
     }
   }
-  return trips.reverse().map(({ lastBuy: _lastBuy, ...trip }) => trip);
+  // 要吃掉的都划了才算吃完；一样要吃掉的都没有（只买了酱料、开张那张）也算
+  return trips.reverse().map(({ lastBuy: _lastBuy, ...trip }) => ({
+    ...trip, finished: trip.bought.every(line => line.undone || line.slow || !!line.gone),
+  }));
 }
 
-export interface DoorReceipt { day: number; items: { name: string; amount: string; lotId: string; gone?: string }[] }
+export interface DoorReceipt { day: number; items: { name: string; amount: string; lotId: string; gone?: string; slow?: boolean }[] }
 
 /**
  * 门上的小票：最近一次采购买回来的几样（跟操作记录里最上面那张是同一次，见 kitchenTrips）。撤销掉的不算。
@@ -197,7 +220,11 @@ export interface DoorReceipt { day: number; items: { name: string; amount: strin
 export function latestReceipt(events: KitchenEvent[], foods: KitchenFood[], lots: KitchenLot[] = [], limit = 8): DoorReceipt | null {
   const trip = shoppingTrips(events, foods, lots).find(item => !item.opening);
   if (!trip) return null;
-  const items = trip.bought.filter(line => !line.undone).map(line => ({ name: line.name, amount: line.amount, lotId: line.lotId, ...(line.gone ? { gone: goneText(line) } : {}) }));
+  // 要吃掉的在前，耐放的排在后面「慢慢吃」那段
+  const lines = trip.bought.filter(line => !line.undone);
+  const items = [...lines.filter(line => !line.slow), ...lines.filter(line => line.slow)].map(line => ({
+    name: line.name, amount: line.amount, lotId: line.lotId, ...(line.gone ? { gone: goneText(line) } : {}), ...(line.slow ? { slow: true } : {}),
+  }));
   return items.length ? { day: trip.start, items: items.slice(0, limit) } : null;
 }
 

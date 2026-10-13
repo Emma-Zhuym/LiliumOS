@@ -372,6 +372,14 @@ p.kitchen-note { margin: 0; padding: 0; border: 0; background: transparent; colo
 .kitchen-receipt-lines > li.is-undone > .kitchen-receipt-name { color: var(--k-faint); text-decoration: line-through; }
 .kitchen-receipt-lines > li.is-gone .kitchen-receipt-name > span { color: var(--k-muted); text-decoration: line-through; text-decoration-color: var(--k-blue-ink); text-decoration-thickness: 2px; }
 .kitchen-receipt-lines > li.is-gone > .kitchen-receipt-amount { color: var(--k-blue-ink); font-family: inherit; font-size: 12px; }
+.kitchen-receipt-lines--slow > li { font-size: 13px; color: var(--k-muted); }
+.kitchen-receipts-label { margin: 8px 0 10px; color: var(--k-muted); font-size: 12px; letter-spacing: .2em; }
+.kitchen-receipts--done { gap: 8px; }
+.kitchen-receipt-strip { display: grid; grid-template-columns: auto auto 1fr; align-items: baseline; gap: 12px; width: 100%; min-height: 48px; padding: 12px 20px; border: 0; background-color: var(--k-surface); background-image: var(--k-texture); color: var(--k-ink); text-align: left; }
+.kitchen-receipt-strip > strong { font-family: var(--k-heading); font-size: 15px; font-weight: 600; }
+.kitchen-receipt-strip > span { font-family: var(--k-mono); font-size: 13px; font-variant-numeric: tabular-nums; }
+.kitchen-receipt-strip > small { justify-self: end; color: var(--k-muted); font-size: 12px; }
+.kitchen-receipt-strip[aria-expanded="true"] { border-bottom: 1px dashed var(--k-faint); }
 .kitchen-receipt-foot { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; padding-top: 14px; }
 .kitchen-receipt-foot > span { color: var(--k-muted); font-family: var(--k-mono); font-size: 11px; letter-spacing: .04em; text-align: right; }
 .kitchen-receipt-barcode { flex-shrink: 0; width: 96px; height: 32px; fill: var(--k-ink); }
