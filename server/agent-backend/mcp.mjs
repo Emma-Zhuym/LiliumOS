@@ -61,7 +61,11 @@ export const createMcpClient = ({ url, token, fetchImpl = fetch, timeoutMs = 25_
             const newSession = response.headers.get('mcp-session-id');
             if (newSession) sessionId = newSession;
             if (!response.ok) {
-                throw new Error(`MCP HTTP ${response.status}`);
+                const error = new Error(`MCP HTTP ${response.status}`);
+                // 桥接会回收闲置会话，之后拿旧 Mcp-Session-Id 来调就是 400 / 404。
+                error.sessionGone = Boolean(sessionId) && method !== 'initialize'
+                    && (response.status === 400 || response.status === 404);
+                throw error;
             }
             if (notification) return null;
             const parsed = await readRpcResult(response);
@@ -92,16 +96,29 @@ export const createMcpClient = ({ url, token, fetchImpl = fetch, timeoutMs = 25_
         return ready;
     };
 
+    // 会话被服务端收走（闲置回收 / 服务重启）后，只握手一次就永远拿旧号去调，
+    // 2026-10-10 起日历同步整整两天全是 400。丢掉旧会话重新握手，再试一次。
+    const withSession = async run => {
+        await ensureReady();
+        try {
+            return await run();
+        } catch (error) {
+            if (!error?.sessionGone) throw error;
+            sessionId = null;
+            ready = null;
+            await ensureReady();
+            return run();
+        }
+    };
+
     return {
         async listTools() {
-            await ensureReady();
-            const result = await call('tools/list', {});
+            const result = await withSession(() => call('tools/list', {}));
             return result?.tools ?? [];
         },
         /** `timeoutMs` 单独放宽某一次调用：列日历（calendar_calendars）要二十多秒，默认那档等不到。 */
         async callTool(name, args, { timeoutMs: callTimeoutMs } = {}) {
-            await ensureReady();
-            return call('tools/call', { name, arguments: args ?? {} }, callTimeoutMs ? { timeoutMs: callTimeoutMs } : {});
+            return withSession(() => call('tools/call', { name, arguments: args ?? {} }, callTimeoutMs ? { timeoutMs: callTimeoutMs } : {}));
         },
         get sessionId() { return sessionId; },
     };

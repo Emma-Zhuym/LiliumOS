@@ -228,6 +228,48 @@ test('MCP 客户端：握手一次，之后直接调工具', async () => {
     assert.equal(client.sessionId, 'sess-1');
 });
 
+test('MCP 客户端：会话被服务端收走后重新握手再调一次', async () => {
+    const calls = [];
+    let live = 'sess-1';
+    let issued = 0;
+    const fetchImpl = async (url, init) => {
+        const body = JSON.parse(init.body);
+        const sent = init.headers['Mcp-Session-Id'];
+        calls.push(`${body.method}@${sent || '-'}`);
+        if (body.method === 'initialize') {
+            live = `sess-${++issued}`;
+            return Response.json({ jsonrpc: '2.0', id: body.id, result: {} }, { headers: { 'mcp-session-id': live } });
+        }
+        if (sent !== live) return Response.json({ error: 'Missing or unknown Mcp-Session-Id' }, { status: 400 });
+        if (!body.id) return new Response(null, { status: 202 });
+        return Response.json({ jsonrpc: '2.0', id: body.id, result: { content: [{ type: 'text', text: 'ok' }] } });
+    };
+    const client = createMcpClient({ url: 'http://x/mcp', fetchImpl });
+    await client.callTool('calendar_events', {});
+    live = 'reaped';                        // 桥接把闲置会话收走了
+    assert.equal(flattenContent(await client.callTool('calendar_events', {})), 'ok');
+    assert.deepEqual(calls, [
+        'initialize@-', 'notifications/initialized@sess-1', 'tools/call@sess-1',
+        'tools/call@sess-1', 'initialize@-', 'notifications/initialized@sess-2', 'tools/call@sess-2',
+    ]);
+});
+
+test('MCP 客户端：真正的 400 不会无限重试', async () => {
+    let initCount = 0;
+    const fetchImpl = async (url, init) => {
+        const body = JSON.parse(init.body);
+        if (body.method === 'initialize') {
+            initCount++;
+            return Response.json({ jsonrpc: '2.0', id: body.id, result: {} }, { headers: { 'mcp-session-id': 's' } });
+        }
+        if (!body.id) return new Response(null, { status: 202 });
+        return Response.json({ error: 'bad' }, { status: 400 });
+    };
+    const client = createMcpClient({ url: 'http://x/mcp', fetchImpl });
+    await assert.rejects(client.callTool('t', {}), /MCP HTTP 400/);
+    assert.equal(initCount, 2);
+});
+
 test('MCP 客户端：SSE 响应也能读出结果', async () => {
     const fetchImpl = async (url, init) => {
         const body = JSON.parse(init.body);
