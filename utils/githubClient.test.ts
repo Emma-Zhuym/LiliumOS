@@ -265,6 +265,20 @@ describe('GitHub 备份列表完整性', () => {
 
         await expect(listBackups(config)).rejects.toThrow('请求过于频繁');
     });
+
+    // [EM: github-401-hint]
+    it('token 过期（401）时直接说怎么修：重新生成、选永不过期、去哪粘贴', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
+            JSON.stringify({ message: 'Bad credentials' }),
+            { status: 401, headers: { 'Content-Type': 'application/json' } },
+        )));
+
+        const error = await listBackups(config).catch(e => e as Error);
+        expect(error.message).toContain('过期或被撤销了（HTTP 401）');
+        expect(error.message).toContain('github.com/settings/tokens');
+        expect(error.message).toContain('No expiration');
+        expect(error.message).toContain('设置 → 云端备份 → 修改配置');
+    });
 });
 
 describe('GitHub 事务式上传', () => {

@@ -61,6 +61,7 @@ import { describeImageWithVisionApi, VISION_API_TEST_IMAGE_DATA_URL, visionApiCo
 import { readLiliumOSStorage, writeLiliumOSStorage } from '../utils/liliumosStorage';
 import { buildImageModelsUrl, generateChatImage, resolveImageGenerationConfig } from '../utils/imageGeneration';
 import { F, HUE, R, S, SP, STATUS } from '../utils/clayTokens';
+import CloudBackupAutoStatus from '../components/settings/CloudBackupAutoStatus'; // [EM: auto-cloud-backup]
 // [EM-START: github-backup-status]
 import { shouldUseGithubProxy } from '../utils/githubClient';
 import CloudBackupRestoreList, { type CloudBackupListState } from '../components/settings/CloudBackupRestoreList';
@@ -2457,12 +2458,9 @@ const Settings: React.FC = () => {
                             {cloudBackupConfig.webdavUrl ? '切换回 WebDAV →' : '改用 WebDAV 备份 →'}
                         </button>
                     )}
-                    {cloudBackupConfig.lastBackupTime && (
-                        <p className="text-[10px] text-slate-400 text-center">
-                            上次备份: {new Date(cloudBackupConfig.lastBackupTime).toLocaleString('zh-CN')}
-                            {cloudBackupConfig.lastBackupSize && ` (${(cloudBackupConfig.lastBackupSize / 1024 / 1024).toFixed(1)} MB)`}
-                        </p>
-                    )}
+                    {/* [EM-START: auto-cloud-backup] 上次成功时间 + 自动备份状态 + 超 3 天提醒 */}
+                    <CloudBackupAutoStatus config={cloudBackupConfig} />
+                    {/* [EM-END: auto-cloud-backup] */}
 
                     <div className="grid grid-cols-2 gap-2">
                         <button

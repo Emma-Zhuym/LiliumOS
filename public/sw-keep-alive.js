@@ -86,6 +86,238 @@ function mergeInboxDelivery(incoming, existing) {
   };
 }
 
+// utils/swAppShell.ts
+var SHELL_CACHE_PREFIX = "liliumos-shell-";
+var ASSET_CACHE_PREFIX = "liliumos-assets-";
+var NAVIGATION_TIMEOUT_MS = 3e3;
+var PRECACHE_TIMEOUT_MS = 2e4;
+var ASSET_CACHE_MAX_ENTRIES = 400;
+var SAME_ORIGIN_STATIC_PREFIXES = ["assets/", "icons/"];
+var SAME_ORIGIN_STATIC_FILES = ["manifest.webmanifest"];
+var BOOT_CDN_PREFIXES = [
+  "https://cdn.tailwindcss.com/",
+  "https://fonts.googleapis.com/css2",
+  "https://unpkg.com/katex@"
+];
+var MATCH_OPTIONS = { ignoreVary: true };
+var stripSearchAndHash = (url) => {
+  const u = new URL(url);
+  return `${u.origin}${u.pathname}`;
+};
+function isInScope(url, scope) {
+  try {
+    return stripSearchAndHash(url).startsWith(stripSearchAndHash(scope));
+  } catch {
+    return false;
+  }
+}
+function isShellUrl(url, scope) {
+  try {
+    const path = stripSearchAndHash(url);
+    const root = stripSearchAndHash(scope);
+    return path === root || path === `${root}index.html`;
+  } catch {
+    return false;
+  }
+}
+function isUsableShellResponse(res, scope) {
+  if (!res) return false;
+  if (res.type !== "basic") return false;
+  if (!res.ok || res.status !== 200) return false;
+  if (res.redirected) return false;
+  if (!res.url || !isInScope(res.url, scope)) return false;
+  const contentType = (res.headers.get("content-type") || "").toLowerCase();
+  return contentType.includes("text/html");
+}
+function isUsableStaticResponse(res, scope) {
+  if (!res) return false;
+  if (res.type !== "basic") return false;
+  if (res.status !== 200) return false;
+  if (res.redirected) return false;
+  return Boolean(res.url) && isInScope(res.url, scope);
+}
+function isUsableBootCdnResponse(res) {
+  if (!res) return false;
+  if (res.type === "opaque") return true;
+  return res.type === "cors" && res.status === 200;
+}
+function isBootCdnUrl(url) {
+  return BOOT_CDN_PREFIXES.some((prefix) => url.startsWith(prefix));
+}
+function isStaticUrl(url, scope) {
+  if (!isInScope(url, scope)) return false;
+  const rel = stripSearchAndHash(url).slice(stripSearchAndHash(scope).length);
+  return SAME_ORIGIN_STATIC_PREFIXES.some((prefix) => rel.startsWith(prefix)) || SAME_ORIGIN_STATIC_FILES.includes(rel);
+}
+function classifyRequest(req, scope) {
+  if (req.method !== "GET") return null;
+  if (req.mode === "navigate") return isShellUrl(req.url, scope) ? "shell" : null;
+  if (isStaticUrl(req.url, scope)) return "static";
+  if (isBootCdnUrl(req.url)) return "boot-cdn";
+  return null;
+}
+function extractShellResources(html, scope) {
+  const out = /* @__PURE__ */ new Map();
+  const tagRe = /<(script|link)\b[^>]*>/gi;
+  const attrRe = (name) => new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, "i");
+  let m;
+  while (m = tagRe.exec(html)) {
+    const tag = m[0];
+    const attr = attrRe(m[1].toLowerCase() === "script" ? "src" : "href").exec(tag);
+    const raw = attr ? attr[1] ?? attr[2] ?? "" : "";
+    if (!raw || raw.startsWith("data:")) continue;
+    let url;
+    try {
+      url = new URL(raw.replace(/&amp;/g, "&"), scope).toString();
+    } catch {
+      continue;
+    }
+    const cors = /\scrossorigin\b/i.test(tag);
+    if (isStaticUrl(url, scope)) out.set(url, { url, route: "static", cors });
+    else if (isBootCdnUrl(url)) out.set(url, { url, route: "boot-cdn", cors });
+  }
+  return [...out.values()];
+}
+var OFFLINE_HTML = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>LiliumOS</title><style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#F8F9F7;color:#23262A;font-family:-apple-system,system-ui,sans-serif;text-align:center;padding:24px;box-sizing:border-box}button{margin-top:16px;min-height:44px;padding:0 20px;border-radius:10px;border:1px solid #E3E6E0;background:#FFFFFF;font-size:15px}</style></head><body><div><p>\u73B0\u5728\u8FDE\u4E0D\u4E0A\u7F51\u7EDC\uFF0C\u672C\u673A\u8FD8\u6CA1\u6709\u53EF\u7528\u7684\u79BB\u7EBF\u7248\u672C\u3002</p><p style="font-size:13px;color:#5D635F">\u8FDE\u4E0A\u7F51\u540E\u6253\u5F00\u4E00\u6B21\uFF0C\u4EE5\u540E\u65AD\u7F51\u4E5F\u80FD\u76F4\u63A5\u8FDB\u6765\u3002</p><button onclick="location.reload()">\u91CD\u8BD5</button></div></body></html>`;
+var offlineResponse = () => new Response(OFFLINE_HTML, {
+  status: 503,
+  headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }
+});
+var TIMED_OUT = Symbol("timed-out");
+var delay = (ms) => new Promise((resolve) => setTimeout(() => resolve(TIMED_OUT), ms));
+function createAppShell(deps) {
+  const shellCacheName = `${SHELL_CACHE_PREFIX}${deps.version}`;
+  const assetCacheName = `${ASSET_CACHE_PREFIX}${deps.version}`;
+  const timeoutMs = deps.timeoutMs ?? NAVIGATION_TIMEOUT_MS;
+  const maxAssetEntries = deps.maxAssetEntries ?? ASSET_CACHE_MAX_ENTRIES;
+  const shellKey = stripSearchAndHash(deps.scope);
+  const log = deps.log ?? (() => {
+  });
+  const background = (promise, waitUntil) => {
+    const safe = promise.catch((err) => log("app-shell-background-error", { message: String(err) }));
+    waitUntil?.(safe);
+    return safe;
+  };
+  const trimAssets = async (cache) => {
+    const keys = await cache.keys();
+    const excess = keys.length - maxAssetEntries;
+    for (let i = 0; i < excess; i++) await cache.delete(keys[i].url);
+  };
+  const putAsset = async (url, res) => {
+    const cache = await deps.caches.open(assetCacheName);
+    await cache.put(url, res);
+    await trimAssets(cache);
+  };
+  const fetchShellFromNetwork = () => deps.fetch(shellKey, {
+    // no-cache：每次都跟服务器确认（304 照样省流量），不让 HTTP 缓存里的旧东西冒充新页面。
+    cache: "no-cache",
+    credentials: "same-origin",
+    redirect: "follow"
+  });
+  const warmResources = async (html) => {
+    const resources = extractShellResources(html, deps.scope);
+    const cache = await deps.caches.open(assetCacheName);
+    await Promise.all(resources.map(async (r) => {
+      if (await cache.match(r.url, MATCH_OPTIONS)) return;
+      try {
+        const res = r.route === "static" ? await deps.fetch(r.url, { credentials: "same-origin" }) : await deps.fetch(r.url, { mode: r.cors ? "cors" : "no-cors", credentials: "omit" });
+        const usable = r.route === "static" ? isUsableStaticResponse(res, deps.scope) : isUsableBootCdnResponse(res);
+        if (usable) await cache.put(r.url, res);
+      } catch {
+      }
+    }));
+    await trimAssets(cache);
+  };
+  const acceptShell = async (res, waitUntil) => {
+    if (!isUsableShellResponse(res, deps.scope)) {
+      log("app-shell-rejected", { type: res.type, status: res.status, url: res.url, redirected: res.redirected });
+      return null;
+    }
+    const forCache = res.clone();
+    const forWarm = res.clone();
+    background((async () => {
+      const cache = await deps.caches.open(shellCacheName);
+      await cache.put(shellKey, forCache);
+      await warmResources(await forWarm.text());
+    })(), waitUntil);
+    return res;
+  };
+  const matchShell = async () => {
+    const cache = await deps.caches.open(shellCacheName);
+    return cache.match(shellKey, MATCH_OPTIONS);
+  };
+  const handleShell = async (waitUntil) => {
+    const network = fetchShellFromNetwork().then((res) => acceptShell(res, waitUntil)).catch((err) => {
+      log("app-shell-network-failed", { message: String(err) });
+      return null;
+    });
+    background(network, waitUntil);
+    const first = await Promise.race([network, delay(timeoutMs)]);
+    if (first && first !== TIMED_OUT) return first;
+    const cached = await matchShell();
+    if (cached) {
+      log("app-shell-served-from-cache", { reason: first === TIMED_OUT ? "timeout" : "network-unusable" });
+      return cached;
+    }
+    if (first === TIMED_OUT) {
+      const late = await network;
+      if (late) return late;
+    }
+    return offlineResponse();
+  };
+  const handleStatic = async (req, waitUntil) => {
+    const cache = await deps.caches.open(assetCacheName);
+    const cached = await cache.match(req.url, MATCH_OPTIONS);
+    if (cached) return cached;
+    const res = await deps.fetch(req);
+    if (isUsableStaticResponse(res, deps.scope)) background(putAsset(req.url, res.clone()), waitUntil);
+    return res;
+  };
+  const handleBootCdn = async (req, waitUntil) => {
+    const cache = await deps.caches.open(assetCacheName);
+    const cached = await cache.match(req.url, MATCH_OPTIONS);
+    if (cached) return cached;
+    const res = await deps.fetch(req);
+    if (isUsableBootCdnResponse(res)) background(putAsset(req.url, res.clone()), waitUntil);
+    return res;
+  };
+  return {
+    shellCacheName,
+    assetCacheName,
+    route(req) {
+      return classifyRequest(req, deps.scope);
+    },
+    handle(req, route, waitUntil) {
+      if (route === "shell") return handleShell(waitUntil);
+      if (route === "static") return handleStatic(req, waitUntil);
+      return handleBootCdn(req, waitUntil);
+    },
+    /**
+     * install 时预缓存。登录页网络下装新 SW 也不能因此装失败，所以吞掉错误、
+     * 最多等 PRECACHE_TIMEOUT_MS；没做完的等下次打开拿到新 shell 时补。
+     */
+    async precache() {
+      const work = (async () => {
+        const res = await fetchShellFromNetwork();
+        if (!isUsableShellResponse(res, deps.scope)) {
+          log("app-shell-precache-skipped", { type: res.type, status: res.status, url: res.url });
+          return;
+        }
+        const html = await res.clone().text();
+        const cache = await deps.caches.open(shellCacheName);
+        await cache.put(shellKey, res);
+        await warmResources(html);
+      })().catch((err) => log("app-shell-precache-failed", { message: String(err) }));
+      await Promise.race([work, delay(deps.precacheTimeoutMs ?? PRECACHE_TIMEOUT_MS)]);
+    },
+    /** activate 时清掉旧版本的缓存；只动自己前缀的，别的缓存一概不碰。 */
+    async cleanup() {
+      const names = await deps.caches.keys();
+      await Promise.all(names.filter((name) => (name.startsWith(SHELL_CACHE_PREFIX) || name.startsWith(ASSET_CACHE_PREFIX)) && name !== shellCacheName && name !== assetCacheName).map((name) => deps.caches.delete(name)));
+    }
+  };
+}
+
 // node_modules/.pnpm/@rei-standard+amsg-shared@0.4.0-next.8/node_modules/@rei-standard/amsg-shared/dist/index.mjs
 var TEXT_ENCODER = new TextEncoder();
 var TEXT_DECODER = new TextDecoder("utf-8", { fatal: false });
@@ -1665,7 +1897,7 @@ async function removeQueuedRequest(id) {
 }
 
 // worker/sw-keep-alive.ts
-var SW_VERSION = "1.18.0";
+var SW_VERSION = "1.19.0";
 var PING_INTERVAL = 15e3;
 var MAX_MANUAL_ALIVE_MS = 5 * 6e4;
 var ACTIVE_MSG_DB_NAME = "ActiveMsg";
@@ -2241,4 +2473,25 @@ sw.addEventListener("install", () => {
 });
 sw.addEventListener("activate", (event) => {
   event.waitUntil(sw.clients.claim());
+});
+var appShellInstance = null;
+var appShell = () => appShellInstance ??= createAppShell({
+  scope: sw.registration.scope,
+  version: SW_VERSION,
+  fetch: (input, init) => fetch(input, init),
+  caches,
+  log: (event, extra) => traceSw(event, void 0, extra)
+});
+sw.addEventListener("install", (event) => {
+  event.waitUntil(appShell().precache());
+});
+sw.addEventListener("activate", (event) => {
+  event.waitUntil(appShell().cleanup().catch(() => {
+  }));
+});
+sw.addEventListener("fetch", (event) => {
+  const shell = appShell();
+  const route = shell.route(event.request);
+  if (!route) return;
+  event.respondWith(shell.handle(event.request, route, (p) => event.waitUntil(p)));
 });
