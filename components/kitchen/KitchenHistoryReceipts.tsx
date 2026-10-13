@@ -1,5 +1,5 @@
 import React from 'react';
-import type { ShoppingTrip, TripLine } from '../../utils/kitchenAppearance';
+import { goneText, type ShoppingTrip, type TripLine } from '../../utils/kitchenAppearance';
 
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 
@@ -25,19 +25,17 @@ const TornEdge: React.FC = () => <svg className="kitchen-receipt-edge" viewBox="
 const hm = (at: number) => new Date(at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
 const md = (at: number) => { const d = new Date(at); return `${d.getMonth() + 1}/${d.getDate()}`; };
 
-// 撤销的：整行淡掉划掉；买回来的已经吃完 / 丢了：名字划掉，数量换成「吃完」
+// 撤销的：整行淡掉划掉；买回来的已经吃完 / 丢了：名字划掉，数量换成「3 天吃完」（看自己吃得多快，不做统计数字）
 const Line: React.FC<{ line: TripLine; when?: string }> = ({ line, when }) => <li className={line.undone ? 'is-undone' : line.gone ? 'is-gone' : undefined}>
   {when && <span className="kitchen-receipt-time">{when}</span>}
   <span className="kitchen-receipt-name">{line.verb === '放进' ? '' : `${line.verb} `}<span>{line.name}</span>{line.undone && <em>已撤销</em>}</span>
-  <span className="kitchen-receipt-amount">{line.gone ?? line.amount}</span>
+  <span className="kitchen-receipt-amount">{line.gone ? goneText(line) : line.amount}</span>
 </li>;
 
 /** 一次采购一张：上半截买回来的，撕痕下面是到下一次采购之前用掉的 */
 const KitchenHistoryReceipts: React.FC<{ trips: ShoppingTrip[] }> = ({ trips }) => <ol className="kitchen-receipts">
   {trips.map(trip => {
     const date = new Date(trip.start);
-    const { bought, used, discarded, cooked } = trip.tally;
-    const tally = [bought && `买 ${bought} 样`, used && `吃掉 ${used}`, cooked && `做了 ${cooked}`, discarded && `丢掉 ${discarded}`].filter(Boolean).join(' · ');
     // 后半截跨好几天：换了一天才写日期
     let lastDay = '';
     return <li key={trip.start} className="kitchen-receipt">
@@ -61,7 +59,6 @@ const KitchenHistoryReceipts: React.FC<{ trips: ShoppingTrip[] }> = ({ trips }) 
         </>}
         <footer className="kitchen-receipt-foot">
           <Barcode code={trip.no} />
-          <span>{tally || '都撤销了'}</span>
         </footer>
         <p className="kitchen-receipt-tear">— — 沿 此 撕 下 — —</p>
       </div>

@@ -484,12 +484,12 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
           while (x.measureText(name).width > w - 140 && name.length > 1) name = name.slice(0, -1);
           const text = name === it.name ? name : `${name}…`, y = 218 + i * 44;
           if (!it.gone) { print(text, 26, y); print(it.amount, w - 26, y, 22, 400, 'right'); return; }
-          // 吃完 / 丢了：字淡下去，手写一道线划掉，右边手写「吃完」
+          // 吃完 / 丢了：字淡下去，手写一道线划掉，右边手写「3 天吃完」
           print(text, 26, y, 24, 400, 'left', 0.42);
           x.font = `400 24px ${SANS}`; const tw = x.measureText(text).width;
           x.strokeStyle = '#2e4a5e'; x.lineWidth = 2.6; x.lineCap = 'round'; x.globalAlpha = 0.9;
           x.beginPath(); x.moveTo(20, y - 8 + cr() * 2); x.quadraticCurveTo(26 + tw / 2, y - 12 + cr() * 4, 32 + tw, y - 8 + cr() * 2); x.stroke();
-          x.globalAlpha = 1; x.font = `28px ${HAND_FONT}`; x.fillStyle = it.gone === '丢了' ? '#8f7a68' : '#2e4a5e'; x.textAlign = 'right';
+          x.globalAlpha = 1; x.font = `26px ${HAND_FONT}`; x.fillStyle = it.gone.endsWith('丢了') ? '#8f7a68' : '#2e4a5e'; x.textAlign = 'right';
           x.fillText(it.gone, w - 26, y + 2); x.textAlign = 'left';
         });
         dash(218 + rows * 44 - 12);

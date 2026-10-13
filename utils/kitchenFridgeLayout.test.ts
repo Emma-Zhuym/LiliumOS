@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { KitchenEvent, KitchenFood, KitchenLot, KitchenShoppingItem } from './kitchenDb';
 import { eggVisibleCount, fridgeLayout, LOOK_SIZE } from './kitchenFridgeLayout';
 import { FRIDGE, SHELF_WIDTH } from './kitchenFridgeSpec';
-import { heatList, kitchenLookFor, shoppingPaper, shoppingSuggestions, latestReceipt, pantryList, produceTint, shoppingTrips, stickyReminders, tapeLabel } from './kitchenAppearance';
+import { heatList, kitchenLookFor, lastedText, shoppingPaper, shoppingSuggestions, latestReceipt, pantryList, produceTint, shoppingTrips, stickyReminders, tapeLabel } from './kitchenAppearance';
 
 const lot = (index: number, extra: Partial<KitchenLot> = {}): KitchenLot => ({
   id: `lot-${index}`, foodId: `food-${index}`, createdAt: index, updatedAt: index,
@@ -191,7 +191,6 @@ describe('操作记录：一次采购一张小票', () => {
     expect(first.bought.map(l => l.name)).toEqual(['牛奶', '鸡蛋', '薯片']);
     expect(first.after.map(l => `${l.verb} ${l.name}`)).toEqual(['做了 番茄炖牛腩', '吃掉 鸡蛋', '吃掉 牛奶']);
     expect(first.after[2].undone).toBe(true);
-    expect(first.tally).toEqual({ bought: 3, used: 1, discarded: 0, cooked: 1 });
     expect(first.opening).toBe(false);
     expect(first.no).toMatch(/^[0-9A-F]{6}$/);
     expect(first.no).not.toBe(latest.no);
@@ -213,7 +212,8 @@ describe('操作记录：一次采购一张小票', () => {
     ];
     const [trip] = shoppingTrips(events, foods, lots);
     expect(trip.bought.map(l => l.gone)).toEqual(['吃完', '丢了', undefined]);
-    expect(latestReceipt(events, foods, lots)!.items.map(it => it.gone)).toEqual(['吃完', '丢了', undefined]);
+    expect(latestReceipt(events, foods, lots)!.items.map(it => it.gone)).toEqual(['当天吃完', '1 天丢了', undefined]);
+    expect([lastedText(0, 13 * 86_400_000), lastedText(0, 20 * 86_400_000), lastedText(0, 95 * 86_400_000)]).toEqual(['13 天', '3 周', '3 个月']);
   });
   it('第一次买东西之前的零碎记在开张那张；撤销掉的买入不单开一张', () => {
     const trips = shoppingTrips([

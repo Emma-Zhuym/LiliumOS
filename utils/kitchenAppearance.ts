@@ -112,17 +112,32 @@ export interface TripLine {
   id: string; lotId: string; at: number; verb: string; name: string; amount: string; undone: boolean;
   /** 买回来的那一行：这一样现在已经吃完 / 丢了，小票上划掉 */
   gone?: GoneLabel;
+  /** 从买回来到吃完 / 丢掉用了多久（「3 天」「2 周」「3 个月」）：看自己吃得多快 */
+  lasted?: string;
 }
 export type GoneLabel = '吃完' | '丢了';
 
-/** 这一批是不是已经没了：数量归零，看最后一笔是丢掉还是吃掉 */
-const goneFor = (lotId: string, lots: Map<string, KitchenLot>, events: KitchenEvent[]): GoneLabel | undefined => {
+/** 用了多久：两周内按天，两个月内按周，再久按月 */
+export const lastedText = (from: number, to: number): string => {
+  const days = Math.max(0, Math.floor((to - from) / DAY));
+  if (days === 0) return '当天';
+  if (days < 14) return `${days} 天`;
+  if (days < 60) return `${Math.round(days / 7)} 周`;
+  return `${Math.round(days / 30)} 个月`;
+};
+
+/** 这一批是不是已经没了：数量归零，看最后一笔是丢掉还是吃掉、哪天 */
+const goneFor = (lotId: string, lots: Map<string, KitchenLot>, events: KitchenEvent[]): { label: GoneLabel; at: number } | undefined => {
   const lot = lots.get(lotId);
   if (!lot || lot.quantity > 0) return undefined;
   const last = events.filter(event => event.lotId === lotId && event.type !== 'UNDO' && !event.undoneAt)
     .sort((a, b) => b.occurredAt - a.occurredAt || b.id.localeCompare(a.id))[0];
-  return last?.type === 'DISCARD' ? '丢了' : '吃完';
+  return { label: last?.type === 'DISCARD' ? '丢了' : '吃完', at: last?.occurredAt ?? lot.updatedAt };
 };
+
+/** 「3 天吃完」「当天吃完」「2 周丢了」 */
+export const goneText = (line: Pick<TripLine, 'gone' | 'lasted'>) =>
+  line.gone ? `${line.lasted ?? ''}${line.gone}` : '';
 export interface ShoppingTrip {
   start: number;
   /** 小票号：由开始时间算出，不会变 */
@@ -130,7 +145,6 @@ export interface ShoppingTrip {
   opening: boolean;
   bought: TripLine[];
   after: TripLine[];
-  tally: { bought: number; used: number; discarded: number; cooked: number };
 }
 
 const TRIP_VERBS: Record<KitchenEvent['type'], string> = { ADD: '放进', CONSUME: '吃掉', DISCARD: '丢掉', ADJUST: '核对', UNDO: '撤销' };
@@ -143,7 +157,7 @@ export function shoppingTrips(events: KitchenEvent[], foods: KitchenFood[], lots
   const sorted = events.filter(event => event.type !== 'UNDO' && hasKitchenEventChange(event))
     .sort((a, b) => a.occurredAt - b.occurredAt || a.id.localeCompare(b.id));
   const open = (start: number, opening: boolean) => {
-    const trip = { start, opening, lastBuy: start, bought: [], after: [], tally: { bought: 0, used: 0, discarded: 0, cooked: 0 },
+    const trip = { start, opening, lastBuy: start, bought: [], after: [],
       no: ((Math.floor(start / 60_000) * 2654435761) >>> 0).toString(16).toUpperCase().padStart(8, '0').slice(-6) };
     trips.push(trip);
     return trip;
@@ -163,22 +177,18 @@ export function shoppingTrips(events: KitchenEvent[], foods: KitchenFood[], lots
       verb: dish ? '做了' : TRIP_VERBS[event.type],
     };
     if (buying && (sameTrip || trip.bought.length === 0 && !trip.opening)) {
-      if (!line.undone) line.gone = goneFor(event.lotId, lotById, events);
+      const gone = line.undone ? undefined : goneFor(event.lotId, lotById, events);
+      if (gone) { line.gone = gone.label; line.lasted = lastedText(event.occurredAt, gone.at); }
       trip.bought.push(line);
-      if (!event.undoneAt) { trip.lastBuy = event.occurredAt; trip.tally.bought += 1; }
+      if (!event.undoneAt) trip.lastBuy = event.occurredAt;
     } else {
       trip.after.push(line);
-      if (!event.undoneAt) {
-        if (dish) trip.tally.cooked += 1;
-        else if (event.type === 'CONSUME') trip.tally.used += 1;
-        else if (event.type === 'DISCARD') trip.tally.discarded += 1;
-      }
     }
   }
   return trips.reverse().map(({ lastBuy: _lastBuy, ...trip }) => trip);
 }
 
-export interface DoorReceipt { day: number; items: { name: string; amount: string; lotId: string; gone?: GoneLabel }[] }
+export interface DoorReceipt { day: number; items: { name: string; amount: string; lotId: string; gone?: string }[] }
 
 /**
  * 门上的小票：最近一次采购买回来的几样（跟操作记录里最上面那张是同一次，见 kitchenTrips）。撤销掉的不算。
@@ -187,7 +197,7 @@ export interface DoorReceipt { day: number; items: { name: string; amount: strin
 export function latestReceipt(events: KitchenEvent[], foods: KitchenFood[], lots: KitchenLot[] = [], limit = 8): DoorReceipt | null {
   const trip = shoppingTrips(events, foods, lots).find(item => !item.opening);
   if (!trip) return null;
-  const items = trip.bought.filter(line => !line.undone).map(line => ({ name: line.name, amount: line.amount, lotId: line.lotId, ...(line.gone ? { gone: line.gone } : {}) }));
+  const items = trip.bought.filter(line => !line.undone).map(line => ({ name: line.name, amount: line.amount, lotId: line.lotId, ...(line.gone ? { gone: goneText(line) } : {}) }));
   return items.length ? { day: trip.start, items: items.slice(0, limit) } : null;
 }
 
