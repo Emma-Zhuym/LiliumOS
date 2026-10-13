@@ -285,6 +285,7 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - `utils/swAppShell.ts`（逻辑 + 单测）由 `worker/sw-keep-alive.ts` 的 `[EM-START: sw-offline-shell]` 接线，改完必须 `node scripts/build-workers.mjs` 重打 `public/sw-keep-alive.js`
 - 只拦三类：打开 App 的导航（scope 根 / index.html，网络优先 3 秒超时，响应要同源 basic + 200 + 没跳转 + 在 scope 内 + text/html 才算数并入缓存，否则用缓存的 shell）、本站 `assets/` `icons/` manifest（缓存优先）、开机三个 CDN（Tailwind / Google Fonts CSS / KaTeX CSS，缓存优先）。**其余跨域请求一律不拦**，别把 API / Worker 加进来
 - 缓存名带 `SW_VERSION`，activate 只清自己前缀的旧缓存；不碰 IndexedDB / localStorage
+- **全部代码块都要预缓存**：各 App 是点开才下载的独立代码块，`index.html` 里看不到。`vite.config.ts` 的 `em-sw-precache-list` 插件（`[EM-START: sw-offline-shell]`）构建时写出 `sw-precache-manifest.json`（`{ files }`，约 92 个、12 MB），SW 安装和每次联网打开时按它补齐。别换回 `build.manifest`：它不列 Web Worker 的文件（如 `vectorSearchWorker`）。1.19.0 漏了这步，断网时只有桌面能进
 - 自动备份：`utils/autoCloudBackup.ts` + `hooks/useAutoCloudBackup.ts`，OSContext 的 `[EM-START: auto-cloud-backup]` 挂 hook、`exportSystem(mode, { silent })` 静默打包。启动 / 回前台 30 秒后，超 24 小时没成功就备份纯文字，失败隔 1 小时再试，超 3 天一天提醒一次
 - 自动备份文件名带 `_auto_`，清理时与手动备份**分开数**（自动留 7、手动留 5），手动备份的清理也走 `pruneCloudBackups`，不要改回 `cleanupOldBackups`（那会让每天的自动备份挤掉手点的完整备份）
 - GitHub 备份 401 的报错直接写怎么修（`utils/githubClient.ts` 的 `GITHUB_TOKEN_FIX_HINT`，`[EM: github-401-hint]`）：token 创建页默认 90 天过期，阿萌踩过「老是 401」

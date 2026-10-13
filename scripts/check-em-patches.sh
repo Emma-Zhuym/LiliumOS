@@ -247,6 +247,8 @@ check "朋友圈评论带上私聊" apps/MomentsApp.tsx "runCharacterLook(char, 
 echo "── 离线打开 + 自动备份 ──"
 check "SW 离线 app shell 接线" worker/sw-keep-alive.ts "[EM-START: sw-offline-shell]"
 check "SW 离线 app shell 已打包" public/sw-keep-alive.js "liliumos-shell-"
+check "构建时列出全部产物给 SW 预缓存" vite.config.ts "em-sw-precache-list"
+check "SW 按清单预缓存全部代码块" public/sw-keep-alive.js "sw-precache-manifest.json"
 check "自动备份 hook 挂在 OSContext" context/OSContext.tsx "[EM-START: auto-cloud-backup]"
 check "自动备份静默打包" context/OSContext.tsx "opts?.silent ? () => {} : setSysOperationForExport"
 check "手动 / 自动备份分开清理" context/OSContext.tsx "pruneCloudBackups(await loadBackupProvider(), cloudBackupConfig)"
