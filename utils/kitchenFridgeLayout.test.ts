@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { KitchenEvent, KitchenFood, KitchenLot } from './kitchenDb';
 import { eggVisibleCount, fridgeLayout, LOOK_SIZE } from './kitchenFridgeLayout';
 import { FRIDGE, SHELF_WIDTH } from './kitchenFridgeSpec';
-import { kitchenLookFor, latestReceipt, pantryList, produceTint, shoppingTrips, stickyReminders, tapeLabel } from './kitchenAppearance';
+import { heatList, kitchenLookFor, latestReceipt, pantryList, produceTint, shoppingTrips, stickyReminders, tapeLabel } from './kitchenAppearance';
 
 const lot = (index: number, extra: Partial<KitchenLot> = {}): KitchenLot => ({
   id: `lot-${index}`, foodId: `food-${index}`, createdAt: index, updatedAt: index,
@@ -109,6 +109,23 @@ describe('门上的纸', () => {
     expect(receipt!.items.map(item => item.name)).toEqual(['牛奶', '鸡蛋']);
     expect(receipt!.items[0].amount).toBe('+2 盒');
     expect(latestReceipt([], [])).toBeNull();
+  });
+  it('热一热就能吃：自己做的菜和速冻半成品；冷藏的在前、快到期的最前；冷冻生肉不算', () => {
+    const lots = [
+      lot(0, { storageZone: 'freezer', createdAt: 5 }),
+      lot(1, { storageZone: 'fridge', expiresAt: '2026-10-14' }),
+      lot(2, { storageZone: 'fridge', expiresAt: '2026-10-10' }),
+      lot(3, { storageZone: 'freezer' }),
+      lot(4, { storageZone: 'freezer', createdAt: 1 }),
+      lot(5, { storageZone: 'pantry' }),
+      lot(6, { storageZone: 'fridge', quantity: 0 }),
+      lot(7, { storageZone: 'fridge', foodState: 'leftover', expiresAt: '2026-10-11' }),
+    ];
+    const foods = ['速冻饺子', '番茄炖牛腩', '咖喱饭', '冷冻牛肉', 'Frozen pizza', '方便面', '剩的炒饭', '一盒剩的'].map((name, i) => food(i, name));
+    const list = heatList(lots, foods, now)!;
+    expect(list.lines.map(line => `${line.text} ${line.amount}`)).toEqual(['咖喱饭 今天吃', '一盒剩的 明天前', '番茄炖牛腩 冷藏', 'Frozen pizza 冷冻', '速冻饺子 冷冻']);
+    expect(list.more).toBe(0);
+    expect(heatList([lot(0, { storageZone: 'freezer' })], [food(0, '冷冻牛肉')], now)).toBeNull();
   });
   it('柜子里：只列常温柜里还有的，最近动过的在前，最多六样，多的写还有几样', () => {
     const lots = Array.from({ length: 8 }, (_, i) => lot(i, { storageZone: 'pantry', unit: 'bag', quantity: i + 1, updatedAt: i }));

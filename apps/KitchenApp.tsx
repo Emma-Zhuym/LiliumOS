@@ -177,7 +177,7 @@ const KitchenApp: React.FC = () => {
             {/* 常温柜不做 3D（2026-10-11）：柜子里的零食饮料速食写在冷藏门左下那张「柜子里」清单上 */}
             <Suspense fallback={<div className="kitchen-empty" role="status">正在打开冰箱…</div>}>
               <KitchenFridgeScene fullBleed lots={lots} foods={foods} events={events} onOpenLot={openLot}
-                onOpenHistory={() => setView('history')} onOpenPantry={() => openList(false, 'pantry')} />
+                onOpenHistory={() => setView('history')} onOpenPantry={() => openList(false, 'pantry')} onOpenList={() => openList(false)} />
             </Suspense>
             <nav className="kitchen-stage-chips" aria-label="厨房">
               <button type="button" className="kitchen-button" aria-label="食材清单" onClick={() => openList()}>食材清单 · {activeLots.length}</button>

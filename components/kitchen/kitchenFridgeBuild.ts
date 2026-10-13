@@ -15,7 +15,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { FRIDGE } from '../../utils/kitchenFridgeSpec';
 import { eggVisibleCount, LOOK_SIZE, type FridgeEntry } from '../../utils/kitchenFridgeLayout';
-import { produceTint, tapeLabel, type DoorNoteLine, type DoorReceipt, type PantryList } from '../../utils/kitchenAppearance';
+import { produceTint, tapeLabel, type DoorNoteLine, type DoorReceipt, type HeatList, type PantryList } from '../../utils/kitchenAppearance';
 
 const { width: W, depth: D, height: H, doorThickness: T } = FRIDGE;
 export const HAND_FONT = '"Long Cang", "Kaiti SC", "STKaiti", "KaiTi", cursive';
@@ -94,7 +94,7 @@ const tornTape = (ctx: CanvasRenderingContext2D, rnd: () => number, w: number, h
 
 /* ── 门上的纸：薄面片，顶点实时弯曲 ── */
 export interface DoorPaper {
-  key: 'sticky' | 'receipt' | 'pantry';
+  key: 'sticky' | 'receipt' | 'pantry' | 'heat';
   mesh: THREE.Mesh;
   w: number; h: number; curl: number; cup: number; glue: number;
   base: Float32Array;
@@ -133,7 +133,7 @@ export interface KitchenRig {
   /** 每个能点的食物（lotId 挂在 userData 上） */
   items: THREE.Object3D[];
   pickables: THREE.Object3D[];
-  setContents: (entries: FridgeEntry[], reminders: DoorNoteLine[], receipt: DoorReceipt | null, pantry: PantryList | null) => void;
+  setContents: (entries: FridgeEntry[], reminders: DoorNoteLine[], receipt: DoorReceipt | null, pantry: PantryList | null, heat: HeatList | null) => void;
   dispose: () => void;
 }
 
@@ -321,7 +321,7 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
     setContents: () => {}, dispose: () => {},
   };
 
-  const setContents = (entries: FridgeEntry[], reminders: DoorNoteLine[], receipt: DoorReceipt | null, pantry: PantryList | null) => {
+  const setContents = (entries: FridgeEntry[], reminders: DoorNoteLine[], receipt: DoorReceipt | null, pantry: PantryList | null, heat: HeatList | null) => {
     // 换掉上一批：从各自的父级摘下来，再释放
     for (const o of [...rig.items, ...rig.papers.map(p => p.mesh), ...rig.magnets.map(m => m.group)]) o.parent?.remove(o);
     scene.remove(contents); contentBin.dispose();
@@ -443,11 +443,11 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
     /* 门上的纸：便利贴写快过期 / 快用完；小票是最近一次放进来的几样；柜子里是常温柜清单 */
     rig.papers = []; rig.magnets = [];
     const FRONT = T / 2 + 0.012;
-    const makePaper = (key: DoorPaper['key'], w: number, h: number, sx: number, sy: number, texture: THREE.Texture, at: [number, number], tilt: number, curl: number, cup: number, glue: number, lines: DoorNoteLine[], rows?: DoorPaper['rows']) => {
+    const makePaper = (key: DoorPaper['key'], w: number, h: number, sx: number, sy: number, texture: THREE.Texture, at: [number, number], tilt: number, curl: number, cup: number, glue: number, lines: DoorNoteLine[], rows?: DoorPaper['rows'], door: THREE.Group = fridgeHinge) => {
       const g = cgeo(new THREE.PlaneGeometry(w, h, sx, sy));
       const m = new THREE.Mesh(g, cmat(new THREE.MeshStandardMaterial({ map: texture, roughness: key === 'receipt' ? 0.6 : 0.85, side: THREE.DoubleSide, alphaTest: 0.5 })));
       m.position.set(at[0], at[1], FRONT + 0.01); m.rotation.z = tilt; m.castShadow = m.receiveShadow = true; m.userData.paper = key;
-      fridgeHinge.add(m);
+      door.add(m);
       const paper: DoorPaper = { key, mesh: m, w, h, curl, cup, glue, base: (g.attributes.position.array as Float32Array).slice(), s: 0, v: 0, lift: 0, liftV: 0, liftTo: 0, phase: cr() * 6, lines, rows };
       bendPaper(paper, 0); rig.papers.push(paper); return paper;
     };
@@ -517,11 +517,43 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
         x.restore();
       });
       const top = 0.25, at: [number, number] = [2.05, top - ph / 2];
-      const listPaper = makePaper('pantry', pw, ph, 14, Math.max(14, Math.round(ph * 6)), listTex, at, 0.06, 0.1, 0.03, 0.12, pantry.lines, { top: TOP, height: ROW, texH });
+      const listPaper = makePaper('pantry', pw, ph, 14, Math.max(14, Math.round(ph * 6)), listTex, at, 0.06, 0.1, 0.03, 0.12, pantry.lines, { top: TOP - 8, height: ROW, texH });   // 点按区以字为中心（字写在每行上半截）
       const g = new THREE.Group(); g.position.set(at[0] + 0.85, top - 0.16, FRONT + 0.02); fridgeHinge.add(g);
       const magnet = part(new RoundedBoxGeometry(0.9, 0.62, 0.26, 3, 0.1), cmat(new THREE.MeshPhysicalMaterial({ color: '#5f8a5c', roughness: 0.35, clearcoat: 0.9, clearcoatRoughness: 0.12 })), g);
       magnet.position.z = 0.13; magnet.userData.magnet = 'green';
       rig.magnets.push({ key: 'green', group: g, paper: listPaper, z: 0, v: 0, to: 0, released: false, snapArmed: false });
+    }
+    // 热一热就能吃：冷冻门左半边（右半边留给以后的要买清单），暖黄的格子纸，橙色圆磁贴压住右上角（压中间会挡住标题）。
+    // 顶边压低一截：整屏时冷冻门最上面在透明顶栏底下
+    if (heat && heat.lines.length) {
+      const rows = heat.lines.length + (heat.more > 0 ? 1 : 0);
+      const W0 = 420, TOP = 104, ROW = 54, texH = TOP + rows * ROW + 34;
+      const pw = 2.8, ph = pw * texH / W0;
+      const heatTex = ctex(W0, texH, (x, w, h) => {
+        x.clearRect(0, 0, w, h);
+        x.save(); x.beginPath(); x.moveTo(0, 0); x.lineTo(w, 0); x.lineTo(w, h - 14);
+        for (let px = w; px > 0; px -= 14) x.lineTo(px - 7, h - 4 - cr() * 12);
+        x.lineTo(0, h - 14); x.closePath(); x.clip();
+        fibers(x, cr, w, h, '#fbf3e4', '170,130,80');
+        x.fillStyle = 'rgba(196,112,63,0.13)';   // 淡淡的格子
+        for (let gx = 0; gx < w; gx += 27) x.fillRect(gx, 0, 1.5, h);
+        for (let gy = 0; gy < h; gy += 27) x.fillRect(0, gy, w, 1.5);
+        handLine(x, cr, '热一热就能吃', 30, 78, 42, '#8a4a22', w - 130);
+        heat.lines.forEach((line, i) => {
+          const y = TOP + i * ROW + 34;
+          handLine(x, cr, line.text, 34, y, 38, '#4a3426', w - 150);
+          x.font = `28px ${HAND_FONT}`; x.fillStyle = line.amount === '冷藏' || line.amount === '冷冻' ? '#8f7a68' : '#b0502a';
+          x.textAlign = 'right'; x.fillText(line.amount, w - 26, y); x.textAlign = 'left';
+        });
+        if (heat.more > 0) handLine(x, cr, `还有 ${heat.more} 样`, 34, TOP + heat.lines.length * ROW + 34, 32, '#8f7a68');
+        x.restore();
+      });
+      const top = 1.0, at: [number, number] = [1.8, top - ph / 2];
+      const heatPaper = makePaper('heat', pw, ph, 14, Math.max(14, Math.round(ph * 6)), heatTex, at, -0.04, 0.12, 0.03, 0.1, heat.lines, { top: TOP - 8, height: ROW, texH }, freezerHinge);
+      const g = new THREE.Group(); g.position.set(at[0] + pw / 2 - 0.3, top - 0.1, FRONT + 0.02); freezerHinge.add(g);
+      const magnet = part(new THREE.CylinderGeometry(0.36, 0.4, 0.22, 40), cmat(new THREE.MeshPhysicalMaterial({ color: '#c4703f', roughness: 0.32, clearcoat: 1, clearcoatRoughness: 0.1 })), g);
+      magnet.rotation.x = Math.PI / 2; magnet.position.z = 0.11; magnet.userData.magnet = 'orange';
+      rig.magnets.push({ key: 'orange', group: g, paper: heatPaper, z: 0, v: 0, to: 0, released: false, snapArmed: false });
     }
     rig.pickables = [...rig.items, ...rig.papers.map(p => p.mesh), ...rig.magnets.map(m => m.group), fridgeHinge, freezerHinge, crisper];
   };

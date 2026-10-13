@@ -29,6 +29,9 @@ const PRODUCE: [RegExp, string][] = [
   [/西兰花|青菜|菠菜|生菜|白菜|油麦菜|黄瓜|青椒|芹菜|葱|香菜|豆角|四季豆|秋葵|西葫芦|牛油果|猕猴桃|青提|\b(broccoli|spinach|lettuce|cabbage|cucumber|celery|scallion|cilantro|bean|zucchini|avocado|kiwi|kale|herb)/i, '#4d7f42'],
 ];
 
+/** 买来的速冻 / 即食半成品（饺子包子馄饨已在 DISH 里）。不写「冷冻」：冷冻牛肉不是热一下就能吃的 */
+const READY = /速冻|披萨|比萨|汤圆|元宵|粽子|烧卖|春卷|鸡块|即食|自热|微波|方便面|泡面|\b(pizza|nuggets?|burritos?|lasagna|ramen|instant|microwave)\b/i;
+
 /** 自己做的菜 / 剩菜：放进冰箱不算买回来的 */
 export const isDish = (name: string, foodState?: KitchenLot['foodState']) =>
   foodState === 'leftover' || foodState === 'prepared' || DISH.test(name);
@@ -170,6 +173,32 @@ export function latestReceipt(events: KitchenEvent[], foods: KitchenFood[], lots
   if (!trip) return null;
   const items = trip.bought.filter(line => !line.undone).map(line => ({ name: line.name, amount: line.amount, lotId: line.lotId }));
   return items.length ? { day: trip.start, items: items.slice(0, limit) } : null;
+}
+
+export interface HeatList { lines: (DoorNoteLine & { amount: string })[]; more: number }
+
+/**
+ * 「热一热就能吃」：冷冻门上那张（阿萌 2026-10-12 定）。看库存，不是流水：
+ * 冷藏、冷冻里还有的自己做的菜 / 剩菜，加上买来的速冻半成品。
+ * 冷藏的剩菜放不久，排在前面、快到期的最前；冷冻的放得久，先放进去的先吃。
+ */
+export function heatList(lots: KitchenLot[], foods: KitchenFood[], now = Date.now(), limit = 5): HeatList | null {
+  const names = new Map(foods.map(food => [food.id, food.name]));
+  const today = startOfDay(now);
+  const ready = lots.filter(lot => lot.quantity > 0 && (lot.storageZone === 'fridge' || lot.storageZone === 'freezer'))
+    .map(lot => ({ lot, name: names.get(lot.foodId) ?? '食物' }))
+    .filter(({ lot, name }) => isDish(name, lot.foodState) || READY.test(name));
+  if (!ready.length) return null;
+  const due = (lot: KitchenLot) => lot.expiresAt ? Math.round((startOfDay(new Date(`${lot.expiresAt}T12:00:00`).getTime()) - today) / DAY) : Infinity;
+  ready.sort((a, b) => (a.lot.storageZone === 'fridge' ? 0 : 1) - (b.lot.storageZone === 'fridge' ? 0 : 1)
+    || (a.lot.storageZone === 'fridge' ? due(a.lot) - due(b.lot) : 0)
+    || a.lot.createdAt - b.lot.createdAt || a.lot.id.localeCompare(b.lot.id));
+  const lines = ready.slice(0, limit).map(({ lot, name }) => {
+    const days = due(lot);
+    const amount = days < 0 ? '过期了' : days === 0 ? '今天吃' : days === 1 ? '明天前' : lot.storageZone === 'fridge' ? '冷藏' : '冷冻';
+    return { lotId: lot.id, text: name, amount };
+  });
+  return { lines, more: ready.length - lines.length };
 }
 
 export interface PantryList { lines: (DoorNoteLine & { amount: string })[]; more: number }
