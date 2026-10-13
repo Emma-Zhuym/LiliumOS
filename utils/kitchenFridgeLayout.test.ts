@@ -204,6 +204,17 @@ describe('操作记录：一次采购一张小票', () => {
     expect(trip.bought.map(l => l.name)).toEqual(['速冻饺子']);
     expect(trip.after.map(l => `${l.verb} ${l.name}`)).toEqual(['做了 饺子']);
   });
+  it('买回来的已经吃完 / 丢了：小票上那行标出来，门上那张也是', () => {
+    const lots = [lot(0, { quantity: 0 }), lot(1, { quantity: 0 }), lot(2, { quantity: 1 })];
+    const events = [
+      ev(0, 'ADD', t0), ev(1, 'ADD', t0 + h), ev(2, 'ADD', t0 + 1.5 * h),
+      ev(3, 'CONSUME', t0 + 20 * h, { lotId: 'lot-0', foodId: 'food-0' }),
+      ev(4, 'DISCARD', t0 + 30 * h, { lotId: 'lot-1', foodId: 'food-1' }),
+    ];
+    const [trip] = shoppingTrips(events, foods, lots);
+    expect(trip.bought.map(l => l.gone)).toEqual(['吃完', '丢了', undefined]);
+    expect(latestReceipt(events, foods, lots)!.items.map(it => it.gone)).toEqual(['吃完', '丢了', undefined]);
+  });
   it('第一次买东西之前的零碎记在开张那张；撤销掉的买入不单开一张', () => {
     const trips = shoppingTrips([
       ev(0, 'CONSUME', t0), ev(1, 'ADD', t0 + 5 * h, { undoneAt: t0 + 6 * h }), ev(2, 'ADD', t1),

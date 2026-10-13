@@ -130,22 +130,31 @@ const KitchenApp: React.FC = () => {
     setSearch('');
     setView('list');
   };
-  // 放进来以后，要买清单上名字对得上的自动划掉（划清单失败不影响入库）
-  const crossOff = async (names: string[]) => { try { return await KitchenDB.markShoppingBought(names); } catch { return 0; } };
+  // 放进来以后，要买清单上名字对得上的自动划掉（记下是哪一笔划的，撤销那一笔时勾跟着取消；划清单失败不影响入库）
+  const crossOff = async (added: { name: string; operationId: string }[]) => { try { return await KitchenDB.markShoppingBought(added); } catch { return 0; } };
+  const withCrossed = (crossed: number) => {
+    if (crossed) setNotice(value => value && !value.error ? { ...value, text: `${value.text}，要买清单划掉了 ${crossed} 样` } : value);
+  };
   const addFood = async (input: AddKitchenLotInput) => {
     let crossed = 0;
-    await run(async () => { await KitchenDB.addLot({ ...input, operationId: makeOperationId('add') }); crossed = await crossOff([input.name]); },
+    const operationId = makeOperationId('add');
+    await run(async () => { await KitchenDB.addLot({ ...input, operationId }); crossed = await crossOff([{ name: input.name, operationId }]); },
       '已经放进小厨房', true);
-    if (crossed) setNotice(value => value && !value.error ? { ...value, text: `${value.text}，要买清单划掉了 ${crossed} 样` } : value);
+    withCrossed(crossed);
   };
   // 拍小票：每一样单独一笔（撤销一次撤一样），operationId 带 receipt_ 前缀，小票分组靠它认出这是买回来的
   const addReceipt = async (inputs: AddKitchenLotInput[]) => {
     let crossed = 0;
     const done = await run(async () => {
-      for (const input of inputs) await KitchenDB.addLot({ ...input, operationId: makeOperationId('receipt') });
-      crossed = await crossOff(inputs.map(input => input.name));
+      const added = [];
+      for (const input of inputs) {
+        const operationId = makeOperationId('receipt');
+        await KitchenDB.addLot({ ...input, operationId });
+        added.push({ name: input.name, operationId });
+      }
+      crossed = await crossOff(added);
     }, `小票上的 ${inputs.length} 样放好了`, true);
-    if (crossed) setNotice(value => value && !value.error ? { ...value, text: `${value.text}，要买清单划掉了 ${crossed} 样` } : value);
+    withCrossed(crossed);
     return done;
   };
   // 要买清单的增删改：不进操作记录、不弹撤销，改完只重读清单

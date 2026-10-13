@@ -370,9 +370,11 @@ p.kitchen-note { margin: 0; padding: 0; border: 0; background: transparent; colo
 .kitchen-receipt-amount { font-family: var(--k-mono); font-size: 13px; font-variant-numeric: tabular-nums; }
 .kitchen-receipt-lines > li.is-undone > :is(.kitchen-receipt-time, .kitchen-receipt-amount) { color: var(--k-faint); text-decoration: line-through; }
 .kitchen-receipt-lines > li.is-undone > .kitchen-receipt-name { color: var(--k-faint); text-decoration: line-through; }
+.kitchen-receipt-lines > li.is-gone .kitchen-receipt-name > span { color: var(--k-muted); text-decoration: line-through; text-decoration-color: var(--k-blue-ink); text-decoration-thickness: 2px; }
+.kitchen-receipt-lines > li.is-gone > .kitchen-receipt-amount { color: var(--k-blue-ink); font-family: inherit; font-size: 12px; }
 .kitchen-receipt-foot { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; padding-top: 14px; }
-.kitchen-receipt-foot > span { color: var(--k-muted); font-family: var(--k-mono); font-size: 11px; letter-spacing: .08em; }
-.kitchen-receipt-barcode { width: 120px; height: 32px; fill: var(--k-ink); }
+.kitchen-receipt-foot > span { color: var(--k-muted); font-family: var(--k-mono); font-size: 11px; letter-spacing: .04em; text-align: right; }
+.kitchen-receipt-barcode { flex-shrink: 0; width: 96px; height: 32px; fill: var(--k-ink); }
 .kitchen-receipt-tear { margin: 14px 0 0; color: var(--k-faint); font-family: var(--k-mono); font-size: 10px; letter-spacing: .1em; text-align: center; }
 
 /* 拍小票：加号里最上面一个按钮；读完换成核对单 */

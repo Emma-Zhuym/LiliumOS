@@ -108,7 +108,21 @@ export function stickyReminders(lots: KitchenLot[], foods: KitchenFood[], events
  */
 export const TRIP_GAP = 2 * 3_600_000;
 
-export interface TripLine { id: string; lotId: string; at: number; verb: string; name: string; amount: string; undone: boolean }
+export interface TripLine {
+  id: string; lotId: string; at: number; verb: string; name: string; amount: string; undone: boolean;
+  /** 买回来的那一行：这一样现在已经吃完 / 丢了，小票上划掉 */
+  gone?: GoneLabel;
+}
+export type GoneLabel = '吃完' | '丢了';
+
+/** 这一批是不是已经没了：数量归零，看最后一笔是丢掉还是吃掉 */
+const goneFor = (lotId: string, lots: Map<string, KitchenLot>, events: KitchenEvent[]): GoneLabel | undefined => {
+  const lot = lots.get(lotId);
+  if (!lot || lot.quantity > 0) return undefined;
+  const last = events.filter(event => event.lotId === lotId && event.type !== 'UNDO' && !event.undoneAt)
+    .sort((a, b) => b.occurredAt - a.occurredAt || b.id.localeCompare(a.id))[0];
+  return last?.type === 'DISCARD' ? '丢了' : '吃完';
+};
 export interface ShoppingTrip {
   start: number;
   /** 小票号：由开始时间算出，不会变 */
@@ -124,6 +138,7 @@ const TRIP_VERBS: Record<KitchenEvent['type'], string> = { ADD: '放进', CONSUM
 export function shoppingTrips(events: KitchenEvent[], foods: KitchenFood[], lots: KitchenLot[] = []): ShoppingTrip[] {
   const names = new Map(foods.map(food => [food.id, food.name]));
   const states = new Map(lots.map(lot => [lot.id, lot.foodState]));
+  const lotById = new Map(lots.map(lot => [lot.id, lot]));
   const trips: (ShoppingTrip & { lastBuy: number })[] = [];
   const sorted = events.filter(event => event.type !== 'UNDO' && hasKitchenEventChange(event))
     .sort((a, b) => a.occurredAt - b.occurredAt || a.id.localeCompare(b.id));
@@ -148,6 +163,7 @@ export function shoppingTrips(events: KitchenEvent[], foods: KitchenFood[], lots
       verb: dish ? '做了' : TRIP_VERBS[event.type],
     };
     if (buying && (sameTrip || trip.bought.length === 0 && !trip.opening)) {
+      if (!line.undone) line.gone = goneFor(event.lotId, lotById, events);
       trip.bought.push(line);
       if (!event.undoneAt) { trip.lastBuy = event.occurredAt; trip.tally.bought += 1; }
     } else {
@@ -162,7 +178,7 @@ export function shoppingTrips(events: KitchenEvent[], foods: KitchenFood[], lots
   return trips.reverse().map(({ lastBuy: _lastBuy, ...trip }) => trip);
 }
 
-export interface DoorReceipt { day: number; items: { name: string; amount: string; lotId: string }[] }
+export interface DoorReceipt { day: number; items: { name: string; amount: string; lotId: string; gone?: GoneLabel }[] }
 
 /**
  * 门上的小票：最近一次采购买回来的几样（跟操作记录里最上面那张是同一次，见 kitchenTrips）。撤销掉的不算。
@@ -171,7 +187,7 @@ export interface DoorReceipt { day: number; items: { name: string; amount: strin
 export function latestReceipt(events: KitchenEvent[], foods: KitchenFood[], lots: KitchenLot[] = [], limit = 8): DoorReceipt | null {
   const trip = shoppingTrips(events, foods, lots).find(item => !item.opening);
   if (!trip) return null;
-  const items = trip.bought.filter(line => !line.undone).map(line => ({ name: line.name, amount: line.amount, lotId: line.lotId }));
+  const items = trip.bought.filter(line => !line.undone).map(line => ({ name: line.name, amount: line.amount, lotId: line.lotId, ...(line.gone ? { gone: line.gone } : {}) }));
   return items.length ? { day: trip.start, items: items.slice(0, limit) } : null;
 }
 

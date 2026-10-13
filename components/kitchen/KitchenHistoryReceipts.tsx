@@ -25,10 +25,11 @@ const TornEdge: React.FC = () => <svg className="kitchen-receipt-edge" viewBox="
 const hm = (at: number) => new Date(at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
 const md = (at: number) => { const d = new Date(at); return `${d.getMonth() + 1}/${d.getDate()}`; };
 
-const Line: React.FC<{ line: TripLine; when?: string }> = ({ line, when }) => <li className={line.undone ? 'is-undone' : undefined}>
+// 撤销的：整行淡掉划掉；买回来的已经吃完 / 丢了：名字划掉，数量换成「吃完」
+const Line: React.FC<{ line: TripLine; when?: string }> = ({ line, when }) => <li className={line.undone ? 'is-undone' : line.gone ? 'is-gone' : undefined}>
   {when && <span className="kitchen-receipt-time">{when}</span>}
-  <span className="kitchen-receipt-name">{line.verb === '放进' ? '' : `${line.verb} `}{line.name}{line.undone && <em>已撤销</em>}</span>
-  <span className="kitchen-receipt-amount">{line.amount}</span>
+  <span className="kitchen-receipt-name">{line.verb === '放进' ? '' : `${line.verb} `}<span>{line.name}</span>{line.undone && <em>已撤销</em>}</span>
+  <span className="kitchen-receipt-amount">{line.gone ?? line.amount}</span>
 </li>;
 
 /** 一次采购一张：上半截买回来的，撕痕下面是到下一次采购之前用掉的 */

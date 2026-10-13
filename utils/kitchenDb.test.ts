@@ -374,12 +374,27 @@ describe('要买清单', () => {
   });
   it('买回来名字对上的自动划掉', async () => {
     for (const name of ['牛奶', '葱', '米', '酸奶']) await KitchenDB.addShopping(name);
-    expect(await KitchenDB.markShoppingBought(['有机全脂牛奶', '小葱', '玉米'])).toBe(2);
+    expect(await KitchenDB.markShoppingBought([
+      { name: '有机全脂牛奶', operationId: 'op-a' }, { name: '小葱', operationId: 'op-b' }, { name: '玉米', operationId: 'op-c' },
+    ])).toBe(2);
     const items = await KitchenDB.getShopping();
     const by = (name: string) => items.find(item => item.name === name)!;
     expect(by('牛奶')).toMatchObject({ checkedBy: 'bought' });
     expect(by('葱').checkedBy).toBe('bought');
     expect(by('米').checkedAt).toBeUndefined();
     expect(by('酸奶').checkedAt).toBeUndefined();
+  });
+  it('撤销那次放进：它划掉的那行勾取消，手动划的不动', async () => {
+    await KitchenDB.addShopping('牛奶');
+    await KitchenDB.addShopping('鸡蛋');
+    const egg = (await KitchenDB.getShopping()).find(item => item.name === '鸡蛋')!;
+    await KitchenDB.toggleShopping(egg.id);
+    await KitchenDB.addLot({ name: '有机牛奶', quantity: 1, unit: 'item', storageZone: 'fridge', operationId: 'add-milk' });
+    await KitchenDB.markShoppingBought([{ name: '有机牛奶', operationId: 'add-milk' }, { name: '鸡蛋', operationId: 'add-milk' }]);
+    expect((await KitchenDB.getShopping()).find(item => item.name === '牛奶')).toMatchObject({ checkedBy: 'bought', boughtBy: 'add-milk' });
+    await KitchenDB.undoLatest();
+    const items = await KitchenDB.getShopping();
+    expect(items.find(item => item.name === '牛奶')!.checkedAt).toBeUndefined();
+    expect(items.find(item => item.name === '鸡蛋')).toMatchObject({ checkedBy: 'hand' });
   });
 });

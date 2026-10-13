@@ -476,13 +476,21 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
           x.globalAlpha = a * (0.85 + cr() * 0.15); x.fillStyle = '#383b3a'; x.font = `${weight} ${size}px ${SANS}`; x.textAlign = align; x.fillText(t, px, py); x.globalAlpha = 1;
         };
         const dash = (py: number) => { x.fillStyle = 'rgba(56,59,58,0.55)'; for (let px = 24; px < w - 24; px += 14) x.fillRect(px, py, 8, 2); };
-        print('小厨房 · 放进来的', w / 2, 112, 30, 500, 'center');
+        print('小厨房 · 采购', w / 2, 112, 30, 500, 'center');
         print(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`, w / 2, 148, 20, 400, 'center', 0.7);
         dash(172);
         receipt.items.forEach((it, i) => {
           let name = it.name; x.font = `400 24px ${SANS}`;
           while (x.measureText(name).width > w - 140 && name.length > 1) name = name.slice(0, -1);
-          print(name === it.name ? name : `${name}…`, 26, 218 + i * 44); print(it.amount, w - 26, 218 + i * 44, 22, 400, 'right');
+          const text = name === it.name ? name : `${name}…`, y = 218 + i * 44;
+          if (!it.gone) { print(text, 26, y); print(it.amount, w - 26, y, 22, 400, 'right'); return; }
+          // 吃完 / 丢了：字淡下去，手写一道线划掉，右边手写「吃完」
+          print(text, 26, y, 24, 400, 'left', 0.42);
+          x.font = `400 24px ${SANS}`; const tw = x.measureText(text).width;
+          x.strokeStyle = '#2e4a5e'; x.lineWidth = 2.6; x.lineCap = 'round'; x.globalAlpha = 0.9;
+          x.beginPath(); x.moveTo(20, y - 8 + cr() * 2); x.quadraticCurveTo(26 + tw / 2, y - 12 + cr() * 4, 32 + tw, y - 8 + cr() * 2); x.stroke();
+          x.globalAlpha = 1; x.font = `28px ${HAND_FONT}`; x.fillStyle = it.gone === '丢了' ? '#8f7a68' : '#2e4a5e'; x.textAlign = 'right';
+          x.fillText(it.gone, w - 26, y + 2); x.textAlign = 'left';
         });
         dash(218 + rows * 44 - 12);
         print(`共 ${rows} 样`, 26, 218 + rows * 44 + 30, 24, 500);

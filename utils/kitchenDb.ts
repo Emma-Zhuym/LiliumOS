@@ -89,6 +89,8 @@ export interface KitchenShoppingItem {
   updatedAt: number;
   checkedAt?: number;
   checkedBy?: 'hand' | 'bought';
+  /** 被哪一笔「放进」划掉的：撤销那一笔时把这一行的勾取消 */
+  boughtBy?: string;
 }
 
 export interface KitchenBackup {
@@ -638,7 +640,7 @@ async function updateLotDetails(input: UpdateKitchenLotDetailsInput): Promise<Ki
 async function undoLatest(operationId = makeId('op')): Promise<KitchenOperationResult | null> {
   const db = await openKitchenDB();
   try {
-    const transaction = db.transaction([STORE_LOTS, STORE_EVENTS], 'readwrite');
+    const transaction = db.transaction([STORE_LOTS, STORE_EVENTS, STORE_SHOPPING], 'readwrite');
     const lots = transaction.objectStore(STORE_LOTS);
     const events = transaction.objectStore(STORE_EVENTS);
     const existing = await findExistingOperation(events, lots, operationId);
@@ -696,6 +698,14 @@ async function undoLatest(operationId = makeId('op')): Promise<KitchenOperationR
     lots.put(lot);
     events.put(undoneTarget);
     events.add(event);
+    // 撤销的是一次「放进」：这一笔顺手划掉的要买清单，勾也取消
+    if (target.type === 'ADD') {
+      const shopping = transaction.objectStore(STORE_SHOPPING);
+      for (const item of await requestValue(shopping.getAll()) as KitchenShoppingItem[]) {
+        if (item.boughtBy !== target.operationId || item.checkedBy !== 'bought') continue;
+        shopping.put({ ...item, checkedAt: undefined, checkedBy: undefined, boughtBy: undefined, updatedAt: now });
+      }
+    }
     await transactionDone(transaction);
     return { lot, event, replayed: false };
   } finally {
@@ -768,7 +778,7 @@ async function addShopping(name: string, lotId?: string): Promise<void> {
     const all = await requestValue(store.getAll()) as KitchenShoppingItem[];
     const same = all.find(item => item.normalizedName === normalizedName);
     if (same && !same.checkedAt) return;
-    if (same) { store.put({ ...same, checkedAt: undefined, checkedBy: undefined, updatedAt: now, ...(lotId ? { lotId } : {}) }); return; }
+    if (same) { store.put({ ...same, checkedAt: undefined, checkedBy: undefined, boughtBy: undefined, updatedAt: now, ...(lotId ? { lotId } : {}) }); return; }
     store.put({ id: makeId('buy'), name: clean, normalizedName, ...(lotId ? { lotId } : {}), createdAt: now, updatedAt: now });
   });
 }
@@ -780,7 +790,7 @@ async function toggleShopping(id: string): Promise<void> {
     if (!item) return;
     const now = Date.now();
     store.put(item.checkedAt
-      ? { ...item, checkedAt: undefined, checkedBy: undefined, updatedAt: now }
+      ? { ...item, checkedAt: undefined, checkedBy: undefined, boughtBy: undefined, updatedAt: now }
       : { ...item, checkedAt: now, checkedBy: 'hand', updatedAt: now });
   });
 }
@@ -795,14 +805,15 @@ async function clearCheckedShopping(): Promise<void> {
   });
 }
 
-/** 买回来放进厨房：名字对上的没划掉的行自动划掉，返回划掉了几行 */
-async function markShoppingBought(names: string[]): Promise<number> {
+/** 买回来放进厨房：名字对上的没划掉的行自动划掉，记下是哪一笔划的（撤销用），返回划掉了几行 */
+async function markShoppingBought(added: { name: string; operationId: string }[]): Promise<number> {
   let count = 0;
   await writeShopping(async store => {
     const now = Date.now();
     for (const item of await requestValue(store.getAll()) as KitchenShoppingItem[]) {
-      if (item.checkedAt || !names.some(name => shoppingMatches(item.name, name))) continue;
-      store.put({ ...item, checkedAt: now, checkedBy: 'bought', updatedAt: now });
+      const by = item.checkedAt ? undefined : added.find(entry => shoppingMatches(item.name, entry.name));
+      if (!by) continue;
+      store.put({ ...item, checkedAt: now, checkedBy: 'bought', boughtBy: by.operationId, updatedAt: now });
       count += 1;
     }
   });
