@@ -36,6 +36,13 @@
 
 ## 2026-10
 
+### 2026-10-12 · 日历桥连不上：mini 的 Funnel 掉回了「仅 tailnet」
+**操作**：Claude（小帕） · 运维修复 + 文档
+
+- mini 上桥接、网关都在跑，是 Tailscale Funnel 掉回了「tailnet only」，外网整条入口（日历 / 心跳后端 / 小红书 / B 站）都不通；重跑 `tailscale funnel --bg 18123` 已恢复，外网访问网关健康检查通过
+- `server/apple-events-bridge/README.md` 的 Funnel 命令从旧的 `8765` 改成现行网关 `18123`，补了排查顺序
+- 待阿萌在手机上确认日历能刷了；Funnel 为什么会自己掉还没查到
+
 ### 2026-10-12 · 断网时每个 App 都能打开（sw@1.20.0）
 **操作**：Claude（小帕） · PR #16 · `6a3e718`
 

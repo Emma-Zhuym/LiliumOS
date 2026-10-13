@@ -66,12 +66,23 @@ field.
 
 ### Tailscale Funnel (no custom domain)
 
-The tested personal deployment keeps the bridge on loopback and exposes only
-that service through Tailscale Funnel:
+The tested personal deployment keeps the bridge on loopback. Funnel no longer
+points at the bridge directly: it points at the gateway
+(`scripts/home-assistant-proxy.mjs`, `127.0.0.1:18123`), which forwards `/mcp`
+here and also carries `/agent/*`, `/xhs/*` and `/bili/*`:
 
 ```bash
-tailscale funnel --bg 8765
+tailscale funnel --bg 18123
+tailscale funnel status   # must say "(Funnel on)", not "(tailnet only)"
 ```
+
+If the phone suddenly cannot reach the bridge while `curl
+http://127.0.0.1:8765/health` on the mini is fine, check `tailscale funnel
+status` first. On 2026-10-12 the serve config was still present but had fallen
+back to "tailnet only", so every route was unreachable from outside the
+tailnet; rerunning the command above restored it. Testing the Funnel URL from
+the mini itself always fails (no hairpin) — test from the phone on cellular
+or another network.
 
 Use `https://<device>.<tailnet>.ts.net/mcp` as the LiliumOS MCP URL and leave
 the proxy URL empty. Funnel supplies the stable HTTPS hostname; the bridge
