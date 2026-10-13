@@ -10807,6 +10807,9 @@ var extractFirstXsecToken = (data) => {
 var describeXhsConnectFailure = (e, serverUrl) => {
   const host = parseTargetUrl(serverUrl).host || serverUrl;
   const kind = classifyFetchFailure({ url: serverUrl, error: e });
+  if (detectMode(serverUrl) === "mcp" && (kind === "timeout" || kind === "blocked")) {
+    return `\u8FDE\u4E0D\u4E0A ${host}\u3002\u5C0F\u7EA2\u4E66\u670D\u52A1\u5728 Mac mini \u4E0A\uFF1A\u5148\u770B mini \u662F\u4E0D\u662F\u5F00\u7740\u3001\u6CA1\u5728\u4F11\u7720\uFF08\u6BCF\u5929 4\u20137 \u70B9\u4F1A\u7761\uFF09\u3001Tailscale \u662F\u5426\u5728\u7EBF\uFF0C\u4EE5\u53CA mini \u4E0A\u7684 xiaohongshu-mcp \u6709\u6CA1\u6709\u5728\u8DD1\u3002\u90FD\u6B63\u5E38\u7684\u8BDD\u518D\u67E5\u7F51\u7EDC\uFF1A\u5728\u65B0\u6807\u7B7E\u9875\u76F4\u63A5\u6253\u5F00 ${serverUrl.replace(/\/+$/, "")} \u770B\u6709\u6CA1\u6709\u54CD\u5E94\u3002`;
+  }
   switch (kind) {
     case "timeout":
       return `\u8FDE\u63A5 ${host} \u8D85\u65F6\uFF0810 \u79D2\u4E00\u4E2A\u5B57\u8282\u90FD\u6CA1\u56DE\uFF09\u3002\u8FDE\u63A5\u662F\u6302\u4F4F\u4E0D\u8FD4\u56DE\u3001\u4E0D\u662F\u88AB\u62D2\u2014\u2014\u591A\u534A\u662F\u8BE5\u57DF\u540D\u6CA1\u8D70\u4EE3\u7406\u8D70\u4E86\u76F4\u8FDE\uFF0C\u6216\u4EE3\u7406\u8282\u70B9\u5230\u4E0A\u6E38\u662F\u9ED1\u6D1E\u3002\u4F18\u5148\u6362\u4E2A\u68AF\u5B50\u8282\u70B9\u3001\u6216\u628A\u8FD9\u4E2A\u57DF\u540D\u663E\u5F0F\u52A0\u8FDB\u4EE3\u7406\u89C4\u5219\u3002`;
@@ -10962,10 +10965,6 @@ var XhsMcpClient = {
     }
     const args = { url: noteUrl };
     if (xsecToken) args.xsec_token = xsecToken;
-    if (loadAllComments) {
-      args.load_all_comments = true;
-      args.click_more_replies = true;
-    }
     return mcpCallTool(serverUrl, "get_note_detail", args);
   },
   publishNote: async (serverUrl, params) => {
@@ -11198,7 +11197,7 @@ var normalizeXhsComments = (payload) => {
 };
 var normalizeNote = (n) => {
   const card = n.noteCard || n.note_card || n.notecard;
-  const coverObj = card?.cover || n.cover || n.image_list?.[0] || card?.image_list?.[0];
+  const coverObj = card?.cover || n.cover || n.image_list?.[0] || card?.image_list?.[0] || n.imageList?.[0] || card?.imageList?.[0];
   const rawCoverUrl = typeof coverObj === "string" ? coverObj : coverObj?.urlDefault || coverObj?.url_default || coverObj?.url || coverObj?.urlPre || coverObj?.info_list?.[0]?.url || void 0;
   const coverUrl = rawCoverUrl?.replace(/^http:\/\//, "https://");
   const interact = n.interact_info || n.interactInfo || card?.interact_info || card?.interactInfo || {};
