@@ -19,7 +19,14 @@
 export const SHELL_CACHE_PREFIX = 'liliumos-shell-';
 export const ASSET_CACHE_PREFIX = 'liliumos-assets-';
 export const NAVIGATION_TIMEOUT_MS = 3_000;
-export const PRECACHE_TIMEOUT_MS = 20_000;
+export const PRECACHE_TIMEOUT_MS = 60_000;
+/**
+ * vite.config.ts 的 em-sw-precache-list 插件写出的构建产物清单：`{ files: ['assets/...', ...] }`。
+ * 各个 App 是点开才下载的独立代码块，index.html 里看不到；不按清单全部预缓存的话，断网时没打开过的
+ * App 一点就「资源加载失败」。全部 JS / CSS 约 12 MB。
+ */
+export const PRECACHE_MANIFEST_FILE = 'sw-precache-manifest.json';
+const WARM_CONCURRENCY = 6;
 // 部署一次换一批 hash，旧文件只会越积越多；按写入顺序淘汰最早的。
 export const ASSET_CACHE_MAX_ENTRIES = 400;
 
@@ -188,6 +195,21 @@ export function extractShellResources(html: string, scope: string): ShellResourc
 
 // SW 里不能 import clayTokens（它顶部引入了 CSS），这几个颜色/圆角照抄 F.appBg / F.surface /
 // F.textPrimary / F.textSecondary / F.borderSoft / R.button，改 tokens 时这里跟着改。
+/** 从构建产物清单里取出要预缓存的地址，只留 scope 内的静态文件。 */
+export function extractManifestUrls(manifest: unknown, scope: string): string[] {
+    const files = (manifest as { files?: unknown } | null)?.files;
+    if (!Array.isArray(files)) return [];
+    const out = new Set<string>();
+    for (const rel of files) {
+        if (typeof rel !== 'string' || !rel) continue;
+        try {
+            const url = new URL(rel, scope).toString();
+            if (isStaticUrl(url, scope)) out.add(url);
+        } catch { /* 坏条目跳过 */ }
+    }
+    return [...out];
+}
+
 export const OFFLINE_HTML = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>LiliumOS</title><style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#F8F9F7;color:#23262A;font-family:-apple-system,system-ui,sans-serif;text-align:center;padding:24px;box-sizing:border-box}button{margin-top:16px;min-height:44px;padding:0 20px;border-radius:10px;border:1px solid #E3E6E0;background:#FFFFFF;font-size:15px}</style></head><body><div><p>现在连不上网络，本机还没有可用的离线版本。</p><p style="font-size:13px;color:#5D635F">连上网后打开一次，以后断网也能直接进来。</p><button onclick="location.reload()">重试</button></div></body></html>`;
 
 const offlineResponse = () => new Response(OFFLINE_HTML, {
@@ -234,11 +256,26 @@ export function createAppShell(deps: AppShellDeps) {
         redirect: 'follow',
     });
 
-    /** 把新 shell 引用到的资源补进缓存（已有的跳过）。 */
+    /** 构建清单里的全部产物；清单拿不到（开发环境、旧部署）就只补 index.html 里看得到的。 */
+    const fetchManifestResources = async (): Promise<ShellResource[]> => {
+        try {
+            const res = await deps.fetch(`${shellKey}${PRECACHE_MANIFEST_FILE}`, { cache: 'no-cache', credentials: 'same-origin' });
+            if (!isUsableStaticResponse(res, deps.scope)) return [];
+            return extractManifestUrls(await res.json(), deps.scope).map(url => ({ url, route: 'static' as const, cors: false }));
+        } catch {
+            return [];
+        }
+    };
+
+    /** 把新 shell 引用到的资源和构建清单里的全部代码块补进缓存（已有的跳过，同时最多 6 个请求）。 */
     const warmResources = async (html: string) => {
-        const resources = extractShellResources(html, deps.scope);
+        const byUrl = new Map<string, ShellResource>();
+        for (const r of [...extractShellResources(html, deps.scope), ...await fetchManifestResources()]) {
+            if (!byUrl.has(r.url)) byUrl.set(r.url, r);
+        }
+        const queue = [...byUrl.values()];
         const cache = await deps.caches.open(assetCacheName);
-        await Promise.all(resources.map(async (r) => {
+        const warmOne = async (r: ShellResource) => {
             if (await cache.match(r.url, MATCH_OPTIONS)) return;
             try {
                 const res = r.route === 'static'
@@ -249,8 +286,11 @@ export function createAppShell(deps: AppShellDeps) {
                     : isUsableBootCdnResponse(res);
                 if (usable) await cache.put(r.url, res);
             } catch {
-                // 单个资源取不到不影响别的，下次有新 shell 时再补。
+                // 单个资源取不到不影响别的，下次联网打开时再补。
             }
+        };
+        await Promise.all(Array.from({ length: Math.min(WARM_CONCURRENCY, queue.length) }, async () => {
+            for (let r = queue.shift(); r; r = queue.shift()) await warmOne(r);
         }));
         await trimAssets(cache);
     };

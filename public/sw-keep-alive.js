@@ -90,7 +90,9 @@ function mergeInboxDelivery(incoming, existing) {
 var SHELL_CACHE_PREFIX = "liliumos-shell-";
 var ASSET_CACHE_PREFIX = "liliumos-assets-";
 var NAVIGATION_TIMEOUT_MS = 3e3;
-var PRECACHE_TIMEOUT_MS = 2e4;
+var PRECACHE_TIMEOUT_MS = 6e4;
+var PRECACHE_MANIFEST_FILE = "sw-precache-manifest.json";
+var WARM_CONCURRENCY = 6;
 var ASSET_CACHE_MAX_ENTRIES = 400;
 var SAME_ORIGIN_STATIC_PREFIXES = ["assets/", "icons/"];
 var SAME_ORIGIN_STATIC_FILES = ["manifest.webmanifest"];
@@ -178,6 +180,20 @@ function extractShellResources(html, scope) {
   }
   return [...out.values()];
 }
+function extractManifestUrls(manifest, scope) {
+  const files = manifest?.files;
+  if (!Array.isArray(files)) return [];
+  const out = /* @__PURE__ */ new Set();
+  for (const rel of files) {
+    if (typeof rel !== "string" || !rel) continue;
+    try {
+      const url = new URL(rel, scope).toString();
+      if (isStaticUrl(url, scope)) out.add(url);
+    } catch {
+    }
+  }
+  return [...out];
+}
 var OFFLINE_HTML = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>LiliumOS</title><style>body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#F8F9F7;color:#23262A;font-family:-apple-system,system-ui,sans-serif;text-align:center;padding:24px;box-sizing:border-box}button{margin-top:16px;min-height:44px;padding:0 20px;border-radius:10px;border:1px solid #E3E6E0;background:#FFFFFF;font-size:15px}</style></head><body><div><p>\u73B0\u5728\u8FDE\u4E0D\u4E0A\u7F51\u7EDC\uFF0C\u672C\u673A\u8FD8\u6CA1\u6709\u53EF\u7528\u7684\u79BB\u7EBF\u7248\u672C\u3002</p><p style="font-size:13px;color:#5D635F">\u8FDE\u4E0A\u7F51\u540E\u6253\u5F00\u4E00\u6B21\uFF0C\u4EE5\u540E\u65AD\u7F51\u4E5F\u80FD\u76F4\u63A5\u8FDB\u6765\u3002</p><button onclick="location.reload()">\u91CD\u8BD5</button></div></body></html>`;
 var offlineResponse = () => new Response(OFFLINE_HTML, {
   status: 503,
@@ -214,10 +230,23 @@ function createAppShell(deps) {
     credentials: "same-origin",
     redirect: "follow"
   });
+  const fetchManifestResources = async () => {
+    try {
+      const res = await deps.fetch(`${shellKey}${PRECACHE_MANIFEST_FILE}`, { cache: "no-cache", credentials: "same-origin" });
+      if (!isUsableStaticResponse(res, deps.scope)) return [];
+      return extractManifestUrls(await res.json(), deps.scope).map((url) => ({ url, route: "static", cors: false }));
+    } catch {
+      return [];
+    }
+  };
   const warmResources = async (html) => {
-    const resources = extractShellResources(html, deps.scope);
+    const byUrl = /* @__PURE__ */ new Map();
+    for (const r of [...extractShellResources(html, deps.scope), ...await fetchManifestResources()]) {
+      if (!byUrl.has(r.url)) byUrl.set(r.url, r);
+    }
+    const queue = [...byUrl.values()];
     const cache = await deps.caches.open(assetCacheName);
-    await Promise.all(resources.map(async (r) => {
+    const warmOne = async (r) => {
       if (await cache.match(r.url, MATCH_OPTIONS)) return;
       try {
         const res = r.route === "static" ? await deps.fetch(r.url, { credentials: "same-origin" }) : await deps.fetch(r.url, { mode: r.cors ? "cors" : "no-cors", credentials: "omit" });
@@ -225,6 +254,9 @@ function createAppShell(deps) {
         if (usable) await cache.put(r.url, res);
       } catch {
       }
+    };
+    await Promise.all(Array.from({ length: Math.min(WARM_CONCURRENCY, queue.length) }, async () => {
+      for (let r = queue.shift(); r; r = queue.shift()) await warmOne(r);
     }));
     await trimAssets(cache);
   };
@@ -1897,7 +1929,7 @@ async function removeQueuedRequest(id) {
 }
 
 // worker/sw-keep-alive.ts
-var SW_VERSION = "1.19.0";
+var SW_VERSION = "1.20.0";
 var PING_INTERVAL = 15e3;
 var MAX_MANUAL_ALIVE_MS = 5 * 6e4;
 var ACTIVE_MSG_DB_NAME = "ActiveMsg";

@@ -83,8 +83,10 @@ import { installReiSW } from '@rei-standard/amsg-sw';
  *  - 1.19.0: [EM] 加 fetch handler 做离线 app shell（utils/swAppShell.ts）：打开 App 网络优先、
  *            3 秒超时或响应不像本站页面就用缓存的 index.html，Wi-Fi 登录页的跳转不显示也不缓存；
  *            本站 assets/ 和开机三个 CDN 缓存优先，其余跨域请求不拦。
+ *  - 1.20.0: [EM] 按 Vite 构建清单（sw-precache-manifest.json）预缓存全部代码块：1.19.0 只缓存入口和
+ *            打开过的 App，断网时没打开过的 App 一点就「资源加载失败」。换版本号顺带让旧缓存整套重建。
  */
-const SW_VERSION = '1.19.0';
+const SW_VERSION = '1.20.0';
 
 const PING_INTERVAL = 15_000;
 const MAX_MANUAL_ALIVE_MS = 5 * 60_000;

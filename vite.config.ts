@@ -64,6 +64,17 @@ export default defineConfig({
   },
   plugins: [
     react(),
+    // [EM-START: sw-offline-shell] 列出本次构建的全部产物给 Service Worker 预缓存（utils/swAppShell.ts），
+    // 断网时没打开过的 App 也能进。不用 build.manifest：它不列 Web Worker 的文件。
+    {
+      name: 'em-sw-precache-list',
+      apply: 'build',
+      generateBundle(_options, bundle) {
+        const files = Object.keys(bundle).filter((file) => file.startsWith('assets/')).sort();
+        this.emitFile({ type: 'asset', fileName: 'sw-precache-manifest.json', source: JSON.stringify({ files }) });
+      },
+    },
+    // [EM-END: sw-offline-shell]
     {
       name: 'bake-voice-middleware',
       configureServer(server) {

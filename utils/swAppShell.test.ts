@@ -4,8 +4,10 @@ import {
     SHELL_CACHE_PREFIX,
     classifyRequest,
     createAppShell,
+    extractManifestUrls,
     extractShellResources,
     isUsableShellResponse,
+    PRECACHE_MANIFEST_FILE,
     type CacheLike,
     type CacheStorageLike,
 } from './swAppShell';
@@ -46,6 +48,7 @@ function fakeResponse(init: FakeInit = {}): Response {
         body: init.body ?? SHELL_HTML,
         clone: () => fakeResponse(init),
         text: async () => init.body ?? SHELL_HTML,
+        json: async () => JSON.parse(init.body ?? 'null'),
     };
     return res as unknown as Response;
 }
@@ -329,5 +332,89 @@ describe('install / activate', () => {
         }
         await shell.cleanup();
         expect((await storage.keys()).sort()).toEqual([`${ASSET_CACHE_PREFIX}test`, `${SHELL_CACHE_PREFIX}test`, 'someone-else'].sort());
+    });
+});
+
+describe('按构建清单预缓存全部代码块', () => {
+    const MANIFEST = {
+        files: [
+            'assets/index-abc123.js', 'assets/index-xyz.css', 'assets/Chat-111.js', 'assets/Chat-222.css',
+            'assets/Settings-333.js', 'assets/pdf.worker.min-444.js', 'assets/vectorSearchWorker-555.js',
+            42, '', '../escape.js',
+        ],
+    };
+
+    it('extractManifestUrls 取出全部产物（含 Web Worker），坏条目和 scope 外的不要', () => {
+        expect(extractManifestUrls(MANIFEST, SCOPE).sort()).toEqual([
+            `${SCOPE}assets/Chat-111.js`,
+            `${SCOPE}assets/Chat-222.css`,
+            `${SCOPE}assets/Settings-333.js`,
+            `${SCOPE}assets/index-abc123.js`,
+            `${SCOPE}assets/index-xyz.css`,
+            `${SCOPE}assets/pdf.worker.min-444.js`,
+            `${SCOPE}assets/vectorSearchWorker-555.js`,
+        ]);
+        expect(extractManifestUrls(null, SCOPE)).toEqual([]);
+        expect(extractManifestUrls({ files: 'nope' }, SCOPE)).toEqual([]);
+    });
+
+    const networkWithManifest = (manifest: unknown, onFetch?: (url: string) => void) => async (input: any) => {
+        const url = typeof input === 'string' ? input : input.url;
+        onFetch?.(url);
+        if (url === SCOPE) return fakeResponse();
+        if (url === `${SCOPE}${PRECACHE_MANIFEST_FILE}`) {
+            return manifest === undefined
+                ? fakeResponse({ url, status: 404, body: 'not found' })
+                : fakeResponse({ url, contentType: 'application/json', body: JSON.stringify(manifest) });
+        }
+        if (url.startsWith(SCOPE)) return fakeResponse({ url, contentType: 'text/javascript', body: url });
+        return fakeResponse({ type: 'opaque', status: 0, url: '' });
+    };
+
+    it('precache 后没打开过的 App 代码块也在缓存里', async () => {
+        const { storage, shell } = setup(networkWithManifest(MANIFEST));
+        await shell.precache();
+        const assets = storage.caches.get(`${ASSET_CACHE_PREFIX}test`)!;
+        for (const name of ['Chat-111.js', 'Chat-222.css', 'Settings-333.js', 'pdf.worker.min-444.js', 'vectorSearchWorker-555.js']) {
+            expect(assets.store.has(`${SCOPE}assets/${name}`)).toBe(true);
+        }
+    });
+
+    it('联网打开时补齐缺的代码块，已缓存的不重复下载', async () => {
+        const fetched: string[] = [];
+        const { storage, navigate, settle } = setup(networkWithManifest(MANIFEST, u => fetched.push(u)));
+        const assets = await storage.open(`${ASSET_CACHE_PREFIX}test`);
+        await assets.put(`${SCOPE}assets/Chat-111.js`, fakeResponse({ url: `${SCOPE}assets/Chat-111.js` }));
+        await navigate();
+        await settle();
+        expect(fetched).not.toContain(`${SCOPE}assets/Chat-111.js`);
+        expect(fetched).toContain(`${SCOPE}assets/Settings-333.js`);
+        expect(assets.store.has(`${SCOPE}assets/Settings-333.js`)).toBe(true);
+    });
+
+    it('清单拿不到（旧部署 / 开发环境）时照旧只补 index.html 里的资源', async () => {
+        const { storage, shell } = setup(networkWithManifest(undefined));
+        await shell.precache();
+        const assets = storage.caches.get(`${ASSET_CACHE_PREFIX}test`)!;
+        expect(assets.store.has(`${SCOPE}assets/index-abc123.js`)).toBe(true);
+        expect(assets.store.has(`${SCOPE}assets/Settings-333.js`)).toBe(false);
+    });
+
+    it('同时最多 6 个下载', async () => {
+        const big = { files: Array.from({ length: 30 }, (_, i) => `assets/chunk-${i}.js`) };
+        let inFlight = 0;
+        let peak = 0;
+        const base = networkWithManifest(big);
+        const { shell } = setup(async (input: any) => {
+            const url = typeof input === 'string' ? input : input.url;
+            if (!url.includes('/assets/chunk-')) return base(input);
+            inFlight++; peak = Math.max(peak, inFlight);
+            await new Promise(r => setTimeout(r, 1));
+            inFlight--;
+            return fakeResponse({ url, contentType: 'text/javascript' });
+        });
+        await shell.precache();
+        expect(peak).toBeLessThanOrEqual(6);
+        expect(peak).toBeGreaterThan(1);
     });
 });
