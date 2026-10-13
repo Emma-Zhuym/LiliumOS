@@ -2,6 +2,9 @@ import type { KitchenUnit, KitchenStorageZone, KitchenLot, KitchenEvent } from '
 import { formatPackageAmount, formatPortionFraction } from './kitchenQuantity';
 
 export const UNIT_LABELS: Record<KitchenUnit, string> = {
+  item: '件',
+  lb: '磅',
+  oz: '盎司',
   piece: '个',
   pack: '包',
   bag: '袋',
@@ -15,17 +18,12 @@ export const UNIT_LABELS: Record<KitchenUnit, string> = {
   milliliter: '毫升',
 };
 
-export const STORAGE_UNIT_OPTIONS: KitchenUnit[] = [
-  'piece',
-  'pack',
-  'bag',
-  'box',
-  'tray',
-  'can',
-  'large_bottle',
-  'small_bottle',
-  'portion',
-];
+/** 新东西能选的单位：跟小票一样，数件数或者称重（旧单位只留给旧数据显示） */
+export const STORAGE_UNIT_OPTIONS: KitchenUnit[] = ['item', 'lb', 'oz', 'gram', 'milliliter'];
+
+/** 编辑一样东西时的单位选项：旧数据的旧单位留在里面，不然一打开就被改掉 */
+export const editableUnitsFor = (current: KitchenUnit): KitchenUnit[] =>
+  STORAGE_UNIT_OPTIONS.includes(current) ? STORAGE_UNIT_OPTIONS : [current, ...STORAGE_UNIT_OPTIONS];
 
 export const ZONE_LABELS: Record<KitchenStorageZone, string> = {
   staging: '待收纳',
@@ -71,7 +69,7 @@ export const formatEventAmount = (event: KitchenEvent): string => {
 };
 
 export const quickAmount = (lot: KitchenLot): number => {
-  const normal = lot.unit === 'gram' || lot.unit === 'milliliter' ? 50 : 1;
+  const normal = lot.unit === 'gram' || lot.unit === 'milliliter' ? 50 : lot.unit === 'lb' ? 0.5 : lot.unit === 'oz' ? 4 : 1;
   return Math.min(normal, lot.quantity);
 };
 

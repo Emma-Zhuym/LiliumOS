@@ -15,6 +15,9 @@ export const KITCHEN_PAPER = {
   green: '#E7EFE3',
   greenInk: '#446349',
   danger: STATUS.danger.ink,
+  /** 小票核对单上「要看一眼」的行 */
+  warn: STATUS.warning.ink,
+  warnTint: STATUS.warning.tint,
   heading: '"Noto Serif SC", "Songti SC", "ZCOOL XiaoWei", "STSong", Georgia, serif',
   /** 操作记录小票上的热敏打印字（只用在数字、时间、小票号） */
   mono: 'ui-monospace, "SF Mono", Menlo, "Courier New", monospace',
@@ -37,6 +40,8 @@ export const KITCHEN_PAPER_VARS = {
   '--k-green': KITCHEN_PAPER.green,
   '--k-green-ink': KITCHEN_PAPER.greenInk,
   '--k-danger': KITCHEN_PAPER.danger,
+  '--k-warn': KITCHEN_PAPER.warn,
+  '--k-warn-tint': KITCHEN_PAPER.warnTint,
   '--k-heading': KITCHEN_PAPER.heading,
   '--k-mono': KITCHEN_PAPER.mono,
   '--k-paper-photo': `url("${KITCHEN_PAPER.paperPhoto}")`,

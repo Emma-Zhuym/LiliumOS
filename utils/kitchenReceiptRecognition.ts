@@ -1,12 +1,16 @@
-import type { KitchenUnit } from './kitchenDb';
+import type { KitchenStorageZone, KitchenUnit } from './kitchenDb';
 
-/** AI 结果低于这个值，或存在多个候选时，必须让阿萌确认后才能入库。 */
+/** AI 结果低于这个值，或缩写有几种解释时，核对单上把这一行标出来。 */
 export const KITCHEN_RECEIPT_REVIEW_THRESHOLD = 0.82;
 
-export const KITCHEN_RECEIPT_UNITS: readonly KitchenUnit[] = [
-  'piece', 'pack', 'bag', 'box', 'tray', 'can',
-  'large_bottle', 'small_bottle', 'portion', 'gram', 'milliliter',
-];
+/**
+ * 单位按小票上的来（阿萌 2026-10-13 定）：数的就是「件」，称重的照写磅 / 盎司，不换算。
+ * 包装多大（1 gal、18 ct、12 oz）是 packageSize，不是单位。
+ */
+export const KITCHEN_RECEIPT_UNITS = ['item', 'lb', 'oz'] as const satisfies readonly KitchenUnit[];
+export type KitchenReceiptUnit = typeof KITCHEN_RECEIPT_UNITS[number];
+export const KITCHEN_RECEIPT_ZONES = ['fridge', 'freezer', 'pantry'] as const satisfies readonly KitchenStorageZone[];
+export type KitchenReceiptZone = typeof KITCHEN_RECEIPT_ZONES[number];
 
 export type KitchenReceiptReviewReason =
   | 'missing_name'
@@ -15,23 +19,39 @@ export type KitchenReceiptReviewReason =
   | 'low_confidence'
   | 'ambiguous_abbreviation';
 
+export const REVIEW_REASON_LABELS: Record<KitchenReceiptReviewReason, string> = {
+  missing_name: '没认出是什么',
+  missing_quantity: '称重的没看清多重',
+  unknown_unit: '不确定是件数还是重量',
+  low_confidence: '不太确定',
+  ambiguous_abbreviation: '缩写有几种解释',
+};
+
 export interface KitchenReceiptAlternative {
   name: string;
   abbreviationMeaning?: string;
 }
 
 /**
- * 一行识别草稿。rawLabel 永远保留小票原文；normalizedName 只是 AI 建议，不能覆盖原文。
- * 这一层不写库存，必须经过确认页后才转换成 AddKitchenLotInput。
+ * 一行识别草稿。rawLabel 永远保留小票原文；name 是 AI 给的中文常用名，只是建议。
+ * 这一层不写库存，必须经过核对单才放进厨房。
  */
 export interface KitchenReceiptLineDraft {
   rawLabel: string;
-  normalizedName: string | null;
+  /** 中文常用名（去掉品牌和营销词）；认不出就是 null */
+  name: string | null;
   abbreviationMeaning: string | null;
+  /** 没写数量的普通商品按 1 件；称重的没看清才是 null */
   quantity: number | null;
-  unit: KitchenUnit | null;
+  unit: KitchenReceiptUnit;
   packageSize: string | null;
   lineTotal: number | null;
+  /** AI 建议放哪；null = 它也说不准，核对单默认放冷藏 */
+  storageZone: KitchenReceiptZone | null;
+  /** 买回来大概能放几天（按建议的位置）；null = 不估 */
+  shelfLifeDays: number | null;
+  /** 纸巾、洗洁精这类不是吃的：核对单默认不勾 */
+  isFood: boolean;
   confidence: number;
   alternatives: KitchenReceiptAlternative[];
   needsReview: boolean;
@@ -45,52 +65,6 @@ export interface KitchenReceiptDraft {
   items: KitchenReceiptLineDraft[];
   warnings: string[];
 }
-
-/** 给支持 structured output 的视觉模型用；所有可能缺失的值都显式返回 null，禁止模型擅自补默认值。 */
-export const KITCHEN_RECEIPT_AI_SCHEMA = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['merchant', 'purchasedAt', 'currency', 'items'],
-  properties: {
-    merchant: { type: ['string', 'null'] },
-    purchasedAt: { type: ['string', 'null'], description: 'YYYY-MM-DD；看不清就 null' },
-    currency: { type: ['string', 'null'], description: 'ISO 4217 三字母；看不清就 null' },
-    items: {
-      type: 'array',
-      items: {
-        type: 'object',
-        additionalProperties: false,
-        required: [
-          'rawLabel', 'normalizedName', 'abbreviationMeaning', 'quantity', 'unit',
-          'packageSize', 'lineTotal', 'confidence', 'alternatives',
-        ],
-        properties: {
-          rawLabel: { type: 'string', description: '逐字保留小票上的商品缩写' },
-          normalizedName: { type: ['string', 'null'], description: '可读商品名；不确定就 null' },
-          abbreviationMeaning: { type: ['string', 'null'], description: '缩写如何展开；不是缩写则 null' },
-          quantity: { type: ['number', 'null'], description: '商品数量；不能从小票确认就 null' },
-          unit: { type: ['string', 'null'], enum: [...KITCHEN_RECEIPT_UNITS, null] },
-          packageSize: { type: ['string', 'null'] },
-          lineTotal: { type: ['number', 'null'], description: '这一行实付金额，不含整单税费' },
-          confidence: { type: 'number', minimum: 0, maximum: 1 },
-          alternatives: {
-            type: 'array',
-            maxItems: 3,
-            items: {
-              type: 'object',
-              additionalProperties: false,
-              required: ['name', 'abbreviationMeaning'],
-              properties: {
-                name: { type: 'string' },
-                abbreviationMeaning: { type: ['string', 'null'] },
-              },
-            },
-          },
-        },
-      },
-    },
-  },
-} as const;
 
 const text = (value: unknown, max: number): string | null => {
   if (typeof value !== 'string') return null;
@@ -111,23 +85,31 @@ const confidence = (value: unknown): number => {
   return Math.min(1, Math.max(0, value));
 };
 
-const unit = (value: unknown): KitchenUnit | null =>
-  typeof value === 'string' && (KITCHEN_RECEIPT_UNITS as readonly string[]).includes(value)
-    ? value as KitchenUnit
-    : null;
+/** 模型可能写 ea / each / ct / lbs / pound；认不出的当件数，交给核对单 */
+const unitOf = (value: unknown): KitchenReceiptUnit | null => {
+  if (typeof value !== 'string') return null;
+  const key = value.trim().toLowerCase();
+  if (/^(item|ea|each|ct|count|pc|pcs|件)$/.test(key)) return 'item';
+  if (/^(lb|lbs|pound|pounds|磅)$/.test(key)) return 'lb';
+  if (/^(oz|ounce|ounces|盎司)$/.test(key)) return 'oz';
+  return null;
+};
 
-const alternatives = (value: unknown, normalizedName: string | null): KitchenReceiptAlternative[] => {
+const zoneOf = (value: unknown): KitchenReceiptZone | null =>
+  typeof value === 'string' && (KITCHEN_RECEIPT_ZONES as readonly string[]).includes(value) ? value as KitchenReceiptZone : null;
+
+const alternatives = (value: unknown, name: string | null): KitchenReceiptAlternative[] => {
   if (!Array.isArray(value)) return [];
-  const seen = new Set(normalizedName ? [normalizedName.toLocaleLowerCase()] : []);
+  const seen = new Set(name ? [name.toLocaleLowerCase()] : []);
   const result: KitchenReceiptAlternative[] = [];
   for (const candidate of value) {
     if (!candidate || typeof candidate !== 'object') continue;
     const source = candidate as Record<string, unknown>;
-    const name = text(source.name, 100);
-    if (!name || seen.has(name.toLocaleLowerCase())) continue;
-    seen.add(name.toLocaleLowerCase());
+    const altName = text(source.name, 100);
+    if (!altName || seen.has(altName.toLocaleLowerCase())) continue;
+    seen.add(altName.toLocaleLowerCase());
     const meaning = text(source.abbreviationMeaning, 160);
-    result.push({ name, ...(meaning ? { abbreviationMeaning: meaning } : {}) });
+    result.push({ name: altName, ...(meaning ? { abbreviationMeaning: meaning } : {}) });
     if (result.length === 3) break;
   }
   return result;
@@ -139,27 +121,33 @@ const parseLine = (value: unknown): KitchenReceiptLineDraft | null => {
   const rawLabel = text(source.rawLabel, 120);
   if (!rawLabel) return null;
 
-  const normalizedName = text(source.normalizedName, 100);
-  const abbreviationMeaning = text(source.abbreviationMeaning, 160);
-  const parsedQuantity = positive(source.quantity);
-  const parsedUnit = unit(source.unit);
+  // 旧字段名 normalizedName 也认（早先的提示词这么叫）
+  const name = text(source.name ?? source.normalizedName, 100);
+  const parsedUnit = unitOf(source.unit);
+  const unit = parsedUnit ?? 'item';
+  // 小票上一样东西一行、不写数量：就是 1 件。称重的必须看见重量
+  const quantity = positive(source.quantity) ?? (unit === 'item' ? 1 : null);
   const parsedConfidence = confidence(source.confidence);
-  const parsedAlternatives = alternatives(source.alternatives, normalizedName);
+  const parsedAlternatives = alternatives(source.alternatives, name);
+  const shelf = positive(source.shelfLifeDays);
   const reviewReasons: KitchenReceiptReviewReason[] = [];
-  if (!normalizedName) reviewReasons.push('missing_name');
-  if (parsedQuantity === null) reviewReasons.push('missing_quantity');
-  if (parsedUnit === null) reviewReasons.push('unknown_unit');
+  if (!name) reviewReasons.push('missing_name');
+  if (quantity === null) reviewReasons.push('missing_quantity');
+  if (!parsedUnit && quantity !== null && !Number.isInteger(quantity)) reviewReasons.push('unknown_unit');
   if (parsedConfidence < KITCHEN_RECEIPT_REVIEW_THRESHOLD) reviewReasons.push('low_confidence');
   if (parsedAlternatives.length > 0) reviewReasons.push('ambiguous_abbreviation');
 
   return {
     rawLabel,
-    normalizedName,
-    abbreviationMeaning,
-    quantity: parsedQuantity,
-    unit: parsedUnit,
+    name,
+    abbreviationMeaning: text(source.abbreviationMeaning, 160),
+    quantity,
+    unit,
     packageSize: text(source.packageSize, 80),
     lineTotal: nonNegative(source.lineTotal),
+    storageZone: zoneOf(source.storageZone),
+    shelfLifeDays: shelf === null ? null : Math.min(3650, Math.round(shelf)),
+    isFood: source.isFood !== false,
     confidence: parsedConfidence,
     alternatives: parsedAlternatives,
     needsReview: reviewReasons.length > 0,
@@ -167,7 +155,7 @@ const parseLine = (value: unknown): KitchenReceiptLineDraft | null => {
   };
 };
 
-/** 把不可信的模型 JSON 收成可审阅草稿；本函数不会填 1 件、pack 等默认值，也不会写库存。 */
+/** 把不可信的模型 JSON 收成可审阅草稿；不会写库存。 */
 export const parseKitchenReceiptRecognition = (value: unknown): KitchenReceiptDraft => {
   const source = value && typeof value === 'object' ? value as Record<string, unknown> : {};
   const warnings: string[] = [];
@@ -190,4 +178,12 @@ export const parseKitchenReceiptRecognition = (value: unknown): KitchenReceiptDr
     items,
     warnings,
   };
+};
+
+/** 保质期：从购买那天往后数；没有购买日期就从今天数 */
+export const expiryFrom = (purchasedAt: string | null, days: number | null, today = new Date()): string => {
+  if (!days) return '';
+  const base = purchasedAt ? new Date(`${purchasedAt}T12:00:00`) : new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12);
+  base.setDate(base.getDate() + days);
+  return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}-${String(base.getDate()).padStart(2, '0')}`;
 };

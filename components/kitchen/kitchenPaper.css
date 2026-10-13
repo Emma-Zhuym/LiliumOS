@@ -374,3 +374,27 @@ p.kitchen-note { margin: 0; padding: 0; border: 0; background: transparent; colo
 .kitchen-receipt-foot > span { color: var(--k-muted); font-family: var(--k-mono); font-size: 11px; letter-spacing: .08em; }
 .kitchen-receipt-barcode { width: 120px; height: 32px; fill: var(--k-ink); }
 .kitchen-receipt-tear { margin: 14px 0 0; color: var(--k-faint); font-family: var(--k-mono); font-size: 10px; letter-spacing: .1em; text-align: center; }
+
+/* 拍小票：加号里最上面一个按钮；读完换成核对单 */
+.kitchen-receipt-scan { display: grid; gap: 8px; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid var(--k-line); }
+.kitchen-receipt-scan > p.kitchen-note { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.kitchen-receipt-scan > p.kitchen-note > .kitchen-text-button { min-height: 32px; padding: 0 4px; font-size: 12px; }
+.kitchen-receipt-review { display: grid; gap: 16px; }
+.kitchen-receipt-review-head { display: grid; gap: 12px; }
+.kitchen-receipt-review-head > span { display: grid; gap: 4px; }
+.kitchen-receipt-review-head strong { font-family: var(--k-heading); font-size: 15.5px; font-weight: 600; }
+.kitchen-receipt-review-head small { color: var(--k-muted); font-size: 12px; }
+.kitchen-receipt-review-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.kitchen-receipt-review-list > li { display: grid; gap: 8px; padding: 14px 0; border-top: 1px solid var(--k-line); }
+.kitchen-receipt-review-list > li.is-off { padding: 10px 0; }
+.kitchen-receipt-review-list > li.is-off .kitchen-receipt-raw { color: var(--k-faint); text-decoration: line-through; }
+.kitchen-receipt-review-check { display: flex; align-items: center; gap: 10px; min-height: 32px; }
+.kitchen-receipt-review-check > input { width: 20px; height: 20px; accent-color: var(--k-green-ink); }
+.kitchen-receipt-raw { color: var(--k-muted); font-family: var(--k-mono); font-size: 12px; letter-spacing: .04em; overflow-wrap: anywhere; }
+.kitchen-receipt-review-flag { margin: 0; padding: 6px 10px; border-radius: var(--k-radius-field); background: var(--k-warn-tint); color: var(--k-warn); font-size: 12px; line-height: 1.6; }
+.kitchen-receipt-alts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; color: var(--k-muted); font-size: 12px; }
+.kitchen-receipt-alts > .kitchen-text-button { min-height: 32px; padding: 0 6px; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
+.kitchen-receipt-review-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.2fr); gap: 8px; }
+.kitchen-receipt-review-expiry { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; color: var(--k-muted); font-size: 12px; }
+/* 贴住 sheet 底：往下伸进 sheet 的底部留白里，下面的内容不会从按钮底下露出来 */
+.kitchen-receipt-review-actions { position: sticky; bottom: calc((var(--safe-bottom) + 24px) * -1); display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0 -20px calc((var(--safe-bottom) + 24px) * -1); padding: 12px 20px calc(var(--safe-bottom) + 24px); border-top: 1px solid var(--k-line); background-color: var(--k-surface); }

@@ -4,6 +4,7 @@ import { useOS } from '../context/OSContext';
 import KitchenLotDetail from '../components/kitchen/KitchenLotDetail';
 import KitchenSheet from '../components/kitchen/KitchenSheet';
 import KitchenAddForm from '../components/kitchen/KitchenAddForm';
+import KitchenReceiptScan from '../components/kitchen/KitchenReceiptScan';
 import KitchenLotActions from '../components/kitchen/KitchenLotActions';
 import KitchenHistoryReceipts from '../components/kitchen/KitchenHistoryReceipts';
 import { shoppingTrips } from '../utils/kitchenAppearance';
@@ -13,7 +14,7 @@ import {
   KitchenDB, hasKitchenEventChange, type AddKitchenLotInput, type KitchenFood,
   type KitchenLot, type KitchenEvent, type KitchenStorageZone, type UpdateKitchenLotDetailsInput,
 } from '../utils/kitchenDb';
-import { describeLotStock, makeOperationId, STORAGE_UNIT_OPTIONS, UNIT_LABELS, ZONE_LABELS } from '../utils/kitchenPresentation';
+import { describeLotStock, editableUnitsFor, makeOperationId, UNIT_LABELS, ZONE_LABELS } from '../utils/kitchenPresentation';
 
 const KitchenFridgeScene = lazy(() => import('../components/kitchen/KitchenFridgeScene'));
 type View = 'home' | 'list' | 'history';
@@ -28,6 +29,8 @@ const KitchenApp: React.FC = () => {
   const [loadFailed, setLoadFailed] = useState(false);
   const [view, setView] = useState<View>('home');
   const [showAdd, setShowAdd] = useState(false);
+  const [reviewingReceipt, setReviewingReceipt] = useState(false);
+  useEffect(() => { if (!showAdd) setReviewingReceipt(false); }, [showAdd]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -126,13 +129,17 @@ const KitchenApp: React.FC = () => {
   const addFood = async (input: AddKitchenLotInput) => {
     await run(() => KitchenDB.addLot({ ...input, operationId: makeOperationId('add') }), '已经放进小厨房', true);
   };
+  // 拍小票：每一样单独一笔（撤销一次撤一样），operationId 带 receipt_ 前缀，小票分组靠它认出这是买回来的
+  const addReceipt = (inputs: AddKitchenLotInput[]) => run(async () => {
+    for (const input of inputs) await KitchenDB.addLot({ ...input, operationId: makeOperationId('receipt') });
+  }, `小票上的 ${inputs.length} 样放好了`, true);
   const saveDetails = async (input: UpdateKitchenLotDetailsInput) => {
     await run(() => KitchenDB.updateLotDetails(input), '食材资料已更新', false, false);
   };
 
   if (detailLot && detailFood) return <KitchenLotDetail lot={detailLot} food={detailFood} events={events}
     siblingLotCount={lots.filter(lot => lot.foodId === detailLot.foodId).length} busy={busy} notice={notice?.text ?? null}
-    unitLabels={UNIT_LABELS} zoneLabels={ZONE_LABELS} editableUnits={STORAGE_UNIT_OPTIONS}
+    unitLabels={UNIT_LABELS} zoneLabels={ZONE_LABELS} editableUnits={editableUnitsFor(detailLot.unit)}
     onBack={() => { setDetailId(null); setNotice(null); }} onSave={input => { void saveDetails(input); }}
     onFinish={() => { void run(() => KitchenDB.changeLot({ type: 'FINISH', lotId: detailLot.id, operationId: makeOperationId('finish') }), '这条库存已清零，可在操作记录里撤销'); }} />;
 
@@ -201,7 +208,10 @@ const KitchenApp: React.FC = () => {
       label={showAdd ? '放进食物' : '食材操作'} busy={busy} backgroundRef={background}
       onClose={() => { setShowAdd(false); setSelectedId(null); setNotice(null); }}>
       {notice && <p className="kitchen-inline-notice" role={notice.error ? 'alert' : 'status'}>{notice.text}</p>}
-      {showAdd ? <KitchenAddForm initialZone="fridge" busy={busy} onAdd={addFood} />
+      {showAdd ? <>
+        <KitchenReceiptScan busy={busy} onAdd={addReceipt} onReviewingChange={setReviewingReceipt} />
+        {!reviewingReceipt && <KitchenAddForm initialZone="fridge" busy={busy} onAdd={addFood} />}
+      </>
         : <KitchenLotActions key={selectedLot!.id} lot={selectedLot!} busy={busy}
           run={(work, message, close) => run(work, message, close, close === true)} onError={text => setNotice({ text, error: true })}
           onEdit={() => { setDetailId(selectedId); setSelectedId(null); setNotice(null); }} />}

@@ -11,10 +11,9 @@ interface Props {
 export default function KitchenAddForm({ initialZone, busy, onAdd }: Props) {
   const [name, setName] = useState('');
   const [quantity, setQuantity] = useState('1');
-  const [unit, setUnit] = useState<KitchenUnit>('piece');
+  const [unit, setUnit] = useState<KitchenUnit>('item');
   const [zone, setZone] = useState(initialZone);
   const [trackingMode, setTrackingMode] = useState<KitchenTrackingMode>('count');
-  const [trackingChosen, setTrackingChosen] = useState(false);
   const [packageSize, setPackageSize] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
 
@@ -36,7 +35,6 @@ export default function KitchenAddForm({ initialZone, busy, onAdd }: Props) {
         <select className="kitchen-field" aria-label="单位" value={unit} disabled={busy} onChange={event => {
           const next = event.target.value as KitchenUnit;
           setUnit(next);
-          if (!trackingChosen) setTrackingMode(['large_bottle', 'small_bottle', 'tray'].includes(next) ? 'divisible' : 'count');
         }}>{STORAGE_UNIT_OPTIONS.map(value => <option key={value} value={value}>{UNIT_LABELS[value]}</option>)}</select>
       </label>
     </div>
@@ -50,14 +48,14 @@ export default function KitchenAddForm({ initialZone, busy, onAdd }: Props) {
       <summary>包装与用量 <span>选填</span></summary>
       <label className="kitchen-label">平时怎么用
         <select className="kitchen-field" aria-label="用量记录方式" value={trackingMode} disabled={busy}
-          onChange={event => { setTrackingMode(event.target.value as KitchenTrackingMode); setTrackingChosen(true); }}>
+          onChange={event => setTrackingMode(event.target.value as KitchenTrackingMode)}>
           <option value="count">一整件一整件用 · 如鸡蛋</option>
           <option value="divisible">一件分几次用 · 如牛奶、牛肉</option>
         </select>
       </label>
       <label className="kitchen-label">每件包装的规格
         <input className="kitchen-field" aria-label="包装规格" value={packageSize} disabled={busy}
-          placeholder="例如 1 L、30 fl oz 或 1.1 lb" onChange={event => setPackageSize(event.target.value)} />
+          placeholder="照小票写，例如 1 gal、18 ct、12 oz" onChange={event => setPackageSize(event.target.value)} />
       </label>
       <p className="kitchen-note">不称也没关系。填了规格，以后就能直接记“约剩 700 ml”。</p>
       <label className="kitchen-label">保质期到哪天

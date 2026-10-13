@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import KitchenApp from '../apps/KitchenApp';
 import { KitchenDB, type KitchenLot } from './kitchenDb';
 
-vi.mock('../context/OSContext', () => ({ useOS: () => ({ closeApp: vi.fn() }) }));
+vi.mock('../context/OSContext', () => ({ useOS: () => ({ closeApp: vi.fn(), apiPresets: [] }) }));
 vi.mock('../components/kitchen/KitchenFridgeScene', () => ({
   default: ({ lots, onOpenLot }: { lots: KitchenLot[]; onOpenLot: (id: string) => void }) =>
     React.createElement('div', { 'data-testid': 'scene-lots' }, lots
@@ -197,14 +197,14 @@ describe('paper kitchen flows', () => {
     await click(labelled('button', '添加食物'));
     await fill(labelled('input', '食物名称'), '新买的燕麦奶');
     await fill(labelled('input', '数量'), '3');
-    await choose(labelled('select', '单位'), 'large_bottle');
+    await choose(labelled('select', '单位'), 'lb');
     await choose(labelled('select', '收纳位置'), 'fridge');
     const packageDetails = Array.from(container.querySelectorAll('summary'))
       .find(summary => summary.textContent?.includes('包装与用量'))!;
     expect(packageDetails).toBeDefined();
     await click(packageDetails);
     await choose(labelled('select', '用量记录方式'), 'divisible');
-    await choose(labelled('select', '单位'), 'box');
+    await choose(labelled('select', '单位'), 'item');
     expect(labelled<HTMLSelectElement>('select', '用量记录方式').value).toBe('divisible');
     await fill(labelled('input', '包装规格'), '1 L');
     await mutate(button('放进厨房'), async () => expect(await activeLots()).toHaveLength(21));
@@ -215,7 +215,7 @@ describe('paper kitchen flows', () => {
     const food = (await KitchenDB.getFoods()).find(item => item.name === '新买的燕麦奶')!;
     expect(food).toBeDefined();
     const added = (await KitchenDB.getLots()).find(lot => lot.foodId === food.id)!;
-    expect(added).toMatchObject({ quantity: 3, unit: 'box', storageZone: 'fridge', packageSize: '1 L', trackingMode: 'divisible' });
+    expect(added).toMatchObject({ quantity: 3, unit: 'item', storageZone: 'fridge', packageSize: '1 L', trackingMode: 'divisible' });
     expect(await activeLots()).toHaveLength(21);
     expect((await KitchenDB.getEvents()).length).toBe(before.events.length + 1);
   });

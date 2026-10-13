@@ -153,6 +153,14 @@ describe('操作记录：一次采购一张小票', () => {
     expect(first.no).toMatch(/^[0-9A-F]{6}$/);
     expect(first.no).not.toBe(latest.no);
   });
+  it('拍小票放进来的速冻饺子算买的，手动放进来的饺子算做的菜', () => {
+    const names = [food(0, '速冻饺子'), food(1, '饺子')];
+    const [trip] = shoppingTrips([
+      ev(0, 'ADD', t0, { operationId: 'receipt_a' }), ev(1, 'ADD', t0 + 5 * h, { operationId: 'add_b' }),
+    ], names);
+    expect(trip.bought.map(l => l.name)).toEqual(['速冻饺子']);
+    expect(trip.after.map(l => `${l.verb} ${l.name}`)).toEqual(['做了 饺子']);
+  });
   it('第一次买东西之前的零碎记在开张那张；撤销掉的买入不单开一张', () => {
     const trips = shoppingTrips([
       ev(0, 'CONSUME', t0), ev(1, 'ADD', t0 + 5 * h, { undoneAt: t0 + 6 * h }), ev(2, 'ADD', t1),

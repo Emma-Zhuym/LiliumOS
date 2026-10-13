@@ -89,7 +89,7 @@ export function stickyReminders(lots: KitchenLot[], foods: KitchenFood[], events
     }
     const lowOpened = lot.trackingMode === 'divisible' && lot.quantity <= 1
       && lot.openContainerRemaining !== undefined && lot.openContainerRemaining <= 0.25;
-    const lastOne = lot.trackingMode !== 'divisible' && lot.quantity === 1 && lot.unit === 'piece' && boughtMany.has(lot.id);
+    const lastOne = lot.trackingMode !== 'divisible' && lot.quantity === 1 && (lot.unit === 'piece' || lot.unit === 'item') && boughtMany.has(lot.id);
     if (lowOpened || lastOne) notes.push({ rank: 10, line: { lotId: lot.id, text: lastOne ? `${name}只剩一个` : `${name}快用完了` } });
   }
   return notes.sort((a, b) => a.rank - b.rank).slice(0, limit).map(note => note.line);
@@ -132,7 +132,8 @@ export function shoppingTrips(events: KitchenEvent[], foods: KitchenFood[], lots
   };
   for (const event of sorted) {
     const name = names.get(event.foodId) ?? '食物';
-    const dish = event.type === 'ADD' && isDish(name, states.get(event.lotId));
+    // 拍小票放进来的一定是买的（速冻饺子名字像菜，但它是买回来的）
+    const dish = event.type === 'ADD' && !event.operationId.startsWith('receipt_') && isDish(name, states.get(event.lotId));
     const buying = event.type === 'ADD' && event.quantityDelta > 0 && !dish;
     let trip = trips[trips.length - 1];
     const sameTrip = trip && !trip.opening && event.occurredAt - trip.lastBuy <= TRIP_GAP;
