@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CaretRight, PencilSimple, Trash } from '@phosphor-icons/react';
+import { CaretRight, ListChecks, PencilSimple, Trash } from '@phosphor-icons/react';
 import { KitchenDB, type KitchenLot, type KitchenFridgePlacement } from '../../utils/kitchenDb';
 import { describeLotStock, formatQuantity, makeOperationId, quickAmount, UNIT_LABELS, ZONE_LABELS } from '../../utils/kitchenPresentation';
 import { formatPackageAmount, formatPortionInput, parsePortionInput } from '../../utils/kitchenQuantity';
@@ -10,9 +10,10 @@ interface Props {
   run: (work: () => Promise<unknown>, message: string, close?: boolean) => Promise<boolean>;
   onError: (message: string) => void;
   onEdit: () => void;
+  onAddShopping?: () => void;
 }
 
-export default function KitchenLotActions({ lot, busy, run, onError, onEdit }: Props) {
+export default function KitchenLotActions({ lot, busy, run, onError, onEdit, onAddShopping }: Props) {
   const divisible = lot.trackingMode === 'divisible';
   const remainingInput = () => formatPackageAmount(lot.packageSize, lot.openContainerRemaining ?? 1)
     ?? formatPortionInput(lot.openContainerRemaining ?? 1);
@@ -71,6 +72,9 @@ export default function KitchenLotActions({ lot, busy, run, onError, onEdit }: P
       void run(() => KitchenDB.changeLot({ type: 'FINISH', lotId: lot.id, operationId: makeOperationId('finish'), note: '整条库存已用完，清零' }), '这条库存已清零', true);
     }}>这条库存已用完</button>
     {lot.quantity > 1 && <p className="kitchen-note">“已用完”会清空这条记录的全部 {formatQuantity(lot.quantity, lot.unit)}，记错可以撤销。</p>}
+    {onAddShopping && <button type="button" className="kitchen-text-button" disabled={busy} onClick={onAddShopping}>
+      <ListChecks size={18} />加进要买清单
+    </button>}
     <details className="kitchen-form-details">
       <summary>收纳与其他操作</summary>
       <button className="kitchen-row" type="button" onClick={onEdit} disabled={busy}>

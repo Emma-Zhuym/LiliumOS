@@ -75,10 +75,27 @@ export interface KitchenEvent {
   undoneAt?: number;
 }
 
+/**
+ * 要买清单的一行（阿萌 2026-10-12 定：勾选式小票贴在冷冻门右半边）。
+ * 划掉的留几天再从门上消失；买回来放进厨房时名字对上的自动划掉（checkedBy: 'bought'）。
+ */
+export interface KitchenShoppingItem {
+  id: string;
+  name: string;
+  normalizedName: string;
+  /** 从哪一样食物的「加进要买清单」来的 */
+  lotId?: string;
+  createdAt: number;
+  updatedAt: number;
+  checkedAt?: number;
+  checkedBy?: 'hand' | 'bought';
+}
+
 export interface KitchenBackup {
   foods: KitchenFood[];
   lots: KitchenLot[];
   events: KitchenEvent[];
+  shopping?: KitchenShoppingItem[];
 }
 
 export interface AddKitchenLotInput {
@@ -126,10 +143,11 @@ export interface KitchenOperationResult {
 }
 
 export const KITCHEN_DB_NAME = 'LiliumOS_Kitchen';
-const DB_VERSION = 1;
+const DB_VERSION = 2;   // 2：要买清单
 const STORE_FOODS = 'foods';
 const STORE_LOTS = 'lots';
 const STORE_EVENTS = 'events';
+const STORE_SHOPPING = 'shopping';
 const CONTENT_EPSILON = 0.000001;
 
 export const hasKitchenEventChange = (event: KitchenEvent): boolean =>
@@ -166,6 +184,7 @@ function openKitchenDB(): Promise<IDBDatabase> {
         events.createIndex('lotId', 'lotId', { unique: false });
         events.createIndex('occurredAt', 'occurredAt', { unique: false });
       }
+      if (!db.objectStoreNames.contains(STORE_SHOPPING)) db.createObjectStore(STORE_SHOPPING, { keyPath: 'id' });
     };
   });
 }
@@ -685,12 +704,13 @@ async function undoLatest(operationId = makeId('op')): Promise<KitchenOperationR
 }
 
 async function exportAll(): Promise<KitchenBackup> {
-  const [foods, lots, events] = await Promise.all([
+  const [foods, lots, events, shopping] = await Promise.all([
     getAll<KitchenFood>(STORE_FOODS),
     getAll<KitchenLot>(STORE_LOTS),
     getAll<KitchenEvent>(STORE_EVENTS),
+    getAll<KitchenShoppingItem>(STORE_SHOPPING),
   ]);
-  return { foods, lots, events };
+  return { foods, lots, events, shopping };
 }
 
 async function importAll(data: Partial<KitchenBackup>): Promise<void> {
@@ -700,6 +720,7 @@ async function importAll(data: Partial<KitchenBackup>): Promise<void> {
       data.foods !== undefined ? STORE_FOODS : null,
       data.lots !== undefined ? STORE_LOTS : null,
       data.events !== undefined ? STORE_EVENTS : null,
+      data.shopping !== undefined ? STORE_SHOPPING : null,
     ].filter((store): store is string => store !== null);
     if (selectedStores.length === 0) return;
 
@@ -708,10 +729,84 @@ async function importAll(data: Partial<KitchenBackup>): Promise<void> {
     for (const food of data.foods ?? []) transaction.objectStore(STORE_FOODS).put(food);
     for (const lot of data.lots ?? []) transaction.objectStore(STORE_LOTS).put(lot);
     for (const event of data.events ?? []) transaction.objectStore(STORE_EVENTS).put(event);
+    for (const item of data.shopping ?? []) transaction.objectStore(STORE_SHOPPING).put(item);
     await transactionDone(transaction);
   } finally {
     db.close();
   }
+}
+
+/* ── 要买清单 ── */
+
+/** 清单上写「牛奶」，买回来的是「有机全脂牛奶」也算买到了 */
+export const shoppingMatches = (listName: string, boughtName: string): boolean => {
+  const a = normalizeName(listName).replace(/\s/g, ''), b = normalizeName(boughtName).replace(/\s/g, '');
+  if (!a || !b) return false;
+  if (a === b) return true;
+  // 单字（葱、姜、蒜、米）：只认「小葱、生姜、大米」这种常见前缀加它；玉米不算「米」
+  if (a.length === 1) return b.length === 2 && b.endsWith(a) && /^[小大生老嫩青白红黄紫香鲜]/.test(b);
+  return b.includes(a) || (b.length >= 2 && a.includes(b));
+};
+
+async function writeShopping(work: (store: IDBObjectStore) => Promise<void>): Promise<void> {
+  const db = await openKitchenDB();
+  try {
+    const transaction = db.transaction(STORE_SHOPPING, 'readwrite');
+    await work(transaction.objectStore(STORE_SHOPPING));
+    await transactionDone(transaction);
+  } finally {
+    db.close();
+  }
+}
+
+/** 加一行；没划掉的同名已经在了就不重复加，划掉的同名重新打开 */
+async function addShopping(name: string, lotId?: string): Promise<void> {
+  const clean = name.trim().replace(/\s+/g, ' ').slice(0, 60);
+  if (!clean) throw new Error('写一下要买什么');
+  const normalizedName = normalizeName(clean), now = Date.now();
+  await writeShopping(async store => {
+    const all = await requestValue(store.getAll()) as KitchenShoppingItem[];
+    const same = all.find(item => item.normalizedName === normalizedName);
+    if (same && !same.checkedAt) return;
+    if (same) { store.put({ ...same, checkedAt: undefined, checkedBy: undefined, updatedAt: now, ...(lotId ? { lotId } : {}) }); return; }
+    store.put({ id: makeId('buy'), name: clean, normalizedName, ...(lotId ? { lotId } : {}), createdAt: now, updatedAt: now });
+  });
+}
+
+/** 手动打勾 / 取消 */
+async function toggleShopping(id: string): Promise<void> {
+  await writeShopping(async store => {
+    const item = await requestValue(store.get(id)) as KitchenShoppingItem | undefined;
+    if (!item) return;
+    const now = Date.now();
+    store.put(item.checkedAt
+      ? { ...item, checkedAt: undefined, checkedBy: undefined, updatedAt: now }
+      : { ...item, checkedAt: now, checkedBy: 'hand', updatedAt: now });
+  });
+}
+
+async function removeShopping(id: string): Promise<void> {
+  await writeShopping(async store => { store.delete(id); });
+}
+
+async function clearCheckedShopping(): Promise<void> {
+  await writeShopping(async store => {
+    for (const item of await requestValue(store.getAll()) as KitchenShoppingItem[]) if (item.checkedAt) store.delete(item.id);
+  });
+}
+
+/** 买回来放进厨房：名字对上的没划掉的行自动划掉，返回划掉了几行 */
+async function markShoppingBought(names: string[]): Promise<number> {
+  let count = 0;
+  await writeShopping(async store => {
+    const now = Date.now();
+    for (const item of await requestValue(store.getAll()) as KitchenShoppingItem[]) {
+      if (item.checkedAt || !names.some(name => shoppingMatches(item.name, name))) continue;
+      store.put({ ...item, checkedAt: now, checkedBy: 'bought', updatedAt: now });
+      count += 1;
+    }
+  });
+  return count;
 }
 
 export const KitchenDB = {
@@ -727,6 +822,12 @@ export const KitchenDB = {
   getLots: () => getAll<KitchenLot>(STORE_LOTS),
   getEvents: async () => (await getAll<KitchenEvent>(STORE_EVENTS))
     .sort((a, b) => a.occurredAt - b.occurredAt || a.id.localeCompare(b.id)),
+  getShopping: () => getAll<KitchenShoppingItem>(STORE_SHOPPING),
+  addShopping,
+  toggleShopping,
+  removeShopping,
+  clearCheckedShopping,
+  markShoppingBought,
   exportAll,
   importAll,
 };

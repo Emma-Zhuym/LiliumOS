@@ -5,14 +5,15 @@ import KitchenLotDetail from '../components/kitchen/KitchenLotDetail';
 import KitchenSheet from '../components/kitchen/KitchenSheet';
 import KitchenAddForm from '../components/kitchen/KitchenAddForm';
 import KitchenReceiptScan from '../components/kitchen/KitchenReceiptScan';
+import KitchenShoppingList from '../components/kitchen/KitchenShoppingList';
 import KitchenLotActions from '../components/kitchen/KitchenLotActions';
 import KitchenHistoryReceipts from '../components/kitchen/KitchenHistoryReceipts';
-import { shoppingTrips } from '../utils/kitchenAppearance';
+import { shoppingSuggestions, shoppingTrips } from '../utils/kitchenAppearance';
 import { KITCHEN_PAPER_VARS } from '../utils/kitchenPaperTokens';
 import '../components/kitchen/kitchenPaper.css';
 import {
   KitchenDB, hasKitchenEventChange, type AddKitchenLotInput, type KitchenFood,
-  type KitchenLot, type KitchenEvent, type KitchenStorageZone, type UpdateKitchenLotDetailsInput,
+  type KitchenLot, type KitchenEvent, type KitchenShoppingItem, type KitchenStorageZone, type UpdateKitchenLotDetailsInput,
 } from '../utils/kitchenDb';
 import { describeLotStock, editableUnitsFor, makeOperationId, UNIT_LABELS, ZONE_LABELS } from '../utils/kitchenPresentation';
 
@@ -25,6 +26,8 @@ const KitchenApp: React.FC = () => {
   const [foods, setFoods] = useState<KitchenFood[]>([]);
   const [lots, setLots] = useState<KitchenLot[]>([]);
   const [events, setEvents] = useState<KitchenEvent[]>([]);
+  const [shopping, setShopping] = useState<KitchenShoppingItem[]>([]);
+  const [showShopping, setShowShopping] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [view, setView] = useState<View>('home');
@@ -43,8 +46,9 @@ const KitchenApp: React.FC = () => {
   const searchOnOpen = useRef(false);
 
   const refresh = useCallback(async () => {
-    const [nextFoods, nextLots, nextEvents] = await Promise.all([KitchenDB.getFoods(), KitchenDB.getLots(), KitchenDB.getEvents()]);
+    const [nextFoods, nextLots, nextEvents, nextShopping] = await Promise.all([KitchenDB.getFoods(), KitchenDB.getLots(), KitchenDB.getEvents(), KitchenDB.getShopping()]);
     setFoods(nextFoods);
+    setShopping(nextShopping);
     setLots(nextLots);
     setEvents(nextEvents.sort((a, b) => b.occurredAt - a.occurredAt || b.id.localeCompare(a.id)));
     setLoadFailed(false);
@@ -126,13 +130,30 @@ const KitchenApp: React.FC = () => {
     setSearch('');
     setView('list');
   };
+  // 放进来以后，要买清单上名字对得上的自动划掉（划清单失败不影响入库）
+  const crossOff = async (names: string[]) => { try { return await KitchenDB.markShoppingBought(names); } catch { return 0; } };
   const addFood = async (input: AddKitchenLotInput) => {
-    await run(() => KitchenDB.addLot({ ...input, operationId: makeOperationId('add') }), '已经放进小厨房', true);
+    let crossed = 0;
+    await run(async () => { await KitchenDB.addLot({ ...input, operationId: makeOperationId('add') }); crossed = await crossOff([input.name]); },
+      '已经放进小厨房', true);
+    if (crossed) setNotice(value => value && !value.error ? { ...value, text: `${value.text}，要买清单划掉了 ${crossed} 样` } : value);
   };
   // 拍小票：每一样单独一笔（撤销一次撤一样），operationId 带 receipt_ 前缀，小票分组靠它认出这是买回来的
-  const addReceipt = (inputs: AddKitchenLotInput[]) => run(async () => {
-    for (const input of inputs) await KitchenDB.addLot({ ...input, operationId: makeOperationId('receipt') });
-  }, `小票上的 ${inputs.length} 样放好了`, true);
+  const addReceipt = async (inputs: AddKitchenLotInput[]) => {
+    let crossed = 0;
+    const done = await run(async () => {
+      for (const input of inputs) await KitchenDB.addLot({ ...input, operationId: makeOperationId('receipt') });
+      crossed = await crossOff(inputs.map(input => input.name));
+    }, `小票上的 ${inputs.length} 样放好了`, true);
+    if (crossed) setNotice(value => value && !value.error ? { ...value, text: `${value.text}，要买清单划掉了 ${crossed} 样` } : value);
+    return done;
+  };
+  // 要买清单的增删改：不进操作记录、不弹撤销，改完只重读清单
+  const editShopping = async (work: () => Promise<unknown>): Promise<boolean> => {
+    try { await work(); setShopping(await KitchenDB.getShopping()); return true; }
+    catch (error) { setNotice({ text: error instanceof Error ? error.message : '要买清单没改成', error: true }); return false; }
+  };
+  const suggestions = useMemo(() => shoppingSuggestions(lots, foods, events, shopping), [lots, foods, events, shopping]);
   const saveDetails = async (input: UpdateKitchenLotDetailsInput) => {
     await run(() => KitchenDB.updateLotDetails(input), '食材资料已更新', false, false);
   };
@@ -154,7 +175,7 @@ const KitchenApp: React.FC = () => {
       </button>;
     })}
   </div>;
-  const inSheet = showAdd || !!selectedLot;
+  const inSheet = showAdd || showShopping || !!selectedLot;
 
   // 首页整屏都是厨房（2026-10-11 Emma 定）：场景铺满，顶栏透明浮在画面上，底下只留一排纸签
   const stage = view === 'home' && !loading && !loadFailed;
@@ -177,7 +198,9 @@ const KitchenApp: React.FC = () => {
             {/* 常温柜不做 3D（2026-10-11）：柜子里的零食饮料速食写在冷藏门左下那张「柜子里」清单上 */}
             <Suspense fallback={<div className="kitchen-empty" role="status">正在打开冰箱…</div>}>
               <KitchenFridgeScene fullBleed lots={lots} foods={foods} events={events} onOpenLot={openLot}
-                onOpenHistory={() => setView('history')} onOpenPantry={() => openList(false, 'pantry')} onOpenList={() => openList(false)} />
+                onOpenHistory={() => setView('history')} onOpenPantry={() => openList(false, 'pantry')} onOpenList={() => openList(false)}
+                shopping={shopping} onToggleShopping={id => { void editShopping(() => KitchenDB.toggleShopping(id)); }}
+                onOpenShopping={() => { setNotice(null); setShowShopping(true); }} />
             </Suspense>
             <nav className="kitchen-stage-chips" aria-label="厨房">
               <button type="button" className="kitchen-button" aria-label="食材清单" onClick={() => openList()}>食材清单 · {activeLots.length}</button>
@@ -204,15 +227,24 @@ const KitchenApp: React.FC = () => {
           </>}
       </main>
     </div>
-    {inSheet && <KitchenSheet title={showAdd ? '放进食物' : foodById.get(selectedLot!.foodId)?.name ?? '食材'}
-      label={showAdd ? '放进食物' : '食材操作'} busy={busy} backgroundRef={background}
-      onClose={() => { setShowAdd(false); setSelectedId(null); setNotice(null); }}>
+    {inSheet && <KitchenSheet title={showAdd ? '放进食物' : showShopping ? '要买清单' : foodById.get(selectedLot!.foodId)?.name ?? '食材'}
+      label={showAdd ? '放进食物' : showShopping ? '要买清单' : '食材操作'} busy={busy} backgroundRef={background}
+      onClose={() => { setShowAdd(false); setShowShopping(false); setSelectedId(null); setNotice(null); }}>
       {notice && <p className="kitchen-inline-notice" role={notice.error ? 'alert' : 'status'}>{notice.text}</p>}
       {showAdd ? <>
         <KitchenReceiptScan busy={busy} onAdd={addReceipt} onReviewingChange={setReviewingReceipt} />
         {!reviewingReceipt && <KitchenAddForm initialZone="fridge" busy={busy} onAdd={addFood} />}
       </>
+        : showShopping ? <KitchenShoppingList items={shopping} suggestions={suggestions} busy={busy}
+          onAdd={name => editShopping(() => KitchenDB.addShopping(name))}
+          onToggle={id => { void editShopping(() => KitchenDB.toggleShopping(id)); }}
+          onRemove={id => { void editShopping(() => KitchenDB.removeShopping(id)); }}
+          onClearChecked={() => { void editShopping(() => KitchenDB.clearCheckedShopping()); }} />
         : <KitchenLotActions key={selectedLot!.id} lot={selectedLot!} busy={busy}
+          onAddShopping={() => {
+            const name = foodById.get(selectedLot!.foodId)?.name;
+            if (name) void editShopping(() => KitchenDB.addShopping(name, selectedLot!.id)).then(ok => { if (ok) setNotice({ text: `${name}加进要买清单了` }); });
+          }}
           run={(work, message, close) => run(work, message, close, close === true)} onError={text => setNotice({ text, error: true })}
           onEdit={() => { setDetailId(selectedId); setSelectedId(null); setNotice(null); }} />}
     </KitchenSheet>}

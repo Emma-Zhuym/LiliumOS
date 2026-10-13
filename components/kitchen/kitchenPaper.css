@@ -398,3 +398,17 @@ p.kitchen-note { margin: 0; padding: 0; border: 0; background: transparent; colo
 .kitchen-receipt-review-expiry { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; color: var(--k-muted); font-size: 12px; }
 /* 贴住 sheet 底：往下伸进 sheet 的底部留白里，下面的内容不会从按钮底下露出来 */
 .kitchen-receipt-review-actions { position: sticky; bottom: calc((var(--safe-bottom) + 24px) * -1); display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0 -20px calc((var(--safe-bottom) + 24px) * -1); padding: 12px 20px calc(var(--safe-bottom) + 24px); border-top: 1px solid var(--k-line); background-color: var(--k-surface); }
+
+/* 要买清单（整张）：冷冻门上那张只摆六行，这里加、删、清掉划掉的 */
+.kitchen-shopping-add { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.kitchen-shopping-suggest { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.kitchen-shopping-suggest-label { flex-basis: 100%; color: var(--k-muted); font-size: 12px; }
+.kitchen-shopping-suggest > .kitchen-button { min-height: 36px; padding: 0 12px; font-size: 13px; }
+.kitchen-shopping-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.kitchen-shopping-list > li { display: flex; align-items: center; gap: 4px; border-top: 1px solid var(--k-line); }
+.kitchen-shopping-check { display: flex; flex: 1; min-width: 0; min-height: 48px; align-items: center; gap: 12px; padding: 0; border: 0; background: transparent; color: var(--k-ink); font-size: 15px; text-align: left; }
+.kitchen-shopping-check > span { min-width: 0; overflow-wrap: anywhere; }
+.kitchen-shopping-check > small { margin-left: auto; color: var(--k-faint); font-size: 11px; }
+.kitchen-shopping-list > li.is-checked .kitchen-shopping-check { color: var(--k-faint); }
+.kitchen-shopping-list > li.is-checked .kitchen-shopping-check > span { text-decoration: line-through; }
+.kitchen-shopping-add > .kitchen-button { width: auto; padding: 0 16px; white-space: nowrap; }

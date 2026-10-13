@@ -3,10 +3,10 @@ import * as THREE from 'three';
 import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
 import { R, SP } from '../../utils/clayTokens';
 import { KITCHEN_PAPER as PAPER } from '../../utils/kitchenPaperTokens';
-import type { KitchenEvent, KitchenFood, KitchenLot } from '../../utils/kitchenDb';
+import type { KitchenEvent, KitchenFood, KitchenLot, KitchenShoppingItem } from '../../utils/kitchenDb';
 import { FRIDGE } from '../../utils/kitchenFridgeSpec';
 import { fridgeLayout } from '../../utils/kitchenFridgeLayout';
-import { heatList, latestReceipt, pantryList, stickyReminders } from '../../utils/kitchenAppearance';
+import { heatList, latestReceipt, pantryList, shoppingPaper, stickyReminders } from '../../utils/kitchenAppearance';
 import { bendPaper, buildKitchenScene, HAND_FONT, type KitchenRig } from './kitchenFridgeBuild';
 
 interface Props {
@@ -19,6 +19,9 @@ interface Props {
   /** 点「柜子里」那张纸的空白处：去看常温柜的完整清单 */
   onOpenPantry?: () => void;
   onOpenList?: () => void;
+  shopping?: KitchenShoppingItem[];
+  onToggleShopping?: (id: string) => void;
+  onOpenShopping?: () => void;
   /** 铺满整个页面（首页整屏厨房）：开门按钮只留给读屏，取景照演示 */
   fullBleed?: boolean;
 }
@@ -32,13 +35,13 @@ const CRISPER_OUT = 2.3;
  * 动效只跟着操作发生：门有一点回弹、开门时纸被风压平再掀起、磁贴拔了会吸回去、内灯闪两下再亮稳。
  * 静止时不渲染；减少动态效果时一律直接到终点。
  */
-const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenLot, onOpenHistory, onOpenPantry, onOpenList, fullBleed = false }) => {
+const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenLot, onOpenHistory, onOpenPantry, onOpenList, shopping, onToggleShopping, onOpenShopping, fullBleed = false }) => {
   const [open, setOpen] = useState<Record<Zone, boolean>>({ fridge: false, freezer: false });
   const [crisperOpen, setCrisperOpen] = useState(false);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const host = useRef<HTMLDivElement>(null);
-  const callbacks = useRef({ onOpenLot, onOpenHistory, onOpenPantry, onOpenList });
-  callbacks.current = { onOpenLot, onOpenHistory, onOpenPantry, onOpenList };
+  const callbacks = useRef({ onOpenLot, onOpenHistory, onOpenPantry, onOpenList, onToggleShopping, onOpenShopping });
+  callbacks.current = { onOpenLot, onOpenHistory, onOpenPantry, onOpenList, onToggleShopping, onOpenShopping };
   const controller = useRef<{ sync: (open: Record<Zone, boolean>, crisper: boolean) => void; fill: () => void } | null>(null);
   const stateRef = useRef({ open, crisperOpen });
   stateRef.current = { open, crisperOpen };
@@ -49,11 +52,13 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
   const receipt = useMemo(() => latestReceipt(events, foods, lots), [events, foods, lots]);
   const pantry = useMemo(() => pantryList(lots, foods), [lots, foods]);
   const heat = useMemo(() => heatList(lots, foods), [lots, foods]);
-  const contentsRef = useRef({ layout, reminders, receipt, pantry, heat });
-  contentsRef.current = { layout, reminders, receipt, pantry, heat };
+  // 没接要买清单（shopping 没传）就不贴这张
+  const shop = useMemo(() => shopping ? shoppingPaper(shopping) : null, [shopping]);
+  const contentsRef = useRef({ layout, reminders, receipt, pantry, heat, shop });
+  contentsRef.current = { layout, reminders, receipt, pantry, heat, shop };
 
   useEffect(() => { controller.current?.sync(open, crisperOpen); }, [open, crisperOpen]);
-  useEffect(() => { controller.current?.fill(); }, [layout, reminders, receipt, pantry, heat]);
+  useEffect(() => { controller.current?.fill(); }, [layout, reminders, receipt, pantry, heat, shop]);
 
   useEffect(() => {
     const maybeElement = host.current;
@@ -163,8 +168,8 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
     }
 
     const fill = () => {
-      const { layout: l, reminders: r, receipt: rc, pantry: pt, heat: ht } = contentsRef.current;
-      rig.setContents(l.entries, r, rc, pt, ht);
+      const { layout: l, reminders: r, receipt: rc, pantry: pt, heat: ht, shop: sp } = contentsRef.current;
+      rig.setContents(l.entries, r, rc, pt, ht, sp);
       if (!reduce.matches) for (const p of rig.papers) p.v += p.key === 'receipt' ? 1.2 : 0.7;   // 换上新纸时轻轻晃一下
       invalidate();
     };
@@ -225,7 +230,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
       // 纸：门转起来时空气往回压，纸被带着掀；之后自己晃几下停住
       for (const p of rig.papers) {
         if (!still) {
-          const acc = -70 * p.s - 3.4 * p.v - (p.key === 'heat' ? omega.freezer : omega.fridge) * (p.key === 'receipt' ? 0.55 : 0.32) * 9;
+          const acc = -70 * p.s - 3.4 * p.v - (p.key === 'heat' || p.key === 'shop' ? omega.freezer : omega.fridge) * (p.key === 'receipt' ? 0.55 : 0.32) * 9;
           p.v += acc * dt; p.s += p.v * dt;
           p.liftV += (-60 * (p.lift - p.liftTo) - 11 * p.liftV) * dt; p.lift += p.liftV * dt;
         } else { p.s = 0; p.v = 0; p.lift = p.liftTo; p.liftV = 0; }
@@ -300,6 +305,12 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
           if (line) callbacks.current.onOpenLot(line.lotId); else callbacks.current.onOpenPantry?.();
           return;
         }
+        // 要买清单：点哪行就划掉 / 取消；点标题、空白、「还有 N 样」打开整张清单
+        if (paper.key === 'shop') {
+          const line = paper.lines[row];
+          if (line) callbacks.current.onToggleShopping?.(line.lotId); else callbacks.current.onOpenShopping?.();
+          return;
+        }
         // 热一热就能吃：点哪行开哪样；点标题、「还有 N 样」去食材清单
         if (paper.key === 'heat') {
           const line = paper.lines[row];
@@ -366,6 +377,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
           {reminders.map(line => <li key={`r-${line.lotId}`}><button type="button" onClick={() => onOpenLot(line.lotId)}>便利贴：{line.text}</button></li>)}
           {pantry?.lines.map(line => <li key={`p-${line.lotId}`}><button type="button" onClick={() => onOpenLot(line.lotId)}>柜子里：{line.text} {line.amount}</button></li>)}
           {pantry && onOpenPantry && <li><button type="button" onClick={onOpenPantry}>看柜子里的全部</button></li>}
+          {shop && onOpenShopping && <li><button type="button" onClick={onOpenShopping}>要买清单{shop.lines.length ? `：${shop.lines.filter(line => !line.checked).map(line => line.text).join('、') || '都买了'}` : '（空的）'}</button></li>}
           {heat?.lines.map(line => <li key={`h-${line.lotId}`}><button type="button" onClick={() => onOpenLot(line.lotId)}>热一热就能吃：{line.text} {line.amount}</button></li>)}
         </ul>}
       </div>

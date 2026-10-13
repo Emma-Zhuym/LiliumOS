@@ -4427,6 +4427,7 @@ export interface FullBackupData {
     emKitchenFoods?: any[];
     emKitchenLots?: any[];
     emKitchenEvents?: any[];
+    emKitchenShopping?: any[]; // [EM: kitchen-shopping-list]
     // [EM-END: finance-backup-types]
     gotchiAccentHue?: string;  // 桌面电子宠物主题主色调偏好（tama_accent_hue，账号级 localStorage）
 }

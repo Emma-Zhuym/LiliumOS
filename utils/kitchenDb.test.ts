@@ -347,3 +347,39 @@ describe('KitchenDB inventory ledger', () => {
     expect(discarded.event.contentDelta).toBeCloseTo(-1 / 4);
   });
 });
+
+describe('要买清单', () => {
+  it('同名不重复加；打勾、取消、删、清掉划掉的；跟着备份走', async () => {
+    await KitchenDB.addShopping(' 牛奶 ');
+    await KitchenDB.addShopping('牛奶');
+    await KitchenDB.addShopping('鸡蛋');
+    let items = await KitchenDB.getShopping();
+    expect(items.map(item => item.name).sort()).toEqual(['牛奶', '鸡蛋']);
+    const egg = items.find(item => item.name === '鸡蛋')!;
+    await KitchenDB.toggleShopping(egg.id);
+    expect((await KitchenDB.getShopping()).find(item => item.id === egg.id)).toMatchObject({ checkedBy: 'hand' });
+    await KitchenDB.addShopping('鸡蛋');   // 划掉的同名重新打开
+    expect((await KitchenDB.getShopping()).find(item => item.id === egg.id)!.checkedAt).toBeUndefined();
+    await KitchenDB.toggleShopping(egg.id);
+    const backup = await KitchenDB.exportAll();
+    expect(backup.shopping).toHaveLength(2);
+    await KitchenDB.clearCheckedShopping();
+    items = await KitchenDB.getShopping();
+    expect(items.map(item => item.name)).toEqual(['牛奶']);
+    await KitchenDB.importAll(backup);
+    expect(await KitchenDB.getShopping()).toHaveLength(2);
+    await KitchenDB.removeShopping(egg.id);
+    expect((await KitchenDB.getShopping()).map(item => item.name)).toEqual(['牛奶']);
+    await expect(KitchenDB.addShopping('  ')).rejects.toThrow('要买什么');
+  });
+  it('买回来名字对上的自动划掉', async () => {
+    for (const name of ['牛奶', '葱', '米', '酸奶']) await KitchenDB.addShopping(name);
+    expect(await KitchenDB.markShoppingBought(['有机全脂牛奶', '小葱', '玉米'])).toBe(2);
+    const items = await KitchenDB.getShopping();
+    const by = (name: string) => items.find(item => item.name === name)!;
+    expect(by('牛奶')).toMatchObject({ checkedBy: 'bought' });
+    expect(by('葱').checkedBy).toBe('bought');
+    expect(by('米').checkedAt).toBeUndefined();
+    expect(by('酸奶').checkedAt).toBeUndefined();
+  });
+});

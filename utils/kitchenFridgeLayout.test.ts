@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { KitchenEvent, KitchenFood, KitchenLot } from './kitchenDb';
+import type { KitchenEvent, KitchenFood, KitchenLot, KitchenShoppingItem } from './kitchenDb';
 import { eggVisibleCount, fridgeLayout, LOOK_SIZE } from './kitchenFridgeLayout';
 import { FRIDGE, SHELF_WIDTH } from './kitchenFridgeSpec';
-import { heatList, kitchenLookFor, latestReceipt, pantryList, produceTint, shoppingTrips, stickyReminders, tapeLabel } from './kitchenAppearance';
+import { heatList, kitchenLookFor, shoppingPaper, shoppingSuggestions, latestReceipt, pantryList, produceTint, shoppingTrips, stickyReminders, tapeLabel } from './kitchenAppearance';
 
 const lot = (index: number, extra: Partial<KitchenLot> = {}): KitchenLot => ({
   id: `lot-${index}`, foodId: `food-${index}`, createdAt: index, updatedAt: index,
@@ -126,6 +126,32 @@ describe('门上的纸', () => {
     expect(list.lines.map(line => `${line.text} ${line.amount}`)).toEqual(['咖喱饭 今天吃', '一盒剩的 明天前', '番茄炖牛腩 冷藏', 'Frozen pizza 冷冻', '速冻饺子 冷冻']);
     expect(list.more).toBe(0);
     expect(heatList([lot(0, { storageZone: 'freezer' })], [food(0, '冷冻牛肉')], now)).toBeNull();
+  });
+  it('要买清单：没划的在前，划掉的留两天；空着也贴', () => {
+    const item = (i: number, extra: Partial<KitchenShoppingItem> = {}): KitchenShoppingItem => ({ id: `s${i}`, name: `东西${i}`, normalizedName: `东西${i}`, createdAt: i, updatedAt: i, ...extra });
+    const paper = shoppingPaper([
+      item(3), item(1), item(2, { checkedAt: now - 3_600_000 }), item(4, { checkedAt: now - 3 * 86_400_000 }),
+      ...Array.from({ length: 6 }, (_, i) => item(10 + i)),
+    ], now);
+    expect(paper.lines.map(line => line.text)).toEqual(['东西1', '东西3', '东西10', '东西11', '东西12', '东西13']);
+    expect(paper.more).toBe(2);
+    expect(shoppingPaper([item(1), item(2, { checkedAt: now - 1000 })], now).lines).toEqual([
+      { id: 's1', text: '东西1', checked: false }, { id: 's2', text: '东西2', checked: true },
+    ]);
+    expect(shoppingPaper([], now)).toEqual({ lines: [], more: 0 });
+  });
+  it('建议加上：快用完的、两周内用完又没再买的；清单上有的、自己做的菜不建议', () => {
+    const lots = [
+      lot(0, { trackingMode: 'divisible', quantity: 1, openContainerRemaining: 0.1 }),
+      lot(1, { quantity: 0, updatedAt: now - 86_400_000 }),
+      lot(2, { quantity: 0, updatedAt: now - 30 * 86_400_000 }),
+      lot(3, { quantity: 0, updatedAt: now - 1000 }),
+      lot(4, { quantity: 0, updatedAt: now - 1000, foodId: 'food-5' }), lot(5),
+      lot(6, { quantity: 0, updatedAt: now - 1000 }),
+    ];
+    const foods = ['牛奶', '酸奶', '黄油', '咖喱饭', '面包', '面包', '鸡蛋'].map((name, i) => food(i, name));
+    const listed = [{ id: 'x', name: '鸡蛋', normalizedName: '鸡蛋', createdAt: 0, updatedAt: 0 }];
+    expect(shoppingSuggestions(lots, foods, [], listed, now)).toEqual(['牛奶', '酸奶']);
   });
   it('柜子里：只列常温柜里还有的，最近动过的在前，最多六样，多的写还有几样', () => {
     const lots = Array.from({ length: 8 }, (_, i) => lot(i, { storageZone: 'pantry', unit: 'bag', quantity: i + 1, updatedAt: i }));

@@ -5,8 +5,8 @@
  * 不逐个建模：包装食品用几种通用容器 + 现写的标签；剩菜和认不出的东西进保鲜盒、盖上贴手写胶带；
  * 散装蔬果放进磨砂抽屉，只显示色块。
  */
-import type { KitchenEvent, KitchenFood, KitchenLot } from './kitchenDb';
-import { hasKitchenEventChange } from './kitchenDb';
+import type { KitchenEvent, KitchenFood, KitchenLot, KitchenShoppingItem } from './kitchenDb';
+import { hasKitchenEventChange, shoppingMatches } from './kitchenDb';
 import { formatEventAmount, formatQuantity } from './kitchenPresentation';
 
 export type KitchenLook = 'carton' | 'eggs' | 'bottle' | 'jar' | 'box' | 'produce' | 'tray' | 'bag';
@@ -199,6 +199,40 @@ export function heatList(lots: KitchenLot[], foods: KitchenFood[], now = Date.no
     return { lotId: lot.id, text: name, amount };
   });
   return { lines, more: ready.length - lines.length };
+}
+
+export interface ShoppingLine { id: string; text: string; checked: boolean }
+export interface ShoppingPaper { lines: ShoppingLine[]; more: number }
+
+/**
+ * 冷冻门右半边的要买清单：没划掉的在前（先写的先列），划掉的留两天、排在后面。
+ * 最多六行，多的写「还有 N 样」；一样都没有也贴着（写「点这里写」），它是加东西的入口。
+ */
+export function shoppingPaper(items: KitchenShoppingItem[], now = Date.now(), limit = 6): ShoppingPaper {
+  const open = items.filter(item => !item.checkedAt).sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+  const done = items.filter(item => item.checkedAt && now - item.checkedAt < 2 * DAY).sort((a, b) => b.checkedAt! - a.checkedAt!);
+  const all = [...open, ...done];
+  const lines = all.slice(0, limit).map(item => ({ id: item.id, text: item.name, checked: !!item.checkedAt }));
+  return { lines, more: open.length - lines.filter(line => !line.checked).length };
+}
+
+/**
+ * 要买清单里「要不要加上」的建议：快用完的（便利贴上那种）、最近两周用完了又没再买的。
+ * 清单上已经有的不再建议。
+ */
+export function shoppingSuggestions(lots: KitchenLot[], foods: KitchenFood[], events: KitchenEvent[], items: KitchenShoppingItem[], now = Date.now(), limit = 6): string[] {
+  const names = new Map(foods.map(food => [food.id, food.name]));
+  const onList = (name: string) => items.some(item => !item.checkedAt && shoppingMatches(item.name, name));
+  const stocked = new Set(lots.filter(lot => lot.quantity > 0).map(lot => lot.foodId));
+  const result: string[] = [];
+  const push = (name: string | undefined) => { if (name && !onList(name) && !result.includes(name)) result.push(name); };
+  for (const line of stickyReminders(lots, foods, events, now, 20)) {
+    if (/快用完了|只剩一个/.test(line.text)) push(names.get(lots.find(lot => lot.id === line.lotId)?.foodId ?? ''));
+  }
+  lots.filter(lot => lot.quantity <= 0 && !stocked.has(lot.foodId) && now - lot.updatedAt < 14 * DAY)
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+    .forEach(lot => { if (!isDish(names.get(lot.foodId) ?? '', lot.foodState)) push(names.get(lot.foodId)); });
+  return result.slice(0, limit);
 }
 
 export interface PantryList { lines: (DoorNoteLine & { amount: string })[]; more: number }

@@ -15,7 +15,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { FRIDGE } from '../../utils/kitchenFridgeSpec';
 import { eggVisibleCount, LOOK_SIZE, type FridgeEntry } from '../../utils/kitchenFridgeLayout';
-import { produceTint, tapeLabel, type DoorNoteLine, type DoorReceipt, type HeatList, type PantryList } from '../../utils/kitchenAppearance';
+import { produceTint, tapeLabel, type DoorNoteLine, type DoorReceipt, type HeatList, type PantryList, type ShoppingPaper } from '../../utils/kitchenAppearance';
 
 const { width: W, depth: D, height: H, doorThickness: T } = FRIDGE;
 export const HAND_FONT = '"Long Cang", "Kaiti SC", "STKaiti", "KaiTi", cursive';
@@ -94,7 +94,8 @@ const tornTape = (ctx: CanvasRenderingContext2D, rnd: () => number, w: number, h
 
 /* ── 门上的纸：薄面片，顶点实时弯曲 ── */
 export interface DoorPaper {
-  key: 'sticky' | 'receipt' | 'pantry' | 'heat';
+  key: 'sticky' | 'receipt' | 'pantry' | 'heat' | 'shop';
+  /** 要买清单这张：lines 的 lotId 放的是清单那一行的 id */
   mesh: THREE.Mesh;
   w: number; h: number; curl: number; cup: number; glue: number;
   base: Float32Array;
@@ -133,7 +134,7 @@ export interface KitchenRig {
   /** 每个能点的食物（lotId 挂在 userData 上） */
   items: THREE.Object3D[];
   pickables: THREE.Object3D[];
-  setContents: (entries: FridgeEntry[], reminders: DoorNoteLine[], receipt: DoorReceipt | null, pantry: PantryList | null, heat: HeatList | null) => void;
+  setContents: (entries: FridgeEntry[], reminders: DoorNoteLine[], receipt: DoorReceipt | null, pantry: PantryList | null, heat: HeatList | null, shop: ShoppingPaper | null) => void;
   dispose: () => void;
 }
 
@@ -321,7 +322,7 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
     setContents: () => {}, dispose: () => {},
   };
 
-  const setContents = (entries: FridgeEntry[], reminders: DoorNoteLine[], receipt: DoorReceipt | null, pantry: PantryList | null, heat: HeatList | null) => {
+  const setContents = (entries: FridgeEntry[], reminders: DoorNoteLine[], receipt: DoorReceipt | null, pantry: PantryList | null, heat: HeatList | null, shop: ShoppingPaper | null) => {
     // 换掉上一批：从各自的父级摘下来，再释放
     for (const o of [...rig.items, ...rig.papers.map(p => p.mesh), ...rig.magnets.map(m => m.group)]) o.parent?.remove(o);
     scene.remove(contents); contentBin.dispose();
@@ -554,6 +555,50 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
       const magnet = part(new THREE.CylinderGeometry(0.36, 0.4, 0.22, 40), cmat(new THREE.MeshPhysicalMaterial({ color: '#c4703f', roughness: 0.32, clearcoat: 1, clearcoatRoughness: 0.1 })), g);
       magnet.rotation.x = Math.PI / 2; magnet.position.z = 0.11; magnet.userData.magnet = 'orange';
       rig.magnets.push({ key: 'orange', group: g, paper: heatPaper, z: 0, v: 0, to: 0, released: false, snapArmed: false });
+    }
+    // 要买清单：冷冻门右半边一条窄的热敏纸，每行前面一个小方框；划掉的打勾、字上一道线。
+    // 空着也贴（写「点这里写」），它是加东西的入口。深灰圆磁贴压右上角（压中间会挡住标题）
+    if (shop) {
+      const rows = Math.max(1, shop.lines.length) + (shop.more > 0 ? 1 : 0);
+      const W0 = 340, TOP = 112, ROW = 58, texH = TOP + rows * ROW + 40;
+      const pw = 2.3, ph = pw * texH / W0;
+      const shopTex = ctex(W0, texH, (x, w, h) => {
+        x.clearRect(0, 0, w, h);
+        x.save(); x.beginPath(); x.moveTo(0, 0); x.lineTo(w, 0); x.lineTo(w, h - 16);
+        for (let px = w; px > 0; px -= 14) { x.lineTo(px - 7, h - (cr() < 0.5 ? 2 : 12)); x.lineTo(px - 14, h - 16 + cr() * 5); }
+        x.closePath(); x.clip();
+        fibers(x, cr, w, h, '#f6f6f2', '150,150,140');
+        const ink = '#383b3a';
+        x.fillStyle = ink; x.globalAlpha = 0.86; x.font = `600 30px ${SANS}`; x.textAlign = 'center'; x.fillText('要买的', w / 2, 70);
+        x.fillStyle = 'rgba(56,59,58,0.5)'; for (let px = 20; px < w - 20; px += 13) x.fillRect(px, 92, 7, 2);
+        x.globalAlpha = 1; x.textAlign = 'left';
+        if (!shop.lines.length) handLine(x, cr, '点这里写', 32, TOP + 34, 36, '#8a8f8c');
+        shop.lines.forEach((line, i) => {
+          const y = TOP + i * ROW + 34;
+          x.strokeStyle = ink; x.lineWidth = 2.6; x.globalAlpha = 0.8; x.strokeRect(22, y - 27, 27, 27);
+          let name = line.text; x.font = `400 31px ${SANS}`;
+          while (x.measureText(name).width > w - 90 && name.length > 1) name = name.slice(0, -1);
+          const text = name === line.text ? name : `${name}…`;
+          x.globalAlpha = line.checked ? 0.4 : 0.88; x.fillStyle = ink; x.fillText(text, 62, y);
+          x.globalAlpha = 1;
+          if (line.checked) {   // 手写的勾和划线
+            x.strokeStyle = '#2e4a5e'; x.lineWidth = 3.2; x.lineCap = 'round';
+            x.beginPath(); x.moveTo(25, y - 15); x.lineTo(34, y - 4); x.lineTo(54, y - 34); x.stroke();
+            const tw = x.measureText(text).width;
+            x.beginPath(); x.moveTo(58, y - 11 + cr() * 2); x.quadraticCurveTo(62 + tw / 2, y - 14 + cr() * 4, 66 + tw, y - 11 + cr() * 2); x.stroke();
+          }
+        });
+        x.globalAlpha = 1;
+        if (shop.more > 0) { x.fillStyle = '#6b706d'; x.font = `400 22px ${SANS}`; x.fillText(`还有 ${shop.more} 样`, 62, TOP + shop.lines.length * ROW + 30); }
+        x.restore();
+      });
+      const top = 1.0, at: [number, number] = [4.7, top - ph / 2];
+      const shopPaper = makePaper('shop', pw, ph, 10, Math.max(12, Math.round(ph * 7)), shopTex, at, 0.03, 0.26, 0.1, 0.08,
+        shop.lines.map(line => ({ text: line.text, lotId: line.id })), { top: TOP - 10, height: ROW, texH }, freezerHinge);
+      const g = new THREE.Group(); g.position.set(at[0] + pw / 2 - 0.28, top - 0.1, FRONT + 0.02); freezerHinge.add(g);
+      const magnet = part(new THREE.CylinderGeometry(0.34, 0.38, 0.22, 40), cmat(new THREE.MeshPhysicalMaterial({ color: '#3d4a52', roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.1 })), g);
+      magnet.rotation.x = Math.PI / 2; magnet.position.z = 0.11; magnet.userData.magnet = 'grey';
+      rig.magnets.push({ key: 'grey', group: g, paper: shopPaper, z: 0, v: 0, to: 0, released: false, snapArmed: false });
     }
     rig.pickables = [...rig.items, ...rig.papers.map(p => p.mesh), ...rig.magnets.map(m => m.group), fridgeHinge, freezerHinge, crisper];
   };
