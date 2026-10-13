@@ -290,6 +290,13 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - GitHub 备份 401 的报错直接写怎么修（`utils/githubClient.ts` 的 `GITHUB_TOKEN_FIX_HINT`，`[EM: github-401-hint]`）：token 创建页默认 90 天过期，阿萌踩过「老是 401」
 - 根目录 `manifest.json`（`start_url: "/"`）没有被引用；实际生效的是 `public/manifest.webmanifest`（`./` 相对路径，在 `/LiliumOS/` 下解析正确）
 
+### 33. GitHub 备份网页直连走 Git 数据接口
+- 根因（2026-10-12 实测）：`uploads.github.com` 不回浏览器跨域预检（OPTIONS 400、无 CORS 头），Release 附件**网页直连永远传不上**；`api.github.com` 放行。2026-09-12 上游把中转改成默认关闭后，网页 GitHub 备份一直失败。Cloudflare 中转到 GitHub 实测约 4 成 522，也不可靠
+- `utils/githubGitBackup.ts`：每片 24 MB 建 blob → 一棵树 + `manifest.json` → **无父提交**的孤立提交 → 最后建分支 `refs/heads/sully-backups/<文件名>`。中途失败不建分支、不留半截；删分支即删备份，不会堆进历史
+- `utils/githubClient.ts` 只有 `[EM-START/EM: github-git-backup]` 几处接线：网页 + 没开中转时上传改走它（`shouldUseGitDataUpload`）；列表合并两种备份；`href` 以 `git:` 开头的恢复 / 删除走它。原生 App、开中转仍走 Release；旧 Release 备份照样能列、能恢复
+- 请求统一借 `ghRequest`（`gitBackupContext`），所以三种线路都能列 / 恢复 / 删这种备份；报错沿用 `describeGithubHttpError`
+- 测试里「GitHub 事务式上传」那组用 `vi.spyOn(gitBackup, 'shouldUseGitDataUpload')` 固定在 Release 路径，别删
+
 ## 合并时常见坑（踩过的 bug）
 
 ### PhoneShell.tsx — messageSubView 必须解构

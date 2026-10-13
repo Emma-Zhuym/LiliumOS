@@ -20,6 +20,17 @@ import { Capacitor, CapacitorHttp } from '@capacitor/core';
 
 import { CloudBackupConfig, CloudBackupFile } from '../types';
 import { getProxyWorkerUrl } from './proxyWorker';
+// [EM-START: github-git-backup] 网页直连传不了附件（uploads.github.com 不回跨域预检），改走 Git 数据接口
+import {
+    deleteGitBackup,
+    downloadGitBackup,
+    isGitBackupHref,
+    listGitBackups,
+    shouldUseGitDataUpload,
+    uploadGitBackup,
+    type GitBackupContext,
+} from './githubGitBackup';
+// [EM-END: github-git-backup]
 
 const API_HOST = 'https://api.github.com';
 const UPLOAD_HOST = 'https://uploads.github.com';
@@ -331,6 +342,16 @@ const ghRequest = async (
         arrayBuffer: (onProgress) => readResponseArrayBuffer(res, onProgress),
     };
 };
+
+// [EM-START: github-git-backup]
+const gitBackupContext = (config: CloudBackupConfig): GitBackupContext => ({
+    owner: config.githubOwner!,
+    repo: repoName(config),
+    token: config.githubToken!,
+    request: (url, method, opts = {}) => ghRequest(config, url, method, opts),
+    describeError: describeGithubHttpError,
+});
+// [EM-END: github-git-backup]
 
 const repoName = (config: CloudBackupConfig): string =>
     (config.githubRepo || DEFAULT_REPO).trim();
@@ -686,6 +707,9 @@ export const uploadBackup = async (
     const owner = config.githubOwner;
     const repo = repoName(config);
     if (!token || !owner) return { ok: false, message: '未连接 GitHub' };
+    if (shouldUseGitDataUpload(shouldUseGithubProxy(config), isNative())) { // [EM: github-git-backup]
+        return uploadGitBackup(gitBackupContext(config), blob, filename, onProgress);
+    }
 
     let releaseId = 0;
     let tag = '';
@@ -960,6 +984,7 @@ export const listBackups = async (config: CloudBackupConfig): Promise<CloudBacku
                 });
             }
         }
+        files.push(...await listGitBackups(gitBackupContext(config))); // [EM: github-git-backup]
         files.sort((a, b) => String(b.lastModified || '').localeCompare(String(a.lastModified || '')));
         return files;
     } catch (error: any) {
@@ -1043,6 +1068,7 @@ export const downloadBackup = async (
     if (file.status === 'incomplete') {
         throw new Error(file.statusMessage || '这个 GitHub 备份上传未完成，不能恢复。');
     }
+    if (isGitBackupHref(file.href)) return downloadGitBackup(gitBackupContext(config), file, onProgress); // [EM: github-git-backup]
 
     const [, idsStr] = file.href.split(':');
     const assetIds = (idsStr || '').split(',').map(s => Number(s)).filter(n => n > 0);
@@ -1100,6 +1126,7 @@ export const deleteBackup = async (
     const owner = config.githubOwner;
     const repo = repoName(config);
     if (!token || !owner) return false;
+    if (isGitBackupHref(file.href)) return deleteGitBackup(gitBackupContext(config), file); // [EM: github-git-backup]
 
     const [releaseIdStr] = file.href.split(':');
     const releaseId = Number(releaseIdStr);
