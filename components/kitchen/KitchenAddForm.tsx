@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import type { AddKitchenLotInput, KitchenStorageZone, KitchenTrackingMode, KitchenUnit } from '../../utils/kitchenDb';
 import { STORAGE_UNIT_OPTIONS, UNIT_LABELS, ZONE_LABELS } from '../../utils/kitchenPresentation';
 import { looksLikeDish } from '../../utils/kitchenDishNames';
+import { guessPantryKind, PANTRY_KIND_LABELS, type PantryKind } from '../../utils/kitchenAppearance';
 
 interface Props {
   initialZone: KitchenStorageZone;
@@ -20,10 +21,12 @@ export default function KitchenAddForm({ initialZone, busy, onAdd }: Props) {
   // 「自己做的」：没动过这个勾就跟着名字猜（番茄炖牛腩打上、沙拉酱不打），动过就听人的
   const [homemade, setHomemade] = useState<boolean | null>(null);
   const isHomemade = homemade ?? looksLikeDish(name);
+  // 放常温柜时算哪段：没选就按名字猜（存的时候不写，以后改名也跟着猜）
+  const [pantryKind, setPantryKind] = useState<PantryKind | ''>('');
 
   return <form className="kitchen-form" onSubmit={event => {
     event.preventDefault();
-    void onAdd({ name, quantity: Number(quantity), unit, storageZone: zone, trackingMode, packageSize, expiresAt, foodState: isHomemade ? 'prepared' : 'raw' });
+    void onAdd({ name, quantity: Number(quantity), unit, storageZone: zone, trackingMode, packageSize, expiresAt, foodState: isHomemade ? 'prepared' : 'raw', pantryKind: zone === 'pantry' && pantryKind ? pantryKind : undefined });
   }}>
     <p className="kitchen-note">买回来的，慢慢放好。</p>
     <label className="kitchen-label">是什么食物？
@@ -52,6 +55,13 @@ export default function KitchenAddForm({ initialZone, busy, onAdd }: Props) {
         {Object.entries(ZONE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
       </select>
     </label>
+    {zone === 'pantry' && <label className="kitchen-label">柜子里算
+      <select className="kitchen-field" aria-label="柜子里算哪类" value={pantryKind} disabled={busy}
+        onChange={event => setPantryKind(event.target.value as PantryKind | '')}>
+        <option value="">按名字猜 · {PANTRY_KIND_LABELS[guessPantryKind(name)]}</option>
+        {(Object.keys(PANTRY_KIND_LABELS) as PantryKind[]).map(kind => <option key={kind} value={kind}>{PANTRY_KIND_LABELS[kind]}{kind === 'staple' ? '（不上柜子清单）' : ''}</option>)}
+      </select>
+    </label>}
     <details className="kitchen-form-details">
       <summary>包装与用量 <span>选填</span></summary>
       <label className="kitchen-label">平时怎么用

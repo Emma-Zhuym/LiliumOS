@@ -687,8 +687,9 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
     }
     // 柜子里：从本子上撕下来的横线纸，贴在冷藏门左边、跟小票一样高（2026-10-14），绿色方磁贴压住右上角。空着也贴
     {
-      const pantry: PantryList = pantryIn ?? { lines: [], more: 0 };
-      const rows = Math.max(1, pantry.lines.length) + (pantry.more > 0 ? 1 : 0);
+      const pantry: PantryList = pantryIn ?? { lines: [], rows: [], more: 0 };
+      // 分段（速食 / 零食 / 饮料）：段标题占一行，字小一点、淡一点
+      const rows = Math.max(1, pantry.rows.length) + (pantry.more > 0 ? 1 : 0);
       const W0 = 448, TOP = 104, ROW = 54, texH = TOP + rows * ROW + 34;
       const pw = 2.6 * FRIDGE_PAPER, ph = pw * texH / W0;
       const listTex = ctex(W0, texH, (x, w, h) => {
@@ -700,16 +701,18 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
         x.fillStyle = 'rgba(66,100,121,0.22)'; for (let y = TOP + ROW - 10; y < h - 10; y += ROW) x.fillRect(0, y, w, 2);
         handLine(x, cr, '柜子里', 34, 82, 50, '#2e4a5e');
         if (!pantry.lines.length) handLine(x, cr, '空的', 40, TOP + 34, 40, '#7d93a2');
-        pantry.lines.forEach((line, i) => {
+        pantry.rows.forEach((row, i) => {
           const y = TOP + i * ROW + 34;
-          handLine(x, cr, line.text, 40, y, 40, '#2e4a5e', w - 170);
-          x.font = `30px ${HAND_FONT}`; x.fillStyle = '#5a7486'; x.textAlign = 'right'; x.fillText(line.amount, w - 30, y); x.textAlign = 'left';
+          if ('head' in row) { handLine(x, cr, `· ${row.head}`, 30, y, 33, '#6b8495'); return; }
+          handLine(x, cr, row.line.text, 52, y, 40, '#2e4a5e', w - 182);
+          x.font = `30px ${HAND_FONT}`; x.fillStyle = '#5a7486'; x.textAlign = 'right'; x.fillText(row.line.amount, w - 30, y); x.textAlign = 'left';
         });
-        if (pantry.more > 0) handLine(x, cr, `还有 ${pantry.more} 样`, 40, TOP + pantry.lines.length * ROW + 34, 34, '#5a7486');
+        if (pantry.more > 0) handLine(x, cr, `还有 ${pantry.more} 样`, 40, TOP + pantry.rows.length * ROW + 34, 34, '#5a7486');
         x.restore();
       });
       const top = 4.75, at: [number, number] = [1.85, top - ph / 2];
-      const listPaper = makePaper('pantry', pw, ph, 14, Math.max(14, Math.round(ph * 6)), listTex, at, 0.06, 0.1, 0.03, 0.12, pantry.lines, { top: TOP - 8, height: ROW, texH });   // 点按区以字为中心（字写在每行上半截）
+      const listPaper = makePaper('pantry', pw, ph, 14, Math.max(14, Math.round(ph * 6)), listTex, at, 0.06, 0.1, 0.03, 0.12,
+        pantry.rows.map(row => 'line' in row ? row.line : { text: '', lotId: '' }), { top: TOP - 8, height: ROW, texH });   // 段标题那行点了去看整张清单   // 点按区以字为中心（字写在每行上半截）
       const g = new THREE.Group(); g.position.set(at[0] + 0.85 * FRIDGE_PAPER, top - 0.16, FRONT + 0.02); fridgeHinge.add(g);
       const magnet = part(new RoundedBoxGeometry(0.9, 0.62, 0.26, 3, 0.1), cmat(new THREE.MeshPhysicalMaterial({ color: '#5f8a5c', roughness: 0.35, clearcoat: 0.9, clearcoatRoughness: 0.12 })), g);
       magnet.position.z = 0.13; magnet.userData.magnet = 'green';

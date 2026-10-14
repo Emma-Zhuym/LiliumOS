@@ -3,7 +3,7 @@ import type { KitchenEvent, KitchenFood, KitchenLot, KitchenShoppingItem } from 
 import { eggVisibleCount, fridgeLayout, LOOK_SIZE } from './kitchenFridgeLayout';
 import { FRIDGE, SHELF_WIDTH } from './kitchenFridgeSpec';
 import { looksLikeDish } from './kitchenDishNames';
-import { heatList, isLongKeeping, kitchenLookFor, lastedText, shoppingPaper, shoppingSuggestions, latestReceipt, pantryList, produceTint, shoppingTrips, stickyReminders, tapeLabel } from './kitchenAppearance';
+import { guessPantryKind, heatList, isLongKeeping, kitchenLookFor, lastedText, shoppingPaper, shoppingSuggestions, latestReceipt, pantryList, produceTint, shoppingTrips, stickyReminders, tapeLabel } from './kitchenAppearance';
 
 const lot = (index: number, extra: Partial<KitchenLot> = {}): KitchenLot => ({
   id: `lot-${index}`, foodId: `food-${index}`, createdAt: index, updatedAt: index,
@@ -157,17 +157,25 @@ describe('门上的纸', () => {
     const undone: KitchenEvent = { id: 'e7', operationId: 'o7', type: 'ADD', lotId: 'lot-7', foodId: 'food-7', quantityDelta: 1, quantityBefore: 0, quantityAfter: 1, unit: 'item', occurredAt: now - 2000, undoneAt: now - 1000 };
     expect(shoppingSuggestions(lots, foods, [undone], listed, now)).toEqual(['牛奶', '酸奶']);
   });
-  it('柜子里：只列常温柜里还有的，最近动过的在前，最多六样，多的写还有几样', () => {
-    const lots = Array.from({ length: 8 }, (_, i) => lot(i, { storageZone: 'pantry', unit: 'bag', quantity: i + 1, updatedAt: i }));
-    lots.push(lot(8, { storageZone: 'fridge' }), lot(9, { storageZone: 'pantry', quantity: 0, updatedAt: 99 }));
-    lots.push(lot(10, { storageZone: 'pantry', trackingMode: 'divisible', quantity: 1, openContainerRemaining: 0.5, updatedAt: 50 }));
-    const foods = Array.from({ length: 11 }, (_, i) => food(i, `零食${i}`));
+  it('柜子里：只列常温柜里还有的，分速食 / 零食 / 饮料，米面油调料不上；最多六样，多的写还有几样', () => {
+    const names = ['薯片', '方便面', '可乐', '大米', '酱油', '牛肉干', '燕麦片', '气泡水', '饼干', '巧克力', '料酒'];
+    const lots = names.map((_, i) => lot(i, { storageZone: 'pantry', unit: 'bag', quantity: 1, updatedAt: 100 - i }));
+    lots.push(lot(11, { storageZone: 'fridge' }), lot(12, { storageZone: 'pantry', quantity: 0, updatedAt: 999 }));
+    lots[8] = { ...lots[8], pantryKind: 'ready' };   // 饼干手动改成速食
+    const foods = [...names, '冰箱里的', '吃完的'].map((name, i) => food(i, name));
     const list = pantryList(lots, foods)!;
-    expect(list.lines.map(line => line.text)).toEqual(['零食10', '零食7', '零食6', '零食5', '零食4', '零食3']);
-    expect(list.lines[0].amount).toBe('开封');
-    expect(list.lines[1].amount).toBe('8 袋');
-    expect(list.more).toBe(3);
+    const rows = list.rows.map(row => 'head' in row ? `[${row.head}]` : row.line.text);
+    expect(rows).toEqual(['[速食]', '方便面', '燕麦片', '[零食]', '薯片', '牛肉干', '[饮料]', '可乐', '气泡水']);
+    expect(list.lines).toHaveLength(6);
+    expect(list.more).toBe(2);   // 饼干、巧克力；大米、酱油、料酒不算
+    expect(pantryList([lot(0, { storageZone: 'pantry' })], [food(0, '大米')])).toBeNull();
     expect(pantryList([lot(0)], [])).toBeNull();
+  });
+  it('柜子里按名字分段：先认调料（料酒不算酒）', () => {
+    expect(['料酒', '酱油', '橄榄油', '大米', '面粉'].map(guessPantryKind)).toEqual(['staple', 'staple', 'staple', 'staple', 'staple']);
+    expect(['可乐', '矿泉水', '咖啡', '啤酒', '乌龙茶'].map(guessPantryKind)).toEqual(['drink', 'drink', 'drink', 'drink', 'drink']);
+    expect(['方便面', '自热火锅', '午餐肉罐头', '燕麦片'].map(guessPantryKind)).toEqual(['ready', 'ready', 'ready', 'ready']);
+    expect(['薯片', '饼干', '糖果', '坚果'].map(guessPantryKind)).toEqual(['snack', 'snack', 'snack', 'snack']);
   });
 });
 

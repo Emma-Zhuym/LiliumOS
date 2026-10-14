@@ -53,6 +53,8 @@ export interface KitchenLot {
   packageSize?: string;
   purchasedAt?: string;
   expiresAt?: string;
+  /** 放常温柜的算哪段（速食 / 零食 / 饮料 / 米面油调料）；不填按名字猜，见 kitchenAppearance.pantryKindOf */
+  pantryKind?: 'ready' | 'snack' | 'drink' | 'staple';
   createdAt: number;
   updatedAt: number;
 }
@@ -155,6 +157,8 @@ export interface AddKitchenLotInput {
   operationId?: string;
   /** 做好的菜放进冰箱时是 prepared；不填就是买来的生食材 */
   foodState?: KitchenLot['foodState'];
+  /** 放常温柜时手动选的段；不填按名字猜 */
+  pantryKind?: KitchenLot['pantryKind'];
 }
 
 export type ChangeKitchenLotInput =
@@ -183,6 +187,8 @@ export interface UpdateKitchenLotDetailsInput {
   expiresAt?: string;
   /** 是不是自己做的菜（按名字猜错了在这里改）；不传就不动 */
   foodState?: KitchenLot['foodState'];
+  /** 柜子里算哪段；null = 改回按名字猜，不传就不动 */
+  pantryKind?: KitchenLot['pantryKind'] | null;
 }
 
 export interface KitchenOperationResult {
@@ -351,6 +357,7 @@ async function putNewLot(
     foodState: input.foodState ?? 'raw',
     trackingMode: input.trackingMode ?? 'count',
     packageSize: input.packageSize?.trim() || undefined,
+    ...(input.pantryKind ? { pantryKind: input.pantryKind } : {}),
     purchasedAt: input.purchasedAt,
     expiresAt: input.expiresAt,
     createdAt: now,
@@ -779,7 +786,9 @@ async function updateLotDetails(input: UpdateKitchenLotDetailsInput): Promise<Ki
     }
 
     const foodState = input.foodState ?? currentLot.foodState;
+    const pantryKind = input.pantryKind === undefined ? currentLot.pantryKind : input.pantryKind ?? undefined;
     const lotUnchanged = currentLot.foodState === foodState
+      && currentLot.pantryKind === pantryKind
       && currentLot.unit === input.unit
       && currentLot.storageZone === input.storageZone
       && currentLot.packageSize === packageSize
@@ -796,6 +805,7 @@ async function updateLotDetails(input: UpdateKitchenLotDetailsInput): Promise<Ki
       unit: input.unit,
       storageZone: input.storageZone,
       foodState,
+      pantryKind,
       fridgePlacement: input.storageZone === currentLot.storageZone ? currentLot.fridgePlacement : undefined,
       packageSize,
       purchasedAt,

@@ -33,7 +33,7 @@ type Zone = 'fridge' | 'freezer';
  * 画布却不会替它下——没下的那片 iPhone 上就画成方块（2026-10-14 阿萌：贴纸老冒方块）。
  * 所以画之前把这次要写的字（加上纸上固定的那些）每种字体都先下好，最多等 2.5 秒。
  */
-const PAPER_WORDS = '柜子里热一热就能吃还有样要买的点这里写慢吃小厨房采购放好了吃完丢了当天周个月今天明天后天前到期过期冷藏冷冻开封只剩一个快用完0123456789-/:·+.';
+const PAPER_WORDS = '速食零食饮料柜子里热一热就能吃还有样要买的点这里写慢吃小厨房采购放好了吃完丢了当天周个月今天明天后天前到期过期冷藏冷冻开封只剩一个快用完0123456789-/:·+.';
 const PAPER_FONTS = [`60px ${HAND_FONT}`, `600 46px ${SERIF}`, `400 24px ${SANS}`, `500 24px ${SANS}`, `600 30px ${SANS}`];
 const loadGlyphs = (text: string) => {
   const chars = [...new Set(text + PAPER_WORDS)].join('');
@@ -464,7 +464,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
         paper.v += reduce.matches ? 0 : 1.2; invalidate();
         if (paper.key === 'pantry') {
           const line = paper.lines[row];
-          if (line) callbacks.current.onOpenLot(line.lotId); else callbacks.current.onOpenPantry?.();
+          if (line?.lotId) callbacks.current.onOpenLot(line.lotId); else callbacks.current.onOpenPantry?.();
           return;
         }
         // 要买清单：点哪行就划掉 / 取消；点标题、空白、「还有 N 样」打开整张清单

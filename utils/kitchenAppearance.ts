@@ -307,22 +307,51 @@ export function shoppingSuggestions(lots: KitchenLot[], foods: KitchenFood[], ev
   return result.slice(0, limit);
 }
 
-export interface PantryList { lines: (DoorNoteLine & { amount: string })[]; more: number }
+/**
+ * 柜子里分几段（阿萌 2026-10-14）：速食、零食、饮料；米面油和酱料调料不上这张纸（要买她自己写，
+ * 拍小票进来照旧在「慢慢吃」）。按名字猜，猜错了批次上记 pantryKind 改过来。顺序有意义：先认调料，
+ * 免得「料酒」被当成酒、「糖醋汁」被当成糖。
+ */
+export type PantryKind = 'ready' | 'snack' | 'drink' | 'staple';
+export const PANTRY_KIND_LABELS: Record<PantryKind, string> = { ready: '速食', snack: '零食', drink: '饮料', staple: '米面油调料' };
+const STAPLE = /酱|醋|盐|白糖|红糖|冰糖|砂糖|调料|调味|香料|花椒|八角|桂皮|胡椒|味精|鸡精|蚝油|料酒|露|油$|食用油|大米|糙米|小米|糯米|米$|面粉|淀粉|挂面|意面|意大利面|粉丝|蜂蜜|\b(sauce|vinegar|salt|sugar|oil|rice|flour|pasta|spices?|seasoning|honey)\b/i;
+const DRINK = /水$|矿泉水|饮料|可乐|雪碧|汽水|苏打|气泡水|果汁|橙汁|茶饮|奶茶|茶$|咖啡|啤酒|酒$|红酒|豆奶|椰子水|牛奶|酸奶饮品|\b(water|soda|cola|juice|coffee|tea|beer|wine|drinks?|milk)\b/i;
+const READY_SHELF = /方便面|泡面|拉面|自热|速食|即食|罐头|午餐肉|螺蛳粉|酸辣粉|米线|八宝粥|燕麦|麦片|速冻|饺子|微波|火锅底料|\b(instant|ramen|noodles?|canned|soup|oats?|oatmeal|cereal|mac)\b/i;
+export const guessPantryKind = (name: string): PantryKind =>
+  STAPLE.test(name) ? 'staple' : DRINK.test(name) ? 'drink' : READY_SHELF.test(name) ? 'ready' : 'snack';
+export const pantryKindOf = (name: string, lot: Pick<KitchenLot, 'pantryKind'>): PantryKind => lot.pantryKind ?? guessPantryKind(name);
+
+export interface PantryLine extends DoorNoteLine { amount: string }
+/** 纸上一行：段标题或一样东西（段标题那行点了去看整张清单） */
+export type PantryRow = { head: string } | { line: PantryLine };
+export interface PantryList { lines: PantryLine[]; rows: PantryRow[]; more: number }
 
 /**
- * 「柜子里」清单：常温柜不做 3D（零食饮料速食，阿萌 2026-10-11 定），贴一张手写清单在冷藏门上。
- * 最近动过的在前，最多六样，再多写「还有 N 样」。开封的分次包装只写「开封」，不写分数。
+ * 「柜子里」清单：常温柜不做 3D，贴一张手写清单在冷藏门上。按速食 / 零食 / 饮料分段，
+ * 每段里最近动过的在前；三段加起来最多六样，再多写「还有 N 样」。开封的分次包装只写「开封」。
  */
 export function pantryList(lots: KitchenLot[], foods: KitchenFood[], limit = 6): PantryList | null {
   const names = new Map(foods.map(food => [food.id, food.name]));
   const inPantry = lots.filter(lot => lot.quantity > 0 && lot.storageZone === 'pantry')
-    .sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
+    .map(lot => ({ lot, name: names.get(lot.foodId) ?? '食物' }))
+    .filter(({ lot, name }) => pantryKindOf(name, lot) !== 'staple')
+    .sort((a, b) => b.lot.updatedAt - a.lot.updatedAt || a.lot.id.localeCompare(b.lot.id));
   if (!inPantry.length) return null;
-  const lines = inPantry.slice(0, limit).map(lot => ({
-    lotId: lot.id,
-    text: names.get(lot.foodId) ?? '食物',
-    amount: lot.trackingMode === 'divisible' && lot.openContainerRemaining !== undefined && lot.quantity <= 1
-      ? '开封' : formatQuantity(lot.quantity, lot.unit),
-  }));
-  return { lines, more: inPantry.length - lines.length };
+  const shown = inPantry.slice(0, limit);
+  const rows: PantryRow[] = [], lines: PantryLine[] = [];
+  for (const kind of ['ready', 'snack', 'drink'] as const) {
+    const group = shown.filter(({ lot, name }) => pantryKindOf(name, lot) === kind);
+    if (!group.length) continue;
+    rows.push({ head: PANTRY_KIND_LABELS[kind] });
+    for (const { lot, name } of group) {
+      const line = {
+        lotId: lot.id,
+        text: name,
+        amount: lot.trackingMode === 'divisible' && lot.openContainerRemaining !== undefined && lot.quantity <= 1
+          ? '开封' : formatQuantity(lot.quantity, lot.unit),
+      };
+      rows.push({ line }); lines.push(line);
+    }
+  }
+  return { lines, rows, more: inPantry.length - shown.length };
 }

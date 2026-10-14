@@ -388,6 +388,7 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - 小票「慢慢吃」：冷冻的肉鱼虾和名字带肉的熟食（酱牛肉）一律算「要吃掉的」（阿萌 2026-10-14 定：重要冰箱库存），其余按保质期 ≥ 30 天、常温柜或调料名
 - 上游文件只有五处接线（`types.ts` AppID 与备份字段、`constants.tsx`、`PhoneShell.tsx`、`safeAreaApps.ts`、`OSContext.tsx` 备份导出 / 恢复），`check-em-patches.sh` 的「小厨房」那几行钉着
 - 读小票的 API 预设 id 存本机 localStorage（`lilium.kitchen.receiptPresetId`），不进备份
+- 「柜子里」按 `pantryKindOf`（批次 `pantryKind` 优先，否则按名字猜）分速食 / 零食 / 饮料；米面油调料（staple）不上这张纸（阿萌 2026-10-14 定）
 
 ## 点子和待办往哪写
 

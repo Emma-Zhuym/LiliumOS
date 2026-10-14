@@ -12,6 +12,7 @@ import {
   type UpdateKitchenLotDetailsInput,
 } from '../../utils/kitchenDb';
 import { formatPackageAmount, formatPortionFraction } from '../../utils/kitchenQuantity';
+import { guessPantryKind, PANTRY_KIND_LABELS, type PantryKind } from '../../utils/kitchenAppearance';
 
 const EVENT_LABELS: Record<KitchenEvent['type'], string> = {
   ADD: '放进厨房',
@@ -88,6 +89,7 @@ const KitchenLotDetail: React.FC<KitchenLotDetailProps> = ({
   const [purchasedAt, setPurchasedAt] = useState(lot.purchasedAt ?? '');
   const [expiresAt, setExpiresAt] = useState(lot.expiresAt ?? '');
   const [homemade, setHomemade] = useState(lot.foodState !== 'raw');
+  const [pantryKind, setPantryKind] = useState<PantryKind | ''>(lot.pantryKind ?? '');
   const [validationError, setValidationError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -98,7 +100,8 @@ const KitchenLotDetail: React.FC<KitchenLotDetailProps> = ({
     setPurchasedAt(lot.purchasedAt ?? '');
     setExpiresAt(lot.expiresAt ?? '');
     setHomemade(lot.foodState !== 'raw');
-  }, [food.name, lot.expiresAt, lot.foodState, lot.id, lot.packageSize, lot.purchasedAt, lot.storageZone, lot.unit]);
+    setPantryKind(lot.pantryKind ?? '');
+  }, [food.name, lot.expiresAt, lot.foodState, lot.pantryKind, lot.id, lot.packageSize, lot.purchasedAt, lot.storageZone, lot.unit]);
 
   const lotEvents = useMemo(
     () => events.filter(event => event.lotId === lot.id && hasKitchenEventChange(event))
@@ -126,6 +129,7 @@ const KitchenLotDetail: React.FC<KitchenLotDetailProps> = ({
       expiresAt,
       // 原来是剩菜就还是剩菜，只在「是 / 不是自己做的」改了的时候换
       foodState: homemade ? (lot.foodState === 'raw' ? 'prepared' : lot.foodState) : 'raw',
+      pantryKind: pantryKind || null,
     });
   };
 
@@ -214,6 +218,13 @@ const KitchenLotDetail: React.FC<KitchenLotDetailProps> = ({
                 <Field aria-label="到期日期" type="date" value={expiresAt} onChange={event => setExpiresAt(event.target.value)} />
               </label>
             </div>
+            {storageZone === 'pantry' && <label>
+              <Label>柜子里算</Label>
+              <SelectField aria-label="柜子里算哪类" value={pantryKind} onChange={event => setPantryKind(event.target.value as PantryKind | '')}>
+                <option value="">按名字猜 · {PANTRY_KIND_LABELS[guessPantryKind(name)]}</option>
+                {(Object.keys(PANTRY_KIND_LABELS) as PantryKind[]).map(kind => <option key={kind} value={kind}>{PANTRY_KIND_LABELS[kind]}{kind === 'staple' ? '（不上柜子清单）' : ''}</option>)}
+              </SelectField>
+            </label>}
             <label className="kitchen-check-line">
               <input type="checkbox" aria-label="自己做的菜" checked={homemade} onChange={event => setHomemade(event.target.checked)} />
               <span>自己做的菜 / 剩菜<small className="kitchen-label-hint">不算买回来的</small></span>
