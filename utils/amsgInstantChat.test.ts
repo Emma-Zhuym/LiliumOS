@@ -533,13 +533,17 @@ describe('上云的这一轮也进「API 调用记录」', () => {
     expect(logged.find((e) => e.id === 'cloud-uuid-second')?.pending).toBe(true);
   });
 
-  it('回复回来 → 同一条记录补上用量，时间戳一个字不动（列表顺序不许跟着回复先后跳）', async () => {
+  it('回复回来 → 同一条记录补上用量和后端自报，时间戳一个字不动（列表顺序不许跟着回复先后跳）', async () => {
     const logged = captureLog();
-    settleInstantChatApiLog('uuid-log', { amsgUsage: { promptTokens: 1200, completionTokens: 80 } });
+    settleInstantChatApiLog('uuid-log', {
+      amsgUsage: { promptTokens: 1200, completionTokens: 80 },
+      amsgBackendModel: 'claude-opus-4-6',
+    });
     await vi.waitFor(() => expect(logged).toHaveLength(1));
     expect(logged[0]).toMatchObject({
       id: 'cloud-uuid-log', pending: false, ok: true,
       promptTokens: 1200, completionTokens: 80,
+      backendModel: 'claude-opus-4-6',
       // 云端只报入和出，总数本地自己加——列表顶上的合计读的就是它。
       totalTokens: 1280,
     });
@@ -564,6 +568,7 @@ describe('上云的这一轮也进「API 调用记录」', () => {
     expect(logged[0].pending).toBe(false);
     expect(logged[0].promptTokens).toBeUndefined();
     expect(logged[0].totalTokens).toBeUndefined();
+    expect(logged[0].backendModel).toBeUndefined();
   });
 
   it('云端点名说这一轮没成 → 那笔跟着收尾成失败，不会一直写着「生成中」', async () => {

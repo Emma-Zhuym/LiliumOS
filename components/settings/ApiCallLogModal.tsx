@@ -3,11 +3,11 @@ import Modal from '../os/Modal';
 import { DB } from '../../utils/db';
 import {
     API_REQUEST_CAPTURE_EVENT,
+    backendModelReportStatus,
     formatApiRequestCaptureTxt,
     getApiRequestCaptureSectionContent,
     getApiRequestCaptureSectionSource,
     isApiRequestCaptureArmed,
-    isSameCoreModel,
     isFixedPromptBlockLabel,
     setApiRequestCaptureArmed,
     summarizeApiRequestCaptureDuplicates,
@@ -20,6 +20,7 @@ import type {
     PromptBlockStat,
 } from '../../utils/apiCallLog';
 import { trackEvent } from '../../utils/analytics';
+import { F, STATUS } from '../../utils/clayTokens';
 
 interface ApiCallLogModalProps {
     isOpen: boolean;
@@ -43,6 +44,37 @@ function formatTime(ts: number): { day: string; time: string } {
     return { day, time };
 }
 
+const BackendModelReport: React.FC<{ entry: ApiCallLogEntry }> = ({ entry }) => {
+    const status = backendModelReportStatus(entry.model, entry.backendModel);
+    const pending = entry.pending === true;
+    const label = pending
+        ? '等待回复'
+        : status === 'match'
+            ? '名称一致'
+            : status === 'mismatch'
+                ? '名称不一致'
+                : '未报告';
+    const color = pending || status === 'not-reported'
+        ? F.textTertiary
+        : status === 'match'
+            ? STATUS.success.ink
+            : STATUS.warning.ink;
+
+    return (
+        <div className="col-span-2 flex items-baseline gap-1.5 min-w-0">
+            <span className="text-[10px] shrink-0" style={{ color: F.textTertiary }}>后端自报</span>
+            <span className="min-w-0 break-all" style={{ color }}>
+                <span className="font-semibold">{label}</span>
+                {!pending && entry.backendModel && (
+                    <span className="font-mono" style={{ color: status === 'mismatch' ? STATUS.warning.ink : F.textSecondary }}>
+                        {' · '}{entry.backendModel}
+                    </span>
+                )}
+            </span>
+        </div>
+    );
+};
+
 const ApiCallLogModal: React.FC<ApiCallLogModalProps> = ({ isOpen, onClose }) => {
     const [entries, setEntries] = useState<ApiCallLogEntry[]>([]);
     const [loading, setLoading] = useState(false);
@@ -63,11 +95,9 @@ const ApiCallLogModal: React.FC<ApiCallLogModalProps> = ({ isOpen, onClose }) =>
             setEntries(data);
             setCapture(savedCapture);
             setCaptureArmedState(isApiRequestCaptureArmed());
-            // 这一批记录里只要有一条「实际后端」跟请求的模型对不上，就记一次。
+            // 这一批记录里只要有一条「后端自报」跟请求的模型对不上，就记一次。
             // 只记「出现过」这件事，模型名一个字都不带出去。
-            if (data.some((e: ApiCallLogEntry) =>
-                !!e.backendModel && e.backendModel !== e.model && !isSameCoreModel(e.model, e.backendModel)
-            )) {
+            if (data.some((e: ApiCallLogEntry) => backendModelReportStatus(e.model, e.backendModel) === 'mismatch')) {
                 trackEvent('记录里出现模型不符警告');
             }
         } catch {
@@ -149,21 +179,22 @@ const ApiCallLogModal: React.FC<ApiCallLogModalProps> = ({ isOpen, onClose }) =>
 
             {showHelp && (
                 <div className="mb-3 rounded-2xl bg-amber-50/70 border border-amber-200/60 px-4 py-3 text-[11px] text-slate-600 leading-relaxed space-y-2">
-                    <p className="font-bold text-amber-700">「实际后端」是什么——仅供参考，不是测谎仪</p>
+                    <p className="font-bold text-amber-700">「后端自报」是什么——核对线索，不是模型验真</p>
                     <p>
                         它是<span className="font-semibold">对面在回复里自己报的模型名字</span>。注意：这个名字是对面自己填的，可以是真的，也可以是假的。
                     </p>
                     <p className="font-semibold">三种情况：</p>
                     <p>
-                        <span className="font-semibold text-amber-600">🟡 琥珀色 + ⚠️</span>：报的名字和你要的对不上。
+                        <span className="font-semibold text-amber-600">名称不一致</span>：报的名字和你要的对不上。
                         <span className="font-semibold">有可能</span>被换了便宜模型，但也可能只是站子标签没写整齐——别只凭这一行去定罪。
                     </p>
                     <p>
-                        <span className="font-semibold">⚪ 灰色</span>：名字基本一致，只是格式不同（比如少了 [渠道]、(按次)、gcli- 这类标签前缀）。正常。
+                        <span className="font-semibold text-emerald-700">名称一致</span>：自报名与请求名相同，或者只有 [渠道]、(按次)、gcli- 之类前缀差异。
+                        这只能证明<span className="font-semibold">对面这样自报</span>，不能证明模型真身。
                     </p>
                     <p>
-                        <span className="font-semibold">🫥 没有这一行</span>：最常见的情况。要么对面把你请求的名字<span className="font-semibold">原样抄了回来</span>（等于什么都没说），要么干脆没报。
-                        <span className="font-semibold">不代表有问题，也不代表没问题——就是从这条线索看不出来。</span>
+                        <span className="font-semibold">未报告</span>：回包里没有模型名，或者这是一条升级前留下的旧记录。
+                        <span className="font-semibold">不代表有问题，也不代表没问题——只是缺少这条线索。</span>
                     </p>
                     <p>
                         想判断有没有被偷偷换模型，要几个信号<span className="font-semibold">一起看</span>：token 数是否突然对不上（比如平时 4 万这次 1.5 万）、速度是否突变、角色是否突然变笨/掉格式。只有一个信号异常时，先观望，多攒几轮再说。
@@ -177,7 +208,7 @@ const ApiCallLogModal: React.FC<ApiCallLogModalProps> = ({ isOpen, onClose }) =>
                             <span className="font-semibold">「生成中」</span>：云端已经收下，回复还没回来。收到回复才会变成成功。
                         </p>
                         <p>
-                            <span className="font-semibold">没有耗时、没有实际后端</span>：请求在云端发出，本地既量不到时间，也看不到对面自报的模型名。
+                            <span className="font-semibold">没有耗时</span>：请求在云端发出，本地量不到完整请求时间。新回复会把对面自报的模型名带回来；旧记录不会倒补，对面不报时仍显示「未报告」。
                         </p>
                         <p>
                             <span className="font-semibold text-amber-600">「只算末轮」</span>：角色查了东西再接着说的那种，一轮里会调好几次模型，而云端只报得回最后一次的 token。这条记录上的数字<span className="font-semibold">比实际用量小</span>，别拿它去跟账单对齐。
@@ -248,8 +279,8 @@ const ApiCallLogModal: React.FC<ApiCallLogModalProps> = ({ isOpen, onClose }) =>
                                         <span className="text-[11px] font-mono text-slate-500 shrink-0">{time}</span>
                                     </div>
                                     <div className="flex items-center gap-1.5 shrink-0">
-                                        {/* 这条不是浏览器自己发的，是云端那台 Worker 发的。不标出来的话，
-                                            同一条记录里「没有耗时、没有实际后端、Token 偏小」全都没法解释 */}
+                                        {/* 这条不是浏览器自己发的，是云端那台 Worker 或 mini 发的。不标出来的话，
+                                            同一条记录里「没有耗时、Token 偏小」都没法解释。 */}
                                         {e.route && (
                                             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-100 text-sky-600">
                                                 ☁️ 云端
@@ -274,24 +305,13 @@ const ApiCallLogModal: React.FC<ApiCallLogModalProps> = ({ isOpen, onClose }) =>
                                     <Field label="角色" value={e.charName} />
                                     <Field label="用途" value={e.purpose} />
                                     <div className="col-span-2">
-                                        {/* 模型/实际后端两行不截断（break-all 换行）：截断会把「为什么黄了」的
+                                        {/* 模型/后端自报两行不截断（break-all 换行）：截断会把「为什么黄了」的
                                             关键差异（后缀 -c、渠道标签）藏进省略号里，用户看着两行一样却标黄一头雾水 */}
                                         <Field label="模型" value={e.model} mono wrap />
                                     </div>
-                                    {/* 后端自报身份（response.model）：字符串不同就展示；琥珀判定见
-                                        isSameCoreModel——渠道标签/前缀（[渠道]、(按次)、gcli-、models/）算同名
-                                        （灰色），尾巴长出变体（X-c / X-lite）才是真被换了后端（琥珀）。 */}
-                                    {e.backendModel && e.backendModel !== e.model && (() => {
-                                        const swapped = !isSameCoreModel(e.model, e.backendModel);
-                                        return (
-                                            <div className="col-span-2 flex items-baseline gap-1.5 min-w-0">
-                                                <span className={`text-[10px] shrink-0 ${swapped ? 'text-amber-500' : 'text-slate-400'}`}>实际后端</span>
-                                                <span className={`break-all font-mono ${swapped ? 'font-semibold text-amber-600' : 'text-slate-500'}`}>
-                                                    {e.backendModel}{swapped ? ' ⚠️' : ''}
-                                                </span>
-                                            </div>
-                                        );
-                                    })()}
+                                    {/* response.model 永远按三态展示：一致 / 不一致 / 未报告。
+                                        它只是中转自报线索，不能当成模型验真。 */}
+                                    <BackendModelReport entry={e} />
                                     {e.durationMs != null && (
                                         <Field label="耗时" value={e.durationMs >= 1000 ? `${(e.durationMs / 1000).toFixed(1)}s` : `${e.durationMs}ms`} />
                                     )}

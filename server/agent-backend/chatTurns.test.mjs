@@ -39,7 +39,11 @@ const setup = ({ reply = '在的\n刚开完会', status = 200, fetchImpl = null 
             ok: status < 400,
             status,
             text: async () => 'upstream said no',
-            json: async () => ({ choices: [{ message: { content: reply } }], usage: { prompt_tokens: 10, completion_tokens: 5 } }),
+            json: async () => ({
+                model: '[relay]claude-opus-4-6',
+                choices: [{ message: { content: reply } }],
+                usage: { prompt_tokens: 10, completion_tokens: 5 },
+            }),
         };
     });
     const service = createChatTurnService({ db, deliver: async item => { delivered.push(item); return item; }, fetchImpl: fakeFetch, logger: { warn() {} } });
@@ -66,6 +70,7 @@ test('即时回复：请求体一字不改转给模型，回复按 amsg 推送�
     assert.equal(reply.pushPayload.taskUuid, TURN);
     assert.equal(reply.pushPayload.message, '在的\n刚开完会');
     assert.equal(reply.pushPayload.metadata.charId, 'lumi');
+    assert.equal(reply.pushPayload.metadata.amsgBackendModel, '[relay]claude-opus-4-6');
     assert.equal(reply.pushPayload.notification.silent, 'when-visible');
     assert.deepEqual(reply.payload, reply.pushPayload, '信箱存整份，推送丢了按原样补');
     assert.equal(service.status(TURN).state, 'done');

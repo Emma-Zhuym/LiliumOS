@@ -14171,6 +14171,9 @@ var amsgHooks = {
             };
           }
         }
+        const llmResponse = ctx.llmResponse;
+        const backendModel = typeof llmResponse?.model === "string" ? llmResponse.model.trim() : "";
+        if (backendModel) lastMeta.amsgBackendModel = backendModel;
         if (stash.emotionEvalPromise) {
           const outcome = await raceEmotionEval(stash.emotionEvalPromise);
           if (outcome === null) {

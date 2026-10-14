@@ -60,7 +60,7 @@ export const notificationPreview = async text => {
 };
 
 /** 手机端 SW 认的 amsg content 推送（worker/sw-keep-alive.ts 的 saveContentToInbox）。 */
-export const buildReplyPush = ({ turnId, charId, charName, text, reasoning = '', usage = null, at, preview = null }) => ({
+export const buildReplyPush = ({ turnId, charId, charName, text, reasoning = '', usage = null, backendModel = '', at, preview = null }) => ({
     messageKind: 'content',
     messageId: `mini:${turnId}`,
     // 手机端「正在输入…」认这个熄灭（activeMsgRuntime 按 taskUuid 销账）
@@ -78,6 +78,8 @@ export const buildReplyPush = ({ turnId, charId, charName, text, reasoning = '',
         messageIndex: 1,
         totalMessages: 1,
         ...(usage ? { amsgUsage: usage } : {}),
+        // 只是供应商 response.model 的自报名称，客户端会明确标成「后端自报」，不当验真结果。
+        ...(backendModel ? { amsgBackendModel: backendModel } : {}),
         // 心象卡片：手机端收件箱认 amsg 即时对话的这个字段（activeMsgRuntime 挂到首条回复的 thinkingChain）
         ...(reasoning ? { amsgReasoning: reasoning } : {}),
     },
@@ -261,8 +263,9 @@ export const createChatTurnService = ({ db, deliver, fetchImpl = fetch, timeoutM
             if (!text) return { ok: false, error: '模型返回了空内容' };
             // 跟本地同一个拼法：reasoning 字段在前，正文里抠出来的思考块在后
             const reasoning = [extractReasoning(message), thinking].filter(Boolean).join('\n\n');
+            const backendModel = typeof data?.model === 'string' ? data.model.trim() : '';
             return {
-                ok: true, text, reasoning, usage: data?.usage ?? null,
+                ok: true, text, reasoning, usage: data?.usage ?? null, backendModel,
                 ...(reasoning ? {} : { shape: describeResponseShape(data, extraBody) }),
             };
         } catch (error) {
@@ -298,7 +301,10 @@ export const createChatTurnService = ({ db, deliver, fetchImpl = fetch, timeoutM
         const { turnId, charId, charName } = job.input;
         const at = new Date().toISOString();
         const preview = await notificationPreview(result.text);
-        const push = buildReplyPush({ turnId, charId, charName, text: result.text, reasoning: result.reasoning, usage: result.usage, at, preview });
+        const push = buildReplyPush({
+            turnId, charId, charName, text: result.text, reasoning: result.reasoning,
+            usage: result.usage, backendModel: result.backendModel, at, preview,
+        });
         await deliver({
             messageId: push.messageId,
             charId,

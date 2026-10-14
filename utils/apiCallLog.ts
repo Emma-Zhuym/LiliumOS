@@ -73,10 +73,8 @@ export interface ApiCallLogEntry extends ApiCallMeta {
     baseUrl: string;
     model: string;
     /**
-     * 响应侧自报的模型（response.model）——实际服务这次请求的后端身份。
-     * 中转的渠道名（如 `[千岛-自营]xxx`）只锁"店面"，上游内部降级/轮询时对外模型名
-     * 不变，但后端会在响应里自报真身（如 `[逆-V]xxx-c`）。请求名 ≠ 自报名时，
-     * 这个字段就是"被换后端了"的直接证据。拿不到（响应无 model 字段）则空。
+     * 响应侧自报的模型（response.model）。这是中转自己填写的线索，不是可信身份凭证：
+     * 名称不一致能提示路由变化，名称一致也不能证明真实模型。拿不到则空。
      */
     backendModel?: string;
     /** HTTP 状态码（成功 / 失败均记，失败时可能是最后一次的状态） */
@@ -261,6 +259,17 @@ export function isSameCoreModel(requested: string, backend: string): boolean {
     const shorter = a.length < b.length ? a : b;
     if (shorter.length < 8) return false;
     return a.endsWith(b) || b.endsWith(a);
+}
+
+export type BackendModelReportStatus = 'not-reported' | 'match' | 'mismatch';
+
+/**
+ * 把 response.model 收敛成界面明确展示的三态。只判断「中转自报名称」是否一致，
+ * 不把一致误写成模型验真通过。
+ */
+export function backendModelReportStatus(requested: string, backend?: string | null): BackendModelReportStatus {
+    if (typeof backend !== 'string' || !backend.trim()) return 'not-reported';
+    return isSameCoreModel(requested, backend) ? 'match' : 'mismatch';
 }
 
 /** 从请求体里抠出 model 字段（body 可能是 JSON 字符串或对象）。 */
@@ -1090,6 +1099,8 @@ export function settleCloudApiCall(input: {
     ok: boolean;
     promptTokens?: number;
     completionTokens?: number;
+    /** 云端 / mini 从供应商 response.model 原样带回的自报名称。 */
+    backendModel?: string;
     /** 见 ApiCallLogEntry.tokensPartial。 */
     tokensPartial?: boolean;
     /** 见 ApiCallLogEntry.superseded。 */
@@ -1104,6 +1115,9 @@ export function settleCloudApiCall(input: {
             superseded: input.superseded || undefined,
             promptTokens,
             completionTokens,
+            backendModel: typeof input.backendModel === 'string' && input.backendModel.trim()
+                ? input.backendModel.trim()
+                : undefined,
             // 云端只报入和出两个数，总数这边自己加——列表顶上的合计读的是这个字段。
             totalTokens: promptTokens != null && completionTokens != null
                 ? promptTokens + completionTokens
