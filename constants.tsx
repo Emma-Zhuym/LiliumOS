@@ -41,6 +41,7 @@ import {
   Aperture, // [EM: moments]
   CalendarBlank, // [EM: calendar-temporal]
   Storefront,
+  CookingPot, // [EM: kitchen-app]
 } from '@phosphor-icons/react';
 
 // SVG 图标库 - Phosphor Icons
@@ -87,6 +88,7 @@ export const Icons: Record<string, React.FC<{ className?: string }>> = {
   SmartHome: ({ className }) => <HouseLine className={className} weight="regular" />,
   Moments: ({ className }) => <Aperture className={className} weight="regular" />, // [EM: moments]
   Calendar: ({ className }) => <CalendarBlank className={className} weight="regular" />, // [EM: calendar-temporal]
+  Kitchen: ({ className }) => <CookingPot className={className} weight="regular" />, // [EM: kitchen-app]
 };
 
 export const INSTALLED_APPS: AppConfig[] = [
@@ -108,6 +110,7 @@ export const INSTALLED_APPS: AppConfig[] = [
   { id: AppID.SmartHome, name: '共栖舱', icon: 'SmartHome', color: 'cyan' },
   { id: AppID.Moments, name: '朋友圈', icon: 'Moments', color: 'rose' }, // [EM: moments]
   { id: AppID.Calendar, name: '日历', icon: 'Calendar', color: 'indigo' }, // [EM: calendar-temporal]
+  { id: AppID.Kitchen, name: '小厨房', icon: 'Kitchen', color: 'green' }, // [EM: kitchen-app]
   { id: AppID.Journal, name: '交换日记', icon: 'Journal', color: 'amber' },
   // { id: AppID.Handbook, name: '手账', icon: 'Handbook', color: 'fuchsia' }, // Hidden temporarily, pending update
   { id: AppID.Social, name: 'Spark', icon: 'Social', color: 'red' },

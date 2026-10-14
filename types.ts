@@ -45,6 +45,7 @@ export enum AppID {
   SmartHome = 'smart_home', // EM: 共栖舱 — Home Assistant 统一设备控制
   Calendar = 'calendar', // [EM: calendar-temporal] 日历 — 阿萌真实的 Apple 日历 / 提醒（mini 每天同步）
   Moments = 'moments', // [EM: moments] 朋友圈 — 所有人的动态汇总，用户可发图文、点赞评论
+  Kitchen = 'kitchen', // [EM: kitchen-app] Lilian Kitchen — 现实食品库存与小厨房
 }
 
 export interface SystemLog {
@@ -4423,6 +4424,12 @@ export interface FullBackupData {
     emShoppingSettings?: { key: string; value: unknown }[];
     emMoments?: import('./utils/momentsDb').MomentsBackup; // [EM: moments] 朋友圈（文字备份不带图）
     emMapWorlds?: any[];
+    emKitchenFoods?: any[]; // [EM: kitchen-app]
+    emKitchenLots?: any[]; // [EM: kitchen-app]
+    emKitchenEvents?: any[]; // [EM: kitchen-app]
+    emKitchenShopping?: any[]; // [EM: kitchen-shopping-list]
+    emKitchenRecipes?: any[]; // [EM: kitchen-recipes]
+    emKitchenSauces?: any[]; // [EM: kitchen-recipes]
     // [EM-END: finance-backup-types]
     gotchiAccentHue?: string;  // 桌面电子宠物主题主色调偏好（tama_accent_hue，账号级 localStorage）
 }
