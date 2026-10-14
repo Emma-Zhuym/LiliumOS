@@ -124,6 +124,13 @@ const KitchenApp: React.FC = () => {
     if (success && !restored) setNotice({ text: '暂时没有可以撤销的操作' });
   };
   const openLot = useCallback((id: string) => { setNotice(null); setSelectedId(id); }, []);
+  // 记录页点一行：还有的开操作面板（记用量、核对），已经吃完 / 丢了的开详情页（改资料、看这一样的记录）
+  const openHistoryLot = (id: string) => {
+    const lot = lots.find(item => item.id === id);
+    if (!lot) return;
+    setNotice(null);
+    if (lot.quantity > 0) setSelectedId(id); else setDetailId(id);
+  };
   const openList = (focusSearch = false, filter: typeof zoneFilter = 'all') => {
     searchOnOpen.current = focusSearch;
     setZoneFilter(filter);
@@ -232,7 +239,7 @@ const KitchenApp: React.FC = () => {
               <button type="button" className="kitchen-text-button" disabled={busy || !canUndo} onClick={() => { void undo(); }}><ArrowCounterClockwise size={18} />撤销最近操作</button>
             </div>
             {visibleEvents.length === 0 ? <div className="kitchen-empty">还没有操作记录。</div>
-              : <KitchenHistoryReceipts trips={shoppingTrips(visibleEvents, foods, lots)} />}
+              : <KitchenHistoryReceipts trips={shoppingTrips(visibleEvents, foods, lots)} onOpenLot={openHistoryLot} />}
           </>}
       </main>
     </div>

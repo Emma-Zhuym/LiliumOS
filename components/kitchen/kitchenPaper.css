@@ -361,18 +361,20 @@ p.kitchen-note { margin: 0; padding: 0; border: 0; background: transparent; colo
 .kitchen-receipt-head > time { justify-items: end; font-family: var(--k-mono); font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .kitchen-receipt-lines { display: grid; gap: 10px; margin: 0; padding: 14px 0; list-style: none; }
 .kitchen-receipt-lines:last-of-type { border-bottom: 2px solid var(--k-ink); }
-.kitchen-receipt-lines > li { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 12px; font-size: 15px; line-height: 1.5; }
-.kitchen-receipt-lines--after > li { grid-template-columns: auto 1fr auto; }
+/* 每行是个按钮：点了打开那一样（还在的开操作面板，吃完的开详情） */
+.kitchen-receipt-row { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 12px; width: 100%; min-height: 32px; margin: -4px 0; padding: 4px 0; border: 0; background: transparent; color: inherit; font-size: 15px; line-height: 1.5; text-align: left; }
+.kitchen-receipt-row:active { opacity: .6; }
+.kitchen-receipt-lines--after .kitchen-receipt-row { grid-template-columns: auto 1fr auto; }
 .kitchen-receipt-section { margin: 0; padding: 8px 0 0; border-top: 1px dashed var(--k-faint); color: var(--k-muted); font-family: var(--k-mono); font-size: 11px; letter-spacing: .2em; text-align: center; }
 .kitchen-receipt-time { color: var(--k-muted); font-family: var(--k-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
 .kitchen-receipt-name { min-width: 0; overflow-wrap: anywhere; }
 .kitchen-receipt-name > em { margin-left: 6px; color: var(--k-faint); font-size: 11px; font-style: normal; }
 .kitchen-receipt-amount { font-family: var(--k-mono); font-size: 13px; font-variant-numeric: tabular-nums; }
-.kitchen-receipt-lines > li.is-undone > :is(.kitchen-receipt-time, .kitchen-receipt-amount) { color: var(--k-faint); text-decoration: line-through; }
-.kitchen-receipt-lines > li.is-undone > .kitchen-receipt-name { color: var(--k-faint); text-decoration: line-through; }
-.kitchen-receipt-lines > li.is-gone .kitchen-receipt-name > span { color: var(--k-muted); text-decoration: line-through; text-decoration-color: var(--k-blue-ink); text-decoration-thickness: 2px; }
-.kitchen-receipt-lines > li.is-gone > .kitchen-receipt-amount { color: var(--k-blue-ink); font-family: inherit; font-size: 12px; }
-.kitchen-receipt-lines--slow > li { font-size: 13px; color: var(--k-muted); }
+.kitchen-receipt-row.is-undone > :is(.kitchen-receipt-time, .kitchen-receipt-amount) { color: var(--k-faint); text-decoration: line-through; }
+.kitchen-receipt-row.is-undone > .kitchen-receipt-name { color: var(--k-faint); text-decoration: line-through; }
+.kitchen-receipt-row.is-gone .kitchen-receipt-name > span { color: var(--k-muted); text-decoration: line-through; text-decoration-color: var(--k-blue-ink); text-decoration-thickness: 2px; }
+.kitchen-receipt-row.is-gone > .kitchen-receipt-amount { color: var(--k-blue-ink); font-family: inherit; font-size: 12px; }
+.kitchen-receipt-lines--slow .kitchen-receipt-row { font-size: 13px; color: var(--k-muted); }
 /* 吃完了的小票：两边虚线夹着的小标题，下面一沓撕下来的短票根，左右错一点点，像随手叠起来的 */
 .kitchen-receipts-label { display: flex; align-items: center; gap: 12px; margin: 12px 0 14px; color: var(--k-muted); font-family: var(--k-mono); font-size: 11px; letter-spacing: .2em; }
 .kitchen-receipts-label::before, .kitchen-receipts-label::after { content: ''; flex: 1; border-top: 1px dashed var(--k-faint); }

@@ -26,11 +26,18 @@ const hm = (at: number) => new Date(at).toLocaleTimeString('zh-CN', { hour: '2-d
 const md = (at: number) => { const d = new Date(at); return `${d.getMonth() + 1}/${d.getDate()}`; };
 
 // 撤销的：整行淡掉划掉；买回来的已经吃完 / 丢了：名字划掉，数量换成「3 天吃完」（看自己吃得多快，不做统计数字）
-const Line: React.FC<{ line: TripLine; when?: string }> = ({ line, when }) => <li className={line.undone ? 'is-undone' : line.gone ? 'is-gone' : undefined}>
-  {when && <span className="kitchen-receipt-time">{when}</span>}
-  <span className="kitchen-receipt-name">{line.verb === '放进' ? '' : `${line.verb} `}<span>{line.name}</span>{line.undone && <em>已撤销</em>}</span>
-  <span className="kitchen-receipt-amount">{line.gone ? goneText(line) : line.amount}</span>
-</li>;
+// 点一行就打开那一样（2026-10-14：原来记录页只能看，要改得回食材清单去找）
+const OpenLot = React.createContext<(lotId: string) => void>(() => {});
+const Line: React.FC<{ line: TripLine; when?: string }> = ({ line, when }) => {
+  const open = React.useContext(OpenLot);
+  return <li>
+    <button type="button" className={`kitchen-receipt-row${line.undone ? ' is-undone' : line.gone ? ' is-gone' : ''}`} onClick={() => open(line.lotId)}>
+      {when && <span className="kitchen-receipt-time">{when}</span>}
+      <span className="kitchen-receipt-name">{line.verb === '放进' ? '' : `${line.verb} `}<span>{line.name}</span>{line.undone && <em>已撤销</em>}</span>
+      <span className="kitchen-receipt-amount">{line.gone ? goneText(line) : line.amount}</span>
+    </button>
+  </li>;
+};
 
 /** 一张完整的小票：买回来的（要吃掉的在前、耐放的在「慢慢吃」那段），撕痕下面是到下一次采购之前用掉的 */
 const Receipt: React.FC<{ trip: ShoppingTrip }> = ({ trip }) => {
@@ -77,11 +84,11 @@ const Receipt: React.FC<{ trip: ShoppingTrip }> = ({ trip }) => {
  * 还没吃完的整张展开，新的在上；要吃掉的都划掉了的折成一条窄纸条放在下面，点开再看整张。
  * 耐放的（慢慢吃）不算，番茄酱不会让旧小票一直挂在上面。
  */
-const KitchenHistoryReceipts: React.FC<{ trips: ShoppingTrip[] }> = ({ trips }) => {
+const KitchenHistoryReceipts: React.FC<{ trips: ShoppingTrip[]; onOpenLot: (lotId: string) => void }> = ({ trips, onOpenLot }) => {
   const [openKeys, setOpenKeys] = useState<Set<number>>(() => new Set());
   const going = trips.filter(trip => !trip.finished), done = trips.filter(trip => trip.finished);
   const toggle = (key: number) => setOpenKeys(keys => { const next = new Set(keys); if (next.has(key)) next.delete(key); else next.add(key); return next; });
-  return <>
+  return <OpenLot.Provider value={onOpenLot}>
     {going.length > 0 && <ol className="kitchen-receipts">
       {going.map(trip => <li key={trip.start} className="kitchen-receipt"><Receipt trip={trip} /></li>)}
     </ol>}
@@ -110,7 +117,7 @@ const KitchenHistoryReceipts: React.FC<{ trips: ShoppingTrip[] }> = ({ trips }) 
         })}
       </ol>
     </>}
-  </>;
+  </OpenLot.Provider>;
 };
 
 export default KitchenHistoryReceipts;
