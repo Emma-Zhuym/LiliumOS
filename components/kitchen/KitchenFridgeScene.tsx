@@ -33,7 +33,7 @@ type Zone = 'fridge' | 'freezer';
  * 画布却不会替它下——没下的那片 iPhone 上就画成方块（2026-10-14 阿萌：贴纸老冒方块）。
  * 所以画之前把这次要写的字（加上纸上固定的那些）每种字体都先下好，最多等 2.5 秒。
  */
-const PAPER_WORDS = '速食零食饮料柜子里热一热就能吃还有样要买的点这里写慢吃小厨房采购放好了吃完丢了当天周个月今天明天后天前到期过期冷藏冷冻开封只剩一个快用完0123456789-/:·+.';
+const PAPER_WORDS = '要留意的暂时都还好剩快速食零食饮料柜子里热一热就能吃还有样要买的点这里写慢吃小厨房采购放好了吃完丢了当天周个月今天明天后天前到期过期冷藏冷冻开封只剩一个快用完0123456789-/:·+.';
 const PAPER_FONTS = [`60px ${HAND_FONT}`, `600 46px ${SERIF}`, `400 24px ${SANS}`, `500 24px ${SANS}`, `600 30px ${SANS}`];
 const loadGlyphs = (text: string) => {
   const chars = [...new Set(text + PAPER_WORDS)].join('');
@@ -539,7 +539,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
         {/* 读屏 / 键盘：开着的那格里有什么，一样一个按钮 */}
         {status === 'ready' && <ul className="sr-only" aria-label="冰箱里看得见的食材">
           {visibleItems.map(entry => <li key={entry.lot.id}><button type="button" onClick={() => onOpenLot(entry.lot.id)}>查看{entry.name}</button></li>)}
-          {reminders.map(line => <li key={`r-${line.lotId}`}><button type="button" onClick={() => onOpenLot(line.lotId)}>便利贴：{line.text}</button></li>)}
+          {reminders.map(line => <li key={`r-${line.lotId}`}><button type="button" onClick={() => onOpenLot(line.lotId)}>便利贴：{line.text}{line.amount}</button></li>)}
           {pantry?.lines.map(line => <li key={`p-${line.lotId}`}><button type="button" onClick={() => onOpenLot(line.lotId)}>柜子里：{line.text} {line.amount}</button></li>)}
           {pantry && onOpenPantry && <li><button type="button" onClick={onOpenPantry}>看柜子里的全部</button></li>}
           {shop && onOpenShopping && <li><button type="button" onClick={onOpenShopping}>要买清单{shop.lines.length ? `：${shop.lines.filter(line => !line.checked).map(line => line.text).join('、') || '都买了'}` : '（空的）'}</button></li>}

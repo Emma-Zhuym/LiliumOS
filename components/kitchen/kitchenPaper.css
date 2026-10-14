@@ -192,6 +192,8 @@
 .kitchen-row { display: flex; width: 100%; align-items: center; gap: 12px; min-height: 72px; padding: 12px 0; border: 0; background: transparent; color: var(--k-ink); text-align: left; }
 .kitchen-row + .kitchen-row { border-top: 1px solid var(--k-line); }
 .kitchen-inventory { margin-top: 12px; }
+/* 常温柜清单分段的段名（速食 / 零食 / 饮料 / 米面油调料） */
+.kitchen-list-section { margin: 20px 0 0; color: var(--k-muted); font-size: 12px; font-weight: 500; letter-spacing: .08em; }
 .kitchen-scene { position: relative; margin: 0; background: transparent; }
 .kitchen-scene-footer { position: relative; margin: 0 -20px; padding: 12px 20px 0; background-color: var(--k-bg); }
 .kitchen-scene-footer::before {

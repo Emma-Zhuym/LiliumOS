@@ -271,3 +271,21 @@ describe('从筛过位置的清单里放进', () => {
     expect(labelled<HTMLSelectElement>('select', '收纳位置').value).toBe('fridge');
   });
 });
+
+describe('常温柜清单分段', () => {
+  it('筛常温柜时按速食 / 零食 / 饮料 / 米面油调料分段，手动改过的跟着走', async () => {
+    for (const [name, pantryKind] of [['薯片'], ['方便面'], ['可乐'], ['酱油'], ['饼干', 'ready']] as [string, 'ready' | undefined][]) {
+      await KitchenDB.addLot({ name, quantity: 1, unit: 'item', storageZone: 'pantry', pantryKind });
+    }
+    await act(async () => { root.unmount(); });
+    root = createRoot(container);
+    await act(async () => { root.render(React.createElement(KitchenApp)); });
+    await waitForUI(() => expect(scene()).not.toBeNull());
+    await click(button('食材清单 · 25'));
+    await choose(labelled<HTMLSelectElement>('select', '筛选收纳位置'), 'pantry');
+    const sections = Array.from(container.querySelectorAll('section[aria-label]'))
+      .filter(section => ['速食', '零食', '饮料', '米面油调料'].includes(section.getAttribute('aria-label')!))
+      .map(section => `${section.getAttribute('aria-label')}:${Array.from(section.querySelectorAll('strong')).map(item => item.textContent).join(',')}`);
+    expect(sections).toEqual(['速食:饼干,方便面', '零食:薯片', '饮料:可乐', '米面油调料:酱油']);
+  });
+});

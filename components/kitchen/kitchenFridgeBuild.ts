@@ -15,7 +15,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { FRIDGE } from '../../utils/kitchenFridgeSpec';
 import { eggVisibleCount, LOOK_SIZE, type FridgeEntry } from '../../utils/kitchenFridgeLayout';
-import { produceTint, tapeLabel, type DoorNoteLine, type DoorReceipt, type HeatList, type PantryList, type ShoppingPaper } from '../../utils/kitchenAppearance';
+import { produceTint, tapeLabel, type DoorNoteLine, type DoorReceipt, type HeatList, type PantryList, type ShoppingPaper, type StickyLine } from '../../utils/kitchenAppearance';
 
 const { width: W, depth: D, height: H, doorThickness: T } = FRIDGE;
 export const HAND_FONT = '"Long Cang", "Kaiti SC", "STKaiti", "KaiTi", cursive';
@@ -252,7 +252,7 @@ export interface KitchenRig {
   pickables: THREE.Object3D[];
   /** 正在写的手写笔迹 */
   pens: PenAnim[];
-  setContents: (entries: FridgeEntry[], reminders: DoorNoteLine[], receipt: DoorReceipt | null, pantry: PantryList | null, heat: HeatList | null, shop: ShoppingPaper | null, playing?: Set<string>, erasing?: Map<string, string | undefined>) => void;
+  setContents: (entries: FridgeEntry[], reminders: StickyLine[], receipt: DoorReceipt | null, pantry: PantryList | null, heat: HeatList | null, shop: ShoppingPaper | null, playing?: Set<string>, erasing?: Map<string, string | undefined>) => void;
   dispose: () => void;
 }
 
@@ -440,7 +440,7 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
     setContents: () => {}, dispose: () => {},
   };
 
-  const setContents = (entries: FridgeEntry[], reminders: DoorNoteLine[], receipt: DoorReceipt | null, pantryIn: PantryList | null, heatIn: HeatList | null, shop: ShoppingPaper | null, playing: Set<string> = new Set(), erasing: Map<string, string | undefined> = new Map()) => {
+  const setContents = (entries: FridgeEntry[], reminders: StickyLine[], receipt: DoorReceipt | null, pantryIn: PantryList | null, heatIn: HeatList | null, shop: ShoppingPaper | null, playing: Set<string> = new Set(), erasing: Map<string, string | undefined> = new Map()) => {
     // 换掉上一批：从各自的父级摘下来，再释放
     for (const o of [...rig.items, ...rig.papers.map(p => p.mesh), ...rig.magnets.map(m => m.group)]) o.parent?.remove(o);
     scene.remove(contents); contentBin.dispose();
@@ -717,18 +717,24 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
       const magnet = part(new RoundedBoxGeometry(0.9, 0.62, 0.26, 3, 0.1), cmat(new THREE.MeshPhysicalMaterial({ color: '#5f8a5c', roughness: 0.35, clearcoat: 0.9, clearcoatRoughness: 0.12 })), g);
       magnet.position.z = 0.13; magnet.userData.magnet = 'green';
       rig.magnets.push({ key: 'green', group: g, paper: listPaper, z: 0, v: 0, to: 0, released: false, snapArmed: false });
-      // 快过期 / 快用完的便利贴：贴在「柜子里」下面（2026-10-14 阿萌：小票下面挤）；没有要留意的也贴着
-      const sticky = ctex(512, 512, (x, w, h) => {
+      // 快过期 / 快用完的便利贴：贴在「柜子里」下面（2026-10-14 阿萌：小票下面挤）；没有要留意的也贴着。
+      // 名字左、状态右两栏，最多五条，纸跟着条数变长（一句话写一行塞不下）
+      const SW = 512, STOP = 150, SROW = 84, stickyH = STOP + Math.max(1, reminders.length) * SROW + 30;
+      const sticky = ctex(SW, stickyH, (x, w, h) => {
         fibers(x, cr, w, h, '#e3edd9', '96,120,80');
-        const gr = x.createLinearGradient(0, 0, 0, h * 0.18); gr.addColorStop(0, 'rgba(255,255,255,0.18)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = gr; x.fillRect(0, 0, w, h * 0.18);
+        const gr = x.createLinearGradient(0, 0, 0, 90); gr.addColorStop(0, 'rgba(255,255,255,0.18)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = gr; x.fillRect(0, 0, w, 90);
         handLine(x, cr, '要留意的', 40, 86, 42, '#5d7a5f');
-        if (!reminders.length) handLine(x, cr, '暂时都还好', 40, 196, 54, '#6f8a70');
-        // 三行固定位置：点哪一行就打开哪一样（KitchenFridgeScene 按 uv 换算）
-        reminders.forEach((line, i) => handLine(x, cr, line.text, 40, 186 + i * 108, 56, '#2f4a35', w - 70));
+        if (!reminders.length) handLine(x, cr, '暂时都还好', 40, STOP + 46, 50, '#6f8a70');
+        // 每行固定位置：点哪一行就打开哪一样（KitchenFridgeScene 按 uv 换算）
+        reminders.forEach((line, i) => {
+          const y = STOP + i * SROW + 46;
+          handLine(x, cr, line.text, 40, y, 48, '#2f4a35', w - 220);
+          x.font = `36px ${HAND_FONT}`; x.fillStyle = line.urgent ? '#a8452f' : '#5d7a5f'; x.textAlign = 'right'; x.fillText(line.amount, w - 34, y); x.textAlign = 'left';
+        });
       });
       // 柜子里长了就压住它下沿一点（底边不能低过画面下面那排纸签，约 -2.9），叠在上面
-      const side = 2.6 * STICKY_PAPER, stickyTop = Math.max(top - ph - 0.3, -2.9 + side);
-      makePaper('sticky', side, side, 16, 16, sticky, [at[0] - 0.05, stickyTop - side / 2], -0.05, 0.22, 0.02, 0.18, reminders, { top: 120, height: 108, texH: 512 }).mesh.position.z += 0.06;
+      const side = 2.6 * STICKY_PAPER, sideH = side * stickyH / SW, stickyTop = Math.max(top - ph - 0.3, -2.9 + sideH);
+      makePaper('sticky', side, sideH, 16, 16, sticky, [at[0] - 0.05, stickyTop - sideH / 2], -0.05, 0.22, 0.02, 0.18, reminders, { top: STOP - 8, height: SROW, texH: stickyH }).mesh.position.z += 0.06;
     }
     // 热一热就能吃：冷冻门左半边（右半边留给以后的要买清单），暖黄的格子纸，橙色圆磁贴压住右上角（压中间会挡住标题）。
     // 顶边压低一截：整屏时冷冻门最上面在透明顶栏底下

@@ -13,7 +13,7 @@ import KitchenRecipeDetail from '../components/kitchen/KitchenRecipeDetail';
 import KitchenRecipeEditor from '../components/kitchen/KitchenRecipeEditor';
 import KitchenSauceEditor from '../components/kitchen/KitchenSauceEditor';
 import KitchenCookSheet, { type CookResult } from '../components/kitchen/KitchenCookSheet';
-import { shoppingSuggestions, shoppingTrips } from '../utils/kitchenAppearance';
+import { PANTRY_KIND_LABELS, pantryKindOf, shoppingSuggestions, shoppingTrips } from '../utils/kitchenAppearance';
 import { KITCHEN_PAPER_VARS } from '../utils/kitchenPaperTokens';
 import '../components/kitchen/kitchenPaper.css';
 import {
@@ -269,6 +269,12 @@ const KitchenApp: React.FC = () => {
   </div>;
   // 在按位置筛过的清单里点加号（比如点了「柜子里」那张纸过来）：放哪默认就是那儿
   const addZone: KitchenStorageZone = view === 'list' && zoneFilter !== 'all' && zoneFilter !== 'staging' ? zoneFilter : 'fridge';
+  // 常温柜的清单分段（2026-10-14 阿萌：按录入时间排看着乱）：速食 / 零食 / 饮料 / 米面油调料，段里还是新放的在前
+  const pantryGroups = zoneFilter === 'pantry'
+    ? (['ready', 'snack', 'drink', 'staple'] as const)
+      .map(kind => ({ kind, lots: visibleLots.filter(lot => pantryKindOf(foodById.get(lot.foodId)?.name ?? '', lot) === kind) }))
+      .filter(group => group.lots.length)
+    : null;
   const inSheet = showAdd || showShopping || !!selectedLot || (cooking && !!currentRecipe) || newSauceSheet;
 
   // 首页整屏都是厨房（2026-10-11 Emma 定）：场景铺满，顶栏透明浮在画面上，底下只留一排纸签
@@ -335,7 +341,10 @@ const KitchenApp: React.FC = () => {
                 </select>
               </label>
             </div>
-            {visibleLots.length ? renderRows(visibleLots) : <div className="kitchen-empty"><Package size={24} /><p>{activeLots.length ? '没有找到符合条件的食材，换个名称或位置试试。' : '还没有食材，先把买回来的放进来吧。'}</p></div>}
+            {visibleLots.length ? pantryGroups ? pantryGroups.map(group => <section key={group.kind} aria-label={PANTRY_KIND_LABELS[group.kind]}>
+              <h2 className="kitchen-list-section">{PANTRY_KIND_LABELS[group.kind]} · {group.lots.length}</h2>
+              {renderRows(group.lots)}
+            </section>) : renderRows(visibleLots) : <div className="kitchen-empty"><Package size={24} /><p>{activeLots.length ? '没有找到符合条件的食材，换个名称或位置试试。' : '还没有食材，先把买回来的放进来吧。'}</p></div>}
           </> : <>
             <div className="kitchen-history-head"><p className="kitchen-note">每次添置、用掉，都记在这页。</p>
               <button type="button" className="kitchen-text-button" disabled={busy || !canUndo} onClick={() => { void undo(); }}><ArrowCounterClockwise size={18} />撤销最近操作</button>

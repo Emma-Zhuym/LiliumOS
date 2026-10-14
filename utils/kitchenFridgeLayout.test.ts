@@ -82,7 +82,7 @@ describe('冰箱里怎么摆', () => {
 
 describe('门上的纸', () => {
   const now = new Date(2026, 9, 10, 12).getTime();
-  it('便利贴：过期的最前，再是快到期，再是快用完；最多三条；待收纳不提醒', () => {
+  it('便利贴：过期的最前，再是快到期，再是快用完；名字和状态分开写；待收纳不提醒', () => {
     const lots = [
       lot(0, { expiresAt: '2026-10-11' }),
       lot(1, { expiresAt: '2026-10-08' }),
@@ -92,10 +92,11 @@ describe('门上的纸', () => {
       lot(5, { expiresAt: '2026-11-01' }),
     ];
     const foods = ['酸奶', '豆腐', '牛奶', '鸡蛋', '面包', '黄油'].map((name, i) => food(i, name));
-    expect(stickyReminders(lots, foods, [], now).map(line => line.text)).toEqual(['豆腐过期了', '酸奶明天到期', '牛奶快用完了']);
+    expect(stickyReminders(lots, foods, [], now).map(line => `${line.text}·${line.amount}${line.urgent ? '!' : ''}`)).toEqual(['豆腐·过期了!', '酸奶·明天到期', '牛奶·快用完']);
+    expect(stickyReminders(lots, foods, [], now, 2)).toHaveLength(2);
     // 鸡蛋买了一盒十二个、现在剩一个才提醒；没有买入记录（或本来就买一个）不提醒
     const bought = [{ id: 'e3', operationId: 'o3', type: 'ADD' as const, lotId: 'lot-3', foodId: 'food-3', quantityDelta: 12, quantityBefore: 0, quantityAfter: 12, unit: 'piece' as const, occurredAt: 0 }];
-    expect(stickyReminders([lots[3]], foods, bought, now).map(line => line.text)).toEqual(['鸡蛋只剩一个']);
+    expect(stickyReminders([lots[3]], foods, bought, now).map(line => `${line.text}·${line.amount}`)).toEqual(['鸡蛋·剩一个']);
     expect(stickyReminders([lots[3]], foods, [], now)).toEqual([]);
   });
   it('小票：最近一次采购放进来的几样，撤销掉的不算', () => {

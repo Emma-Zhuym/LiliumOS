@@ -69,16 +69,20 @@ export interface DoorNoteLine { text: string; lotId: string }
 const DAY = 86_400_000;
 const startOfDay = (time: number) => { const date = new Date(time); date.setHours(0, 0, 0, 0); return date.getTime(); };
 
+/** 便利贴上一行：左边名字，右边短短一句（过期了 / 明天到期 / 快用完 / 剩一个）；urgent 是过期或今天到期，写红一点 */
+export interface StickyLine extends DoorNoteLine { amount: string; urgent: boolean }
+
 /**
- * 便利贴：最要紧的三件事。先是过期 / 快过期（两天内），再是快用完。
+ * 便利贴：最要紧的几件事（最多五条）。先是过期 / 快过期（两天内），再是快用完。
  * 只看真的放在冰箱、冷冻和柜子里的；待收纳的还没放好，不提醒。
+ * 2026-10-14 阿萌：一句话写一行塞不下，改成名字和状态分两栏，纸跟着条数变长。
  */
-export function stickyReminders(lots: KitchenLot[], foods: KitchenFood[], events: KitchenEvent[] = [], now = Date.now(), limit = 3): DoorNoteLine[] {
+export function stickyReminders(lots: KitchenLot[], foods: KitchenFood[], events: KitchenEvent[] = [], now = Date.now(), limit = 5): StickyLine[] {
   const names = new Map(foods.map(food => [food.id, food.name]));
   // 「只剩一个」只对买的时候不止一个的提醒：本来就只买了一颗西兰花，不用天天提醒它只剩一个
   const boughtMany = new Set(events.filter(event => event.type === 'ADD' && !event.undoneAt && event.quantityAfter > 1).map(event => event.lotId));
   const today = startOfDay(now);
-  const notes: { rank: number; line: DoorNoteLine }[] = [];
+  const notes: { rank: number; line: StickyLine }[] = [];
   for (const lot of lots) {
     if (lot.quantity <= 0 || lot.storageZone === 'staging') continue;
     const name = names.get(lot.foodId);
@@ -87,14 +91,14 @@ export function stickyReminders(lots: KitchenLot[], foods: KitchenFood[], events
       const due = new Date(`${lot.expiresAt.slice(0, 10)}T00:00:00`).getTime();
       if (Number.isFinite(due)) {
         const days = Math.round((due - today) / DAY);
-        if (days < 0) { notes.push({ rank: days, line: { lotId: lot.id, text: `${name}过期了` } }); continue; }
-        if (days <= 2) { notes.push({ rank: days, line: { lotId: lot.id, text: `${name}${['今天', '明天', '后天'][days]}到期` } }); continue; }
+        if (days < 0) { notes.push({ rank: days, line: { lotId: lot.id, text: name, amount: '过期了', urgent: true } }); continue; }
+        if (days <= 2) { notes.push({ rank: days, line: { lotId: lot.id, text: name, amount: `${['今天', '明天', '后天'][days]}到期`, urgent: days === 0 } }); continue; }
       }
     }
     const lowOpened = lot.trackingMode === 'divisible' && lot.quantity <= 1
       && lot.openContainerRemaining !== undefined && lot.openContainerRemaining <= 0.25;
     const lastOne = lot.trackingMode !== 'divisible' && lot.quantity === 1 && (lot.unit === 'piece' || lot.unit === 'item') && boughtMany.has(lot.id);
-    if (lowOpened || lastOne) notes.push({ rank: 10, line: { lotId: lot.id, text: lastOne ? `${name}只剩一个` : `${name}快用完了` } });
+    if (lowOpened || lastOne) notes.push({ rank: 10, line: { lotId: lot.id, text: name, amount: lastOne ? '剩一个' : '快用完', urgent: false } });
   }
   return notes.sort((a, b) => a.rank - b.rank).slice(0, limit).map(note => note.line);
 }
@@ -299,7 +303,7 @@ export function shoppingSuggestions(lots: KitchenLot[], foods: KitchenFood[], ev
   const result: string[] = [];
   const push = (name: string | undefined) => { if (name && !onList(name) && !result.includes(name)) result.push(name); };
   for (const line of stickyReminders(lots, foods, events, now, 20)) {
-    if (/快用完了|只剩一个/.test(line.text)) push(names.get(lots.find(lot => lot.id === line.lotId)?.foodId ?? ''));
+    if (line.amount === '快用完' || line.amount === '剩一个') push(names.get(lots.find(lot => lot.id === line.lotId)?.foodId ?? ''));
   }
   lots.filter(lot => lot.quantity <= 0 && !stocked.has(lot.foodId) && !undoneAdds.has(lot.id) && now - lot.updatedAt < 14 * DAY)
     .sort((a, b) => b.updatedAt - a.updatedAt)
