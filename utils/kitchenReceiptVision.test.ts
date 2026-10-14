@@ -33,6 +33,19 @@ describe('kitchen receipt vision request', () => {
     expect(body.messages[0].content[0].text).toContain('中文常用名');
   });
 
+  it('几张照片一次发：每张一个 image_url，提示里说清楚重叠只算一次；最多 6 张', async () => {
+    const request = vi.fn(async (_url: string, _options: RequestInit) => completion('{"items":[{"rawLabel":"MLK","name":"牛奶","quantity":1,"unit":"item","confidence":0.9}]}'));
+    const photos = Array.from({ length: 8 }, (_, i) => `data:image/jpeg;base64,p${i}`);
+    await recognizeKitchenReceipt(photos, config, request);
+    expect(request).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(String(request.mock.calls[0][1].body));
+    const urls = body.messages[0].content.filter((part: any) => part.type === 'image_url').map((part: any) => part.image_url.url);
+    expect(urls).toEqual(photos.slice(0, 6));
+    expect(body.max_tokens).toBe(8000);
+    expect(KITCHEN_RECEIPT_VISION_PROMPT).toContain('重叠的那几行只算一次');
+    await expect(recognizeKitchenReceipt(['data:image/jpeg;base64,x', 'nope'], config, request)).rejects.toThrow('图片数据不可用');
+  });
+
   it('accepts fenced JSON from providers that ignore structured output', async () => {
     const request = vi.fn(async () => completion('好的：\n```json\n{"merchant":null,"purchasedAt":null,"currency":null,"items":[{"rawLabel":"MLK","normalizedName":"牛奶","abbreviationMeaning":"milk","quantity":null,"unit":null,"packageSize":null,"lineTotal":null,"confidence":0.7,"alternatives":[]}]}\n```'));
     const draft = await recognizeKitchenReceipt('https://img.example.test/receipt.jpg', config, request);

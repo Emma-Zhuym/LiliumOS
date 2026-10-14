@@ -32,6 +32,8 @@ export const KITCHEN_RECEIPT_VISION_PROMPT = `你在读一张超市或杂货店�
 
 小票整体：merchant 店名，purchasedAt 购买日期写 YYYY-MM-DD（看不清 null），currency 写三字母币种（如 USD，看不清 null）。
 
+如果给了好几张照片：可能是一张长小票分几段拍的（相邻两张会有重叠，重叠的那几行只算一次），也可能是几张不同的小票（每张的商品都列出来，merchant 和 purchasedAt 写最近那张的）。
+
 只返回一个 JSON 对象，不要 Markdown，不要解释：
 {"merchant":…,"purchasedAt":…,"currency":…,"items":[{"rawLabel":…,"name":…,"abbreviationMeaning":…,"quantity":…,"unit":…,"packageSize":…,"storageZone":…,"shelfLifeDays":…,"isFood":…,"lineTotal":…,"confidence":…,"alternatives":[{"name":…,"abbreviationMeaning":…}]}]}`;
 
@@ -55,12 +57,15 @@ const parseJsonObject = (raw: string): unknown => {
   throw new Error('识图模型没有返回可解析的小票 JSON');
 };
 
+/** 一次最多带几张照片（长小票分段拍、几张小票一起） */
+export const KITCHEN_RECEIPT_MAX_PHOTOS = 6;
+
 /**
- * 一张图只调用一次视觉模型，得到可审阅草稿；不自动重试，也不写库存。
+ * 一次（一张或几张照片）只调用一次视觉模型，得到可审阅草稿；不自动重试，也不写库存。
  * request 参数只供单测注入，产品路径使用 safeFetchJson 的既有超时与 API 记账。
  */
 export async function recognizeKitchenReceipt(
-  imageUrl: string,
+  image: string | string[],
   config: VisionApiConfig,
   request: ReceiptRequest = (url, options) => safeFetchJson(
     url,
@@ -71,7 +76,8 @@ export async function recognizeKitchenReceipt(
   ),
 ): Promise<KitchenReceiptDraft> {
   if (!isVisionApiReady(config)) throw new Error('识图 API 尚未配置完整');
-  if (!canReadReceiptImage(imageUrl)) throw new Error('小票图片数据不可用');
+  const images = (Array.isArray(image) ? image : [image]).slice(0, KITCHEN_RECEIPT_MAX_PHOTOS);
+  if (!images.length || !images.every(canReadReceiptImage)) throw new Error('小票图片数据不可用');
 
   const base = config.baseUrl.trim().replace(/\/+$/, '');
   const data = await request(`${base}/chat/completions`, {
@@ -86,13 +92,13 @@ export async function recognizeKitchenReceipt(
         role: 'user',
         content: [
           { type: 'text', text: KITCHEN_RECEIPT_VISION_PROMPT },
-          { type: 'image_url', image_url: { url: imageUrl } },
+          ...images.map(url => ({ type: 'image_url', image_url: { url } })),
         ],
       }],
       // 宽松的 JSON 模式：不支持的服务商会忽略这个字段（严格 json_schema 在很多中转站和 Claude / Gemini 兼容接口上直接 400）
       response_format: { type: 'json_object' },
       temperature: 0,
-      max_tokens: 4000,
+      max_tokens: images.length > 1 ? 8000 : 4000,
       stream: false,
     }),
   });

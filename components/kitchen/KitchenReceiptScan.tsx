@@ -8,7 +8,7 @@ import {
   expiryFrom, KITCHEN_RECEIPT_UNITS, KITCHEN_RECEIPT_ZONES, REVIEW_REASON_LABELS,
   type KitchenReceiptDraft, type KitchenReceiptLineDraft, type KitchenReceiptUnit,
 } from '../../utils/kitchenReceiptRecognition';
-import { recognizeKitchenReceipt } from '../../utils/kitchenReceiptVision';
+import { KITCHEN_RECEIPT_MAX_PHOTOS, recognizeKitchenReceipt } from '../../utils/kitchenReceiptVision';
 import { UNIT_LABELS, ZONE_LABELS } from '../../utils/kitchenPresentation';
 
 interface Props {
@@ -79,11 +79,14 @@ export default function KitchenReceiptScan({ busy, onAdd, onReviewingChange }: P
   const sections = useMemo(() => groupApiPresets(apiPresets), [apiPresets]);
 
   const reset = () => { setDraft(null); setRows([]); setError(null); onReviewingChange(false); };
-  const read = async (file: File) => {
+  // 一次可以选几张：长小票分段拍，或者几张小票一起，一次读出一份核对单
+  const read = async (files: File[]) => {
     if (!api) return;
     setReading(true); setError(null);
     try {
-      const next = await recognizeKitchenReceipt(await shrinkPhoto(file), api.config);
+      const photos = [];
+      for (const file of files.slice(0, KITCHEN_RECEIPT_MAX_PHOTOS)) photos.push(await shrinkPhoto(file));
+      const next = await recognizeKitchenReceipt(photos, api.config);
       setDraft(next); setRows(rowsFrom(next)); setPurchasedAt(next.purchasedAt ?? '');
       onReviewingChange(true);
     } catch (reason) {
@@ -158,16 +161,16 @@ export default function KitchenReceiptScan({ busy, onAdd, onReviewingChange }: P
   </section>;
 
   return <section className="kitchen-receipt-scan">
-    <input ref={fileInput} type="file" accept="image/*" hidden onChange={event => {
-      const file = event.target.files?.[0];
+    <input ref={fileInput} type="file" accept="image/*" multiple hidden onChange={event => {
+      const files = Array.from(event.target.files ?? []);
       event.target.value = '';
-      if (file) void read(file);
+      if (files.length) void read(files);
     }} />
     <button type="button" className="kitchen-button" disabled={busy || reading || !api} onClick={() => fileInput.current?.click()}>
       {reading ? <Receipt size={18} /> : <Camera size={18} />}{reading ? '正在读小票…' : '拍小票'}
     </button>
     <p className="kitchen-note">
-      {api ? <>用 {api.preset.name} 读 · </> : '先选一个能看图的 API · '}
+      {api ? <>用 {api.preset.name} 读 · 长小票可以分几段拍，一起选上（最多 {KITCHEN_RECEIPT_MAX_PHOTOS} 张） · </> : '先选一个能看图的 API · '}
       <button type="button" className="kitchen-text-button" disabled={busy || reading} onClick={() => setPicking(value => !value)}>
         {api ? '换一个' : '去选'}
       </button>

@@ -50,7 +50,7 @@ interface ChatInputAreaProps {
     /** 提供时整体替换内置 actions 双页网格——群聊传自己的功能格。不传 = 原行为 */
     actionsContent?: React.ReactNode;
     onPanelAction: (type: string, payload?: any) => void;
-    onImageSelect: (file: File) => void;
+    onImageSelect: (file: File) => void | Promise<void>; // [EM: chat-multi-image] 返回 Promise 时一张发完再发下一张
     isSummarizing: boolean;
     // Categories Support
     categories?: EmojiCategory[];
@@ -209,13 +209,14 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
         }
     };
 
-    const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'chat' | 'bg') => {
-        const file = e.target.files?.[0];
-        if (file) {
-            onImageSelect(file);
-        }
+    // [EM-START: chat-multi-image] 一次选多张（最多 9 张），按选的顺序一张一张发：
+    // 自动回复要等这几张都发完才开始倒数，所以只回一次
+    const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>, type: 'chat' | 'bg') => {
+        const files = Array.from(e.target.files ?? []).slice(0, 9);
         if (e.target) e.target.value = ''; // Reset
+        for (const file of files) await onImageSelect(file);
     };
+    // [EM-END: chat-multi-image]
 
     // --- Unified Touch/Long-Press Logic ---
     
@@ -563,7 +564,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                 </div>
             )}
         <div className={`sully-chat-inputbar ${shellClass} pb-safe shrink-0 z-40 relative`}>
-            <input type="file" ref={chatImageInputRef} className="hidden" accept="image/*" onChange={(e) => handleImageChange(e, 'chat')} />
+            <input type="file" ref={chatImageInputRef} className="hidden" accept="image/*" multiple onChange={(e) => { void handleImageChange(e, 'chat'); }} />{/* [EM: chat-multi-image] multiple */}
             
             {selectionMode ? (
                 <div className={`p-3 flex gap-2 ${isPixelStyle ? 'bg-[#f3e7d6]' : isDiscordStyle ? 'bg-slate-900/60 backdrop-blur-md' : 'bg-white/50 backdrop-blur-md'}`}>

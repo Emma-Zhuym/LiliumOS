@@ -49,6 +49,8 @@ check "小厨房：外壳路由" components/PhoneShell.tsx "case AppID.Kitchen: 
 check "小厨房：安全区自理" utils/safeAreaApps.ts "AppID.Kitchen, // [EM: kitchen-app]"
 check "小厨房：备份导出" context/OSContext.tsx "[EM-START: kitchen-backup-export]"
 check "小厨房：备份恢复" context/OSContext.tsx "[EM-START: kitchen-backup-restore]"
+check "聊天一次选多张图" components/chat/ChatInputArea.tsx "[EM-START: chat-multi-image]"
+check "聊天选图框允许多选" components/chat/ChatInputArea.tsx "[EM: chat-multi-image] multiple"
 
 echo "── OSContext ──"
 check "messageSubView 类型" context/OSContext.tsx "[EM-START: message-sub-view]"
