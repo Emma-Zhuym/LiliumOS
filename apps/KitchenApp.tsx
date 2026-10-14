@@ -1,0 +1,378 @@
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowCounterClockwise, BookOpenText, CaretLeft, CaretRight, ClockCounterClockwise, MagnifyingGlass, Package, Plus, Snowflake, X } from '@phosphor-icons/react';
+import { useOS } from '../context/OSContext';
+import KitchenLotDetail from '../components/kitchen/KitchenLotDetail';
+import KitchenSheet from '../components/kitchen/KitchenSheet';
+import KitchenAddForm from '../components/kitchen/KitchenAddForm';
+import KitchenReceiptScan from '../components/kitchen/KitchenReceiptScan';
+import KitchenShoppingList from '../components/kitchen/KitchenShoppingList';
+import KitchenLotActions from '../components/kitchen/KitchenLotActions';
+import KitchenHistoryReceipts from '../components/kitchen/KitchenHistoryReceipts';
+import KitchenRecipeBook, { type RecipeTab } from '../components/kitchen/KitchenRecipeBook';
+import KitchenRecipeDetail from '../components/kitchen/KitchenRecipeDetail';
+import KitchenRecipeEditor from '../components/kitchen/KitchenRecipeEditor';
+import KitchenSauceEditor from '../components/kitchen/KitchenSauceEditor';
+import KitchenCookSheet, { type CookResult } from '../components/kitchen/KitchenCookSheet';
+import { shoppingSuggestions, shoppingTrips } from '../utils/kitchenAppearance';
+import { KITCHEN_PAPER_VARS } from '../utils/kitchenPaperTokens';
+import '../components/kitchen/kitchenPaper.css';
+import {
+  KitchenDB, hasKitchenEventChange, type AddKitchenLotInput, type KitchenFood,
+  type KitchenLot, type KitchenEvent, type KitchenShoppingItem, type KitchenStorageZone, type UpdateKitchenLotDetailsInput,
+  type KitchenRecipe, type KitchenSauce, type SaveRecipeInput, type SaveSauceInput,
+} from '../utils/kitchenDb';
+import { describeLotStock, editableUnitsFor, makeOperationId, UNIT_LABELS, ZONE_LABELS } from '../utils/kitchenPresentation';
+
+const KitchenFridgeScene = lazy(() => import('../components/kitchen/KitchenFridgeScene'));
+// 菜谱本（2026-10-14）：菜谱 / 酱汁库两张页签 → 一道菜 → 改菜谱；酱汁单独一页改
+type View = 'home' | 'list' | 'history' | 'recipes' | 'recipe' | 'recipe-edit' | 'sauce-edit';
+type Notice = { text: string; error?: boolean; undo?: boolean };
+
+const KitchenApp: React.FC = () => {
+  const { closeApp } = useOS();
+  const [foods, setFoods] = useState<KitchenFood[]>([]);
+  const [lots, setLots] = useState<KitchenLot[]>([]);
+  const [events, setEvents] = useState<KitchenEvent[]>([]);
+  const [shopping, setShopping] = useState<KitchenShoppingItem[]>([]);
+  const [showShopping, setShowShopping] = useState(false);
+  const [recipes, setRecipes] = useState<KitchenRecipe[]>([]);
+  const [sauces, setSauces] = useState<KitchenSauce[]>([]);
+  const [recipeTab, setRecipeTab] = useState<RecipeTab>('recipes');
+  const [recipeId, setRecipeId] = useState<string | null>(null);
+  /** 菜谱页现在按几人份看（只是看，不写回菜谱） */
+  const [servingsView, setServingsView] = useState(2);
+  const [sauceId, setSauceId] = useState<string | null>(null);
+  /** 改酱汁那页返回哪：酱汁库，或者是从某道菜点进来的 */
+  const [sauceBack, setSauceBack] = useState<View>('recipes');
+  /** 写菜谱时当场新写的酱汁：弹在面板里，存好挂到菜谱上 */
+  const [newSauceSheet, setNewSauceSheet] = useState(false);
+  const [attachSauceId, setAttachSauceId] = useState<string | null>(null);
+  const [cooking, setCooking] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [view, setView] = useState<View>('home');
+  const [showAdd, setShowAdd] = useState(false);
+  const [reviewingReceipt, setReviewingReceipt] = useState(false);
+  useEffect(() => { if (!showAdd) setReviewingReceipt(false); }, [showAdd]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [zoneFilter, setZoneFilter] = useState<KitchenStorageZone | 'all'>('all');
+  const [notice, setNotice] = useState<Notice | null>(null);
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const background = useRef<HTMLDivElement>(null);
+  const searchField = useRef<HTMLInputElement>(null);
+  const searchOnOpen = useRef(false);
+  const content = useRef<HTMLElement>(null);
+  // 换一页就从顶上看（不然从菜谱滑到一半点「改菜谱」，编辑页也是从一半开始）
+  useEffect(() => { if (content.current) content.current.scrollTop = 0; }, [view]);
+
+  const refresh = useCallback(async () => {
+    const [nextFoods, nextLots, nextEvents, nextShopping, nextRecipes, nextSauces] = await Promise.all([
+      KitchenDB.getFoods(), KitchenDB.getLots(), KitchenDB.getEvents(), KitchenDB.getShopping(), KitchenDB.getRecipes(), KitchenDB.getSauces(),
+    ]);
+    setFoods(nextFoods);
+    setShopping(nextShopping);
+    setRecipes(nextRecipes);
+    setSauces(nextSauces);
+    setLots(nextLots);
+    setEvents(nextEvents.sort((a, b) => b.occurredAt - a.occurredAt || b.id.localeCompare(a.id)));
+    setLoadFailed(false);
+  }, []);
+  const load = useCallback(async () => {
+    setLoading(true);
+    setNotice(null);
+    try { await refresh(); }
+    catch (error) {
+      setLoadFailed(true);
+      setNotice({ text: error instanceof Error ? error.message : '厨房没有成功打开', error: true });
+    } finally { setLoading(false); }
+  }, [refresh]);
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (view === 'list' && searchOnOpen.current) {
+      searchField.current?.focus({ preventScroll: true });
+      searchOnOpen.current = false;
+    }
+  }, [view]);
+  // Keep undo available long enough to use; history remains a permanent fallback.
+  useEffect(() => {
+    if (!notice || notice.error) return;
+    const timer = window.setTimeout(() => setNotice(null), 9000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  const foodById = useMemo(() => new Map(foods.map(food => [food.id, food])), [foods]);
+  const activeLots = useMemo(() => lots.filter(lot => lot.quantity > 0)
+    .sort((a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id)), [lots]);
+  const visibleLots = activeLots.filter(lot => (zoneFilter === 'all' || lot.storageZone === zoneFilter)
+    && (foodById.get(lot.foodId)?.name ?? '').toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
+  const stagedCount = activeLots.filter(lot => lot.storageZone === 'staging').length;
+  const visibleEvents = events.filter(hasKitchenEventChange);
+  const canUndo = visibleEvents.some(event => event.type !== 'UNDO' && !event.undoneAt);
+  const selectedLot = lots.find(lot => lot.id === selectedId && lot.quantity > 0);
+  const detailLot = lots.find(lot => lot.id === detailId);
+  const detailFood = detailLot && foodById.get(detailLot.foodId);
+
+  const run = async (work: () => Promise<unknown>, message: string, close = false, undoable = true): Promise<boolean> => {
+    if (busyRef.current) return false;
+    busyRef.current = true;
+    setBusy(true);
+    setNotice(null);
+    let committed = false;
+    try {
+      await work();
+      committed = true;
+      if (close) { setShowAdd(false); setSelectedId(null); }
+      await refresh();
+      setNotice({ text: message, undo: undoable });
+      return true;
+    } catch (error) {
+      if (committed) {
+        // The ledger write already succeeded. Retrying must only reread it.
+        setShowAdd(false);
+        setSelectedId(null);
+        setDetailId(null);
+        setLoadFailed(true);
+        setNotice({ text: '已保存，但画面没有刷新。请点重新打开，不需要再记一次。', error: true });
+      } else {
+        setNotice({ text: error instanceof Error ? error.message : '这次操作没有保存', error: true });
+      }
+      return false;
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  };
+  const undo = async () => {
+    let restored = false;
+    const success = await run(async () => { restored = !!await KitchenDB.undoLatest(makeOperationId('undo')); }, '已撤销最近操作', false, false);
+    if (success && !restored) setNotice({ text: '暂时没有可以撤销的操作' });
+  };
+  const openLot = useCallback((id: string) => { setNotice(null); setSelectedId(id); }, []);
+  // 记录页点一行：还有的开操作面板（记用量、核对），已经吃完 / 丢了的开详情页（改资料、看这一样的记录）
+  const openHistoryLot = (id: string) => {
+    const lot = lots.find(item => item.id === id);
+    if (!lot) return;
+    setNotice(null);
+    if (lot.quantity > 0) setSelectedId(id); else setDetailId(id);
+  };
+  const openList = (focusSearch = false, filter: typeof zoneFilter = 'all') => {
+    searchOnOpen.current = focusSearch;
+    setZoneFilter(filter);
+    setSearch('');
+    setView('list');
+  };
+  // 放进来以后，要买清单上名字对得上的自动划掉（记下是哪一笔划的，撤销那一笔时勾跟着取消；划清单失败不影响入库）
+  const crossOff = async (added: { name: string; operationId: string }[]) => { try { return await KitchenDB.markShoppingBought(added); } catch { return 0; } };
+  const withCrossed = (crossed: number) => {
+    if (crossed) setNotice(value => value && !value.error ? { ...value, text: `${value.text}，要买清单划掉了 ${crossed} 样` } : value);
+  };
+  const addFood = async (input: AddKitchenLotInput) => {
+    let crossed = 0;
+    const operationId = makeOperationId('add');
+    await run(async () => { await KitchenDB.addLot({ ...input, operationId }); crossed = await crossOff([{ name: input.name, operationId }]); },
+      '已经放进小厨房', true);
+    withCrossed(crossed);
+  };
+  // 拍小票：一张小票一个事务写完、一批撤销；每样的 operationId 带 receipt_ 前缀，小票分组靠它认出这是买回来的
+  const addReceipt = async (inputs: AddKitchenLotInput[]) => {
+    let crossed = 0;
+    const done = await run(async () => {
+      const results = await KitchenDB.addLots(inputs.map(input => ({ ...input, operationId: makeOperationId('receipt') })), makeOperationId('receiptbatch'));
+      crossed = await crossOff(results.map(({ event }, i) => ({ name: inputs[i].name, operationId: event.operationId })));
+    }, `小票上的 ${inputs.length} 样放好了`, true);
+    withCrossed(crossed);
+    return done;
+  };
+  // 要买清单的增删改：不进操作记录、不弹撤销，改完只重读清单
+  const editShopping = async (work: () => Promise<unknown>): Promise<boolean> => {
+    try { await work(); setShopping(await KitchenDB.getShopping()); return true; }
+    catch (error) { setNotice({ text: error instanceof Error ? error.message : '要买清单没改成', error: true }); return false; }
+  };
+  // 菜谱和酱汁库的增删改：不进操作记录、不弹撤销
+  const editRecipes = async (work: () => Promise<unknown>, message: string): Promise<boolean> => {
+    if (busyRef.current) return false;
+    busyRef.current = true; setBusy(true);
+    try {
+      await work();
+      const [nextRecipes, nextSauces] = await Promise.all([KitchenDB.getRecipes(), KitchenDB.getSauces()]);
+      setRecipes(nextRecipes); setSauces(nextSauces);
+      setNotice({ text: message });
+      return true;
+    } catch (error) {
+      setNotice({ text: error instanceof Error ? error.message : '没存上', error: true });
+      return false;
+    } finally { busyRef.current = false; setBusy(false); }
+  };
+  const openRecipe = (id: string) => {
+    const recipe = recipes.find(item => item.id === id);
+    setRecipeId(id); setServingsView(recipe?.servings ?? 2); setNotice(null); setView('recipe');
+  };
+  const openSauce = (id: string | null, back: View) => { setSauceId(id); setSauceBack(back); setNotice(null); setView('sauce-edit'); };
+  const saveRecipe = async (input: SaveRecipeInput) => {
+    let saved: KitchenRecipe | null = null;
+    const ok = await editRecipes(async () => { saved = await KitchenDB.saveRecipe(input); }, input.id ? '菜谱改好了' : '菜谱存好了');
+    if (ok && saved) { setAttachSauceId(null); setRecipeId((saved as KitchenRecipe).id); setServingsView((saved as KitchenRecipe).servings); setView('recipe'); }
+  };
+  const saveSauce = async (input: SaveSauceInput, attach = false) => {
+    let saved: KitchenSauce | null = null;
+    const ok = await editRecipes(async () => { saved = await KitchenDB.saveSauce(input); }, input.id ? '酱汁改好了' : '酱汁存进酱汁库了');
+    if (!ok || !saved) return;
+    if (attach) { setAttachSauceId((saved as KitchenSauce).id); setNewSauceSheet(false); }
+    else setView(sauceBack);
+  };
+  /**
+   * 做了这道：按核对单从库存扣（记成「做菜用」）、做出来的放进冰箱记成做好的菜、菜谱记一次——一个事务写完，
+   * 能扣的有扣才给「撤销」（撤销整道菜一起退）
+   */
+  const cookRecipe = async (recipe: KitchenRecipe, result: CookResult) => {
+    const done = await run(async () => {
+      await KitchenDB.cook({
+        recipeId: recipe.id, note: `做${recipe.name}`, operationId: makeOperationId('cook'),
+        deductions: result.deductions.map(item => ({ lotId: item.lotId, amount: item.amount })),
+        leftover: result.leftover ? { name: recipe.name, quantity: result.leftover.quantity, unit: 'portion', storageZone: result.leftover.zone } : undefined,
+      });
+    }, `做了${recipe.name}${result.deductions.length ? `，扣了 ${result.deductions.length} 样` : ''}${result.leftover ? '，剩的放进冰箱了' : ''}`, false,
+    result.deductions.length > 0 || !!result.leftover);
+    if (done) setCooking(false);
+  };
+  const shopMissing = async (names: string[]) => {
+    const ok = await editShopping(async () => { for (const name of names) await KitchenDB.addShopping(name); });
+    if (ok) setNotice({ text: `${names.join('、')}加进要买清单了` });
+  };
+  const currentRecipe = recipes.find(item => item.id === recipeId);
+  const currentSauce = sauces.find(item => item.id === sauceId);
+  const sauceUsers = (id: string | null) => id ? recipes.filter(recipe => recipe.sauces.some(item => item.sauceId === id)).map(recipe => recipe.name) : [];
+  const suggestions = useMemo(() => shoppingSuggestions(lots, foods, events, shopping), [lots, foods, events, shopping]);
+  const saveDetails = async (input: UpdateKitchenLotDetailsInput) => {
+    await run(() => KitchenDB.updateLotDetails(input), '食材资料已更新', false, false);
+  };
+
+  if (detailLot && detailFood) return <KitchenLotDetail lot={detailLot} food={detailFood} events={events}
+    siblingLotCount={lots.filter(lot => lot.foodId === detailLot.foodId).length} busy={busy} notice={notice?.text ?? null}
+    unitLabels={UNIT_LABELS} zoneLabels={ZONE_LABELS} editableUnits={editableUnitsFor(detailLot.unit)}
+    onBack={() => { setDetailId(null); setNotice(null); }} onSave={input => { void saveDetails(input); }}
+    onFinish={() => { void run(() => KitchenDB.changeLot({ type: 'FINISH', lotId: detailLot.id, operationId: makeOperationId('finish') }), '这条库存已清零，可在操作记录里撤销'); }} />;
+
+  const renderRows = (items: KitchenLot[]) => <div className="kitchen-inventory">
+    {items.map(lot => {
+      const name = foodById.get(lot.foodId)?.name ?? '未命名食物';
+      return <button className="kitchen-row kitchen-food-row" type="button" key={lot.id}
+        aria-label={`查看${name}`} onClick={() => openLot(lot.id)}>
+        <span className="kitchen-food-icon">{lot.storageZone === 'freezer' ? <Snowflake size={22} /> : <Package size={22} />}</span>
+        <span className="kitchen-food-copy"><strong>{name}</strong><span>{describeLotStock(lot)}</span></span>
+        <span className="kitchen-food-zone">{ZONE_LABELS[lot.storageZone]}</span><CaretRight size={16} />
+      </button>;
+    })}
+  </div>;
+  const inSheet = showAdd || showShopping || !!selectedLot || (cooking && !!currentRecipe) || newSauceSheet;
+
+  // 首页整屏都是厨房（2026-10-11 Emma 定）：场景铺满，顶栏透明浮在画面上，底下只留一排纸签
+  const stage = view === 'home' && !loading && !loadFailed;
+  return <div className="kitchen-paper" style={KITCHEN_PAPER_VARS}>
+    <div ref={background} className={stage ? 'kitchen-page is-stage' : 'kitchen-page'}>
+      <header className="kitchen-header">
+        <div className="kitchen-header-actions"><button type="button" className="kitchen-icon" aria-label={view === 'home' ? '返回' : view === 'recipes' || view === 'list' || view === 'history' ? '返回厨房' : '返回上一页'}
+          onClick={() => {
+            setNotice(null);
+            if (view === 'home') closeApp();
+            else if (view === 'recipe') setView('recipes');
+            else if (view === 'recipe-edit') { setAttachSauceId(null); setView(currentRecipe ? 'recipe' : 'recipes'); }
+            else if (view === 'sauce-edit') setView(sauceBack);
+            else setView('home');
+          }}><CaretLeft size={22} weight="bold" /></button></div>
+        <h1 className="kitchen-heading">{({ home: '小厨房', list: '食材清单', history: '操作记录', recipes: '菜谱', recipe: '菜谱',
+          'recipe-edit': currentRecipe ? '改菜谱' : '写一道菜', 'sauce-edit': currentSauce ? '改酱汁' : '调一个酱汁' } as Record<View, string>)[view]}</h1>
+        <div className="kitchen-header-actions">
+          {view === 'home' && <button type="button" className="kitchen-icon" aria-label="搜索食材" onClick={() => openList(true)}><MagnifyingGlass size={21} /></button>}
+          {view === 'recipes' ? <button type="button" className="kitchen-icon" aria-label={recipeTab === 'recipes' ? '写一道菜' : '调一个酱汁'} disabled={busy}
+            onClick={() => { if (recipeTab === 'recipes') { setRecipeId(null); setAttachSauceId(null); setView('recipe-edit'); } else openSauce(null, 'recipes'); }}><Plus size={23} /></button>
+            : !['recipe', 'recipe-edit', 'sauce-edit'].includes(view) && <button type="button" className="kitchen-icon" aria-label="添加食物" disabled={busy || loading || loadFailed}
+              onClick={() => { setNotice(null); setShowAdd(true); }}><Plus size={23} /></button>}
+        </div>
+      </header>
+      <main ref={content} className="kitchen-content">
+        {loading ? <div className="kitchen-empty" role="status">正在打开小厨房…</div>
+          : loadFailed ? <div className="kitchen-empty"><p>食材暂时没有读出来。</p><button type="button" className="kitchen-button" onClick={() => { void load(); }}>重新打开</button></div>
+          : view === 'home' ? <>
+            {/* 常温柜不做 3D（2026-10-11）：柜子里的零食饮料速食写在冷藏门左下那张「柜子里」清单上 */}
+            <Suspense fallback={<div className="kitchen-empty" role="status">正在打开冰箱…</div>}>
+              <KitchenFridgeScene fullBleed lots={lots} foods={foods} events={events} onOpenLot={openLot}
+                onOpenHistory={() => setView('history')} onOpenPantry={() => openList(false, 'pantry')} onOpenList={() => openList(false)}
+                shopping={shopping} onToggleShopping={id => { void editShopping(() => KitchenDB.toggleShopping(id)); }}
+                onOpenShopping={() => { setNotice(null); setShowShopping(true); }} />
+            </Suspense>
+            <nav className="kitchen-stage-chips" aria-label="厨房">
+              <button type="button" className="kitchen-button" aria-label="食材清单" onClick={() => openList()}>食材清单 · {activeLots.length}</button>
+              {stagedCount > 0 && <button type="button" className="kitchen-button" onClick={() => openList(false, 'staging')}>{stagedCount} 条还没收好</button>}
+              <button type="button" className="kitchen-button" onClick={() => setView('history')}><ClockCounterClockwise size={16} />操作记录</button>
+              <button type="button" className="kitchen-button" onClick={() => { setNotice(null); setView('recipes'); }}><BookOpenText size={16} />菜谱</button>
+            </nav>
+          </> : view === 'recipes' ? <KitchenRecipeBook tab={recipeTab} recipes={recipes} sauces={sauces} lots={lots} foods={foods} onTab={setRecipeTab}
+              onOpenRecipe={openRecipe} onOpenSauce={id => openSauce(id, 'recipes')}
+              onNewRecipe={() => { setRecipeId(null); setAttachSauceId(null); setView('recipe-edit'); }} onNewSauce={() => openSauce(null, 'recipes')} />
+          : view === 'recipe' && currentRecipe ? <KitchenRecipeDetail recipe={currentRecipe} sauces={sauces} lots={lots} foods={foods} servings={servingsView} busy={busy}
+              onServings={setServingsView} onEdit={() => { setAttachSauceId(null); setView('recipe-edit'); }} onCook={() => { setNotice(null); setCooking(true); }}
+              onShopMissing={names => { void shopMissing(names); }} onOpenSauce={id => openSauce(id, 'recipe')} />
+          : view === 'recipe-edit' ? <KitchenRecipeEditor key={recipeId ?? 'new'} recipe={currentRecipe} sauces={sauces} busy={busy} attachSauceId={attachSauceId}
+              onSave={input => { void saveRecipe(input); }} onNewSauce={() => { setNotice(null); setNewSauceSheet(true); }}
+              onDelete={currentRecipe ? () => { void editRecipes(() => KitchenDB.deleteRecipe(currentRecipe.id), `${currentRecipe.name}删掉了`).then(ok => { if (ok) { setRecipeId(null); setView('recipes'); } }); } : undefined} />
+          : view === 'sauce-edit' ? <KitchenSauceEditor key={sauceId ?? 'new'} sauce={currentSauce} usedBy={sauceUsers(sauceId)} busy={busy}
+              onSave={input => { void saveSauce(input); }}
+              onDelete={currentSauce ? () => { void editRecipes(() => KitchenDB.deleteSauce(currentSauce.id), `${currentSauce.name}删掉了`).then(ok => { if (ok) setView(sauceBack === 'recipe' ? 'recipe' : 'recipes'); }); } : undefined} />
+          : view === 'recipe' ? <div className="kitchen-empty">这道菜找不到了。</div>
+          : view === 'list' ? <>
+            <div className="kitchen-list-tools">
+              <input ref={searchField} className="kitchen-field" aria-label="搜索食材" placeholder="找找家里有什么" value={search} onChange={event => setSearch(event.target.value)} />
+              <label className="kitchen-label">收纳位置
+                <select className="kitchen-field" aria-label="筛选收纳位置" value={zoneFilter} onChange={event => setZoneFilter(event.target.value as typeof zoneFilter)}>
+                  <option value="all">全部 · {activeLots.length} 条</option>
+                  {Object.entries(ZONE_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+                </select>
+              </label>
+            </div>
+            {visibleLots.length ? renderRows(visibleLots) : <div className="kitchen-empty"><Package size={24} /><p>{activeLots.length ? '没有找到符合条件的食材，换个名称或位置试试。' : '还没有食材，先把买回来的放进来吧。'}</p></div>}
+          </> : <>
+            <div className="kitchen-history-head"><p className="kitchen-note">每次添置、用掉，都记在这页。</p>
+              <button type="button" className="kitchen-text-button" disabled={busy || !canUndo} onClick={() => { void undo(); }}><ArrowCounterClockwise size={18} />撤销最近操作</button>
+            </div>
+            {visibleEvents.length === 0 ? <div className="kitchen-empty">还没有操作记录。</div>
+              : <KitchenHistoryReceipts trips={shoppingTrips(visibleEvents, foods, lots)} onOpenLot={openHistoryLot} />}
+          </>}
+      </main>
+    </div>
+    {inSheet && <KitchenSheet title={showAdd ? '放进食物' : showShopping ? '要买清单' : newSauceSheet ? '调一个酱汁' : cooking && currentRecipe ? `做了${currentRecipe.name}` : foodById.get(selectedLot!.foodId)?.name ?? '食材'}
+      label={showAdd ? '放进食物' : showShopping ? '要买清单' : newSauceSheet ? '调一个酱汁' : cooking ? '做了这道菜' : '食材操作'} busy={busy} backgroundRef={background}
+      onClose={() => { setShowAdd(false); setShowShopping(false); setSelectedId(null); setCooking(false); setNewSauceSheet(false); setNotice(null); }}>
+      {notice && <p className="kitchen-inline-notice" role={notice.error ? 'alert' : 'status'}>{notice.text}</p>}
+      {showAdd ? <>
+        <KitchenReceiptScan busy={busy} onAdd={addReceipt} onReviewingChange={setReviewingReceipt} />
+        {!reviewingReceipt && <KitchenAddForm initialZone="fridge" busy={busy} onAdd={addFood} />}
+      </>
+        : newSauceSheet ? <KitchenSauceEditor usedBy={[]} busy={busy} onSave={input => { void saveSauce(input, true); }} />
+        : cooking && currentRecipe ? <KitchenCookSheet recipe={currentRecipe} servings={servingsView} lots={lots} foods={foods} busy={busy}
+          onCook={result => { void cookRecipe(currentRecipe, result); }} />
+        : showShopping ? <KitchenShoppingList items={shopping} suggestions={suggestions} busy={busy}
+          onAdd={name => editShopping(() => KitchenDB.addShopping(name))}
+          onToggle={id => { void editShopping(() => KitchenDB.toggleShopping(id)); }}
+          onRemove={id => { void editShopping(() => KitchenDB.removeShopping(id)); }}
+          onClearChecked={() => { void editShopping(() => KitchenDB.clearCheckedShopping()); }} />
+        : <KitchenLotActions key={selectedLot!.id} lot={selectedLot!} busy={busy}
+          onAddShopping={() => {
+            const name = foodById.get(selectedLot!.foodId)?.name;
+            if (name) void editShopping(() => KitchenDB.addShopping(name, selectedLot!.id)).then(ok => { if (ok) setNotice({ text: `${name}加进要买清单了` }); });
+          }}
+          run={(work, message, close) => run(work, message, close, close === true)} onError={text => setNotice({ text, error: true })}
+          onEdit={() => { setDetailId(selectedId); setSelectedId(null); setNotice(null); }} />}
+    </KitchenSheet>}
+    {notice && !inSheet && <div className="kitchen-toast" role={notice.error ? 'alert' : 'status'}>
+      <span>{notice.text}</span>
+      {notice.undo && canUndo && <button type="button" className="kitchen-text-button" onClick={() => { void undo(); }} disabled={busy}>撤销</button>}
+      <button type="button" className="kitchen-icon" aria-label="关闭提示" onClick={() => setNotice(null)}><X size={18} /></button>
+    </div>}
+  </div>;
+};
+
+export default KitchenApp;

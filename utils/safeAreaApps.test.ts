@@ -17,6 +17,7 @@ const SELF_HANDLED: AppID[] = [
     AppID.SmartHome,
     AppID.Moments, // [EM: moments]
     AppID.Calendar, // [EM: calendar-temporal]
+    AppID.Kitchen, // [EM: kitchen-app]
 ];
 
 describe('shellHandlesSafeArea', () => {

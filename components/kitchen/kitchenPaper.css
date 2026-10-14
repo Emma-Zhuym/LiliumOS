@@ -1,0 +1,511 @@
+/* Kitchen-only paper treatment: Emma approved this departure from old Clay UI. */
+.kitchen-paper {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--k-ink);
+  background-color: var(--k-bg);
+  -webkit-tap-highlight-color: transparent;
+}
+
+.kitchen-paper *, .kitchen-paper *::before, .kitchen-paper *::after { box-sizing: border-box; }
+.kitchen-paper button, .kitchen-paper input, .kitchen-paper select, .kitchen-paper textarea { font-family: inherit; }
+.kitchen-paper button { cursor: pointer; }
+.kitchen-paper button:disabled { cursor: default; opacity: .48; }
+.kitchen-paper :is(button, input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--k-blue-ink);
+  outline-offset: 3px;
+}
+.kitchen-paper button { transition: background-color 140ms ease, transform 100ms ease; }
+.kitchen-paper button:active:not(:disabled) { transform: translateY(1px); }
+.kitchen-paper input::placeholder, .kitchen-paper textarea::placeholder { color: var(--k-faint); opacity: 1; }
+.kitchen-paper input[type="date"] { min-width: 0; max-width: 100%; }
+
+.kitchen-heading {
+  color: var(--k-ink);
+  font-family: var(--k-heading);
+  font-weight: 700;
+  letter-spacing: .035em;
+  line-height: 1.5;
+}
+.kitchen-label { display: block; margin-bottom: 8px; color: var(--k-muted); font-size: 12px; font-weight: 500; }
+.kitchen-field {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  padding: 12px;
+  border: 1px solid var(--k-line);
+  border-radius: var(--k-radius-field);
+  background: var(--k-surface);
+  color: var(--k-ink);
+  font-size: 16px;
+  line-height: 1.4;
+  box-shadow: none;
+}
+.kitchen-field:focus { border-color: var(--k-blue-ink); }
+.kitchen-button {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 16px;
+  border: 1px solid var(--k-line);
+  border-radius: var(--k-radius-button);
+  background: var(--k-surface);
+  color: var(--k-ink);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+  box-shadow: none;
+}
+.kitchen-button::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -3px;
+  background: var(--k-surface);
+  clip-path: polygon(1% 7%, 8% 3%, 16% 6%, 25% 2%, 34% 5%, 44% 1%, 54% 5%, 65% 2%, 74% 6%, 84% 2%, 94% 5%, 99% 2%, 100% 94%, 93% 98%, 83% 95%, 72% 99%, 62% 96%, 51% 100%, 40% 96%, 30% 99%, 20% 95%, 10% 98%, 1% 94%);
+  pointer-events: none;
+}
+.kitchen-button--primary, .kitchen-button-primary, .kitchen-button.primary {
+  min-height: 48px;
+  border-color: var(--k-green-ink);
+  background: var(--k-green);
+  color: var(--k-green-ink);
+}
+.kitchen-button--primary::before, .kitchen-button-primary::before, .kitchen-button.primary::before { background: var(--k-green); }
+.kitchen-button--danger { color: var(--k-danger); }
+.kitchen-icon {
+  display: inline-flex;
+  flex: 0 0 44px;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--k-radius-button);
+  background: transparent;
+  color: var(--k-muted);
+  box-shadow: none;
+}
+.kitchen-text-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 8px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--k-green-ink);
+  font-size: 13px;
+  font-weight: 500;
+}
+.kitchen-header { display: grid; grid-template-columns: 1fr auto 1fr; flex-shrink: 0; align-items: center; padding: calc(var(--chrome-top) + 4px) 12px 4px; background-color: var(--k-bg); }
+.kitchen-header > .kitchen-heading { margin: 0; font-size: 19px; white-space: nowrap; }
+.kitchen-header > div:only-child { grid-column: 1 / -1; }
+.kitchen-header-actions { display: flex; align-items: center; gap: 0; justify-self: end; }
+.kitchen-header-actions:first-child { justify-self: start; }
+.kitchen-page { display: flex; flex: 1; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; }
+.kitchen-content { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px 20px calc(var(--safe-bottom) + 24px); }
+.kitchen-home-footer { position: relative; display: flex; flex-direction: column; align-items: stretch; gap: 8px; margin: 0 -20px calc((var(--safe-bottom) + 24px) * -1); padding: 12px 20px calc(var(--safe-bottom) + 32px); background-color: var(--k-bg); }
+.kitchen-home-footer::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -9px;
+  height: 10px;
+  background-color: var(--k-bg);
+  clip-path: polygon(0 62%, 5% 35%, 10% 70%, 16% 28%, 22% 61%, 29% 35%, 36% 72%, 43% 30%, 50% 60%, 57% 25%, 64% 68%, 71% 33%, 78% 66%, 84% 28%, 91% 62%, 96% 35%, 100% 55%, 100% 100%, 0 100%);
+  pointer-events: none;
+}
+.kitchen-home-footer > .kitchen-row { min-height: 52px; }
+.kitchen-home-footer > .kitchen-row > :first-child { flex: 1; font-size: 16px; }
+.kitchen-home-footer > .kitchen-row > :nth-child(2) { color: var(--k-muted); font-size: 12px; }
+.kitchen-home-footer > .kitchen-text-button:last-child { align-self: center; font-size: 12px; color: var(--k-muted); }
+.kitchen-tabs { position: relative; display: flex; align-items: center; gap: 8px; margin: -8px -20px 0; padding: 8px 20px 18px; background-color: var(--k-bg); }
+.kitchen-tabs::after {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  right: 0;
+  bottom: -8px;
+  height: 10px;
+  background-color: var(--k-bg);
+  clip-path: polygon(0 0, 100% 0, 100% 52%, 95% 72%, 90% 38%, 84% 70%, 78% 42%, 72% 76%, 66% 35%, 60% 66%, 54% 40%, 48% 72%, 42% 35%, 36% 68%, 30% 40%, 24% 74%, 18% 34%, 12% 66%, 6% 38%, 0 70%);
+  pointer-events: none;
+}
+.kitchen-tabs > button {
+  position: relative;
+  isolation: isolate;
+  flex: 1;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--k-radius-field);
+  background: transparent;
+  color: var(--k-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+.kitchen-tabs > button::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -2px;
+  background: transparent;
+  clip-path: polygon(2% 6%, 13% 2%, 24% 6%, 36% 1%, 48% 5%, 61% 2%, 74% 6%, 87% 2%, 98% 7%, 100% 93%, 88% 97%, 76% 94%, 64% 99%, 51% 95%, 39% 98%, 27% 95%, 14% 99%, 1% 93%);
+  pointer-events: none;
+}
+.kitchen-tabs > button:is([aria-selected="true"], [aria-pressed="true"], .is-active, .active) {
+  border-color: var(--k-line);
+  border-bottom-color: transparent;
+  background-color: var(--k-blue);
+  background-image: var(--k-texture);
+  color: var(--k-blue-ink);
+}
+.kitchen-tabs > button:is([aria-selected="true"], [aria-pressed="true"], .is-active, .active)::before { background: var(--k-blue); }
+.kitchen-tabs > button:is([aria-selected="true"], [aria-pressed="true"], .is-active, .active)::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 4px;
+  background-color: var(--k-bg);
+  background-image: var(--k-texture);
+  clip-path: polygon(0 45%, 9% 65%, 17% 25%, 26% 60%, 34% 40%, 43% 65%, 52% 20%, 61% 55%, 71% 35%, 81% 70%, 92% 40%, 100% 55%, 100% 100%, 0 100%);
+  pointer-events: none;
+}
+.kitchen-row { display: flex; width: 100%; align-items: center; gap: 12px; min-height: 72px; padding: 12px 0; border: 0; background: transparent; color: var(--k-ink); text-align: left; }
+.kitchen-row + .kitchen-row { border-top: 1px solid var(--k-line); }
+.kitchen-inventory { margin-top: 12px; }
+.kitchen-scene { position: relative; margin: 0; background: transparent; }
+.kitchen-scene-footer { position: relative; margin: 0 -20px; padding: 12px 20px 0; background-color: var(--k-bg); }
+.kitchen-scene-footer::before {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  right: 0;
+  top: -9px;
+  height: 10px;
+  background-color: var(--k-bg);
+  clip-path: polygon(0 58%, 5% 30%, 11% 68%, 17% 35%, 23% 72%, 29% 28%, 35% 64%, 41% 36%, 47% 72%, 53% 32%, 59% 67%, 65% 29%, 71% 70%, 77% 34%, 83% 65%, 89% 26%, 95% 66%, 100% 40%, 100% 100%, 0 100%);
+  pointer-events: none;
+}
+.kitchen-scene-controls > button { position: relative; background-color: transparent; }
+.kitchen-scene-controls > button[aria-pressed="true"] { color: var(--k-green-ink) !important; text-decoration: underline; text-underline-offset: 5px; }
+.kitchen-scene-note { margin: 0; }
+.kitchen-scene + .kitchen-home-footer::before { display: none; }
+.kitchen-note {
+  position: relative;
+  padding: 16px;
+  border: 1px solid var(--k-line);
+  border-radius: var(--k-radius-card);
+  background-color: var(--k-surface);
+  background-image: var(--k-texture);
+  color: var(--k-muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+p.kitchen-note { margin: 0; padding: 0; border: 0; background: transparent; color: var(--k-muted); font-size: 12px; }
+.kitchen-empty { padding: 32px 16px; text-align: center; color: var(--k-muted); font-size: 13px; line-height: 1.8; }
+.kitchen-empty > svg { display: block; margin: 0 auto 12px; color: var(--k-green-ink); }
+.kitchen-empty .kitchen-button { margin-top: 16px; }
+.kitchen-form { display: grid; gap: 20px; }
+.kitchen-form-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.kitchen-form .kitchen-label { margin-bottom: 0; }
+.kitchen-label > .kitchen-field { margin-top: 8px; }
+.kitchen-form-details { border-top: 1px solid var(--k-line); border-bottom: 1px solid var(--k-line); }
+.kitchen-form-details > summary { min-height: 48px; padding: 14px 0; color: var(--k-muted); font-size: 13px; cursor: pointer; }
+.kitchen-form-details > summary > span { margin-left: 8px; color: var(--k-faint); font-size: 11px; }
+.kitchen-form-details > :not(summary) { margin-top: 8px; margin-bottom: 16px; }
+.kitchen-form-details > .kitchen-row { min-height: 52px; margin: 0; }
+.kitchen-form-details > .kitchen-row > span { flex: 1; font-size: 13px; }
+.kitchen-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.kitchen-actions > .kitchen-label { margin: 0; }
+.kitchen-actions > .kitchen-text-button { flex-shrink: 0; font-size: 12px; }
+.kitchen-actions > .kitchen-button { flex: 1; }
+.kitchen-sheet-backdrop { position: absolute; inset: 0; z-index: 50; display: flex; align-items: flex-end; background: transparent; }
+.kitchen-sheet {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: calc(100% - var(--chrome-top) - 16px);
+  min-height: 0;
+  border: 1px solid var(--k-line);
+  border-bottom: 0;
+  border-radius: var(--k-radius-sheet) var(--k-radius-sheet) 0 0;
+  background-color: var(--k-surface);
+  background-image: var(--k-texture);
+  box-shadow: none;
+  animation: kitchen-paper-rise 180ms ease-out;
+}
+.kitchen-sheet::before {
+  content: "";
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  top: -5px;
+  height: 7px;
+  background: var(--k-surface);
+  clip-path: polygon(0 55%, 3% 12%, 6% 52%, 9% 30%, 13% 70%, 17% 10%, 21% 56%, 25% 24%, 29% 65%, 33% 10%, 37% 55%, 42% 25%, 47% 60%, 51% 15%, 55% 55%, 60% 28%, 65% 65%, 70% 18%, 74% 50%, 79% 22%, 84% 66%, 88% 14%, 93% 55%, 97% 25%, 100% 50%, 100% 100%, 0 100%);
+  pointer-events: none;
+}
+.kitchen-sheet-header { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 12px 4px 20px; }
+.kitchen-sheet-header > .kitchen-heading { min-width: 0; font-size: 20px; overflow-wrap: anywhere; }
+.kitchen-sheet-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px 20px calc(var(--safe-bottom) + 24px); }
+.kitchen-toast { position: absolute; z-index: 60; left: 16px; right: 16px; bottom: calc(var(--safe-bottom) + 16px); display: flex; align-items: center; gap: 12px; padding: 12px 16px; border: 1px solid var(--k-line); border-radius: var(--k-radius-card); background: var(--k-surface); color: var(--k-ink); font-size: 13px; line-height: 1.5; }
+.kitchen-toast > span { flex: 1; min-width: 0; }
+.kitchen-toast > .kitchen-text-button { flex-shrink: 0; }
+.kitchen-detail-summary { display: flex; align-items: center; gap: 12px; padding: 16px 0 20px; border-bottom: 1px solid var(--k-line); }
+.kitchen-form > .kitchen-detail-summary { display: block; padding: 0 0 16px; }
+.kitchen-form > .kitchen-detail-summary > p { margin: 0 0 8px; color: var(--k-ink); font-size: 19px; font-weight: 600; line-height: 1.6; }
+.kitchen-form > .kitchen-detail-summary > span { color: var(--k-muted); font-size: 12px; line-height: 1.6; }
+.kitchen-detail-section { margin-top: 24px; }
+.kitchen-detail-section > h2 { margin: 0 0 12px; font-size: 16px; }
+.kitchen-detail-fields { display: grid; gap: 16px; }
+.kitchen-detail-footer { flex-shrink: 0; padding: 12px 20px calc(var(--safe-bottom) + 16px); border-top: 1px solid var(--k-line); background-color: var(--k-bg); background-image: var(--k-texture); }
+.kitchen-detail-history { padding: 0; list-style: none; }
+.kitchen-detail-history > li { display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 12px 0; }
+.kitchen-detail-history > li + li { border-top: 1px solid var(--k-line); }
+.kitchen-list-tools { display: grid; gap: 16px; padding: 8px 0; }
+.kitchen-list-tools > .kitchen-label { margin: 0; }
+.kitchen-food-icon { display: flex; flex-shrink: 0; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--k-radius-field); background: var(--k-blue); color: var(--k-blue-ink); }
+.kitchen-food-copy { display: flex; flex: 1; flex-direction: column; gap: 4px; min-width: 0; }
+.kitchen-food-copy > strong { color: var(--k-ink); font-size: 14px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
+.kitchen-food-copy > span, .kitchen-food-copy > time { color: var(--k-muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.kitchen-food-copy > time { color: var(--k-faint); font-size: 11px; }
+.kitchen-food-zone { flex-shrink: 0; color: var(--k-muted); font-size: 11px; }
+.kitchen-food-row > svg { flex-shrink: 0; color: var(--k-faint); }
+.kitchen-history-head { display: grid; gap: 4px; padding: 12px 0; }
+.kitchen-history-head > .kitchen-text-button { justify-self: start; }
+.kitchen-inline-notice { padding: 12px; margin-bottom: 16px; border: 1px solid var(--k-line); border-radius: var(--k-radius-field); background: var(--k-blue); color: var(--k-blue-ink); font-size: 13px; line-height: 1.6; }
+.kitchen-inline-notice[role="alert"] { color: var(--k-danger); background: var(--k-well); }
+
+/*
+ * The softened photograph supplies pulp depth; the transparent SVG adds a
+ * few readable long fibres after the material is reduced to phone size.
+ * Paper stays on the header, footer, sheets and cut-out buttons so the scene
+ * and form fields remain visually quiet.
+ */
+.kitchen-header,
+.kitchen-tabs,
+.kitchen-button,
+.kitchen-tabs > button:is([aria-selected="true"], [aria-pressed="true"], .is-active, .active),
+.kitchen-tabs > button:is([aria-selected="true"], [aria-pressed="true"], .is-active, .active)::after,
+.kitchen-tabs::after,
+.kitchen-scene-footer,
+.kitchen-scene-footer::before,
+.kitchen-home-footer,
+.kitchen-home-footer::before,
+.kitchen-sheet,
+.kitchen-sheet::before,
+.kitchen-detail-footer {
+  background-image: var(--k-paper-photo), var(--k-texture);
+  background-size: 920px 920px, 360px 360px;
+  background-blend-mode: normal;
+}
+
+@keyframes kitchen-paper-rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+@media (hover: hover) {
+  .kitchen-paper .kitchen-icon:hover:not(:disabled), .kitchen-paper .kitchen-button:hover:not(:disabled), .kitchen-paper .kitchen-tabs > button:hover:not(:disabled) { background-color: var(--k-well); }
+  .kitchen-paper :is(.kitchen-button--primary, .kitchen-button-primary):hover:not(:disabled) { background-color: var(--k-blue); }
+  .kitchen-paper .kitchen-text-button:hover:not(:disabled) { text-decoration: underline; text-underline-offset: 4px; }
+}
+@media (max-width: 360px) {
+  .kitchen-content, .kitchen-sheet-body { padding-left: 16px; padding-right: 16px; }
+  .kitchen-tabs, .kitchen-scene-footer, .kitchen-home-footer { margin-left: -16px; margin-right: -16px; padding-left: 16px; padding-right: 16px; }
+  .kitchen-form-row { gap: 8px; }
+  .kitchen-button { padding-left: 12px; padding-right: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kitchen-paper *, .kitchen-paper *::before, .kitchen-paper *::after { animation: none !important; transition: none !important; }
+  .kitchen-paper button:active:not(:disabled) { transform: none; }
+}
+
+/*
+ * 首页整屏都是厨房（2026-10-11，APP_CONVENTIONS P14）：场景铺满，顶栏不要底色、直接浮在画面上
+ * （画面上方一直是浅色的墙或内胆，深色字始终看得清；不做半透明条，也不做渐变）；
+ * 底下只留一排纸签。清单页、记录页仍是普通纸页布局。
+ */
+.kitchen-page.is-stage { position: relative; }
+.kitchen-page.is-stage > .kitchen-header { position: absolute; z-index: 2; top: 0; left: 0; right: 0; background: none; }
+.kitchen-page.is-stage > .kitchen-content { position: absolute; inset: 0; padding: 0; overflow: hidden; }
+.kitchen-stage-chips { position: absolute; z-index: 2; left: 16px; right: 16px; bottom: calc(var(--safe-bottom) + 16px); display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.kitchen-stage-chips > .kitchen-button { min-height: 44px; padding: 0 16px; font-size: 14px; }
+.kitchen-paper:has(.is-stage) .kitchen-toast { bottom: calc(var(--safe-bottom) + 76px); }
+
+/* 操作记录：一天一张热敏小票，往下一张张叠着 */
+.kitchen-receipts { display: grid; gap: 20px; margin: 4px 0 0; padding: 0 0 24px; list-style: none; }
+.kitchen-receipt-paper { padding: 20px 20px 12px; background-color: var(--k-surface); background-image: var(--k-texture); color: var(--k-ink); }
+.kitchen-receipt-edge { display: block; width: 100%; height: 8px; fill: var(--k-surface); }
+.kitchen-receipt-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding-bottom: 12px; border-bottom: 1px dashed var(--k-faint); }
+.kitchen-receipt-head > span, .kitchen-receipt-head > time { display: grid; gap: 4px; }
+.kitchen-receipt-head strong { font-family: var(--k-heading); font-size: 17px; font-weight: 700; letter-spacing: .08em; }
+.kitchen-receipt-head small { color: var(--k-muted); font-family: var(--k-mono); font-size: 12px; letter-spacing: .06em; }
+.kitchen-receipt-head > time { justify-items: end; font-family: var(--k-mono); font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.kitchen-receipt-lines { display: grid; gap: 10px; margin: 0; padding: 14px 0; list-style: none; }
+.kitchen-receipt-lines:last-of-type { border-bottom: 2px solid var(--k-ink); }
+/* 每行是个按钮：点了打开那一样（还在的开操作面板，吃完的开详情） */
+.kitchen-receipt-row { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 12px; width: 100%; min-height: 32px; margin: -4px 0; padding: 4px 0; border: 0; background: transparent; color: inherit; font-size: 15px; line-height: 1.5; text-align: left; }
+.kitchen-receipt-row:active { opacity: .6; }
+.kitchen-receipt-lines--after .kitchen-receipt-row { grid-template-columns: auto 1fr auto; }
+.kitchen-receipt-section { margin: 0; padding: 8px 0 0; border-top: 1px dashed var(--k-faint); color: var(--k-muted); font-family: var(--k-mono); font-size: 11px; letter-spacing: .2em; text-align: center; }
+.kitchen-receipt-time { color: var(--k-muted); font-family: var(--k-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+.kitchen-receipt-name { min-width: 0; overflow-wrap: anywhere; }
+.kitchen-receipt-name > em { margin-left: 6px; color: var(--k-faint); font-size: 11px; font-style: normal; }
+.kitchen-receipt-amount { font-family: var(--k-mono); font-size: 13px; font-variant-numeric: tabular-nums; }
+.kitchen-receipt-row.is-undone > :is(.kitchen-receipt-time, .kitchen-receipt-amount) { color: var(--k-faint); text-decoration: line-through; }
+.kitchen-receipt-row.is-undone > .kitchen-receipt-name { color: var(--k-faint); text-decoration: line-through; }
+.kitchen-receipt-row.is-gone .kitchen-receipt-name > span { color: var(--k-muted); text-decoration: line-through; text-decoration-color: var(--k-blue-ink); text-decoration-thickness: 2px; }
+.kitchen-receipt-row.is-gone > .kitchen-receipt-amount { color: var(--k-blue-ink); font-family: inherit; font-size: 12px; }
+.kitchen-receipt-lines--slow .kitchen-receipt-row { font-size: 13px; color: var(--k-muted); }
+/* 吃完了的小票：两边虚线夹着的小标题，下面一沓撕下来的短票根，左右错一点点，像随手叠起来的 */
+.kitchen-receipts-label { display: flex; align-items: center; gap: 12px; margin: 12px 0 14px; color: var(--k-muted); font-family: var(--k-mono); font-size: 11px; letter-spacing: .2em; }
+.kitchen-receipts-label::before, .kitchen-receipts-label::after { content: ''; flex: 1; border-top: 1px dashed var(--k-faint); }
+.kitchen-receipts--done { gap: 12px; padding: 0 6px 24px; }
+.kitchen-receipts--done > .kitchen-receipt:nth-child(odd):not(.is-open) { transform: rotate(-0.6deg) translateX(-3px); }
+.kitchen-receipts--done > .kitchen-receipt:nth-child(even):not(.is-open) { transform: rotate(0.5deg) translateX(3px); }
+.kitchen-receipt-stub { display: grid; gap: 8px; width: 100%; min-height: 48px; padding: 14px 18px 10px; border: 0; background-color: var(--k-surface); background-image: var(--k-texture); color: var(--k-ink); text-align: left; }
+.kitchen-receipt.is-open > .kitchen-receipt-stub { border-bottom: 1px dashed var(--k-faint); }
+.kitchen-receipt-stub-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.kitchen-receipt-stub-head > time { display: flex; align-items: baseline; gap: 8px; font-family: var(--k-mono); font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.kitchen-receipt-stub-head > time > small { color: var(--k-muted); font-size: 12px; font-weight: 400; }
+.kitchen-receipt-stub-head > .kitchen-receipt-barcode { width: 56px; height: 18px; opacity: .75; }
+.kitchen-receipt-stub-fold { color: var(--k-green-ink); font-size: 13px; }
+.kitchen-receipt-stub-items { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 13px; line-height: 1.5; }
+.kitchen-receipt-stub-items > s { color: var(--k-muted); text-decoration-color: var(--k-blue-ink); text-decoration-thickness: 1.5px; }
+.kitchen-receipt-stub-items > em { color: var(--k-faint); font-size: 12px; font-style: normal; }
+.kitchen-receipt-foot { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; padding-top: 14px; }
+.kitchen-receipt-foot > span { color: var(--k-muted); font-family: var(--k-mono); font-size: 11px; letter-spacing: .04em; text-align: right; }
+.kitchen-receipt-barcode { flex-shrink: 0; width: 96px; height: 32px; fill: var(--k-ink); }
+.kitchen-receipt-tear { margin: 14px 0 0; color: var(--k-faint); font-family: var(--k-mono); font-size: 10px; letter-spacing: .1em; text-align: center; }
+
+/* 拍小票：加号里最上面一个按钮；读完换成核对单 */
+.kitchen-receipt-scan { display: grid; gap: 8px; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 1px solid var(--k-line); }
+.kitchen-receipt-scan > p.kitchen-note { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.kitchen-receipt-scan > p.kitchen-note > .kitchen-text-button { min-height: 32px; padding: 0 4px; font-size: 12px; }
+.kitchen-receipt-review { display: grid; gap: 16px; }
+.kitchen-receipt-review-head { display: grid; gap: 12px; }
+.kitchen-receipt-review-head > span { display: grid; gap: 4px; }
+.kitchen-receipt-review-head strong { font-family: var(--k-heading); font-size: 15.5px; font-weight: 600; }
+.kitchen-receipt-review-head small { color: var(--k-muted); font-size: 12px; }
+.kitchen-receipt-review-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.kitchen-receipt-review-list > li { display: grid; gap: 8px; padding: 14px 0; border-top: 1px solid var(--k-line); }
+.kitchen-receipt-review-list > li.is-off { padding: 10px 0; }
+.kitchen-receipt-review-list > li.is-off .kitchen-receipt-raw { color: var(--k-faint); text-decoration: line-through; }
+.kitchen-receipt-review-check { display: flex; align-items: center; gap: 10px; min-height: 32px; }
+.kitchen-receipt-review-check > input { width: 20px; height: 20px; accent-color: var(--k-green-ink); }
+.kitchen-receipt-raw { color: var(--k-muted); font-family: var(--k-mono); font-size: 12px; letter-spacing: .04em; overflow-wrap: anywhere; }
+.kitchen-receipt-review-flag { margin: 0; padding: 6px 10px; border-radius: var(--k-radius-field); background: var(--k-warn-tint); color: var(--k-warn); font-size: 12px; line-height: 1.6; }
+.kitchen-receipt-alts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; color: var(--k-muted); font-size: 12px; }
+.kitchen-receipt-alts > .kitchen-text-button { min-height: 32px; padding: 0 6px; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; }
+.kitchen-receipt-review-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.2fr); gap: 8px; }
+.kitchen-receipt-review-expiry { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; color: var(--k-muted); font-size: 12px; }
+/* 贴住 sheet 底：往下伸进 sheet 的底部留白里，下面的内容不会从按钮底下露出来 */
+.kitchen-receipt-review-actions { position: sticky; bottom: calc((var(--safe-bottom) + 24px) * -1); display: flex; justify-content: space-between; align-items: center; gap: 12px; margin: 0 -20px calc((var(--safe-bottom) + 24px) * -1); padding: 12px 20px calc(var(--safe-bottom) + 24px); border-top: 1px solid var(--k-line); background-color: var(--k-surface); }
+
+/* 要买清单（整张）：冷冻门上那张只摆六行，这里加、删、清掉划掉的 */
+.kitchen-shopping-add { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.kitchen-shopping-suggest { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.kitchen-shopping-suggest-label { flex-basis: 100%; color: var(--k-muted); font-size: 12px; }
+.kitchen-shopping-suggest > .kitchen-button { min-height: 36px; padding: 0 12px; font-size: 13px; }
+.kitchen-shopping-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.kitchen-shopping-list > li { display: flex; align-items: center; gap: 4px; border-top: 1px solid var(--k-line); }
+.kitchen-shopping-check { display: flex; flex: 1; min-width: 0; min-height: 48px; align-items: center; gap: 12px; padding: 0; border: 0; background: transparent; color: var(--k-ink); font-size: 15px; text-align: left; }
+.kitchen-shopping-check > span { min-width: 0; overflow-wrap: anywhere; }
+.kitchen-shopping-check > small { margin-left: auto; color: var(--k-faint); font-size: 11px; }
+/* 打勾：勾一笔画出来，接着一道墨线从左往右划过名字、字淡下去（P14：用掉划一笔墨线）。
+   刚打开清单时已经划掉的直接是划好的样子——没有「从没勾到勾上」的变化就不会播 */
+.kitchen-shopping-tick { flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.kitchen-shopping-tick > path { stroke: var(--k-blue-ink); stroke-width: 2.6; stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset 220ms cubic-bezier(.45, 0, .2, 1); }
+.kitchen-shopping-list > li.is-checked .kitchen-shopping-tick > path { stroke-dashoffset: 0; }
+.kitchen-shopping-name { position: relative; transition: color 200ms ease 300ms; }
+.kitchen-shopping-name::after { content: ''; position: absolute; left: -3px; right: -3px; top: 54%; height: 2px; border-radius: 2px; background: var(--k-blue-ink); transform: scaleX(0); transform-origin: left center; transition: transform 280ms cubic-bezier(.45, 0, .2, 1) 200ms; }
+.kitchen-shopping-list > li.is-checked .kitchen-shopping-check { color: var(--k-faint); }
+.kitchen-shopping-list > li.is-checked .kitchen-shopping-name::after { transform: scaleX(1); }
+/* 取消打勾 = 橡皮：划线从右往左被擦短、整行左右蹭两下，最后勾没了（P14「撤销擦掉」） */
+.kitchen-shopping-list > li:not(.is-checked) .kitchen-shopping-name { transition-delay: 0ms; }
+.kitchen-shopping-list > li:not(.is-checked) .kitchen-shopping-name::after { transform-origin: right center; transition: transform 300ms cubic-bezier(.45, 0, .2, 1); }
+.kitchen-shopping-list > li:not(.is-checked) .kitchen-shopping-tick > path { transition: stroke-dashoffset 160ms ease-in 240ms; }
+.kitchen-shopping-list > li.is-erasing .kitchen-shopping-name { animation: kitchen-rub 420ms ease-in-out; }
+@keyframes kitchen-rub { 0%, 100% { transform: none; } 20% { transform: translateX(-1.5px); } 40% { transform: translateX(1.5px); } 60% { transform: translateX(-1px); } 80% { transform: translateX(1px); } }
+@media (prefers-reduced-motion: reduce) {
+  .kitchen-shopping-tick > path, .kitchen-shopping-name, .kitchen-shopping-name::after { transition: none !important; animation: none !important; }
+}
+.kitchen-shopping-add > .kitchen-button { width: auto; padding: 0 16px; white-space: nowrap; }
+
+/* ── 菜谱本（2026-10-14） ── */
+.kitchen-label-hint { margin-left: 6px; color: var(--k-faint); font-size: 11px; font-weight: 400; }
+.kitchen-textarea { min-height: 88px; padding-top: 10px; padding-bottom: 10px; line-height: 1.6; resize: vertical; }
+.kitchen-stepper { display: inline-flex; align-items: center; gap: 2px; font-variant-numeric: tabular-nums; }
+.kitchen-stepper > span { min-width: 56px; text-align: center; font-size: 14px; }
+.kitchen-stepper > .kitchen-icon { width: 36px; height: 36px; }
+/* 量的一行：名字 · 多少 · 单位 · 删 */
+.kitchen-amount-rows { display: grid; gap: 8px; }
+.kitchen-amount-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) 36px; align-items: center; gap: 6px; }
+.kitchen-amount-row > .kitchen-icon { width: 36px; height: 36px; }
+.kitchen-amount-rows > .kitchen-text-button { justify-self: start; }
+.kitchen-sauce-picks { display: grid; gap: 6px; margin: 0 0 8px; padding: 0; list-style: none; }
+.kitchen-sauce-picks > li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 4px 6px 12px; border-radius: var(--k-radius-field); background-color: var(--k-well); }
+.kitchen-sauce-picks > li > strong { flex: 1; font-size: 14px; font-weight: 600; }
+.kitchen-sauce-add { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.kitchen-sauce-add > select { flex: 1; min-width: 160px; }
+/* 菜谱卡：白卡片顶上一道蓝墨线，像索引卡 */
+.kitchen-recipe-cards, .kitchen-sauce-cards { display: grid; gap: 12px; margin: 4px 0 16px; padding: 0; list-style: none; }
+.kitchen-recipe-card { display: grid; gap: 4px; width: 100%; padding: 14px 16px; border: 1px solid var(--k-line); border-top: 3px solid var(--k-blue-ink); border-radius: var(--k-radius-card); background-color: var(--k-surface); background-image: var(--k-texture); color: var(--k-ink); text-align: left; }
+.kitchen-recipe-card > strong { font-family: var(--k-heading); font-size: 17px; font-weight: 700; }
+.kitchen-recipe-card > span { color: var(--k-muted); font-size: 12px; line-height: 1.6; }
+.kitchen-recipe-card > small { color: var(--k-faint); font-size: 12px; }
+.kitchen-recipe-card > small.is-ready { color: var(--k-green-ink); }
+.kitchen-recipe-card > small.is-missing { color: var(--k-warn); }
+/* 酱汁：夹在菜谱上的小卡片——浅底、顶上一个夹子 */
+.kitchen-sauce-card { position: relative; display: grid; gap: 6px; width: 100%; margin-top: 8px; padding: 16px 16px 12px; border: 1px dashed var(--k-faint); border-radius: var(--k-radius-card); background-color: var(--k-well); background-image: var(--k-texture); color: var(--k-ink); text-align: left; }
+.kitchen-sauce-card::before { content: ''; position: absolute; top: -7px; left: 20px; width: 34px; height: 12px; border-radius: 3px; background: var(--k-faint); }
+.kitchen-sauce-card > strong { font-family: var(--k-heading); font-size: 15.5px; font-weight: 600; }
+.kitchen-sauce-card > strong > small { color: var(--k-muted); font-family: var(--k-mono); font-size: 12px; font-weight: 400; }
+.kitchen-sauce-parts { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; }
+.kitchen-sauce-parts > span > em { color: var(--k-muted); font-family: var(--k-mono); font-size: 12px; font-style: normal; }
+.kitchen-sauce-note { color: var(--k-muted); font-size: 12px; line-height: 1.6; }
+/* 一道菜 */
+.kitchen-recipe { display: grid; gap: 20px; padding-bottom: 12px; }
+.kitchen-recipe-head { display: grid; justify-items: start; gap: 6px; padding-bottom: 16px; border-bottom: 1px dashed var(--k-faint); }
+.kitchen-recipe-head > h2 { margin: 0; font-family: var(--k-heading); font-size: 22px; font-weight: 700; }
+.kitchen-recipe-head > p { margin: 0; color: var(--k-muted); font-size: 12px; }
+.kitchen-recipe-head > small { color: var(--k-faint); font-size: 11px; }
+.kitchen-recipe-section > h3 { margin: 0 0 8px; font-family: var(--k-heading); font-size: 15.5px; font-weight: 600; }
+.kitchen-recipe-section > h3 > small { margin-left: 6px; color: var(--k-faint); font-family: inherit; font-size: 11px; font-weight: 400; }
+.kitchen-recipe-lines { display: grid; margin: 0 0 8px; padding: 0; list-style: none; }
+.kitchen-recipe-lines > li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 2px 12px; padding: 10px 0; border-bottom: 1px solid var(--k-line); font-size: 15px; }
+.kitchen-recipe-amount { font-family: var(--k-mono); font-size: 13px; font-variant-numeric: tabular-nums; }
+.kitchen-recipe-stock { grid-column: 1 / -1; font-size: 12px; color: var(--k-green-ink); }
+.kitchen-recipe-lines > li:is(.is-missing, .is-short) > .kitchen-recipe-stock { color: var(--k-warn); }
+.kitchen-recipe-lines > li.is-unknown > .kitchen-recipe-stock { color: var(--k-muted); }
+.kitchen-recipe-steps { display: grid; gap: 8px; margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.7; }
+.kitchen-recipe-note { margin: 0; color: var(--k-muted); font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
+.kitchen-recipe-actions { display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; }
+/* 做了这道：核对单 */
+.kitchen-cook-lines { display: grid; margin: 0; padding: 0; list-style: none; }
+.kitchen-cook-lines > li { display: grid; gap: 6px; padding: 12px 0; border-bottom: 1px solid var(--k-line); }
+.kitchen-cook-lines > li.is-off strong { color: var(--k-faint); }
+.kitchen-cook-check { display: flex; align-items: center; gap: 10px; min-height: 32px; }
+.kitchen-cook-check > input, .kitchen-cook-keep > input, .kitchen-check-line > input { width: 20px; height: 20px; accent-color: var(--k-green-ink); }
+.kitchen-cook-check small { color: var(--k-muted); font-size: 12px; }
+.kitchen-cook-hint { margin: 0 0 0 30px; color: var(--k-faint); font-size: 12px; }
+.kitchen-cook-amount { display: grid; grid-template-columns: minmax(0, 1fr) 84px auto; align-items: center; gap: 8px; margin-left: 30px; color: var(--k-muted); font-size: 12px; }
+.kitchen-cook-keep, .kitchen-check-line { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 14px; }
