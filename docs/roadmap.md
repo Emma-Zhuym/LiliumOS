@@ -28,7 +28,7 @@
 ### P0：规矩与同步安全
 
 - 上游同步严格走 `.claude/CLAUDE.md` / `AGENTS.md` 的审批闸门：先只读调研、汇报，阿萌选完才建验收分支。建议两周一合。
-- merge 后跑 `bash scripts/check-em-patches.sh`（当前 194 项）和 `pnpm vitest run`；动了后端再跑 `node --test server/agent-backend/*.test.mjs`。
+- merge 后跑 `bash scripts/check-em-patches.sh`（当前 207 项）和 `pnpm vitest run`；动了后端再跑 `node --test server/agent-backend/*.test.mjs`。
 - EM App 数据备份必须持续覆盖 Finance（含周期规则）、Health、Shopping、Map、Moments、Smart Home。
 - 剧情剧场默认独立故事线与独立记忆；只有用户显式开启才镜像进角色记忆。
 
