@@ -36,6 +36,12 @@
 
 ## 2026-10
 
+### 2026-10-14 · 跨 Agent 交接改回仓库文档
+**操作**：Codex（Elias）
+
+- LiliumOS 不再把 Engram 当作每次开工 / 收尾的必经步骤；只有阿萌当次明确要求时才使用
+- 新点子、排期与待验收、完成记录、跨 session 规格和代码欠账分别回到 `ideas / roadmap / changelog / spec / notes/todo`，随 Git 一起看差异、回滚和跨电脑同步
+
 ### 2026-10-14 · 小红书分享提前读，同一篇不再重复开浏览器
 **操作**：Codex（Elias）
 

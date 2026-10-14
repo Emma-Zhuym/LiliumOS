@@ -13,15 +13,14 @@ Emma 会在 MacBook 和 Mac mini 上交替修改 LiliumOS。日常开发以自�
 5. 收尾说明当前分支、提交号、pull / push 结果及未提交内容。未推送的代码不能称为已经跨电脑同步；换电脑后仍需先 pull，避免两台同时修改同一分支。
 6. 本约定仅适用于自己的 `origin` 日常协作；SullyOS 上游同步、验收分支推进 `main` 和相应 push 仍遵循下方独立审批闸门。
 
-## Engram 跨 Agent 交接
+## 仓库文档跨 Agent 交接
 
-本机通过 Piia Engram MCP 在 Claude Code 与 Codex 之间共享经过审核的工作记忆。
+LiliumOS 默认只用 Git 跟踪的仓库文档在 Claude Code、Codex、两台电脑和 cloud session 之间交接。Engram 不再是本项目的开工或收尾步骤；不要自动调用 `get_resume_brief`、`wrap_up_session`、`add_lesson` 或 `add_decision`，也不用在收尾时报告“Engram 未写入”。只有阿萌当次明确要求使用 Engram 时才调用，并继续遵守其 strict 审核。
 
-1. 每个新任务开始时，若 Engram 工具可用，先调用 `get_resume_brief` 读取 LiliumOS 最近一次交接；首次或上下文不足时再调用 `get_user_context`。
-2. 完成实质性工作或准备切换 Agent 时，调用 `wrap_up_session`，记录完成内容、改动文件、验证结果、未解决问题和下一步。不得把它当作完成用户未授权操作的理由。
-3. 重要经验和决策分别用 `add_lesson`、`add_decision` 提议保存。当前为 strict 模式；出现待审核内容时，向 Emma 展示摘要并等待明确批准。
-4. 不存储密码、API key、token、个人敏感数据、论文受限原文或未经确认的推测。Git、仓库文档、原始数据和文献引用仍是事实来源；Engram 只做交接与检索层。
-5. Engram 不可用时继续工作，并在任务末尾明确说明本次交接未写入。
+1. 开工先 pull，再按任务读取 `docs/changelog.md`、`docs/roadmap.md`、`docs/ideas.md`、相关 `docs/spec-*.md` 和 `notes/todo.md`；Git 中的当前文件与提交历史是事实来源。
+2. 新点子只进 `docs/ideas.md`；决定做或待验收的进 `docs/roadmap.md`；完成项进 `docs/changelog.md`；跨 session 的完整实施契约进对应 `docs/spec-<功能名>.md`；纯代码层欠账进 `notes/todo.md`。
+3. 一项工作没做完就要换 Agent 时，在已有相关 spec 或 todo 中补“已完成 / 已验证 / 未解决 / 下一步”，不要另开同类交接清单；更新后随代码一起 commit / push。
+4. 密码、API key、token、cookie、个人敏感数据、论文受限原文和未经确认的推测不得写入仓库文档。
 
 ## ⚠️ UI 铁律（写任何界面代码前必须遵守——这是规则，不是建议）
 
@@ -77,7 +76,7 @@ merge 时 `grep -rn "EM-START\|\[EM:" --include="*.ts" --include="*.tsx"` 就能
 ### merge 后必跑自检
 
 ```bash
-bash scripts/check-em-patches.sh   # 当前 131 项锚点检查，红了就是功能被冲掉
+bash scripts/check-em-patches.sh   # 当前 194 项锚点检查，红了就是功能被冲掉
 pnpm vitest run                    # 单元测试
 ```
 
@@ -384,7 +383,7 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 ## 点子和待办往哪写
 
 **新点子只写 `docs/ideas.md`，别再开新清单文档了**（2026-09-25 定，起因是同一批想法散在
-五个地方，还有几条掉进 Engram 里找不回来）。
+五个地方，还有几条掉进外部记忆层里找不回来）。
 
 | 东西 | 写哪 |
 |---|---|
@@ -394,11 +393,11 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 | 要交给另一个 session 独立做完的 | `docs/spec-<功能名>.md`（照 `spec-photo-favorites.md` 的骨架：数据层 / 各端改动 / **本次不做** / EM 惯例 / 验收） |
 | 做完了 | `docs/changelog.md`（日期 · 标题 · **操作：Claude（小帕）** · 提交号 · 内容；最新在上，格式见文件开头） |
 | 代码层面的技术待办 | `notes/todo.md` |
-| 跨 agent 交接、踩过的坑 | Engram（**不存点子**） |
+| 跨 agent 交接、踩过的坑 | 对应 `docs/spec-<功能名>.md`；纯代码欠账写 `notes/todo.md`，完成结果写 `docs/changelog.md` |
 
 已完成、不要重复立项：地图×日程、Intiface、Finance 重设计、照片收藏、Token 召回面板、Offline 状态系统。其余做过什么先翻 `docs/changelog.md`。
 
-**每完成一件事都要写 changelog**（2026-09-26 阿萌定）：合进 `main` 或上线后，在 `docs/changelog.md` 对应月份最上面加一条，操作者写 `Claude（小帕）`；同时把 roadmap「做了，等验收」里对应的那行删掉或更新。cloud session 看不到 Engram，changelog 是两边 Agent 和阿萌都一定看得到的那份记录。
+**每完成一件事都要写 changelog**（2026-09-26 阿萌定）：合进 `main` 或上线后，在 `docs/changelog.md` 对应月份最上面加一条，操作者写 `Claude（小帕）`；同时把 roadmap「做了，等验收」里对应的那行删掉或更新。仓库文档是两边 Agent、cloud session 和阿萌共同可见的交接层。
 
 ## 文件说明
 
