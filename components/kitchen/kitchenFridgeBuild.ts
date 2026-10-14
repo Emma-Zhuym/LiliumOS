@@ -603,6 +603,9 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
     /* 门上的纸：便利贴写快过期 / 快用完；小票是最近一次放进来的几样；柜子里是常温柜清单 */
     rig.papers = []; rig.magnets = [];
     const FRONT = T / 2 + 0.012;
+    // 纸整体放大（2026-10-14 阿萌：字有点小）。小票本来最窄、字最小，放得最多；
+    // 冷冻门左右两张挨着、左边还在画面外一截，放得少一点
+    const FRIDGE_PAPER = 1.2, RECEIPT_PAPER = 1.35, FREEZER_PAPER = 1.1;
     const makePaper = (key: DoorPaper['key'], w: number, h: number, sx: number, sy: number, texture: THREE.Texture, at: [number, number], tilt: number, curl: number, cup: number, glue: number, lines: DoorNoteLine[], rows?: DoorPaper['rows'], door: THREE.Group = fridgeHinge) => {
       const g = cgeo(new THREE.PlaneGeometry(w, h, sx, sy));
       const m = new THREE.Mesh(g, cmat(new THREE.MeshStandardMaterial({ map: texture, roughness: key === 'receipt' ? 0.6 : 0.85, side: THREE.DoubleSide, alphaTest: 0.5 })));
@@ -618,7 +621,8 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
         // 三行固定位置：点哪一行就打开哪一样（KitchenFridgeScene 按 uv 换算）
         reminders.forEach((line, i) => handLine(x, cr, line.text, 40, 150 + i * 116, 60, '#2f4a35', w - 70));
       });
-      makePaper('sticky', 2.6, 2.6, 16, 16, sticky, [2.05, 2.6], -0.05, 0.22, 0.02, 0.18, reminders, { top: 90, height: 116, texH: 512 });
+      const side = 2.6 * FRIDGE_PAPER;
+      makePaper('sticky', side, side, 16, 16, sticky, [1.95, 2.75], -0.05, 0.22, 0.02, 0.18, reminders, { top: 90, height: 116, texH: 512 });
     }
     if (receipt && receipt.items.length) {
       // 要吃掉的在前；耐放的在「慢慢吃」那段，字小一号、淡一点（看划掉多少决定什么时候再去买菜，它们不算）
@@ -626,7 +630,7 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
       const rows = receipt.items.length + (slowAt >= 0 ? 1 : 0);
       // 纸长跟着内容走（以前按固定公式，底下空一大截）
       const texH = Math.min(Math.round(6.2 / 1.7 * 320), 218 + rows * 44 + 96);
-      const ph = texH / 320 * 1.7;
+      const pw = 1.7 * RECEIPT_PAPER, ph = texH / 320 * pw, rx = 4.85;
       const date = new Date(receipt.day);
       const W0 = 320, INK = '#2e4a5e', marks: PenMark[] = [];
       // 吃完 / 丢了的那几样：一道墨线划过、字淡下去、右边手写「3 天吃完」——刚吃完的那样一笔一笔写出来
@@ -680,9 +684,9 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
         print('放好了', w / 2, h - 50, 20, 400, 'center', 0.65);
         x.restore();
       }, marks, 'receipt', 'fridge', 700);
-      const receiptPaper = makePaper('receipt', 1.7, ph, 10, Math.round(ph * 7), paperTex, [4.55, 3.3 - ph / 2 + 1.4], 0.035, 0.34, 0.12, 0.06, receipt.items.map(it => ({ text: it.name, lotId: it.lotId })));
+      const receiptPaper = makePaper('receipt', pw, ph, 10, Math.round(ph * 7), paperTex, [rx, 4.7 - ph / 2], 0.035, 0.34, 0.12, 0.06, receipt.items.map(it => ({ text: it.name, lotId: it.lotId })));
       // 蓝色圆磁贴压着小票顶边
-      const g = new THREE.Group(); g.position.set(4.55, receiptPaper.mesh.position.y + ph / 2 - 0.12, FRONT + 0.02); fridgeHinge.add(g);
+      const g = new THREE.Group(); g.position.set(rx, receiptPaper.mesh.position.y + ph / 2 - 0.12, FRONT + 0.02); fridgeHinge.add(g);
       const magnet = part(new THREE.CylinderGeometry(0.42, 0.46, 0.24, 40), cmat(new THREE.MeshPhysicalMaterial({ color: '#426479', roughness: 0.3, clearcoat: 1, clearcoatRoughness: 0.08 })), g);
       magnet.rotation.x = Math.PI / 2; magnet.position.z = 0.12; magnet.userData.magnet = 'blue';
       rig.magnets.push({ key: 'blue', group: g, paper: receiptPaper, z: 0, v: 0, to: 0, released: false, snapArmed: false });
@@ -691,7 +695,7 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
     if (pantry && pantry.lines.length) {
       const rows = pantry.lines.length + (pantry.more > 0 ? 1 : 0);
       const W0 = 448, TOP = 104, ROW = 54, texH = TOP + rows * ROW + 34;
-      const pw = 2.6, ph = pw * texH / W0;
+      const pw = 2.6 * FRIDGE_PAPER, ph = pw * texH / W0;
       const listTex = ctex(W0, texH, (x, w, h) => {
         x.clearRect(0, 0, w, h);
         x.save(); x.beginPath(); x.moveTo(0, 22);
@@ -708,9 +712,9 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
         if (pantry.more > 0) handLine(x, cr, `还有 ${pantry.more} 样`, 40, TOP + pantry.lines.length * ROW + 34, 34, '#5a7486');
         x.restore();
       });
-      const top = 0.25, at: [number, number] = [2.05, top - ph / 2];
+      const top = 0.7, at: [number, number] = [1.95, top - ph / 2];
       const listPaper = makePaper('pantry', pw, ph, 14, Math.max(14, Math.round(ph * 6)), listTex, at, 0.06, 0.1, 0.03, 0.12, pantry.lines, { top: TOP - 8, height: ROW, texH });   // 点按区以字为中心（字写在每行上半截）
-      const g = new THREE.Group(); g.position.set(at[0] + 0.85, top - 0.16, FRONT + 0.02); fridgeHinge.add(g);
+      const g = new THREE.Group(); g.position.set(at[0] + 0.85 * FRIDGE_PAPER, top - 0.16, FRONT + 0.02); fridgeHinge.add(g);
       const magnet = part(new RoundedBoxGeometry(0.9, 0.62, 0.26, 3, 0.1), cmat(new THREE.MeshPhysicalMaterial({ color: '#5f8a5c', roughness: 0.35, clearcoat: 0.9, clearcoatRoughness: 0.12 })), g);
       magnet.position.z = 0.13; magnet.userData.magnet = 'green';
       rig.magnets.push({ key: 'green', group: g, paper: listPaper, z: 0, v: 0, to: 0, released: false, snapArmed: false });
@@ -720,7 +724,7 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
     if (heat && heat.lines.length) {
       const rows = heat.lines.length + (heat.more > 0 ? 1 : 0);
       const W0 = 420, TOP = 104, ROW = 54, texH = TOP + rows * ROW + 34;
-      const pw = 2.8, ph = pw * texH / W0;
+      const pw = 2.8 * FREEZER_PAPER, ph = pw * texH / W0;
       const heatTex = ctex(W0, texH, (x, w, h) => {
         x.clearRect(0, 0, w, h);
         x.save(); x.beginPath(); x.moveTo(0, 0); x.lineTo(w, 0); x.lineTo(w, h - 14);
@@ -740,7 +744,7 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
         if (heat.more > 0) handLine(x, cr, `还有 ${heat.more} 样`, 34, TOP + heat.lines.length * ROW + 34, 32, '#8f7a68');
         x.restore();
       });
-      const top = 1.0, at: [number, number] = [1.8, top - ph / 2];
+      const top = 1.15, at: [number, number] = [1.92, top - ph / 2];
       const heatPaper = makePaper('heat', pw, ph, 14, Math.max(14, Math.round(ph * 6)), heatTex, at, -0.04, 0.12, 0.03, 0.1, heat.lines, { top: TOP - 8, height: ROW, texH }, freezerHinge);
       const g = new THREE.Group(); g.position.set(at[0] + pw / 2 - 0.3, top - 0.1, FRONT + 0.02); freezerHinge.add(g);
       const magnet = part(new THREE.CylinderGeometry(0.36, 0.4, 0.22, 40), cmat(new THREE.MeshPhysicalMaterial({ color: '#c4703f', roughness: 0.32, clearcoat: 1, clearcoatRoughness: 0.1 })), g);
@@ -752,7 +756,7 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
     if (shop) {
       const rows = Math.max(1, shop.lines.length) + (shop.more > 0 ? 1 : 0);
       const W0 = 340, TOP = 112, ROW = 58, texH = TOP + rows * ROW + 40;
-      const pw = 2.3, ph = pw * texH / W0;
+      const pw = 2.3 * FREEZER_PAPER, ph = pw * texH / W0;
       // 打勾的那几行：先在方框里打个勾（短的一笔、长的一笔），再一道线划过名字、字淡下去
       const INK = '#2e4a5e', marks: PenMark[] = [];
       const measure = document.createElement('canvas').getContext('2d')!; measure.font = `400 31px ${SANS}`;
@@ -797,7 +801,7 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
         if (shop.more > 0) { x.fillStyle = '#6b706d'; x.font = `400 22px ${SANS}`; x.fillText(`还有 ${shop.more} 样`, 62, TOP + shop.lines.length * ROW + 30); }
         x.restore();
       }, marks, 'shop', 'freezer', 640);
-      const top = 1.0, at: [number, number] = [4.7, top - ph / 2];
+      const top = 1.15, at: [number, number] = [4.8, top - ph / 2];
       const shopPaper = makePaper('shop', pw, ph, 10, Math.max(12, Math.round(ph * 7)), shopTex, at, 0.03, 0.26, 0.1, 0.08,
         shop.lines.map(line => ({ text: line.text, lotId: line.id })), { top: TOP - 10, height: ROW, texH }, freezerHinge);
       const g = new THREE.Group(); g.position.set(at[0] + pw / 2 - 0.28, top - 0.1, FRONT + 0.02); freezerHinge.add(g);
