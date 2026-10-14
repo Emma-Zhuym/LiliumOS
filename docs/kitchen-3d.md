@@ -1,5 +1,9 @@
 # 厨房 3D
 
+## 2026-10-14 · 画布上的字先下字体分片（小帕）
+
+`KitchenFridgeScene` 的 `loadGlyphs`：贴纸前按这次要写的字 + `PAPER_WORDS` 对手写 / 衬线 / 无衬线各调一次 `document.fonts.load`（最多等 2.5 秒）；`loadingdone` 时 `fill(true)` 静静重画（不晃纸）。新加纸上固定文字时记得补进 `PAPER_WORDS`。
+
 ## 2026-10-14 · 拍小票一次选几张（小帕）
 
 选图框开了多选，最多 6 张一起发给识图模型（一次请求，`recognizeKitchenReceipt` 收字符串或数组）。提示词说明可能是一张长小票分段拍（重叠行只算一次）或几张不同小票（都列出来，店名和日期写最近那张）。多张时 `max_tokens` 放到 8000。

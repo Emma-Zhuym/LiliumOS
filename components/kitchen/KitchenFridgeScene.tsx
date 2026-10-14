@@ -7,7 +7,7 @@ import type { KitchenEvent, KitchenFood, KitchenLot, KitchenShoppingItem } from 
 import { FRIDGE } from '../../utils/kitchenFridgeSpec';
 import { fridgeLayout } from '../../utils/kitchenFridgeLayout';
 import { heatList, latestReceipt, pantryList, shoppingPaper, stickyReminders } from '../../utils/kitchenAppearance';
-import { bendPaper, buildKitchenScene, HAND_FONT, makeFlyTag, PEN_DELAY, type KitchenRig } from './kitchenFridgeBuild';
+import { bendPaper, buildKitchenScene, HAND_FONT, makeFlyTag, PEN_DELAY, SANS, SERIF, type KitchenRig } from './kitchenFridgeBuild';
 
 interface Props {
   lots: KitchenLot[];
@@ -27,6 +27,21 @@ interface Props {
 }
 
 type Zone = 'fridge' | 'freezer';
+
+/**
+ * 门上的纸、标签都是画在画布上的字。Google 的中文字体按字切成几十片，页面上的字用到哪片浏览器才下哪片，
+ * 画布却不会替它下——没下的那片 iPhone 上就画成方块（2026-10-14 阿萌：贴纸老冒方块）。
+ * 所以画之前把这次要写的字（加上纸上固定的那些）每种字体都先下好，最多等 2.5 秒。
+ */
+const PAPER_WORDS = '柜子里热一热就能吃还有样要买的点这里写慢吃小厨房采购放好了吃完丢了当天周个月今天明天后天前到期过期冷藏冷冻开封只剩一个快用完0123456789-/:·+.';
+const PAPER_FONTS = [`60px ${HAND_FONT}`, `600 46px ${SERIF}`, `400 24px ${SANS}`, `500 24px ${SANS}`, `600 30px ${SANS}`];
+const loadGlyphs = (text: string) => {
+  const chars = [...new Set(text + PAPER_WORDS)].join('');
+  return Promise.race([
+    Promise.all(PAPER_FONTS.map(font => document.fonts.load(font, chars))).catch(() => null),
+    new Promise(resolve => setTimeout(resolve, 2500)),
+  ]);
+};
 
 /**
  * 上一次贴在门上的样子（哪些划掉了、有哪些批次），离开首页再回来也记着：
@@ -179,7 +194,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
 
     // 上一次贴上去时哪些已经划掉了（和当时写的批注）：这次新划掉的那几行一笔一笔写，
     // 这次不再划掉的那几行（取消打勾、撤销吃完）用橡皮擦掉。第一次打开厨房都不动，直接是终态
-    const fill = () => {
+    const fill = (quiet = false) => {
       const { layout: l, reminders: r, receipt: rc, pantry: pt, heat: ht, shop: sp } = contentsRef.current;
       const crossed = new Map<string, string | undefined>([
         ...(sp?.lines.filter(line => line.checked).map(line => [`shop:${line.id}`, undefined] as const) ?? []),
@@ -192,15 +207,22 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
       rig.setContents(l.entries, r, rc, pt, ht, sp, playing, erasing);
       launchTags();
       // 换上新纸时轻轻晃一下；正在写 / 擦的时候不晃，让人看笔和橡皮
-      if (!reduce.matches && !playing.size && !erasing.size) for (const p of rig.papers) p.v += p.key === 'receipt' ? 1.2 : 0.7;
+      if (!quiet && !reduce.matches && !playing.size && !erasing.size) for (const p of rig.papers) p.v += p.key === 'receipt' ? 1.2 : 0.7;
       invalidate();
     };
-    // 手写字体到了再写字（最多等 2.5 秒），不然胶带和便利贴上是系统字
-    const fontsReady = Promise.race([
-      Promise.all([document.fonts.load(`60px ${HAND_FONT}`, '牛奶快用完了'), document.fonts.load('600 46px "Noto Serif SC"', '牛奶')]).catch(() => null),
-      new Promise(resolve => setTimeout(resolve, 2500)),
-    ]);
-    void fontsReady.then(() => { if (disposed) return; fill(); setStatus('ready'); });
+    // 这次要写的字都下好了再写（最多等 2.5 秒），不然胶带和便利贴上是系统字或方块
+    const textNow = () => {
+      const { reminders: r, receipt: rc, pantry: pt, heat: ht, shop: sp } = contentsRef.current;
+      return lotsRef.current.foods.map(food => food.name).join('') + JSON.stringify([r, rc?.items, pt, ht, sp]);
+    };
+    void loadGlyphs(textNow()).then(() => { if (disposed) return; fill(); setStatus('ready'); });
+    // 等超时了才到的那片字：到了再重画一遍，把方块换掉
+    let refillTimer = 0;
+    const onFontsLoaded = () => {
+      window.clearTimeout(refillTimer);
+      refillTimer = window.setTimeout(() => { if (!disposed && doorMemory.marked) fill(true); }, 120);
+    };
+    document.fonts.addEventListener('loadingdone', onFontsLoaded);
 
     /*
      * 纸签飞进冰箱（P14 招牌动效）：刚放进来的那几样，各一张手写纸签从画面下方飘起来，沿弧线飞向它去的地方——
@@ -320,7 +342,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
         aim(state);
         invalidate();
       },
-      fill: () => { void fontsReady.then(() => { if (!disposed) fill(); }); },
+      fill: () => { void loadGlyphs(textNow()).then(() => { if (!disposed) fill(); }); },
     };
 
     const penWaiting = (pen: KitchenRig['pens'][number]) => doors[pen.door].to > 0 && doors[pen.door].a > 0.08;
@@ -488,6 +510,8 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
 
     return () => {
       disposed = true;
+      window.clearTimeout(refillTimer);
+      document.fonts.removeEventListener('loadingdone', onFontsLoaded);
       for (const flight of [...flights]) dropFlight(flight);
       controller.current = null;
       cancelAnimationFrame(frame);

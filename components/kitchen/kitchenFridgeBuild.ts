@@ -19,8 +19,8 @@ import { produceTint, tapeLabel, type DoorNoteLine, type DoorReceipt, type HeatL
 
 const { width: W, depth: D, height: H, doorThickness: T } = FRIDGE;
 export const HAND_FONT = '"Long Cang", "Kaiti SC", "STKaiti", "KaiTi", cursive';
-const SANS = '"Noto Sans SC", "PingFang SC", "Hiragino Sans GB", sans-serif';
-const SERIF = '"Noto Serif SC", "Songti SC", "STSong", serif';
+export const SANS = '"Noto Sans SC", "PingFang SC", "Hiragino Sans GB", sans-serif';
+export const SERIF = '"Noto Serif SC", "Songti SC", "STSong", serif';
 
 /* ── 小工具 ── */
 const mulberry = (seed: number) => () => {
