@@ -2292,6 +2292,11 @@ export const amsgHooks = {
             };
           }
         }
+        // response.model 同样只挑一个字符串随末条带回。客户端把它标为「后端自报」；
+        // 名称一致不是验真，只用来发现中转主动暴露的路由变化。
+        const llmResponse = (ctx as { llmResponse?: unknown }).llmResponse as Record<string, unknown> | null | undefined;
+        const backendModel = typeof llmResponse?.model === 'string' ? llmResponse.model.trim() : '';
+        if (backendModel) lastMeta.amsgBackendModel = backendModel;
         if (stash.emotionEvalPromise) {
           const outcome = await raceEmotionEval(stash.emotionEvalPromise);
           if (outcome === null) {

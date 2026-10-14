@@ -31,10 +31,47 @@ const toThread = row => ({
     dueAt: row.due_at ?? null,
 });
 
+/** 只用于约定去重：忽略空白和标点，不做「打球≈打篮球」这类会误伤的语义猜测。 */
+const normalizePlanTitle = value => String(value ?? '')
+    .normalize('NFKC')
+    .toLocaleLowerCase('zh-CN')
+    .replace(/[\p{P}\p{S}\s]+/gu, '');
+
+const planDay = (value, timeZone = 'UTC') => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    try {
+        return new Intl.DateTimeFormat('en-CA', { timeZone }).format(date);
+    } catch {
+        return date.toISOString().slice(0, 10);
+    }
+};
+
+/** 历史里已经写进库的完全重复约定，读给提示词 / 日历时只露出一条。 */
+const dedupeExactPlans = threads => {
+    const out = [];
+    const atByKey = new Map();
+    for (const thread of threads) {
+        if (!thread.dueAt) {
+            out.push(thread);
+            continue;
+        }
+        const key = `${normalizePlanTitle(thread.title)}\u0000${thread.dueAt}`;
+        const existingAt = atByKey.get(key);
+        if (existingAt === undefined) {
+            atByKey.set(key, out.length);
+            out.push(thread);
+        } else if (out[existingAt].status !== 'open' && thread.status === 'open') {
+            out[existingAt] = thread;
+        }
+    }
+    return out;
+};
+
 export const listOpenThreads = (db, charId) =>
-    db.prepare(
+    dedupeExactPlans(db.prepare(
         `SELECT * FROM life_threads WHERE char_id = ? AND status = 'open' ORDER BY updated_at DESC`,
-    ).all(charId).map(toThread);
+    ).all(charId).map(toThread));
 
 export const closeStaleThreads = (db, charId, now = new Date()) => {
     const cutoff = new Date(now.getTime() - STALE_THREAD_MS).toISOString();
@@ -74,6 +111,29 @@ export const applyThread = (db, charId, input, now = new Date()) => {
                 `UPDATE life_threads SET title = ?, summary = ?, status = ?, updated_at = ? WHERE id = ?`,
             ).run(title || row.title, summary || row.summary, status, nowIso, row.id);
             return toThread(db.prepare('SELECT * FROM life_threads WHERE id = ?').get(row.id));
+        }
+    }
+
+    // 模型常在后续心跳把同一个约重新说一遍。新约定没有旧 id 时，按「事情 + 角色当地日期」
+    // 找已有 open 约定并更新它，避免日历每天长出一条一模一样的记录。
+    if (isPlan) {
+        const timeZone = String(input?.timeZone || 'UTC');
+        const wantedTitle = normalizePlanTitle(title);
+        const wantedDay = planDay(dueAt, timeZone);
+        const duplicate = db.prepare(
+            `SELECT * FROM life_threads
+              WHERE char_id = ? AND status = 'open' AND due_at IS NOT NULL
+              ORDER BY updated_at DESC`,
+        ).all(charId).find(row =>
+            normalizePlanTitle(row.title) === wantedTitle
+            && planDay(row.due_at, timeZone) === wantedDay);
+        if (duplicate) {
+            db.prepare(
+                `UPDATE life_threads
+                    SET title = ?, summary = ?, status = ?, updated_at = ?, due_at = ?
+                  WHERE id = ?`,
+            ).run(title || duplicate.title, summary || duplicate.summary, status, nowIso, dueAt.toISOString(), duplicate.id);
+            return toThread(db.prepare('SELECT * FROM life_threads WHERE id = ?').get(duplicate.id));
         }
     }
 
@@ -128,7 +188,7 @@ export const listPlans = (db, { from = null, to = null, now = new Date() } = {})
         : new Date(now.getTime() - PLANS_LOOKBACK_MS).toISOString();
     const toIso = to && Number.isFinite(Date.parse(to)) ? new Date(to).toISOString()
         : new Date(now.getTime() + PLANS_LOOKAHEAD_MS).toISOString();
-    return db.prepare(
+    return dedupeExactPlans(db.prepare(
         `SELECT * FROM life_threads WHERE due_at IS NOT NULL AND due_at >= ? AND due_at <= ? ORDER BY due_at ASC LIMIT 200`,
-    ).all(fromIso, toIso).map(row => ({ ...toThread(row), charId: row.char_id }));
+    ).all(fromIso, toIso).map(row => ({ ...toThread(row), charId: row.char_id })));
 };

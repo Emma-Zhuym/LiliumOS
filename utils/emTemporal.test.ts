@@ -5,7 +5,7 @@ import type { TemporalItem } from './emAgentBackend';
 import {
     buildTemporalInjection, cacheItem, dayKey, dueText, emptyVisibility, formatTemporalForPrompt, groupByDay,
     hasOpenSource, isOverdue, itemTimeText, levelOf, loadTemporalCache, monthGrid, openReminders, saveTemporalCache,
-    shiftMonth, sortItems, syncText, uncacheItem, veilForCharacter, writableLists,
+    shiftMonth, sortItems, syncText, uncacheItem, veilForCharacter, waitForTemporalSync, writableLists,
 } from './emTemporal';
 
 const event = (over: Partial<TemporalItem>): TemporalItem => ({
@@ -192,6 +192,54 @@ describe('缓存与同步状态', () => {
         expect(syncText({ lastAt: '2026-09-24T11:20:00.000Z' }, now)).toBe('40 分钟前同步');
         expect(syncText({ lastAt: '2026-09-24T09:00:00.000Z' }, now)).toBe('3 小时前同步');
         expect(syncText({ lastAt: '2026-09-22T09:00:00.000Z' }, now)).toBe('2 天前同步');
+    });
+
+    it('最近一次失败要写出来，不能只说几天前同步', () => {
+        const now = Date.parse('2026-09-24T12:00:00.000Z');
+        expect(syncText({ lastAt: '2026-09-22T09:00:00.000Z', lastError: 'MCP HTTP 400' }, now))
+            .toBe('上次同步失败（MCP HTTP 400） · 2 天前成功过');
+        expect(syncText({ lastError: 'MCP HTTP 400' }, now)).toBe('上次同步失败（MCP HTTP 400）');
+    });
+});
+
+describe('立刻同步之后等它跑完', () => {
+    const snap = (sync: Record<string, unknown>) => ({ items: [], visibility: emptyVisibility(), sync });
+    const fakeTime = () => {
+        let t = Date.parse('2026-10-13T03:40:00.000Z');
+        return { clock: () => t, sleep: async (ms: number) => { t += ms; } };
+    };
+
+    it('后端记下的成功时间晚于点按钮那一刻才算跑完', async () => {
+        const time = fakeTime();
+        const started = time.clock();
+        const replies = [
+            snap({ lastAt: '2026-10-13T03:30:00.000Z' }),           // 上一次的，不算
+            snap({ lastAt: '2026-10-13T03:40:08.000Z', count: 32 }),
+        ];
+        const result = await waitForTemporalSync(started, { ...time, fetchSnapshot: async () => replies.shift()! });
+        expect(result?.sync.count).toBe(32);
+    });
+
+    it('这次失败了也要返回，带着原因', async () => {
+        const time = fakeTime();
+        const started = time.clock();
+        const result = await waitForTemporalSync(started, {
+            ...time,
+            fetchSnapshot: async () => snap({ lastAt: '2026-10-10T03:00:00.000Z', lastError: 'MCP HTTP 400', lastErrorAt: '2026-10-13T03:40:05.000Z' }),
+        });
+        expect(result?.sync.lastError).toBe('MCP HTTP 400');
+    });
+
+    it('一直等不到就返回 null，读失败的那几次不算数', async () => {
+        const time = fakeTime();
+        let calls = 0;
+        const result = await waitForTemporalSync(time.clock(), {
+            ...time,
+            timeoutMs: 9_000,
+            fetchSnapshot: async () => { calls++; if (calls === 1) throw new Error('mini 睡了'); return snap({ lastAt: '2026-10-12T00:00:00.000Z' }); },
+        });
+        expect(result).toBeNull();
+        expect(calls).toBe(3);
     });
 });
 // [EM-END: calendar-temporal]

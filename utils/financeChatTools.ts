@@ -42,7 +42,7 @@ export const FINANCE_CHAT_TOOLS = [
     type: 'function',
     function: {
       name: 'finance_get_spending_summary',
-      description: '按用户保存的分析口径汇总已入账支出，同时返回原始、手动排除、大额筛选对照。可以在关心用户近期生活状态或想自然聊聊消费习惯时主动查看；不能把筛选差额说成省下的钱。',
+      description: '按用户保存的分析口径汇总支出（含待入账），同时返回原始、手动排除、大额筛选对照。可以在关心用户近期生活状态或想自然聊聊消费习惯时主动查看；不能把筛选差额说成省下的钱。',
       parameters: {
         type: 'object',
         properties: {
@@ -136,7 +136,7 @@ export async function getFinanceAwareness(charId: string): Promise<FinanceAwaren
 
   const totals: Record<string, number> = {};
   for (const transaction of fresh) {
-    if (reportingTransactionType(transaction, categoryMap) === 'expense' && !transaction.pending && !isManuallyExcluded(transaction)) {
+    if (reportingTransactionType(transaction, categoryMap) === 'expense' && !isManuallyExcluded(transaction)) {
       totals[transaction.currency] = (totals[transaction.currency] || 0) + transaction.amount;
     }
   }
@@ -156,7 +156,7 @@ export async function getFinanceAwareness(charId: string): Promise<FinanceAwaren
   });
   return {
     hasLedger: true,
-    pulse: `用户个人账本新增 ${fresh.length} 笔记录${totalText ? `，其中未手动排除的已入账支出 ${totalText}` : ''}。最近：${recentText}。`,
+    pulse: `用户个人账本新增 ${fresh.length} 笔记录${totalText ? `，其中未手动排除的支出 ${totalText}` : ''}。最近：${recentText}。`,
   };
 }
 

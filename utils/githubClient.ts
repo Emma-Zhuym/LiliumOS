@@ -20,6 +20,17 @@ import { Capacitor, CapacitorHttp } from '@capacitor/core';
 
 import { CloudBackupConfig, CloudBackupFile } from '../types';
 import { getProxyWorkerUrl } from './proxyWorker';
+// [EM-START: github-git-backup] 网页直连传不了附件（uploads.github.com 不回跨域预检），改走 Git 数据接口
+import {
+    deleteGitBackup,
+    downloadGitBackup,
+    isGitBackupHref,
+    listGitBackups,
+    shouldUseGitDataUpload,
+    uploadGitBackup,
+    type GitBackupContext,
+} from './githubGitBackup';
+// [EM-END: github-git-backup]
 
 const API_HOST = 'https://api.github.com';
 const UPLOAD_HOST = 'https://uploads.github.com';
@@ -27,6 +38,8 @@ const DEFAULT_REPO = 'sully-backup';
 const TAG_PREFIX = 'sully-backup-';
 const TRANSACTIONAL_TAG_PREFIX = `${TAG_PREFIX}v2-`;
 const RELEASE_NAME_PREFIX = 'Sully Backup ';
+// [EM: github-401-hint]
+const GITHUB_TOKEN_FIX_HINT = '去 github.com/settings/tokens 重新生成一个（Expiration 选 No expiration，权限勾 repo），再到 设置 → 云端备份 → 修改配置 粘贴新的。';
 
 // 32 MB / 片。备份超过这个体积时会自动切成多个 asset 上传到同一个
 // release，恢复时再拼回来。
@@ -174,7 +187,8 @@ const describeGithubHttpError = async (stage: string, response: GhResponse): Pro
     } catch { /* response body is only diagnostic */ }
     detail = detail.replace(/\s+/g, ' ').trim().slice(0, 180);
 
-    if (response.status === 401) return new Error(`${stage}失败：GitHub Token 无效或已过期（HTTP 401）。`);
+    // [EM: github-401-hint] 401 几乎都是 token 到期（创建页默认 90 天）或被撤销，直接说怎么修
+    if (response.status === 401) return new Error(`${stage}失败：GitHub Token 过期或被撤销了（HTTP 401）。${GITHUB_TOKEN_FIX_HINT}`);
     if (response.status === 403) {
         if (response.headers['retry-after'] || response.headers['x-ratelimit-remaining'] === '0') {
             return new Error(`${stage}失败：GitHub 请求过于频繁，请稍后重试（HTTP 403）。`);
@@ -329,6 +343,16 @@ const ghRequest = async (
     };
 };
 
+// [EM-START: github-git-backup]
+const gitBackupContext = (config: CloudBackupConfig): GitBackupContext => ({
+    owner: config.githubOwner!,
+    repo: repoName(config),
+    token: config.githubToken!,
+    request: (url, method, opts = {}) => ghRequest(config, url, method, opts),
+    describeError: describeGithubHttpError,
+});
+// [EM-END: github-git-backup]
+
 const repoName = (config: CloudBackupConfig): string =>
     (config.githubRepo || DEFAULT_REPO).trim();
 
@@ -355,7 +379,7 @@ export const verifyToken = async (
             const data = await res.json();
             return { ok: true, login: data.login, message: '已连接 GitHub' };
         }
-        if (res.status === 401) return { ok: false, message: 'Token 无效或已过期' };
+        if (res.status === 401) return { ok: false, message: `Token 不能用：过期、被撤销或粘贴不完整。${GITHUB_TOKEN_FIX_HINT}` }; // [EM: github-401-hint]
         if (res.status === 403) return { ok: false, message: '权限不足，请确认 Token 勾选了 repo 范围' };
         return { ok: false, message: `GitHub 返回 ${res.status}` };
     } catch (e: any) {
@@ -683,6 +707,9 @@ export const uploadBackup = async (
     const owner = config.githubOwner;
     const repo = repoName(config);
     if (!token || !owner) return { ok: false, message: '未连接 GitHub' };
+    if (shouldUseGitDataUpload(shouldUseGithubProxy(config), isNative())) { // [EM: github-git-backup]
+        return uploadGitBackup(gitBackupContext(config), blob, filename, onProgress);
+    }
 
     let releaseId = 0;
     let tag = '';
@@ -957,6 +984,7 @@ export const listBackups = async (config: CloudBackupConfig): Promise<CloudBacku
                 });
             }
         }
+        files.push(...await listGitBackups(gitBackupContext(config))); // [EM: github-git-backup]
         files.sort((a, b) => String(b.lastModified || '').localeCompare(String(a.lastModified || '')));
         return files;
     } catch (error: any) {
@@ -1040,6 +1068,7 @@ export const downloadBackup = async (
     if (file.status === 'incomplete') {
         throw new Error(file.statusMessage || '这个 GitHub 备份上传未完成，不能恢复。');
     }
+    if (isGitBackupHref(file.href)) return downloadGitBackup(gitBackupContext(config), file, onProgress); // [EM: github-git-backup]
 
     const [, idsStr] = file.href.split(':');
     const assetIds = (idsStr || '').split(',').map(s => Number(s)).filter(n => n > 0);
@@ -1097,6 +1126,7 @@ export const deleteBackup = async (
     const owner = config.githubOwner;
     const repo = repoName(config);
     if (!token || !owner) return false;
+    if (isGitBackupHref(file.href)) return deleteGitBackup(gitBackupContext(config), file); // [EM: github-git-backup]
 
     const [releaseIdStr] = file.href.split(':');
     const releaseId = Number(releaseIdStr);

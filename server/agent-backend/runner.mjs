@@ -10,6 +10,7 @@ import { readCredential } from './credentials.mjs';
 import { parseMomentReactions } from './moments.mjs';
 
 const JSON_BLOCK = /```(?:json)?\s*([\s\S]*?)```/i;
+const ROLEPLAY_REFUSAL_RE = /\b(?:I\s+(?:can(?:not|'t)|won't)\s+(?:roleplay|pretend|adopt)|not\s+designed\s+for\s+(?:this\s+kind\s+of\s+)?roleplay)\b|(?:不能|无法|不会)(?:扮演|假装|进行角色扮演)/i;
 
 /**
  * 工作往来（episode）：一小段和同事的对话，外加「手头正在推进的事」的一句进展。
@@ -207,10 +208,21 @@ export const salvageFields = raw => {
 const MISSING_COLON_RE = /([{,]\s*)"(action|activity|reason|urge|text|message|content|reply)(?=[^"\s:])/g;
 export const repairMissingColons = raw => raw.replace(MISSING_COLON_RE, '$1"$2": "');
 
-const toOutput = parsed => {
-    const action = parsed?.action;
-    if (action !== 'noop' && action !== 'message') return null;
+const toOutput = (parsed, { inferMissingAction = false } = {}) => {
     const body = pickText(parsed);
+    const declaredAction = parsed?.action;
+    // 部分 OpenAI 兼容代理会忽略 strict json_schema：其余字段和嵌套 life 都完整，
+    // 却单独漏掉顶层 action。没有正文时，这一跳仍然只是过自己的生活（noop）；
+    // 有正文时才按 message 收。必须至少出现一个已知心跳字段，不能把任意 JSON 当成功。
+    const hasHeartbeatPayload = parsed && typeof parsed === 'object'
+        && ['activity', 'reason', 'urge', 'episode', 'life', 'moments']
+            .some(key => Object.prototype.hasOwnProperty.call(parsed, key));
+    const action = inferMissingAction
+        && (declaredAction === undefined || declaredAction === null || declaredAction === '')
+        && hasHeartbeatPayload
+        ? (body.trim() ? 'message' : 'noop')
+        : declaredAction;
+    if (action !== 'noop' && action !== 'message') return null;
     if (action === 'message' && !body.trim()) return null;
     const episode = parseEpisode(parsed.episode);
     const life = parseLife(parsed.life);
@@ -245,7 +257,9 @@ export const parseHeartbeatOutput = raw => {
         } catch {
             continue;
         }
-        const output = toOutput(parsed);
+        // 只有 JSON 本身完整可解析时才推断漏写的 action；残缺文本的字段兜底不能猜，
+        // 否则半截输出里恰好有 activity 也会被误收成成功。
+        const output = toOutput(parsed, { inferMissingAction: true });
         if (output) return { ok: true, output };
     }
     // 整段读不了：按字段名把值抠出来（多半是值里有没转义的引号）。
@@ -253,7 +267,10 @@ export const parseHeartbeatOutput = raw => {
     const output = salvaged && toOutput(salvaged);
     if (output) return { ok: true, output };
     // 带上原文：调用方在排查开关打开时才会落库，平时直接丢掉。
-    return { ok: false, error: '模型输出解析不出合法的心跳结果', raw: original };
+    const error = ROLEPLAY_REFUSAL_RE.test(original)
+        ? '模型拒绝执行角色心跳（没有返回 JSON）'
+        : '模型输出解析不出合法的心跳结果';
+    return { ok: false, error, raw: original };
 };
 
 /**

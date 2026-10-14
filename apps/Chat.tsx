@@ -31,9 +31,11 @@ import { generateSlotTheater } from '../utils/theaterGenerator';
 import TheaterPlayer from '../components/schedule/TheaterPlayer';
 import { formatMessageWithTime, normalizeMessageContent } from '../utils/messageFormat';
 import { getRoomLabel } from '../utils/memoryPalace/types';
-import { XhsMcpClient, extractNotesFromMcpData, normalizeXhsLiteDetail } from '../utils/xhsMcpClient';
-import { extractWebpageContent, detectFirstUrl, detectXhsShortUrl, extractXhsShareTitle, isXhsUrl, extractXhsNoteId, expandShortUrl, type ExtractedWebpage } from '../utils/webpageExtractor';
+import { XhsMcpClient, normalizeXhsLiteDetail } from '../utils/xhsMcpClient';
+import { extractWebpageContent, detectFirstUrl, detectXhsShortUrl, extractXhsShareTitle, isXhsUrl, extractXhsNoteId, type ExtractedWebpage } from '../utils/webpageExtractor';
+import { prefetchXhsShareDetail, resolveXhsShareTarget } from '../utils/xhsShareDetail';
 import { isVideoShareUrl, parseVideoShareUrl } from '../utils/videoParser';
+import { attachBiliTranscript, isBiliShare } from '../utils/emBiliTranscript'; // [EM: bili-transcript]
 import { isDevDebugAvailable } from '../utils/devDebug';
 import { isImageValue, migrateDataUrlToRef, putImageBlob, useBlobRefUrl } from '../utils/blobRef';
 import { buildReplySnapshotContent } from '../utils/applyAssistantPostProcessing';
@@ -151,6 +153,9 @@ const Chat: React.FC = () => {
     const HISTORY_WINDOW_BATCH_SIZE = 30;
     const [historyWindowRange, setHistoryWindowRange] = useState<ChatHistoryWindowRange | null>(null);
     const [input, setInput] = useState('');
+    // 分享卡的详情还在 mini 浏览器里读取时，手动点回复也要等它落进卡片；否则角色会抢先
+    // 看到只有标题的基础卡。Promise 自己吞掉详情读取错误，所以这里不会卡住后续回复。
+    const pendingXhsShareDetailRefs = useRef<Set<Promise<void>>>(new Set());
     const [isInputFocused, setIsInputFocused] = useState(false);
     const [isInputAuxiliaryPanelOpen, setIsInputAuxiliaryPanelOpen] = useState(false); // [EM: chat-quick-toolbar-auto-reply]
     const [inputPreferences, setInputPreferences] = useState(loadChatInputPreferences);
@@ -244,6 +249,20 @@ const Chat: React.FC = () => {
     const [isTheaterGenerating, setIsTheaterGenerating] = useState(false);
     const [isScheduleGenerating, setIsScheduleGenerating] = useState(false);
     const char = characters.find(c => c.id === activeCharacterId) || characters[0];
+    // [EM-START: xhs-detail-prefetch]
+    // 用户把分享文案粘进输入框后就开始读。发送时会复用 XhsMcpClient 里的同一趟在途请求，
+    // 用户停留在输入框里的几秒不再白等；预读失败保持静默，正式发送仍会给出可操作提示。
+    useEffect(() => {
+        const config = realtimeConfig?.xhsMcpConfig;
+        if (!config?.enabled || !config.serverUrl || (!extractXhsNoteId(input) && !detectXhsShortUrl(input))) return;
+        const timer = window.setTimeout(() => {
+            void prefetchXhsShareDetail(config.serverUrl, input).catch(error => {
+                if (isDevDebugAvailable()) console.warn('[卡片调试] 小红书预读失败，发送时会重试:', error);
+            });
+        }, 300);
+        return () => window.clearTimeout(timer);
+    }, [input, realtimeConfig?.xhsMcpConfig?.enabled, realtimeConfig?.xhsMcpConfig?.serverUrl]);
+    // [EM-END: xhs-detail-prefetch]
     // EM: 角色在线状态（由日程驱动）
     const charStatusInfo = useCharStatus(scheduleData, char); // [EM: char-status-hook]
     const prevCharStatusRef = useRef<string>('online');
@@ -1433,20 +1452,18 @@ const Chat: React.FC = () => {
             // 同时识别桌面/旧版 xhslink.com 与手机版新版 xhslink.cn。
             const xhsShortUrl = detectXhsShortUrl(text);
             if (xhsFullNoteId || xhsShortUrl) {
-                let noteId = xhsFullNoteId || '';
-                let xsecToken = text.match(/xsec_token=([^&\s]+)/)?.[1];
+                let noteId = '';
+                let xsecToken: string | undefined;
                 let shortLinkError = '';
-                // 短链（xhslink.com / xhslink.cn）不含 id/token —— 先经 sfworker 展开成真实链接再提取。
-                if (!noteId && xhsShortUrl) {
-                    try {
-                        const finalUrl = await expandShortUrl(xhsShortUrl);
-                        noteId = extractXhsNoteId(finalUrl) || '';
-                        xsecToken = xsecToken || finalUrl.match(/xsec_token=([^&\s]+)/)?.[1];
-                        if (isDevDebugAvailable()) console.log('[卡片调试] 小红书短链展开 →', finalUrl, '| noteId =', noteId);
-                    } catch (e) {
-                        console.warn('xhslink 短链展开失败:', e);
-                        shortLinkError = e instanceof Error ? e.message : '短链展开失败';
-                    }
+                // 预读和正式发送共用短链展开结果，避免同一份分享文案访问两次 sfworker。
+                try {
+                    const target = await resolveXhsShareTarget(text);
+                    noteId = target?.noteId || '';
+                    xsecToken = target?.xsecToken;
+                    if (isDevDebugAvailable() && target) console.log('[卡片调试] 小红书分享目标 →', target.noteId);
+                } catch (e) {
+                    console.warn('xhslink 短链展开失败:', e);
+                    shortLinkError = e instanceof Error ? e.message : '短链展开失败';
                 }
                 // 兼容旧版「【标题 | 小红书】」和新版「标题 ... 短链 打开【小红书】」。
                 // 不能直接取第一个【】块：新版唯一的括号内容是应用名，会把卡片标题错误写成“小红书”。
@@ -1481,10 +1498,10 @@ const Chat: React.FC = () => {
                         const baseNote = note;
                         xhsDetailPromise = (async () => {
                             try {
-                                const noteUrl = `https://www.xiaohongshu.com/explore/${noteId}${xsecToken ? `?xsec_token=${xsecToken}&xsec_source=pc_share` : ''}`;
-                                // loadAllComments：和角色自己浏览笔记 (XHS_DETAIL) 一致地把评论区也抓回来，
-                                // 否则 user 分享的笔记只有标题/正文，角色读不到评论（char 分享给 user 的却能看到）。
-                                const result = await XhsMcpClient.getNoteDetail(mcpUrl, noteUrl, xsecToken, { loadAllComments: true });
+                                const noteUrl = `https://www.xiaohongshu.com/explore/${noteId}${xsecToken ? `?xsec_token=${encodeURIComponent(xsecToken)}&xsec_source=pc_share` : ''}`;
+                                // 快速模式仍会拿正文、封面、赞数和前几条评论；不要求滚完整评论区。
+                                // 如果角色工具也来读同一篇，公共客户端会复用这趟，不再另开浏览器。
+                                const result = await XhsMcpClient.getNoteDetail(mcpUrl, noteUrl, xsecToken, { loadAllComments: false, xsecSource: 'pc_share' });
                                 if (isDevDebugAvailable()) console.log('[卡片调试] 小红书抓取 result =', result);
                                 if (result.success && result.data) {
                                     const fetched = normalizeXhsLiteDetail(result.data);
@@ -1511,6 +1528,9 @@ const Chat: React.FC = () => {
                                 addToast('小红书正文读取失败，卡片只有标题。请检查 mini 上的小红书服务是否在线、是否还登录着。', 'info');
                             }
                         })();
+                        const pendingDetail = xhsDetailPromise;
+                        pendingXhsShareDetailRefs.current.add(pendingDetail);
+                        void pendingDetail.finally(() => pendingXhsShareDetailRefs.current.delete(pendingDetail));
                     } else if (isDevDebugAvailable()) {
                         // F12 调试（仅开发分支）：打印卡片存了啥 + 角色实际会读到的文本。
                         console.log('[卡片调试] 小红书卡片·metadata =', note);
@@ -1549,6 +1569,9 @@ const Chat: React.FC = () => {
                         addToast(`网页抓取失败：${e?.message || '可能被这个站点拦截了，换个链接或稍后再试。'}`, 'error');
                     }
                 }
+                // [EM-START: bili-transcript] B 站链接：经 mini 上的 B 站 MCP 读字幕放进卡片，角色才算「看过」
+                if (webpage && isBiliShare(sharedUrl, webpage)) webpage = await attachBiliTranscript(webpage, sharedUrl, char.id, addToast);
+                // [EM-END: bili-transcript]
                 if (webpage) {
                     await DB.saveMessage({
                         charId: char.id,
@@ -1712,15 +1735,30 @@ const Chat: React.FC = () => {
     // 顶栏 ⚡ 手动触发。instant 模式下给"上一条 assistant 之后的所有 user 消息"打上"准备中"
     // 三个点（从写入 DB 到 SSE POST 入队之间），由 onInstantPosted 清除 ——
     // 与 autoTriggerOnSend 自动路径的指示器行为一致。本地模式无此指示器，直接 triggerAI。
-    const handleManualTrigger = () => {
+    const handleManualTrigger = async () => {
         autoReply.cancel();
         // 同上：上一轮还在跑时 triggerAI 会静默 reject，提前挡掉避免指示灯卡死。
         if (isTyping) return;
-        if (!isInstantConfigReady()) { triggerAI(messages); return; }
+        let triggerMessages = messages;
+        const pendingXhsDetails = [...pendingXhsShareDetailRefs.current];
+        if (pendingXhsDetails.length && char) {
+            addToast('正在把笔记读完，读完再让 TA 回复，免得只看到标题', 'info');
+            await Promise.all(pendingXhsDetails);
+            // 当前点击处理函数仍握着等待前那一帧的 messages；从 DB 重取，确保刚补上的
+            // 正文/封面/赞数真的进入这次 prompt，而不是只在下一轮才看见。
+            try {
+                triggerMessages = (await DB.getMessagesByCharId(char.id)).filter(message =>
+                    isVisibleChatMessage(message, !!char.hideSystemLogs, localStorage.getItem('chat_hide_activity_cards') !== 'false'),
+                );
+            } catch (error) {
+                console.warn('[Chat] 小红书详情已读完，但刷新回复上下文失败，沿用当前消息:', error);
+            }
+        }
+        if (!isInstantConfigReady()) { triggerAI(triggerMessages); return; }
         // instantSendingActive 驱动 header "发送中…" 徽章 (拼接+发送窗口). 消息上的三个小圆点
         // 另走纯前端判定 (isTyping && 最后一条消息), 见渲染处.
         setInstantSendingActive(true);
-        triggerAI(messages, undefined, () => setInstantSendingActive(false));
+        triggerAI(triggerMessages, undefined, () => setInstantSendingActive(false));
     };
 
     const handleReroll = async () => {

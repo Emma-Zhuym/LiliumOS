@@ -10562,6 +10562,37 @@ var mcpSessionId = null;
 var mcpInitialized = false;
 var mcpInitPromise = null;
 var mcpDiscoveredTools = [];
+var XHS_DETAIL_CACHE_TTL_MS = 10 * 60 * 1e3;
+var XHS_DETAIL_CACHE_MAX_ENTRIES = 64;
+var xhsDetailInFlight = /* @__PURE__ */ new Map();
+var xhsDetailCache = /* @__PURE__ */ new Map();
+var xhsDetailCacheGeneration = 0;
+var xhsDetailCacheKey = (serverUrl, feedId, loadAllComments) => {
+  const mode = detectMode(serverUrl);
+  const commentMode = mode === "bridge" && loadAllComments ? "all-comments" : "fast";
+  return `${serverUrl.trim().replace(/\/+$/, "")}|${feedId}|${commentMode}`;
+};
+var rememberXhsDetail = (key, result) => {
+  if (!result.success || result.data == null) return;
+  xhsDetailCache.delete(key);
+  xhsDetailCache.set(key, { expiresAt: Date.now() + XHS_DETAIL_CACHE_TTL_MS, result });
+  while (xhsDetailCache.size > XHS_DETAIL_CACHE_MAX_ENTRIES) {
+    const oldestKey = xhsDetailCache.keys().next().value;
+    if (oldestKey === void 0) break;
+    xhsDetailCache.delete(oldestKey);
+  }
+};
+var readCachedXhsDetail = (key) => {
+  const cached = xhsDetailCache.get(key);
+  if (!cached) return null;
+  if (cached.expiresAt <= Date.now()) {
+    xhsDetailCache.delete(key);
+    return null;
+  }
+  xhsDetailCache.delete(key);
+  xhsDetailCache.set(key, cached);
+  return cached.result;
+};
 var TOOL_NAME_ALIASES = {
   "check_login": ["check_login", "checkLogin", "check_login_status", "checkLoginStatus"],
   "search": ["search", "search_notes", "searchNotes", "search_feeds", "searchFeeds"],
@@ -10834,17 +10865,29 @@ var XhsMcpClient = {
     mcpRequestIdCounter = 0;
     mcpDiscoveredTools = [];
   },
+  // 设置、登录或测试需要显式强制重读时使用；不会中止已经发出的浏览器任务。
+  clearDetailCache: () => {
+    xhsDetailCacheGeneration += 1;
+    xhsDetailCache.clear();
+    xhsDetailInFlight.clear();
+  },
   // [EM-START: xhs-mini-mcp] 自托管 MCP 的 Bearer 令牌；换了令牌就重新握手
   setAuthToken: (token) => {
     const next = (token || "").trim();
-    if (next !== mcpAuthToken) XhsMcpClient.resetSession();
+    if (next !== mcpAuthToken) {
+      XhsMcpClient.resetSession();
+      XhsMcpClient.clearDetailCache();
+    }
     mcpAuthToken = next;
   },
   // [EM-END: xhs-mini-mcp]
   // Lite Worker auth: register the XHS cookie used for x-xhs-cookie header.
   setCookie: (cookie) => {
     const nextCookie = cookie || "";
-    if (nextCookie !== liteCookie) litePlatform = "auto";
+    if (nextCookie !== liteCookie) {
+      litePlatform = "auto";
+      XhsMcpClient.clearDetailCache();
+    }
     liteCookie = nextCookie;
   },
   testConnection: async (serverUrl, cookie) => {
@@ -10945,7 +10988,7 @@ var XhsMcpClient = {
   getRecommend: async (serverUrl) => {
     return detectMode(serverUrl) === "bridge" ? bridgePost(serverUrl, "list-feeds") : mcpCallTool(serverUrl, "get_recommend");
   },
-  getNoteDetail: async (serverUrl, noteUrl, xsecToken, options) => {
+  getNoteDetail: (serverUrl, noteUrl, xsecToken, options) => {
     const feedId = extractNoteIdFromUrl(noteUrl);
     const token = xsecToken || extractXsecTokenFromUrl(noteUrl) || "";
     const loadAllComments = !!options?.loadAllComments;
@@ -10954,18 +10997,37 @@ var XhsMcpClient = {
       xsecSource = new URL(noteUrl).searchParams.get("xsec_source") || xsecSource;
     } catch {
     }
-    if (detectMode(serverUrl) === "bridge") {
-      return bridgePost(serverUrl, "get-feed-detail", {
-        feed_id: feedId,
-        xsec_token: token,
-        xsec_source: xsecSource,
-        load_all_comments: loadAllComments,
-        click_more_replies: loadAllComments
-      });
-    }
-    const args = { url: noteUrl };
-    if (xsecToken) args.xsec_token = xsecToken;
-    return mcpCallTool(serverUrl, "get_note_detail", args);
+    const cacheKey = xhsDetailCacheKey(serverUrl, feedId, loadAllComments);
+    const cached = readCachedXhsDetail(cacheKey);
+    if (cached) return Promise.resolve(cached);
+    const pending = xhsDetailInFlight.get(cacheKey);
+    if (pending) return pending;
+    const cacheGeneration = xhsDetailCacheGeneration;
+    let request;
+    request = (async () => {
+      try {
+        let result;
+        if (detectMode(serverUrl) === "bridge") {
+          result = await bridgePost(serverUrl, "get-feed-detail", {
+            feed_id: feedId,
+            xsec_token: token,
+            xsec_source: xsecSource,
+            load_all_comments: loadAllComments,
+            click_more_replies: loadAllComments
+          });
+        } else {
+          const args = { url: noteUrl };
+          if (xsecToken) args.xsec_token = xsecToken;
+          result = await mcpCallTool(serverUrl, "get_note_detail", args);
+        }
+        if (cacheGeneration === xhsDetailCacheGeneration) rememberXhsDetail(cacheKey, result);
+        return result;
+      } finally {
+        if (xhsDetailInFlight.get(cacheKey) === request) xhsDetailInFlight.delete(cacheKey);
+      }
+    })();
+    xhsDetailInFlight.set(cacheKey, request);
+    return request;
   },
   publishNote: async (serverUrl, params) => {
     if (detectMode(serverUrl) === "bridge") {
@@ -14109,6 +14171,9 @@ var amsgHooks = {
             };
           }
         }
+        const llmResponse = ctx.llmResponse;
+        const backendModel = typeof llmResponse?.model === "string" ? llmResponse.model.trim() : "";
+        if (backendModel) lastMeta.amsgBackendModel = backendModel;
         if (stash.emotionEvalPromise) {
           const outcome = await raceEmotionEval(stash.emotionEvalPromise);
           if (outcome === null) {

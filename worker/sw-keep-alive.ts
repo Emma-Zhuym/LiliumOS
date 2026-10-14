@@ -3,6 +3,7 @@
 
 import { appendSwTraceEntry as appendSwTrace } from '../utils/swTraceStore';
 import { mergeInboxDelivery } from '../utils/inboxDelivery';
+import { createAppShell } from '../utils/swAppShell'; // [EM: sw-offline-shell]
 
 import { installReiSW } from '@rei-standard/amsg-sw';
 
@@ -79,8 +80,13 @@ import { installReiSW } from '@rei-standard/amsg-sw';
  *            手上等于没有），并把 notifyClients 记细：找到几个页面、各自可见性、
  *            postMessage 成没成。排「推送到了、通知也弹了、界面半天不动」这类故障时，
  *            SW 到底有没有喊到页面是第一个要回答的问题。
+ *  - 1.19.0: [EM] 加 fetch handler 做离线 app shell（utils/swAppShell.ts）：打开 App 网络优先、
+ *            3 秒超时或响应不像本站页面就用缓存的 index.html，Wi-Fi 登录页的跳转不显示也不缓存；
+ *            本站 assets/ 和开机三个 CDN 缓存优先，其余跨域请求不拦。
+ *  - 1.20.0: [EM] 按 Vite 构建清单（sw-precache-manifest.json）预缓存全部代码块：1.19.0 只缓存入口和
+ *            打开过的 App，断网时没打开过的 App 一点就「资源加载失败」。换版本号顺带让旧缓存整套重建。
  */
-const SW_VERSION = '1.18.0';
+const SW_VERSION = '1.20.0';
 
 const PING_INTERVAL = 15_000;
 const MAX_MANUAL_ALIVE_MS = 5 * 60_000;
@@ -878,3 +884,32 @@ sw.addEventListener('install', () => {
 sw.addEventListener('activate', (event: ExtendableEvent) => {
   event.waitUntil(sw.clients.claim());
 });
+
+// [EM-START: sw-offline-shell]
+// 离线 app shell。上面原有的 install / activate 不动，这里各多挂一个监听：
+// install 预缓存（失败不阻塞安装），activate 清旧版本缓存。
+// 用到时才建：registration / caches 在事件里才确定拿得到（测试里 import 这个文件时也没有）。
+let appShellInstance: ReturnType<typeof createAppShell> | null = null;
+const appShell = () => appShellInstance ??= createAppShell({
+  scope: sw.registration.scope,
+  version: SW_VERSION,
+  fetch: (input, init) => fetch(input as RequestInfo, init),
+  caches,
+  log: (event, extra) => traceSw(event, undefined, extra),
+});
+
+sw.addEventListener('install', (event: ExtendableEvent) => {
+  event.waitUntil(appShell().precache());
+});
+
+sw.addEventListener('activate', (event: ExtendableEvent) => {
+  event.waitUntil(appShell().cleanup().catch(() => { /* 清不掉下次再清 */ }));
+});
+
+sw.addEventListener('fetch', (event: FetchEvent) => {
+  const shell = appShell();
+  const route = shell.route(event.request);
+  if (!route) return; // 不认识的请求不调 respondWith，浏览器照常走网络
+  event.respondWith(shell.handle(event.request, route, (p) => event.waitUntil(p)));
+});
+// [EM-END: sw-offline-shell]

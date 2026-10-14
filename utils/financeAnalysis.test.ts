@@ -58,16 +58,17 @@ describe('expense percentile and scope', () => {
     expect(buildFinanceAnalysis([transaction('alone', 20)], categories, options).outliers).toHaveLength(0);
   });
 
-  it('scopes by date, currency and account before calculating; excludes transfers, pending and provider holds', () => {
+  it('scopes by date, currency and account before calculating; counts pending, excludes transfers and provider holds', () => {
     const rows = [transaction('valid', 12), transaction('other-account', 900, { accountId: 'elsewhere' }),
       transaction('other-currency', 5000, { currency: 'CNY' }), transaction('older', 300, { dateStr: '2026-05-31' }),
       transaction('future', 300, { dateStr: '2026-07-01' }), transaction('pending', 400, { pending: true }),
       transaction('hold', 400, { excludedFromReporting: true }), transaction('transfer', 400, { type: 'transfer' }),
       transaction('repayment', 400, { categoryId: 'cat_transfer' }), transaction('invalid', NaN)];
     const result = buildFinanceAnalysis(rows, categories, { ...options, accountId: 'card' });
-    expect(result.sampleSize).toBe(1);
-    expect(result.comparisons[0].total).toBe(12);
+    expect(result.sampleSize).toBe(2);
+    expect(result.comparisons[0].total).toBe(412);
     expect(result.pending.map(t => t.id)).toEqual(['pending']);
+    expect(financeSpendingSeries(result, options.from, options.to).reduce((sum, b) => sum + b.all, 0)).toBe(412);
   });
 
   it('does not use refunds or income as percentile samples and warns for small samples', () => {

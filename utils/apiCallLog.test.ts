@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
+    backendModelReportStatus,
     buildApiRequestCapture,
     buildPromptBreakdown,
     captureApiRequestOnce,
@@ -282,6 +283,15 @@ describe('isSameCoreModel 方向性同名判定', () => {
     it('短名不做 endsWith 宽容；空值不报警', () => {
         expect(isSameCoreModel('4o', 'gpt-4o')).toBe(false);
         expect(isSameCoreModel('x', '')).toBe(true);
+    });
+});
+
+describe('backendModelReportStatus 后端自报三态', () => {
+    it('区分未报告、名称一致和名称不一致，不把缺失当成功', () => {
+        expect(backendModelReportStatus('claude-opus-4-6')).toBe('not-reported');
+        expect(backendModelReportStatus('claude-opus-4-6', '   ')).toBe('not-reported');
+        expect(backendModelReportStatus('claude-opus-4-6', '[渠道]claude-opus-4-6')).toBe('match');
+        expect(backendModelReportStatus('claude-opus-4-6', 'claude-sonnet-4-6')).toBe('mismatch');
     });
 });
 

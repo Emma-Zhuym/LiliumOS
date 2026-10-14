@@ -1,11 +1,18 @@
 # Mac mini 后端接手即时回复与主动消息排程 spec
 
-> 2026-09-29 起草（Claude（小帕）），阿萌同日拍板（三个问题都按推荐）。**阶段一已实现**，阶段二、三待做。
-> 目标：**PWA 被杀后台也能当场收到回复**；主动消息的排程搬到 mini，**以后不再需要 amsg（Cloudflare Worker）**。
+> 2026-09-29 起草（Claude（小帕）），阿萌同日拍板（三个问题都按推荐）。**阶段一已实现；阶段二、三未实现。**
+> 2026-10-14 按代码重新核对并由阿萌决定：**现阶段继续同时使用 mini 与 AMSG，不安排迁移或退役。**本文的阶段二、三保留为未来方案，不代表当前进度。
+> 原设计目标：**PWA 被杀后台也能当场收到回复**；如果未来继续迁移，再把主动消息排程搬到 mini、逐步不再依赖 AMSG（Cloudflare Worker）。
 > 设计参考：amsg 的即时对话 [`plans/amsg2-instant-chat.md`](../plans/amsg2-instant-chat.md) 与契约 [`plans/amsg2-instant-chat-contract.md`](../plans/amsg2-instant-chat-contract.md)。
 > 我们照搬它「发完就自由、云端跑、推送回来、本地后处理」的形状，但不搬它的加密信封、D1、Durable Object。
 
-## 现状（2026-09-29 查过）
+## 当前实际分工（2026-10-14 重新按代码核对）
+
+- **mini**：即时聊天回复（启用且可用时优先于 AMSG）、心跳与角色生活。
+- **AMSG / Worker**：手工定时消息、角色自己创建 / 取消 / 续期的排程、mini 不可用时的云端即时回复候补，以及这条路线上的情绪评估、后台记忆整理、fire 工具和推送信箱。
+- 后端目前没有 `scheduled_message` job，也没有 `/agent/v1/schedules` 接口；因此阶段二不能算做完，阶段三也没有开始。
+
+## 起草时现状（2026-09-29 查过）
 
 - **后端已经能推送**：`server/agent-backend/push.mjs` 用与站点同一对 VAPID，阿萌的 iPhone 已登记（`devices.push_status = active`），
   最近两天心跳的 46 条消息都经 Apple 推送成功（201）。推送丢了有 `/outbox` 信箱兜底。

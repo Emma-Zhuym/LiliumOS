@@ -515,8 +515,9 @@ export const sendInstantChatTurn = async (params: {
 /**
  * 这一轮回来了 → 把「API 调用记录」里那笔挂着的补完。
  *
- * `metadata` 是这一轮**最后一条**推送带回来的那份：云端把用量（`amsgUsage`）和工具
- * 痕迹（`amsgToolTrace`）都挂在末条上。补收路径拿到的是同一份（账本存的就是推送信封
+ * `metadata` 是这一轮**最后一条**推送带回来的那份：云端把用量（`amsgUsage`）、
+ * 后端自报模型（`amsgBackendModel`）和工具痕迹（`amsgToolTrace`）都挂在末条上。
+ * 补收路径拿到的是同一份（账本存的就是推送信封
  * 的副本），所以推送丢了也照样补得上。
  *
  * 云端回传的用量只有**最后一次**模型调用那一份——带工具的一轮会连着调好几次模型，
@@ -528,11 +529,15 @@ export const settleInstantChatApiLog = (uuid: string, metadata?: Record<string, 
     (typeof value === 'number' && Number.isFinite(value) ? value : undefined);
   const usage = metadata?.amsgUsage;
   const toolTrace = metadata?.amsgToolTrace;
+  const backendModel = typeof metadata?.amsgBackendModel === 'string'
+    ? metadata.amsgBackendModel.trim()
+    : '';
   settleCloudApiCall({
     id: cloudApiCallLogId(uuid),
     ok: true,
     promptTokens: num(usage?.promptTokens),
     completionTokens: num(usage?.completionTokens),
+    backendModel: backendModel || undefined,
     tokensPartial: Array.isArray(toolTrace) && toolTrace.length > 0,
   });
 };

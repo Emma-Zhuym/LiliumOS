@@ -22,7 +22,7 @@ import { loadPlansCache, refreshPlansCache } from '../utils/emAgentPlans';
 import TokenImg from '../components/os/TokenImg';
 import {
     cacheItem, dayKey, dueText, groupByDay, hasOpenSource, isOverdue, itemTimeText, loadTemporalCache, monthGrid,
-    openReminders, saveTemporalCache, shiftMonth, syncText, uncacheItem, writableLists,
+    openReminders, saveTemporalCache, shiftMonth, syncText, uncacheItem, waitForTemporalSync, writableLists,
     type TemporalCache,
 } from '../utils/emTemporal';
 
@@ -44,6 +44,7 @@ const CalendarApp: React.FC = () => {
     const [cache, setCache] = useState<TemporalCache | null>(loadTemporalCache);
     const [plans, setPlans] = useState<AgentPlan[]>(loadPlansCache);
     const [loading, setLoading] = useState(false);
+    const [syncing, setSyncing] = useState(false);
     const [cursor, setCursor] = useState(() => ({ year: today.getFullYear(), month: today.getMonth() }));
     const [selected, setSelected] = useState(() => dayKey(today));
     // 新建提醒：null = 没在建
@@ -126,12 +127,25 @@ const CalendarApp: React.FC = () => {
         }
     };
 
+    // 排完任务就等它跑完再读一次，别让阿萌自己去点刷新（以前点了「立刻同步」屏幕上什么都不变）
     const syncNow = async () => {
+        if (syncing) return;
+        setSyncing(true);
+        const startedAt = Date.now();
         try {
             await AgentBackend.refreshTemporal();
-            addToast('已让 mini 去同步一次，一会儿下拉刷新', 'success');
+            const snapshot = await waitForTemporalSync(startedAt);
+            if (!snapshot) {
+                addToast('mini 还没同步完，晚点点右上角刷新看看', 'info');
+                return;
+            }
+            setCache(saveTemporalCache(snapshot));
+            if (snapshot.sync?.lastError) addToast(`同步失败：${snapshot.sync.lastError}`, 'error');
+            else addToast(`同步好了，${snapshot.sync?.count ?? snapshot.items.length} 条`, 'success');
         } catch (error) {
             addToast(error instanceof Error ? error.message : '排任务失败', 'error');
+        } finally {
+            setSyncing(false);
         }
     };
 
@@ -373,13 +387,13 @@ const CalendarApp: React.FC = () => {
                         </p>
                     ) : (
                         <div className="flex items-center justify-between gap-3">
-                            <span style={{ fontSize: 12, color: F.textTertiary }}>
+                            <span style={{ fontSize: 12, color: cache?.sync?.lastError ? STATUS.danger.ink : F.textTertiary }}>
                                 {syncText(cache?.sync)} · 只缓存昨天到两周后
                             </span>
-                            <button onClick={() => void syncNow()}
+                            <button onClick={() => void syncNow()} disabled={syncing}
                                 className="shrink-0 active:translate-y-[1px] transition-transform"
-                                style={{ padding: '8px 14px', borderRadius: R.pill, background: C.tint, color: C.ink, fontSize: 12, fontWeight: 600 }}>
-                                立刻同步
+                                style={{ padding: '8px 14px', borderRadius: R.pill, background: C.tint, color: C.ink, fontSize: 12, fontWeight: 600, opacity: syncing ? 0.6 : 1 }}>
+                                {syncing ? '同步中…' : '立刻同步'}
                             </button>
                         </div>
                     )}

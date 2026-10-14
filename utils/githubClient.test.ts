@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as gitBackup from './githubGitBackup'; // [EM: github-git-backup]
 
 import {
     describeGithubUploadTransportFailure,
@@ -172,7 +173,8 @@ describe('GitHub 备份列表完整性', () => {
 
         const files = await listBackups(config);
 
-        expect(fetchMock).toHaveBeenCalledTimes(2);
+        // [EM: github-git-backup] 列表还会多查一次 Git 数据备份的分支，这里只数 Release 翻页
+        expect(fetchMock.mock.calls.filter(([u]) => String(u).includes('/releases?'))).toHaveLength(2);
         expect(files).toHaveLength(1);
         expect(files[0]).toMatchObject({ name: 'Sully_Backup_full_1.zip', status: 'ready' });
     });
@@ -265,9 +267,27 @@ describe('GitHub 备份列表完整性', () => {
 
         await expect(listBackups(config)).rejects.toThrow('请求过于频繁');
     });
+
+    // [EM: github-401-hint]
+    it('token 过期（401）时直接说怎么修：重新生成、选永不过期、去哪粘贴', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(
+            JSON.stringify({ message: 'Bad credentials' }),
+            { status: 401, headers: { 'Content-Type': 'application/json' } },
+        )));
+
+        const error = (await listBackups(config).catch(e => e)) as Error;
+        expect(error.message).toContain('过期或被撤销了（HTTP 401）');
+        expect(error.message).toContain('github.com/settings/tokens');
+        expect(error.message).toContain('No expiration');
+        expect(error.message).toContain('设置 → 云端备份 → 修改配置');
+    });
 });
 
 describe('GitHub 事务式上传', () => {
+    // [EM: github-git-backup] 网页直连现在默认走 Git 数据接口；这组测的是 Release + 附件那条路
+    // （原生 App / 开中转时用），固定住路由。
+    beforeEach(() => { vi.spyOn(gitBackup, 'shouldUseGitDataUpload').mockReturnValue(false); });
+
     const config = {
         enabled: true,
         provider: 'github' as const,
@@ -401,5 +421,44 @@ describe('GitHub 事务式上传', () => {
         expect(uploadedNames.some(name => name.endsWith('.sully-backup.json'))).toBe(true);
         expect(fetchMock.mock.calls.some(([url, init]) =>
             String(url).endsWith('/releases/88') && init?.method === 'PATCH')).toBe(true);
+    });
+});
+
+// [EM: github-git-backup]
+describe('网页直连上传改走 Git 数据接口', () => {
+    const config = {
+        enabled: true,
+        provider: 'github' as const,
+        webdavUrl: '',
+        username: '',
+        password: '',
+        remotePath: '/',
+        githubToken: 'github_pat_test',
+        githubOwner: 'owner',
+        githubRepo: 'sully-backup',
+        githubUseProxy: false,
+    };
+
+    it('不碰 uploads.github.com（它不回浏览器的跨域预检），全程只调 api.github.com', async () => {
+        let seq = 0;
+        const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+            const url = String(input);
+            const json = (status: number, body: unknown) => Promise.resolve(new Response(JSON.stringify(body), {
+                status, headers: { 'Content-Type': 'application/json' },
+            }));
+            if (init?.method === 'POST' && /\/git\/(blobs|trees|commits)$/.test(url)) return json(201, { sha: `sha${++seq}` });
+            if (init?.method === 'POST' && url.endsWith('/git/refs')) return json(201, { ref: JSON.parse(String(init.body)).ref });
+            return json(500, { message: `unexpected ${init?.method} ${url}` });
+        });
+        vi.stubGlobal('fetch', fetchMock);
+        vi.stubGlobal('XMLHttpRequest', class { constructor() { throw new Error('不该再用 XHR 直传附件'); } } as any);
+
+        const result = await uploadBackup(config, new Blob(['zip']), 'Sully_Backup_text_only_1.zip');
+
+        expect(result).toEqual({ ok: true, message: '上传成功' });
+        const urls = fetchMock.mock.calls.map(([u]) => String(u));
+        expect(urls.every(u => u.startsWith('https://api.github.com/'))).toBe(true);
+        expect(urls.some(u => u.endsWith('/git/blobs'))).toBe(true);
+        expect(urls.at(-1)).toBe('https://api.github.com/repos/owner/sully-backup/git/refs');
     });
 });
