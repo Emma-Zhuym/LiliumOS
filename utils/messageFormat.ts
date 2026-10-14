@@ -11,6 +11,7 @@
  * 抽到这里后单点维护。
  */
 
+import { transcriptForPrompt } from './emBiliTranscriptPrompt'; // [EM: bili-transcript]
 import type { Message, Emoji } from '../types';
 import { formatLifeSimResetCardForContext } from './lifeSimChatCard';
 import { formatQixiEventCardForContext, tryParseQixiEventChatCard } from './qixiChatCard';
@@ -298,9 +299,10 @@ export function normalizeMessageContent(
                 v.commentCount ? `评论 ${formatStatCount(v.commentCount)}` : '',
                 v.collectCount ? `收藏 ${formatStatCount(v.collectCount)}` : '',
             ].filter(Boolean);
-            const note = isImage
+            const transcript = transcriptForPrompt(meta); // [EM: bili-transcript] B 站链接经 mini 读到的字幕
+            const note = transcript ?? (isImage
                 ? '（注：你能看到的是这个图文的标题、作者和热度数据，看不到图片内容本身，别假装看过图。）'
-                : '（注：你能看到的是这个视频的标题、作者和热度数据，看不到视频画面和声音，别假装看过视频内容。）';
+                : '（注：你能看到的是这个视频的标题、作者和热度数据，看不到视频画面和声音，别假装看过视频内容。）');
             return [
                 head,
                 stats.length ? `热度：${stats.join(' · ')}` : '',

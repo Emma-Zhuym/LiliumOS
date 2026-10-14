@@ -259,6 +259,10 @@ check "GitHub Git 数据备份进列表" utils/githubClient.ts "files.push(...aw
 check "GitHub Git 数据备份可恢复" utils/githubClient.ts "if (isGitBackupHref(file.href)) return downloadGitBackup("
 check "GitHub Git 数据备份可删除" utils/githubClient.ts "if (isGitBackupHref(file.href)) return deleteGitBackup("
 
+echo "── B 站链接读字幕（聊天里发链接，角色读到字幕）──"
+check "建卡前经 B 站 MCP 读字幕" apps/Chat.tsx "if (webpage && isBiliShare(sharedUrl, webpage)) webpage = await attachBiliTranscript("
+check "卡片字幕喂给角色" utils/messageFormat.ts "const transcript = transcriptForPrompt(meta); // [EM: bili-transcript]"
+
 echo ""
 if [ $FAIL -gt 0 ]; then
     echo "🔴 $FAIL 项缺失（$PASS 项通过）——EM 功能被 merge 冲掉了，对照 .claude/CLAUDE.md 补回来"

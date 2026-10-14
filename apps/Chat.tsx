@@ -34,6 +34,7 @@ import { getRoomLabel } from '../utils/memoryPalace/types';
 import { XhsMcpClient, extractNotesFromMcpData, normalizeXhsLiteDetail } from '../utils/xhsMcpClient';
 import { extractWebpageContent, detectFirstUrl, detectXhsShortUrl, extractXhsShareTitle, isXhsUrl, extractXhsNoteId, expandShortUrl, type ExtractedWebpage } from '../utils/webpageExtractor';
 import { isVideoShareUrl, parseVideoShareUrl } from '../utils/videoParser';
+import { attachBiliTranscript, isBiliShare } from '../utils/emBiliTranscript'; // [EM: bili-transcript]
 import { isDevDebugAvailable } from '../utils/devDebug';
 import { isImageValue, migrateDataUrlToRef, putImageBlob, useBlobRefUrl } from '../utils/blobRef';
 import { buildReplySnapshotContent } from '../utils/applyAssistantPostProcessing';
@@ -1549,6 +1550,9 @@ const Chat: React.FC = () => {
                         addToast(`网页抓取失败：${e?.message || '可能被这个站点拦截了，换个链接或稍后再试。'}`, 'error');
                     }
                 }
+                // [EM-START: bili-transcript] B 站链接：经 mini 上的 B 站 MCP 读字幕放进卡片，角色才算「看过」
+                if (webpage && isBiliShare(sharedUrl, webpage)) webpage = await attachBiliTranscript(webpage, sharedUrl, char.id, addToast);
+                // [EM-END: bili-transcript]
                 if (webpage) {
                     await DB.saveMessage({
                         charId: char.id,
