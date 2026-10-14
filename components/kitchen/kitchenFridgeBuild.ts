@@ -92,6 +92,58 @@ const tornTape = (ctx: CanvasRenderingContext2D, rnd: () => number, w: number, h
   ctx.fillStyle = fill; ctx.fill();
 };
 
+/* ── 笔：手写的勾、划线、批注，和让字淡下去的那层纸色 ──
+ * 静止时一次画完；刚发生的那一笔（刚打的勾、刚吃完的那样）按进度一点点画出来（P14「用掉划一笔墨线」）。
+ * 笔迹的抖动在生成时就定好，逐帧重画只改进度，笔画不会跟着抖。 */
+type Pt = [number, number];
+interface PenStroke { pts: Pt[]; width: number; color: string; from: number; to: number }
+interface PenNote { text: string; x: number; y: number; size: number; color: string; from: number; to: number }
+interface PenVeil { x: number; y: number; w: number; h: number; color: string; alpha: number; from: number; to: number }
+export interface PenMark { key: string; strokes: PenStroke[]; notes: PenNote[]; veils: PenVeil[] }
+/** 一笔里先慢后快再收：跟手写一样起笔和收笔都慢一点 */
+const easePen = (t: number) => t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+const clamp01 = (t: number) => Math.max(0, Math.min(1, t));
+/** 从起点到终点的一笔：中间拱一点，每个采样点抖一点点 */
+const penPath = (rnd: () => number, x0: number, y0: number, x1: number, y1: number, bow = 0, n = 14): Pt[] => {
+  const cx = (x0 + x1) / 2 + (rnd() - 0.5) * 2, cy = (y0 + y1) / 2 - bow;
+  return Array.from({ length: n + 1 }, (_, i) => {
+    const t = i / n, u = 1 - t;
+    const j = i === 0 || i === n ? 0 : (rnd() - 0.5) * 0.7;
+    return [u * u * x0 + 2 * u * t * cx + t * t * x1, u * u * y0 + 2 * u * t * cy + t * t * y1 + j] as Pt;
+  });
+};
+const drawStroke = (ctx: CanvasRenderingContext2D, stroke: PenStroke, p: number) => {
+  if (p <= 0) return;
+  const segs = stroke.pts.length - 1, upto = easePen(p) * segs;
+  ctx.strokeStyle = stroke.color; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.globalAlpha = 0.9;
+  for (let i = 0; i < Math.ceil(upto); i++) {
+    const f = Math.min(1, upto - i), a = stroke.pts[i], b = stroke.pts[i + 1];
+    // 笔压：中段粗、两头细
+    ctx.lineWidth = stroke.width * (0.72 + 0.38 * Math.sin(Math.PI * (i + 0.5) / segs));
+    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+};
+const drawMark = (ctx: CanvasRenderingContext2D, mark: PenMark, t: number) => {
+  const local = (from: number, to: number) => clamp01((t - from) / (to - from));
+  for (const v of mark.veils) {
+    const k = local(v.from, v.to); if (k <= 0) continue;
+    ctx.globalAlpha = v.alpha * k; ctx.fillStyle = v.color; ctx.fillRect(v.x, v.y, v.w, v.h); ctx.globalAlpha = 1;
+  }
+  for (const stroke of mark.strokes) drawStroke(ctx, stroke, local(stroke.from, stroke.to));
+  for (const note of mark.notes) {   // 手写批注：从左往右一点点写出来
+    const k = local(note.from, note.to); if (k <= 0) continue;
+    ctx.save(); ctx.font = `${note.size}px ${HAND_FONT}`;
+    const tw = ctx.measureText(note.text).width;
+    ctx.beginPath(); ctx.rect(note.x - tw - 4, note.y - note.size * 1.2, (tw + 8) * easePen(k), note.size * 1.7); ctx.clip();
+    ctx.fillStyle = note.color; ctx.textAlign = 'right'; ctx.fillText(note.text, note.x, note.y);
+    ctx.restore();
+  }
+};
+/** 正在写的那几笔：场景每帧推进度，写完就从列表里拿掉 */
+export interface PenAnim { render: (progress: (key: string) => number) => void; keys: Set<string>; start: number; duration: number; paper: DoorPaper['key']; door: 'fridge' | 'freezer'; touched?: boolean }
+export const PEN_DELAY = 160;
+
 /* ── 门上的纸：薄面片，顶点实时弯曲 ── */
 export interface DoorPaper {
   key: 'sticky' | 'receipt' | 'pantry' | 'heat' | 'shop';
@@ -134,7 +186,9 @@ export interface KitchenRig {
   /** 每个能点的食物（lotId 挂在 userData 上） */
   items: THREE.Object3D[];
   pickables: THREE.Object3D[];
-  setContents: (entries: FridgeEntry[], reminders: DoorNoteLine[], receipt: DoorReceipt | null, pantry: PantryList | null, heat: HeatList | null, shop: ShoppingPaper | null) => void;
+  /** 正在写的手写笔迹 */
+  pens: PenAnim[];
+  setContents: (entries: FridgeEntry[], reminders: DoorNoteLine[], receipt: DoorReceipt | null, pantry: PantryList | null, heat: HeatList | null, shop: ShoppingPaper | null, playing?: Set<string>) => void;
   dispose: () => void;
 }
 
@@ -318,11 +372,11 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
   let contents = new THREE.Group(); scene.add(contents);
   let contentBin = new Bin();
   const rig: KitchenRig = {
-    scene, fridgeHinge, freezerHinge, crisper, lights, papers: [], magnets: [], items: [], pickables: [],
+    scene, fridgeHinge, freezerHinge, crisper, lights, papers: [], magnets: [], items: [], pickables: [], pens: [],
     setContents: () => {}, dispose: () => {},
   };
 
-  const setContents = (entries: FridgeEntry[], reminders: DoorNoteLine[], receipt: DoorReceipt | null, pantry: PantryList | null, heat: HeatList | null, shop: ShoppingPaper | null) => {
+  const setContents = (entries: FridgeEntry[], reminders: DoorNoteLine[], receipt: DoorReceipt | null, pantry: PantryList | null, heat: HeatList | null, shop: ShoppingPaper | null, playing: Set<string> = new Set()) => {
     // 换掉上一批：从各自的父级摘下来，再释放
     for (const o of [...rig.items, ...rig.papers.map(p => p.mesh), ...rig.magnets.map(m => m.group)]) o.parent?.remove(o);
     scene.remove(contents); contentBin.dispose();
@@ -332,6 +386,24 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
     const cmat = <T extends THREE.Material>(m: T) => cb.add(m);
     // 标签、胶带、便利贴、小票：按两倍像素画，凑近看字也清楚
     const ctex = (w: number, h: number, draw: Draw) => canvasTex(cb, w, h, draw, { aniso, scale: 2 });
+    rig.pens = [];
+    /** 纸底先画一张不带笔迹的底稿，笔迹每帧叠上去：刚发生的那几笔（playing）从 0 开始写 */
+    const penTex = (w: number, h: number, drawBase: Draw, marks: PenMark[], paper: DoorPaper['key'], door: 'fridge' | 'freezer', duration: number) => {
+      const base = document.createElement('canvas'); base.width = w * 2; base.height = h * 2;
+      const bx = base.getContext('2d')!; bx.scale(2, 2); drawBase(bx, w, h);
+      const texture = ctex(w, h, () => {});
+      const canvas = texture.image as HTMLCanvasElement, x = canvas.getContext('2d')!;
+      const render = (progress: (key: string) => number) => {
+        x.setTransform(1, 0, 0, 1, 0, 0); x.clearRect(0, 0, canvas.width, canvas.height); x.drawImage(base, 0, 0);
+        x.setTransform(2, 0, 0, 2, 0, 0);
+        for (const mark of marks) drawMark(x, mark, progress(mark.key));
+        texture.needsUpdate = true;
+      };
+      const fresh = new Set(marks.filter(mark => playing.has(mark.key)).map(mark => mark.key));
+      render(key => fresh.has(key) ? 0 : 1);
+      if (fresh.size) rig.pens.push({ render, keys: fresh, start: performance.now() + PEN_DELAY, duration, paper, door });
+      return texture;
+    };
     const part = (g: THREE.BufferGeometry, m: THREE.Material, parent: THREE.Object3D, shadow = true) => {
       const o = new THREE.Mesh(cgeo(g), m); o.castShadow = shadow; o.receiveShadow = true; parent.add(o); return o;
     };
@@ -469,7 +541,22 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
       const texH = Math.min(Math.round(6.2 / 1.7 * 320), 218 + rows * 44 + 96);
       const ph = texH / 320 * 1.7;
       const date = new Date(receipt.day);
-      const paperTex = ctex(320, texH, (x, w, h) => {
+      const W0 = 320, INK = '#2e4a5e', marks: PenMark[] = [];
+      // 吃完 / 丢了的那几样：一道墨线划过、字淡下去、右边手写「3 天吃完」——刚吃完的那样一笔一笔写出来
+      const measure = document.createElement('canvas').getContext('2d')!;
+      receipt.items.forEach((it, i) => {
+        if (!it.gone) return;
+        const size = it.slow ? 21 : 24, y = 218 + (slowAt >= 0 && i >= slowAt ? i + 1 : i) * 44;
+        measure.font = `400 ${size}px ${SANS}`;
+        const tw = Math.min(W0 - 140, measure.measureText(it.name).width);
+        marks.push({
+          key: `gone:${it.lotId}`,
+          veils: [{ x: 20, y: y - size, w: W0 - 40, h: size + 10, color: '#f6f6f2', alpha: 0.55, from: 0.05, to: 0.55 }],
+          strokes: [{ pts: penPath(cr, 20, y - 8 + cr() * 2, 32 + tw, y - 8 + cr() * 2, 3 + cr() * 2), width: 2.6, color: INK, from: 0, to: 0.5 }],
+          notes: [{ text: it.gone, x: W0 - 26, y: y + 2, size: 26, color: it.gone.endsWith('丢了') ? '#8f7a68' : INK, from: 0.5, to: 1 }],
+        });
+      });
+      const paperTex = penTex(W0, texH, (x, w, h) => {
         x.clearRect(0, 0, w, h);
         x.save(); x.beginPath(); x.moveTo(0, 0); x.lineTo(w, 0); x.lineTo(w, h - 18);
         for (let px = w; px > 0; px -= 16) { x.lineTo(px - 8, h - (cr() < 0.5 ? 2 : 14)); x.lineTo(px - 16, h - 18 + cr() * 6); }
@@ -491,19 +578,14 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
           let name = it.name; x.font = `400 ${size}px ${SANS}`;
           while (x.measureText(name).width > w - 140 && name.length > 1) name = name.slice(0, -1);
           const text = name === it.name ? name : `${name}…`, y = 218 + (slowAt >= 0 && i >= slowAt ? i + 1 : i) * 44;
-          if (!it.gone) { print(text, 26, y, size, 400, 'left', 0.86 * faint); print(it.amount, w - 26, y, size - 2, 400, 'right', 0.86 * faint); return; }
-          // 吃完 / 丢了：字淡下去，手写一道线划掉，右边手写「3 天吃完」
-          print(text, 26, y, size, 400, 'left', 0.42);
-          x.font = `400 ${size}px ${SANS}`; const tw = x.measureText(text).width;
-          x.strokeStyle = '#2e4a5e'; x.lineWidth = 2.6; x.lineCap = 'round'; x.globalAlpha = 0.9;
-          x.beginPath(); x.moveTo(20, y - 8 + cr() * 2); x.quadraticCurveTo(26 + tw / 2, y - 12 + cr() * 4, 32 + tw, y - 8 + cr() * 2); x.stroke();
-          x.globalAlpha = 1; x.font = `26px ${HAND_FONT}`; x.fillStyle = it.gone.endsWith('丢了') ? '#8f7a68' : '#2e4a5e'; x.textAlign = 'right';
-          x.fillText(it.gone, w - 26, y + 2); x.textAlign = 'left';
+          print(text, 26, y, size, 400, 'left', 0.86 * faint);
+          // 吃完的那行数量不印：右边留给手写的「3 天吃完」（笔迹在 marks 里）
+          if (!it.gone) print(it.amount, w - 26, y, size - 2, 400, 'right', 0.86 * faint);
         });
         dash(218 + rows * 44 - 12);
         print('放好了', w / 2, h - 50, 20, 400, 'center', 0.65);
         x.restore();
-      });
+      }, marks, 'receipt', 'fridge', 700);
       const receiptPaper = makePaper('receipt', 1.7, ph, 10, Math.round(ph * 7), paperTex, [4.55, 3.3 - ph / 2 + 1.4], 0.035, 0.34, 0.12, 0.06, receipt.items.map(it => ({ text: it.name, lotId: it.lotId })));
       // 蓝色圆磁贴压着小票顶边
       const g = new THREE.Group(); g.position.set(4.55, receiptPaper.mesh.position.y + ph / 2 - 0.12, FRONT + 0.02); fridgeHinge.add(g);
@@ -577,7 +659,24 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
       const rows = Math.max(1, shop.lines.length) + (shop.more > 0 ? 1 : 0);
       const W0 = 340, TOP = 112, ROW = 58, texH = TOP + rows * ROW + 40;
       const pw = 2.3, ph = pw * texH / W0;
-      const shopTex = ctex(W0, texH, (x, w, h) => {
+      // 打勾的那几行：先在方框里打个勾（短的一笔、长的一笔），再一道线划过名字、字淡下去
+      const INK = '#2e4a5e', marks: PenMark[] = [];
+      const measure = document.createElement('canvas').getContext('2d')!; measure.font = `400 31px ${SANS}`;
+      shop.lines.forEach((line, i) => {
+        if (!line.checked) return;
+        const y = TOP + i * ROW + 34, tw = Math.min(W0 - 90, measure.measureText(line.text).width);
+        marks.push({
+          key: `shop:${line.id}`,
+          veils: [{ x: 58, y: y - 32, w: W0 - 70, h: 42, color: '#f6f6f2', alpha: 0.55, from: 0.55, to: 0.95 }],
+          strokes: [
+            { pts: penPath(cr, 25, y - 15, 34, y - 4, 0, 5), width: 3.4, color: INK, from: 0, to: 0.2 },
+            { pts: penPath(cr, 34, y - 4, 55, y - 35, -2, 9), width: 3.4, color: INK, from: 0.2, to: 0.45 },
+            { pts: penPath(cr, 58, y - 11 + cr() * 2, 66 + tw, y - 11 + cr() * 2, 3 + cr() * 2), width: 3.2, color: INK, from: 0.52, to: 1 },
+          ],
+          notes: [],
+        });
+      });
+      const shopTex = penTex(W0, texH, (x, w, h) => {
         x.clearRect(0, 0, w, h);
         x.save(); x.beginPath(); x.moveTo(0, 0); x.lineTo(w, 0); x.lineTo(w, h - 16);
         for (let px = w; px > 0; px -= 14) { x.lineTo(px - 7, h - (cr() < 0.5 ? 2 : 12)); x.lineTo(px - 14, h - 16 + cr() * 5); }
@@ -594,19 +693,14 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
           let name = line.text; x.font = `400 31px ${SANS}`;
           while (x.measureText(name).width > w - 90 && name.length > 1) name = name.slice(0, -1);
           const text = name === line.text ? name : `${name}…`;
-          x.globalAlpha = line.checked ? 0.4 : 0.88; x.fillStyle = ink; x.fillText(text, 62, y);
+          // 打了勾的字也照常印，勾、划线、淡下去都在 marks 里
+          x.globalAlpha = 0.88; x.fillStyle = ink; x.fillText(text, 62, y);
           x.globalAlpha = 1;
-          if (line.checked) {   // 手写的勾和划线
-            x.strokeStyle = '#2e4a5e'; x.lineWidth = 3.2; x.lineCap = 'round';
-            x.beginPath(); x.moveTo(25, y - 15); x.lineTo(34, y - 4); x.lineTo(54, y - 34); x.stroke();
-            const tw = x.measureText(text).width;
-            x.beginPath(); x.moveTo(58, y - 11 + cr() * 2); x.quadraticCurveTo(62 + tw / 2, y - 14 + cr() * 4, 66 + tw, y - 11 + cr() * 2); x.stroke();
-          }
         });
         x.globalAlpha = 1;
         if (shop.more > 0) { x.fillStyle = '#6b706d'; x.font = `400 22px ${SANS}`; x.fillText(`还有 ${shop.more} 样`, 62, TOP + shop.lines.length * ROW + 30); }
         x.restore();
-      });
+      }, marks, 'shop', 'freezer', 640);
       const top = 1.0, at: [number, number] = [4.7, top - ph / 2];
       const shopPaper = makePaper('shop', pw, ph, 10, Math.max(12, Math.round(ph * 7)), shopTex, at, 0.03, 0.26, 0.1, 0.08,
         shop.lines.map(line => ({ text: line.text, lotId: line.id })), { top: TOP - 10, height: ROW, texH }, freezerHinge);

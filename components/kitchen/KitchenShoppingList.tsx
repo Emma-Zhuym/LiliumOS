@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CheckSquare, Plus, Square, X } from '@phosphor-icons/react';
+import { Plus, X } from '@phosphor-icons/react';
 import type { KitchenShoppingItem } from '../../utils/kitchenDb';
 
 interface Props {
@@ -13,16 +13,23 @@ interface Props {
   onClearChecked: () => void;
 }
 
+/** 方框 + 手写的勾：打勾时勾一笔画出来（CSS 里按笔画长度走），取消时直接没 */
+const Tick: React.FC = () => <svg className="kitchen-shopping-tick" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+  <rect x="3" y="3" width="18" height="18" rx="2" />
+  <path d="M7.2 12.6 L10.6 16 L17.4 7.4" pathLength={1} />
+</svg>;
+
 /** 整张要买清单：冷冻门上那张只摆得下六行，这里能加、能删、能清掉划掉的 */
 export default function KitchenShoppingList({ items, suggestions, busy, onAdd, onToggle, onRemove, onClearChecked }: Props) {
   const [name, setName] = useState('');
-  const open = items.filter(item => !item.checkedAt).sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
-  const done = items.filter(item => item.checkedAt).sort((a, b) => b.checkedAt! - a.checkedAt!);
+  // 一张单子按写下的先后排，打了勾的留在原地：手写划线才有地方划（换到另一组就成了新的一行，动效播不出来）
+  const all = [...items].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+  const done = all.filter(item => item.checkedAt);
   const row = (item: KitchenShoppingItem) => <li key={item.id} className={item.checkedAt ? 'is-checked' : undefined}>
     <button type="button" className="kitchen-shopping-check" disabled={busy} aria-pressed={!!item.checkedAt}
       aria-label={`${item.checkedAt ? '取消划掉' : '划掉'}：${item.name}`} onClick={() => onToggle(item.id)}>
-      {item.checkedAt ? <CheckSquare size={22} /> : <Square size={22} />}
-      <span>{item.name}</span>
+      <Tick />
+      <span className="kitchen-shopping-name">{item.name}</span>
       {item.checkedBy === 'bought' && <small>买回来了</small>}
     </button>
     <button type="button" className="kitchen-icon" disabled={busy} aria-label={`删掉：${item.name}`} onClick={() => onRemove(item.id)}><X size={18} /></button>
@@ -42,16 +49,13 @@ export default function KitchenShoppingList({ items, suggestions, busy, onAdd, o
       {suggestions.map(suggestion => <button type="button" key={suggestion} className="kitchen-button" disabled={busy}
         onClick={() => { void onAdd(suggestion); }}><Plus size={14} />{suggestion}</button>)}
     </div>}
-    {open.length === 0 && done.length === 0
+    {all.length === 0
       ? <p className="kitchen-empty">还没有要买的。用完一样东西时，也可以在它那页点「加进要买清单」。</p>
-      : <ul className="kitchen-shopping-list">{open.map(row)}</ul>}
-    {done.length > 0 && <>
-      <div className="kitchen-actions">
-        <span className="kitchen-label">划掉的 · {done.length}</span>
-        <button type="button" className="kitchen-text-button" disabled={busy} onClick={onClearChecked}>清掉划掉的</button>
-      </div>
-      <ul className="kitchen-shopping-list">{done.map(row)}</ul>
-    </>}
+      : <ul className="kitchen-shopping-list">{all.map(row)}</ul>}
+    {done.length > 0 && <div className="kitchen-actions">
+      <span className="kitchen-label">划掉了 {done.length} 样</span>
+      <button type="button" className="kitchen-text-button" disabled={busy} onClick={onClearChecked}>清掉划掉的</button>
+    </div>}
     <p className="kitchen-note">买回来放进厨房（手动或拍小票）时，名字对得上的会自动划掉。</p>
   </div>;
 }

@@ -428,6 +428,17 @@ p.kitchen-note { margin: 0; padding: 0; border: 0; background: transparent; colo
 .kitchen-shopping-check { display: flex; flex: 1; min-width: 0; min-height: 48px; align-items: center; gap: 12px; padding: 0; border: 0; background: transparent; color: var(--k-ink); font-size: 15px; text-align: left; }
 .kitchen-shopping-check > span { min-width: 0; overflow-wrap: anywhere; }
 .kitchen-shopping-check > small { margin-left: auto; color: var(--k-faint); font-size: 11px; }
+/* 打勾：勾一笔画出来，接着一道墨线从左往右划过名字、字淡下去（P14：用掉划一笔墨线）。
+   刚打开清单时已经划掉的直接是划好的样子——没有「从没勾到勾上」的变化就不会播 */
+.kitchen-shopping-tick { flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.kitchen-shopping-tick > path { stroke: var(--k-blue-ink); stroke-width: 2.6; stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset 220ms cubic-bezier(.45, 0, .2, 1); }
+.kitchen-shopping-list > li.is-checked .kitchen-shopping-tick > path { stroke-dashoffset: 0; }
+.kitchen-shopping-name { position: relative; transition: color 200ms ease 300ms; }
+.kitchen-shopping-name::after { content: ''; position: absolute; left: -3px; right: -3px; top: 54%; height: 2px; border-radius: 2px; background: var(--k-blue-ink); transform: scaleX(0); transform-origin: left center; transition: transform 280ms cubic-bezier(.45, 0, .2, 1) 200ms; }
 .kitchen-shopping-list > li.is-checked .kitchen-shopping-check { color: var(--k-faint); }
-.kitchen-shopping-list > li.is-checked .kitchen-shopping-check > span { text-decoration: line-through; }
+.kitchen-shopping-list > li.is-checked .kitchen-shopping-name::after { transform: scaleX(1); }
+.kitchen-shopping-list > li:not(.is-checked) .kitchen-shopping-name::after, .kitchen-shopping-list > li:not(.is-checked) .kitchen-shopping-tick > path { transition-duration: 0ms; transition-delay: 0ms; }
+@media (prefers-reduced-motion: reduce) {
+  .kitchen-shopping-tick > path, .kitchen-shopping-name, .kitchen-shopping-name::after { transition: none !important; }
+}
 .kitchen-shopping-add > .kitchen-button { width: auto; padding: 0 16px; white-space: nowrap; }

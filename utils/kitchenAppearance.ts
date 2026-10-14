@@ -258,14 +258,16 @@ export interface ShoppingLine { id: string; text: string; checked: boolean }
 export interface ShoppingPaper { lines: ShoppingLine[]; more: number }
 
 /**
- * 冷冻门右半边的要买清单：没划掉的在前（先写的先列），划掉的留两天、排在后面。
+ * 冷冻门右半边的要买清单：先挑没划掉的，空位再给两天内划掉的；挑出来的按写下的先后排——
+ * 打了勾的那行留在原地，笔在它身上划过去（不跳到底下，2026-10-14 做手写动效时改）。
  * 最多六行，多的写「还有 N 样」；一样都没有也贴着（写「点这里写」），它是加东西的入口。
  */
 export function shoppingPaper(items: KitchenShoppingItem[], now = Date.now(), limit = 6): ShoppingPaper {
-  const open = items.filter(item => !item.checkedAt).sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+  const byWritten = (a: KitchenShoppingItem, b: KitchenShoppingItem) => a.createdAt - b.createdAt || a.id.localeCompare(b.id);
+  const open = items.filter(item => !item.checkedAt).sort(byWritten);
   const done = items.filter(item => item.checkedAt && now - item.checkedAt < 2 * DAY).sort((a, b) => b.checkedAt! - a.checkedAt!);
-  const all = [...open, ...done];
-  const lines = all.slice(0, limit).map(item => ({ id: item.id, text: item.name, checked: !!item.checkedAt }));
+  const shown = [...open, ...done].slice(0, limit).sort(byWritten);
+  const lines = shown.map(item => ({ id: item.id, text: item.name, checked: !!item.checkedAt }));
   return { lines, more: open.length - lines.filter(line => !line.checked).length };
 }
 

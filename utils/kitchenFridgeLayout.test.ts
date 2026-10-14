@@ -127,7 +127,7 @@ describe('门上的纸', () => {
     expect(list.more).toBe(0);
     expect(heatList([lot(0, { storageZone: 'freezer' })], [food(0, '冷冻牛肉')], now)).toBeNull();
   });
-  it('要买清单：没划的在前，划掉的留两天；空着也贴', () => {
+  it('要买清单：先挑没划的、空位给两天内划掉的，按写下的先后排（打勾的留在原地）；空着也贴', () => {
     const item = (i: number, extra: Partial<KitchenShoppingItem> = {}): KitchenShoppingItem => ({ id: `s${i}`, name: `东西${i}`, normalizedName: `东西${i}`, createdAt: i, updatedAt: i, ...extra });
     const paper = shoppingPaper([
       item(3), item(1), item(2, { checkedAt: now - 3_600_000 }), item(4, { checkedAt: now - 3 * 86_400_000 }),
@@ -135,8 +135,8 @@ describe('门上的纸', () => {
     ], now);
     expect(paper.lines.map(line => line.text)).toEqual(['东西1', '东西3', '东西10', '东西11', '东西12', '东西13']);
     expect(paper.more).toBe(2);
-    expect(shoppingPaper([item(1), item(2, { checkedAt: now - 1000 })], now).lines).toEqual([
-      { id: 's1', text: '东西1', checked: false }, { id: 's2', text: '东西2', checked: true },
+    expect(shoppingPaper([item(3), item(1, { checkedAt: now - 1000 }), item(2)], now).lines).toEqual([
+      { id: 's1', text: '东西1', checked: true }, { id: 's2', text: '东西2', checked: false }, { id: 's3', text: '东西3', checked: false },
     ]);
     expect(shoppingPaper([], now)).toEqual({ lines: [], more: 0 });
   });

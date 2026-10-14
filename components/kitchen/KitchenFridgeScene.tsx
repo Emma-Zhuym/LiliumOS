@@ -7,7 +7,7 @@ import type { KitchenEvent, KitchenFood, KitchenLot, KitchenShoppingItem } from 
 import { FRIDGE } from '../../utils/kitchenFridgeSpec';
 import { fridgeLayout } from '../../utils/kitchenFridgeLayout';
 import { heatList, latestReceipt, pantryList, shoppingPaper, stickyReminders } from '../../utils/kitchenAppearance';
-import { bendPaper, buildKitchenScene, HAND_FONT, type KitchenRig } from './kitchenFridgeBuild';
+import { bendPaper, buildKitchenScene, HAND_FONT, PEN_DELAY, type KitchenRig } from './kitchenFridgeBuild';
 
 interface Props {
   lots: KitchenLot[];
@@ -167,10 +167,19 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
       invalidate();
     }
 
+    // 上一次贴上去时哪些已经划掉了：这次新划掉的那几行才一笔一笔写（第一次打开厨房不写，直接是划好的样子）
+    let marked: Set<string> | null = null;
     const fill = () => {
       const { layout: l, reminders: r, receipt: rc, pantry: pt, heat: ht, shop: sp } = contentsRef.current;
-      rig.setContents(l.entries, r, rc, pt, ht, sp);
-      if (!reduce.matches) for (const p of rig.papers) p.v += p.key === 'receipt' ? 1.2 : 0.7;   // 换上新纸时轻轻晃一下
+      const crossed = new Set([
+        ...(sp?.lines.filter(line => line.checked).map(line => `shop:${line.id}`) ?? []),
+        ...(rc?.items.filter(item => item.gone).map(item => `gone:${item.lotId}`) ?? []),
+      ]);
+      const playing = marked && !reduce.matches ? new Set([...crossed].filter(key => !marked!.has(key))) : new Set<string>();
+      marked = crossed;
+      rig.setContents(l.entries, r, rc, pt, ht, sp, playing);
+      // 换上新纸时轻轻晃一下；正在手写的时候不晃，让人看笔
+      if (!reduce.matches && !playing.size) for (const p of rig.papers) p.v += p.key === 'receipt' ? 1.2 : 0.7;
       invalidate();
     };
     // 手写字体到了再写字（最多等 2.5 秒），不然胶带和便利贴上是系统字
@@ -203,7 +212,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
       && Math.abs(crisper.v) < 2e-3 && Math.abs(crisper.z - crisper.to) < 2e-3
       && rig.papers.every(p => Math.abs(p.v) < 2e-3 && Math.abs(p.s) < 2e-3 && Math.abs(p.liftV) < 2e-3 && Math.abs(p.lift - p.liftTo) < 2e-3)
       && rig.magnets.every(m => Math.abs(m.v) < 2e-3 && Math.abs(m.z - m.to) < 2e-3 && !m.released)
-      && cam.k >= 1 && performance.now() > flickerUntil;
+      && cam.k >= 1 && performance.now() > flickerUntil && rig.pens.length === 0;
 
     let last = performance.now();
     const draw = (now: number) => {
@@ -250,6 +259,14 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
         cam.pos.lerpVectors(cam.from.pos, cam.to.pos, cam.k); cam.tgt.lerpVectors(cam.from.tgt, cam.to.tgt, cam.k);
       }
       camera.position.copy(cam.pos); camera.lookAt(cam.tgt);
+      // 手写笔迹：那扇门开着就先等着（纸转到画面外了），关上再写；笔落下去那一下纸轻轻一沉
+      for (const pen of [...rig.pens]) {
+        if (doors[pen.door].to > 0 || doors[pen.door].a > 0.08) { pen.start = now + PEN_DELAY; pen.render(key => pen.keys.has(key) ? 0 : 1); continue; }
+        const k = Math.max(0, (now - pen.start) / pen.duration);
+        if (k > 0 && !pen.touched) { pen.touched = true; const paper = rig.papers.find(item => item.key === pen.paper); if (paper) paper.v -= 0.35; }
+        pen.render(key => pen.keys.has(key) ? Math.min(1, k) : 1);
+        if (k >= 1) rig.pens.splice(rig.pens.indexOf(pen), 1);
+      }
       if (grainSeed) grainSeed.value = (time * 7.3) % 100;
       if (composer) composer.render(); else renderer.render(rig.scene, camera);
       if (!settled()) frame = requestAnimationFrame(draw);
