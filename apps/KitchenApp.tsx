@@ -267,6 +267,8 @@ const KitchenApp: React.FC = () => {
       </button>;
     })}
   </div>;
+  // 在按位置筛过的清单里点加号（比如点了「柜子里」那张纸过来）：放哪默认就是那儿
+  const addZone: KitchenStorageZone = view === 'list' && zoneFilter !== 'all' && zoneFilter !== 'staging' ? zoneFilter : 'fridge';
   const inSheet = showAdd || showShopping || !!selectedLot || (cooking && !!currentRecipe) || newSauceSheet;
 
   // 首页整屏都是厨房（2026-10-11 Emma 定）：场景铺满，顶栏透明浮在画面上，底下只留一排纸签
@@ -349,7 +351,7 @@ const KitchenApp: React.FC = () => {
       {notice && <p className="kitchen-inline-notice" role={notice.error ? 'alert' : 'status'}>{notice.text}</p>}
       {showAdd ? <>
         <KitchenReceiptScan busy={busy} onAdd={addReceipt} onReviewingChange={setReviewingReceipt} />
-        {!reviewingReceipt && <KitchenAddForm initialZone="fridge" busy={busy} onAdd={addFood} />}
+        {!reviewingReceipt && <KitchenAddForm initialZone={addZone} busy={busy} onAdd={addFood} />}
       </>
         : newSauceSheet ? <KitchenSauceEditor usedBy={[]} busy={busy} onSave={input => { void saveSauce(input, true); }} />
         : cooking && currentRecipe ? <KitchenCookSheet recipe={currentRecipe} servings={servingsView} lots={lots} foods={foods} busy={busy}

@@ -258,3 +258,16 @@ describe('paper kitchen flows', () => {
     expect(await KitchenDB.exportAll()).toEqual(saved);
   });
 });
+
+describe('从筛过位置的清单里放进', () => {
+  it('清单筛的是常温柜，加号打开的表单默认放常温柜；不筛就默认冷藏', async () => {
+    await click(button('食材清单 · 20'));
+    await choose(labelled<HTMLSelectElement>('select', '筛选收纳位置'), 'pantry');
+    await click(labelled<HTMLButtonElement>('button', '添加食物'));
+    expect(labelled<HTMLSelectElement>('select', '收纳位置').value).toBe('pantry');
+    await click(labelled<HTMLButtonElement>('button', '关闭'));
+    await choose(labelled<HTMLSelectElement>('select', '筛选收纳位置'), 'all');
+    await click(labelled<HTMLButtonElement>('button', '添加食物'));
+    expect(labelled<HTMLSelectElement>('select', '收纳位置').value).toBe('fridge');
+  });
+});
