@@ -215,7 +215,7 @@ function createAppShell(deps) {
     return safe;
   };
   const trimAssets = async (cache) => {
-    const keys = await cache.keys();
+    const keys = (await cache.keys()).filter((key) => isStaticUrl(key.url, deps.scope));
     const excess = keys.length - maxAssetEntries;
     for (let i = 0; i < excess; i++) await cache.delete(keys[i].url);
   };
@@ -308,10 +308,15 @@ function createAppShell(deps) {
   const handleBootCdn = async (req, waitUntil) => {
     const cache = await deps.caches.open(assetCacheName);
     const cached = await cache.match(req.url, MATCH_OPTIONS);
-    if (cached) return cached;
-    const res = await deps.fetch(req);
-    if (isUsableBootCdnResponse(res)) background(putAsset(req.url, res.clone()), waitUntil);
-    return res;
+    const refresh = deps.fetch(req).then((res) => {
+      if (isUsableBootCdnResponse(res)) background(cache.put(req.url, res.clone()), waitUntil);
+      return res;
+    });
+    if (cached) {
+      background(refresh, waitUntil);
+      return cached;
+    }
+    return refresh;
   };
   return {
     shellCacheName,
@@ -1929,7 +1934,7 @@ async function removeQueuedRequest(id) {
 }
 
 // worker/sw-keep-alive.ts
-var SW_VERSION = "1.20.0";
+var SW_VERSION = "1.21.0";
 var PING_INTERVAL = 15e3;
 var MAX_MANUAL_ALIVE_MS = 5 * 6e4;
 var ACTIVE_MSG_DB_NAME = "ActiveMsg";

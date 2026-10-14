@@ -282,6 +282,32 @@ describe('静态资源与 CDN', () => {
         ]);
     });
 
+    it('淘汰旧文件时不动开机 CDN', async () => {
+        const tw = 'https://cdn.tailwindcss.com/3.4.17';
+        const { storage, shell, waitUntil, settle } = setup(
+            async (input) => fakeResponse({ url: input.url, type: input.url === tw ? 'opaque' : 'basic' }),
+            { maxAssetEntries: 1 },
+        );
+        await shell.handle({ url: tw, method: 'GET', mode: 'no-cors' }, 'boot-cdn', waitUntil);
+        await settle();
+        for (const name of ['a', 'b']) {
+            await shell.handle({ url: `${SCOPE}assets/${name}.js`, method: 'GET' }, 'static', waitUntil);
+            await settle();
+        }
+        expect([...storage.caches.get(`${ASSET_CACHE_PREFIX}test`)!.store.keys()]).toEqual([tw, `${SCOPE}assets/b.js`]);
+    });
+
+    it('CDN 有缓存先用缓存，后台重新取一份换掉存坏的', async () => {
+        const tw = 'https://cdn.tailwindcss.com/3.4.17';
+        const { storage, shell, waitUntil, settle } = setup(async () => fakeResponse({ type: 'opaque', status: 0, url: '', body: 'FRESH' }));
+        const cache = await storage.open(`${ASSET_CACHE_PREFIX}test`);
+        await cache.put(tw, fakeResponse({ type: 'opaque', status: 0, url: '', body: 'BROKEN' }));
+        const served = await shell.handle({ url: tw, method: 'GET', mode: 'no-cors' }, 'boot-cdn', waitUntil);
+        expect(bodyOf(served)).toBe('BROKEN');
+        await settle();
+        expect(bodyOf((await cache.match(tw))!)).toBe('FRESH');
+    });
+
     it('CDN 收 opaque、拒 cors 的错误响应', async () => {
         const tw = 'https://cdn.tailwindcss.com/';
         const ok = setup(async () => fakeResponse({ type: 'opaque', status: 0, url: '' }));

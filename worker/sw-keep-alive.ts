@@ -85,8 +85,10 @@ import { installReiSW } from '@rei-standard/amsg-sw';
  *            本站 assets/ 和开机三个 CDN 缓存优先，其余跨域请求不拦。
  *  - 1.20.0: [EM] 按 Vite 构建清单（sw-precache-manifest.json）预缓存全部代码块：1.19.0 只缓存入口和
  *            打开过的 App，断网时没打开过的 App 一点就「资源加载失败」。换版本号顺带让旧缓存整套重建。
+ *  - 1.21.0: [EM] 开机 CDN 改成「先用缓存、后台重取换掉」，淘汰旧文件时不再把 Tailwind 挤掉；
+ *            换版本号把手机上存坏的那份 Tailwind 一起清掉（2026-10-14 整屏没样式，重开也没用）。
  */
-const SW_VERSION = '1.20.0';
+const SW_VERSION = '1.21.0';
 
 const PING_INTERVAL = 15_000;
 const MAX_MANUAL_ALIVE_MS = 5 * 60_000;

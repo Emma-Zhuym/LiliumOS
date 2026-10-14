@@ -237,8 +237,10 @@ export function createAppShell(deps: AppShellDeps) {
         return safe;
     };
 
+    // 只淘汰本站带 hash 的旧文件。开机 CDN 最早写进来，以前会被一起淘汰（2026-10-14：部署多了
+    // Tailwind 被挤掉，重新经 SW 取回来的那份在 iPhone 上用不了，整个 App 没了样式）。
     const trimAssets = async (cache: CacheLike) => {
-        const keys = await cache.keys();
+        const keys = (await cache.keys()).filter(key => isStaticUrl(key.url, deps.scope));
         const excess = keys.length - maxAssetEntries;
         for (let i = 0; i < excess; i++) await cache.delete(keys[i].url);
     };
@@ -351,13 +353,22 @@ export function createAppShell(deps: AppShellDeps) {
         return res;
     };
 
+    /**
+     * 开机 CDN：有缓存先用缓存（断网也能开），同时在后台重新取一份换掉——存坏了的那份下次打开就好了，
+     * 不会像以前一样一直坏到 SW 升级（2026-10-14 阿萌的手机整屏没样式，杀掉重开也没用）。
+     */
     const handleBootCdn = async (req: RequestLike, waitUntil: WaitUntil): Promise<Response> => {
         const cache = await deps.caches.open(assetCacheName);
         const cached = await cache.match(req.url, MATCH_OPTIONS);
-        if (cached) return cached;
-        const res = await deps.fetch(req);
-        if (isUsableBootCdnResponse(res)) background(putAsset(req.url, res.clone()), waitUntil);
-        return res;
+        const refresh = deps.fetch(req).then(res => {
+            if (isUsableBootCdnResponse(res)) background(cache.put(req.url, res.clone()), waitUntil);
+            return res;
+        });
+        if (cached) {
+            background(refresh, waitUntil);
+            return cached;
+        }
+        return refresh;
     };
 
     return {

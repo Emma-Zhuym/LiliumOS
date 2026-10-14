@@ -50,6 +50,8 @@ check "小厨房：安全区自理" utils/safeAreaApps.ts "AppID.Kitchen, // [EM
 check "小厨房：备份导出" context/OSContext.tsx "[EM-START: kitchen-backup-export]"
 check "小厨房：备份恢复" context/OSContext.tsx "[EM-START: kitchen-backup-restore]"
 check "聊天一次选多张图" components/chat/ChatInputArea.tsx "[EM-START: chat-multi-image]"
+check "Tailwind 钉版本" index.html "https://cdn.tailwindcss.com/3.4.17"
+check "样式自救" index.tsx "installTailwindHeal(); // [EM: tailwind-heal]"
 check "聊天选图框允许多选" components/chat/ChatInputArea.tsx "[EM: chat-multi-image] multiple"
 
 echo "── OSContext ──"

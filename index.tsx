@@ -9,6 +9,7 @@ import { VRScheduler } from './utils/vrWorld/scheduler';
 import { installIOSStandaloneWorkaround } from './utils/iosStandalone';
 import { installWakeListener } from './utils/proactivePushConfig';
 import { Capacitor } from '@capacitor/core';
+import { installTailwindHeal } from './utils/emTailwindHeal'; // [EM: tailwind-heal]
 
 // 默认构建不开启时 Rollup 会整段裁掉；普通浏览器/PWA 不加载原生插件、不申请权限。
 if (import.meta.env.VITE_AMSG_NATIVE_PUSH === 'true' && Capacitor.isNativePlatform()) {
@@ -27,6 +28,7 @@ KeepAlive.init().then(() => {
 });
 
 installIOSStandaloneWorkaround();
+installTailwindHeal(); // [EM: tailwind-heal] 样式没跑起来（缓存里存坏了）就清掉那份、刷新一次
 
 // 浏览器自动翻译 (Chrome/Edge 等) 会改动 React 托管的 DOM，导致 reconcile 时
 // insertBefore/removeChild 抛 NotFoundError 白屏。挂载前先打护栏。详见该 util 注释。
