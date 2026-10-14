@@ -183,6 +183,31 @@ export interface PenAnim {
 export const PEN_DELAY = 160;
 export const ERASE_MS = 440;
 
+/* ── 飞进冰箱的纸签（P14 招牌动效：放进食物时纸签飞进冰箱） ──
+ * 一张小牛皮纸签：左边打个孔、拴一截线，手写名字，按放哪染一条色。自己管自己的贴图，飞完就释放，
+ * 不进 setContents 那一批（那一批随时会整批重建）。 */
+const TAG_TINT = { fridge: '#9db4c2', freezer: '#b9cad6', pantry: '#c9b48f' } as const;
+export function makeFlyTag(name: string, zone: keyof typeof TAG_TINT): { mesh: THREE.Mesh; dispose: () => void } {
+  const bin = new Bin(), rnd = mulberry(hashOf(name));
+  const texture = canvasTex(bin, 300, 120, (x, w, h) => {
+    x.clearRect(0, 0, w, h);
+    // 纸签：右边两个角切掉一点，像吊牌
+    x.beginPath(); x.moveTo(6, 8); x.lineTo(w - 26, 8); x.lineTo(w - 6, 28); x.lineTo(w - 6, h - 28); x.lineTo(w - 26, h - 8); x.lineTo(6, h - 8); x.closePath();
+    x.save(); x.clip(); fibers(x, rnd, w, h, '#efe6d2', '150,120,80'); x.fillStyle = TAG_TINT[zone]; x.fillRect(6, 8, 14, h - 16); x.restore();
+    x.fillStyle = 'rgba(0,0,0,0)'; x.globalCompositeOperation = 'destination-out';
+    x.beginPath(); x.arc(40, h / 2, 8, 0, Math.PI * 2); x.fill(); x.globalCompositeOperation = 'source-over';
+    x.strokeStyle = 'rgba(120,90,60,0.55)'; x.lineWidth = 2; x.beginPath(); x.arc(40, h / 2, 10, 0, Math.PI * 2); x.stroke();
+    // 一截线头
+    x.strokeStyle = '#8a6f45'; x.lineWidth = 2.4; x.lineCap = 'round';
+    x.beginPath(); x.moveTo(40, h / 2); x.quadraticCurveTo(22, h / 2 - 30, 2, h / 2 - 22); x.stroke();
+    handLine(x, rnd, name, 62, h / 2 + 16, 42, '#3d3a33', w - 92);
+  }, { scale: 2, aniso: 4 });
+  const geometry = bin.add(new THREE.PlaneGeometry(1.5, 0.6));
+  const material = bin.add(new THREE.MeshStandardMaterial({ map: texture, roughness: 0.85, transparent: true, side: THREE.DoubleSide, alphaTest: 0.02, depthWrite: false }));
+  const mesh = new THREE.Mesh(geometry, material); mesh.renderOrder = 10;
+  return { mesh, dispose: () => bin.dispose() };
+}
+
 /* ── 门上的纸：薄面片，顶点实时弯曲 ── */
 export interface DoorPaper {
   key: 'sticky' | 'receipt' | 'pantry' | 'heat' | 'shop';

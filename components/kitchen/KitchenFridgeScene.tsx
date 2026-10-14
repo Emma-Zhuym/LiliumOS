@@ -7,7 +7,7 @@ import type { KitchenEvent, KitchenFood, KitchenLot, KitchenShoppingItem } from 
 import { FRIDGE } from '../../utils/kitchenFridgeSpec';
 import { fridgeLayout } from '../../utils/kitchenFridgeLayout';
 import { heatList, latestReceipt, pantryList, shoppingPaper, stickyReminders } from '../../utils/kitchenAppearance';
-import { bendPaper, buildKitchenScene, HAND_FONT, PEN_DELAY, type KitchenRig } from './kitchenFridgeBuild';
+import { bendPaper, buildKitchenScene, HAND_FONT, makeFlyTag, PEN_DELAY, type KitchenRig } from './kitchenFridgeBuild';
 
 interface Props {
   lots: KitchenLot[];
@@ -54,6 +54,9 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
   const heat = useMemo(() => heatList(lots, foods), [lots, foods]);
   // 没接要买清单（shopping 没传）就不贴这张
   const shop = useMemo(() => shopping ? shoppingPaper(shopping) : null, [shopping]);
+  // 纸签飞进冰箱要知道哪些是刚放进来的、叫什么
+  const lotsRef = useRef({ lots, foods });
+  lotsRef.current = { lots, foods };
   const contentsRef = useRef({ layout, reminders, receipt, pantry, heat, shop });
   contentsRef.current = { layout, reminders, receipt, pantry, heat, shop };
 
@@ -181,6 +184,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
       const erasing = new Map(animate ? [...marked!].filter(([key]) => !crossed.has(key)) : []);
       marked = crossed;
       rig.setContents(l.entries, r, rc, pt, ht, sp, playing, erasing);
+      launchTags();
       // 换上新纸时轻轻晃一下；正在写 / 擦的时候不晃，让人看笔和橡皮
       if (!reduce.matches && !playing.size && !erasing.size) for (const p of rig.papers) p.v += p.key === 'receipt' ? 1.2 : 0.7;
       invalidate();
@@ -192,6 +196,108 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
     ]);
     void fontsReady.then(() => { if (disposed) return; fill(); setStatus('ready'); });
 
+    /*
+     * 纸签飞进冰箱（P14 招牌动效）：刚放进来的那几样，各一张手写纸签从画面下方飘起来，沿弧线飞向它去的地方——
+     * 门关着就飞到门缝，门顺势开一条缝（里面的灯亮一下），纸签钻进去门再「嗒」地合上；
+     * 门开着就直接落到那一样在层板上的位置，落下时那一样才出现；常温柜的落到「柜子里」那张纸上，纸晃一下。
+     * 一次放进好几样（拍小票）就一张接一张，最多六张；第一次打开厨房、减少动态效果时不飞。
+     */
+    type Flight = {
+      lotId: string; zone: 'fridge' | 'freezer' | 'pantry'; mesh: THREE.Mesh; dispose: () => void;
+      start: number; dur: number; ready: boolean; mode: 'gap' | 'shelf' | 'paper';
+      from: THREE.Vector3; ctrl: THREE.Vector3; to: THREE.Vector3; peeked: boolean; hidden?: THREE.Object3D;
+    };
+    const flights: Flight[] = [];
+    const peekClose: Record<Zone, number> = { fridge: 0, freezer: 0 };
+    const PEEK = 0.26, TAG_DELAY = 420, TAG_MS = 760;
+    let knownLots: Set<string> | null = null;
+    const launchTags = () => {
+      const { lots: allLots, foods: allFoods } = lotsRef.current;
+      const ids = new Set(allLots.map(lot => lot.id));
+      if (knownLots && !reduce.matches) {
+        const names = new Map(allFoods.map(food => [food.id, food.name]));
+        const fresh = allLots.filter(lot => !knownLots!.has(lot.id) && lot.quantity > 0 && lot.storageZone !== 'staging' && Date.now() - lot.createdAt < 60_000)
+          .sort((a, b) => a.createdAt - b.createdAt).slice(0, 6);
+        fresh.forEach((lot, i) => {
+          const zone = lot.storageZone as Flight['zone'];
+          const tag = makeFlyTag(names.get(lot.foodId) ?? '食物', zone);
+          tag.mesh.visible = false; rig.scene.add(tag.mesh);
+          flights.push({ lotId: lot.id, zone, ...tag, start: performance.now() + TAG_DELAY + i * 170, dur: TAG_MS, ready: false, mode: 'gap',
+            from: new THREE.Vector3(), ctrl: new THREE.Vector3(), to: new THREE.Vector3(), peeked: false });
+        });
+      }
+      knownLots = ids;
+    };
+    const dropFlight = (flight: Flight) => {
+      rig.scene.remove(flight.mesh); flight.dispose();
+      if (flight.hidden) flight.hidden.visible = true;
+      flights.splice(flights.indexOf(flight), 1);
+    };
+    /** 起飞那一刻再算路线：镜头、门开没开都按那时候的来 */
+    const aimFlight = (flight: Flight) => {
+      const fridgeBody = rig.fridgeHinge.parent!;
+      const start = new THREE.Vector3(0.1, -0.78, 0.4).unproject(camera);
+      flight.from.copy(camera.position).add(start.sub(camera.position).normalize().multiplyScalar(7));
+      if (flight.zone === 'pantry') {
+        const paper = rig.papers.find(p => p.key === 'pantry');
+        if (!paper) return false;
+        flight.mode = 'paper'; paper.mesh.getWorldPosition(flight.to); flight.to.z += 0.15;
+      } else if (doors[flight.zone].to > PEEK) {
+        const item = rig.items.find(o => o.userData.lotId === flight.lotId);
+        if (!item) return false;
+        flight.mode = 'shelf'; item.getWorldPosition(flight.to); flight.to.y += 0.6;
+        item.visible = false; flight.hidden = item;
+      } else {
+        const span = flight.zone === 'fridge' ? FRIDGE.fridgeDoor : FRIDGE.freezerDoor;
+        const y = flight.zone === 'fridge' ? span.y1 - 2.4 : (span.y0 + span.y1) / 2;
+        flight.mode = 'gap'; flight.to.copy(fridgeBody.localToWorld(new THREE.Vector3(FRIDGE.width / 2 - 0.35, y, -0.5)));
+      }
+      // 弧线的顶：起点和终点中间往上抬、往镜头这边拉一点
+      flight.ctrl.lerpVectors(flight.from, flight.to, 0.55).add(new THREE.Vector3(0.6, 2.4, 1.2));
+      if (flight.mode === 'gap') flight.ctrl.add(new THREE.Vector3(1.2, 0, 1.4));
+      return true;
+    };
+    const flyTags = (now: number) => {
+      for (const flight of [...flights]) {
+        if (now < flight.start) continue;
+        if (!flight.ready) {
+          if (!aimFlight(flight)) { dropFlight(flight); continue; }
+          flight.ready = true; flight.mesh.visible = true;
+        }
+        const t = Math.min(1, (now - flight.start) / flight.dur);
+        const e = t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+        const u = 1 - e;
+        flight.mesh.position.set(0, 0, 0)
+          .addScaledVector(flight.from, u * u).addScaledVector(flight.ctrl, 2 * u * e).addScaledVector(flight.to, e * e);
+        // 面朝镜头，飘的时候左右翻一翻，越到后面越稳
+        flight.mesh.quaternion.copy(camera.quaternion);
+        flight.mesh.rotateZ(Math.sin(t * Math.PI * 2.6) * 0.38 * (1 - t) - 0.12);
+        flight.mesh.rotateY(Math.sin(t * Math.PI * 1.7 + 0.6) * 0.5 * (1 - t));
+        flight.mesh.scale.setScalar(1.15 - 0.55 * e);
+        (flight.mesh.material as THREE.MeshStandardMaterial).opacity = flight.mode === 'shelf' ? 1 - Math.max(0, (t - 0.9) / 0.1) : 1 - Math.max(0, (t - 0.8) / 0.2);
+        // 快到门缝时门开一条缝迎它
+        if (flight.mode === 'gap' && !flight.peeked && t > 0.42) {
+          flight.peeked = true;
+          if (!stateRef.current.open[flight.zone as Zone] && doors[flight.zone as Zone].to < PEEK) doors[flight.zone as Zone].to = PEEK;
+          peekClose[flight.zone as Zone] = 0;
+        }
+        if (t >= 1) {
+          if (flight.mode === 'paper') { const paper = rig.papers.find(p => p.key === 'pantry'); if (paper) paper.v += 1.6; }
+          if (flight.mode === 'gap') {
+            const zone = flight.zone as Zone;
+            // 后面还有往同一扇门飞的就先别关
+            const more = flights.some(f => f !== flight && f.zone === zone && f.mode === 'gap' && f.start < now + 300);
+            if (!more) peekClose[zone] = now + 140;
+          }
+          dropFlight(flight);
+        }
+      }
+      for (const zone of ['fridge', 'freezer'] as const) {
+        if (!peekClose[zone] || now < peekClose[zone]) continue;
+        peekClose[zone] = 0;
+        if (!stateRef.current.open[zone] && doors[zone].to === PEEK) doors[zone].to = 0;
+      }
+    };
     let flickerUntil = 0;
     controller.current = {
       sync: (state, crisperState) => {
@@ -215,7 +321,8 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
       && Math.abs(crisper.v) < 2e-3 && Math.abs(crisper.z - crisper.to) < 2e-3
       && rig.papers.every(p => Math.abs(p.v) < 2e-3 && Math.abs(p.s) < 2e-3 && Math.abs(p.liftV) < 2e-3 && Math.abs(p.lift - p.liftTo) < 2e-3)
       && rig.magnets.every(m => Math.abs(m.v) < 2e-3 && Math.abs(m.z - m.to) < 2e-3 && !m.released)
-      && cam.k >= 1 && performance.now() > flickerUntil && rig.pens.length === 0;
+      && cam.k >= 1 && performance.now() > flickerUntil && rig.pens.length === 0
+      && flights.length === 0 && !peekClose.fridge && !peekClose.freezer;
 
     let last = performance.now();
     const draw = (now: number) => {
@@ -262,6 +369,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
         cam.pos.lerpVectors(cam.from.pos, cam.to.pos, cam.k); cam.tgt.lerpVectors(cam.from.tgt, cam.to.tgt, cam.k);
       }
       camera.position.copy(cam.pos); camera.lookAt(cam.tgt);
+      flyTags(now);
       // 手写笔迹：那扇门开着就先等着（纸转到画面外了），关上再写；笔落下去那一下纸轻轻一沉
       // 橡皮来回擦的时候纸跟着左右蹭
       for (const pen of [...rig.pens]) {
@@ -372,6 +480,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
 
     return () => {
       disposed = true;
+      for (const flight of [...flights]) dropFlight(flight);
       controller.current = null;
       cancelAnimationFrame(frame);
       resizeObserver.disconnect(); visibility.disconnect();
