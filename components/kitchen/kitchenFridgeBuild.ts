@@ -187,6 +187,20 @@ export const ERASE_MS = 440;
  * 一张小牛皮纸签：左边打个孔、拴一截线，手写名字，按放哪染一条色。自己管自己的贴图，飞完就释放，
  * 不进 setContents 那一批（那一批随时会整批重建）。 */
 const TAG_TINT = { fridge: '#9db4c2', freezer: '#b9cad6', pantry: '#c9b48f' } as const;
+/*
+ * 冷藏门左边一列：上面「柜子里」，下面「要留意的」便利贴（2026-10-14）。底边不能低过画面下面那排纸签（约 -2.9）。
+ * 「柜子里」能写几行由便利贴占掉多少定：pantryRowBudget 给 pantryList 用，两边算法一致才不会叠住。
+ */
+const PANTRY_W0 = 448, PANTRY_TOP = 104, PANTRY_ROW = 46, PANTRY_FOOT = 34, PANTRY_PW = 2.6 * 1.2, PANTRY_TOP_Y = 4.75;
+const STICKY_W0 = 512, STICKY_TOP = 150, STICKY_ROW = 84, STICKY_PW = 2.6 * 1.1;
+const LEFT_BOTTOM = -2.9, LEFT_GAP = 0.3;
+const stickyTexH = (reminders: number) => STICKY_TOP + Math.max(1, reminders) * STICKY_ROW + 30;
+export const pantryRowBudget = (reminders: number): number => {
+  const stickyUnits = STICKY_PW * stickyTexH(reminders) / STICKY_W0;
+  const room = (PANTRY_TOP_Y - LEFT_BOTTOM - LEFT_GAP - stickyUnits) / (PANTRY_PW / PANTRY_W0);
+  return Math.max(4, Math.min(16, Math.floor((room - PANTRY_TOP - PANTRY_FOOT) / PANTRY_ROW)));
+};
+
 export function makeFlyTag(name: string, zone: keyof typeof TAG_TINT): { mesh: THREE.Mesh; dispose: () => void } {
   const bin = new Bin(), rnd = mulberry(hashOf(name));
   const texture = canvasTex(bin, 300, 120, (x, w, h) => {
@@ -605,7 +619,7 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
     const FRONT = T / 2 + 0.012;
     // 纸整体放大（2026-10-14 阿萌：字有点小）。小票本来最窄、字最小，放得最多；
     // 冷冻门左右两张挨着、左边还在画面外一截，放得少一点
-    const FRIDGE_PAPER = 1.2, RECEIPT_PAPER = 1.35, STICKY_PAPER = 1.1, FREEZER_PAPER = 1.1;
+    const FRIDGE_PAPER = 1.2, RECEIPT_PAPER = 1.35, FREEZER_PAPER = 1.1;   // 柜子里、便利贴的大小在 PANTRY_PW / STICKY_PW
     const makePaper = (key: DoorPaper['key'], w: number, h: number, sx: number, sy: number, texture: THREE.Texture, at: [number, number], tilt: number, curl: number, cup: number, glue: number, lines: DoorNoteLine[], rows?: DoorPaper['rows'], door: THREE.Group = fridgeHinge) => {
       const g = cgeo(new THREE.PlaneGeometry(w, h, sx, sy));
       const m = new THREE.Mesh(g, cmat(new THREE.MeshStandardMaterial({ map: texture, roughness: key === 'receipt' ? 0.6 : 0.85, side: THREE.DoubleSide, alphaTest: 0.5 })));
@@ -688,10 +702,11 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
     // 柜子里：从本子上撕下来的横线纸，贴在冷藏门左边、跟小票一样高（2026-10-14），绿色方磁贴压住右上角。空着也贴
     {
       const pantry: PantryList = pantryIn ?? { lines: [], rows: [], more: 0 };
-      // 分段（速食 / 零食 / 饮料）：段标题占一行，字小一点、淡一点
-      const rows = Math.max(1, pantry.rows.length) + (pantry.more > 0 ? 1 : 0);
-      const W0 = 448, TOP = 104, ROW = 54, texH = TOP + rows * ROW + 34;
-      const pw = 2.6 * FRIDGE_PAPER, ph = pw * texH / W0;
+      // 分段（速食 / 零食 / 饮料）：段标题占一行，字小一点、淡一点，后面写这段一共几样；
+      // 写不下的不另起一行「还有 N 样」，段名上的数就是提示，点纸看整张清单
+      const rows = Math.max(1, pantry.rows.length);
+      const W0 = PANTRY_W0, TOP = PANTRY_TOP, ROW = PANTRY_ROW, texH = TOP + rows * ROW + PANTRY_FOOT;
+      const pw = PANTRY_PW, ph = pw * texH / W0;
       const listTex = ctex(W0, texH, (x, w, h) => {
         x.clearRect(0, 0, w, h);
         x.save(); x.beginPath(); x.moveTo(0, 22);
@@ -703,14 +718,13 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
         if (!pantry.lines.length) handLine(x, cr, '空的', 40, TOP + 34, 40, '#7d93a2');
         pantry.rows.forEach((row, i) => {
           const y = TOP + i * ROW + 34;
-          if ('head' in row) { handLine(x, cr, `· ${row.head}`, 30, y, 33, '#6b8495'); return; }
-          handLine(x, cr, row.line.text, 52, y, 40, '#2e4a5e', w - 182);
-          x.font = `30px ${HAND_FONT}`; x.fillStyle = '#5a7486'; x.textAlign = 'right'; x.fillText(row.line.amount, w - 30, y); x.textAlign = 'left';
+          if ('head' in row) { handLine(x, cr, `· ${row.head} ${row.count}`, 30, y, 31, '#6b8495'); return; }
+          handLine(x, cr, row.line.text, 52, y, 36, '#2e4a5e', w - 170);
+          x.font = `28px ${HAND_FONT}`; x.fillStyle = '#5a7486'; x.textAlign = 'right'; x.fillText(row.line.amount, w - 30, y); x.textAlign = 'left';
         });
-        if (pantry.more > 0) handLine(x, cr, `还有 ${pantry.more} 样`, 40, TOP + pantry.rows.length * ROW + 34, 34, '#5a7486');
         x.restore();
       });
-      const top = 4.75, at: [number, number] = [1.85, top - ph / 2];
+      const top = PANTRY_TOP_Y, at: [number, number] = [1.85, top - ph / 2];
       const listPaper = makePaper('pantry', pw, ph, 14, Math.max(14, Math.round(ph * 6)), listTex, at, 0.06, 0.1, 0.03, 0.12,
         pantry.rows.map(row => 'line' in row ? row.line : { text: '', lotId: '' }), { top: TOP - 8, height: ROW, texH });   // 段标题那行点了去看整张清单   // 点按区以字为中心（字写在每行上半截）
       const g = new THREE.Group(); g.position.set(at[0] + 0.85 * FRIDGE_PAPER, top - 0.16, FRONT + 0.02); fridgeHinge.add(g);
@@ -719,7 +733,7 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
       rig.magnets.push({ key: 'green', group: g, paper: listPaper, z: 0, v: 0, to: 0, released: false, snapArmed: false });
       // 快过期 / 快用完的便利贴：贴在「柜子里」下面（2026-10-14 阿萌：小票下面挤）；没有要留意的也贴着。
       // 名字左、状态右两栏，最多五条，纸跟着条数变长（一句话写一行塞不下）
-      const SW = 512, STOP = 150, SROW = 84, stickyH = STOP + Math.max(1, reminders.length) * SROW + 30;
+      const SW = STICKY_W0, STOP = STICKY_TOP, SROW = STICKY_ROW, stickyH = stickyTexH(reminders.length);
       const sticky = ctex(SW, stickyH, (x, w, h) => {
         fibers(x, cr, w, h, '#e3edd9', '96,120,80');
         const gr = x.createLinearGradient(0, 0, 0, 90); gr.addColorStop(0, 'rgba(255,255,255,0.18)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = gr; x.fillRect(0, 0, w, 90);
@@ -733,7 +747,7 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
         });
       });
       // 柜子里长了就压住它下沿一点（底边不能低过画面下面那排纸签，约 -2.9），叠在上面
-      const side = 2.6 * STICKY_PAPER, sideH = side * stickyH / SW, stickyTop = Math.max(top - ph - 0.3, -2.9 + sideH);
+      const side = STICKY_PW, sideH = side * stickyH / SW, stickyTop = Math.max(top - ph - LEFT_GAP, LEFT_BOTTOM + sideH);
       makePaper('sticky', side, sideH, 16, 16, sticky, [at[0] - 0.05, stickyTop - sideH / 2], -0.05, 0.22, 0.02, 0.18, reminders, { top: STOP - 8, height: SROW, texH: stickyH }).mesh.position.z += 0.06;
     }
     // 热一热就能吃：冷冻门左半边（右半边留给以后的要买清单），暖黄的格子纸，橙色圆磁贴压住右上角（压中间会挡住标题）。

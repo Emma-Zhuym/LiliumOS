@@ -326,28 +326,39 @@ export const guessPantryKind = (name: string): PantryKind =>
 export const pantryKindOf = (name: string, lot: Pick<KitchenLot, 'pantryKind'>): PantryKind => lot.pantryKind ?? guessPantryKind(name);
 
 export interface PantryLine extends DoorNoteLine { amount: string }
-/** 纸上一行：段标题或一样东西（段标题那行点了去看整张清单） */
-export type PantryRow = { head: string } | { line: PantryLine };
+/** 纸上一行：段标题（带这段一共几样）或一样东西（段标题那行点了去看整张清单） */
+export type PantryRow = { head: string; count: number } | { line: PantryLine };
 export interface PantryList { lines: PantryLine[]; rows: PantryRow[]; more: number }
 
 /**
- * 「柜子里」清单：常温柜不做 3D，贴一张手写清单在冷藏门上。按速食 / 零食 / 饮料分段，
- * 每段里最近动过的在前；三段加起来最多六样，再多写「还有 N 样」。开封的分次包装只写「开封」。
+ * 「柜子里」清单：常温柜不做 3D，贴一张手写清单在冷藏门上。按速食 / 零食 / 饮料分段，段名后写这段一共几样；
+ * 纸能写几行由门上剩多少地方定（maxRows，含段名）。写不下时三段轮流分名额，每段都露几样，
+ * 段里最近动过的在前；没写上的点纸去看整张清单。开封的分次包装只写「开封」。
+ * 2026-10-14 阿萌：柜子里东西多，原来一共只写六样。
  */
-export function pantryList(lots: KitchenLot[], foods: KitchenFood[], limit = 6): PantryList | null {
+export function pantryList(lots: KitchenLot[], foods: KitchenFood[], maxRows = 12): PantryList | null {
   const names = new Map(foods.map(food => [food.id, food.name]));
   const inPantry = lots.filter(lot => lot.quantity > 0 && lot.storageZone === 'pantry')
     .map(lot => ({ lot, name: names.get(lot.foodId) ?? '食物' }))
     .filter(({ lot, name }) => pantryKindOf(name, lot) !== 'staple')
     .sort((a, b) => b.lot.updatedAt - a.lot.updatedAt || a.lot.id.localeCompare(b.lot.id));
   if (!inPantry.length) return null;
-  const shown = inPantry.slice(0, limit);
+  const groups = (['ready', 'snack', 'drink'] as const)
+    .map(kind => ({ kind, items: inPantry.filter(({ lot, name }) => pantryKindOf(name, lot) === kind) }))
+    .filter(group => group.items.length);
+  // 段名各占一行，剩下的名额三段轮流分（至少每段一样）
+  const take = groups.map(() => 0);
+  let budget = Math.max(groups.length, maxRows - groups.length);
+  for (let progressed = true; budget > 0 && progressed;) {
+    progressed = false;
+    groups.forEach((group, i) => {
+      if (budget > 0 && take[i] < group.items.length) { take[i] += 1; budget -= 1; progressed = true; }
+    });
+  }
   const rows: PantryRow[] = [], lines: PantryLine[] = [];
-  for (const kind of ['ready', 'snack', 'drink'] as const) {
-    const group = shown.filter(({ lot, name }) => pantryKindOf(name, lot) === kind);
-    if (!group.length) continue;
-    rows.push({ head: PANTRY_KIND_LABELS[kind] });
-    for (const { lot, name } of group) {
+  groups.forEach((group, i) => {
+    rows.push({ head: PANTRY_KIND_LABELS[group.kind], count: group.items.length });
+    for (const { lot, name } of group.items.slice(0, take[i])) {
       const line = {
         lotId: lot.id,
         text: name,
@@ -356,6 +367,6 @@ export function pantryList(lots: KitchenLot[], foods: KitchenFood[], limit = 6):
       };
       rows.push({ line }); lines.push(line);
     }
-  }
-  return { lines, rows, more: inPantry.length - shown.length };
+  });
+  return { lines, rows, more: inPantry.length - lines.length };
 }

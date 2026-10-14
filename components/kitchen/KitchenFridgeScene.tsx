@@ -7,7 +7,7 @@ import type { KitchenEvent, KitchenFood, KitchenLot, KitchenShoppingItem } from 
 import { FRIDGE } from '../../utils/kitchenFridgeSpec';
 import { fridgeLayout } from '../../utils/kitchenFridgeLayout';
 import { heatList, latestReceipt, pantryList, shoppingPaper, stickyReminders } from '../../utils/kitchenAppearance';
-import { bendPaper, buildKitchenScene, HAND_FONT, makeFlyTag, PEN_DELAY, SANS, SERIF, type KitchenRig } from './kitchenFridgeBuild';
+import { bendPaper, buildKitchenScene, HAND_FONT, makeFlyTag, pantryRowBudget, PEN_DELAY, SANS, SERIF, type KitchenRig } from './kitchenFridgeBuild';
 
 interface Props {
   lots: KitchenLot[];
@@ -72,7 +72,8 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
   // 便利贴的「今天 / 明天」按打开厨房的那一刻算
   const reminders = useMemo(() => stickyReminders(lots, foods, events), [lots, foods, events]);
   const receipt = useMemo(() => latestReceipt(events, foods, lots), [events, foods, lots]);
-  const pantry = useMemo(() => pantryList(lots, foods), [lots, foods]);
+  // 柜子里能写几行看便利贴占了多少（两张在冷藏门左边一列）
+  const pantry = useMemo(() => pantryList(lots, foods, pantryRowBudget(reminders.length)), [lots, foods, reminders.length]);
   const heat = useMemo(() => heatList(lots, foods), [lots, foods]);
   // 没接要买清单（shopping 没传）就不贴这张
   const shop = useMemo(() => shopping ? shoppingPaper(shopping) : null, [shopping]);
