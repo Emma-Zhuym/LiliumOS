@@ -193,7 +193,8 @@ export function shoppingTrips(events: KitchenEvent[], foods: KitchenFood[], lots
     else if (!trip) trip = open(event.occurredAt, true);
     const line: TripLine = {
       id: event.id, lotId: event.lotId, at: event.occurredAt, name, amount: formatEventAmount(event), undone: Boolean(event.undoneAt),
-      verb: dish ? '做了' : TRIP_VERBS[event.type],
+      // 照菜谱做菜扣掉的（note 是「做番茄炖牛腩」）写「做菜用」，不写「吃掉」
+      verb: dish ? '做了' : event.type === 'CONSUME' && event.note?.startsWith('做') ? '做菜用' : TRIP_VERBS[event.type],
     };
     if (buying && (sameTrip || trip.bought.length === 0 && !trip.opening)) {
       const gone = line.undone ? undefined : goneFor(event.lotId, lotById, events);

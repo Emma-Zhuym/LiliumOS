@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowCounterClockwise, CaretLeft, CaretRight, ClockCounterClockwise, MagnifyingGlass, Package, Plus, Snowflake, X } from '@phosphor-icons/react';
+import { ArrowCounterClockwise, BookOpenText, CaretLeft, CaretRight, ClockCounterClockwise, MagnifyingGlass, Package, Plus, Snowflake, X } from '@phosphor-icons/react';
 import { useOS } from '../context/OSContext';
 import KitchenLotDetail from '../components/kitchen/KitchenLotDetail';
 import KitchenSheet from '../components/kitchen/KitchenSheet';
@@ -8,17 +8,24 @@ import KitchenReceiptScan from '../components/kitchen/KitchenReceiptScan';
 import KitchenShoppingList from '../components/kitchen/KitchenShoppingList';
 import KitchenLotActions from '../components/kitchen/KitchenLotActions';
 import KitchenHistoryReceipts from '../components/kitchen/KitchenHistoryReceipts';
+import KitchenRecipeBook, { type RecipeTab } from '../components/kitchen/KitchenRecipeBook';
+import KitchenRecipeDetail from '../components/kitchen/KitchenRecipeDetail';
+import KitchenRecipeEditor from '../components/kitchen/KitchenRecipeEditor';
+import KitchenSauceEditor from '../components/kitchen/KitchenSauceEditor';
+import KitchenCookSheet, { type CookResult } from '../components/kitchen/KitchenCookSheet';
 import { shoppingSuggestions, shoppingTrips } from '../utils/kitchenAppearance';
 import { KITCHEN_PAPER_VARS } from '../utils/kitchenPaperTokens';
 import '../components/kitchen/kitchenPaper.css';
 import {
   KitchenDB, hasKitchenEventChange, type AddKitchenLotInput, type KitchenFood,
   type KitchenLot, type KitchenEvent, type KitchenShoppingItem, type KitchenStorageZone, type UpdateKitchenLotDetailsInput,
+  type KitchenRecipe, type KitchenSauce, type SaveRecipeInput, type SaveSauceInput,
 } from '../utils/kitchenDb';
 import { describeLotStock, editableUnitsFor, makeOperationId, UNIT_LABELS, ZONE_LABELS } from '../utils/kitchenPresentation';
 
 const KitchenFridgeScene = lazy(() => import('../components/kitchen/KitchenFridgeScene'));
-type View = 'home' | 'list' | 'history';
+// 菜谱本（2026-10-14）：菜谱 / 酱汁库两张页签 → 一道菜 → 改菜谱；酱汁单独一页改
+type View = 'home' | 'list' | 'history' | 'recipes' | 'recipe' | 'recipe-edit' | 'sauce-edit';
 type Notice = { text: string; error?: boolean; undo?: boolean };
 
 const KitchenApp: React.FC = () => {
@@ -28,6 +35,19 @@ const KitchenApp: React.FC = () => {
   const [events, setEvents] = useState<KitchenEvent[]>([]);
   const [shopping, setShopping] = useState<KitchenShoppingItem[]>([]);
   const [showShopping, setShowShopping] = useState(false);
+  const [recipes, setRecipes] = useState<KitchenRecipe[]>([]);
+  const [sauces, setSauces] = useState<KitchenSauce[]>([]);
+  const [recipeTab, setRecipeTab] = useState<RecipeTab>('recipes');
+  const [recipeId, setRecipeId] = useState<string | null>(null);
+  /** 菜谱页现在按几人份看（只是看，不写回菜谱） */
+  const [servingsView, setServingsView] = useState(2);
+  const [sauceId, setSauceId] = useState<string | null>(null);
+  /** 改酱汁那页返回哪：酱汁库，或者是从某道菜点进来的 */
+  const [sauceBack, setSauceBack] = useState<View>('recipes');
+  /** 写菜谱时当场新写的酱汁：弹在面板里，存好挂到菜谱上 */
+  const [newSauceSheet, setNewSauceSheet] = useState(false);
+  const [attachSauceId, setAttachSauceId] = useState<string | null>(null);
+  const [cooking, setCooking] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [view, setView] = useState<View>('home');
@@ -44,11 +64,18 @@ const KitchenApp: React.FC = () => {
   const background = useRef<HTMLDivElement>(null);
   const searchField = useRef<HTMLInputElement>(null);
   const searchOnOpen = useRef(false);
+  const content = useRef<HTMLElement>(null);
+  // 换一页就从顶上看（不然从菜谱滑到一半点「改菜谱」，编辑页也是从一半开始）
+  useEffect(() => { if (content.current) content.current.scrollTop = 0; }, [view]);
 
   const refresh = useCallback(async () => {
-    const [nextFoods, nextLots, nextEvents, nextShopping] = await Promise.all([KitchenDB.getFoods(), KitchenDB.getLots(), KitchenDB.getEvents(), KitchenDB.getShopping()]);
+    const [nextFoods, nextLots, nextEvents, nextShopping, nextRecipes, nextSauces] = await Promise.all([
+      KitchenDB.getFoods(), KitchenDB.getLots(), KitchenDB.getEvents(), KitchenDB.getShopping(), KitchenDB.getRecipes(), KitchenDB.getSauces(),
+    ]);
     setFoods(nextFoods);
     setShopping(nextShopping);
+    setRecipes(nextRecipes);
+    setSauces(nextSauces);
     setLots(nextLots);
     setEvents(nextEvents.sort((a, b) => b.occurredAt - a.occurredAt || b.id.localeCompare(a.id)));
     setLoadFailed(false);
@@ -169,6 +196,59 @@ const KitchenApp: React.FC = () => {
     try { await work(); setShopping(await KitchenDB.getShopping()); return true; }
     catch (error) { setNotice({ text: error instanceof Error ? error.message : '要买清单没改成', error: true }); return false; }
   };
+  // 菜谱和酱汁库的增删改：不进操作记录、不弹撤销
+  const editRecipes = async (work: () => Promise<unknown>, message: string): Promise<boolean> => {
+    if (busyRef.current) return false;
+    busyRef.current = true; setBusy(true);
+    try {
+      await work();
+      const [nextRecipes, nextSauces] = await Promise.all([KitchenDB.getRecipes(), KitchenDB.getSauces()]);
+      setRecipes(nextRecipes); setSauces(nextSauces);
+      setNotice({ text: message });
+      return true;
+    } catch (error) {
+      setNotice({ text: error instanceof Error ? error.message : '没存上', error: true });
+      return false;
+    } finally { busyRef.current = false; setBusy(false); }
+  };
+  const openRecipe = (id: string) => {
+    const recipe = recipes.find(item => item.id === id);
+    setRecipeId(id); setServingsView(recipe?.servings ?? 2); setNotice(null); setView('recipe');
+  };
+  const openSauce = (id: string | null, back: View) => { setSauceId(id); setSauceBack(back); setNotice(null); setView('sauce-edit'); };
+  const saveRecipe = async (input: SaveRecipeInput) => {
+    let saved: KitchenRecipe | null = null;
+    const ok = await editRecipes(async () => { saved = await KitchenDB.saveRecipe(input); }, input.id ? '菜谱改好了' : '菜谱存好了');
+    if (ok && saved) { setAttachSauceId(null); setRecipeId((saved as KitchenRecipe).id); setServingsView((saved as KitchenRecipe).servings); setView('recipe'); }
+  };
+  const saveSauce = async (input: SaveSauceInput, attach = false) => {
+    let saved: KitchenSauce | null = null;
+    const ok = await editRecipes(async () => { saved = await KitchenDB.saveSauce(input); }, input.id ? '酱汁改好了' : '酱汁存进酱汁库了');
+    if (!ok || !saved) return;
+    if (attach) { setAttachSauceId((saved as KitchenSauce).id); setNewSauceSheet(false); }
+    else setView(sauceBack);
+  };
+  /** 做了这道：按核对单从库存扣（每样一笔，记成「做菜用」），做出来的放进冰箱记成做好的菜，菜谱记一次 */
+  const cookRecipe = async (recipe: KitchenRecipe, result: CookResult) => {
+    const done = await run(async () => {
+      for (const item of result.deductions) {
+        await KitchenDB.changeLot({ type: 'CONSUME', lotId: item.lotId, amount: item.amount, note: `做${recipe.name}`, operationId: makeOperationId('cook') });
+      }
+      if (result.leftover) {
+        await KitchenDB.addLot({ name: recipe.name, quantity: result.leftover.quantity, unit: 'portion', storageZone: result.leftover.zone, foodState: 'prepared', operationId: makeOperationId('cook') });
+      }
+      await KitchenDB.markRecipeCooked(recipe.id);
+      setRecipes(await KitchenDB.getRecipes());
+    }, `做了${recipe.name}${result.deductions.length ? `，扣了 ${result.deductions.length} 样` : ''}${result.leftover ? '，剩的放进冰箱了' : ''}`, false, false);
+    if (done) setCooking(false);
+  };
+  const shopMissing = async (names: string[]) => {
+    const ok = await editShopping(async () => { for (const name of names) await KitchenDB.addShopping(name); });
+    if (ok) setNotice({ text: `${names.join('、')}加进要买清单了` });
+  };
+  const currentRecipe = recipes.find(item => item.id === recipeId);
+  const currentSauce = sauces.find(item => item.id === sauceId);
+  const sauceUsers = (id: string | null) => id ? recipes.filter(recipe => recipe.sauces.some(item => item.sauceId === id)).map(recipe => recipe.name) : [];
   const suggestions = useMemo(() => shoppingSuggestions(lots, foods, events, shopping), [lots, foods, events, shopping]);
   const saveDetails = async (input: UpdateKitchenLotDetailsInput) => {
     await run(() => KitchenDB.updateLotDetails(input), '食材资料已更新', false, false);
@@ -191,23 +271,33 @@ const KitchenApp: React.FC = () => {
       </button>;
     })}
   </div>;
-  const inSheet = showAdd || showShopping || !!selectedLot;
+  const inSheet = showAdd || showShopping || !!selectedLot || (cooking && !!currentRecipe) || newSauceSheet;
 
   // 首页整屏都是厨房（2026-10-11 Emma 定）：场景铺满，顶栏透明浮在画面上，底下只留一排纸签
   const stage = view === 'home' && !loading && !loadFailed;
   return <div className="kitchen-paper" style={KITCHEN_PAPER_VARS}>
     <div ref={background} className={stage ? 'kitchen-page is-stage' : 'kitchen-page'}>
       <header className="kitchen-header">
-        <div className="kitchen-header-actions"><button type="button" className="kitchen-icon" aria-label={view === 'home' ? '返回' : '返回厨房'}
-          onClick={() => view === 'home' ? closeApp() : setView('home')}><CaretLeft size={22} weight="bold" /></button></div>
-        <h1 className="kitchen-heading">{view === 'home' ? '小厨房' : view === 'list' ? '食材清单' : '操作记录'}</h1>
+        <div className="kitchen-header-actions"><button type="button" className="kitchen-icon" aria-label={view === 'home' ? '返回' : view === 'recipes' || view === 'list' || view === 'history' ? '返回厨房' : '返回上一页'}
+          onClick={() => {
+            setNotice(null);
+            if (view === 'home') closeApp();
+            else if (view === 'recipe') setView('recipes');
+            else if (view === 'recipe-edit') { setAttachSauceId(null); setView(currentRecipe ? 'recipe' : 'recipes'); }
+            else if (view === 'sauce-edit') setView(sauceBack);
+            else setView('home');
+          }}><CaretLeft size={22} weight="bold" /></button></div>
+        <h1 className="kitchen-heading">{({ home: '小厨房', list: '食材清单', history: '操作记录', recipes: '菜谱', recipe: '菜谱',
+          'recipe-edit': currentRecipe ? '改菜谱' : '写一道菜', 'sauce-edit': currentSauce ? '改酱汁' : '调一个酱汁' } as Record<View, string>)[view]}</h1>
         <div className="kitchen-header-actions">
           {view === 'home' && <button type="button" className="kitchen-icon" aria-label="搜索食材" onClick={() => openList(true)}><MagnifyingGlass size={21} /></button>}
-          <button type="button" className="kitchen-icon" aria-label="添加食物" disabled={busy || loading || loadFailed}
-            onClick={() => { setNotice(null); setShowAdd(true); }}><Plus size={23} /></button>
+          {view === 'recipes' ? <button type="button" className="kitchen-icon" aria-label={recipeTab === 'recipes' ? '写一道菜' : '调一个酱汁'} disabled={busy}
+            onClick={() => { if (recipeTab === 'recipes') { setRecipeId(null); setAttachSauceId(null); setView('recipe-edit'); } else openSauce(null, 'recipes'); }}><Plus size={23} /></button>
+            : !['recipe', 'recipe-edit', 'sauce-edit'].includes(view) && <button type="button" className="kitchen-icon" aria-label="添加食物" disabled={busy || loading || loadFailed}
+              onClick={() => { setNotice(null); setShowAdd(true); }}><Plus size={23} /></button>}
         </div>
       </header>
-      <main className="kitchen-content">
+      <main ref={content} className="kitchen-content">
         {loading ? <div className="kitchen-empty" role="status">正在打开小厨房…</div>
           : loadFailed ? <div className="kitchen-empty"><p>食材暂时没有读出来。</p><button type="button" className="kitchen-button" onClick={() => { void load(); }}>重新打开</button></div>
           : view === 'home' ? <>
@@ -222,8 +312,22 @@ const KitchenApp: React.FC = () => {
               <button type="button" className="kitchen-button" aria-label="食材清单" onClick={() => openList()}>食材清单 · {activeLots.length}</button>
               {stagedCount > 0 && <button type="button" className="kitchen-button" onClick={() => openList(false, 'staging')}>{stagedCount} 条还没收好</button>}
               <button type="button" className="kitchen-button" onClick={() => setView('history')}><ClockCounterClockwise size={16} />操作记录</button>
+              <button type="button" className="kitchen-button" onClick={() => { setNotice(null); setView('recipes'); }}><BookOpenText size={16} />菜谱</button>
             </nav>
-          </> : view === 'list' ? <>
+          </> : view === 'recipes' ? <KitchenRecipeBook tab={recipeTab} recipes={recipes} sauces={sauces} lots={lots} foods={foods} onTab={setRecipeTab}
+              onOpenRecipe={openRecipe} onOpenSauce={id => openSauce(id, 'recipes')}
+              onNewRecipe={() => { setRecipeId(null); setAttachSauceId(null); setView('recipe-edit'); }} onNewSauce={() => openSauce(null, 'recipes')} />
+          : view === 'recipe' && currentRecipe ? <KitchenRecipeDetail recipe={currentRecipe} sauces={sauces} lots={lots} foods={foods} servings={servingsView} busy={busy}
+              onServings={setServingsView} onEdit={() => { setAttachSauceId(null); setView('recipe-edit'); }} onCook={() => { setNotice(null); setCooking(true); }}
+              onShopMissing={names => { void shopMissing(names); }} onOpenSauce={id => openSauce(id, 'recipe')} />
+          : view === 'recipe-edit' ? <KitchenRecipeEditor key={recipeId ?? 'new'} recipe={currentRecipe} sauces={sauces} busy={busy} attachSauceId={attachSauceId}
+              onSave={input => { void saveRecipe(input); }} onNewSauce={() => { setNotice(null); setNewSauceSheet(true); }}
+              onDelete={currentRecipe ? () => { void editRecipes(() => KitchenDB.deleteRecipe(currentRecipe.id), `${currentRecipe.name}删掉了`).then(ok => { if (ok) { setRecipeId(null); setView('recipes'); } }); } : undefined} />
+          : view === 'sauce-edit' ? <KitchenSauceEditor key={sauceId ?? 'new'} sauce={currentSauce} usedBy={sauceUsers(sauceId)} busy={busy}
+              onSave={input => { void saveSauce(input); }}
+              onDelete={currentSauce ? () => { void editRecipes(() => KitchenDB.deleteSauce(currentSauce.id), `${currentSauce.name}删掉了`).then(ok => { if (ok) setView(sauceBack === 'recipe' ? 'recipe' : 'recipes'); }); } : undefined} />
+          : view === 'recipe' ? <div className="kitchen-empty">这道菜找不到了。</div>
+          : view === 'list' ? <>
             <div className="kitchen-list-tools">
               <input ref={searchField} className="kitchen-field" aria-label="搜索食材" placeholder="找找家里有什么" value={search} onChange={event => setSearch(event.target.value)} />
               <label className="kitchen-label">收纳位置
@@ -243,14 +347,17 @@ const KitchenApp: React.FC = () => {
           </>}
       </main>
     </div>
-    {inSheet && <KitchenSheet title={showAdd ? '放进食物' : showShopping ? '要买清单' : foodById.get(selectedLot!.foodId)?.name ?? '食材'}
-      label={showAdd ? '放进食物' : showShopping ? '要买清单' : '食材操作'} busy={busy} backgroundRef={background}
-      onClose={() => { setShowAdd(false); setShowShopping(false); setSelectedId(null); setNotice(null); }}>
+    {inSheet && <KitchenSheet title={showAdd ? '放进食物' : showShopping ? '要买清单' : newSauceSheet ? '调一个酱汁' : cooking && currentRecipe ? `做了${currentRecipe.name}` : foodById.get(selectedLot!.foodId)?.name ?? '食材'}
+      label={showAdd ? '放进食物' : showShopping ? '要买清单' : newSauceSheet ? '调一个酱汁' : cooking ? '做了这道菜' : '食材操作'} busy={busy} backgroundRef={background}
+      onClose={() => { setShowAdd(false); setShowShopping(false); setSelectedId(null); setCooking(false); setNewSauceSheet(false); setNotice(null); }}>
       {notice && <p className="kitchen-inline-notice" role={notice.error ? 'alert' : 'status'}>{notice.text}</p>}
       {showAdd ? <>
         <KitchenReceiptScan busy={busy} onAdd={addReceipt} onReviewingChange={setReviewingReceipt} />
         {!reviewingReceipt && <KitchenAddForm initialZone="fridge" busy={busy} onAdd={addFood} />}
       </>
+        : newSauceSheet ? <KitchenSauceEditor usedBy={[]} busy={busy} onSave={input => { void saveSauce(input, true); }} />
+        : cooking && currentRecipe ? <KitchenCookSheet recipe={currentRecipe} servings={servingsView} lots={lots} foods={foods} busy={busy}
+          onCook={result => { void cookRecipe(currentRecipe, result); }} />
         : showShopping ? <KitchenShoppingList items={shopping} suggestions={suggestions} busy={busy}
           onAdd={name => editShopping(() => KitchenDB.addShopping(name))}
           onToggle={id => { void editShopping(() => KitchenDB.toggleShopping(id)); }}

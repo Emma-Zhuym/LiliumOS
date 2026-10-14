@@ -449,3 +449,63 @@ p.kitchen-note { margin: 0; padding: 0; border: 0; background: transparent; colo
   .kitchen-shopping-tick > path, .kitchen-shopping-name, .kitchen-shopping-name::after { transition: none !important; animation: none !important; }
 }
 .kitchen-shopping-add > .kitchen-button { width: auto; padding: 0 16px; white-space: nowrap; }
+
+/* ── 菜谱本（2026-10-14） ── */
+.kitchen-label-hint { margin-left: 6px; color: var(--k-faint); font-size: 11px; font-weight: 400; }
+.kitchen-textarea { min-height: 88px; padding-top: 10px; padding-bottom: 10px; line-height: 1.6; resize: vertical; }
+.kitchen-stepper { display: inline-flex; align-items: center; gap: 2px; font-variant-numeric: tabular-nums; }
+.kitchen-stepper > span { min-width: 56px; text-align: center; font-size: 14px; }
+.kitchen-stepper > .kitchen-icon { width: 36px; height: 36px; }
+/* 量的一行：名字 · 多少 · 单位 · 删 */
+.kitchen-amount-rows { display: grid; gap: 8px; }
+.kitchen-amount-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) 36px; align-items: center; gap: 6px; }
+.kitchen-amount-row > .kitchen-icon { width: 36px; height: 36px; }
+.kitchen-amount-rows > .kitchen-text-button { justify-self: start; }
+.kitchen-sauce-picks { display: grid; gap: 6px; margin: 0 0 8px; padding: 0; list-style: none; }
+.kitchen-sauce-picks > li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 4px 6px 12px; border-radius: var(--k-radius-field); background-color: var(--k-well); }
+.kitchen-sauce-picks > li > strong { flex: 1; font-size: 14px; font-weight: 600; }
+.kitchen-sauce-add { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.kitchen-sauce-add > select { flex: 1; min-width: 160px; }
+/* 菜谱卡：白卡片顶上一道蓝墨线，像索引卡 */
+.kitchen-recipe-cards, .kitchen-sauce-cards { display: grid; gap: 12px; margin: 4px 0 16px; padding: 0; list-style: none; }
+.kitchen-recipe-card { display: grid; gap: 4px; width: 100%; padding: 14px 16px; border: 1px solid var(--k-line); border-top: 3px solid var(--k-blue-ink); border-radius: var(--k-radius-card); background-color: var(--k-surface); background-image: var(--k-texture); color: var(--k-ink); text-align: left; }
+.kitchen-recipe-card > strong { font-family: var(--k-heading); font-size: 17px; font-weight: 700; }
+.kitchen-recipe-card > span { color: var(--k-muted); font-size: 12px; line-height: 1.6; }
+.kitchen-recipe-card > small { color: var(--k-faint); font-size: 12px; }
+.kitchen-recipe-card > small.is-ready { color: var(--k-green-ink); }
+.kitchen-recipe-card > small.is-missing { color: var(--k-warn); }
+/* 酱汁：夹在菜谱上的小卡片——浅底、顶上一个夹子 */
+.kitchen-sauce-card { position: relative; display: grid; gap: 6px; width: 100%; margin-top: 8px; padding: 16px 16px 12px; border: 1px dashed var(--k-faint); border-radius: var(--k-radius-card); background-color: var(--k-well); background-image: var(--k-texture); color: var(--k-ink); text-align: left; }
+.kitchen-sauce-card::before { content: ''; position: absolute; top: -7px; left: 20px; width: 34px; height: 12px; border-radius: 3px; background: var(--k-faint); }
+.kitchen-sauce-card > strong { font-family: var(--k-heading); font-size: 15.5px; font-weight: 600; }
+.kitchen-sauce-card > strong > small { color: var(--k-muted); font-family: var(--k-mono); font-size: 12px; font-weight: 400; }
+.kitchen-sauce-parts { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 13px; }
+.kitchen-sauce-parts > span > em { color: var(--k-muted); font-family: var(--k-mono); font-size: 12px; font-style: normal; }
+.kitchen-sauce-note { color: var(--k-muted); font-size: 12px; line-height: 1.6; }
+/* 一道菜 */
+.kitchen-recipe { display: grid; gap: 20px; padding-bottom: 12px; }
+.kitchen-recipe-head { display: grid; justify-items: start; gap: 6px; padding-bottom: 16px; border-bottom: 1px dashed var(--k-faint); }
+.kitchen-recipe-head > h2 { margin: 0; font-family: var(--k-heading); font-size: 22px; font-weight: 700; }
+.kitchen-recipe-head > p { margin: 0; color: var(--k-muted); font-size: 12px; }
+.kitchen-recipe-head > small { color: var(--k-faint); font-size: 11px; }
+.kitchen-recipe-section > h3 { margin: 0 0 8px; font-family: var(--k-heading); font-size: 15.5px; font-weight: 600; }
+.kitchen-recipe-section > h3 > small { margin-left: 6px; color: var(--k-faint); font-family: inherit; font-size: 11px; font-weight: 400; }
+.kitchen-recipe-lines { display: grid; margin: 0 0 8px; padding: 0; list-style: none; }
+.kitchen-recipe-lines > li { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 2px 12px; padding: 10px 0; border-bottom: 1px solid var(--k-line); font-size: 15px; }
+.kitchen-recipe-amount { font-family: var(--k-mono); font-size: 13px; font-variant-numeric: tabular-nums; }
+.kitchen-recipe-stock { grid-column: 1 / -1; font-size: 12px; color: var(--k-green-ink); }
+.kitchen-recipe-lines > li:is(.is-missing, .is-short) > .kitchen-recipe-stock { color: var(--k-warn); }
+.kitchen-recipe-lines > li.is-unknown > .kitchen-recipe-stock { color: var(--k-muted); }
+.kitchen-recipe-steps { display: grid; gap: 8px; margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.7; }
+.kitchen-recipe-note { margin: 0; color: var(--k-muted); font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
+.kitchen-recipe-actions { display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; }
+/* 做了这道：核对单 */
+.kitchen-cook-lines { display: grid; margin: 0; padding: 0; list-style: none; }
+.kitchen-cook-lines > li { display: grid; gap: 6px; padding: 12px 0; border-bottom: 1px solid var(--k-line); }
+.kitchen-cook-lines > li.is-off strong { color: var(--k-faint); }
+.kitchen-cook-check { display: flex; align-items: center; gap: 10px; min-height: 32px; }
+.kitchen-cook-check > input, .kitchen-cook-keep > input { width: 20px; height: 20px; accent-color: var(--k-green-ink); }
+.kitchen-cook-check small { color: var(--k-muted); font-size: 12px; }
+.kitchen-cook-hint { margin: 0 0 0 30px; color: var(--k-faint); font-size: 12px; }
+.kitchen-cook-amount { display: grid; grid-template-columns: minmax(0, 1fr) 84px auto; align-items: center; gap: 8px; margin-left: 30px; color: var(--k-muted); font-size: 12px; }
+.kitchen-cook-keep { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 14px; }

@@ -48,11 +48,12 @@ export const matchLots = (name: string, lots: KitchenLot[], foods: KitchenFood[]
 export type StockStatus = 'enough' | 'short' | 'missing' | 'unknown';
 export interface StockCheck { status: StockStatus; lots: KitchenLot[]; have: number | null }
 
-/** 冰箱里够不够：适量的有就算够；单位对不上的只能说「有，但不知道够不够」 */
+/** 冰箱里够不够：适量的有就算够、没记着不算缺；单位对不上的只能说「有，但不知道够不够」 */
 export const checkStock = (row: KitchenAmount, lots: KitchenLot[], foods: KitchenFood[]): StockCheck => {
   const matched = matchLots(row.name, lots, foods);
+  // 适量的多半是盐、油这种不记库存的：家里没记着不算缺
+  if (row.amount === null) return { status: matched.length ? 'enough' : 'unknown', lots: matched, have: null };
   if (!matched.length) return { status: 'missing', lots: matched, have: null };
-  if (row.amount === null) return { status: 'enough', lots: matched, have: null };
   let have = 0, unknown = false;
   for (const lot of matched) {
     const converted = convertAmount(lot.quantity, lot.unit, row.unit);

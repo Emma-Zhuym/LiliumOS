@@ -32,6 +32,7 @@ describe('菜谱算账', () => {
     expect(checkStock({ name: '洋葱', amount: 1, unit: '个' }, lots, foods).status).toBe('missing');
     expect(checkStock({ name: '葱', amount: 3, unit: '根' }, lots, foods).status).toBe('unknown');
     expect(checkStock({ name: '葱', amount: null, unit: '适量' }, lots, foods).status).toBe('enough');
+    expect(checkStock({ name: '盐', amount: null, unit: '适量' }, lots, foods).status).toBe('unknown');
   });
   it('做了扣多少：按份数缩放后换成那批的单位，不超过那批还剩的；适量、换不了的空着', () => {
     const foods = [food('f1', '番茄'), food('f2', '牛腩'), food('f4', '小葱')];
