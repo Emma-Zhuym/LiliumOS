@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Plus, X } from '@phosphor-icons/react';
 import type { KitchenShoppingItem } from '../../utils/kitchenDb';
 
@@ -22,12 +22,23 @@ const Tick: React.FC = () => <svg className="kitchen-shopping-tick" viewBox="0 0
 /** 整张要买清单：冷冻门上那张只摆得下六行，这里能加、能删、能清掉划掉的 */
 export default function KitchenShoppingList({ items, suggestions, busy, onAdd, onToggle, onRemove, onClearChecked }: Props) {
   const [name, setName] = useState('');
+  // 正在被橡皮擦的那一行（取消打勾时左右蹭一下）；只在点的那一下挂上，刚打开清单时不会蹭
+  const [erasing, setErasing] = useState<string | null>(null);
+  const eraseTimer = useRef(0);
+  useEffect(() => () => window.clearTimeout(eraseTimer.current), []);
+  const toggle = (item: KitchenShoppingItem) => {
+    if (item.checkedAt) {
+      setErasing(item.id); window.clearTimeout(eraseTimer.current);
+      eraseTimer.current = window.setTimeout(() => setErasing(null), 460);
+    }
+    onToggle(item.id);
+  };
   // 一张单子按写下的先后排，打了勾的留在原地：手写划线才有地方划（换到另一组就成了新的一行，动效播不出来）
   const all = [...items].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
   const done = all.filter(item => item.checkedAt);
-  const row = (item: KitchenShoppingItem) => <li key={item.id} className={item.checkedAt ? 'is-checked' : undefined}>
+  const row = (item: KitchenShoppingItem) => <li key={item.id} className={item.checkedAt ? 'is-checked' : erasing === item.id ? 'is-erasing' : undefined}>
     <button type="button" className="kitchen-shopping-check" disabled={busy} aria-pressed={!!item.checkedAt}
-      aria-label={`${item.checkedAt ? '取消划掉' : '划掉'}：${item.name}`} onClick={() => onToggle(item.id)}>
+      aria-label={`${item.checkedAt ? '取消划掉' : '划掉'}：${item.name}`} onClick={() => toggle(item)}>
       <Tick />
       <span className="kitchen-shopping-name">{item.name}</span>
       {item.checkedBy === 'bought' && <small>买回来了</small>}

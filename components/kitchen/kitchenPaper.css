@@ -439,8 +439,13 @@ p.kitchen-note { margin: 0; padding: 0; border: 0; background: transparent; colo
 .kitchen-shopping-name::after { content: ''; position: absolute; left: -3px; right: -3px; top: 54%; height: 2px; border-radius: 2px; background: var(--k-blue-ink); transform: scaleX(0); transform-origin: left center; transition: transform 280ms cubic-bezier(.45, 0, .2, 1) 200ms; }
 .kitchen-shopping-list > li.is-checked .kitchen-shopping-check { color: var(--k-faint); }
 .kitchen-shopping-list > li.is-checked .kitchen-shopping-name::after { transform: scaleX(1); }
-.kitchen-shopping-list > li:not(.is-checked) .kitchen-shopping-name::after, .kitchen-shopping-list > li:not(.is-checked) .kitchen-shopping-tick > path { transition-duration: 0ms; transition-delay: 0ms; }
+/* 取消打勾 = 橡皮：划线从右往左被擦短、整行左右蹭两下，最后勾没了（P14「撤销擦掉」） */
+.kitchen-shopping-list > li:not(.is-checked) .kitchen-shopping-name { transition-delay: 0ms; }
+.kitchen-shopping-list > li:not(.is-checked) .kitchen-shopping-name::after { transform-origin: right center; transition: transform 300ms cubic-bezier(.45, 0, .2, 1); }
+.kitchen-shopping-list > li:not(.is-checked) .kitchen-shopping-tick > path { transition: stroke-dashoffset 160ms ease-in 240ms; }
+.kitchen-shopping-list > li.is-erasing .kitchen-shopping-name { animation: kitchen-rub 420ms ease-in-out; }
+@keyframes kitchen-rub { 0%, 100% { transform: none; } 20% { transform: translateX(-1.5px); } 40% { transform: translateX(1.5px); } 60% { transform: translateX(-1px); } 80% { transform: translateX(1px); } }
 @media (prefers-reduced-motion: reduce) {
-  .kitchen-shopping-tick > path, .kitchen-shopping-name, .kitchen-shopping-name::after { transition: none !important; }
+  .kitchen-shopping-tick > path, .kitchen-shopping-name, .kitchen-shopping-name::after { transition: none !important; animation: none !important; }
 }
 .kitchen-shopping-add > .kitchen-button { width: auto; padding: 0 16px; white-space: nowrap; }

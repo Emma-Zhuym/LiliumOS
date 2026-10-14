@@ -99,7 +99,8 @@ type Pt = [number, number];
 interface PenStroke { pts: Pt[]; width: number; color: string; from: number; to: number }
 interface PenNote { text: string; x: number; y: number; size: number; color: string; from: number; to: number }
 interface PenVeil { x: number; y: number; w: number; h: number; color: string; alpha: number; from: number; to: number }
-export interface PenMark { key: string; strokes: PenStroke[]; notes: PenNote[]; veils: PenVeil[] }
+/** box：这几笔占的地方，橡皮照着它来回擦 */
+export interface PenMark { key: string; strokes: PenStroke[]; notes: PenNote[]; veils: PenVeil[]; box: { x: number; y: number; w: number; h: number } }
 /** 一笔里先慢后快再收：跟手写一样起笔和收笔都慢一点 */
 const easePen = (t: number) => t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
 const clamp01 = (t: number) => Math.max(0, Math.min(1, t));
@@ -140,9 +141,47 @@ const drawMark = (ctx: CanvasRenderingContext2D, mark: PenMark, t: number) => {
     ctx.restore();
   }
 };
-/** 正在写的那几笔：场景每帧推进度，写完就从列表里拿掉 */
-export interface PenAnim { render: (progress: (key: string) => number) => void; keys: Set<string>; start: number; duration: number; paper: DoorPaper['key']; door: 'fridge' | 'freezer'; touched?: boolean }
+/* ── 橡皮：撤销 / 取消打勾时，把那几笔来回擦掉（P14「撤销擦掉」） ──
+ * 笔迹画在单独一层墨上，橡皮只擦墨、不擦纸；橡皮走一道之字，回头再扫一遍，擦到一半墨是断断续续的，
+ * 后面落下几粒橡皮屑，擦完慢慢淡掉。 */
+interface Eraser { path: Pt[]; width: number; crumbs: { x: number; y: number; r: number; at: number }[] }
+const eraserFor = (rnd: () => number, box: PenMark['box']): Eraser => {
+  // 窄一点、之字疏一点：第一道擦过去墨还剩一截一截的，回头那道错开半格再扫，才擦干净
+  const width = Math.max(9, box.h * 0.45);
+  const passes = Math.max(3, Math.ceil(box.w / (width * 2)));
+  const sweep = (back: boolean): Pt[] => Array.from({ length: passes + 1 }, (_, i) => {
+    const j = back ? passes - i - 0.5 : i;
+    const x = box.x - 4 + (box.w + 8) * Math.max(0, j) / passes + (rnd() - 0.5) * 5;
+    const low = (i % 2 === 1) !== back;
+    return [x, (low ? box.y + box.h + 2 : box.y - 2) + (rnd() - 0.5) * 3] as Pt;
+  });
+  const path = [...sweep(false), ...sweep(true).slice(1)];
+  const crumbs = Array.from({ length: 10 + Math.round(box.w / 14) }, () => {
+    const at = 0.1 + rnd() * 0.85, p = path[Math.min(path.length - 1, Math.floor(at * (path.length - 1)))];
+    return { x: p[0] + (rnd() - 0.5) * 16, y: box.y + box.h + 2 + rnd() * 10, r: 1 + rnd() * 1.6, at };
+  });
+  return { path, width, crumbs };
+};
+/** 擦到 e（0–1）：沿之字路径用 destination-out 把墨擦掉 */
+const rubOut = (ctx: CanvasRenderingContext2D, eraser: Eraser, e: number) => {
+  if (e <= 0) return;
+  const segs = eraser.path.length - 1, upto = e * segs;
+  ctx.save(); ctx.globalCompositeOperation = 'destination-out'; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = eraser.width;
+  ctx.beginPath(); ctx.moveTo(...eraser.path[0]);
+  for (let i = 0; i < Math.ceil(upto); i++) {
+    const f = Math.min(1, upto - i), a = eraser.path[i], b = eraser.path[i + 1];
+    ctx.lineTo(a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f);
+  }
+  ctx.stroke(); ctx.restore();
+};
+/** 正在写 / 正在擦的那张纸：场景每帧推进度（写的进度、擦的进度），完了就从列表里拿掉 */
+export interface PenAnim {
+  frame: (write: number, erase: number) => void;
+  start: number; writeMs: number; eraseMs: number; erasing: boolean;
+  paper: DoorPaper['key']; door: 'fridge' | 'freezer'; touched?: boolean;
+}
 export const PEN_DELAY = 160;
+export const ERASE_MS = 440;
 
 /* ── 门上的纸：薄面片，顶点实时弯曲 ── */
 export interface DoorPaper {
@@ -188,7 +227,7 @@ export interface KitchenRig {
   pickables: THREE.Object3D[];
   /** 正在写的手写笔迹 */
   pens: PenAnim[];
-  setContents: (entries: FridgeEntry[], reminders: DoorNoteLine[], receipt: DoorReceipt | null, pantry: PantryList | null, heat: HeatList | null, shop: ShoppingPaper | null, playing?: Set<string>) => void;
+  setContents: (entries: FridgeEntry[], reminders: DoorNoteLine[], receipt: DoorReceipt | null, pantry: PantryList | null, heat: HeatList | null, shop: ShoppingPaper | null, playing?: Set<string>, erasing?: Map<string, string | undefined>) => void;
   dispose: () => void;
 }
 
@@ -376,7 +415,7 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
     setContents: () => {}, dispose: () => {},
   };
 
-  const setContents = (entries: FridgeEntry[], reminders: DoorNoteLine[], receipt: DoorReceipt | null, pantry: PantryList | null, heat: HeatList | null, shop: ShoppingPaper | null, playing: Set<string> = new Set()) => {
+  const setContents = (entries: FridgeEntry[], reminders: DoorNoteLine[], receipt: DoorReceipt | null, pantry: PantryList | null, heat: HeatList | null, shop: ShoppingPaper | null, playing: Set<string> = new Set(), erasing: Map<string, string | undefined> = new Map()) => {
     // 换掉上一批：从各自的父级摘下来，再释放
     for (const o of [...rig.items, ...rig.papers.map(p => p.mesh), ...rig.magnets.map(m => m.group)]) o.parent?.remove(o);
     scene.remove(contents); contentBin.dispose();
@@ -387,21 +426,44 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
     // 标签、胶带、便利贴、小票：按两倍像素画，凑近看字也清楚
     const ctex = (w: number, h: number, draw: Draw) => canvasTex(cb, w, h, draw, { aniso, scale: 2 });
     rig.pens = [];
-    /** 纸底先画一张不带笔迹的底稿，笔迹每帧叠上去：刚发生的那几笔（playing）从 0 开始写 */
-    const penTex = (w: number, h: number, drawBase: Draw, marks: PenMark[], paper: DoorPaper['key'], door: 'fridge' | 'freezer', duration: number) => {
+    /**
+     * 纸 = 不带笔迹的底稿 + 一层墨。刚发生的那几笔（playing）从 0 开始写；刚撤掉的那几笔（erasing）
+     * 先完整画在墨上，再被橡皮擦掉。橡皮屑落在纸上（墨层底下），擦完淡掉。
+     */
+    const penTex = (w: number, h: number, drawBase: Draw, marks: PenMark[], paper: DoorPaper['key'], door: 'fridge' | 'freezer', writeMs: number) => {
       const base = document.createElement('canvas'); base.width = w * 2; base.height = h * 2;
       const bx = base.getContext('2d')!; bx.scale(2, 2); drawBase(bx, w, h);
+      const ink = document.createElement('canvas'); ink.width = w * 2; ink.height = h * 2;
+      const ix = ink.getContext('2d')!;
       const texture = ctex(w, h, () => {});
       const canvas = texture.image as HTMLCanvasElement, x = canvas.getContext('2d')!;
-      const render = (progress: (key: string) => number) => {
+      const fresh = new Set(marks.filter(mark => playing.has(mark.key)).map(mark => mark.key));
+      const erasers = new Map(marks.filter(mark => erasing.has(mark.key)).map(mark => [mark.key, eraserFor(cr, mark.box)]));
+      const frame = (write: number, erase: number) => {
+        ix.setTransform(1, 0, 0, 1, 0, 0); ix.clearRect(0, 0, ink.width, ink.height); ix.setTransform(2, 0, 0, 2, 0, 0);
+        for (const mark of marks) {
+          const eraser = erasers.get(mark.key);
+          if (eraser && erase >= 1) continue;
+          drawMark(ix, mark, fresh.has(mark.key) ? write : 1);
+          if (eraser) rubOut(ix, eraser, easePen(erase));
+        }
         x.setTransform(1, 0, 0, 1, 0, 0); x.clearRect(0, 0, canvas.width, canvas.height); x.drawImage(base, 0, 0);
-        x.setTransform(2, 0, 0, 2, 0, 0);
-        for (const mark of marks) drawMark(x, mark, progress(mark.key));
+        if (erase > 0 && erase < 1) {
+          x.setTransform(2, 0, 0, 2, 0, 0); x.fillStyle = '#8c8b84';
+          const fade = 1 - clamp01((erase - 0.7) / 0.3);
+          for (const eraser of erasers.values()) for (const c of eraser.crumbs) {
+            if (c.at > erase) continue;
+            x.globalAlpha = 0.55 * fade; x.beginPath(); x.arc(c.x, c.y, c.r, 0, Math.PI * 2); x.fill();
+          }
+          x.globalAlpha = 1; x.setTransform(1, 0, 0, 1, 0, 0);
+        }
+        x.drawImage(ink, 0, 0);
         texture.needsUpdate = true;
       };
-      const fresh = new Set(marks.filter(mark => playing.has(mark.key)).map(mark => mark.key));
-      render(key => fresh.has(key) ? 0 : 1);
-      if (fresh.size) rig.pens.push({ render, keys: fresh, start: performance.now() + PEN_DELAY, duration, paper, door });
+      frame(fresh.size ? 0 : 1, 0);
+      if (fresh.size || erasers.size) {
+        rig.pens.push({ frame, start: performance.now() + PEN_DELAY, writeMs: fresh.size ? writeMs : 0, eraseMs: erasers.size ? ERASE_MS : 0, erasing: erasers.size > 0, paper, door });
+      } else frame(1, 1);
       return texture;
     };
     const part = (g: THREE.BufferGeometry, m: THREE.Material, parent: THREE.Object3D, shadow = true) => {
@@ -545,15 +607,22 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
       // 吃完 / 丢了的那几样：一道墨线划过、字淡下去、右边手写「3 天吃完」——刚吃完的那样一笔一笔写出来
       const measure = document.createElement('canvas').getContext('2d')!;
       receipt.items.forEach((it, i) => {
-        if (!it.gone) return;
+        // 撤销了「吃完」：这一样不再划掉，但上一刻还划着——照原样画出来，再用橡皮擦掉
+        const key = `gone:${it.lotId}`, note = it.gone ?? erasing.get(key);
+        if (!it.gone && !erasing.has(key)) return;
         const size = it.slow ? 21 : 24, y = 218 + (slowAt >= 0 && i >= slowAt ? i + 1 : i) * 44;
         measure.font = `400 ${size}px ${SANS}`;
         const tw = Math.min(W0 - 140, measure.measureText(it.name).width);
         marks.push({
-          key: `gone:${it.lotId}`,
-          veils: [{ x: 20, y: y - size, w: W0 - 40, h: size + 10, color: '#f6f6f2', alpha: 0.55, from: 0.05, to: 0.55 }],
+          key,
+          veils: [
+            { x: 20, y: y - size, w: W0 - 40, h: size + 10, color: '#f6f6f2', alpha: 0.55, from: 0.05, to: 0.55 },
+            // 擦的时候：底稿上已经印回了数量，手写批注下面先垫一块纸色，擦掉批注才露出数量
+            ...(it.gone ? [] : [{ x: W0 - 140, y: y - size, w: 118, h: size + 10, color: '#f6f6f2', alpha: 1, from: 0, to: 0.001 }]),
+          ],
           strokes: [{ pts: penPath(cr, 20, y - 8 + cr() * 2, 32 + tw, y - 8 + cr() * 2, 3 + cr() * 2), width: 2.6, color: INK, from: 0, to: 0.5 }],
-          notes: [{ text: it.gone, x: W0 - 26, y: y + 2, size: 26, color: it.gone.endsWith('丢了') ? '#8f7a68' : INK, from: 0.5, to: 1 }],
+          notes: note ? [{ text: note, x: W0 - 26, y: y + 2, size: 26, color: note.endsWith('丢了') ? '#8f7a68' : INK, from: 0.5, to: 1 }] : [],
+          box: { x: 16, y: y - size - 4, w: W0 - 32, h: size + 14 },
         });
       });
       const paperTex = penTex(W0, texH, (x, w, h) => {
@@ -663,10 +732,12 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
       const INK = '#2e4a5e', marks: PenMark[] = [];
       const measure = document.createElement('canvas').getContext('2d')!; measure.font = `400 31px ${SANS}`;
       shop.lines.forEach((line, i) => {
-        if (!line.checked) return;
+        // 取消打勾：上一刻还勾着——照原样画出来，再用橡皮擦掉
+        if (!line.checked && !erasing.has(`shop:${line.id}`)) return;
         const y = TOP + i * ROW + 34, tw = Math.min(W0 - 90, measure.measureText(line.text).width);
         marks.push({
           key: `shop:${line.id}`,
+          box: { x: 20, y: y - 38, w: tw + 54, h: 46 },
           veils: [{ x: 58, y: y - 32, w: W0 - 70, h: 42, color: '#f6f6f2', alpha: 0.55, from: 0.55, to: 0.95 }],
           strokes: [
             { pts: penPath(cr, 25, y - 15, 34, y - 4, 0, 5), width: 3.4, color: INK, from: 0, to: 0.2 },

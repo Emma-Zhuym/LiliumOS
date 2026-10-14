@@ -167,19 +167,22 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
       invalidate();
     }
 
-    // 上一次贴上去时哪些已经划掉了：这次新划掉的那几行才一笔一笔写（第一次打开厨房不写，直接是划好的样子）
-    let marked: Set<string> | null = null;
+    // 上一次贴上去时哪些已经划掉了（和当时写的批注）：这次新划掉的那几行一笔一笔写，
+    // 这次不再划掉的那几行（取消打勾、撤销吃完）用橡皮擦掉。第一次打开厨房都不动，直接是终态
+    let marked: Map<string, string | undefined> | null = null;
     const fill = () => {
       const { layout: l, reminders: r, receipt: rc, pantry: pt, heat: ht, shop: sp } = contentsRef.current;
-      const crossed = new Set([
-        ...(sp?.lines.filter(line => line.checked).map(line => `shop:${line.id}`) ?? []),
-        ...(rc?.items.filter(item => item.gone).map(item => `gone:${item.lotId}`) ?? []),
+      const crossed = new Map<string, string | undefined>([
+        ...(sp?.lines.filter(line => line.checked).map(line => [`shop:${line.id}`, undefined] as const) ?? []),
+        ...(rc?.items.filter(item => item.gone).map(item => [`gone:${item.lotId}`, item.gone] as const) ?? []),
       ]);
-      const playing = marked && !reduce.matches ? new Set([...crossed].filter(key => !marked!.has(key))) : new Set<string>();
+      const animate = marked && !reduce.matches;
+      const playing = new Set(animate ? [...crossed.keys()].filter(key => !marked!.has(key)) : []);
+      const erasing = new Map(animate ? [...marked!].filter(([key]) => !crossed.has(key)) : []);
       marked = crossed;
-      rig.setContents(l.entries, r, rc, pt, ht, sp, playing);
-      // 换上新纸时轻轻晃一下；正在手写的时候不晃，让人看笔
-      if (!reduce.matches && !playing.size) for (const p of rig.papers) p.v += p.key === 'receipt' ? 1.2 : 0.7;
+      rig.setContents(l.entries, r, rc, pt, ht, sp, playing, erasing);
+      // 换上新纸时轻轻晃一下；正在写 / 擦的时候不晃，让人看笔和橡皮
+      if (!reduce.matches && !playing.size && !erasing.size) for (const p of rig.papers) p.v += p.key === 'receipt' ? 1.2 : 0.7;
       invalidate();
     };
     // 手写字体到了再写字（最多等 2.5 秒），不然胶带和便利贴上是系统字
@@ -260,12 +263,15 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
       }
       camera.position.copy(cam.pos); camera.lookAt(cam.tgt);
       // 手写笔迹：那扇门开着就先等着（纸转到画面外了），关上再写；笔落下去那一下纸轻轻一沉
+      // 橡皮来回擦的时候纸跟着左右蹭
       for (const pen of [...rig.pens]) {
-        if (doors[pen.door].to > 0 || doors[pen.door].a > 0.08) { pen.start = now + PEN_DELAY; pen.render(key => pen.keys.has(key) ? 0 : 1); continue; }
-        const k = Math.max(0, (now - pen.start) / pen.duration);
-        if (k > 0 && !pen.touched) { pen.touched = true; const paper = rig.papers.find(item => item.key === pen.paper); if (paper) paper.v -= 0.35; }
-        pen.render(key => pen.keys.has(key) ? Math.min(1, k) : 1);
-        if (k >= 1) rig.pens.splice(rig.pens.indexOf(pen), 1);
+        if (doors[pen.door].to > 0 || doors[pen.door].a > 0.08) { pen.start = now + PEN_DELAY; pen.frame(0, 0); continue; }
+        const t = Math.max(0, now - pen.start), paper = rig.papers.find(item => item.key === pen.paper);
+        if (t > 0 && !pen.touched) { pen.touched = true; if (paper && pen.writeMs) paper.v -= 0.35; }
+        if (paper && pen.erasing && t > 0 && t < pen.eraseMs && !still) paper.v += Math.sin(t / 34) * 0.12;
+        const write = pen.writeMs ? Math.min(1, t / pen.writeMs) : 1, erase = pen.eraseMs ? Math.min(1, t / pen.eraseMs) : 1;
+        pen.frame(write, erase);
+        if (write >= 1 && erase >= 1) rig.pens.splice(rig.pens.indexOf(pen), 1);
       }
       if (grainSeed) grainSeed.value = (time * 7.3) % 100;
       if (composer) composer.render(); else renderer.render(rig.scene, camera);
