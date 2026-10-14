@@ -159,7 +159,8 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
      */
     // 整屏是竖长画面，宽度先撑满：关门照演示框到冷冻门和整扇冷藏门（地板只在最底下一条，压在纸签后面）
     const SHOTS = fullBleed ? {
-      home: { center: new THREE.Vector3(1.3, 10.4, 0), w: 9.6, h: 12.6, dir: new THREE.Vector3(0.2, 0.08, 1) },
+      // 冰箱放大、右边的柜子只露一截（2026-10-14 阿萌：柜子只是填场景的）
+      home: { center: new THREE.Vector3(0.6, 10.2, 0), w: 8.4, h: 12.6, dir: new THREE.Vector3(0.2, 0.08, 1) },
       fridge: { center: new THREE.Vector3(0.3, 7.6, -1.4), w: 7.8, h: 11.0, dir: new THREE.Vector3(0.14, 0.05, 1) },
       freezer: { center: new THREE.Vector3(0.3, 13.2, -1.4), w: 7.8, h: 6.6, dir: new THREE.Vector3(0.14, 0.03, 1) },
       both: { center: new THREE.Vector3(0.3, 9.4, -1.2), w: 8.0, h: 17.2, dir: new THREE.Vector3(0.14, 0.04, 1) },
