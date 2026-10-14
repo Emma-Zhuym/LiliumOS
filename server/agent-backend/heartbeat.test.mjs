@@ -17,7 +17,7 @@ import {
     ACTIVE_CHAT_WINDOW_MS, buildPrompt, checkGates, speakBlock, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
     BREAK_COOLDOWN_MIN, currentSlot, decideIntent, formatGap, inBreakWindow, upcomingBreakStarts, jitterRatio, lastRealInteractionAt, listModelRuns, messageChance,
     nextRunAt, recordModelRun, shouldCaptureRaw, decideEpisode, episodeChance, isWorkSlot, lifeChance, pickLifeKind, veilSurprise,
-    MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, withPlanTime, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule, unansweredProactive, lastUserSpokeAt, unansweredFactor, reachOutTimeRule, recentOwnMessages, fillMomentComments, DUTY_RULE, PHOTO_HOW, previewWithoutPhotoTags,
+    MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, withPlanTime, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule, unansweredProactive, lastUserSpokeAt, unansweredFactor, reachOutTimeRule, timeProgressRule, shouldSuppressStaleBedtimeMessage, recentOwnMessages, fillMomentComments, DUTY_RULE, PHOTO_HOW, previewWithoutPhotoTags,
 } from './heartbeat.mjs';
 import { chatCompletionsUrl, createApiRunner, extractContentText, parseEpisode, parseHeartbeatOutput, parseLife } from './runner.mjs';
 import { applyThread, closePassedPlans, closeStaleThreads, isPlanDue, isPlanThread, listOpenThreads, listPlans } from './lifeThreads.mjs';
@@ -1790,6 +1790,66 @@ test('不在一个时区：告诉 TA 对方那边几点；同一个时区不多�
     assert.match(prompt, /对方那边现在是 .*下午3:00（America\/Chicago）/);
     const same = buildPrompt({ displayName: '陆时' }, { payload: { timezone: 'America/Chicago' } }, AT, 'live', { userTimezone: 'America/Chicago' });
     assert.doesNotMatch(same, /对方那边现在是/);
+});
+
+test('跨时区过夜：聊天时间同时标两边，明确把昨晚催睡推进到今天', () => {
+    const now = new Date('2026-10-14T12:25:37.234Z'); // 芝加哥早上 7:25，上海晚上 8:25
+    const recentMessages = [
+        { role: 'user', at: '2026-10-14T04:50:48.284Z', text: '睡觉了喵 晚安！' },
+        { role: 'char', at: '2026-10-14T04:51:04.021Z', text: '晚安，小猫。这回真的闭眼了啊。' },
+    ];
+    const snapshot = { payload: { user: { name: '阿萌' }, timezone: 'Asia/Shanghai', recentMessages } };
+    const prompt = buildPrompt({ displayName: '陆时' }, snapshot, now, 'reach_out', { userTimezone: 'America/Chicago' });
+    assert.match(prompt, /你这边 .*；对方那边/);
+    assert.match(prompt, /对方昨晚说睡觉\/晚安的场景已经结束/);
+    assert.match(prompt, /「明天有课」.*已经是今天/);
+    assert.match(timeProgressRule(recentMessages, now, 'Asia\/Shanghai', 'America\/Chicago'), /从现在的时段接着生活/);
+});
+
+test('跨夜催睡保险：拦下第二天的「睡了没」，保留正常的早安回看', () => {
+    const args = {
+        recentMessages: [{ role: 'user', at: '2026-10-14T04:50:48.284Z', text: '睡觉了喵 晚安！' }],
+        now: new Date('2026-10-14T12:25:37.234Z'),
+        userTimezone: 'America/Chicago',
+        characterTimezone: 'Asia/Shanghai',
+    };
+    assert.equal(shouldSuppressStaleBedtimeMessage({ ...args, text: '小猫，睡了没。明天还有课，别闹了。' }), true);
+    assert.equal(shouldSuppressStaleBedtimeMessage({ ...args, text: '乖，睡得好。明天八点的课，闹钟定好了吧。' }), true);
+    assert.equal(shouldSuppressStaleBedtimeMessage({ ...args, text: '早，昨晚睡得好吗？今天第一节几点？' }), false);
+    assert.equal(shouldSuppressStaleBedtimeMessage({ ...args, text: '昨晚没来得及说晚安。早。' }), false);
+    assert.equal(shouldSuppressStaleBedtimeMessage({ ...args, now: new Date('2026-10-15T04:00:00.000Z'), text: '晚安，早点睡。' }), false, '对方当地夜里可以正常道晚安');
+});
+
+test('跨夜催睡保险：明显错时的心跳只记审计，不推到聊天', async () => {
+    const db = freshDb();
+    setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+    const character = seedCharacter(db);
+    seedSnapshot(db, {
+        timezone: 'Asia/Shanghai',
+        userTimezone: 'America/Chicago',
+        recentMessages: [
+            { role: 'user', at: '2026-10-14T04:50:48.284Z', text: '睡觉了喵 晚安！' },
+            { role: 'char', at: '2026-10-14T04:51:04.021Z', text: '晚安，小猫。这回真的闭眼了啊。' },
+        ],
+        lastInteraction: { userAt: '2026-10-14T04:50:48.284Z', charAt: '2026-10-14T04:51:04.021Z' },
+    });
+    const runner = { run: async () => ({
+        ok: true,
+        output: { action: 'message', activity: '看了眼手机', reason: '想起她', text: '小猫，睡了没。明天还有课，别闹了。', urge: 'none' },
+    }) };
+    const delivered = [];
+    const result = await runHandler(db, {
+        runner,
+        job: jobFor(character.heartbeatGeneration, 'stale-bedtime'),
+        now: new Date('2026-10-14T12:25:37.234Z'),
+        rng: () => 0,
+        deliver: async item => delivered.push(item),
+    });
+    assert.equal(result.action, 'noop');
+    assert.equal(delivered.filter(item => item.kind === 'chat_message').length, 0);
+    const run = listModelRuns(db)[0];
+    assert.equal(run.skipGate, 'stale_bedtime_context');
+    assert.equal(run.proposedText, '小猫，睡了没。明天还有课，别闹了。');
 });
 
 test('连发三条没回：整跳走下来不开口，生活照过', async () => {

@@ -936,7 +936,8 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
         const gap = formatGap(lastRealInteractionAt(character, snapshot), now);
         lines.push(
             `${gap ? `你们上次说话是${gap}。下面这些对话发生在那时候，不是刚刚：` : '最近的对话：'}\n`
-            + formatRecentMessages(p.recentMessages, p.timezone),
+            + formatRecentMessages(p.recentMessages, p.timezone, userTimezone)
+            + timeProgressRule(p.recentMessages, now, p.timezone, userTimezone),
         );
     }
     if (unread.length) {
@@ -1227,18 +1228,102 @@ export const reachOutTimeRule = (lastContact, now) => {
         + '想接着上次的话题，就按现在的时间往后推（上次说要考试，现在就问考得怎么样）。';
 };
 
+const localClockParts = (date, timezone) => {
+    try {
+        const parts = new Intl.DateTimeFormat('en-CA', {
+            timeZone: timezone || 'America/Chicago',
+            year: 'numeric', month: '2-digit', day: '2-digit',
+            hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+        }).formatToParts(date);
+        const value = type => parts.find(part => part.type === type)?.value;
+        const hour = Number(value('hour'));
+        const minute = Number(value('minute'));
+        return {
+            dateKey: `${value('year')}-${value('month')}-${value('day')}`,
+            minutes: hour * 60 + minute,
+        };
+    } catch {
+        return {
+            dateKey: date.toISOString().slice(0, 10),
+            minutes: date.getUTCHours() * 60 + date.getUTCMinutes(),
+        };
+    }
+};
+
+const BEDTIME_USER_RE = /(?:晚安|睡觉了|先睡(?:了|啦|觉)?|去睡(?:了|觉)?|准备睡|要睡(?:了|觉)?|困了.{0,8}睡)/i;
+const STALE_BEDTIME_REPLY_RE = /(?:睡了没|睡了吗|还没睡|没睡(?:呢|吧|吗)?|该睡(?:了|觉)?|去睡(?:觉)?|快睡(?:觉)?|早点睡|别熬|闭眼|晚安|明天.{0,16}(?:课|考试|早起))/i;
+
+const lastUserMessage = messages => [...(Array.isArray(messages) ? messages : [])]
+    .reverse()
+    .find(message => message?.role === 'user' && message?.text);
+
+/**
+ * 把跨过夜晚这件事明说出来。仅给「现在几点」还不够：模型会看懂钟，
+ * 却继续沿用昨晚最后一幕里的语气和相对日期（实查连续两天如此）。
+ */
+export const timeProgressRule = (messages, now, characterTimezone, userTimezone = null) => {
+    const timed = (Array.isArray(messages) ? messages : [])
+        .map(message => ({ ...message, parsedAt: Date.parse(message?.at) }))
+        .filter(message => Number.isFinite(message.parsedAt));
+    if (!timed.length) return '';
+    const lastAt = new Date(timed.at(-1).parsedAt);
+    if (now.getTime() - lastAt.getTime() < 60 * 60_000) return '';
+
+    const effectiveUserTimezone = userTimezone || characterTimezone || 'America/Chicago';
+    const lastUser = lastUserMessage(timed);
+    const lastUserAt = lastUser && Number.isFinite(lastUser.parsedAt) ? new Date(lastUser.parsedAt) : lastAt;
+    const lastUserClock = localClockParts(lastUserAt, effectiveUserTimezone);
+    const currentUserClock = localClockParts(now, effectiveUserTimezone);
+    const crossedUserDate = lastUserClock.dateKey !== currentUserClock.dateKey;
+    const userIsAwakeTime = currentUserClock.minutes >= 6 * 60 && currentUserClock.minutes < 20 * 60;
+    const clocks = userTimezone && userTimezone !== characterTimezone
+        ? `上次结束时你这边是 ${formatLocal(lastAt, characterTimezone)}、对方那边是 ${formatLocal(lastAt, userTimezone)}；现在两边分别是 ${formatLocal(now, characterTimezone)}、${formatLocal(now, userTimezone)}。`
+        : `上次结束时是 ${formatLocal(lastAt, effectiveUserTimezone)}，现在是 ${formatLocal(now, effectiveUserTimezone)}。`;
+    let rule = `\n时间推进：${clocks}不要把最后一幕原地续演，要从现在的时段接着生活。`;
+    if (crossedUserDate && userIsAwakeTime && BEDTIME_USER_RE.test(String(lastUser?.text ?? ''))) {
+        rule += ' 对方昨晚说睡觉/晚安的场景已经结束；现在不能再问「睡了没」、催 ta 闭眼、说晚安，'
+            + '也不能把昨晚所说的「明天有课」继续叫作明天——到了早晨那已经是今天。要接这件事，只能从醒来后或今天的进展往前说。';
+    }
+    return rule;
+};
+
+/**
+ * 发送前最后一道便宜保险：不重调模型，只拦下「第二天仍在续演昨晚催睡」的消息。
+ * 提示词负责让大多数输出自然前进；这里负责不把明显错时的话真的推到手机。
+ */
+export const shouldSuppressStaleBedtimeMessage = ({ text, recentMessages, now = new Date(), userTimezone, characterTimezone }) => {
+    if (!STALE_BEDTIME_REPLY_RE.test(String(text ?? ''))) return false;
+    const latestUser = lastUserMessage(recentMessages);
+    if (!latestUser || !BEDTIME_USER_RE.test(String(latestUser.text ?? ''))) return false;
+    const bedtimeAt = new Date(latestUser.at);
+    if (!Number.isFinite(bedtimeAt.getTime()) || now.getTime() - bedtimeAt.getTime() < 4 * 60 * 60_000) return false;
+
+    const timezone = userTimezone || characterTimezone || 'America/Chicago';
+    const then = localClockParts(bedtimeAt, timezone);
+    const current = localClockParts(now, timezone);
+    // 深夜刚跨日仍然可以催睡；天亮以后才把昨晚那幕判为过期。
+    if (then.dateKey === current.dateKey || current.minutes < 6 * 60 || current.minutes >= 20 * 60) return false;
+
+    // 「早，昨晚睡了吗」是在回看昨晚，不是把昨晚当现在；保留这种正常问法。
+    const withoutRetrospective = String(text).replace(/(?:昨晚|昨天晚上).{0,14}(?:睡了没|睡了吗|睡得[^，。！？!?\n]*|晚安)/g, '');
+    return STALE_BEDTIME_REPLY_RE.test(withoutRetrospective);
+};
+
 /**
  * 最近的聊天记录。隔了半小时以上就插一行时间：一百来句跨好几天，
  * 不标时间的话模型会把前天的晚安和今早的早安读成连着说的。
  */
 const TIME_MARK_GAP_MS = 30 * 60_000;
-export const formatRecentMessages = (messages, timezone) => {
+export const formatRecentMessages = (messages, timezone, userTimezone = null) => {
     const out = [];
     let previous = null;
     for (const m of messages) {
         const at = m.at ? Date.parse(m.at) : NaN;
         if (Number.isFinite(at) && (previous === null || at - previous >= TIME_MARK_GAP_MS)) {
-            out.push(`〔${formatLocal(new Date(at), timezone)}〕`);
+            const marker = userTimezone && userTimezone !== timezone
+                ? `你这边 ${formatLocal(new Date(at), timezone)}；对方那边 ${formatLocal(new Date(at), userTimezone)}`
+                : formatLocal(new Date(at), timezone);
+            out.push(`〔${marker}〕`);
         }
         if (Number.isFinite(at)) previous = at;
         out.push(`${m.role === 'user' ? '对方' : '你'}：${m.text}`);
@@ -1479,7 +1564,17 @@ export const createHeartbeatHandler = ({
         ? (({ share: _held, ...rest }) => rest)(lifeDraft)
         : lifeDraft;
     // 转发了就算这一跳开了口：冷却、每日上限照常算。模型另写的那句 message 让位给转发时配的话，只发一条。
-    const output = xhsShare ? { ...modelOutput, action: 'message', text: xhsShare.text } : modelOutput;
+    const candidateOutput = xhsShare ? { ...modelOutput, action: 'message', text: xhsShare.text } : modelOutput;
+    const staleBedtimeContext = candidateOutput.action === 'message' && shouldSuppressStaleBedtimeMessage({
+        text: candidateOutput.text,
+        recentMessages: snapshot.payload?.recentMessages,
+        now: startedAt,
+        userTimezone,
+        characterTimezone: timezone,
+    });
+    const output = staleBedtimeContext
+        ? { ...candidateOutput, action: 'noop', urge: 'none' }
+        : candidateOutput;
     // 发了朋友圈却没写亲友评论：单独再叫一次模型只补评论。大提示词里这个可选字段常被漏掉
     // （9/29 起上下文变长后一条都没有了）。补不上就照原样发，不连累动态本身。
     if (life?.kind === 'moment' && !life.comments?.length) {
@@ -1507,12 +1602,12 @@ export const createHeartbeatHandler = ({
         // 开了口就不再欠着；没开口的「等会儿」留给下一跳兑现。上一跳欠下的，这一跳不能开口时继续欠着。
         urge: output.action === 'message' ? 'none' : (hush && carried ? 'later' : output.urge),
         // 这一跳为什么没开口（审计用）；outcome 不是 skipped，界面不会当成「被拦下」显示。
-        skipGate: hush,
+        skipGate: staleBedtimeContext ? 'stale_bedtime_context' : hush,
         // 不能开口时模型写下的那句也留着，排查时能看到 TA 本来想说什么。
         proposedText: result.output.action === 'message' ? result.output.text : null,
         episode: episode ?? (life ? { life } : null),
         // 抽中了逛小红书却没刷成（退回了朋友圈）：原因留在试跑记录里，排查「怎么从来不刷」时看得到
-        ...(xhsSkipped ? { skipGate: hush || `xhs:${xhsSkipped}`.slice(0, 120) } : {}),
+        ...(xhsSkipped ? { skipGate: (staleBedtimeContext && 'stale_bedtime_context') || hush || `xhs:${xhsSkipped}`.slice(0, 120) } : {}),
     });
 
     // 影子期到此为止：不写 outbox、不推送、不执行工具（设计 4.3 第 9 步）。
