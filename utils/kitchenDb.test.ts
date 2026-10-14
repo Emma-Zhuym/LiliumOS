@@ -398,3 +398,31 @@ describe('要买清单', () => {
     expect(items.find(item => item.name === '鸡蛋')).toMatchObject({ checkedBy: 'hand' });
   });
 });
+
+describe('菜谱和酱汁库', () => {
+  it('存、改、删；删酱汁时菜谱摘掉这一项；跟着备份走', async () => {
+    const sauce = await KitchenDB.saveSauce({ name: '糖醋汁', parts: [{ name: '醋', amount: 3, unit: '大勺' }, { name: '糖', amount: 2, unit: '' }, { name: ' ', amount: 1, unit: '个' }, { name: '番茄酱', amount: 0, unit: '大勺' }] });
+    expect(sauce.parts).toEqual([{ name: '醋', amount: 3, unit: '大勺' }, { name: '糖', amount: 2, unit: '个' }, { name: '番茄酱', amount: null, unit: '适量' }]);
+    const recipe = await KitchenDB.saveRecipe({ name: '糖醋排骨', servings: 2, ingredients: [{ name: '排骨', amount: 500, unit: '克' }], sauces: [{ sauceId: sauce.id, times: 1 }, { sauceId: sauce.id, times: 2 }] });
+    expect(recipe.sauces).toEqual([{ sauceId: sauce.id, times: 1 }]);
+    const again = await KitchenDB.saveRecipe({ ...recipe, servings: 3 });
+    expect(again).toMatchObject({ id: recipe.id, servings: 3, createdAt: recipe.createdAt });
+    await KitchenDB.markRecipeCooked(recipe.id);
+    expect((await KitchenDB.getRecipes())[0].cookedCount).toBe(1);
+    const backup = await KitchenDB.exportAll();
+    expect(backup.recipes).toHaveLength(1);
+    expect(backup.sauces).toHaveLength(1);
+    await KitchenDB.deleteSauce(sauce.id);
+    expect((await KitchenDB.getRecipes())[0].sauces).toEqual([]);
+    await KitchenDB.importAll(backup);
+    expect((await KitchenDB.getRecipes())[0].sauces).toHaveLength(1);
+    await KitchenDB.deleteRecipe(recipe.id);
+    expect(await KitchenDB.getRecipes()).toEqual([]);
+    await expect(KitchenDB.saveRecipe({ name: '空的', servings: 1, ingredients: [], sauces: [] })).rejects.toThrow('至少写一样');
+    await expect(KitchenDB.saveSauce({ name: '', parts: [] })).rejects.toThrow('起个名字');
+  });
+  it('做好的菜放进冰箱记成 prepared', async () => {
+    const { lot } = await KitchenDB.addLot({ name: '糖醋排骨', quantity: 2, unit: 'portion', storageZone: 'fridge', foodState: 'prepared' });
+    expect(lot.foodState).toBe('prepared');
+  });
+});

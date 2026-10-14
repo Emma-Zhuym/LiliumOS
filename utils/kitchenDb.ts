@@ -93,11 +93,49 @@ export interface KitchenShoppingItem {
   boughtBy?: string;
 }
 
+/**
+ * 菜谱和酱汁库（阿萌 2026-10-14 定）：
+ * - 量是「数字 + 单位」，amount 为 null 就是「适量」，不跟着份数缩放。
+ * - 酱汁是单独的库：一份糖醋汁可以挂在好几道菜上，改一处都变；菜谱上照样显示，但做菜时不扣库存
+ *   （酱油醋糖这些本来就是「慢慢吃」的耐放东西）。
+ * - 菜谱的食材做菜时扣库存，先弹核对单。
+ */
+export interface KitchenAmount { name: string; amount: number | null; unit: string }
+export interface KitchenSauce {
+  id: string;
+  name: string;
+  normalizedName: string;
+  parts: KitchenAmount[];
+  note?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+export interface KitchenRecipe {
+  id: string;
+  name: string;
+  normalizedName: string;
+  /** 这份菜谱写的是几人份；看的时候可以调份数，数量按比例算 */
+  servings: number;
+  ingredients: KitchenAmount[];
+  /** 挂的酱汁（引用酱汁库）；times 是放几份这个汁 */
+  sauces: { sauceId: string; times: number }[];
+  steps?: string;
+  note?: string;
+  cookedCount?: number;
+  lastCookedAt?: number;
+  createdAt: number;
+  updatedAt: number;
+}
+export type SaveRecipeInput = Pick<KitchenRecipe, 'name' | 'servings' | 'ingredients' | 'sauces' | 'steps' | 'note'> & { id?: string };
+export type SaveSauceInput = Pick<KitchenSauce, 'name' | 'parts' | 'note'> & { id?: string };
+
 export interface KitchenBackup {
   foods: KitchenFood[];
   lots: KitchenLot[];
   events: KitchenEvent[];
   shopping?: KitchenShoppingItem[];
+  recipes?: KitchenRecipe[];
+  sauces?: KitchenSauce[];
 }
 
 export interface AddKitchenLotInput {
@@ -110,6 +148,8 @@ export interface AddKitchenLotInput {
   purchasedAt?: string;
   expiresAt?: string;
   operationId?: string;
+  /** 做好的菜放进冰箱时是 prepared；不填就是买来的生食材 */
+  foodState?: KitchenLot['foodState'];
 }
 
 export type ChangeKitchenLotInput =
@@ -145,11 +185,13 @@ export interface KitchenOperationResult {
 }
 
 export const KITCHEN_DB_NAME = 'LiliumOS_Kitchen';
-const DB_VERSION = 2;   // 2：要买清单
+const DB_VERSION = 3;   // 2：要买清单；3：菜谱、酱汁库
 const STORE_FOODS = 'foods';
 const STORE_LOTS = 'lots';
 const STORE_EVENTS = 'events';
 const STORE_SHOPPING = 'shopping';
+const STORE_RECIPES = 'recipes';
+const STORE_SAUCES = 'sauces';
 const CONTENT_EPSILON = 0.000001;
 
 export const hasKitchenEventChange = (event: KitchenEvent): boolean =>
@@ -187,6 +229,8 @@ function openKitchenDB(): Promise<IDBDatabase> {
         events.createIndex('occurredAt', 'occurredAt', { unique: false });
       }
       if (!db.objectStoreNames.contains(STORE_SHOPPING)) db.createObjectStore(STORE_SHOPPING, { keyPath: 'id' });
+      if (!db.objectStoreNames.contains(STORE_RECIPES)) db.createObjectStore(STORE_RECIPES, { keyPath: 'id' });
+      if (!db.objectStoreNames.contains(STORE_SAUCES)) db.createObjectStore(STORE_SAUCES, { keyPath: 'id' });
     };
   });
 }
@@ -291,7 +335,7 @@ async function addLot(input: AddKitchenLotInput): Promise<KitchenOperationResult
       unit: input.unit,
       storageZone: input.storageZone,
       packageState: 'sealed',
-      foodState: 'raw',
+      foodState: input.foodState ?? 'raw',
       trackingMode: input.trackingMode ?? 'count',
       packageSize: input.packageSize?.trim() || undefined,
       purchasedAt: input.purchasedAt,
@@ -714,13 +758,15 @@ async function undoLatest(operationId = makeId('op')): Promise<KitchenOperationR
 }
 
 async function exportAll(): Promise<KitchenBackup> {
-  const [foods, lots, events, shopping] = await Promise.all([
+  const [foods, lots, events, shopping, recipes, sauces] = await Promise.all([
     getAll<KitchenFood>(STORE_FOODS),
     getAll<KitchenLot>(STORE_LOTS),
     getAll<KitchenEvent>(STORE_EVENTS),
     getAll<KitchenShoppingItem>(STORE_SHOPPING),
+    getAll<KitchenRecipe>(STORE_RECIPES),
+    getAll<KitchenSauce>(STORE_SAUCES),
   ]);
-  return { foods, lots, events, shopping };
+  return { foods, lots, events, shopping, recipes, sauces };
 }
 
 async function importAll(data: Partial<KitchenBackup>): Promise<void> {
@@ -731,6 +777,8 @@ async function importAll(data: Partial<KitchenBackup>): Promise<void> {
       data.lots !== undefined ? STORE_LOTS : null,
       data.events !== undefined ? STORE_EVENTS : null,
       data.shopping !== undefined ? STORE_SHOPPING : null,
+      data.recipes !== undefined ? STORE_RECIPES : null,
+      data.sauces !== undefined ? STORE_SAUCES : null,
     ].filter((store): store is string => store !== null);
     if (selectedStores.length === 0) return;
 
@@ -740,6 +788,8 @@ async function importAll(data: Partial<KitchenBackup>): Promise<void> {
     for (const lot of data.lots ?? []) transaction.objectStore(STORE_LOTS).put(lot);
     for (const event of data.events ?? []) transaction.objectStore(STORE_EVENTS).put(event);
     for (const item of data.shopping ?? []) transaction.objectStore(STORE_SHOPPING).put(item);
+    for (const recipe of data.recipes ?? []) transaction.objectStore(STORE_RECIPES).put(recipe);
+    for (const sauce of data.sauces ?? []) transaction.objectStore(STORE_SAUCES).put(sauce);
     await transactionDone(transaction);
   } finally {
     db.close();
@@ -820,6 +870,92 @@ async function markShoppingBought(added: { name: string; operationId: string }[]
   return count;
 }
 
+/* ── 菜谱、酱汁库 ── */
+
+/** 一行量：名字去空格，数量只认正数（不是正数就当「适量」），单位去空格、空的写「适量」 */
+const cleanAmounts = (rows: KitchenAmount[]): KitchenAmount[] => rows
+  .map(row => ({
+    name: row.name.trim().replace(/\s+/g, ' ').slice(0, 60),
+    amount: typeof row.amount === 'number' && Number.isFinite(row.amount) && row.amount > 0 ? row.amount : null,
+    unit: row.unit.trim().slice(0, 12),
+  }))
+  .filter(row => row.name)
+  .map(row => ({ ...row, unit: row.amount === null ? '适量' : row.unit || '个' }));
+
+async function writeStore(store: string, work: (objects: IDBObjectStore, transaction: IDBTransaction) => Promise<void>, also: string[] = []): Promise<void> {
+  const db = await openKitchenDB();
+  try {
+    const transaction = db.transaction([store, ...also], 'readwrite');
+    await work(transaction.objectStore(store), transaction);
+    await transactionDone(transaction);
+  } finally {
+    db.close();
+  }
+}
+
+async function saveSauce(input: SaveSauceInput): Promise<KitchenSauce> {
+  const name = input.name.trim().replace(/\s+/g, ' ').slice(0, 40);
+  if (!name) throw new Error('给这个酱汁起个名字');
+  const parts = cleanAmounts(input.parts);
+  if (!parts.length) throw new Error('酱汁里至少写一样调料');
+  let saved!: KitchenSauce;
+  await writeStore(STORE_SAUCES, async store => {
+    const now = Date.now();
+    const old = input.id ? await requestValue(store.get(input.id)) as KitchenSauce | undefined : undefined;
+    saved = { id: old?.id ?? makeId('sauce'), name, normalizedName: normalizeName(name), parts, note: input.note?.trim() || undefined, createdAt: old?.createdAt ?? now, updatedAt: now };
+    store.put(saved);
+  });
+  return saved;
+}
+
+/** 删酱汁：挂着它的菜谱一起摘掉这一项，菜谱本身不动 */
+async function deleteSauce(id: string): Promise<void> {
+  await writeStore(STORE_SAUCES, async (store, transaction) => {
+    store.delete(id);
+    const recipes = transaction.objectStore(STORE_RECIPES);
+    for (const recipe of await requestValue(recipes.getAll()) as KitchenRecipe[]) {
+      if (!recipe.sauces.some(item => item.sauceId === id)) continue;
+      recipes.put({ ...recipe, sauces: recipe.sauces.filter(item => item.sauceId !== id), updatedAt: Date.now() });
+    }
+  }, [STORE_RECIPES]);
+}
+
+async function saveRecipe(input: SaveRecipeInput): Promise<KitchenRecipe> {
+  const name = input.name.trim().replace(/\s+/g, ' ').slice(0, 60);
+  if (!name) throw new Error('给这道菜起个名字');
+  const servings = Number.isFinite(input.servings) && input.servings > 0 ? Math.min(20, input.servings) : 1;
+  const ingredients = cleanAmounts(input.ingredients);
+  const sauces = input.sauces.filter((item, i, all) => item.sauceId && all.findIndex(other => other.sauceId === item.sauceId) === i)
+    .map(item => ({ sauceId: item.sauceId, times: Number.isFinite(item.times) && item.times > 0 ? item.times : 1 }));
+  if (!ingredients.length && !sauces.length) throw new Error('至少写一样食材或挂一个酱汁');
+  let saved!: KitchenRecipe;
+  await writeStore(STORE_RECIPES, async store => {
+    const now = Date.now();
+    const old = input.id ? await requestValue(store.get(input.id)) as KitchenRecipe | undefined : undefined;
+    saved = {
+      id: old?.id ?? makeId('recipe'), name, normalizedName: normalizeName(name), servings, ingredients, sauces,
+      steps: input.steps?.trim() || undefined, note: input.note?.trim() || undefined,
+      cookedCount: old?.cookedCount, lastCookedAt: old?.lastCookedAt, createdAt: old?.createdAt ?? now, updatedAt: now,
+    };
+    store.put(saved);
+  });
+  return saved;
+}
+
+async function deleteRecipe(id: string): Promise<void> {
+  await writeStore(STORE_RECIPES, async store => { store.delete(id); });
+}
+
+/** 做了一次：记次数和日子（扣食材、放进冰箱走库存账本那边，各自一笔） */
+async function markRecipeCooked(id: string): Promise<void> {
+  await writeStore(STORE_RECIPES, async store => {
+    const recipe = await requestValue(store.get(id)) as KitchenRecipe | undefined;
+    if (!recipe) return;
+    const now = Date.now();
+    store.put({ ...recipe, cookedCount: (recipe.cookedCount ?? 0) + 1, lastCookedAt: now, updatedAt: now });
+  });
+}
+
 export const KitchenDB = {
   addLot,
   changeLot,
@@ -834,6 +970,13 @@ export const KitchenDB = {
   getEvents: async () => (await getAll<KitchenEvent>(STORE_EVENTS))
     .sort((a, b) => a.occurredAt - b.occurredAt || a.id.localeCompare(b.id)),
   getShopping: () => getAll<KitchenShoppingItem>(STORE_SHOPPING),
+  getRecipes: () => getAll<KitchenRecipe>(STORE_RECIPES),
+  getSauces: () => getAll<KitchenSauce>(STORE_SAUCES),
+  saveRecipe,
+  deleteRecipe,
+  markRecipeCooked,
+  saveSauce,
+  deleteSauce,
   addShopping,
   toggleShopping,
   removeShopping,

@@ -4280,6 +4280,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                           emKitchenLots: kitchen.lots,
                           emKitchenEvents: kitchen.events,
                           emKitchenShopping: kitchen.shopping,
+                          emKitchenRecipes: kitchen.recipes,
+                          emKitchenSauces: kitchen.sauces,
                       };
                   } catch (error) {
                       console.warn('EM KitchenDB backup failed:', error);
@@ -5263,6 +5265,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               || data.emKitchenLots !== undefined
               || data.emKitchenEvents !== undefined
               || data.emKitchenShopping !== undefined
+              || data.emKitchenRecipes !== undefined
+              || data.emKitchenSauces !== undefined
           ) {
               try {
                   const { KitchenDB } = await import('../utils/kitchenDb');
@@ -5271,6 +5275,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                       lots: data.emKitchenLots,
                       events: data.emKitchenEvents,
                       shopping: data.emKitchenShopping,
+                      recipes: data.emKitchenRecipes,
+                      sauces: data.emKitchenSauces,
                   });
               } catch (e) { console.warn('EM KitchenDB restore failed:', e); }
           }
