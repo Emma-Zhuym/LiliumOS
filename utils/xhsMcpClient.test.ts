@@ -255,7 +255,8 @@ describe('Spider v3 hidden client patch', () => {
             { loadAllComments: true },
         );
 
-        expect(fetchMock).toHaveBeenCalledTimes(3);
+        // 第二次详情读取命中短时缓存：既不重抓详情，也不会绕过已经写入结果的 406 熔断标记。
+        expect(fetchMock).toHaveBeenCalledTimes(2);
         expect(first.data.data.comments_error.code).toBe('SPIDER_V3_CIRCUIT_OPEN');
         expect(second.data.data.comments_error.code).toBe('SPIDER_V3_CIRCUIT_OPEN');
         expect(JSON.parse(localStorage.getItem(XHS_SPIDER_V3_EXPERIMENT.circuitKey) || '{}')).toMatchObject({

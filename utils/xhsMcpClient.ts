@@ -284,6 +284,53 @@ let mcpInitialized = false;
 let mcpInitPromise: Promise<void> | null = null;
 let mcpDiscoveredTools: { name: string; description?: string }[] = [];
 
+// [EM-START: xhs-detail-dedupe]
+// 打开一篇笔记是重量级操作：mini 上的 MCP 会真的启动浏览器，同一篇并发读两次不仅
+// 多耗一份时间，第二个浏览器还会和第一个争资源，实测会从约 19 秒拖到 40 秒以上。
+// 所有前端调用（分享卡、角色工具、自由漫游）共用这里的在途请求和短时成功缓存。
+export const XHS_DETAIL_CACHE_TTL_MS = 10 * 60 * 1000;
+const XHS_DETAIL_CACHE_MAX_ENTRIES = 64;
+const xhsDetailInFlight = new Map<string, Promise<McpToolResult>>();
+const xhsDetailCache = new Map<string, { expiresAt: number; result: McpToolResult }>();
+let xhsDetailCacheGeneration = 0;
+
+const xhsDetailCacheKey = (
+    serverUrl: string,
+    feedId: string,
+    loadAllComments: boolean,
+): string => {
+    const mode = detectMode(serverUrl);
+    // 自托管 MCP 当前不接受 load_all_comments，因此两种调用本质是同一趟；Bridge
+    // 则确实会因该选项返回不同深度的评论，必须拆成两个缓存键。
+    const commentMode = mode === 'bridge' && loadAllComments ? 'all-comments' : 'fast';
+    return `${serverUrl.trim().replace(/\/+$/, '')}|${feedId}|${commentMode}`;
+};
+
+const rememberXhsDetail = (key: string, result: McpToolResult): void => {
+    if (!result.success || result.data == null) return;
+    xhsDetailCache.delete(key);
+    xhsDetailCache.set(key, { expiresAt: Date.now() + XHS_DETAIL_CACHE_TTL_MS, result });
+    while (xhsDetailCache.size > XHS_DETAIL_CACHE_MAX_ENTRIES) {
+        const oldestKey = xhsDetailCache.keys().next().value;
+        if (oldestKey === undefined) break;
+        xhsDetailCache.delete(oldestKey);
+    }
+};
+
+const readCachedXhsDetail = (key: string): McpToolResult | null => {
+    const cached = xhsDetailCache.get(key);
+    if (!cached) return null;
+    if (cached.expiresAt <= Date.now()) {
+        xhsDetailCache.delete(key);
+        return null;
+    }
+    // 触碰后移到 Map 尾部，容量淘汰时保留最近使用的笔记。
+    xhsDetailCache.delete(key);
+    xhsDetailCache.set(key, cached);
+    return cached.result;
+};
+// [EM-END: xhs-detail-dedupe]
+
 const TOOL_NAME_ALIASES: Record<string, string[]> = {
     'check_login':     ['check_login', 'checkLogin', 'check_login_status', 'checkLoginStatus'],
     'search':          ['search', 'search_notes', 'searchNotes', 'search_feeds', 'searchFeeds'],
@@ -620,10 +667,20 @@ export const XhsMcpClient = {
         mcpDiscoveredTools = [];
     },
 
+    // 设置、登录或测试需要显式强制重读时使用；不会中止已经发出的浏览器任务。
+    clearDetailCache: () => {
+        xhsDetailCacheGeneration += 1;
+        xhsDetailCache.clear();
+        xhsDetailInFlight.clear();
+    },
+
     // [EM-START: xhs-mini-mcp] 自托管 MCP 的 Bearer 令牌；换了令牌就重新握手
     setAuthToken: (token?: string) => {
         const next = (token || '').trim();
-        if (next !== mcpAuthToken) XhsMcpClient.resetSession();
+        if (next !== mcpAuthToken) {
+            XhsMcpClient.resetSession();
+            XhsMcpClient.clearDetailCache();
+        }
         mcpAuthToken = next;
     },
     // [EM-END: xhs-mini-mcp]
@@ -631,7 +688,10 @@ export const XhsMcpClient = {
     // Lite Worker auth: register the XHS cookie used for x-xhs-cookie header.
     setCookie: (cookie?: string) => {
         const nextCookie = cookie || '';
-        if (nextCookie !== liteCookie) litePlatform = 'auto';
+        if (nextCookie !== liteCookie) {
+            litePlatform = 'auto';
+            XhsMcpClient.clearDetailCache();
+        }
         liteCookie = nextCookie;
     },
 
@@ -754,7 +814,7 @@ export const XhsMcpClient = {
             : mcpCallTool(serverUrl, 'get_recommend');
     },
 
-    getNoteDetail: async (serverUrl: string, noteUrl: string, xsecToken?: string, options?: { loadAllComments?: boolean; xsecSource?: string }): Promise<McpToolResult> => {
+    getNoteDetail: (serverUrl: string, noteUrl: string, xsecToken?: string, options?: { loadAllComments?: boolean; xsecSource?: string }): Promise<McpToolResult> => {
         const feedId = extractNoteIdFromUrl(noteUrl);
         const token = xsecToken || extractXsecTokenFromUrl(noteUrl) || '';
         const loadAllComments = !!options?.loadAllComments;
@@ -763,22 +823,46 @@ export const XhsMcpClient = {
             xsecSource = new URL(noteUrl).searchParams.get('xsec_source') || xsecSource;
         } catch { /* keep the share-link default */ }
 
-        if (detectMode(serverUrl) === 'bridge') {
-            return bridgePost(serverUrl, 'get-feed-detail', {
-                feed_id: feedId, xsec_token: token,
-                xsec_source: xsecSource,
-                load_all_comments: loadAllComments,
-                click_more_replies: loadAllComments,
-            });
-        }
-        const args: Record<string, any> = { url: noteUrl };
-        if (xsecToken) args.xsec_token = xsecToken;
-        // [EM-START: xhs-detail-fast]
-        // 自托管 xiaohongshu-mcp 不传 load_all_comments 时只取前 10 条一级评论、不开浏览器滚动；
-        // 一开就要滚评论区 + 展开二级回复，一篇 40–85 秒。角色回应笔记，看十条主评论足够。
-        void loadAllComments;
-        // [EM-END: xhs-detail-fast]
-        return mcpCallTool(serverUrl, 'get_note_detail', args);
+        // [EM-START: xhs-detail-dedupe]
+        const cacheKey = xhsDetailCacheKey(serverUrl, feedId, loadAllComments);
+        const cached = readCachedXhsDetail(cacheKey);
+        if (cached) return Promise.resolve(cached);
+        const pending = xhsDetailInFlight.get(cacheKey);
+        if (pending) return pending;
+
+        const cacheGeneration = xhsDetailCacheGeneration;
+        let request!: Promise<McpToolResult>;
+        request = (async () => {
+            try {
+                let result: McpToolResult;
+                if (detectMode(serverUrl) === 'bridge') {
+                    result = await bridgePost(serverUrl, 'get-feed-detail', {
+                        feed_id: feedId, xsec_token: token,
+                        xsec_source: xsecSource,
+                        load_all_comments: loadAllComments,
+                        click_more_replies: loadAllComments,
+                    });
+                } else {
+                    const args: Record<string, any> = { url: noteUrl };
+                    if (xsecToken) args.xsec_token = xsecToken;
+                    // [EM-START: xhs-detail-fast]
+                    // 自托管 xiaohongshu-mcp 不传 load_all_comments 时只取前 10 条一级评论、不开浏览器滚动；
+                    // 一开就要滚评论区 + 展开二级回复，一篇 40–85 秒。角色回应笔记，看十条主评论足够。
+                    void loadAllComments;
+                    // [EM-END: xhs-detail-fast]
+                    result = await mcpCallTool(serverUrl, 'get_note_detail', args);
+                }
+                // 登录凭证在读取途中被换掉时，旧请求可以自然收尾，但不能把旧账号的结果
+                // 再塞回刚清空的新缓存。
+                if (cacheGeneration === xhsDetailCacheGeneration) rememberXhsDetail(cacheKey, result);
+                return result;
+            } finally {
+                if (xhsDetailInFlight.get(cacheKey) === request) xhsDetailInFlight.delete(cacheKey);
+            }
+        })();
+        xhsDetailInFlight.set(cacheKey, request);
+        return request;
+        // [EM-END: xhs-detail-dedupe]
     },
 
     publishNote: async (serverUrl: string, params: {

@@ -90,8 +90,9 @@ Ombre-Brain、Haven-Ombre、Serein、Latent-memory 都是 Python 自部署服务
   - **桥已经做好、mini 上已登录（2026-10-08）**：`server/bilibili-mcp/`，Funnel 地址 `/bili/mcp`，设置里当普通 MCP 服务器加就能在聊天里用。②聊天里发链接自动读字幕 2026-10-14 已做（见 changelog）；还没做的是 ①心跳自己逛。
   - 没装本地 ASR（mini 上 CPU 验证没过），没有字幕 / AI 字幕的视频读不到正文。
   - 备选：`adoresever/bilibili-mcp`（Python，27 个工具，字幕/弹幕/评论但也带发动态、上传、私信，权限太大，不优先）。
-- **小红书 mini MCP 提速**（2026-10-08，已查代码）—— 慢的是评论滚动：上游 `get_feed_detail` 默认只取前 10 条一级评论、不滚动，开了 `load_all_comments` 才会开浏览器滚（还带 `click_more_replies` 展开二级回复）。**我们的 `utils/agenticTools.ts:628/644`（读笔记）和 `utils/xhsFreeRoam.ts:321` 都写死了 `loadAllComments: true`**，转发小红书那 40–85 秒多半就是它。
-  - 最便宜的改法：默认不传（前 10 条够角色回应），或者传 `load_all_comments:true` 但加 `limit`（如 10）、关掉 `click_more_replies`；真需要更多评论再按需拉。
+- **小红书 mini MCP 提速**（2026-10-14 已做第一层）—— 自托管 MCP 已不再传 `load_all_comments`，只取前 10 条一级评论；10-14 实测一篇新笔记第一趟仍约 19 秒，因为 `get_feed_detail` 本身就要真开浏览器。此前同篇 7 秒内又开第二趟会争资源拖到约 42 秒。
+  - 已做：所有前端详情调用共用同篇在途请求和 10 分钟成功缓存；聊天输入框识别到分享文案后提前预读；短链展开也去重；手动 / 自动回复都等卡片补完正文再开口。
+  - 仍可做：若手机实测仍嫌首次十几到二十秒太久，再给 mini 服务加一个只取标题、正文、封面、作者和互动数的快速元数据入口，不碰评论区；这会是下一层、需要单独看上游能否稳定拿到页面初始数据。
   - 心跳那边（`server/agent-backend/xhsFeed.mjs`）本来就没开滚动，不受影响。
   - 更狠的路线：`jobsonlook/xhs-mcp`（JS 逆向 x-s/x-t，直接请求接口、不开浏览器，516★，但没有开源协议声明、逆向签名容易随小红书改版失效、封号风险也更高），先不考虑；`aicu-icu/xhs-mcp-server` 需要浏览器扩展常开，不适合 mini 常驻。
 
