@@ -37,12 +37,16 @@ export const convertAmount = (amount: number, from: string, to: string): number 
   return label(from) === label(to) ? amount : null;
 };
 
-/** 家里能拿来做这一样的批次：名字对得上（「牛奶」对「有机全脂牛奶」），还有的，先过期的先用 */
+/**
+ * 家里能拿来做这一样的批次：名字对得上（「牛奶」对「有机全脂牛奶」，「番茄」不对「番茄酱」），还有的。
+ * 名字一模一样的先用，再按先过期的先用。
+ */
 export const matchLots = (name: string, lots: KitchenLot[], foods: KitchenFood[]): KitchenLot[] => {
   const names = new Map(foods.map(food => [food.id, food.name]));
+  const exact = (lot: KitchenLot) => (names.get(lot.foodId) ?? '').trim() === name.trim() ? 0 : 1;
   return lots
     .filter(lot => lot.quantity > 0 && lot.storageZone !== 'staging' && shoppingMatches(name, names.get(lot.foodId) ?? ''))
-    .sort((a, b) => (a.expiresAt ?? '9999').localeCompare(b.expiresAt ?? '9999') || a.createdAt - b.createdAt);
+    .sort((a, b) => exact(a) - exact(b) || (a.expiresAt ?? '9999').localeCompare(b.expiresAt ?? '9999') || a.createdAt - b.createdAt);
 };
 
 export type StockStatus = 'enough' | 'short' | 'missing' | 'unknown';

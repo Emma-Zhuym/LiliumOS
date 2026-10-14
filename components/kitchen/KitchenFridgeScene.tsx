@@ -27,6 +27,13 @@ interface Props {
 }
 
 type Zone = 'fridge' | 'freezer';
+
+/**
+ * 上一次贴在门上的样子（哪些划掉了、有哪些批次），离开首页再回来也记着：
+ * 在操作记录页撤销「吃完」、在清单页放进东西，回到冰箱前笔和橡皮、纸签照样补上。
+ * 只活在这一次打开的页面里，刷新后第一次进厨房不播（2026-10-14 重审）。
+ */
+const doorMemory: { marked: Map<string, string | undefined> | null; knownLots: Set<string> | null } = { marked: null, knownLots: null };
 const OPEN = THREE.MathUtils.degToRad(104);
 const CRISPER_OUT = 2.3;
 
@@ -172,17 +179,16 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
 
     // 上一次贴上去时哪些已经划掉了（和当时写的批注）：这次新划掉的那几行一笔一笔写，
     // 这次不再划掉的那几行（取消打勾、撤销吃完）用橡皮擦掉。第一次打开厨房都不动，直接是终态
-    let marked: Map<string, string | undefined> | null = null;
     const fill = () => {
       const { layout: l, reminders: r, receipt: rc, pantry: pt, heat: ht, shop: sp } = contentsRef.current;
       const crossed = new Map<string, string | undefined>([
         ...(sp?.lines.filter(line => line.checked).map(line => [`shop:${line.id}`, undefined] as const) ?? []),
         ...(rc?.items.filter(item => item.gone).map(item => [`gone:${item.lotId}`, item.gone] as const) ?? []),
       ]);
-      const animate = marked && !reduce.matches;
-      const playing = new Set(animate ? [...crossed.keys()].filter(key => !marked!.has(key)) : []);
-      const erasing = new Map(animate ? [...marked!].filter(([key]) => !crossed.has(key)) : []);
-      marked = crossed;
+      const marked = doorMemory.marked, animate = marked && !reduce.matches;
+      const playing = new Set(animate ? [...crossed.keys()].filter(key => !marked.has(key)) : []);
+      const erasing = new Map(animate ? [...marked].filter(([key]) => !crossed.has(key)) : []);
+      doorMemory.marked = crossed;
       rig.setContents(l.entries, r, rc, pt, ht, sp, playing, erasing);
       launchTags();
       // 换上新纸时轻轻晃一下；正在写 / 擦的时候不晃，让人看笔和橡皮
@@ -210,13 +216,13 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
     const flights: Flight[] = [];
     const peekClose: Record<Zone, number> = { fridge: 0, freezer: 0 };
     const PEEK = 0.26, TAG_DELAY = 420, TAG_MS = 760;
-    let knownLots: Set<string> | null = null;
     const launchTags = () => {
       const { lots: allLots, foods: allFoods } = lotsRef.current;
       const ids = new Set(allLots.map(lot => lot.id));
+      const knownLots = doorMemory.knownLots;
       if (knownLots && !reduce.matches) {
         const names = new Map(allFoods.map(food => [food.id, food.name]));
-        const fresh = allLots.filter(lot => !knownLots!.has(lot.id) && lot.quantity > 0 && lot.storageZone !== 'staging' && Date.now() - lot.createdAt < 60_000)
+        const fresh = allLots.filter(lot => !knownLots.has(lot.id) && lot.quantity > 0 && lot.storageZone !== 'staging' && Date.now() - lot.createdAt < 60_000)
           .sort((a, b) => a.createdAt - b.createdAt).slice(0, 6);
         fresh.forEach((lot, i) => {
           const zone = lot.storageZone as Flight['zone'];
@@ -226,7 +232,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
             from: new THREE.Vector3(), ctrl: new THREE.Vector3(), to: new THREE.Vector3(), peeked: false });
         });
       }
-      knownLots = ids;
+      doorMemory.knownLots = ids;
     };
     const dropFlight = (flight: Flight) => {
       rig.scene.remove(flight.mesh); flight.dispose();
@@ -317,11 +323,13 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
       fill: () => { void fontsReady.then(() => { if (!disposed) fill(); }); },
     };
 
+    const penWaiting = (pen: KitchenRig['pens'][number]) => doors[pen.door].to > 0 && doors[pen.door].a > 0.08;
     const settled = () => (['fridge', 'freezer'] as const).every(z => Math.abs(doors[z].v) < 2e-3 && Math.abs(doors[z].a - doors[z].to) < 2e-3)
       && Math.abs(crisper.v) < 2e-3 && Math.abs(crisper.z - crisper.to) < 2e-3
       && rig.papers.every(p => Math.abs(p.v) < 2e-3 && Math.abs(p.s) < 2e-3 && Math.abs(p.liftV) < 2e-3 && Math.abs(p.lift - p.liftTo) < 2e-3)
       && rig.magnets.every(m => Math.abs(m.v) < 2e-3 && Math.abs(m.z - m.to) < 2e-3 && !m.released)
-      && cam.k >= 1 && performance.now() > flickerUntil && rig.pens.length === 0
+      // 等门关上的笔不算在动：门开着时它不写，门一关弹簧就会把画面叫醒（不然开着门记「吃完」会一直满帧画）
+      && cam.k >= 1 && performance.now() > flickerUntil && rig.pens.every(penWaiting)
       && flights.length === 0 && !peekClose.fridge && !peekClose.freezer;
 
     let last = performance.now();

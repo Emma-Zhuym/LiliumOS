@@ -41,7 +41,8 @@ const Line: React.FC<{ line: TripLine; when?: string }> = ({ line, when }) => {
 
 /** 一张完整的小票：买回来的（要吃掉的在前、耐放的在「慢慢吃」那段），撕痕下面是到下一次采购之前用掉的 */
 const Receipt: React.FC<{ trip: ShoppingTrip }> = ({ trip }) => {
-  const date = new Date(trip.start);
+  // 拍小票进来的写小票上的日子（没有几点几分）；手动放进的写放进来的时刻
+  const day = trip.boughtOn ?? trip.start, date = new Date(day);
   const eat = trip.bought.filter(line => !line.slow), slow = trip.bought.filter(line => line.slow);
   // 后半截跨好几天：换了一天才写日期
   let lastDay = '';
@@ -49,7 +50,7 @@ const Receipt: React.FC<{ trip: ShoppingTrip }> = ({ trip }) => {
     <div className="kitchen-receipt-paper">
       <header className="kitchen-receipt-head">
         <span><strong>{trip.opening ? '小厨房 · 开张' : '小厨房 · 采购'}</strong><small>NO. {trip.no}</small></span>
-        <time dateTime={date.toISOString()}>{md(trip.start)}<small>{WEEKDAYS[date.getDay()]} {hm(trip.start)}</small></time>
+        <time dateTime={date.toISOString()}>{md(day)}<small>{WEEKDAYS[date.getDay()]}{trip.boughtOn ? '' : ` ${hm(trip.start)}`}</small></time>
       </header>
       {eat.length > 0 && <ul className="kitchen-receipt-lines">
         {eat.map(line => <Line key={line.id} line={line} />)}
@@ -96,14 +97,14 @@ const KitchenHistoryReceipts: React.FC<{ trips: ShoppingTrip[]; onOpenLot: (lotI
       <p className="kitchen-receipts-label"><span>吃完了的小票</span></p>
       <ol className="kitchen-receipts kitchen-receipts--done">
         {done.map(trip => {
-          const expanded = openKeys.has(trip.start), date = new Date(trip.start);
+          const expanded = openKeys.has(trip.start), day = trip.boughtOn ?? trip.start, date = new Date(day);
           const eaten = trip.bought.filter(line => !line.undone && !line.slow), slow = trip.bought.filter(line => !line.undone && line.slow);
           return <li key={trip.start} className={`kitchen-receipt${expanded ? ' is-open' : ''}`}>
             {/* 折起来：一截撕下来的短小票——日期、一小段条形码，那次买的东西划掉了排一行，慢慢吃的淡淡跟在后面 */}
             <button type="button" className="kitchen-receipt-stub" aria-expanded={expanded} onClick={() => toggle(trip.start)}
-              aria-label={`${md(trip.start)} ${trip.opening ? '开张' : '采购'}的小票，${expanded ? '收起' : '展开'}`}>
+              aria-label={`${md(day)} ${trip.opening ? '开张' : '采购'}的小票，${expanded ? '收起' : '展开'}`}>
               <span className="kitchen-receipt-stub-head">
-                <time dateTime={date.toISOString()}>{md(trip.start)}<small>{WEEKDAYS[date.getDay()]}</small></time>
+                <time dateTime={date.toISOString()}>{md(day)}<small>{WEEKDAYS[date.getDay()]}</small></time>
                 {expanded ? <span className="kitchen-receipt-stub-fold">收起</span> : <Barcode code={trip.no} />}
               </span>
               {/* 展开时整张小票就在下面，票根只留日期和「收起」，不重复 */}

@@ -504,8 +504,8 @@ p.kitchen-note { margin: 0; padding: 0; border: 0; background: transparent; colo
 .kitchen-cook-lines > li { display: grid; gap: 6px; padding: 12px 0; border-bottom: 1px solid var(--k-line); }
 .kitchen-cook-lines > li.is-off strong { color: var(--k-faint); }
 .kitchen-cook-check { display: flex; align-items: center; gap: 10px; min-height: 32px; }
-.kitchen-cook-check > input, .kitchen-cook-keep > input { width: 20px; height: 20px; accent-color: var(--k-green-ink); }
+.kitchen-cook-check > input, .kitchen-cook-keep > input, .kitchen-check-line > input { width: 20px; height: 20px; accent-color: var(--k-green-ink); }
 .kitchen-cook-check small { color: var(--k-muted); font-size: 12px; }
 .kitchen-cook-hint { margin: 0 0 0 30px; color: var(--k-faint); font-size: 12px; }
 .kitchen-cook-amount { display: grid; grid-template-columns: minmax(0, 1fr) 84px auto; align-items: center; gap: 8px; margin-left: 30px; color: var(--k-muted); font-size: 12px; }
-.kitchen-cook-keep { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 14px; }
+.kitchen-cook-keep, .kitchen-check-line { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 14px; }

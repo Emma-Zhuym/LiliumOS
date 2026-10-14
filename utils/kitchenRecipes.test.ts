@@ -44,3 +44,21 @@ describe('菜谱算账', () => {
     expect(plan.map(line => [line.lot?.id, line.deduct])).toEqual([['a', 4], ['b', 0.5], ['c', null], [undefined, null]]);
   });
 });
+
+describe('名字配对', () => {
+  it('番茄不算番茄酱；名字一模一样的那批先用', async () => {
+    const { shoppingMatches } = await import('./kitchenDb');
+    const { matchLots } = await import('./kitchenRecipes');
+    expect(shoppingMatches('番茄', '番茄酱')).toBe(false);
+    expect(shoppingMatches('番茄酱', '番茄')).toBe(false);
+    expect(shoppingMatches('鸡蛋', '鸡蛋面')).toBe(false);
+    expect(shoppingMatches('牛肉', '牛肉干')).toBe(false);
+    expect(shoppingMatches('牛奶', '有机全脂牛奶')).toBe(true);
+    expect(shoppingMatches('番茄', '樱桃番茄')).toBe(true);
+    expect(shoppingMatches('牛肉', '牛肉片')).toBe(true);
+    const foods = [food('f1', '樱桃番茄'), food('f2', '番茄'), food('f3', '番茄酱')];
+    const lots = [lot('a', 'f1', { expiresAt: '2026-10-01' }), lot('b', 'f2', { expiresAt: '2026-12-01' }), lot('c', 'f3')];
+    expect(matchLots('番茄', lots, foods).map(item => item.id)).toEqual(['b', 'a']);
+    expect(checkStock({ name: '番茄', amount: 5, unit: '个' }, [lot('c', 'f3', { quantity: 9 })], foods).status).toBe('missing');
+  });
+});

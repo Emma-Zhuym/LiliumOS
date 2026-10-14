@@ -176,17 +176,12 @@ const KitchenApp: React.FC = () => {
       '已经放进小厨房', true);
     withCrossed(crossed);
   };
-  // 拍小票：每一样单独一笔（撤销一次撤一样），operationId 带 receipt_ 前缀，小票分组靠它认出这是买回来的
+  // 拍小票：一张小票一个事务写完、一批撤销；每样的 operationId 带 receipt_ 前缀，小票分组靠它认出这是买回来的
   const addReceipt = async (inputs: AddKitchenLotInput[]) => {
     let crossed = 0;
     const done = await run(async () => {
-      const added = [];
-      for (const input of inputs) {
-        const operationId = makeOperationId('receipt');
-        await KitchenDB.addLot({ ...input, operationId });
-        added.push({ name: input.name, operationId });
-      }
-      crossed = await crossOff(added);
+      const results = await KitchenDB.addLots(inputs.map(input => ({ ...input, operationId: makeOperationId('receipt') })), makeOperationId('receiptbatch'));
+      crossed = await crossOff(results.map(({ event }, i) => ({ name: inputs[i].name, operationId: event.operationId })));
     }, `小票上的 ${inputs.length} 样放好了`, true);
     withCrossed(crossed);
     return done;
@@ -228,18 +223,19 @@ const KitchenApp: React.FC = () => {
     if (attach) { setAttachSauceId((saved as KitchenSauce).id); setNewSauceSheet(false); }
     else setView(sauceBack);
   };
-  /** 做了这道：按核对单从库存扣（每样一笔，记成「做菜用」），做出来的放进冰箱记成做好的菜，菜谱记一次 */
+  /**
+   * 做了这道：按核对单从库存扣（记成「做菜用」）、做出来的放进冰箱记成做好的菜、菜谱记一次——一个事务写完，
+   * 能扣的有扣才给「撤销」（撤销整道菜一起退）
+   */
   const cookRecipe = async (recipe: KitchenRecipe, result: CookResult) => {
     const done = await run(async () => {
-      for (const item of result.deductions) {
-        await KitchenDB.changeLot({ type: 'CONSUME', lotId: item.lotId, amount: item.amount, note: `做${recipe.name}`, operationId: makeOperationId('cook') });
-      }
-      if (result.leftover) {
-        await KitchenDB.addLot({ name: recipe.name, quantity: result.leftover.quantity, unit: 'portion', storageZone: result.leftover.zone, foodState: 'prepared', operationId: makeOperationId('cook') });
-      }
-      await KitchenDB.markRecipeCooked(recipe.id);
-      setRecipes(await KitchenDB.getRecipes());
-    }, `做了${recipe.name}${result.deductions.length ? `，扣了 ${result.deductions.length} 样` : ''}${result.leftover ? '，剩的放进冰箱了' : ''}`, false, false);
+      await KitchenDB.cook({
+        recipeId: recipe.id, note: `做${recipe.name}`, operationId: makeOperationId('cook'),
+        deductions: result.deductions.map(item => ({ lotId: item.lotId, amount: item.amount })),
+        leftover: result.leftover ? { name: recipe.name, quantity: result.leftover.quantity, unit: 'portion', storageZone: result.leftover.zone } : undefined,
+      });
+    }, `做了${recipe.name}${result.deductions.length ? `，扣了 ${result.deductions.length} 样` : ''}${result.leftover ? '，剩的放进冰箱了' : ''}`, false,
+    result.deductions.length > 0 || !!result.leftover);
     if (done) setCooking(false);
   };
   const shopMissing = async (names: string[]) => {

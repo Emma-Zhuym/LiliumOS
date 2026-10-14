@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type { AddKitchenLotInput, KitchenStorageZone, KitchenTrackingMode, KitchenUnit } from '../../utils/kitchenDb';
 import { STORAGE_UNIT_OPTIONS, UNIT_LABELS, ZONE_LABELS } from '../../utils/kitchenPresentation';
+import { looksLikeDish } from '../../utils/kitchenDishNames';
 
 interface Props {
   initialZone: KitchenStorageZone;
@@ -16,15 +17,22 @@ export default function KitchenAddForm({ initialZone, busy, onAdd }: Props) {
   const [trackingMode, setTrackingMode] = useState<KitchenTrackingMode>('count');
   const [packageSize, setPackageSize] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
+  // 「自己做的」：没动过这个勾就跟着名字猜（番茄炖牛腩打上、沙拉酱不打），动过就听人的
+  const [homemade, setHomemade] = useState<boolean | null>(null);
+  const isHomemade = homemade ?? looksLikeDish(name);
 
   return <form className="kitchen-form" onSubmit={event => {
     event.preventDefault();
-    void onAdd({ name, quantity: Number(quantity), unit, storageZone: zone, trackingMode, packageSize, expiresAt });
+    void onAdd({ name, quantity: Number(quantity), unit, storageZone: zone, trackingMode, packageSize, expiresAt, foodState: isHomemade ? 'prepared' : 'raw' });
   }}>
     <p className="kitchen-note">买回来的，慢慢放好。</p>
     <label className="kitchen-label">是什么食物？
       <input className="kitchen-field" aria-label="食物名称" placeholder="例如：鸡蛋、牛奶" value={name}
         required maxLength={120} onChange={event => setName(event.target.value)} disabled={busy} />
+    </label>
+    <label className="kitchen-check-line">
+      <input type="checkbox" aria-label="自己做的菜" checked={isHomemade} disabled={busy} onChange={event => setHomemade(event.target.checked)} />
+      <span>自己做的菜 / 剩菜<small className="kitchen-label-hint">不算买回来的</small></span>
     </label>
     <div className="kitchen-form-row">
       <label className="kitchen-label">有多少

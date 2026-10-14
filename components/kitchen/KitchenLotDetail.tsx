@@ -87,6 +87,7 @@ const KitchenLotDetail: React.FC<KitchenLotDetailProps> = ({
   const [storageZone, setStorageZone] = useState<KitchenStorageZone>(lot.storageZone);
   const [purchasedAt, setPurchasedAt] = useState(lot.purchasedAt ?? '');
   const [expiresAt, setExpiresAt] = useState(lot.expiresAt ?? '');
+  const [homemade, setHomemade] = useState(lot.foodState !== 'raw');
   const [validationError, setValidationError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -96,7 +97,8 @@ const KitchenLotDetail: React.FC<KitchenLotDetailProps> = ({
     setStorageZone(lot.storageZone);
     setPurchasedAt(lot.purchasedAt ?? '');
     setExpiresAt(lot.expiresAt ?? '');
-  }, [food.name, lot.expiresAt, lot.id, lot.packageSize, lot.purchasedAt, lot.storageZone, lot.unit]);
+    setHomemade(lot.foodState !== 'raw');
+  }, [food.name, lot.expiresAt, lot.foodState, lot.id, lot.packageSize, lot.purchasedAt, lot.storageZone, lot.unit]);
 
   const lotEvents = useMemo(
     () => events.filter(event => event.lotId === lot.id && hasKitchenEventChange(event))
@@ -122,6 +124,8 @@ const KitchenLotDetail: React.FC<KitchenLotDetailProps> = ({
       storageZone,
       purchasedAt,
       expiresAt,
+      // 原来是剩菜就还是剩菜，只在「是 / 不是自己做的」改了的时候换
+      foodState: homemade ? (lot.foodState === 'raw' ? 'prepared' : lot.foodState) : 'raw',
     });
   };
 
@@ -210,6 +214,10 @@ const KitchenLotDetail: React.FC<KitchenLotDetailProps> = ({
                 <Field aria-label="到期日期" type="date" value={expiresAt} onChange={event => setExpiresAt(event.target.value)} />
               </label>
             </div>
+            <label className="kitchen-check-line">
+              <input type="checkbox" aria-label="自己做的菜" checked={homemade} onChange={event => setHomemade(event.target.checked)} />
+              <span>自己做的菜 / 剩菜<small className="kitchen-label-hint">不算买回来的</small></span>
+            </label>
           </div>
         </section>
 

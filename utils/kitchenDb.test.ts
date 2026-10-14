@@ -407,7 +407,7 @@ describe('菜谱和酱汁库', () => {
     expect(recipe.sauces).toEqual([{ sauceId: sauce.id, times: 1 }]);
     const again = await KitchenDB.saveRecipe({ ...recipe, servings: 3 });
     expect(again).toMatchObject({ id: recipe.id, servings: 3, createdAt: recipe.createdAt });
-    await KitchenDB.markRecipeCooked(recipe.id);
+    await KitchenDB.cook({ recipeId: recipe.id, deductions: [], note: '做糖醋排骨' });
     expect((await KitchenDB.getRecipes())[0].cookedCount).toBe(1);
     const backup = await KitchenDB.exportAll();
     expect(backup.recipes).toHaveLength(1);
@@ -424,5 +424,95 @@ describe('菜谱和酱汁库', () => {
   it('做好的菜放进冰箱记成 prepared', async () => {
     const { lot } = await KitchenDB.addLot({ name: '糖醋排骨', quantity: 2, unit: 'portion', storageZone: 'fridge', foodState: 'prepared' });
     expect(lot.foodState).toBe('prepared');
+  });
+});
+
+describe('一批一起写、一起撤（重审 2026-10-14）', () => {
+  it('做一道菜：扣食材（同一批扣两次接着扣）、放进剩的、记一次；撤销整道菜退回去', async () => {
+    const egg = (await KitchenDB.addLot({ name: '鸡蛋', quantity: 6, unit: 'item', storageZone: 'fridge' })).lot;
+    const beef = (await KitchenDB.addLot({ name: '牛肉', quantity: 1, unit: 'lb', storageZone: 'freezer' })).lot;
+    const recipe = await KitchenDB.saveRecipe({ name: '番茄炒蛋', servings: 2, ingredients: [{ name: '鸡蛋', amount: 4, unit: '个' }], sauces: [] });
+    await KitchenDB.cook({ recipeId: recipe.id, note: '做番茄炒蛋', operationId: 'cook-1',
+      deductions: [{ lotId: egg.id, amount: 2 }, { lotId: egg.id, amount: 2 }, { lotId: beef.id, amount: 0.5 }],
+      leftover: { name: '番茄炒蛋', quantity: 2, unit: 'portion', storageZone: 'fridge' } });
+    // 重点一次不重复
+    await KitchenDB.cook({ recipeId: recipe.id, note: '做番茄炒蛋', operationId: 'cook-1', deductions: [{ lotId: egg.id, amount: 2 }] });
+    const lots = await KitchenDB.getLots();
+    expect(lots.find(item => item.id === egg.id)!.quantity).toBe(2);
+    expect(lots.find(item => item.id === beef.id)!.quantity).toBe(0.5);
+    const left = lots.find(item => item.foodState === 'prepared')!;
+    expect(left).toMatchObject({ quantity: 2, unit: 'portion' });
+    expect((await KitchenDB.getRecipes())[0].cookedCount).toBe(1);
+
+    await KitchenDB.undoLatest();
+    const after = await KitchenDB.getLots();
+    expect(after.find(item => item.id === egg.id)!.quantity).toBe(6);
+    expect(after.find(item => item.id === beef.id)!.quantity).toBe(1);
+    expect(after.find(item => item.id === left.id)!.quantity).toBe(0);
+    expect((await KitchenDB.getRecipes())[0]).toMatchObject({ cookedCount: 0, lastCookedAt: undefined });
+    // 再撤一次是撤牛肉的放进，不是又撤一遍做菜
+    expect((await KitchenDB.undoLatest())?.lot.id).toBe(beef.id);
+  });
+  it('做菜扣的比剩的多：一笔都不写，菜谱也不记', async () => {
+    const egg = (await KitchenDB.addLot({ name: '鸡蛋', quantity: 3, unit: 'item', storageZone: 'fridge' })).lot;
+    const recipe = await KitchenDB.saveRecipe({ name: '蛋饼', servings: 1, ingredients: [{ name: '鸡蛋', amount: 2, unit: '个' }], sauces: [] });
+    await expect(KitchenDB.cook({ recipeId: recipe.id, note: '做蛋饼', deductions: [{ lotId: egg.id, amount: 2 }, { lotId: egg.id, amount: 2 }] })).rejects.toThrow('剩的多');
+    expect((await KitchenDB.getLots())[0].quantity).toBe(3);
+    expect(await KitchenDB.getEvents()).toHaveLength(1);
+    expect((await KitchenDB.getRecipes())[0].cookedCount).toBeUndefined();
+  });
+  it('拍一张小票：一个事务放进、整张撤销，划掉的要买清单一起取消', async () => {
+    await KitchenDB.addShopping('牛奶');
+    const results = await KitchenDB.addLots([
+      { name: '有机牛奶', quantity: 1, unit: 'item', storageZone: 'fridge', operationId: 'receipt_1' },
+      { name: '香蕉', quantity: 1.2, unit: 'lb', storageZone: 'pantry', operationId: 'receipt_2' },
+    ], 'batch-1');
+    expect(results.map(item => item.event.batchId)).toEqual(['batch-1', 'batch-1']);
+    await KitchenDB.markShoppingBought([{ name: '有机牛奶', operationId: 'receipt_1' }]);
+    expect((await KitchenDB.getShopping())[0].checkedBy).toBe('bought');
+    // 重点一次不重复放
+    await KitchenDB.addLots([{ name: '有机牛奶', quantity: 1, unit: 'item', storageZone: 'fridge', operationId: 'receipt_1' }], 'batch-1');
+    expect(await KitchenDB.getLots()).toHaveLength(2);
+    await KitchenDB.undoLatest();
+    expect((await KitchenDB.getLots()).map(item => item.quantity)).toEqual([0, 0]);
+    expect((await KitchenDB.getShopping())[0].checkedAt).toBeUndefined();
+    expect(await KitchenDB.undoLatest()).toBeNull();
+  });
+  it('有一样数量不对就整批不放', async () => {
+    await expect(KitchenDB.addLots([
+      { name: '牛奶', quantity: 1, unit: 'item', storageZone: 'fridge' },
+      { name: '香蕉', quantity: 0, unit: 'lb', storageZone: 'pantry' },
+    ])).rejects.toThrow('数量');
+    expect(await KitchenDB.getLots()).toEqual([]);
+  });
+  it('小档案里能改「是不是自己做的」', async () => {
+    const { lot } = await KitchenDB.addLot({ name: '咖喱饭', quantity: 1, unit: 'portion', storageZone: 'fridge' });
+    const saved = await KitchenDB.updateLotDetails({ lotId: lot.id, name: '咖喱饭', unit: 'portion', storageZone: 'fridge', foodState: 'prepared' });
+    expect(saved.foodState).toBe('prepared');
+  });
+  it('升到第 4 版：旧数据里名字像菜、不是拍小票来的补成做好的菜', async () => {
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.open(KITCHEN_DB_NAME, 3);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        db.createObjectStore('foods', { keyPath: 'id' }).createIndex('normalizedName', 'normalizedName', { unique: true });
+        const lots = db.createObjectStore('lots', { keyPath: 'id' });
+        lots.createIndex('foodId', 'foodId'); lots.createIndex('storageZone', 'storageZone');
+        const events = db.createObjectStore('events', { keyPath: 'id' });
+        events.createIndex('operationId', 'operationId', { unique: true }); events.createIndex('lotId', 'lotId'); events.createIndex('occurredAt', 'occurredAt');
+        for (const name of ['shopping', 'recipes', 'sauces']) db.createObjectStore(name, { keyPath: 'id' });
+        const food = (id: string, name: string) => ({ id, name, normalizedName: name, defaultUnit: 'item', createdAt: 0, updatedAt: 0 });
+        const lot = (id: string, foodId: string) => ({ id, foodId, quantity: 1, unit: 'item', storageZone: 'fridge', packageState: 'sealed', foodState: 'raw', createdAt: 0, updatedAt: 0 });
+        const add = (id: string, lotId: string, operationId: string) => ({ id, operationId, type: 'ADD', lotId, foodId: '', quantityDelta: 1, quantityBefore: 0, quantityAfter: 1, unit: 'item', occurredAt: 0 });
+        const tx = request.transaction!;
+        [food('f1', '番茄炖牛腩'), food('f2', '沙拉酱'), food('f3', '鸡肉沙拉')].forEach(item => tx.objectStore('foods').put(item));
+        [lot('l1', 'f1'), lot('l2', 'f2'), lot('l3', 'f3')].forEach(item => tx.objectStore('lots').put(item));
+        [add('e1', 'l1', 'add_1'), add('e2', 'l2', 'add_2'), add('e3', 'l3', 'receipt_3')].forEach(item => tx.objectStore('events').put(item));
+      };
+      request.onsuccess = () => { request.result.close(); resolve(); };
+      request.onerror = () => reject(request.error);
+    });
+    const states = Object.fromEntries((await KitchenDB.getLots()).map(item => [item.id, item.foodState]));
+    expect(states).toEqual({ l1: 'prepared', l2: 'raw', l3: 'raw' });
   });
 });

@@ -362,6 +362,15 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - `ScheduleCard.tsx` — 编辑时可手动覆盖状态
 - 三层判断优先级：手动覆盖 > LLM 生成 > 关键词 fallback
 
+### 34. 小厨房（现实食品库存）
+- 详细设计与每次改动见 `docs/kitchen-3d.md`；UI 规则见 `APP_CONVENTIONS.md` 的 P14 与 `utils/kitchenPaperTokens.ts`
+- `utils/kitchenDb.ts` 是唯一能改库存的地方（独立库 `LiliumOS_Kitchen`）：每次改数量记一笔事件、带 operationId 去重；**一起发生的一批（拍一张小票、做一道菜）一个事务写完、同一个 `batchId`，「撤销最近操作」整批撤回**，做菜撤销连「做过几次」一起退
+- 「是不是自己做的菜」只看批次的 `foodState`；`utils/kitchenDishNames.ts` 按名字猜只用来给放进表单预先打勾、给 v4 以前的旧数据补标记，别再在显示时按名字猜（沙拉酱、咖喱块会被当成菜）
+- 名字配对 `shoppingMatches` 只认一个方向（后一个名字更具体），后面接「酱 / 面 / 粉 / 干…」的不算——番茄 ≠ 番茄酱。要买清单自动划掉和菜谱扣库存都用它
+- 小票「慢慢吃」：冷冻的肉鱼虾和名字带肉的熟食（酱牛肉）一律算「要吃掉的」（阿萌 2026-10-14 定：重要冰箱库存），其余按保质期 ≥ 30 天、常温柜或调料名
+- 上游文件只有五处接线（`types.ts` AppID 与备份字段、`constants.tsx`、`PhoneShell.tsx`、`safeAreaApps.ts`、`OSContext.tsx` 备份导出 / 恢复），`check-em-patches.sh` 的「小厨房」那几行钉着
+- 读小票的 API 预设 id 存本机 localStorage（`lilium.kitchen.receiptPresetId`），不进备份
+
 ## 点子和待办往哪写
 
 **新点子只写 `docs/ideas.md`，别再开新清单文档了**（2026-09-25 定，起因是同一批想法散在

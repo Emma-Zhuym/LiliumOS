@@ -8,6 +8,7 @@
 import type { KitchenEvent, KitchenFood, KitchenLot, KitchenShoppingItem } from './kitchenDb';
 import { hasKitchenEventChange, shoppingMatches } from './kitchenDb';
 import { formatEventAmount, formatQuantity } from './kitchenPresentation';
+import { looksLikeDish } from './kitchenDishNames';
 
 export type KitchenLook = 'carton' | 'eggs' | 'bottle' | 'jar' | 'box' | 'produce' | 'tray' | 'bag';
 
@@ -15,8 +16,6 @@ const EGGS = /鸡蛋|鸭蛋|鹌鹑蛋|咸蛋|皮蛋|\beggs?\b/i;
 const CARTON = /牛奶|酸奶|奶油|果汁|橙汁|苹果汁|豆浆|豆奶|燕麦奶|椰奶|\b(milk|juice|yogh?urt|cream)\b/i;
 const BOTTLE = /矿泉水|苏打水|气泡水|可乐|雪碧|汽水|啤酒|饮料|茶饮|\b(water|soda|cola|beer|sprite)\b/i;
 const JAR = /酱|蜂蜜|泡菜|腐乳|榨菜|咸菜|黄油|芝士|奶酪|\b(jam|sauce|kimchi|honey|mayo|butter|cheese|pickles?)\b/i;
-/** 做好的菜：名字里带做法，就算含「番茄」「牛」也不是生食材（番茄炖牛腩、葱油拌面） */
-const DISH = /炖|炒|烧|焖|卤|煮|蒸|煎|炸|烤|拌|汤|粥|饭|面条|拌面|炒面|饺子|包子|馄饨|便当|剩菜|咖喱|沙拉|三明治|\b(stew|soup|curry|leftovers?|salad|sandwich|noodles?|dumplings?)\b/i;
 const MEAT = /肉|鸡|鸭|牛排|排骨|鱼|虾|蟹|贝|扇贝|三文鱼|培根|火腿|香肠|\b(meat|chicken|beef|pork|lamb|steak|fish|shrimp|salmon|bacon|ham|sausage)\b/i;
 
 /** 散装蔬果：名字 → 隔着磨砂看见的那团颜色。顺序有意义，先匹配先用。 */
@@ -29,19 +28,21 @@ const PRODUCE: [RegExp, string][] = [
   [/西兰花|青菜|菠菜|生菜|白菜|油麦菜|黄瓜|青椒|芹菜|葱|香菜|豆角|四季豆|秋葵|西葫芦|牛油果|猕猴桃|青提|\b(broccoli|spinach|lettuce|cabbage|cucumber|celery|scallion|cilantro|bean|zucchini|avocado|kiwi|kale|herb)/i, '#4d7f42'],
 ];
 
-/** 买来的速冻 / 即食半成品（饺子包子馄饨已在 DISH 里）。不写「冷冻」：冷冻牛肉不是热一下就能吃的 */
-const READY = /速冻|披萨|比萨|汤圆|元宵|粽子|烧卖|春卷|鸡块|即食|自热|微波|方便面|泡面|\b(pizza|nuggets?|burritos?|lasagna|ramen|instant|microwave)\b/i;
+/** 买来的速冻 / 即食半成品。不写「冷冻」：冷冻牛肉不是热一下就能吃的 */
+const READY = /速冻|饺子|水饺|包子|馄饨|云吞|汤包|生煎|锅贴|披萨|比萨|汤圆|元宵|粽子|烧卖|春卷|鸡块|即食|自热|微波|方便面|泡面|\b(pizza|nuggets?|burritos?|dumplings?|gyoza|lasagna|ramen|instant|microwave)\b/i;
 
-/** 自己做的菜 / 剩菜：放进冰箱不算买回来的 */
-export const isDish = (name: string, foodState?: KitchenLot['foodState']) =>
-  foodState === 'leftover' || foodState === 'prepared' || DISH.test(name);
+/**
+ * 自己做的菜 / 剩菜：放进冰箱不算买回来的。只看批次上存的 foodState（放进时勾「自己做的」，
+ * 名字只用来预先打勾，见 kitchenDishNames）——2026-10-14 重审前按名字猜，沙拉酱、咖喱块被当成菜。
+ */
+export const isDish = (foodState?: KitchenLot['foodState']) => foodState === 'leftover' || foodState === 'prepared';
 
 export const produceTint = (name: string): string | null => PRODUCE.find(([pattern]) => pattern.test(name))?.[1] ?? null;
 
 export function kitchenLookFor(name: string, lot: Pick<KitchenLot, 'foodState' | 'storageZone' | 'unit'>): KitchenLook {
   // 做好的、吃剩的：不管原来是什么，都装在保鲜盒里
   if (lot.foodState === 'leftover' || lot.foodState === 'prepared') return 'box';
-  if (DISH.test(name)) return lot.storageZone === 'freezer' ? 'bag' : 'box';
+  if (looksLikeDish(name)) return lot.storageZone === 'freezer' ? 'bag' : 'box';
   if (EGGS.test(name)) return 'eggs';
   if (CARTON.test(name)) return 'carton';
   if (BOTTLE.test(name) || lot.unit === 'large_bottle' || lot.unit === 'small_bottle') return 'bottle';
@@ -123,14 +124,20 @@ export interface TripLine {
  * 不能让小票一直挂着「没吃完」。看保质期：买回来时能放 30 天以上就算；没填保质期按名字认，
  * 放常温柜的也算。跟放在哪无关——番茄酱照样在冷藏室。
  */
-const LONG_KEEPING = /酱|调料|调味|香料|蜂蜜|醋|盐|糖|食用油|橄榄油|菜籽油|花生油|芝麻油|香油|蚝油|黄油|大米|糙米|小米|糯米|面粉|挂面|意面|意大利面|罐头|咖啡豆|茶叶|干货|\b(ketchup|mustard|mayo|sauce|vinegar|honey|oil|rice|flour|pasta|spices?|canned)\b/i;
+const CONDIMENT = /(酱|露|油|粉|罐头|干)$/;
+const LONG_KEEPING = /酱|露|调料|调味|香料|蜂蜜|醋|盐|糖|食用油|橄榄油|菜籽油|花生油|芝麻油|香油|蚝油|黄油|大米|糙米|小米|糯米|面粉|挂面|意面|意大利面|罐头|咖啡豆|茶叶|干货|\b(ketchup|mustard|mayo|sauce|vinegar|honey|oil|rice|flour|pasta|spices?|canned)\b/i;
 export const SLOW_DAYS = 30;
 export const isLongKeeping = (name: string, lot: Pick<KitchenLot, 'expiresAt' | 'storageZone'> | undefined, boughtAt: number): boolean => {
+  // 肉鱼虾是每周采购的主力：冻起来能放几个月也算「要吃掉的」（阿萌 2026-10-14 定：重要冰箱库存）；
+  // 酱牛肉这种名字带「酱」的熟食也是。鱼露、虾酱这种结尾是调料的除外
+  const meat = MEAT.test(name) && !CONDIMENT.test(name.trim());
+  if (meat && lot?.storageZone === 'freezer') return false;
   if (lot?.expiresAt) {
     const expiry = new Date(`${lot.expiresAt.slice(0, 10)}T12:00:00`).getTime();
     if (Number.isFinite(expiry)) return expiry - boughtAt >= SLOW_DAYS * DAY;
   }
-  return lot?.storageZone === 'pantry' || LONG_KEEPING.test(name);
+  if (lot?.storageZone === 'pantry') return true;
+  return !meat && LONG_KEEPING.test(name);
 };
 export type GoneLabel = '吃完' | '丢了';
 
@@ -157,6 +164,8 @@ export const goneText = (line: Pick<TripLine, 'gone' | 'lasted'>) =>
   line.gone ? `${line.lasted ?? ''}${line.gone}` : '';
 export interface ShoppingTrip {
   start: number;
+  /** 拍小票放进来的：小票上印的购买日子（中午 12 点），录入晚了几天也按这天算 */
+  boughtOn?: number;
   /** 小票号：由开始时间算出，不会变 */
   no: string;
   opening: boolean;
@@ -170,13 +179,12 @@ const TRIP_VERBS: Record<KitchenEvent['type'], string> = { ADD: '放进', CONSUM
 
 export function shoppingTrips(events: KitchenEvent[], foods: KitchenFood[], lots: KitchenLot[] = []): ShoppingTrip[] {
   const names = new Map(foods.map(food => [food.id, food.name]));
-  const states = new Map(lots.map(lot => [lot.id, lot.foodState]));
   const lotById = new Map(lots.map(lot => [lot.id, lot]));
   const trips: (ShoppingTrip & { lastBuy: number })[] = [];
   const sorted = events.filter(event => event.type !== 'UNDO' && hasKitchenEventChange(event))
     .sort((a, b) => a.occurredAt - b.occurredAt || a.id.localeCompare(b.id));
   const open = (start: number, opening: boolean) => {
-    const trip = { start, opening, lastBuy: start, bought: [], after: [], finished: false,
+    const trip: ShoppingTrip & { lastBuy: number } = { start, opening, lastBuy: start, bought: [], after: [], finished: false,
       no: ((Math.floor(start / 60_000) * 2654435761) >>> 0).toString(16).toUpperCase().padStart(8, '0').slice(-6) };
     trips.push(trip);
     return trip;
@@ -184,12 +192,17 @@ export function shoppingTrips(events: KitchenEvent[], foods: KitchenFood[], lots
   for (const event of sorted) {
     const name = names.get(event.foodId) ?? '食物';
     // 拍小票放进来的一定是买的（速冻饺子名字像菜，但它是买回来的）
-    const dish = event.type === 'ADD' && !event.operationId.startsWith('receipt_') && isDish(name, states.get(event.lotId));
+    const lot = lotById.get(event.lotId);
+    const dish = event.type === 'ADD' && !event.operationId.startsWith('receipt_') && isDish(lot?.foodState);
     const buying = event.type === 'ADD' && event.quantityDelta > 0 && !dish;
     let trip = trips[trips.length - 1];
     const sameTrip = trip && !trip.opening && event.occurredAt - trip.lastBuy <= TRIP_GAP;
     // 买回来的、隔得久了：新开一张（撤销掉的买入不单独开一张）
-    if (buying && !sameTrip && !event.undoneAt) trip = open(event.occurredAt, false);
+    if (buying && !sameTrip && !event.undoneAt) {
+      trip = open(event.occurredAt, false);
+      const printed = event.operationId.startsWith('receipt_') && lot?.purchasedAt ? new Date(`${lot.purchasedAt.slice(0, 10)}T12:00:00`).getTime() : NaN;
+      if (Number.isFinite(printed) && printed <= event.occurredAt) trip.boughtOn = printed;
+    }
     else if (!trip) trip = open(event.occurredAt, true);
     const line: TripLine = {
       id: event.id, lotId: event.lotId, at: event.occurredAt, name, amount: formatEventAmount(event), undone: Boolean(event.undoneAt),
@@ -198,8 +211,9 @@ export function shoppingTrips(events: KitchenEvent[], foods: KitchenFood[], lots
     };
     if (buying && (sameTrip || trip.bought.length === 0 && !trip.opening)) {
       const gone = line.undone ? undefined : goneFor(event.lotId, lotById, events);
-      if (gone) { line.gone = gone.label; line.lasted = lastedText(event.occurredAt, gone.at); }
-      if (isLongKeeping(name, lotById.get(event.lotId), event.occurredAt)) line.slow = true;
+      const since = trip.boughtOn ?? event.occurredAt;
+      if (gone) { line.gone = gone.label; line.lasted = lastedText(since, gone.at); }
+      if (isLongKeeping(name, lot, since)) line.slow = true;
       trip.bought.push(line);
       if (!event.undoneAt) trip.lastBuy = event.occurredAt;
     } else {
@@ -226,7 +240,7 @@ export function latestReceipt(events: KitchenEvent[], foods: KitchenFood[], lots
   const items = [...lines.filter(line => !line.slow), ...lines.filter(line => line.slow)].map(line => ({
     name: line.name, amount: line.amount, lotId: line.lotId, ...(line.gone ? { gone: goneText(line) } : {}), ...(line.slow ? { slow: true } : {}),
   }));
-  return items.length ? { day: trip.start, items: items.slice(0, limit) } : null;
+  return items.length ? { day: trip.boughtOn ?? trip.start, items: items.slice(0, limit) } : null;
 }
 
 export interface HeatList { lines: (DoorNoteLine & { amount: string })[]; more: number }
@@ -241,7 +255,7 @@ export function heatList(lots: KitchenLot[], foods: KitchenFood[], now = Date.no
   const today = startOfDay(now);
   const ready = lots.filter(lot => lot.quantity > 0 && (lot.storageZone === 'fridge' || lot.storageZone === 'freezer'))
     .map(lot => ({ lot, name: names.get(lot.foodId) ?? '食物' }))
-    .filter(({ lot, name }) => isDish(name, lot.foodState) || READY.test(name));
+    .filter(({ lot, name }) => isDish(lot.foodState) || READY.test(name));
   if (!ready.length) return null;
   const due = (lot: KitchenLot) => lot.expiresAt ? Math.round((startOfDay(new Date(`${lot.expiresAt}T12:00:00`).getTime()) - today) / DAY) : Infinity;
   ready.sort((a, b) => (a.lot.storageZone === 'fridge' ? 0 : 1) - (b.lot.storageZone === 'fridge' ? 0 : 1)
@@ -280,14 +294,16 @@ export function shoppingSuggestions(lots: KitchenLot[], foods: KitchenFood[], ev
   const names = new Map(foods.map(food => [food.id, food.name]));
   const onList = (name: string) => items.some(item => !item.checkedAt && shoppingMatches(item.name, name));
   const stocked = new Set(lots.filter(lot => lot.quantity > 0).map(lot => lot.foodId));
+  // 放进来又撤销了的（记错了）不是「刚用完」
+  const undoneAdds = new Set(events.filter(event => event.type === 'ADD' && event.undoneAt).map(event => event.lotId));
   const result: string[] = [];
   const push = (name: string | undefined) => { if (name && !onList(name) && !result.includes(name)) result.push(name); };
   for (const line of stickyReminders(lots, foods, events, now, 20)) {
     if (/快用完了|只剩一个/.test(line.text)) push(names.get(lots.find(lot => lot.id === line.lotId)?.foodId ?? ''));
   }
-  lots.filter(lot => lot.quantity <= 0 && !stocked.has(lot.foodId) && now - lot.updatedAt < 14 * DAY)
+  lots.filter(lot => lot.quantity <= 0 && !stocked.has(lot.foodId) && !undoneAdds.has(lot.id) && now - lot.updatedAt < 14 * DAY)
     .sort((a, b) => b.updatedAt - a.updatedAt)
-    .forEach(lot => { if (!isDish(names.get(lot.foodId) ?? '', lot.foodState)) push(names.get(lot.foodId)); });
+    .forEach(lot => { if (!isDish(lot.foodState)) push(names.get(lot.foodId)); });
   return result.slice(0, limit);
 }
 

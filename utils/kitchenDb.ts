@@ -3,6 +3,7 @@
  *
  * 页面、未来的 3D 场景和角色查询都只能通过这里修改库存，避免出现多套扣减规则。
  */
+import { looksLikeDish } from './kitchenDishNames';
 
 /**
  * 单位。2026-10-13 阿萌定：按小票上的来——数的用「件」，称重的用磅 / 盎司（不换算成克），
@@ -73,6 +74,10 @@ export interface KitchenEvent {
   note?: string;
   relatedOperationId?: string;
   undoneAt?: number;
+  /** 一起发生、一起撤销的一批（拍一张小票、做一道菜）：撤销最近操作时整批撤回 */
+  batchId?: string;
+  /** 做菜那一批记着是哪道菜、做之前上次做的日子：撤销时把「做过几次」退回去 */
+  recipe?: { id: string; prevCookedAt?: number };
 }
 
 /**
@@ -176,6 +181,8 @@ export interface UpdateKitchenLotDetailsInput {
   packageSize?: string;
   purchasedAt?: string;
   expiresAt?: string;
+  /** 是不是自己做的菜（按名字猜错了在这里改）；不传就不动 */
+  foodState?: KitchenLot['foodState'];
 }
 
 export interface KitchenOperationResult {
@@ -185,7 +192,7 @@ export interface KitchenOperationResult {
 }
 
 export const KITCHEN_DB_NAME = 'LiliumOS_Kitchen';
-const DB_VERSION = 3;   // 2：要买清单；3：菜谱、酱汁库
+const DB_VERSION = 4;   // 2：要买清单；3：菜谱、酱汁库；4：旧数据补上「做好的菜」标记
 const STORE_FOODS = 'foods';
 const STORE_LOTS = 'lots';
 const STORE_EVENTS = 'events';
@@ -211,7 +218,7 @@ function openKitchenDB(): Promise<IDBDatabase> {
     const request = indexedDB.open(KITCHEN_DB_NAME, DB_VERSION);
     request.onerror = () => reject(request.error);
     request.onsuccess = () => resolve(request.result);
-    request.onupgradeneeded = () => {
+    request.onupgradeneeded = event => {
       const db = request.result;
       if (!db.objectStoreNames.contains(STORE_FOODS)) {
         const foods = db.createObjectStore(STORE_FOODS, { keyPath: 'id' });
@@ -231,8 +238,28 @@ function openKitchenDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE_SHOPPING)) db.createObjectStore(STORE_SHOPPING, { keyPath: 'id' });
       if (!db.objectStoreNames.contains(STORE_RECIPES)) db.createObjectStore(STORE_RECIPES, { keyPath: 'id' });
       if (!db.objectStoreNames.contains(STORE_SAUCES)) db.createObjectStore(STORE_SAUCES, { keyPath: 'id' });
+      // v4：以前「是不是做好的菜」每次按名字猜，现在只看批次上的 foodState。
+      // 旧数据里名字像菜、又不是拍小票买来的，补成 prepared，免得升级后小票上的「做了」变成「放进」
+      if (event.oldVersion >= 1 && event.oldVersion < 4 && request.transaction) markOldDishes(request.transaction);
     };
   });
+}
+
+function markOldDishes(transaction: IDBTransaction): void {
+  const foods = transaction.objectStore(STORE_FOODS), lots = transaction.objectStore(STORE_LOTS), events = transaction.objectStore(STORE_EVENTS);
+  foods.getAll().onsuccess = foodRequest => {
+    const names = new Map(((foodRequest.target as IDBRequest<KitchenFood[]>).result).map(food => [food.id, food.name]));
+    events.getAll().onsuccess = eventRequest => {
+      const fromReceipt = new Set(((eventRequest.target as IDBRequest<KitchenEvent[]>).result)
+        .filter(item => item.type === 'ADD' && item.operationId.startsWith('receipt_')).map(item => item.lotId));
+      lots.getAll().onsuccess = lotRequest => {
+        for (const lot of (lotRequest.target as IDBRequest<KitchenLot[]>).result) {
+          if (lot.foodState !== 'raw' || fromReceipt.has(lot.id) || !looksLikeDish(names.get(lot.foodId) ?? '')) continue;
+          lots.put({ ...lot, foodState: 'prepared' });
+        }
+      };
+    };
+  };
 }
 
 function requestValue<T>(request: IDBRequest<T>): Promise<T> {
@@ -294,11 +321,62 @@ function nextOccurredAt(allEvents: KitchenEvent[]): number {
   return Math.max(Date.now(), latest + 1);
 }
 
-async function addLot(input: AddKitchenLotInput): Promise<KitchenOperationResult> {
+/** 名字去多余空格；空的、数量不对的直接报错（写之前就挡住，整批要么全写要么不写） */
+function checkAddInput(input: AddKitchenLotInput): string {
   const name = input.name.trim().replace(/\s+/g, ' ');
   if (!name) throw new Error('请填写食物名称');
   assertPositiveNumber(input.quantity, '数量');
+  return name;
+}
 
+/** 在已经开好的事务里放进一样（放进一样、拍小票一批、做菜剩的那份共用） */
+async function putNewLot(
+  stores: { foods: IDBObjectStore; lots: IDBObjectStore; events: IDBObjectStore },
+  input: AddKitchenLotInput, operationId: string, now: number, extra: Pick<KitchenEvent, 'batchId' | 'recipe'> = {},
+): Promise<KitchenOperationResult> {
+  const name = checkAddInput(input);
+  const normalizedName = normalizeName(name);
+  let food = await requestValue(stores.foods.index('normalizedName').get(normalizedName)) as KitchenFood | undefined;
+  if (!food) {
+    food = { id: makeId('food'), name, normalizedName, defaultUnit: input.unit, createdAt: now, updatedAt: now };
+    stores.foods.add(food);
+  }
+  const lot: KitchenLot = {
+    id: makeId('lot'),
+    foodId: food.id,
+    quantity: input.quantity,
+    unit: input.unit,
+    storageZone: input.storageZone,
+    packageState: 'sealed',
+    foodState: input.foodState ?? 'raw',
+    trackingMode: input.trackingMode ?? 'count',
+    packageSize: input.packageSize?.trim() || undefined,
+    purchasedAt: input.purchasedAt,
+    expiresAt: input.expiresAt,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const event: KitchenEvent = {
+    id: makeId('event'),
+    operationId,
+    type: 'ADD',
+    lotId: lot.id,
+    foodId: food.id,
+    quantityDelta: input.quantity,
+    quantityBefore: 0,
+    quantityAfter: input.quantity,
+    contentDelta: input.quantity,
+    unit: input.unit,
+    occurredAt: now,
+    ...extra,
+  };
+  stores.lots.add(lot);
+  stores.events.add(event);
+  return { lot, event, replayed: false };
+}
+
+async function addLot(input: AddKitchenLotInput): Promise<KitchenOperationResult> {
+  checkAddInput(input);
   const operationId = input.operationId ?? makeId('op');
   const db = await openKitchenDB();
   try {
@@ -314,52 +392,108 @@ async function addLot(input: AddKitchenLotInput): Promise<KitchenOperationResult
     }
 
     const now = nextOccurredAt(await requestValue(events.getAll()) as KitchenEvent[]);
-    const normalizedName = normalizeName(name);
-    let food = await requestValue(foods.index('normalizedName').get(normalizedName)) as KitchenFood | undefined;
-    if (!food) {
-      food = {
-        id: makeId('food'),
-        name,
-        normalizedName,
-        defaultUnit: input.unit,
-        createdAt: now,
-        updatedAt: now,
-      };
-      foods.add(food);
+    const result = await putNewLot({ foods, lots, events }, input, operationId, now);
+    await transactionDone(transaction);
+    return result;
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * 一次放进好几样（拍一张小票）：一个事务写完，中途出错一样都不留，重点一次不会重复；
+ * 整批记同一个 batchId，「撤销最近操作」一次撤回整张小票。每样仍各有 operationId（小票分组认 receipt_ 前缀）。
+ */
+async function addLots(inputs: AddKitchenLotInput[], batchId = makeId('batch')): Promise<KitchenOperationResult[]> {
+  if (!inputs.length) return [];
+  inputs.forEach(checkAddInput);
+  const db = await openKitchenDB();
+  try {
+    const transaction = db.transaction([STORE_FOODS, STORE_LOTS, STORE_EVENTS], 'readwrite');
+    const foods = transaction.objectStore(STORE_FOODS);
+    const lots = transaction.objectStore(STORE_LOTS);
+    const events = transaction.objectStore(STORE_EVENTS);
+    const now = nextOccurredAt(await requestValue(events.getAll()) as KitchenEvent[]);
+    const results: KitchenOperationResult[] = [];
+    for (const [i, input] of inputs.entries()) {
+      const operationId = input.operationId ?? makeId('op');
+      results.push(await findExistingOperation(events, lots, operationId)
+        ?? await putNewLot({ foods, lots, events }, input, operationId, now + i, { batchId }));
+    }
+    await transactionDone(transaction);
+    return results;
+  } finally {
+    db.close();
+  }
+}
+
+export interface CookInput {
+  recipeId: string;
+  /** 每样从哪一批扣多少（按那一批的单位）；同一批出现两次就接着扣 */
+  deductions: { lotId: string; amount: number }[];
+  /** 做出来剩的放进冰箱（记成做好的菜） */
+  leftover?: Pick<AddKitchenLotInput, 'name' | 'quantity' | 'unit' | 'storageZone'>;
+  note: string;
+  operationId?: string;
+}
+
+/**
+ * 做了一道菜：扣食材、放进剩的、菜谱记一次，一个事务写完（2026-10-14 重审：原来一样一样扣，
+ * 中途失败会扣一半）。整批同一个 batchId，撤销一次整道菜退回去，「做过几次」也退回去。
+ */
+async function cook(input: CookInput): Promise<void> {
+  const batchId = input.operationId ?? makeId('cook');
+  for (const item of input.deductions) assertPositiveNumber(item.amount, '扣除数量');
+  if (input.leftover) checkAddInput({ ...input.leftover, foodState: 'prepared' });
+  const db = await openKitchenDB();
+  try {
+    const transaction = db.transaction([STORE_FOODS, STORE_LOTS, STORE_EVENTS, STORE_RECIPES], 'readwrite');
+    const foods = transaction.objectStore(STORE_FOODS);
+    const lots = transaction.objectStore(STORE_LOTS);
+    const events = transaction.objectStore(STORE_EVENTS);
+    const recipes = transaction.objectStore(STORE_RECIPES);
+    // 重点一次：第一笔已经在了就是写过了
+    if (await requestValue(events.index('operationId').get(`${batchId}:0`))) {
+      await transactionDone(transaction);
+      return;
+    }
+    const recipe = await requestValue(recipes.get(input.recipeId)) as KitchenRecipe | undefined;
+    if (!recipe) throw new Error('这道菜找不到了');
+    const tag = { batchId, recipe: { id: recipe.id, prevCookedAt: recipe.lastCookedAt } };
+
+    // 先在内存里把每一笔算完、核对完，有一笔不行就一笔都不写
+    const current = new Map<string, KitchenLot>();
+    const planned: { before: KitchenLot; after: KitchenLot; amount: number }[] = [];
+    for (const item of input.deductions) {
+      const before = current.get(item.lotId) ?? await requestValue(lots.get(item.lotId)) as KitchenLot | undefined;
+      if (!before) throw new Error('有一样食材已经不在了，重新打开核对单');
+      if (item.amount > before.quantity + CONTENT_EPSILON) {
+        throw new Error('扣的比家里剩的多，改一下数量');
+      }
+      const quantity = Math.max(0, before.quantity - item.amount);
+      const openContainerRemaining = quantity === 0 ? undefined : before.openContainerRemaining;
+      const after: KitchenLot = { ...before, quantity, openContainerRemaining, packageState: openContainerRemaining === undefined ? 'sealed' : 'opened' };
+      current.set(item.lotId, after);
+      planned.push({ before, after, amount: item.amount });
     }
 
-    const lot: KitchenLot = {
-      id: makeId('lot'),
-      foodId: food.id,
-      quantity: input.quantity,
-      unit: input.unit,
-      storageZone: input.storageZone,
-      packageState: 'sealed',
-      foodState: input.foodState ?? 'raw',
-      trackingMode: input.trackingMode ?? 'count',
-      packageSize: input.packageSize?.trim() || undefined,
-      purchasedAt: input.purchasedAt,
-      expiresAt: input.expiresAt,
-      createdAt: now,
-      updatedAt: now,
-    };
-    const event: KitchenEvent = {
-      id: makeId('event'),
-      operationId,
-      type: 'ADD',
-      lotId: lot.id,
-      foodId: food.id,
-      quantityDelta: input.quantity,
-      quantityBefore: 0,
-      quantityAfter: input.quantity,
-      contentDelta: input.quantity,
-      unit: input.unit,
-      occurredAt: now,
-    };
-    lots.add(lot);
-    events.add(event);
+    let now = nextOccurredAt(await requestValue(events.getAll()) as KitchenEvent[]);
+    planned.forEach(({ before, after }, i) => {
+      events.add({
+        id: makeId('event'), operationId: `${batchId}:${i}`, type: 'CONSUME', lotId: before.id, foodId: before.foodId,
+        quantityDelta: after.quantity - before.quantity, quantityBefore: before.quantity, quantityAfter: after.quantity,
+        contentDelta: totalContainerContent(after) - totalContainerContent(before),
+        openContainerRemainingBefore: before.openContainerRemaining, openContainerRemainingAfter: after.openContainerRemaining,
+        unit: before.unit, occurredAt: now, note: input.note, ...tag,
+      } satisfies KitchenEvent);
+      now += 1;
+    });
+    for (const lot of current.values()) lots.put({ ...lot, updatedAt: now });
+    if (input.leftover) {
+      await putNewLot({ foods, lots, events }, { ...input.leftover, foodState: 'prepared' }, `${batchId}:${planned.length}`, now, tag);
+    }
+    recipes.put({ ...recipe, cookedCount: (recipe.cookedCount ?? 0) + 1, lastCookedAt: now, updatedAt: now });
     await transactionDone(transaction);
-    return { lot, event, replayed: false };
   } finally {
     db.close();
   }
@@ -644,7 +778,9 @@ async function updateLotDetails(input: UpdateKitchenLotDetailsInput): Promise<Ki
       }
     }
 
-    const lotUnchanged = currentLot.unit === input.unit
+    const foodState = input.foodState ?? currentLot.foodState;
+    const lotUnchanged = currentLot.foodState === foodState
+      && currentLot.unit === input.unit
       && currentLot.storageZone === input.storageZone
       && currentLot.packageSize === packageSize
       && currentLot.purchasedAt === purchasedAt
@@ -659,6 +795,7 @@ async function updateLotDetails(input: UpdateKitchenLotDetailsInput): Promise<Ki
       ...currentLot,
       unit: input.unit,
       storageZone: input.storageZone,
+      foodState,
       fridgePlacement: input.storageZone === currentLot.storageZone ? currentLot.fridgePlacement : undefined,
       packageSize,
       purchasedAt,
@@ -681,10 +818,14 @@ async function updateLotDetails(input: UpdateKitchenLotDetailsInput): Promise<Ki
   }
 }
 
+/**
+ * 撤销最近一笔；那一笔属于一批（一张小票、一道菜）就整批撤回。
+ * 每一样都要还是那一笔之后的样子才撤：之后又动过的，说清楚撤不了，一样都不改。
+ */
 async function undoLatest(operationId = makeId('op')): Promise<KitchenOperationResult | null> {
   const db = await openKitchenDB();
   try {
-    const transaction = db.transaction([STORE_LOTS, STORE_EVENTS, STORE_SHOPPING], 'readwrite');
+    const transaction = db.transaction([STORE_LOTS, STORE_EVENTS, STORE_SHOPPING, STORE_RECIPES], 'readwrite');
     const lots = transaction.objectStore(STORE_LOTS);
     const events = transaction.objectStore(STORE_EVENTS);
     const existing = await findExistingOperation(events, lots, operationId);
@@ -694,64 +835,77 @@ async function undoLatest(operationId = makeId('op')): Promise<KitchenOperationR
     }
 
     const allEvents = await requestValue(events.getAll()) as KitchenEvent[];
-    const target = allEvents
+    const undoable = allEvents
       .filter(event => event.type !== 'UNDO' && !event.undoneAt && hasKitchenEventChange(event))
-      .sort((a, b) => b.occurredAt - a.occurredAt || b.id.localeCompare(a.id))[0];
+      .sort((a, b) => b.occurredAt - a.occurredAt || b.id.localeCompare(a.id));
+    const target = undoable[0];
     if (!target) {
       await transactionDone(transaction);
       return null;
     }
+    // 新的在前：同一批里同一样扣了两次，先退后一笔
+    const group = target.batchId ? undoable.filter(event => event.batchId === target.batchId) : [target];
 
-    const current = await requestValue(lots.get(target.lotId)) as KitchenLot | undefined;
-    if (!current) throw new Error('无法撤销：对应的库存批次不存在');
-    if (current.quantity !== target.quantityAfter) {
-      throw new Error('无法撤销：这批食物之后已经发生了变化');
-    }
-    const tracksOpenContainer = target.contentDelta !== undefined
-      || target.openContainerRemainingBefore !== undefined
-      || target.openContainerRemainingAfter !== undefined;
-    if (tracksOpenContainer && !sameOptionalNumber(current.openContainerRemaining, target.openContainerRemainingAfter)) {
-      throw new Error('无法撤销：这批食物的开封余量已经发生了变化');
+    const current = new Map<string, KitchenLot>();
+    for (const item of group) {
+      const lot = current.get(item.lotId) ?? await requestValue(lots.get(item.lotId)) as KitchenLot | undefined;
+      if (!lot) throw new Error('无法撤销：对应的库存批次不存在');
+      if (Math.abs(lot.quantity - item.quantityAfter) > CONTENT_EPSILON) {
+        throw new Error('无法撤销：这批食物之后已经发生了变化');
+      }
+      const tracksOpenContainer = item.contentDelta !== undefined
+        || item.openContainerRemainingBefore !== undefined
+        || item.openContainerRemainingAfter !== undefined;
+      if (tracksOpenContainer && !sameOptionalNumber(lot.openContainerRemaining, item.openContainerRemainingAfter)) {
+        throw new Error('无法撤销：这批食物的开封余量已经发生了变化');
+      }
+      current.set(item.lotId, {
+        ...lot,
+        quantity: item.quantityBefore,
+        packageState: item.openContainerRemainingBefore === undefined ? 'sealed' : 'opened',
+        openContainerRemaining: item.openContainerRemainingBefore,
+      });
     }
 
     const now = nextOccurredAt(allEvents);
-    const lot = {
-      ...current,
-      quantity: target.quantityBefore,
-      packageState: target.openContainerRemainingBefore === undefined ? 'sealed' as const : 'opened' as const,
-      openContainerRemaining: target.openContainerRemainingBefore,
-      updatedAt: now,
-    };
-    const undoneTarget = { ...target, undoneAt: now };
-    const event: KitchenEvent = {
+    const undoEvents = group.map((item, i): KitchenEvent => ({
       id: makeId('event'),
-      operationId,
+      operationId: i === 0 ? operationId : `${operationId}:${i}`,
       type: 'UNDO',
-      lotId: target.lotId,
-      foodId: target.foodId,
-      quantityDelta: target.quantityBefore - target.quantityAfter,
-      quantityBefore: target.quantityAfter,
-      quantityAfter: target.quantityBefore,
-      contentDelta: -(target.contentDelta ?? target.quantityDelta),
-      openContainerRemainingBefore: target.openContainerRemainingAfter,
-      openContainerRemainingAfter: target.openContainerRemainingBefore,
-      unit: target.unit,
+      lotId: item.lotId,
+      foodId: item.foodId,
+      quantityDelta: item.quantityBefore - item.quantityAfter,
+      quantityBefore: item.quantityAfter,
+      quantityAfter: item.quantityBefore,
+      contentDelta: -(item.contentDelta ?? item.quantityDelta),
+      openContainerRemainingBefore: item.openContainerRemainingAfter,
+      openContainerRemainingAfter: item.openContainerRemainingBefore,
+      unit: item.unit,
       occurredAt: now,
-      relatedOperationId: target.operationId,
-    };
-    lots.put(lot);
-    events.put(undoneTarget);
-    events.add(event);
-    // 撤销的是一次「放进」：这一笔顺手划掉的要买清单，勾也取消
-    if (target.type === 'ADD') {
+      relatedOperationId: item.operationId,
+    }));
+    for (const lot of current.values()) lots.put({ ...lot, updatedAt: now });
+    for (const item of group) events.put({ ...item, undoneAt: now });
+    for (const event of undoEvents) events.add(event);
+
+    // 撤销的是「放进」：这几笔顺手划掉的要买清单，勾也取消
+    const added = new Set(group.filter(item => item.type === 'ADD').map(item => item.operationId));
+    if (added.size) {
       const shopping = transaction.objectStore(STORE_SHOPPING);
       for (const item of await requestValue(shopping.getAll()) as KitchenShoppingItem[]) {
-        if (item.boughtBy !== target.operationId || item.checkedBy !== 'bought') continue;
+        if (!item.boughtBy || !added.has(item.boughtBy) || item.checkedBy !== 'bought') continue;
         shopping.put({ ...item, checkedAt: undefined, checkedBy: undefined, boughtBy: undefined, updatedAt: now });
       }
     }
+    // 撤销的是做了一道菜：「做过几次」和「上次做」退回去
+    const cooked = group.find(item => item.recipe)?.recipe;
+    if (cooked) {
+      const recipes = transaction.objectStore(STORE_RECIPES);
+      const recipe = await requestValue(recipes.get(cooked.id)) as KitchenRecipe | undefined;
+      if (recipe) recipes.put({ ...recipe, cookedCount: Math.max(0, (recipe.cookedCount ?? 1) - 1), lastCookedAt: cooked.prevCookedAt, updatedAt: now });
+    }
     await transactionDone(transaction);
-    return { lot, event, replayed: false };
+    return { lot: current.get(target.lotId)!, event: undoEvents[0], replayed: false };
   } finally {
     db.close();
   }
@@ -798,14 +952,20 @@ async function importAll(data: Partial<KitchenBackup>): Promise<void> {
 
 /* ── 要买清单 ── */
 
-/** 清单上写「牛奶」，买回来的是「有机全脂牛奶」也算买到了 */
+/**
+ * 清单上写「牛奶」，买回来的是「有机全脂牛奶」也算买到了；菜谱写「番茄」，家里的「樱桃番茄」也算。
+ * 只认一个方向：后一个名字比前一个更具体。名字后面再接「酱 / 面 / 粉 / 干…」就成了另一样东西
+ * （番茄 ≠ 番茄酱，鸡蛋 ≠ 鸡蛋面，牛肉 ≠ 牛肉干），不算。2026-10-14 重审：原来两个方向都认，买番茄会划掉番茄酱。
+ */
+const DERIVED = /^(酱|面|粉|干|糖|汁|膏|饼|丸|酥|卷|酒|醋|油|露|味|罐头|饮料)/;
 export const shoppingMatches = (listName: string, boughtName: string): boolean => {
   const a = normalizeName(listName).replace(/\s/g, ''), b = normalizeName(boughtName).replace(/\s/g, '');
   if (!a || !b) return false;
   if (a === b) return true;
   // 单字（葱、姜、蒜、米）：只认「小葱、生姜、大米」这种常见前缀加它；玉米不算「米」
   if (a.length === 1) return b.length === 2 && b.endsWith(a) && /^[小大生老嫩青白红黄紫香鲜]/.test(b);
-  return b.includes(a) || (b.length >= 2 && a.includes(b));
+  const at = b.indexOf(a);
+  return at >= 0 && !DERIVED.test(b.slice(at + a.length));
 };
 
 async function writeShopping(work: (store: IDBObjectStore) => Promise<void>): Promise<void> {
@@ -946,18 +1106,10 @@ async function deleteRecipe(id: string): Promise<void> {
   await writeStore(STORE_RECIPES, async store => { store.delete(id); });
 }
 
-/** 做了一次：记次数和日子（扣食材、放进冰箱走库存账本那边，各自一笔） */
-async function markRecipeCooked(id: string): Promise<void> {
-  await writeStore(STORE_RECIPES, async store => {
-    const recipe = await requestValue(store.get(id)) as KitchenRecipe | undefined;
-    if (!recipe) return;
-    const now = Date.now();
-    store.put({ ...recipe, cookedCount: (recipe.cookedCount ?? 0) + 1, lastCookedAt: now, updatedAt: now });
-  });
-}
-
 export const KitchenDB = {
   addLot,
+  addLots,
+  cook,
   changeLot,
   consumePortion,
   setPortionRemaining,
@@ -974,7 +1126,6 @@ export const KitchenDB = {
   getSauces: () => getAll<KitchenSauce>(STORE_SAUCES),
   saveRecipe,
   deleteRecipe,
-  markRecipeCooked,
   saveSauce,
   deleteSauce,
   addShopping,

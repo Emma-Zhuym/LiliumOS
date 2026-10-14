@@ -4424,9 +4424,9 @@ export interface FullBackupData {
     emShoppingSettings?: { key: string; value: unknown }[];
     emMoments?: import('./utils/momentsDb').MomentsBackup; // [EM: moments] 朋友圈（文字备份不带图）
     emMapWorlds?: any[];
-    emKitchenFoods?: any[];
-    emKitchenLots?: any[];
-    emKitchenEvents?: any[];
+    emKitchenFoods?: any[]; // [EM: kitchen-app]
+    emKitchenLots?: any[]; // [EM: kitchen-app]
+    emKitchenEvents?: any[]; // [EM: kitchen-app]
     emKitchenShopping?: any[]; // [EM: kitchen-shopping-list]
     emKitchenRecipes?: any[]; // [EM: kitchen-recipes]
     emKitchenSauces?: any[]; // [EM: kitchen-recipes]
