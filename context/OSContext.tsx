@@ -2382,7 +2382,6 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               );
 
               const now = new Date();
-              const timeStr = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
 
               let timeSinceUser = '';
               if (lastRealUserMsg) {
@@ -2405,9 +2404,12 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               const justMetOffline = lastRealMsgRaw?.metadata?.source === 'date'
                   && (now.getTime() - lastRealMsgRaw.timestamp) < DATE_AFTERGLOW_MS;
 
+              // 这里的隐藏提示会落进聊天历史，不能把这一刻的设备钟烤进去；否则角色在异地时
+              // 同一轮会同时看到旧的设备时间和 buildChatRequestPayload 现场注入的双城时钟，
+              // 后面几轮还会继续背着这只旧钟。当前时间统一交给系统提示里的双城时钟块。
               const hintContent = justMetOffline
-                  ? `[系统提示（非${userName}发言）: 现在是 ${timeStr}。你和${userName}刚刚在线下见过面（如果上下文里有标着 [约会] 的内容，那就是你们见面时发生的事），现在你们暂时分开了，你拿起手机想给${userName}发条消息。请基于刚才的见面来发——可以回味见面里的某个细节、补一句当时没说出口的话、关心${userName}到家了没，或者就是刚分开就有点想念。绝对不要表现得好像很久没联系，更不要对刚才的见面毫不知情。一两句话就好。]`
-                  : `[系统提示（非${userName}发言）: 现在是 ${timeStr}。${timeSinceUser ? `${userName}已经 ${timeSinceUser} 没有找你说话了。` : ''}这是系统给你的一次主动发消息机会——${userName}并没有在跟你说话，是你想主动找${userName}。像真人一样随意地发条消息吧，比如：随手拍了张照片想分享、刚看到个有趣的事想说、突然想到个冷知识、吐槽今天的天气/食物/见闻、或者就是单纯想找${userName}聊几句。不要刻意，不要像在"汇报近况"，就像你真的拿起手机随手发了条消息。一两句话就好。${timeSinceUser && parseInt(timeSinceUser) > 2 ? `（${userName}挺久没找你了，你也可以表达想念、好奇${userName}在干嘛、或者小小地抱怨一下。）` : ''}另外，如果最近有什么想法或感触，你也可以顺手写篇日记记录一下——不一定要和${userName}有关，你自己内心的碎碎念也值得记下来。]`;
+                  ? `[系统提示（非${userName}发言）: 你和${userName}刚刚在线下见过面（如果上下文里有标着 [约会] 的内容，那就是你们见面时发生的事），现在你们暂时分开了，你拿起手机想给${userName}发条消息。请基于刚才的见面来发——可以回味见面里的某个细节、补一句当时没说出口的话、关心${userName}到家了没，或者就是刚分开就有点想念。绝对不要表现得好像很久没联系，更不要对刚才的见面毫不知情。一两句话就好。]`
+                  : `[系统提示（非${userName}发言）: ${timeSinceUser ? `${userName}已经 ${timeSinceUser} 没有找你说话了。` : ''}这是系统给你的一次主动发消息机会——${userName}并没有在跟你说话，是你想主动找${userName}。像真人一样随意地发条消息吧，比如：随手拍了张照片想分享、刚看到个有趣的事想说、突然想到个冷知识、吐槽今天的天气/食物/见闻、或者就是单纯想找${userName}聊几句。不要刻意，不要像在"汇报近况"，就像你真的拿起手机随手发了条消息。一两句话就好。${timeSinceUser && parseInt(timeSinceUser) > 2 ? `（${userName}挺久没找你了，你也可以表达想念、好奇${userName}在干嘛、或者小小地抱怨一下。）` : ''}另外，如果最近有什么想法或感触，你也可以顺手写篇日记记录一下——不一定要和${userName}有关，你自己内心的碎碎念也值得记下来。]`;
 
               await DB.saveMessage({
                   charId,

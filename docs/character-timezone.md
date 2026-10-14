@@ -1,6 +1,6 @@
 # 角色自定义时区
 
-角色卡里可以给角色单独设一个时区（角色编辑页 →「角色自定义时区」开关 + 时区下拉）。开启后，注入给这个角色的「当前时间 / 今天几号 / 现在是白天还是深夜」都按 ta 所在地折算，而不是跟着用户手机走。
+角色卡里可以给角色单独设一个时区（角色编辑页 →「角色自定义时区」开关 + 时区下拉）。开启后，角色自己的「当前时间 / 今天几号 / 现在是白天还是深夜」都按 ta 所在地折算，而不是跟着用户手机走；双方时区不同时，给模型的提示词会直接并排写出两边完整时钟和程序算好的时差，不再让模型自己换算。
 
 典型场景是异国恋：用户在中国，角色设定在纽约。用户这边晚上 9 点，角色那边是同一天的早上 9 点，两边看到的钟本就不该一样。
 
@@ -27,7 +27,8 @@
 | `timezone.ts` → `resolveCharTimeZone(char)` | 取角色生效的时区 id；没开开关返回 `undefined`（= 跟随设备） |
 | `timezone.ts` → `nowInTimeZone(tz, base?)` | 返回一个 Date，用**本地** getter（`getHours()` 等）读出来正好是 `tz` 的墙上时间 |
 | `timezone.ts` → `wallClockToTimestamp(text, tz)` | 上一条的逆运算：把「角色当地的墙上时间」文本还原成真实时刻 |
-| `timezone.ts` → `tzAwarenessNote(tz)` | prompt 里那段时差提示 |
+| `amsgFirePack.ts` → `buildDualClockBlock(...)` | 把同一真实时刻展开成双方完整墙钟、快慢关系和跨日结论；聊天与 AMSG 共用 |
+| `emUserClock.ts` → `userClockNote(...)` | 设备端聊天把角色时区和设备时区交给上面的统一双城时钟 |
 | `scheduleTime.ts` → `getScheduleWallClock(char, base?)` | 角色墙上时间，`nowInTimeZone(resolveCharTimeZone(char))` 的快捷方式 |
 | `scheduleTime.ts` → `getScheduleDateKey(char, base?)` | 角色所在地的日历日 `YYYY-MM-DD` |
 | `scheduleTime.ts` → `getCurrentScheduleSlotIndex(slots, char, base?)` | 按角色时间找当前时段 |
@@ -49,23 +50,17 @@
 
 ## 已接入的地方
 
-聊天注入、见面（VN 模式 + 感知开场）、打电话、实时信息（时间/天气/节日）、日程全链路（生成、卡片、桌面组件、小小窝、小屋、聊天里的日程注入、音乐氛围）、角色自由活动、定时消息解析。
+聊天注入、见面（VN 模式 + 感知开场）、打电话、实时信息（时间/天气/节日）、日程全链路（生成、卡片、桌面组件、小小窝、小屋、聊天里的日程注入、音乐氛围）、角色自由活动、定时消息解析、mini 心跳、AMSG 即时回复与定时主动消息。
 
-## 还没接的
+### 主动消息的两条路线
 
-下面几处目前仍按设备时间走。不影响日常使用，但角色开了自定义时区时会出现「同一份 prompt 里两个时间打架」。
+旧版 1.0 本地主动消息会把设备时间写进一条隐藏消息并落库；角色在异地时，这只钟既和系统提示里的角色时间打架，后面几轮还会继续留在历史里。现在隐藏消息不再烤时间，调用现场统一由系统提示注入双城时钟。
 
-### 主动消息（改之前先确认 amsg2 分支的状态）
-
-| 位置 | 现状 |
-|------|------|
-| `context/OSContext.tsx` 主动消息触发段 | 写进隐藏系统提示的「现在是 X」取设备时间，而同一次请求里 `buildSystemPrompt` 注入的是角色时区的时间。这条 hint 会落库，之后几轮上下文里都留着 |
-
-改法：拿 `resolveCharTimeZone(char)` 折算；注意别把用来算时间差的 `now` 一起换掉，那个必须继续用真实时刻。
-
-主动消息 2.0 那条链（`utils/activeMsgClient.ts` 的 `buildFirePack`）已经接好了：模板带一个 `tzId`，worker 到点渲染的每个时间都以它为参照系（`utils/amsgFirePack.ts`）。凡是「打包这一刻」的状态都不烤进模板，改由 `AMSG_SLOT_*` 槽位到点现算 —— 当前时间、日程当前时段、此刻在听的歌、今日节日 / 天气 / 热搜都走这条路，见 `ChatPrompts.PromptBuildOptions` 上那张表。
+主动消息 2.0 那条链（`utils/activeMsgClient.ts` 的 `buildFirePack`）模板同时带角色 `tzId` 和用户 `userTzId`，worker 到点用同一个真实时间分别折算两边墙钟（`utils/amsgFirePack.ts`）。凡是「打包这一刻」的状态都不烤进模板，改由 `AMSG_SLOT_*` 槽位到点现算 —— 双城时钟、日程当前时段、此刻在听的歌、今日节日 / 天气 / 热搜都走这条路，见 `ChatPrompts.PromptBuildOptions` 上那张表。
 
 其中今日节日按角色时区判「今天几号」，并且跟着角色的「时间感知」开关走（关掉的角色到点也不会知道今天是圣诞节）——这个开关随 `tool_pack` 上云，见 `worker/amsg/src/realtimeWorld.ts`。热搜的时段划分则固定按 `Asia/Shanghai`：榜单本身就是国内的作息，worker 跑在 UTC 上，不指定的话「今日上午」会差好几个时段。
+
+## 仍待决定或补测试的
 
 ### 一组角色共同排日程（feature request）
 
