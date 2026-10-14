@@ -99,7 +99,7 @@ import {
 import type { AmsgEmotionEvalSpec } from '../worker/amsg/src/emotionEval';
 import { listRecallableMonths } from './agenticTools';
 import { ChatPrompts } from './chatPrompts';
-import { nowInTimeZone, resolveCharTimeZone, tzAwarenessNote } from './timezone';
+import { nowInTimeZone, resolveCharTimeZone } from './timezone';
 import { DB } from './db';
 import { copyWorkerBundleToClipboard } from './instantPushClient';
 import { collectMcpFireServers, getMcpUseNativeTools } from './mcpClient';
@@ -751,11 +751,8 @@ export const buildFirePack = async (
       }
     : null;
   const legacyHint = buildLegacyStyleProactiveHint(userProfile.name || '对方', timeAware);
-  // 前台每轮都注入的时差说明（「你身处 X 时区……对方可能在不同时区」）。它是静态文案、
-  // 不随时间变，所以打包时就烤进模板；到点由 AMSG_SLOT_USER_CLOCK 补上「对方那边现在
-  // 几点」。fire 侧的角色设定是 skipTimeAwareness 建的，整块时间感知都被抹掉了，
-  // 不在这里补回来的话，最容易撞用户睡觉的恰恰是主动消息。
-  const tzNote = timeAware ? tzAwarenessNote(charTz).trim() : '';
+  // 旧版会在这里烤一句「对方可能在不同时区」，再让模型自己推。现在到点直接由
+  // AMSG_SLOT_USER_CLOCK 注入双方完整墙钟和程序结论，不再给模糊提醒诱导二次心算。
   // 按角色可见性过滤表情包：主动消息不经过 Chat.tsx 的 aiVisibleEmojis/visibleCategories，
   // 必须在这里复用同一套过滤，否则角色会用到只对其他角色开放的表情包。
   const { emojis, categories } = ChatPrompts.filterVisibleEmojis(
@@ -826,7 +823,7 @@ export const buildFirePack = async (
     ...(timeAware
       ? [
           '【当前时刻补充】',
-          `当前本地时间（你所在地）：${AMSG_SLOT_CURRENT_TIME}${tzNote ? `\n${tzNote}` : ''}${AMSG_SLOT_USER_CLOCK}${AMSG_SLOT_SCENE}`,
+          `当前本地时间（你所在地）：${AMSG_SLOT_CURRENT_TIME}${AMSG_SLOT_USER_CLOCK}${AMSG_SLOT_SCENE}`,
         ]
       // 关了时间感知的架空角色：整段只剩「你在做什么 / 外面什么样」，一个钟都不给。
       : [`【当前时刻补充】${AMSG_SLOT_SCENE}`]),

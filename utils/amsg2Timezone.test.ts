@@ -69,12 +69,13 @@ describe('角色知道对方那边现在几点', () => {
         const out = renderFirePack(pack, AT, '指令');
         // 角色那边 09:00，用户那边 21:00，同一时刻
         expect(out).toContain('当前本地时间（你所在地）：2026年8月2日 周日 上午 09:00');
-        expect(out).toContain('对方所在时区参考：小明同学那边现在是 8月2日 晚上 21:00');
+        expect(out).toContain('【双城时钟｜程序已换算，禁止自行心算】');
+        expect(out).toContain('对方（小明同学）当地：2026年8月2日 周日 晚上 21:00');
     });
 
     it('两边同一个时区时不重复报钟', () => {
         expect(renderFirePack({ ...pack, userTzId: CHAR_TZ }, AT, '指令'))
-            .not.toContain('对方所在时区参考');
+            .not.toContain('【双城时钟');
     });
 
     it('自排工具的说明里提醒了时差（排时间前先想想对方那边几点）', () => {

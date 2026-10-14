@@ -604,10 +604,10 @@ describe('buildInstantTimelyBlock', () => {
     expect(block).not.toContain(TIME_FRAMING_CONVERSATIONAL);
   });
 
-  it('有时差时补一行「对方那边几点」，同时区不补（一份提示词里两个钟会打架）', () => {
+  it('有时差时直接给双城时钟，同时区只报一个钟', () => {
     expect(buildInstantTimelyBlock({ ...base, userTzId: 'America/New_York', blocks: [] }))
-      .toContain('对方所在时区参考');
-    expect(buildInstantTimelyBlock({ ...base, blocks: [] })).not.toContain('对方所在时区参考');
+      .toContain('【双城时钟｜程序已换算，禁止自行心算】');
+    expect(buildInstantTimelyBlock({ ...base, blocks: [] })).not.toContain('【双城时钟');
   });
 
   // 关了时间感知的架空角色在前台连今天几号都读不到，云端这条路也不能偷偷报时。
@@ -621,7 +621,7 @@ describe('buildInstantTimelyBlock', () => {
     });
     expect(block).not.toContain('现在是');
     expect(block).not.toContain('2026年8月1日');
-    expect(block).not.toContain('对方所在时区参考');
+    expect(block).not.toContain('【双城时钟');
     expect(block).toContain('【此刻的系统信息·仅你可见】');
     expect(block).toContain('【热搜】');
   });

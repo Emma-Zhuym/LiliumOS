@@ -357,17 +357,20 @@ export const ContextBuilder = {
             : h < 17 ? '下午' : h < 19 ? '傍晚' : h < 22 ? '晚上' : '深夜';
         const dateStr = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`;
         const timeStr = `${h.toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+        const dualClock = userClockNote(charTz); // [EM: chat-user-clock]
         let context = `### 当前时间 (Now)\n`;
-        context += `现在是 ${dateStr} ${dayNames[now.getDay()]} ${timeOfDay} ${timeStr}。请据此自然地拥有真实的时间观念（早晚作息、工作日/周末、距离上次互动多久等），不要凭空假设时间。\n`;
+        context += dualClock || `现在是 ${dateStr} ${dayNames[now.getDay()]} ${timeOfDay} ${timeStr}。请据此自然地拥有真实的时间观念（早晚作息、工作日/周末、距离上次互动多久等），不要凭空假设时间。\n`;
         // 报时后面那句语境框定（这句话本身和「为什么只在对话时给」都在
         // utils/timeFramingNote.ts）。即时对话走的是云端那条路，时间由 worker 到点补，
         // 那边引的是同一份常量——同一句话不抄两遍，免得两条路上的角色分寸不一样。
         if (timeOptions?.conversational) {
             context += `${TIME_FRAMING_CONVERSATIONAL}\n`;
         }
-        const tzNote = tzAwarenessNote(charTz);
-        if (tzNote) context += `${tzNote.trim()}\n`;
-        context += userClockNote(charTz); // [EM: chat-user-clock] 对方那边几点，按手机系统时区
+        // 双城时钟已经把两边的完整墙钟和关系写死；再加「可能有时差」只会诱导模型重算。
+        if (!dualClock) {
+            const tzNote = tzAwarenessNote(charTz);
+            if (tzNote) context += `${tzNote.trim()}\n`;
+        }
         // 距离上次联系多久（统一口径）：传了 lastInteractionTs 才注入。
         // 让查手机/人际关系等无内联消息流的路径，也像聊天一样知道「用户多久没联系我了」。
         const gapNote = interactionGapNote(timeOptions?.lastInteractionTs);

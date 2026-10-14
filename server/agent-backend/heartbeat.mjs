@@ -901,10 +901,13 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
             + p.monthlySummaries.map(m => `- [${m.month}] ${m.text}`).join('\n'),
         );
     }
-    lines.push(`对方是「${p.user?.name || '阿萌'}」。现在是 ${formatLocal(now, p.timezone)}（${p.timezone || '未知时区'}）。`);
-    // 两人不在一个时区时，TA 得知道对方那边几点：不然对方下午两点半，TA 问「睡了没」。
+    const userName = p.user?.name || '阿萌';
+    lines.push(`对方是「${userName}」。`);
+    // 两人不在一个时区时，直接给一块程序算好的双城时钟；不要把两个钟拆散后让模型再心算。
     if (userTimezone && userTimezone !== p.timezone) {
-        lines.push(`对方那边现在是 ${formatLocal(now, userTimezone)}（${userTimezone}）。问候、问 ta 睡没睡、在不在上课，都按 ta 那边的时间来。`);
+        lines.push(buildHeartbeatDualClockBlock(now, p.timezone, userTimezone, userName));
+    } else {
+        lines.push(`现在是 ${formatLocal(now, p.timezone)}（${p.timezone || '未知时区'}）。`);
     }
     if (p.sleepWindow) lines.push(`你的作息：${p.sleepWindow.start} 睡，${p.sleepWindow.end} 起。`);
     // 情绪底色：聊天那边每轮情绪评估写出来的叙事。缺了它，心跳里的 TA 永远是出厂情绪。
@@ -1248,6 +1251,69 @@ const localClockParts = (date, timezone) => {
             minutes: date.getUTCHours() * 60 + date.getUTCMinutes(),
         };
     }
+};
+
+const clockOffsetMinutes = (date, timezone) => {
+    try {
+        const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+            timeZone: timezone || 'America/Chicago',
+            year: 'numeric', month: 'numeric', day: 'numeric',
+            hour: 'numeric', minute: 'numeric', hourCycle: 'h23',
+        }).formatToParts(date).map(part => [part.type, part.value]));
+        const wall = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute);
+        return Math.round((wall - Math.floor(date.getTime() / 60_000) * 60_000) / 60_000);
+    } catch {
+        return 0;
+    }
+};
+
+const clockGapText = minutes => {
+    const absolute = Math.abs(minutes);
+    const hours = Math.floor(absolute / 60);
+    const rest = absolute % 60;
+    return rest ? `${hours} 小时 ${rest} 分钟` : `${hours} 小时`;
+};
+
+const clockTimeOfDay = hour => (
+    hour < 5 ? '凌晨' : hour < 9 ? '早晨' : hour < 12 ? '上午' : hour < 14 ? '中午'
+        : hour < 17 ? '下午' : hour < 19 ? '傍晚' : hour < 22 ? '晚上' : '深夜'
+);
+
+const formatHeartbeatClockFull = (date, timezone) => {
+    try {
+        const parts = Object.fromEntries(new Intl.DateTimeFormat('zh-CN', {
+            timeZone: timezone || 'America/Chicago',
+            year: 'numeric', month: 'numeric', day: 'numeric', weekday: 'short',
+            hour: 'numeric', minute: '2-digit', hourCycle: 'h23',
+        }).formatToParts(date).map(part => [part.type, part.value]));
+        const hour = +parts.hour;
+        return `${parts.year}年${parts.month}月${parts.day}日 ${parts.weekday} ${clockTimeOfDay(hour)} ${String(hour).padStart(2, '0')}:${parts.minute}`;
+    } catch {
+        return date.toISOString();
+    }
+};
+
+const buildHeartbeatDualClockBlock = (now, characterTimezone, userTimezone, userName) => {
+    const charClock = localClockParts(now, characterTimezone);
+    const userClock = localClockParts(now, userTimezone);
+    const diff = clockOffsetMinutes(now, characterTimezone) - clockOffsetMinutes(now, userTimezone);
+    const who = diff === 0
+        ? '两地此刻钟点一致（时区设置不同，但当前 UTC 偏移相同）'
+        : diff > 0
+            ? `你（角色）当地比对方当地快 ${clockGapText(diff)}`
+            : `对方当地比你（角色）当地快 ${clockGapText(diff)}`;
+    const day = charClock.dateKey === userClock.dateKey
+        ? '两边当前是同一个日历日'
+        : charClock.dateKey > userClock.dateKey
+            ? '你（角色）当地已经是后一天，对方当地仍是前一天'
+            : '对方当地已经是后一天，你（角色）当地仍是前一天';
+    return [
+        '【双城时钟｜程序已换算，禁止自行心算】',
+        `- 你（角色）当地：${formatHeartbeatClockFull(now, characterTimezone)}（${characterTimezone || '未知时区'}）`,
+        `- 对方（${userName || '用户'}）当地：${formatHeartbeatClockFull(now, userTimezone)}（${userTimezone}）`,
+        `- 直接结论：${who}；${day}。`,
+        '硬规则：判断你自己的作息与生活用第一行；判断对方是否醒着、是否在上课，以及对方语境里的“今天/明天”，只用第二行。不要从任一行重新换算。',
+    ].join('\n');
 };
 
 const BEDTIME_USER_RE = /(?:晚安|睡觉了|先睡(?:了|啦|觉)?|去睡(?:了|觉)?|准备睡|要睡(?:了|觉)?|困了.{0,8}睡)/i;

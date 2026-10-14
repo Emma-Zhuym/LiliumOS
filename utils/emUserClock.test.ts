@@ -9,9 +9,10 @@ const NOW = Date.parse('2026-09-29T19:37:00.000Z'); // 芝加哥下午 2:37，�
 describe('聊天里告诉角色对方那边几点', () => {
     it('角色在上海、手机在芝加哥：写出对方那边的钟', () => {
         const note = userClockNote('Asia/Shanghai', NOW, 'America/Chicago');
-        expect(note).toContain('对方那边现在是 9月29日');
-        expect(note).toContain('14:37');
-        expect(note).toContain('别拿自己这边的钟');
+        expect(note).toContain('【双城时钟｜程序已换算，禁止自行心算】');
+        expect(note).toContain('你（角色）当地：2026年9月30日 周三 凌晨 03:37');
+        expect(note).toContain('对方（用户）当地：2026年9月29日 周二 下午 14:37');
+        expect(note).toContain('判断对方是否醒着、是否在上课');
     });
 
     it('同一个时区、没开自定义时区：不写', () => {
@@ -23,15 +24,15 @@ describe('聊天里告诉角色对方那边几点', () => {
 describe('时差直接算成一句话', () => {
     it('上海比芝加哥快 13 小时，此刻上海已是第二天', () => {
         const note = timeDifferenceNote('Asia/Shanghai', 'America/Chicago', NOW);
-        expect(note).toContain('你那边比对方快 13 小时');
-        expect(note).toContain('你这边已经是第二天了');
-        expect(userClockNote('Asia/Shanghai', NOW, 'America/Chicago')).toContain('你那边比对方快 13 小时');
+        expect(note).toContain('你（角色）当地比对方当地快 13 小时');
+        expect(note).toContain('你（角色）当地已经是后一天');
+        expect(userClockNote('Asia/Shanghai', NOW, 'America/Chicago')).toContain('你（角色）当地比对方当地快 13 小时');
     });
 
     it('同一天、角色在西边、半小时时区', () => {
         const noon = Date.parse('2026-09-29T17:00:00.000Z'); // 芝加哥中午，洛杉矶上午，印度晚上 10:30
-        expect(timeDifferenceNote('America/Los_Angeles', 'America/Chicago', noon)).toContain('对方那边比你快 2 小时，此刻两边是同一天');
-        expect(timeDifferenceNote('Asia/Kolkata', 'America/Chicago', noon)).toContain('你那边比对方快 10 小时 30 分钟');
+        expect(timeDifferenceNote('America/Los_Angeles', 'America/Chicago', noon)).toContain('对方当地比你（角色）当地快 2 小时；两边当前是同一个日历日');
+        expect(timeDifferenceNote('Asia/Kolkata', 'America/Chicago', noon)).toContain('你（角色）当地比对方当地快 10 小时 30 分钟');
     });
 });
 

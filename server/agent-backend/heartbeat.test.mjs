@@ -1784,12 +1784,15 @@ test('找她时列出没回的那几条，叫 TA 别追问、别说发送失败'
     assert.match(prompt, /不是消息发送失败/);
 });
 
-test('不在一个时区：告诉 TA 对方那边几点；同一个时区不多说', () => {
+test('不在一个时区：直接给 TA 双城时钟和结论；同一个时区不多说', () => {
     const snapshot = { payload: { user: { name: '阿萌' }, timezone: 'Asia/Shanghai' } };
     const prompt = buildPrompt({ displayName: '陆时' }, snapshot, AT, 'live', { userTimezone: 'America/Chicago' });
-    assert.match(prompt, /对方那边现在是 .*下午3:00（America\/Chicago）/);
+    assert.match(prompt, /【双城时钟｜程序已换算，禁止自行心算】/);
+    assert.match(prompt, /你（角色）当地：.*凌晨 04:00（Asia\/Shanghai）/);
+    assert.match(prompt, /对方（阿萌）当地：.*下午 15:00（America\/Chicago）/);
+    assert.match(prompt, /你（角色）当地比对方当地快 13 小时/);
     const same = buildPrompt({ displayName: '陆时' }, { payload: { timezone: 'America/Chicago' } }, AT, 'live', { userTimezone: 'America/Chicago' });
-    assert.doesNotMatch(same, /对方那边现在是/);
+    assert.doesNotMatch(same, /【双城时钟/);
 });
 
 test('跨时区过夜：聊天时间同时标两边，明确把昨晚催睡推进到今天', () => {

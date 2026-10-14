@@ -468,6 +468,21 @@ const timeOfDayWord = (h: number): string =>
 
 const pad2 = (n: number) => n.toString().padStart(2, '0');
 
+const clockDateKey = (p: WallClockParts): string =>
+  `${p.year}-${pad2(p.month)}-${pad2(p.day)}`;
+
+const clockOffsetMinutes = (nowMs: number, p: WallClockParts): number => {
+  const wallAsUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute);
+  return Math.round((wallAsUtc - Math.floor(nowMs / 60_000) * 60_000) / 60_000);
+};
+
+const clockGapText = (minutes: number): string => {
+  const absolute = Math.abs(minutes);
+  const hours = Math.floor(absolute / 60);
+  const rest = absolute % 60;
+  return rest ? `${hours} 小时 ${rest} 分钟` : `${hours} 小时`;
+};
+
 /** 当前时间槽用的自然中文全格式：`2026年8月1日 周六 早晨 08:00`（与 buildCoreContext 同款）。 */
 export const formatFireTimeFull = (nowMs: number, tz: AmsgTzRef): string => {
   const p = wallClockPartsInZone(nowMs, tz);
@@ -478,6 +493,55 @@ export const formatFireTimeFull = (nowMs: number, tz: AmsgTzRef): string => {
 export const formatFireTimeShort = (nowMs: number, tz: AmsgTzRef): string => {
   const p = wallClockPartsInZone(nowMs, tz);
   return `${p.month}月${p.day}日 ${pad2(p.hour)}:${pad2(p.minute)}`;
+};
+
+/**
+ * 两地时钟之间已经算好的结论。模型只能读取，不需要也不应该再做时差算术。
+ */
+export const buildClockDifferenceNote = (
+  nowMs: number,
+  charTz: AmsgTzRef,
+  userTz: AmsgTzRef,
+): string => {
+  if (!charTz.tzId || !userTz.tzId || charTz.tzId === userTz.tzId) return '';
+  const charClock = wallClockPartsInZone(nowMs, charTz);
+  const userClock = wallClockPartsInZone(nowMs, userTz);
+  const diff = clockOffsetMinutes(nowMs, charClock) - clockOffsetMinutes(nowMs, userClock);
+  const who = diff === 0
+    ? '两地此刻钟点一致（时区设置不同，但当前 UTC 偏移相同）'
+    : diff > 0
+      ? `你（角色）当地比对方当地快 ${clockGapText(diff)}`
+      : `对方当地比你（角色）当地快 ${clockGapText(diff)}`;
+  const charDay = clockDateKey(charClock);
+  const userDay = clockDateKey(userClock);
+  const day = charDay === userDay
+    ? '两边当前是同一个日历日'
+    : charDay > userDay
+      ? '你（角色）当地已经是后一天，对方当地仍是前一天'
+      : '对方当地已经是后一天，你（角色）当地仍是前一天';
+  return `${who}；${day}`;
+};
+
+/**
+ * 高显著性的双城时钟：同一个程序时刻直接展开成双方完整墙钟，避免模型从散落的两行
+ * 信息里自行加减时差、算反日期。只有双方时区不同才输出。
+ */
+export const buildDualClockBlock = (
+  nowMs: number,
+  charTz: AmsgTzRef,
+  userTz: AmsgTzRef,
+  targetName: string,
+  differenceNote = buildClockDifferenceNote(nowMs, charTz, userTz),
+): string => {
+  if (!charTz.tzId || !userTz.tzId || charTz.tzId === userTz.tzId) return '';
+  const target = targetName && targetName !== '对方' ? `对方（${targetName}）` : '对方（用户）';
+  return [
+    '【双城时钟｜程序已换算，禁止自行心算】',
+    `- 你（角色）当地：${formatFireTimeFull(nowMs, charTz)}`,
+    `- ${target}当地：${formatFireTimeFull(nowMs, userTz)}`,
+    `- 直接结论：${differenceNote}。`,
+    '硬规则：判断你自己的作息与生活用第一行；判断对方是否醒着、是否在上课，以及对方语境里的“今天/明天”，只用第二行。不要从任一行重新换算。',
+  ].join('\n');
 };
 
 /**
@@ -493,11 +557,8 @@ export const buildUserClockHint = (
   userTz: AmsgTzRef,
   targetName: string,
 ): string => {
-  if (!userTz.tzId || userTz.tzId === charTz.tzId) return '';
-  const p = wallClockPartsInZone(nowMs, userTz);
-  const target = targetName || '对方';
-  return `\n（对方所在时区参考：${target}那边现在是 ${p.month}月${p.day}日 ${timeOfDayWord(p.hour)} ${pad2(p.hour)}:${pad2(p.minute)}。`
-    + `你们之间有时差，别拿自己这边的钟去推断 ${target} 此刻醒着还是睡着。）`;
+  const block = buildDualClockBlock(nowMs, charTz, userTz, targetName);
+  return block ? `\n${block}` : '';
 };
 
 /** 「距离用户上次主动发消息……」三档文案；diffMinutes 为 null 表示没有聊天记录。 */

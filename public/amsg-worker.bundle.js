@@ -7640,6 +7640,17 @@ var wallClockPartsInZone = (nowMs, tz) => {
 var WEEKDAY_NAMES = ["\u5468\u65E5", "\u5468\u4E00", "\u5468\u4E8C", "\u5468\u4E09", "\u5468\u56DB", "\u5468\u4E94", "\u5468\u516D"];
 var timeOfDayWord = (h) => h < 5 ? "\u51CC\u6668" : h < 9 ? "\u65E9\u6668" : h < 12 ? "\u4E0A\u5348" : h < 14 ? "\u4E2D\u5348" : h < 17 ? "\u4E0B\u5348" : h < 19 ? "\u508D\u665A" : h < 22 ? "\u665A\u4E0A" : "\u6DF1\u591C";
 var pad2 = (n) => n.toString().padStart(2, "0");
+var clockDateKey = (p) => `${p.year}-${pad2(p.month)}-${pad2(p.day)}`;
+var clockOffsetMinutes = (nowMs, p) => {
+  const wallAsUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute);
+  return Math.round((wallAsUtc - Math.floor(nowMs / 6e4) * 6e4) / 6e4);
+};
+var clockGapText = (minutes) => {
+  const absolute = Math.abs(minutes);
+  const hours = Math.floor(absolute / 60);
+  const rest = absolute % 60;
+  return rest ? `${hours} \u5C0F\u65F6 ${rest} \u5206\u949F` : `${hours} \u5C0F\u65F6`;
+};
 var formatFireTimeFull = (nowMs, tz) => {
   const p = wallClockPartsInZone(nowMs, tz);
   return `${p.year}\u5E74${p.month}\u6708${p.day}\u65E5 ${WEEKDAY_NAMES[p.weekday]} ${timeOfDayWord(p.hour)} ${pad2(p.hour)}:${pad2(p.minute)}`;
@@ -7648,12 +7659,32 @@ var formatFireTimeShort = (nowMs, tz) => {
   const p = wallClockPartsInZone(nowMs, tz);
   return `${p.month}\u6708${p.day}\u65E5 ${pad2(p.hour)}:${pad2(p.minute)}`;
 };
+var buildClockDifferenceNote = (nowMs, charTz, userTz) => {
+  if (!charTz.tzId || !userTz.tzId || charTz.tzId === userTz.tzId) return "";
+  const charClock = wallClockPartsInZone(nowMs, charTz);
+  const userClock = wallClockPartsInZone(nowMs, userTz);
+  const diff = clockOffsetMinutes(nowMs, charClock) - clockOffsetMinutes(nowMs, userClock);
+  const who = diff === 0 ? "\u4E24\u5730\u6B64\u523B\u949F\u70B9\u4E00\u81F4\uFF08\u65F6\u533A\u8BBE\u7F6E\u4E0D\u540C\uFF0C\u4F46\u5F53\u524D UTC \u504F\u79FB\u76F8\u540C\uFF09" : diff > 0 ? `\u4F60\uFF08\u89D2\u8272\uFF09\u5F53\u5730\u6BD4\u5BF9\u65B9\u5F53\u5730\u5FEB ${clockGapText(diff)}` : `\u5BF9\u65B9\u5F53\u5730\u6BD4\u4F60\uFF08\u89D2\u8272\uFF09\u5F53\u5730\u5FEB ${clockGapText(diff)}`;
+  const charDay = clockDateKey(charClock);
+  const userDay = clockDateKey(userClock);
+  const day = charDay === userDay ? "\u4E24\u8FB9\u5F53\u524D\u662F\u540C\u4E00\u4E2A\u65E5\u5386\u65E5" : charDay > userDay ? "\u4F60\uFF08\u89D2\u8272\uFF09\u5F53\u5730\u5DF2\u7ECF\u662F\u540E\u4E00\u5929\uFF0C\u5BF9\u65B9\u5F53\u5730\u4ECD\u662F\u524D\u4E00\u5929" : "\u5BF9\u65B9\u5F53\u5730\u5DF2\u7ECF\u662F\u540E\u4E00\u5929\uFF0C\u4F60\uFF08\u89D2\u8272\uFF09\u5F53\u5730\u4ECD\u662F\u524D\u4E00\u5929";
+  return `${who}\uFF1B${day}`;
+};
+var buildDualClockBlock = (nowMs, charTz, userTz, targetName, differenceNote = buildClockDifferenceNote(nowMs, charTz, userTz)) => {
+  if (!charTz.tzId || !userTz.tzId || charTz.tzId === userTz.tzId) return "";
+  const target = targetName && targetName !== "\u5BF9\u65B9" ? `\u5BF9\u65B9\uFF08${targetName}\uFF09` : "\u5BF9\u65B9\uFF08\u7528\u6237\uFF09";
+  return [
+    "\u3010\u53CC\u57CE\u65F6\u949F\uFF5C\u7A0B\u5E8F\u5DF2\u6362\u7B97\uFF0C\u7981\u6B62\u81EA\u884C\u5FC3\u7B97\u3011",
+    `- \u4F60\uFF08\u89D2\u8272\uFF09\u5F53\u5730\uFF1A${formatFireTimeFull(nowMs, charTz)}`,
+    `- ${target}\u5F53\u5730\uFF1A${formatFireTimeFull(nowMs, userTz)}`,
+    `- \u76F4\u63A5\u7ED3\u8BBA\uFF1A${differenceNote}\u3002`,
+    "\u786C\u89C4\u5219\uFF1A\u5224\u65AD\u4F60\u81EA\u5DF1\u7684\u4F5C\u606F\u4E0E\u751F\u6D3B\u7528\u7B2C\u4E00\u884C\uFF1B\u5224\u65AD\u5BF9\u65B9\u662F\u5426\u9192\u7740\u3001\u662F\u5426\u5728\u4E0A\u8BFE\uFF0C\u4EE5\u53CA\u5BF9\u65B9\u8BED\u5883\u91CC\u7684\u201C\u4ECA\u5929/\u660E\u5929\u201D\uFF0C\u53EA\u7528\u7B2C\u4E8C\u884C\u3002\u4E0D\u8981\u4ECE\u4EFB\u4E00\u884C\u91CD\u65B0\u6362\u7B97\u3002"
+  ].join("\n");
+};
 var buildUserClockHint = (nowMs, charTz, userTz, targetName) => {
-  if (!userTz.tzId || userTz.tzId === charTz.tzId) return "";
-  const p = wallClockPartsInZone(nowMs, userTz);
-  const target = targetName || "\u5BF9\u65B9";
-  return `
-\uFF08\u5BF9\u65B9\u6240\u5728\u65F6\u533A\u53C2\u8003\uFF1A${target}\u90A3\u8FB9\u73B0\u5728\u662F ${p.month}\u6708${p.day}\u65E5 ${timeOfDayWord(p.hour)} ${pad2(p.hour)}:${pad2(p.minute)}\u3002\u4F60\u4EEC\u4E4B\u95F4\u6709\u65F6\u5DEE\uFF0C\u522B\u62FF\u81EA\u5DF1\u8FD9\u8FB9\u7684\u949F\u53BB\u63A8\u65AD ${target} \u6B64\u523B\u9192\u7740\u8FD8\u662F\u7761\u7740\u3002\uFF09`;
+  const block = buildDualClockBlock(nowMs, charTz, userTz, targetName);
+  return block ? `
+${block}` : "";
 };
 var formatTimeSinceUser = (diffMinutes) => {
   if (diffMinutes == null) {
@@ -8848,16 +8879,15 @@ var isInstantChatTask = (metadata) => !!metadata && metadata[AMSG_INSTANT_CHAT_F
 var buildInstantTimelyBlock = (args) => {
   const blocks = args.blocks.filter((block) => block.trim());
   if (!args.timeAwarenessEnabled && blocks.length === 0) return "";
+  const dualClock = buildUserClockHint(args.nowMs, args.tz, { tzId: args.userTzId }, args.targetName).trim();
   const head = args.timeAwarenessEnabled ? [
     "\u3010\u6B64\u523B\u7684\u7CFB\u7EDF\u4FE1\u606F\xB7\u4EC5\u4F60\u53EF\u89C1\u3011",
-    `\u73B0\u5728\u662F ${formatFireTimeFull(args.nowMs, args.tz)}\u3002`,
+    dualClock || `\u73B0\u5728\u662F ${formatFireTimeFull(args.nowMs, args.tz)}\u3002`,
     // 报时后面跟那句语境框定，跟前台聊天引的是同一份常量。这一轮是用户刚按下发送、
     // 正等着回复，所以「对方还在跟你说话」是真的；少了它，深夜的那行钟就够让角色
     // 每轮都往「快睡吧、明天见」上收——本地那条路修好了、云端没修的话，同一个角色
     // 在两条路上的分寸会不一样。
-    TIME_FRAMING_CONVERSATIONAL,
-    // buildUserClockHint 自带前导换行，没时差时返回空串。
-    buildUserClockHint(args.nowMs, args.tz, { tzId: args.userTzId }, args.targetName)
+    TIME_FRAMING_CONVERSATIONAL
   ].join("\n") : "\u3010\u6B64\u523B\u7684\u7CFB\u7EDF\u4FE1\u606F\xB7\u4EC5\u4F60\u53EF\u89C1\u3011";
   return [head, ...blocks].join("\n");
 };

@@ -1019,15 +1019,13 @@ describe('buildFirePack 的时区参照系与模板（①）', () => {
       .toBeGreaterThan(out.template.indexOf(AMSG_SLOT_CURRENT_TIME));
   });
 
-  // 回归守卫：前台每轮都有「你身处 X 时区……对方可能在不同时区」，而 fire 侧的角色设定是
-  // skipTimeAwareness 建的、整块时间感知都被抹掉了。不在打包时补回来的话，最容易撞用户
-  // 睡觉的恰恰是主动消息。这段文案是静态的，所以直接烤进模板。
-  it('开了自定义时区的角色，时差说明烤进模板', async () => {
+  // 旧版把「对方可能在不同时区」烤进模板，模型会把它当一道题再算；现在只留到点
+  // 渲染的双城时钟槽，双方完整读数与结论一次给齐。
+  it('开了自定义时区的角色，不烤模糊提醒，只留双城时钟槽', async () => {
     const out = await pack(baseChar({ customTimezoneEnabled: true, customTimezone: 'America/New_York' }));
-    expect(out.template).toContain('你身处');
-    expect(out.template).toContain('存在时差');
-    // 位置在当前时间之后：那句话说的就是「上面的当前时间是你那边的」。
-    expect(out.template.indexOf('你身处')).toBeGreaterThan(out.template.indexOf(AMSG_SLOT_CURRENT_TIME));
+    expect(out.template).not.toContain('可能在不同的时区');
+    expect(out.template).toContain(AMSG_SLOT_USER_CLOCK);
+    expect(out.template.indexOf(AMSG_SLOT_USER_CLOCK)).toBeGreaterThan(out.template.indexOf(AMSG_SLOT_CURRENT_TIME));
   });
 
   it('没开自定义时区的角色不注入时差说明（跟前台一致）', async () => {

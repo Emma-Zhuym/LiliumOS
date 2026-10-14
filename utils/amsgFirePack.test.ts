@@ -179,10 +179,13 @@ describe('对方那边现在几点（AMSG_SLOT_USER_CLOCK）', () => {
     targetName: '小明同学',
   };
 
-  it('两个钟各写各的主语：角色的是「当前本地时间」，用户的点名是「对方所在时区」', () => {
+  it('两个钟在同一块硬信息里并排出现，并给出程序算好的结论', () => {
     const out = renderFirePack(nyChar, AT, '指令');
     expect(out).toContain('当前本地时间（你所在地）：2026年8月2日 周日 上午 09:00');
-    expect(out).toContain('对方所在时区参考：小明同学那边现在是 8月2日 晚上 21:00');
+    expect(out).toContain('【双城时钟｜程序已换算，禁止自行心算】');
+    expect(out).toContain('你（角色）当地：2026年8月2日 周日 上午 09:00');
+    expect(out).toContain('对方（小明同学）当地：2026年8月2日 周日 晚上 21:00');
+    expect(out).toContain('对方当地比你（角色）当地快 12 小时；两边当前是同一个日历日');
     expect(out).not.toContain('{{');
   });
 
@@ -193,14 +196,14 @@ describe('对方那边现在几点（AMSG_SLOT_USER_CLOCK）', () => {
 
   it('buildUserClockHint 只认 userTz，不吃运行时本地时区', () => {
     expect(buildUserClockHint(AT, { tzId: 'UTC' }, { tzId: 'Asia/Tokyo' }, '小明同学'))
-      .toContain('小明同学那边现在是 8月2日 深夜 22:00');
+      .toContain('对方（小明同学）当地：2026年8月2日 周日 深夜 22:00');
     // 空 tz（理论上 parseFirePack 已经挡住）→ 不硬编一个时间出来
     expect(buildUserClockHint(AT, { tzId: 'UTC' }, { tzId: '' }, '小明同学')).toBe('');
   });
 
   it('没名字回退「对方」', () => {
     expect(buildUserClockHint(AT, { tzId: 'UTC' }, { tzId: 'Asia/Shanghai' }, ''))
-      .toContain('对方那边现在是');
+      .toContain('对方（用户）当地：');
   });
 });
 
