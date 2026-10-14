@@ -158,15 +158,15 @@ describe('门上的纸', () => {
     const undone: KitchenEvent = { id: 'e7', operationId: 'o7', type: 'ADD', lotId: 'lot-7', foodId: 'food-7', quantityDelta: 1, quantityBefore: 0, quantityAfter: 1, unit: 'item', occurredAt: now - 2000, undoneAt: now - 1000 };
     expect(shoppingSuggestions(lots, foods, [undone], listed, now)).toEqual(['牛奶', '酸奶']);
   });
-  it('柜子里：只列常温柜里还有的，分速食 / 零食 / 饮料，段名带总数；写不下时三段轮流分名额；米面油调料不上', () => {
+  it('柜子里：只列常温柜里还有的，分速食 / 零食 / 饮料，段名带总数；每类最多三样，地方紧时轮流分；米面油调料不上', () => {
     const names = ['薯片', '方便面', '可乐', '大米', '酱油', '牛肉干', '燕麦片', '气泡水', '饼干', '巧克力', '料酒', '坚果', '果冻'];
     const lots = names.map((_, i) => lot(i, { storageZone: 'pantry', unit: 'bag', quantity: 1, updatedAt: 100 - i }));
     lots.push(lot(13, { storageZone: 'fridge' }), lot(14, { storageZone: 'pantry', quantity: 0, updatedAt: 999 }));
     lots[8] = { ...lots[8], pantryKind: 'ready' };   // 饼干手动改成速食
     const foods = [...names, '冰箱里的', '吃完的'].map((name, i) => food(i, name));
     const view = (maxRows: number) => pantryList(lots, foods, maxRows)!.rows.map(row => 'head' in row ? `[${row.head}${row.count}]` : row.line.text);
-    // 地方够：全写上
-    expect(view(20)).toEqual(['[速食3]', '方便面', '燕麦片', '饼干', '[零食5]', '薯片', '牛肉干', '巧克力', '坚果', '果冻', '[饮料2]', '可乐', '气泡水']);
+    // 地方够：每类最多三样
+    expect(view(20)).toEqual(['[速食3]', '方便面', '燕麦片', '饼干', '[零食5]', '薯片', '牛肉干', '巧克力', '[饮料2]', '可乐', '气泡水']);
     // 只有 9 行：段名 3 行，剩 6 样三段轮流分，每段最近动过的在前
     expect(view(9)).toEqual(['[速食3]', '方便面', '燕麦片', '[零食5]', '薯片', '牛肉干', '[饮料2]', '可乐', '气泡水']);
     expect(pantryList(lots, foods, 9)!.more).toBe(4);

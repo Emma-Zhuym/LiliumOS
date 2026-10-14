@@ -332,11 +332,11 @@ export interface PantryList { lines: PantryLine[]; rows: PantryRow[]; more: numb
 
 /**
  * 「柜子里」清单：常温柜不做 3D，贴一张手写清单在冷藏门上。按速食 / 零食 / 饮料分段，段名后写这段一共几样；
- * 纸能写几行由门上剩多少地方定（maxRows，含段名）。写不下时三段轮流分名额，每段都露几样，
- * 段里最近动过的在前；没写上的点纸去看整张清单。开封的分次包装只写「开封」。
- * 2026-10-14 阿萌：柜子里东西多，原来一共只写六样。
+ * 每类最多写三样（阿萌 2026-10-14：每类写两三个就行，不用全写），门上地方紧时（maxRows，含段名）
+ * 三段轮流分名额，至少每类一样；段里最近动过的在前，没写上的点纸去看整张清单。开封的分次包装只写「开封」。
  */
-export function pantryList(lots: KitchenLot[], foods: KitchenFood[], maxRows = 12): PantryList | null {
+export const PANTRY_PER_KIND = 3;
+export function pantryList(lots: KitchenLot[], foods: KitchenFood[], maxRows = 12, perKind = PANTRY_PER_KIND): PantryList | null {
   const names = new Map(foods.map(food => [food.id, food.name]));
   const inPantry = lots.filter(lot => lot.quantity > 0 && lot.storageZone === 'pantry')
     .map(lot => ({ lot, name: names.get(lot.foodId) ?? '食物' }))
@@ -352,7 +352,7 @@ export function pantryList(lots: KitchenLot[], foods: KitchenFood[], maxRows = 1
   for (let progressed = true; budget > 0 && progressed;) {
     progressed = false;
     groups.forEach((group, i) => {
-      if (budget > 0 && take[i] < group.items.length) { take[i] += 1; budget -= 1; progressed = true; }
+      if (budget > 0 && take[i] < Math.min(perKind, group.items.length)) { take[i] += 1; budget -= 1; progressed = true; }
     });
   }
   const rows: PantryRow[] = [], lines: PantryLine[] = [];
