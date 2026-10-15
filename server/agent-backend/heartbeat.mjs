@@ -510,9 +510,62 @@ export const currentSlot = (snapshot, now, timezone) => {
     for (const slot of slots) {
         const start = toMinutes(slot.start ?? slot.startTime);
         if (start === null || start > minutes) continue;
+        const end = toMinutes(slot.end ?? slot.endTime);
+        // 有明确结束时刻且已经结束的段落不是「现在」。旧实现只看开始时间，日程中间
+        // 有空档时会把上一段一路延长到下一段开始，给模型一个已经过期的活动。
+        if (end !== null && end > start && minutes >= end) continue;
         if (!current || start >= toMinutes(current.start ?? current.startTime)) current = slot;
     }
     return current;
+};
+
+const minuteClock = minutes => {
+    const normalized = ((minutes % (24 * 60)) + 24 * 60) % (24 * 60);
+    return `${String(Math.floor(normalized / 60)).padStart(2, '0')}:${String(normalized % 60).padStart(2, '0')}`;
+};
+
+const slotTitle = slot => String(slot?.title ?? slot?.activity ?? '').trim() || '未命名安排';
+
+const slotRange = slot => {
+    const start = toMinutes(slot?.start ?? slot?.startTime);
+    const end = toMinutes(slot?.end ?? slot?.endTime);
+    if (start === null) return '';
+    return end !== null && end > start ? `${minuteClock(start)}–${minuteClock(end)}` : `${minuteClock(start)} 起`;
+};
+
+/**
+ * 把整张日程表替模型算成「现在 / 下一段」。
+ *
+ * 只把全天表扔给模型，它会被上一跳的 activity / reason 带回旧场景，再自己算错当前落点。
+ * 这块紧跟双城时钟，明确宣布程序结果优先于旧对话、旧念头和日常节律。
+ */
+export const buildCurrentScheduleBlock = (snapshot, now, timezone) => {
+    const slots = snapshot?.payload?.todaySchedule;
+    if (!Array.isArray(slots) || slots.length === 0) return '';
+    const minutes = localMinutes(now, timezone);
+    const current = currentSlot(snapshot, now, timezone);
+    const next = slots
+        .map(slot => ({ slot, start: toMinutes(slot?.start ?? slot?.startTime) }))
+        .filter(item => item.start !== null && item.start > minutes)
+        .sort((a, b) => a.start - b.start)[0] ?? null;
+
+    const lines = ['【当前日程落点（程序已按你所在地时区算好）】'];
+    if (current) {
+        lines.push(`- 现在 ${minuteClock(minutes)}，当前时段：${slotRange(current)}「${slotTitle(current)}」。`);
+    } else {
+        lines.push(`- 现在 ${minuteClock(minutes)}，当前没有落在任何已排定的时段里。`);
+    }
+    if (next) {
+        const distance = next.start - minutes;
+        lines.push(`- 下一段：${slotRange(next.slot)}「${slotTitle(next.slot)}」，${distance} 分钟后开始。`);
+    } else {
+        lines.push('- 今天后面没有新的排定时段。');
+    }
+    lines.push(
+        '硬性规则：当前 activity、地点和措辞必须以这块为准。下面带时间戳的旧对话、旧念头、旧 activity 都只属于当时；'
+        + '已经结束的跑步、洗澡、吃饭、会议等不得继续写成“正在做”。',
+    );
+    return lines.join('\n');
 };
 
 /**
@@ -909,6 +962,8 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
     } else {
         lines.push(`现在是 ${formatLocal(now, p.timezone)}（${p.timezone || '未知时区'}）。`);
     }
+    const currentSchedule = buildCurrentScheduleBlock(snapshot, now, p.timezone);
+    if (currentSchedule) lines.push(currentSchedule);
     if (p.sleepWindow) lines.push(`你的作息：${p.sleepWindow.start} 睡，${p.sleepWindow.end} 起。`);
     // 情绪底色：聊天那边每轮情绪评估写出来的叙事。缺了它，心跳里的 TA 永远是出厂情绪。
     if (p.mood) lines.push(`你此刻的情绪底色：\n${p.mood}`);
@@ -972,7 +1027,7 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
     }
     if (thoughts.length) {
         lines.push(
-            '你今天早些时候自己待着的样子（这是你真实经历过的，对方并不知道）：\n'
+            '你今天早些时候自己待着的样子（这是过去记录，每条只属于标出的那个时刻，不是当前状态；对方并不知道）：\n'
             + thoughts.map(t => `- ${formatLocal(new Date(t.at), p.timezone)}：${t.activity || ''}`
                 + `${t.reason ? `（心里想：${t.reason}）` : ''}${t.said ? `（你对 ta 说了：${t.said}）` : ''}`).join('\n'),
         );
@@ -987,7 +1042,13 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
         );
     }
     if (carried) {
-        lines.push(`你上一次醒来时心里想的是：「${carried.reason}」。现在就是那个「等会儿」了。`);
+        const carriedAt = carried.at ? formatLocal(new Date(carried.at), p.timezone) : '上一次醒来时';
+        lines.push(
+            `你在 ${carriedAt} 决定“等会儿联系对方”。现在只兑现“想联系对方”这件事；`
+            + '旧理由里的时间、地点和正在做的活动已经过去，绝不能原样继承。'
+            + '先按上面的“当前日程落点”重置此刻 activity，再从旧理由里只保留仍值得对对方说的内容。'
+            + `当时的理由是：「${carried.reason}」。`,
+        );
     }
     // 手头正在推进的事：每一跳都带上，「领口还要改」下一跳才接得上。
     if (threads.length) {

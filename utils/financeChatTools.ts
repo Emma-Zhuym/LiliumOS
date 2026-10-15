@@ -68,7 +68,7 @@ export const FINANCE_CHAT_TOOLS = [
 
 export const FINANCE_CHAT_TOOL_NAMES = new Set<string>(FINANCE_CHAT_TOOLS.map(tool => tool.function.name));
 
-const FINANCE_TOPIC_RE = /花钱|花了|花费|花销|消费|支出|收入|账单|账目|记账|余额|信用卡|银行卡|还款|退款|转账|预算|财务|多少钱|买了|购买|商户|transaction|spend|spending|expense|balance|credit card|refund|budget|bought|purchase/i;
+const FINANCE_TOPIC_RE = /花钱|花了|花费|花销|消费|支出|收入|账单|账目|记账|查(?:一下|下|看)?(?:账|账本|流水|交易)|对账|账本|流水|交易记录|消费记录|余额|信用卡|银行卡|还款|退款|转账|预算|财务|多少钱|买了|购买|商户|transaction|spend|spending|expense|balance|credit card|refund|budget|bought|purchase/i;
 
 function messageText(message: Message): string {
   if (typeof message.content === 'string') return message.content;

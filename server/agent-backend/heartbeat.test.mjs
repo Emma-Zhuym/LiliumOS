@@ -527,6 +527,18 @@ test('当前时段按日程取，取的是已经开始的最后一段', () => {
     assert.equal(slot.title, '在家');
 });
 
+test('当前时段尊重明确结束时间：日程空档里不把上一段拖到现在', () => {
+    const snapshot = {
+        payload: {
+            todaySchedule: [
+                { start: '06:30', end: '07:25', title: '晨跑与淋浴' },
+                { start: '08:05', end: '08:40', title: '早餐与行程核对' },
+            ],
+        },
+    };
+    assert.equal(currentSlot(snapshot, new Date('2026-10-14T23:45:00.000Z'), 'Asia/Shanghai'), null);
+});
+
 test('抽签决定开不开口：rng 钉死就能复现', () => {
     const snapshot = {
         payload: {
@@ -1793,6 +1805,40 @@ test('不在一个时区：直接给 TA 双城时钟和结论；同一个时区�
     assert.match(prompt, /你（角色）当地比对方当地快 13 小时/);
     const same = buildPrompt({ displayName: '陆时' }, { payload: { timezone: 'America/Chicago' } }, AT, 'live', { userTimezone: 'America/Chicago' });
     assert.doesNotMatch(same, /【双城时钟/);
+});
+
+test('跨时段兑现 later：程序把当前与下一段日程钉在旧洗澡念头前面', () => {
+    const now = new Date('2026-10-15T00:32:38.412Z'); // 芝加哥 19:32；上海次日 08:32
+    const snapshot = { payload: {
+        user: { name: '阿萌' },
+        timezone: 'Asia/Shanghai',
+        todaySchedule: [
+            { start: '06:30', end: '07:25', title: '晨跑与淋浴 · 健身房' },
+            { start: '07:25', end: '08:05', title: '早高峰通勤 · 通勤车上' },
+            { start: '08:05', end: '08:40', title: '早餐与行程核对 · 办公室' },
+            { start: '08:40', end: '11:15', title: '能源部季度例会 · 会议室' },
+        ],
+    } };
+    const prompt = buildPrompt({ displayName: '陆时' }, snapshot, now, 'reach_out', {
+        userTimezone: 'America/Chicago',
+        thoughts: [{
+            at: '2026-10-14T23:24:08.057Z',
+            activity: '晨跑结束，正在健身房淋浴间冲洗',
+            reason: '等我洗完澡再联系她',
+        }],
+        carried: {
+            at: '2026-10-14T23:24:08.057Z',
+            reason: '我正在冲澡，等会儿简短回她一句',
+            urge: 'later',
+        },
+    });
+
+    assert.match(prompt, /现在 08:32，当前时段：08:05–08:40「早餐与行程核对 · 办公室」/);
+    assert.match(prompt, /下一段：08:40–11:15「能源部季度例会 · 会议室」，8 分钟后开始/);
+    assert.match(prompt, /已经结束的跑步、洗澡、吃饭、会议等不得继续写成“正在做”/);
+    assert.match(prompt, /现在只兑现“想联系对方”这件事/);
+    assert.match(prompt, /旧理由里的时间、地点和正在做的活动已经过去，绝不能原样继承/);
+    assert.ok(prompt.indexOf('【当前日程落点') < prompt.indexOf('晨跑结束，正在健身房淋浴间冲洗'));
 });
 
 test('跨时区过夜：聊天时间同时标两边，明确把昨晚催睡推进到今天', () => {

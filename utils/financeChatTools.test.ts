@@ -21,6 +21,9 @@ describe('finance chat awareness', () => {
 
   it('activates direct finance questions but not ordinary conversation', () => {
     expect(shouldEnableFinanceTools([userMessage('我今天在 Target 花了多少？')])).toBe(true);
+    expect(shouldEnableFinanceTools([userMessage('帮我查账')])).toBe(true);
+    expect(shouldEnableFinanceTools([userMessage('查一下最近的流水')])).toBe(true);
+    expect(shouldEnableFinanceTools([userMessage('看看账本')])).toBe(true);
     expect(shouldEnableFinanceTools([userMessage('今天下雨了，好困')])).toBe(false);
   });
 
