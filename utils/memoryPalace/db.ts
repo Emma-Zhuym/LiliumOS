@@ -118,6 +118,24 @@ function syncNodeMetadataToRemote(node: MemoryNode): void {
 }
 
 export const MemoryNodeDB = {
+    /** 向量化的一批要么全进、要么全不进：不能留下「有新正文、没向量 / 配着旧向量」的记忆。 */
+    saveVectorizedMany: async (entries: { node: MemoryNode; vector: MemoryVector }[]): Promise<void> => {
+        if (!entries.length) return;
+        const db = await openDB();
+        await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction([STORE_MEMORY_NODES, STORE_MEMORY_VECTORS], 'readwrite');
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+            tx.onabort = () => reject(tx.error || new Error('记忆和向量保存已回滚'));
+            try {
+                for (const { node, vector } of entries) {
+                    tx.objectStore(STORE_MEMORY_NODES).put(node);
+                    tx.objectStore(STORE_MEMORY_VECTORS).put({ ...vector, vector: vecForStorage(vector.vector) });
+                }
+            } catch (error) { tx.abort(); reject(error); }
+        });
+        bm25Index.onNodesSaved(entries.map(entry => entry.node));
+    },
     save: async (node: MemoryNode) => {
         await put<MemoryNode>(STORE_MEMORY_NODES, node);
         // 写入验证：确认数据真的持久化了
