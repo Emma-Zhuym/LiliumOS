@@ -72,6 +72,8 @@ import { appendInstantTraceEntry } from '../utils/instantTraceLog';
 import { AMSG2_TOOLS, AMSG2_TOOL_NAMES, createAmsg2ToolSession, executeAmsg2Tool, isAmsg2GlobalReady } from '../utils/amsg2ToolBridge';
 import { shouldSendThinkingParams } from '../utils/thinkingGate';
 import { buildFinanceChatSystemBlock, executeFinanceChatTool, FINANCE_CHAT_TOOLS, FINANCE_CHAT_TOOL_NAMES, getFinanceAwareness, shouldEnableFinanceTools } from '../utils/financeChatTools';
+import { rollChatCue } from '../utils/emCueProviders'; // [EM: char-drives-cue]
+import { noteCueToolUse } from '../utils/emCuePool'; // [EM: char-drives-cue]
 import {
     buildHealthChatSystemBlock,
     executeHealthChatTool,
@@ -967,6 +969,15 @@ export const useChatAI = ({
                 && !instantChatRoute
                 && !agentChatRoute // [EM: agent-instant-chat] 同上：定位工具只在本地生成时给
                 && (!instantPushConfigured || locationLocalRequired);
+            // [EM-START: char-drives-cue] 契机池：偶尔让 TA 脑子里闪过一件跟话题无关的事（spec-character-drives 第 3 节）。
+            // 摘录本地先读好、放进 volatileState，不需要工具循环，所以不改这一轮的路线。
+            // 点单流程里、或她自己正聊着某个工具话题时不闪。
+            await rollChatCue(char, {
+                skip: Boolean(luckinChatOn || mcdMiniOpen || luckinMiniOpen || financeTopicTriggered || healthToolTurn || mcpToolTurn || locationLocalRequired),
+                route: agentChatRoute ? 'mini' : instantChatRoute ? 'cloud' : instantPushConfigured ? 'push' : 'local',
+                userName: userProfile.name,
+            });
+            // [EM-END: char-drives-cue]
             // 「即时对话开着、这一轮却没上云」的所有情形都在这一处留痕，三种原因去向不同：
             //   · 点单流程否决：瑞幸/麦当劳是客户端交互式循环（选城市、确认单），云端接不了
             //     手，这一轮留在本地跑是对的；
@@ -2008,6 +2019,7 @@ export const useChatAI = ({
                             let financeResult: any;
                             try {
                                 financeResult = await executeFinanceChatTool(fname, args);
+                                noteCueToolUse(char.id, 'finance'); // [EM: char-drives-cue]
                             } catch (e: any) {
                                 financeResult = { success: false, error: e?.message || String(e) };
                             }
