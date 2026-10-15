@@ -61,6 +61,7 @@ import { describeImageWithVisionApi, VISION_API_TEST_IMAGE_DATA_URL, visionApiCo
 import { readLiliumOSStorage, writeLiliumOSStorage } from '../utils/liliumosStorage';
 import { buildImageModelsUrl, generateChatImage, resolveImageGenerationConfig } from '../utils/imageGeneration';
 import { F, HUE, R, S, SP, STATUS } from '../utils/clayTokens';
+import { askRestoreBackendConnection } from '../utils/activeMsgStore';
 import CloudBackupAutoStatus from '../components/settings/CloudBackupAutoStatus'; // [EM: auto-cloud-backup]
 // [EM-START: github-backup-status]
 import { shouldUseGithubProxy } from '../utils/githubClient';
@@ -729,6 +730,11 @@ const Settings: React.FC = () => {
   const [ppZombieStreak, setPpZombieStreak] = useState(0);
   const [showInstantModal, setShowInstantModal] = useState(false);
   const [showAmsg2Modal, setShowAmsg2Modal] = useState(false);
+  /**
+   * 导出时带不带主动消息 2.0 的后端连接（Worker 地址 + 密钥 + 用户 id）。
+   * 默认不带：备份是会被分享出去的，带上就等于把自己那台 Worker 的钥匙一起发了。换设备恢复自己的备份才需要它。
+   */
+  const [exportBackendConnection, setExportBackendConnection] = useState(false);
   const [showVapidModal, setShowVapidModal] = useState(false);
   const [vapidReadyTick, setVapidReadyTick] = useState(0); // 关闭 VAPID 弹窗后刷新顶层徽标
 
@@ -1472,7 +1478,10 @@ const Settings: React.FC = () => {
           // 但绝不能发给别人。media_only 只有媒体、不含密钥，视为可分享。
           if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
               const includesSettings = mode !== 'media_only';
-              const msg = includesSettings
+              const includesBackend = includesSettings && exportBackendConnection;
+              const msg = includesBackend
+                  ? '该导出数据包含了明文密钥，以及主动消息 2.0 的后端连接（Worker 地址与主密钥）。拿到这个文件的人可以连上你那台 Worker，请不要发送给任何人'
+                  : includesSettings
                   ? '该导出数据包含了明文密钥，请不要发送给任何人'
                   : '该导出内容安全，可以用于分享';
               if (!window.confirm(`${msg}\n\n点「确定」继续导出，「取消」中止。`)) {
@@ -1482,7 +1491,7 @@ const Settings: React.FC = () => {
           }
 
           // Trigger export (Context handles loading state UI)
-          const blob = await exportSystem(mode);
+          const blob = await exportSystem(mode, { includeBackendConnection: exportBackendConnection });
           
           if (Capacitor.isNativePlatform()) {
               // 手机端分片写盘：整包一次性 readAsDataURL 会把几十~上百 MB 的 base64
@@ -1558,7 +1567,7 @@ const Settings: React.FC = () => {
       if (!file) return;
 
       // Pass the File object directly to importSystem
-      importSystem(file).catch(err => {
+      importSystem(file, { confirmBackendRestore: askRestoreBackendConnection }).catch(err => {
           console.error(err);
           // 只上报归类后的固定枚举：报错原文（可能含文件路径/内容片段）只留在 console
           const rawMessage = String(err?.message || '');
@@ -2200,6 +2209,26 @@ const Settings: React.FC = () => {
             }
         >
             <StorageUsagePanel />
+
+            <label
+                className="mb-3 flex items-start gap-2 p-3 cursor-pointer"
+                style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard }}
+            >
+                <input
+                    type="checkbox"
+                    checked={exportBackendConnection}
+                    onChange={(e) => setExportBackendConnection(e.target.checked)}
+                    className="mt-0.5 shrink-0"
+                />
+                <span className="text-[11px] leading-relaxed" style={{ color: F.textSecondary }}>
+                    <span className="font-bold" style={{ color: F.textPrimary }}>包含主动消息 2.0 的后端连接</span>
+                    <span className="block" style={{ color: F.textTertiary }}>
+                        换设备恢复时勾上，Worker 地址和密钥会一起带走。
+                        <span className="font-bold" style={{ color: STATUS.danger.main }}>勾着导出的备份不要分享给别人</span>
+                        ——拿到文件的人能连上你那台 Worker，也能解开里面的聊天记录。云端备份是你自己的仓库，始终带着。
+                    </span>
+                </span>
+            </label>
 
             <div className="mb-3">
                 <button onClick={() => handleExport('full')} className="w-full py-4 bg-gradient-to-r from-violet-500 to-purple-600 border border-violet-300 rounded-xl text-xs font-bold text-white shadow-sm active:scale-95 transition-all flex flex-col items-center gap-2 relative overflow-hidden mb-3">

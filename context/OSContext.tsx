@@ -64,7 +64,7 @@ import {
 } from '../utils/memoryPalace/autoArchive';
 import { ActiveMsgClient } from '../utils/activeMsgClient';
 import { resolveCharTimeZone } from '../utils/timezone';
-import { ActiveMsgStore, exportAmsg2GlobalConfig } from '../utils/activeMsgStore';
+import { ActiveMsgStore, askRestoreBackendConnection, backupHasBackendConnection, exportAmsg2GlobalConfig } from '../utils/activeMsgStore';
 import { charMayHaveCloudState, purgeCharCloudState } from '../utils/amsg2CharCleanup';
 import { markAmsgStateDirty, markAmsgStateDirtyForAll, resumePendingAmsgStateSync, syncAmsgLlmCredentials, syncAmsgToolConfigAndPrompts } from '../utils/amsgStateSync';
 import { cleanupRemovedAmsgHeartbeats } from '../utils/amsgRollbackCleanup';
@@ -310,6 +310,15 @@ export type MessageSubView = 'contacts' | 'chat';
 /** deleteCharacter 的结果：cloud-cleanup-failed = 云端还有任务没清掉，本地没删。 */
 export type DeleteCharacterResult = { status: 'deleted' } | { status: 'cloud-cleanup-failed' };
 
+/** importSystem 的可选行为。 */
+export interface ImportSystemOptions {
+  /**
+   * 备份里带着 Worker 后端连接（地址 + 共享密钥 + 主密钥 + 用户 id）时问一句要不要连上。
+   * **不给这个回调 = 一律不还原。** 能判断这份文件是谁的只有拿着文件的人，所以只把话问出去，不猜。
+   */
+  confirmBackendRestore?: (workerUrl: string) => boolean | Promise<boolean>;
+}
+
 interface OSContextType {
   activeApp: AppID;
   /** 打开 Message 时可选 `messageWidgetCharId`：桌面小组件直达该角色私聊 */
@@ -442,8 +451,8 @@ interface OSContextType {
   listCloudBackups: () => Promise<CloudBackupFile[]>;
 
   // System
-  exportSystem: (mode: 'text_only' | 'media_only' | 'full', opts?: { silent?: boolean }) => Promise<Blob>; // [EM: auto-cloud-backup] silent
-  importSystem: (fileOrJson: File | string) => Promise<void>; // Accept File or String
+  exportSystem: (mode: 'text_only' | 'media_only' | 'full', opts?: { silent?: boolean; includeBackendConnection?: boolean }) => Promise<Blob>; // [EM: auto-cloud-backup] silent
+  importSystem: (fileOrJson: File | string, options?: ImportSystemOptions) => Promise<void>; // Accept File or String
   resetSystem: () => Promise<void>;
   sysOperation: { status: 'idle' | 'processing', message: string, progress: number }; // Progress state
 
@@ -3130,7 +3139,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       const { uploadBackup } = await loadBackupProvider();
       try {
           setSysOperation({ status: 'processing', message: '正在打包备份数据...', progress: 0 });
-          const blob = await exportSystem(mode);
+          const blob = await exportSystem(mode, { includeBackendConnection: true }); // [EM: amsg-backup-connection] 云端备份是自己的仓库，换设备恢复要连得回去
 
           setSysOperation({ status: 'processing', message: '正在上传到云端...', progress: 50 });
           const filename = `Sully_Backup_${mode}_${Date.now()}.zip`;
@@ -3170,7 +3179,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
           setSysOperation({ status: 'processing', message: '正在恢复数据...', progress: 50 });
           const zipFile = new File([blob], file.name, { type: 'application/zip' });
-          await importSystem(zipFile);
+          await importSystem(zipFile, { confirmBackendRestore: askRestoreBackendConnection }); // [EM: amsg-backup-connection]
       } catch (e: any) {
           setSysOperation({ status: 'idle', message: '', progress: 0 });
           addToast(`云端恢复失败: ${e.message}`, 'error');
@@ -3902,7 +3911,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   // --- MODIFIED EXPORT SYSTEM WITH SEPARATED ASSETS ZIP ---
   // [EM-START: auto-cloud-backup] 自动备份静默打包：进度不推到设置页的遮罩上
   const setSysOperationForExport = setSysOperation;
-  const exportSystem = async (mode: 'text_only' | 'media_only' | 'full', opts?: { silent?: boolean }): Promise<Blob> => {
+  const exportSystem = async (mode: 'text_only' | 'media_only' | 'full', opts?: { silent?: boolean; includeBackendConnection?: boolean }): Promise<Blob> => {
       const setSysOperation: typeof setSysOperationForExport = opts?.silent ? () => {} : setSysOperationForExport;
   // [EM-END: auto-cloud-backup]
       try {
@@ -4351,7 +4360,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           // ActiveMsg 库里，不在上面那份 store 清单内，所以单独取一次；异步，故在字面量外。
           // 纯配置无媒体，跟着 text_only / full 走。
           if (mode === 'text_only' || mode === 'full') {
-              backupData.amsg2GlobalConfig = await exportAmsg2GlobalConfig();
+              backupData.amsg2GlobalConfig = await exportAmsg2GlobalConfig({ includeBackendConnection: opts?.includeBackendConnection });
           }
 
           // 桌面皮肤偏好（电子宠物/手游风的界面配色 + 看板 banner）——异步（看板图令牌需解析为
@@ -4844,7 +4853,10 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       }
   };
 
-  const importSystem = async (fileOrJson: File | string): Promise<void> => {
+  const importSystem = async (
+      fileOrJson: File | string,
+      importOptions: ImportSystemOptions = {},
+  ): Promise<void> => {
       const sourceName = typeof fileOrJson === 'string' ? 'json' : fileOrJson.name;
       const sourceSize = typeof fileOrJson === 'string'
           ? (typeof Blob !== 'undefined' ? new Blob([fileOrJson]).size : fileOrJson.length)
@@ -5086,8 +5098,19 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               }
           };
 
+          // 备份里带着 Worker 后端连接时先问一句。谁拿到这个文件都能连上那台 Worker：
+          // 不问就连的话，导入者的 API 凭据和聊天上下文会写进别人那台 D1。不点头就只还原几个开关。
+          let allowBackendConnection = false;
+          const backupBackendConfig = (data as any)?.amsg2GlobalConfig;
+          if (backupHasBackendConnection(backupBackendConfig) && importOptions.confirmBackendRestore) {
+              allowBackendConnection = await importOptions.confirmBackendRestore(
+                  String(backupBackendConfig.workerUrl).trim(),
+              );
+          }
+
           showImportProgress('database', '正在写入数据库...', 50, { current: '准备写入数据库', currentFile: '' });
           await DB.importFullData(data, {
+              allowBackendConnection,
               beforeWrite: restoreAssetsInPlace,
               onProgress: progress => {
                   const sectionRatio = progress.sectionTotal > 0
@@ -5522,7 +5545,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   // [EM-START: auto-cloud-backup] 启动 / 回前台超过 24 小时没成功备份就静默备份一次
   useAutoCloudBackup({
     config: cloudBackupConfig,
-    exportTextBackup: () => exportSystem('text_only', { silent: true }),
+    exportTextBackup: () => exportSystem('text_only', { silent: true, includeBackendConnection: true }),
     onSuccess: ({ at, size }) => updateCloudBackupConfig({ lastBackupTime: at, lastBackupSize: size }),
     isBusy: () => sysOperation.status === 'processing',
     notify: (message) => addToast(message, 'info'),
