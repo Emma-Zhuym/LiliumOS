@@ -32,6 +32,8 @@ interface ChatInputAreaProps {
     onAuxiliaryPanelChange?: (open: boolean) => void; // [EM: chat-quick-toolbar-auto-reply]
     onDeleteSelected: () => void;
     onForwardSelected?: () => void;
+    onFavoriteSelected?: () => void; // [EM: multi-select-favorite]
+    favoriteSelectedCount?: number; // [EM: multi-select-favorite]
     selectedCount: number;
     emojis: Emoji[];
     emojiSuggestionsEnabled?: boolean;
@@ -92,7 +94,7 @@ interface ChatInputAreaProps {
 
 const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     input, setInput, isTyping, selectionMode,
-    showPanel, setShowPanel, onSend, onDeleteSelected, onForwardSelected, selectedCount,
+    showPanel, setShowPanel, onSend, onDeleteSelected, onForwardSelected, onFavoriteSelected, favoriteSelectedCount = 0, selectedCount, // [EM: multi-select-favorite]
     sendButtonGenerates = true, enterToSend = true, onGenerate, // [EM: permanent-composer-generation]
     autoReplyEnabled = false, autoReplySeconds = null, onCancelAutoReply, onInputFocusChange, onAuxiliaryPanelChange,
     emojis, characters = [], activeCharacterId = '', onCharSelect = () => {},
@@ -568,6 +570,20 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
             
             {selectionMode ? (
                 <div className={`p-3 flex gap-2 ${isPixelStyle ? 'bg-[#f3e7d6]' : isDiscordStyle ? 'bg-slate-900/60 backdrop-blur-md' : 'bg-white/50 backdrop-blur-md'}`}>
+                    {/* [EM-START: multi-select-favorite] */}
+                    {onFavoriteSelected && (
+                        <button
+                            type="button"
+                            onClick={onFavoriteSelected}
+                            disabled={favoriteSelectedCount === 0}
+                            className="flex-1 min-w-0 py-3 font-bold active:scale-95 transition-transform flex items-center justify-center gap-2 disabled:opacity-40"
+                            style={{ background: HUE.amber.tint, color: HUE.amber.ink, borderRadius: R.button }}
+                        >
+                            <Star className="w-5 h-5" weight="bold" />
+                            收藏 ({favoriteSelectedCount})
+                        </button>
+                    )}
+                    {/* [EM-END: multi-select-favorite] */}
                     {onForwardSelected && (
                         <button
                             onClick={() => { onForwardSelected?.(); trackEvent('转发选中的消息'); }}

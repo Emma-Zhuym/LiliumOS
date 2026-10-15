@@ -285,6 +285,16 @@ check "查手机草稿箱组件" apps/CheckPhone.tsx "import DraftsWidget from '
 check "查手机首页挂草稿箱" apps/CheckPhone.tsx "<DraftsWidget charId={targetChar.id} palette={CF} />"
 check "屏幕时间按真实记录算" apps/CheckPhone.tsx "const screenTime = summarizeScreenTime(records, { timeZone: resolveCharTimeZone(targetChar) });"
 
+echo "── 多选收藏成一段对话 ──"
+check "多选底栏有收藏钮" components/chat/ChatInputArea.tsx "{/* [EM-START: multi-select-favorite] */}"
+check "Chat 接多选收藏" apps/Chat.tsx "onFavoriteSelected={handleFavoriteSelected} favoriteSelectedCount={favoriteSelectableCount} // [EM: multi-select-favorite]"
+check "Chat 存对话收藏" apps/Chat.tsx "await saveConversationContentFavorite(selected, char.id, char.name, userProfile.name);"
+
+echo "── 云端备份带主动消息后端连接 ──"
+check "云端备份始终带连接" context/OSContext.tsx "exportSystem(mode, { includeBackendConnection: true }); // [EM: amsg-backup-connection]"
+check "云端恢复问要不要连回去" context/OSContext.tsx "await importSystem(zipFile, { confirmBackendRestore: askRestoreBackendConnection }); // [EM: amsg-backup-connection]"
+check "自动备份带连接" context/OSContext.tsx "exportSystem('text_only', { silent: true, includeBackendConnection: true })"
+
 echo ""
 if [ $FAIL -gt 0 ]; then
     echo "🔴 $FAIL 项缺失（$PASS 项通过）——EM 功能被 merge 冲掉了，对照 .claude/CLAUDE.md 补回来"

@@ -6,12 +6,13 @@ import { VOICE_FAVORITES_CHANGED_EVENT, listVoiceFavorites, voiceFavoriteSourceL
 import { mergeMessageFavorites, removeMessageFavoriteEntry, type MessageFavoriteEntry } from '../../utils/messageFavorites';
 import TokenImg from '../os/TokenImg';
 import FavoriteMessageBody from './FavoriteMessageBody';
+import FavoriteConversationBody from './FavoriteConversationBody';
 import { normalizeChatSearchText, searchableChatMessageText } from '../../utils/chatMessageSearch';
 import { F, FONT, HUE, R, S, STATUS } from '../../utils/clayTokens';
 
 type FavoriteTab = 'all' | MessageFavoriteEntry['kind'];
 interface FavoritesPortalProps { onClose: () => void; onJumpToMessage?: (charId: string, messageId: number) => void; }
-const tabs = [{ value: 'all', label: '全部' }, { value: 'text', label: '文字' }, { value: 'image', label: '图片' }, { value: 'voice', label: '语音' }, { value: 'html', label: '卡片' }] as const;
+const tabs = [{ value: 'all', label: '全部' }, { value: 'text', label: '文字' }, { value: 'image', label: '图片' }, { value: 'voice', label: '语音' }, { value: 'html', label: '卡片' }, { value: 'conversation', label: '对话' }] as const;
 const timeFormatter = new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 const roundButton = { width: 44, height: 44, borderRadius: R.pill, background: 'transparent', border: 'none', boxShadow: 'none', color: F.textPrimary };
 const PAGE_SIZE = 20;
@@ -69,7 +70,7 @@ const FavoritesPortal: React.FC<FavoritesPortalProps> = ({ onClose, onJumpToMess
                 <h1 className="pointer-events-none absolute left-1/2 -translate-x-1/2" style={{ ...FONT.navTitle, fontFamily: FONT.heading }}>收藏夹</h1>
                 <button type="button" onClick={() => { setSearchOpen(value => !value); setSearchQuery(''); }} className="grid place-items-center" style={roundButton} aria-label={searchOpen ? '关闭收藏搜索' : '搜索收藏'} aria-pressed={searchOpen}><MagnifyingGlass size={20} weight="bold" /></button>
             </div>
-            <div className="grid grid-cols-5 gap-1 p-1" style={{ background: F.surfaceSunken, borderRadius: R.large, boxShadow: S.sunken }}>
+            <div className="grid grid-cols-6 gap-1 p-1" style={{ background: F.surfaceSunken, borderRadius: R.large, boxShadow: S.sunken }}>
                 {tabs.map(option => <button key={option.value} type="button" onClick={() => setTab(option.value)} aria-pressed={tab === option.value} className="min-h-11 text-xs font-semibold" style={{ borderRadius: R.button, background: tab === option.value ? F.surface : 'transparent', color: tab === option.value ? F.textPrimary : F.textTertiary, boxShadow: tab === option.value ? S.raisedSoft : undefined }}>{option.label}</button>)}
             </div>
             {tab === 'voice' && <div className="mt-3 grid grid-cols-4 gap-1 p-1" style={{ background: F.surfaceSunken, borderRadius: R.large, boxShadow: S.sunken }}>{[{ id: 'all', name: '全部来源' }, { id: 'chat', name: '聊天' }, { id: 'call', name: '通话' }, { id: 'date', name: '见面' }].map(option => <button key={option.id} onClick={() => setSource(option.id)} aria-pressed={source === option.id} className="min-h-11 text-xs" style={{ borderRadius: R.button, background: source === option.id ? F.surface : 'transparent', boxShadow: source === option.id ? S.raisedSoft : undefined }}>{option.name}</button>)}</div>}
@@ -85,10 +86,10 @@ const FavoritesPortal: React.FC<FavoritesPortalProps> = ({ onClose, onJumpToMess
                         <div className="flex items-center gap-2"><div className="min-w-0 flex-1"><p className="text-sm font-semibold">{entry.voice?.speakerName || entry.charName}{entry.voice?.speakerRole === 'user' ? ' · 你' : ''}</p><p className="mt-1 text-xs" style={{ color: F.textTertiary }}>{timeFormatter.format(entry.timestamp)} · {entry.voice ? voiceFavoriteSourceLabel(entry.voice.source) : tabs.find(item => item.value === entry.kind)?.label}</p></div>
                             {userOwned && <button type="button" disabled={busy} onClick={() => void remove(entry)} className="grid shrink-0 place-items-center disabled:opacity-40" style={roundButton} aria-label="取消收藏"><Trash size={18} /></button>}
                         </div>
-                        {entry.kind === 'image' ? entry.imageUrl ? <button type="button" onClick={() => setPreviewImage(entry.imageUrl!)} className="mt-3 block w-full" aria-label="查看收藏图片"><TokenImg value={entry.imageUrl} alt="收藏图片" className="mx-auto max-h-96 max-w-full object-contain" /></button> : <p className="py-5 text-sm" style={{ color: F.textTertiary }}>原图片未随备份恢复</p> : <FavoriteMessageBody entry={entry} />}
+                        {entry.kind === 'image' ? entry.imageUrl ? <button type="button" onClick={() => setPreviewImage(entry.imageUrl!)} className="mt-3 block w-full" aria-label="查看收藏图片"><TokenImg value={entry.imageUrl} alt="收藏图片" className="mx-auto max-h-96 max-w-full object-contain" /></button> : <p className="py-5 text-sm" style={{ color: F.textTertiary }}>原图片未随备份恢复</p> : entry.kind === 'conversation' && entry.content?.kind === 'chat' && entry.content.conversation ? <FavoriteConversationBody charId={entry.charId} charName={entry.charName} lines={entry.content.conversation} /> : <FavoriteMessageBody entry={entry} />}
                         {entry.content?.owners.filter(owner => owner.kind === 'character').map(owner => owner.kind === 'character' && <span key={owner.charId} className="mr-2 text-xs" style={{ color: HUE.violet.ink }}>{owner.charName} 收藏</span>)}
-                        {entry.sourceAvailable && entry.message && onJumpToMessage && <button type="button" onClick={() => onJumpToMessage(entry.charId, entry.message!.id)} className="min-h-11 text-xs" style={{ color: F.textSecondary }}>定位原消息</button>}
-                        {entry.content?.kind === 'chat' && !entry.sourceAvailable && entry.message && <p className="text-xs" style={{ color: F.textTertiary }}>原消息已删除 · 收藏副本仍保留</p>}
+                        {entry.sourceAvailable && entry.message && onJumpToMessage && <button type="button" onClick={() => onJumpToMessage(entry.charId, entry.message!.id)} className="min-h-11 text-xs" style={{ color: F.textSecondary }}>{entry.kind === 'conversation' ? '回到这段对话' : '定位原消息'}</button>}
+                        {entry.content?.kind === 'chat' && !entry.sourceAvailable && entry.message && <p className="text-xs" style={{ color: F.textTertiary }}>{entry.kind === 'conversation' ? '原聊天已删除' : '原消息已删除'} · 收藏副本仍保留</p>}
                     </article>;
                 })}
             </div>}

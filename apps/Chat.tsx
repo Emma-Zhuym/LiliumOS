@@ -99,6 +99,7 @@ import {
     CONTENT_FAVORITES_CHANGED_EVENT,
     contentFavoriteIdForMessage,
     listContentFavorites,
+    saveConversationContentFavorite, // [EM: multi-select-favorite]
 } from '../utils/contentFavorites';
 import {
     CONTEXT_RANGE_POLICY_VERSION,
@@ -3220,6 +3221,28 @@ const Chat: React.FC = () => {
         setShowForwardModal(true);
     };
 
+    // [EM-START: multi-select-favorite] 多选的几条存成一条对话收藏
+    const savingConversationFavorite = useRef(false);
+    const favoriteSelectableCount = char ? messages.filter(m => m.charId === char.id && selectedMsgIds.has(m.id)
+        && (m.role === 'user' || m.role === 'assistant') && m.type !== 'interaction').length : 0;
+    const handleFavoriteSelected = async () => {
+        if (!char || savingConversationFavorite.current) return;
+        const selected = messages.filter(m => m.charId === char.id && selectedMsgIds.has(m.id));
+        savingConversationFavorite.current = true;
+        try {
+            const saved = await saveConversationContentFavorite(selected, char.id, char.name, userProfile.name);
+            addToast(`已把 ${saved.conversation?.length ?? selected.length} 条消息收成一段对话`, 'success');
+            setSelectionMode(false);
+            setSelectedMsgIds(new Set());
+            setSelectedThinkingMsgIds(new Set());
+        } catch (error) {
+            addToast(error instanceof Error ? error.message : '收藏失败，请重试', 'error');
+        } finally {
+            savingConversationFavorite.current = false;
+        }
+    };
+    // [EM-END: multi-select-favorite]
+
     const handleForwardToCharacter = async (targetCharId: string) => {
         if (!char) return;
         const selectedMsgs = messages
@@ -4329,6 +4352,7 @@ const Chat: React.FC = () => {
                     suggestionEmojis={suggestionEmojis}
                     onDeleteSelected={handleBatchDelete}
                     onForwardSelected={handleForwardSelected}
+                    onFavoriteSelected={handleFavoriteSelected} favoriteSelectedCount={favoriteSelectableCount} // [EM: multi-select-favorite]
                     selectedCount={selectedMsgIds.size + Array.from(selectedThinkingMsgIds).filter(id => !selectedMsgIds.has(id)).length}
                     emojis={filteredEmojis}
                     characters={characters} activeCharacterId={activeCharacterId}
