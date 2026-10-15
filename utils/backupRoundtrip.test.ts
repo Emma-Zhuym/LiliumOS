@@ -7,6 +7,7 @@ import { collectBlobRefs, writeBlobsToZip, readBlobsIndex, restoreBlobsFromZip, 
 import { encodeVectorsForBackup, encodeVectorsForBackupChunked, MemoryVectorDB } from './memoryPalace/db';
 import { writeV2Backup, assembleV2Backup, shardFileName, type ShardLimits } from './backupFormat';
 import { ActiveMsgStore } from './activeMsgStore';
+import { CONTENT_FAVORITES_INDEX_ASSET_ID, listContentFavorites, saveConversationContentFavorite, saveMessageContentFavorite } from './contentFavorites';
 
 // fake-indexeddb 已通过 test-setup.ts 注入。
 // 这组用例走「真实链路」：writeV2Backup → assembleV2Backup → DB.importFullData，钉死 v2 改造
@@ -657,3 +658,52 @@ describe('v3 blob 旁路：令牌原样进包、二进制随包、按原 id 还�
         await expect(restoreBlobsFromZip(zip, entries, async () => {})).rejects.toThrow(/截断/);
     });
 });
+
+// [EM-START: text-content-favorites]
+describe('文字备份带聊天收藏索引', () => {
+    const msg = (id: number, role: 'user' | 'assistant', content: string, extra: Record<string, unknown> = {}) => ({
+        id, charId: 'c1', role, type: 'text', content, timestamp: 1_700_000_000_000 + id, ...extra,
+    }) as any;
+
+    const seedFavorites = async () => {
+        await seedStore('assets', [{ id: 'content_favorite_image_keep', data: 'blobref:keep' }]);
+        await saveMessageContentFavorite(msg(1, 'assistant', '<div>小卡片</div>', { type: 'html_card' }), '小帕');
+        await saveConversationContentFavorite([msg(2, 'user', '今天吃了吗'), msg(3, 'assistant', '吃了，你呢')], 'c1', '小帕', '阿萌');
+        return listContentFavorites();
+    };
+
+    it('文字备份往返：单条卡片收藏和一段对话收藏都回得来，其余素材不动', async () => {
+        const favorites = await seedFavorites();
+        expect(favorites).toHaveLength(2);
+        const zip = new FakeZip();
+        const manifest = await writeV2Backup(zip, { contentFavoritesIndex: { version: 1, items: favorites } } as any, {});
+        const data: any = await assembleV2Backup(zip, manifest);
+
+        // 换台空手机：收藏索引没了，但素材表里还有别的东西
+        await DB.saveAssetRaw(CONTENT_FAVORITES_INDEX_ASSET_ID, { version: 1, items: [] });
+        await DB.importFullData(data);
+
+        const restored = await listContentFavorites();
+        expect(restored.map(item => item.id).sort()).toEqual(favorites.map(item => item.id).sort());
+        const conversation = restored.find(item => item.kind === 'chat' && item.conversation);
+        expect(conversation?.kind === 'chat' && conversation.conversation?.map(line => `${line.senderName}：${line.content}`))
+            .toEqual(['阿萌：今天吃了吗', '小帕：吃了，你呢']);
+        const card = restored.find(item => item.kind === 'chat' && !item.conversation);
+        expect(card?.kind === 'chat' && card.snapshot?.type).toBe('html_card');
+        expect(await DB.getAssetRaw('content_favorite_image_keep')).toBe('blobref:keep');
+    });
+
+    it('备份里没有这一项：原有收藏原样保留', async () => {
+        const favorites = await seedFavorites();
+        await DB.importFullData({ messages: [msg(9, 'user', '别的备份')] } as any);
+        expect((await listContentFavorites()).map(item => item.id).sort()).toEqual(favorites.map(item => item.id).sort());
+    });
+
+    it('索引读不懂：写库前整包拒绝，原有收藏不动', async () => {
+        const favorites = await seedFavorites();
+        await expect(DB.importFullData({ contentFavoritesIndex: { version: 1, items: 'bad' } } as any)).rejects.toThrow('收藏索引无法读取');
+        await expect(DB.importFullData({ contentFavoritesIndex: { version: 1, items: [{ id: 'x' }] } } as any)).rejects.toThrow('损坏条目');
+        expect(await listContentFavorites()).toHaveLength(favorites.length);
+    });
+});
+// [EM-END: text-content-favorites]

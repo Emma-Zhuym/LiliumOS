@@ -23,6 +23,7 @@ import { exportAmsg2GlobalConfig, importAmsg2GlobalConfig } from './activeMsgSto
 import { exportWorldHomeLocal, importWorldHomeLocal } from './worldHome/localBackup';
 import { exportDesktopSkinLocal, importDesktopSkinLocal } from './desktopSkinBackup';
 import { VOICE_FAVORITES_INDEX_ASSET_ID, validateVoiceFavoriteIndex } from './voiceFavorites'; // [EM: text-voice-favorites]
+import { CONTENT_FAVORITES_INDEX_ASSET_ID, validateContentFavoritesIndex } from './contentFavorites'; // [EM: text-content-favorites]
 
 const DB_NAME = 'AetherOS_Data';
 // v67：两条并行线各自用掉了 v65/v66（A线: blob_assets + 生活记录；B线: room_plates 门牌 + digest_reports 消化日志），
@@ -3447,6 +3448,11 @@ export const DB = {
           data.voiceFavoritesIndex = validateVoiceFavoriteIndex(data.voiceFavoritesIndex);
       }
       // [EM-END: text-voice-favorites]
+      // [EM-START: text-content-favorites]
+      if (data.contentFavoritesIndex !== undefined) {
+          data.contentFavoritesIndex = validateContentFavoritesIndex(data.contentFavoritesIndex);
+      }
+      // [EM-END: text-content-favorites]
       const replaceStoryVariants = data.storyVariants !== undefined || (data.messages !== undefined && data.characters !== undefined);
       const storyVariantsToRestore = data.storyVariants ?? [];
       if (data.storyVariants !== undefined) {
@@ -3523,6 +3529,7 @@ export const DB = {
           data.emojiCategories !== undefined,
           data.assets !== undefined,
           data.voiceFavoritesIndex !== undefined, // [EM: text-voice-favorites]
+          data.contentFavoritesIndex !== undefined, // [EM: text-content-favorites]
           data.savedJournalStickers !== undefined,
           data.galleryImages !== undefined,
           data.diaries !== undefined,
@@ -3770,6 +3777,13 @@ export const DB = {
           data.voiceFavoritesIndex = undefined;
       }, data.voiceFavoritesIndex?.items.length || 0);
       // [EM-END: text-voice-favorites]
+      // [EM-START: text-content-favorites]
+      // 文字备份只带这一份索引：替换这一行，素材表其余内容（图片收藏副本、语音等）不动。
+      await runSection('聊天收藏', data.contentFavoritesIndex !== undefined, async () => {
+          await mergeStore(STORE_ASSETS, [{ id: CONTENT_FAVORITES_INDEX_ASSET_ID, data: data.contentFavoritesIndex }], '聊天收藏', false);
+          data.contentFavoritesIndex = undefined;
+      }, data.contentFavoritesIndex?.items.length || 0);
+      // [EM-END: text-content-favorites]
       await runSection('日记贴纸', data.savedJournalStickers !== undefined, async () => {
           await mergeStore(STORE_JOURNAL_STICKERS, data.savedJournalStickers, '日记贴纸', true);
           data.savedJournalStickers = undefined as any;

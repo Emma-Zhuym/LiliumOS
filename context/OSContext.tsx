@@ -18,6 +18,7 @@ import { collectBlobRefs, writeBlobsToZip, readBlobsIndex, restoreBlobsFromZip }
 import { VOICE_FAVORITES_INDEX_ASSET_ID, listVoiceFavorites } from '../utils/voiceFavorites';
 import { externalizeVoiceMessageBlobs, restoreVoiceMessageBlobs, shouldIncludeVoiceRelatedAssetInBackup, markVoiceFavoriteAudioOmitted } from '../utils/voiceMessageBackup';
 // [EM-END: text-voice-favorites]
+import { listContentFavorites } from '../utils/contentFavorites'; // [EM: text-content-favorites]
 import { initPwaIcon, clearPwaIcon } from '../utils/appIcon';
 import { LEGACY_DEFAULT_WALLPAPER, isLegacyDefaultWallpaper, shouldPreserveLegacyDefaultWallpaper } from '../utils/wallpaperCompat';
 import { migrateSharkpanAssets } from '../utils/sharkpanAssetMigration';
@@ -4408,6 +4409,11 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               markVoiceFavoriteAudioOmitted([{ id: VOICE_FAVORITES_INDEX_ASSET_ID, data: voiceIndex }]);
               backupData.voiceFavoritesIndex = voiceIndex;
               // [EM-END: text-voice-favorites]
+              // [EM-START: text-content-favorites]
+              // 文字 / 卡片 / 对话收藏的索引同样只读这一行。图片收藏只有指纹和引用，
+              // 对话里的图片行是 blob 令牌；文字备份不带图，恢复后这些图显示为缺失。
+              backupData.contentFavoritesIndex = { version: 1, items: await listContentFavorites() };
+              // [EM-END: text-content-favorites]
               if (backupData.socialAppData?.userProfile) backupData.socialAppData.userProfile = stripBackupImages(backupData.socialAppData.userProfile);
               if (backupData.socialAppData?.userBg) backupData.socialAppData.userBg = stripBackupImages(backupData.socialAppData.userBg);
               if (backupData.roomCustomAssets) backupData.roomCustomAssets = stripBackupImages(backupData.roomCustomAssets);

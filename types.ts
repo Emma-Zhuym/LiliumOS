@@ -1,5 +1,6 @@
 import type { ChatInputPreferences } from './utils/chatInputPreferences';
 import type { VoiceFavoriteIndex } from './utils/voiceFavorites'; // [EM: text-voice-favorites]
+import type { ContentFavoritesIndex } from './utils/contentFavorites'; // [EM: text-content-favorites]
 export enum AppID {
   Launcher = 'launcher',
   Settings = 'settings',
@@ -4262,6 +4263,7 @@ export interface FullBackupData {
     savedJournalStickers?: {name: string, url: string}[]; 
     assets?: { id: string, data: string }[];
     voiceFavoritesIndex?: VoiceFavoriteIndex; // [EM: text-voice-favorites] 纯文字收藏补丁，不替换整个素材表。
+    contentFavoritesIndex?: ContentFavoritesIndex; // [EM: text-content-favorites] 文字/卡片/对话收藏索引，同样只替换这一行素材。
     galleryImages?: GalleryImage[];
     userProfile?: UserProfile;
     diaries?: DiaryEntry[];

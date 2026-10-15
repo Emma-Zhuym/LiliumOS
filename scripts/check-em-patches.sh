@@ -289,6 +289,8 @@ echo "── 多选收藏成一段对话 ──"
 check "多选底栏有收藏钮" components/chat/ChatInputArea.tsx "{/* [EM-START: multi-select-favorite] */}"
 check "Chat 接多选收藏" apps/Chat.tsx "onFavoriteSelected={handleFavoriteSelected} favoriteSelectedCount={favoriteSelectableCount} // [EM: multi-select-favorite]"
 check "Chat 存对话收藏" apps/Chat.tsx "await saveConversationContentFavorite(selected, char.id, char.name, userProfile.name);"
+check "文字备份带聊天收藏索引" context/OSContext.tsx "backupData.contentFavoritesIndex = { version: 1, items: await listContentFavorites() };"
+check "恢复只替换聊天收藏这一行" utils/db.ts "await mergeStore(STORE_ASSETS, [{ id: CONTENT_FAVORITES_INDEX_ASSET_ID, data: data.contentFavoritesIndex }], '聊天收藏', false);"
 
 echo "── 停止回复（本地 / mini / amsg）──"
 check "useChatAI 登记本轮可停" hooks/useChatAI.ts "const replyRun = beginLocalReply(char.id);"

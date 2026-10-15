@@ -65,7 +65,7 @@ export type ResolvedContentFavorite =
     | { favorite: ChatContentFavorite; message: Message | null; sourceAvailable: boolean }
     | { favorite: ImageContentFavorite; imageUrl: string | null; reference: ContentFavoriteReference | null };
 
-interface ContentFavoritesIndex {
+export interface ContentFavoritesIndex { // [EM: text-content-favorites] 文字备份要带这份索引，类型导出给 types.ts
     version: 1;
     items: ContentFavorite[];
 }
@@ -224,6 +224,19 @@ const loadIndex = async (): Promise<ContentFavorite[]> => {
     if (!Array.isArray(items)) return [];
     return items.map(sanitizeFavorite).filter((item): item is ContentFavorite => !!item);
 };
+
+// [EM-START: text-content-favorites]
+/** 文字备份恢复前校验：整份读不懂或有坏条目就整包拒绝，不写半份、不动原有收藏。 */
+export const validateContentFavoritesIndex = (raw: unknown): ContentFavoritesIndex => {
+    const index = raw as Partial<ContentFavoritesIndex> | null;
+    if (!index || typeof index !== 'object' || index.version !== 1 || !Array.isArray(index.items)) {
+        throw new Error('收藏索引无法读取，原有收藏未改动');
+    }
+    const items = index.items.map(sanitizeFavorite);
+    if (items.some(item => !item)) throw new Error('收藏索引包含损坏条目，原有收藏未改动');
+    return { version: 1, items: items as ContentFavorite[] };
+};
+// [EM-END: text-content-favorites]
 
 const saveIndex = async (items: ContentFavorite[]): Promise<void> => {
     await DB.saveAssetRaw(CONTENT_FAVORITES_INDEX_ASSET_ID, { version: 1, items } satisfies ContentFavoritesIndex);

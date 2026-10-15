@@ -389,7 +389,7 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - 聊天多选底栏「收藏」：`apps/Chat.tsx` / `components/chat/ChatInputArea.tsx`（哨兵 `multi-select-favorite`）→ `utils/contentFavorites.ts` 的 `saveConversationContentFavorite`
 - 存成一条 `ChatContentFavorite`，`conversation` 是当时的消息快照（data URL 图换成 blob 令牌，令牌在 assets 表里被引用，孤儿清理不会删）；同一组消息再收只更新
 - 收藏夹「对话」分类由 `components/chat/FavoriteConversationBody.tsx` 按聊天气泡渲染
-- 已知缺口：纯文字备份（含每天的自动备份）只带语音收藏索引，文字 / 卡片 / 对话收藏不在里面
+- 纯文字备份（含每天的自动备份）带 `contentFavoritesIndex`，`DB.importFullData` 只替换这一行素材（哨兵 `text-content-favorites`）；图片不随文字备份走
 
 ### 36. 停止回复（2026-10-15）
 - 核心在 `utils/emReplyStop.ts`：本地生成用 `beginLocalReply` 的中止信号；交给 mini / amsg 的那一轮按 turnId 作废（localStorage 记最近 50 轮）并尽力取消
