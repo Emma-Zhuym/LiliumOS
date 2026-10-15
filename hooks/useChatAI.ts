@@ -921,9 +921,10 @@ export const useChatAI = ({
             const instantPushConfigured = isInstantConfigReady();
             const luckinChatOn = !!luckinChatRef?.current?.active;
             const financeAwareness = await getFinanceAwareness(char.id).catch(() => ({ hasLedger: false, pulse: null }));
+            const financeTopicTriggered = shouldEnableFinanceTools(currentMsgs);
             // 新账本事件或用户明确聊钱时必须留在本机；普通本地聊天也可自主查账，
             // 但不会仅为了常驻财务工具拦截 Instant Chat / Instant Push。
-            const financeLocalRequired = shouldEnableFinanceTools(currentMsgs) || Boolean(financeAwareness.pulse);
+            const financeLocalRequired = financeTopicTriggered || Boolean(financeAwareness.pulse);
             // [EM: intiface-gate] 硬件工具只能在本机执行，连接设备时不能把本轮发往云端。
             const intifaceReady = intifaceClient.connected && intifaceClient.devices.length > 0;
             // 私网 Home Assistant 只在这一轮明确聊智能家居时留在本地跑 MCP；普通闲聊
@@ -1277,7 +1278,7 @@ export const useChatAI = ({
             if (financeToolTurn && baseReqBody.messages[0]?.role === 'system') {
                 baseReqBody.messages[0] = {
                     ...baseReqBody.messages[0],
-                    content: `${baseReqBody.messages[0].content}\n\n${buildFinanceChatSystemBlock(financeAwareness.pulse)}`,
+                    content: `${baseReqBody.messages[0].content}\n\n${buildFinanceChatSystemBlock(financeAwareness.pulse, financeTopicTriggered)}`,
                 };
             }
             if (locationToolEnabled && baseReqBody.messages[0]?.role === 'system') {

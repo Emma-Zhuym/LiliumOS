@@ -568,6 +568,27 @@ export const buildCurrentScheduleBlock = (snapshot, now, timezone) => {
     return lines.join('\n');
 };
 
+const buildFinanceSnapshotBlock = (finance, timezone) => {
+    if (!finance || !Array.isArray(finance.recent) || finance.recent.length === 0) return '';
+    const marker = finance.dataAsOf
+        ? formatLocal(new Date(finance.dataAsOf), timezone)
+        : '更新时间未知';
+    const totals = Array.isArray(finance.totals) && finance.totals.length
+        ? finance.totals.map(item => `${item.currency} ${Number(item.amount).toFixed(2)}`).join('、')
+        : '没有可汇总的个人支出（转账、手动排除项不计）';
+    const rows = finance.recent.map(item => {
+        const sign = item.type === 'transfer' ? '↔' : item.type === 'income' || item.type === 'refund' ? '+' : '-';
+        const flags = [item.pending ? '待入账' : '', item.analysisTreatment || ''].filter(Boolean).join('，');
+        return `- ${item.date || '日期未知'} ${item.merchant} ${sign}${item.currency} ${Number(item.amount).toFixed(2)}`
+            + `${item.category ? ` · ${item.category}` : ''}${flags ? `（${flags}）` : ''}`;
+    });
+    return [
+        `【对方现实账本的只读近况】数据截至 ${marker}；最近 ${finance.windowDays || 7} 天口径内支出：${totals}。`,
+        ...rows,
+        '这是对方现实生活的账本摘录，不是你的钱，也不是故事情节。你可以在真心好奇、关心近况或话题自然相关时据此想到一句话；不必每次提，更不能像监控或报账。待入账不是最终金额，转账不是消费；不要猜购买用途，不要重复提最近对话里已经说过的记录。这里没有完整账本，信息不够就不要补猜。',
+    ].join('\n');
+};
+
 /**
  * 这一跳开口的概率。
  *
@@ -971,6 +992,8 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
     if (p.dailyRhythm) lines.push(`你平时的生活节律（稳定的框架，不是今天必须逐字照做）：\n${p.dailyRhythm}`);
     // 阿萌的现实安排（她勾选可见的那几个 Apple 日历 / 提醒清单）。
     if (temporal) lines.push(temporal);
+    const finance = buildFinanceSnapshotBlock(p.finance, userTimezone || p.timezone);
+    if (finance) lines.push(finance);
     if (Array.isArray(p.todaySchedule) && p.todaySchedule.length) {
         lines.push(`今天的安排：\n${p.todaySchedule.map(s => `- ${s.start}–${s.end} ${s.title}`).join('\n')}`);
     }

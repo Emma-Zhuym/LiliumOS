@@ -90,6 +90,22 @@ export interface FinanceAwareness {
   pulse: string | null;
 }
 
+export interface FinanceHeartbeatContext {
+  dataAsOf: number | null;
+  windowDays: number;
+  totals: { currency: string; amount: number }[];
+  recent: {
+    date: string;
+    merchant: string;
+    amount: number;
+    currency: string;
+    type: 'expense' | 'income' | 'refund' | 'transfer';
+    category: string;
+    pending: boolean;
+    analysisTreatment: string;
+  }[];
+}
+
 function transactionFingerprint(transaction: FinanceTransaction): string {
   return [
     transaction.accountId,
@@ -160,12 +176,15 @@ export async function getFinanceAwareness(charId: string): Promise<FinanceAwaren
   };
 }
 
-export function buildFinanceChatSystemBlock(pulse?: string | null): string {
+export function buildFinanceChatSystemBlock(pulse?: string | null, topicTriggered = false): string {
   return [
     '[本轮可使用本地财务查询工具]',
     '这是用户的个人账本，你可以随时查看。',
     '原始流水不等于个人消费。留意 analysis_treatment；代收代付不属于个人消费或收入，一次性支出不代表日常水平。总结生活花销时用汇总工具的保存口径，不自行把原始流水相加；大额筛选不是节省、退款或异常交易认定。',
     '用户聊到消费、账户或生活近况时可以查；你也可以出于好奇、关心近况或想给日常聊天增加意外话题而主动翻看，不必等用户先提到钱。',
+    topicTriggered
+      ? '本轮用户刚提到了钱、消费或账户。如果说的是用户现实里的情况，先调用一个最合适的财务工具看一眼，再自然回应，不要只凭印象泛聊；如果明显是故事情节、角色自己的钱、商品报价或纯假设，则不要翻用户账本。'
+      : '',
     '工具结果来自 LiliumOS 本地账本，可能不是实时数据。留意 data_as_of，把查到的内容自然融入对话，不必像报表一样逐笔复述。',
     pulse ? `[用户个人账本近况，仅供生活感知]\n${pulse}\n你可以自然提及、继续查细节或暂时忽略，按你此刻的兴趣决定。` : '',
   ].filter(Boolean).join('\n');
@@ -229,6 +248,42 @@ async function loadFinanceData() {
     analysisSettings: normalizeFinanceAnalysisSettings(analysisSettings),
     accountMap: new Map(accounts.map(account => [account.id, account])),
     categoryMap: new Map(categories.map(category => [category.id, category])),
+  };
+}
+
+/**
+ * 心跳跑在 mini 后端，不能直接读取浏览器里的 IndexedDB。这里随角色近况快照带一份
+ * 有界、只读的账本摘录：只看最近 7 天、最多 5 笔，不带凭据，也不在后端复制整本账。
+ */
+export async function buildFinanceHeartbeatContext(now = Date.now()): Promise<FinanceHeartbeatContext | null> {
+  const data = await loadFinanceData();
+  const windowDays = 7;
+  const from = now - windowDays * 24 * 60 * 60 * 1000;
+  const recentTransactions = data.transactions
+    .filter(transaction => transaction.timestamp >= from && transaction.timestamp <= now + 5 * 60 * 1000)
+    .sort((a, b) => b.timestamp - a.timestamp);
+  if (recentTransactions.length === 0) return null;
+
+  const totals = new Map<string, number>();
+  for (const transaction of recentTransactions) {
+    if (reportingTransactionType(transaction, data.categoryMap) !== 'expense' || isManuallyExcluded(transaction)) continue;
+    totals.set(transaction.currency, (totals.get(transaction.currency) || 0) + transaction.amount);
+  }
+
+  return {
+    dataAsOf: data.syncState.lastSuccessAt || null,
+    windowDays,
+    totals: [...totals.entries()].map(([currency, amount]) => ({ currency, amount })),
+    recent: recentTransactions.slice(0, 5).map(transaction => ({
+      date: transaction.dateStr,
+      merchant: transaction.sourceDescription || transaction.note || '未命名交易',
+      amount: transaction.amount,
+      currency: transaction.currency,
+      type: reportingTransactionType(transaction, data.categoryMap),
+      category: categoryPath(transaction.categoryId, data.categoryMap),
+      pending: Boolean(transaction.pending),
+      analysisTreatment: ANALYSIS_TREATMENT_LABELS[analysisTreatment(transaction)],
+    })),
   };
 }
 

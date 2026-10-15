@@ -20,6 +20,7 @@ import { isScheduleFeatureOn } from './scheduleFeature';
 import { resolveContactGroup } from './contactGroups';
 import { normName } from './relationshipChat';
 import { loadUserMomentsForSnapshot, type SnapshotUserMoment } from './emMomentsContext'; // [EM: moments-heartbeat]
+import { buildFinanceHeartbeatContext, type FinanceHeartbeatContext } from './financeChatTools';
 
 export const SNAPSHOT_SCHEMA_VERSION = 1;
 
@@ -106,6 +107,8 @@ export interface CharacterSnapshot {
         monthlySummaries?: { month: string; text: string }[];
         /** 阿萌最近发的、TA 还没回应过的朋友圈（只有文字），心跳醒来时刷到。 */
         userMoments?: SnapshotUserMoment[]; // [EM: moments-heartbeat]
+        /** 对方现实账本最近 7 天的有界只读摘录；心跳后端不能直接访问浏览器 FinanceDB。 */
+        finance?: FinanceHeartbeatContext;
         boundaries?: SnapshotBoundary[];
         openThreads?: never[];
     };
@@ -267,6 +270,8 @@ export const buildCharacterSnapshot = async (
 
     // [EM: moments-heartbeat] 朋友圈库读不出来（没有 IndexedDB 的环境）就不带，不拦快照
     const userMoments = await loadUserMomentsForSnapshot(char.id, options.userName || '阿萌', at.getTime()).catch(() => []);
+    // 只随心跳快照带最近 7 天、最多 5 笔；读不出来不影响心跳其余内容。
+    const finance = await buildFinanceHeartbeatContext(at.getTime()).catch(() => null);
 
     const recent = mergeConsecutiveBubbles(messages
         .filter(message => message.type !== 'system')
@@ -318,6 +323,7 @@ export const buildCharacterSnapshot = async (
             lastInteraction: findLastInteraction(messages),
             ...(recent.length ? { recentMessages: recent } : {}),
             ...(userMoments.length ? { userMoments } : {}), // [EM: moments-heartbeat]
+            ...(finance ? { finance } : {}),
             ...(() => {
                 const monthlySummaries = buildMonthlySummaries(char);
                 return monthlySummaries.length ? { monthlySummaries } : {};

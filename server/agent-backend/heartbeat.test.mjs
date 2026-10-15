@@ -1643,6 +1643,46 @@ test('快照：月度总结只收 {month, text}，聊天最多留 100 条', () =
     assert.equal(normalized.recentMessages[0].text, '30');
 });
 
+test('快照：财务近况只收有界只读字段，最多五笔', () => {
+    const normalized = normalizeSnapshotPayload({
+        finance: {
+            dataAsOf: Date.parse('2026-10-14T19:50:00.000Z'),
+            windowDays: 999,
+            totals: [{ currency: 'USD', amount: 6.5, secret: 'drop' }],
+            recent: Array.from({ length: 8 }, (_, index) => ({
+                date: '2026-10-14', merchant: `Shop ${index}`, amount: index + 1, currency: 'USD',
+                type: index === 1 ? 'transfer' : 'expense', category: '餐饮', pending: index === 0,
+                analysisTreatment: '日常收支', secret: 'drop',
+            })),
+            credentials: 'never keep this',
+        },
+    });
+    assert.equal(normalized.finance.windowDays, 30);
+    assert.equal(normalized.finance.recent.length, 5);
+    assert.equal(normalized.finance.recent[1].type, 'transfer');
+    assert.equal('secret' in normalized.finance.recent[0], false);
+    assert.equal('credentials' in normalized.finance, false);
+});
+
+test('心跳：能看到现实账本摘录，但明确不是监控也不能把转账算消费', () => {
+    const prompt = buildPrompt({ displayName: '露米' }, { payload: {
+        identity: { name: '露米' }, user: { name: '阿萌' }, timezone: 'America/Chicago',
+        finance: {
+            dataAsOf: Date.parse('2026-10-14T19:50:00.000Z'), windowDays: 7,
+            totals: [{ currency: 'USD', amount: 6.5 }],
+            recent: [
+                { date: '2026-10-14', merchant: 'Coffee Shop', amount: 6.5, currency: 'USD', type: 'expense', category: '餐饮', pending: true, analysisTreatment: '日常收支' },
+                { date: '2026-10-14', merchant: 'Transfer', amount: 100, currency: 'USD', type: 'transfer', category: '转账', pending: false, analysisTreatment: '代收代付' },
+            ],
+        },
+    } }, new Date('2026-10-14T20:00:00.000Z'), 'live');
+    assert.match(prompt, /对方现实账本的只读近况/);
+    assert.match(prompt, /Coffee Shop -USD 6\.50/);
+    assert.match(prompt, /Transfer ↔USD 100\.00/);
+    assert.match(prompt, /不必每次提，更不能像监控或报账/);
+    assert.match(prompt, /待入账不是最终金额，转账不是消费/);
+});
+
 // ── 过期日程：昨天拼的「今天的安排」不拿来过今天 ──
 
 test('过期日程：快照是今天拼的就照用，昨天的就丢掉日程、别的照旧', () => {

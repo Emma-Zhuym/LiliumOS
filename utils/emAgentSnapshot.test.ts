@@ -14,7 +14,12 @@ vi.mock('./dailySchedule', () => ({
     })),
 }));
 
+vi.mock('./financeChatTools', () => ({
+    buildFinanceHeartbeatContext: vi.fn(async () => null),
+}));
+
 import { buildCharacterSnapshot, buildMonthlySummaries, compactXhsActivityNote, findLastInteraction, mergeConsecutiveBubbles, messageToPlainText } from './emAgentSnapshot';
+import { buildFinanceHeartbeatContext } from './financeChatTools';
 
 const char = {
     id: 'lumi',
@@ -65,6 +70,24 @@ describe('角色近况快照', () => {
     it('未完事项恒为空：猜出来的会被角色当成约定说出口', async () => {
         const snapshot = await buildCharacterSnapshot(char, [message({})], {});
         expect(snapshot.payload.openThreads).toBeUndefined();
+    });
+
+    it('只随快照带有界的账本摘录，FinanceDB 读不到时不拦心跳', async () => {
+        vi.mocked(buildFinanceHeartbeatContext).mockResolvedValueOnce({
+            dataAsOf: Date.parse('2026-10-14T19:50:00.000Z'),
+            windowDays: 7,
+            totals: [{ currency: 'USD', amount: 6.5 }],
+            recent: [{
+                date: '2026-10-14', merchant: 'Coffee Shop', amount: 6.5, currency: 'USD',
+                type: 'expense', category: '餐饮', pending: true, analysisTreatment: '日常收支',
+            }],
+        });
+        const snapshot = await buildCharacterSnapshot(char, [message({})], {});
+        expect(snapshot.payload.finance?.recent[0].merchant).toBe('Coffee Shop');
+
+        vi.mocked(buildFinanceHeartbeatContext).mockRejectedValueOnce(new Error('IndexedDB unavailable'));
+        const fallback = await buildCharacterSnapshot(char, [message({})], {});
+        expect(fallback.payload.finance).toBeUndefined();
     });
 
     it('最后互动时间分别取用户侧与角色侧，系统消息不算', () => {

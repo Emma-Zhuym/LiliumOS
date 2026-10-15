@@ -3,6 +3,7 @@ import type { FinanceTransaction, Message } from '../types';
 import { FinanceDB } from './financeDb';
 import {
   buildFinanceChatSystemBlock,
+  buildFinanceHeartbeatContext,
   executeFinanceChatTool,
   FINANCE_CHAT_TOOLS,
   getFinanceAwareness,
@@ -126,13 +127,44 @@ describe('finance chat awareness', () => {
   });
 
   it('lets the character browse the user ledger without waiting for a finance topic', () => {
-    const block = buildFinanceChatSystemBlock('用户个人账本新增 1 笔记录。');
+    const block = buildFinanceChatSystemBlock('用户个人账本新增 1 笔记录。', true);
     expect(block).toContain('用户的个人账本');
     expect(block).toContain('可以出于好奇');
     expect(block).toContain('不必等用户先提到钱');
+    expect(block).toContain('先调用一个最合适的财务工具看一眼');
+    expect(block).toContain('故事情节、角色自己的钱');
     for (const tool of FINANCE_CHAT_TOOLS) {
       expect(tool.function.description).toMatch(/主动|不必等用户/);
       expect(tool.function.description).not.toMatch(/只在当前聊天|除非用户主动|否则不要调用/);
     }
+  });
+
+  it('builds a bounded read-only ledger glimpse for heartbeat without counting transfers as spending', async () => {
+    const now = Date.parse('2026-10-14T20:00:00.000Z');
+    await FinanceDB.saveCategory({ id: 'cat_transfer', name: '转账', icon: '🔄' });
+    await FinanceDB.saveTransactions([
+      {
+        id: 'coffee', type: 'expense', amount: 6.5, currency: 'USD', accountId: 'card',
+        categoryId: 'cat_uncategorized', note: 'Coffee Shop', sourceDescription: 'Coffee Shop',
+        timestamp: now - 60_000, dateStr: '2026-10-14', pending: true,
+      },
+      {
+        id: 'move-money', type: 'expense', amount: 100, currency: 'USD', accountId: 'card',
+        categoryId: 'cat_transfer', note: 'Transfer', sourceDescription: 'Transfer',
+        timestamp: now - 120_000, dateStr: '2026-10-14',
+      },
+      {
+        id: 'old', type: 'expense', amount: 999, currency: 'USD', accountId: 'card',
+        categoryId: 'cat_uncategorized', note: 'Old', sourceDescription: 'Old',
+        timestamp: now - 8 * 24 * 60 * 60 * 1000, dateStr: '2026-10-06',
+      },
+    ]);
+
+    const context = await buildFinanceHeartbeatContext(now);
+    expect(context?.windowDays).toBe(7);
+    expect(context?.recent).toHaveLength(2);
+    expect(context?.recent[0]).toMatchObject({ merchant: 'Coffee Shop', pending: true, type: 'expense' });
+    expect(context?.recent[1]).toMatchObject({ merchant: 'Transfer', type: 'transfer' });
+    expect(context?.totals).toEqual([{ currency: 'USD', amount: 6.5 }]);
   });
 });

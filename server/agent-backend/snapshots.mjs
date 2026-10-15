@@ -98,6 +98,36 @@ export const normalizeSnapshotPayload = payload => {
             }));
     }
 
+    // 浏览器 FinanceDB 只随快照给后端一份有界只读摘录。服务端再次裁剪并重建字段，
+    // 避免整本账或任意嵌套内容混进心跳提示词。
+    delete out.finance;
+    if (source.finance && typeof source.finance === 'object') {
+        const recent = (Array.isArray(source.finance.recent) ? source.finance.recent : [])
+            .slice(0, 5)
+            .filter(item => item && typeof item.merchant === 'string' && Number.isFinite(Number(item.amount)))
+            .map(item => ({
+                date: String(item.date ?? '').slice(0, 10),
+                merchant: String(item.merchant).trim().slice(0, 80),
+                amount: Number(item.amount),
+                currency: String(item.currency ?? '').trim().slice(0, 8),
+                type: ['expense', 'income', 'refund', 'transfer'].includes(item.type) ? item.type : 'expense',
+                category: String(item.category ?? '').trim().slice(0, 80),
+                pending: item.pending === true,
+                analysisTreatment: String(item.analysisTreatment ?? '').trim().slice(0, 40),
+            }));
+        if (recent.length) {
+            out.finance = {
+                dataAsOf: Number.isFinite(Number(source.finance.dataAsOf)) ? Number(source.finance.dataAsOf) : null,
+                windowDays: Math.max(1, Math.min(30, Math.floor(Number(source.finance.windowDays) || 7))),
+                totals: (Array.isArray(source.finance.totals) ? source.finance.totals : [])
+                    .slice(0, 6)
+                    .filter(item => item && typeof item.currency === 'string' && Number.isFinite(Number(item.amount)))
+                    .map(item => ({ currency: String(item.currency).slice(0, 8), amount: Number(item.amount) })),
+                recent,
+            };
+        }
+    }
+
     return out;
 };
 
