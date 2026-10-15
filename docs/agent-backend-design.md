@@ -521,6 +521,12 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
     "todaySchedule": [ { "start": "09:00", "end": "11:00", "title": "……", "availability": "busy" } ],
     "lastInteraction": { "userAt": "2026-09-22T13:58:10.000Z", "charAt": "2026-09-22T13:58:40.000Z" },
     "recentMessages": [ { "role": "user", "at": "…", "text": "……" } ],
+    "finance": {
+      "dataAsOf": 1792017000000,
+      "windowDays": 7,
+      "totals": [ { "currency": "USD", "amount": 42.50 } ],
+      "recent": [ { "date": "2026-10-14", "merchant": "Coffee Shop", "amount": 6.50, "currency": "USD", "type": "expense", "category": "餐饮 > 咖啡", "pending": true, "analysisTreatment": "日常收支" } ]
+    },
     "boundaries": [
       { "text": "工作日晚上 11 点后不要催我睡觉", "kind": "preference", "confirmedAt": "…", "source": "settings" },
       { "text": "我们是恋人关系", "kind": "relationship", "confirmedAt": "…", "source": "settings" }
@@ -547,6 +553,7 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
 - `recentMessages` 最多 30 条，每条截断到 500 字；图片、语音只留占位描述。
 - `mood`：聊天里「情绪底色 Buff」注入用的那段叙事（`char.buffInjection`），情绪系统关着或没有 buff 时不带这个字段。心跳没有它就永远是出厂情绪，容易跟聊天里的样子对不上。
 - `dailyRhythm`（阶段 1e 开始进快照）：**不是新字段，是 `char.dailyRhythm` 本人**——聊天「日程/情绪」面板里早就有的「日常节律」，自由文本、阿萌手写、日程生成器一直在用。以前只喂给前端的日程生成，心跳完全看不到；现在原样带上，心跳才知道「这段时间在忙工作」。`scheduleStyle === 'mindful'` 或字段为空时不带。**不新建结构化档案**：`with` 提到的人对不对得上，靠查手机现有的 `PhoneContact.identity` 标签去认，不再另起一份「同事名单」。
+- `finance`（2026-10-14）：心跳后端不能直接读浏览器 FinanceDB，所以快照只带最近 7 天、最多 5 笔的只读摘录和按币种支出小计。前端先排除已被替代的预扣款，转账和手动排除项不计入小计；服务端再次按字段白名单裁剪。它不含凭据、不复制整本账、不能写账；心跳必须把待入账、转账和数据时点当作边界，不得每跳报账、猜购买用途或把摘录补成完整事实。
 - 另有**在场信号** `POST /agent/v1/characters/presence { charId, userAt }`：阿萌每发一条消息就发一次（不防抖、失败静默），服务端把**自己收到请求的时间**写入 `characters.last_user_interaction_at`（只增不减），忽略请求里的 `userAt`，不带正文。这样手机时间跑快也不会长期封住心跳。这样即使快照防抖还没上传，后端也知道阿萌刚说过话。
 - 触发时机：每轮聊天结束后 30s 防抖上传；打开 App 时补传一次。
 - 快照只是「最近的样子」，**不是记忆**。长期记忆、Continuity State 的确认流程在 Phase 2 另开文档。
