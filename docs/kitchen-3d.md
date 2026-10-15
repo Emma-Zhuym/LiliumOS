@@ -1,5 +1,9 @@
 # 厨房 3D
 
+## 2026-10-14 · 内存：画布要亲手释放（小帕）
+
+`Bin.canvas()` 登记画布，`dispose` 时宽高设 0（WebKit 立即还像素内存）；`canvasTex`、笔迹的底稿 / 墨层、量字用的画布都登记进同一个 bin。以后新加画布记得走 `cb.canvas(...)`，不然每次换纸都漏一批。触屏设备（`pointer: coarse`）不建 EffectComposer / GTAO，主光阴影 1024。
+
 ## 2026-10-14 · 画布上的字先下字体分片（小帕）
 
 `KitchenFridgeScene` 的 `loadGlyphs`：贴纸前按这次要写的字 + `PAPER_WORDS` 对手写 / 衬线 / 无衬线各调一次 `document.fonts.load`（最多等 2.5 秒）；`loadingdone` 时 `fill(true)` 静静重画（不晃纸）。新加纸上固定文字时记得补进 `PAPER_WORDS`。

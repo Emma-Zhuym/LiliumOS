@@ -114,7 +114,10 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
     /* 后期：环境光遮蔽 + 很淡的颗粒和暗角。加载失败就直接画，不影响使用 */
     let composer: { render: () => void; setSize: (w: number, h: number) => void; dispose?: () => void } | null = null;
     let grainSeed: { value: number } | null = null;
-    void (async () => {
+    // 手机上不开后期（环境光遮蔽要好几张整屏的浮点缓冲，每帧还把场景多画一遍）：iPhone 上跟画布一起把内存顶满，
+    // PWA 被系统杀掉重开（2026-10-14）。少了一层淡淡的角落阴影和颗粒，换不闪退
+    const lowMemory = window.matchMedia('(pointer: coarse)').matches;
+    if (!lowMemory) void (async () => {
       try {
         const [{ EffectComposer }, { RenderPass }, { GTAOPass }, { OutputPass }, { ShaderPass }] = await Promise.all([
           import('three/addons/postprocessing/EffectComposer.js'), import('three/addons/postprocessing/RenderPass.js'),

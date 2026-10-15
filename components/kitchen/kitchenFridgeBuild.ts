@@ -31,10 +31,16 @@ const mulberry = (seed: number) => () => {
 };
 const hashOf = (text: string) => { let h = 2166136261; for (const ch of text) h = Math.imul(h ^ ch.charCodeAt(0), 16777619); return h >>> 0; };
 
-/** 记下所有建出来的几何、材质、贴图，离开厨房时一起释放 */
+/** 记下所有建出来的几何、材质、贴图、画布，离开厨房（或整批换纸）时一起释放 */
 class Bin {
   private items = new Set<{ dispose: () => void }>();
   add<T extends { dispose: () => void }>(item: T): T { this.items.add(item); return item; }
+  /**
+   * 画布也要亲手放掉：iPhone 上画布的像素内存要等垃圾回收才还，回收又很懒。每改一次库存门上的纸整批重画
+   * （约 30 张、近 1200 万像素），攒几次就超了 Safari 的画布内存上限，整个 PWA 被系统杀掉重开（2026-10-14 实测）。
+   * 宽高设成 0 是 WebKit 认的立即释放办法。
+   */
+  canvas(canvas: HTMLCanvasElement): HTMLCanvasElement { this.items.add({ dispose: () => { canvas.width = 0; canvas.height = 0; } }); return canvas; }
   dispose() { this.items.forEach(item => item.dispose()); this.items.clear(); }
 }
 
@@ -45,6 +51,7 @@ function canvasTex(bin: Bin, w: number, h: number, draw: Draw, opts: { srgb?: bo
   const canvas = document.createElement('canvas'); canvas.width = Math.round(w * scale); canvas.height = Math.round(h * scale);
   const ctx = canvas.getContext('2d')!; ctx.scale(scale, scale); draw(ctx, w, h);
   const texture = bin.add(new THREE.CanvasTexture(canvas));
+  bin.canvas(canvas);   // 贴图先释放，再放掉画布
   if (opts.srgb !== false) texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = opts.aniso ?? 4;
   if (opts.repeat) { texture.wrapS = texture.wrapT = THREE.RepeatWrapping; texture.repeat.set(...opts.repeat); }
@@ -440,7 +447,9 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
   });
   const key = new THREE.SpotLight('#fff0dc', 3.8, 0, THREE.MathUtils.degToRad(26), 0.35, 0);
   key.position.set(-24, 24, 18); key.target.position.set(1.5, 9, -1.5); key.map = cookie;
-  key.castShadow = true; key.shadow.mapSize.set(2048, 2048); key.shadow.bias = -0.0003; key.shadow.normalBias = 0.02; key.shadow.radius = 3;
+  // 手机上阴影贴图减半：2048² 的深度图光它就十几 MB 显存，手机屏幕上看不出差别
+  const lowMemory = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+  key.castShadow = true; key.shadow.mapSize.set(lowMemory ? 1024 : 2048, lowMemory ? 1024 : 2048); key.shadow.bias = -0.0003; key.shadow.normalBias = 0.02; key.shadow.radius = 3;
   key.shadow.camera.near = 10; key.shadow.camera.far = 80;
   scene.add(key, key.target);
   const windowLight = new THREE.RectAreaLight('#e6f0f6', 1.5, 7, 12); windowLight.position.set(-13, 11, 7); windowLight.lookAt(0, 9, 0); scene.add(windowLight);
@@ -470,9 +479,9 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
      * 先完整画在墨上，再被橡皮擦掉。橡皮屑落在纸上（墨层底下），擦完淡掉。
      */
     const penTex = (w: number, h: number, drawBase: Draw, marks: PenMark[], paper: DoorPaper['key'], door: 'fridge' | 'freezer', writeMs: number) => {
-      const base = document.createElement('canvas'); base.width = w * 2; base.height = h * 2;
+      const base = cb.canvas(document.createElement('canvas')); base.width = w * 2; base.height = h * 2;
       const bx = base.getContext('2d')!; bx.scale(2, 2); drawBase(bx, w, h);
-      const ink = document.createElement('canvas'); ink.width = w * 2; ink.height = h * 2;
+      const ink = cb.canvas(document.createElement('canvas')); ink.width = w * 2; ink.height = h * 2;
       const ix = ink.getContext('2d')!;
       const texture = ctex(w, h, () => {});
       const canvas = texture.image as HTMLCanvasElement, x = canvas.getContext('2d')!;
@@ -640,7 +649,7 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
       const date = new Date(rc.day);
       const W0 = 320, INK = '#2e4a5e', marks: PenMark[] = [];
       // 吃完 / 丢了的那几样：一道墨线划过、字淡下去、右边手写「3 天吃完」——刚吃完的那样一笔一笔写出来
-      const measure = document.createElement('canvas').getContext('2d')!;
+      const measure = cb.canvas(document.createElement('canvas')).getContext('2d')!;
       rc.items.forEach((it, i) => {
         // 撤销了「吃完」：这一样不再划掉，但上一刻还划着——照原样画出来，再用橡皮擦掉
         const key = `gone:${it.lotId}`, note = it.gone ?? erasing.get(key);
@@ -792,7 +801,7 @@ export function buildKitchenScene(renderer: THREE.WebGLRenderer): KitchenRig {
       const pw = 2.3 * FREEZER_PAPER, ph = pw * texH / W0;
       // 打勾的那几行：先在方框里打个勾（短的一笔、长的一笔），再一道线划过名字、字淡下去
       const INK = '#2e4a5e', marks: PenMark[] = [];
-      const measure = document.createElement('canvas').getContext('2d')!; measure.font = `400 31px ${SANS}`;
+      const measure = cb.canvas(document.createElement('canvas')).getContext('2d')!; measure.font = `400 31px ${SANS}`;
       shop.lines.forEach((line, i) => {
         // 取消打勾：上一刻还勾着——照原样画出来，再用橡皮擦掉
         if (!line.checked && !erasing.has(`shop:${line.id}`)) return;
