@@ -21,6 +21,9 @@ import PersonaSim, { LifeLog, generatePersonaScript } from './PersonaSim';
 import ChronicleApp from '../components/checkphone/ChronicleApp';
 // [EM: work-app] 工作：TA 的工作群 / 私聊 / 邮件 / 正在推进的事（和短信、通讯录是两条独立的线）
 import WorkApp from '../components/checkphone/WorkApp';
+import DraftsWidget from '../components/checkphone/DraftsWidget'; // [EM: char-drives-pocket]
+import { summarizeScreenTime } from '../utils/emScreenTime'; // [EM: char-drives-screen-time]
+import { resolveCharTimeZone } from '../utils/timezone'; // [EM: char-drives-screen-time]
 import { usePersonaSim, personaSimStore } from '../utils/personaSimStore';
 import { getLastInnerState } from '../utils/emotionApply';
 import { normalizePhoneEvidence, phoneFieldToText } from '../utils/phoneEvidence';
@@ -2236,10 +2239,14 @@ ${olderText}
     const contactsSub = contactCount ? `${contactCount} 位联系人` : 'tap to scan';
     const aiSub = aiSessions.length ? `${aiSessions.length} 段对话 · TA 的小手机` : 'tap to peek';
 
-    // pseudo screen-time + weather (decorative, deterministic per char)
+    // pseudo weather (decorative, deterministic per char)
     const seed = charName.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
     const temp = 16 + (seed % 14);
-    const screenMin = 64 + records.length * 11 + (seed % 40);
+    // [EM-START: char-drives-screen-time] 屏幕时间按 TA 今天真实的记录算（原来是记录条数 × 11 + 名字哈希）
+    const screenTime = summarizeScreenTime(records, { timeZone: resolveCharTimeZone(targetChar) });
+    const screenMin = screenTime.totalMin;
+    const screenTopApps = screenTime.byApp.slice(0, 3);
+    // [EM-END: char-drives-screen-time]
     const stH = Math.floor(screenMin / 60);
     const stM = screenMin % 60;
     const ringP = Math.min(0.94, screenMin / 360);
@@ -3639,7 +3646,17 @@ ${olderText}
                         </div>
                     </div>
                 </div>
+                {/* [EM-START: char-drives-screen-time] 今天时间花在哪几个 App 上 */}
+                {screenTopApps.length > 0 && (
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 mt-3 text-[10px] tabular-nums" style={{ fontFamily: CF.mono, color: CF.sub }}>
+                        {screenTopApps.map(app => <span key={app.type}>{appLabel(app.type)} {app.minutes}m</span>)}
+                    </div>
+                )}
+                {/* [EM-END: char-drives-screen-time] */}
             </div>
+
+            {/* [EM: char-drives-pocket] 草稿箱：TA 攒着还没发给你的话 */}
+            {targetChar && <DraftsWidget charId={targetChar.id} palette={CF} />}
 
             {/* Last seen */}
             <div className="flex items-center justify-center gap-1.5" style={{ color: CF.sub, opacity: 0.5 }}>

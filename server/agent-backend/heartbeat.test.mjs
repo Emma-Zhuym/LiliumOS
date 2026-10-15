@@ -2104,3 +2104,95 @@ test('心跳发照片：能开口的那一跳才教写法；推送预览里不�
     );
     assert.equal(previewWithoutPhotoTags('[一张照片：白瓷盘里一条清蒸鲈鱼]'), '[照片]');
 });
+
+// ── 话兜与开口缘由（docs/spec-character-drives.md 4.2–4.5）──────────────────
+
+test('过日子时攒下的那句进话兜；送去手机的记录里不带它；这一跳开了口就不攒', async () => {
+    const { listUnsaid } = await import('./pocket.mjs');
+    const db = freshDb();
+    setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+    const character = seedCharacter(db);
+    seedSnapshot(db, { todaySchedule: [{ start: '18:00', title: '在家', availability: 'online' }] });
+    const sent = [];
+    const life = { kind: 'chat', with: '老周', lines: [{ who: '老周', text: '周末打球？' }], tellLater: '老周又约我打球，我都快打不动了' };
+    const runner = { run: async () => ({ ok: true, output: { action: 'noop', activity: '和老周约球', reason: '', urge: 'none', life } }) };
+    const seq = rolls => { let i = 0; return () => rolls[i++] ?? 0.99; };
+    await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 'p1'), now: chicago(20), rng: seq([0.99, 0.3, 0.1]), deliver: async e => sent.push(e) });
+    assert.deepEqual(listUnsaid(db, CHAR, chicago(20)).map(item => item.text), ['老周又约我打球，我都快打不动了']);
+    assert.ok(!('tellLater' in sent[0].payload.life), '查手机的记录不需要这句');
+
+    const speaking = { run: async () => ({ ok: true, output: { action: 'message', text: '在吗', activity: 'x', reason: '', urge: 'none', life: { ...life, tellLater: '另一句' } } }) };
+    await runHandler(db, { runner: speaking, job: jobFor(character.heartbeatGeneration, 'p2'), now: chicago(20, 30), rng: seq([0.99, 0.3, 0.1]), deliver: async e => sent.push(e) });
+    assert.equal(listUnsaid(db, CHAR, chicago(20, 30)).length, 1, '已经在说话的那一跳不攒');
+});
+
+test('试跑期不攒话兜', async () => {
+    const { listUnsaid } = await import('./pocket.mjs');
+    const db = freshDb();
+    const character = seedCharacter(db);
+    seedSnapshot(db, { todaySchedule: [{ start: '18:00', title: '在家', availability: 'online' }] });
+    const life = { kind: 'moment', detail: '今天的云', tellLater: '想给你看今天的云' };
+    const runner = { run: async () => ({ ok: true, output: { action: 'noop', activity: 'x', reason: '', urge: 'none', life } }) };
+    const seq = rolls => { let i = 0; return () => rolls[i++] ?? 0.99; };
+    await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 'p3'), now: chicago(20), rng: seq([0.99, 0.3, 0.1]) });
+    assert.equal(listUnsaid(db, CHAR, chicago(20)).length, 0);
+});
+
+test('开口那一跳：从话兜拿一句当缘由，说出口就划掉，缘由记进账', async () => {
+    const { addPocketItem, listUnsaid } = await import('./pocket.mjs');
+    const db = freshDb();
+    setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+    const character = seedCharacter(db);
+    seedSnapshot(db);
+    addPocketItem(db, { charId: CHAR, text: '楼下新开了家面馆', now: new Date(AT.getTime() - 3 * 3600_000) });
+    let system = '';
+    const runner = { run: async args => { system = args.system; return { ok: true, output: { action: 'message', activity: '路过面馆', reason: '', text: '楼下开了家面馆，改天一起去？' } }; } };
+    await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 'r1'), rng: () => 0, deliver: async () => {} });
+    assert.match(system, /之前攒着一句想跟 ta 说的话：「楼下新开了家面馆」/);
+    assert.match(system, /3 小时前想到的/);
+    assert.match(system, /贴着上面那个想起 ta 的缘由/);
+    assert.equal(listUnsaid(db, CHAR, AT).length, 0, '说出口了');
+    assert.equal(listModelRuns(db)[0].reachReason, 'pocket');
+});
+
+test('开口那一跳也看得到最近一天自己过的事；「对方并不知道」改成了想说就说', async () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    seedSnapshot(db);
+    recordModelRun(db, {
+        charId: CHAR, runtime: 'api', startedAt: new Date(AT.getTime() - 2 * 3600_000).toISOString(), ok: true, outcome: 'noop',
+        episode: { life: { kind: 'xhs', detail: '刷到一只会开门的柯基' } },
+    });
+    let system = '';
+    const runner = { run: async args => { system = args.system; return { ok: true, output: { action: 'noop', activity: 'x', reason: '' } }; } };
+    await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 'r2'), rng: () => 0 });
+    assert.match(system, /你最近一天里自己过的事（ta 还不知道，想说就说）/);
+    assert.match(system, /会开门的柯基/);
+    assert.ok(!system.includes('对方并不知道'));
+});
+
+test('兑现上一跳的「等会儿」时不另抽缘由', async () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    seedSnapshot(db);
+    recordModelRun(db, {
+        charId: CHAR, runtime: 'api', startedAt: new Date(AT.getTime() - 30 * 60_000).toISOString(), ok: true, outcome: 'noop',
+        reason: '想问问她晚饭吃了没', urge: 'later',
+    });
+    let system = '';
+    const runner = { run: async args => { system = args.system; return { ok: true, output: { action: 'noop', activity: 'x', reason: '' } }; } };
+    await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 'r3'), rng: () => 0.99 });
+    assert.ok(!system.includes('你想起 ta，是因为'));
+    assert.equal(listModelRuns(db)[0].reachReason, null);
+});
+
+test('提示词：过日子那一跳教写 tellLater，礼物那一跳不教', () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    const snapshot = { receivedAt: AT.toISOString(), payload: { identity: { name: '露米' }, user: { name: '阿萌' }, timezone: 'America/Chicago' } };
+    assert.match(buildPrompt(character, snapshot, AT, 'live', { life: 'chat' }), /life\.tellLater/);
+    assert.match(buildPrompt(character, snapshot, AT, 'live', { episode: true }), /episode\.tellLater/);
+    assert.ok(!buildPrompt(character, snapshot, AT, 'live', { life: 'gift' }).includes('tellLater'));
+    assert.ok(HEARTBEAT_SCHEMA.properties.life.properties.tellLater);
+    assert.ok(HEARTBEAT_SCHEMA.properties.episode.properties.tellLater);
+});

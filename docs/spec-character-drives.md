@@ -1,6 +1,10 @@
 # 角色更「活」· 契机池与劲儿系统 spec
 
-> **实施状态（2026-10-14）：架构已定，一行代码都还没写。** 本文档是交接用的执行规格。
+> **实施状态（2026-10-14）：第一阶段已做并上线（第 4 节 + 第 6 节的草稿箱和屏幕时间）；第二阶段（契机池）在分支 `feat/char-drives-cue-pool` 上做，未合并；第三、四阶段未开始。** 本文档是交接用的执行规格。
+> 第一阶段落地要点：话兜在 `server/agent-backend/pocket.mjs`（迁移 11，同时给 `model_runs` 加了 `reach_reason`）；
+> 开口缘由、读回生活、她那边的事在 `reachOut.mjs`；`runner.mjs` 的 `parseLife` / `parseEpisode` 保留 `tellLater`（礼物不留）；
+> 手机端 `utils/emAgentPocket.ts`（缓存）、`components/checkphone/DraftsWidget.tsx`、`utils/emScreenTime.ts`，查手机里三处哨兵。
+> 没有工具判断不了的那条「缘由用没用上」第一阶段不记，只记抽了什么。
 > 来源：`docs/ideas.md`「角色更「活」」一节，阿萌与小帕 2026-10-14 当面讨论。
 > 那一节记的是讨论过程和取舍理由，这份只写「怎么搭」；两边冲突时以这份为准。
 

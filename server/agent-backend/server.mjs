@@ -15,6 +15,7 @@ import { characterExists, listCharacters, touchPresence, upsertCharacter } from 
 import { listCredentials, putCredential } from './credentials.mjs';
 import { listModelRuns } from './heartbeat.mjs';
 import { listPlans } from './lifeThreads.mjs';
+import { listPocketForPhone } from './pocket.mjs';
 import { listSnapshotMeta, putSnapshot } from './snapshots.mjs';
 import { getSetting, setSetting } from './db.mjs';
 import {
@@ -215,6 +216,11 @@ export const createRouter = ctx => {
         'GET /plans': {
             // 日历 App 摆出来、聊天里告诉 TA 自己约了什么。默认往前一周、往后两个月。
             handle: ({ query }) => ({ plans: listPlans(db, { from: query.get('from'), to: query.get('to') }) }),
+        },
+
+        // ── 话兜：TA 攒着还没跟阿萌说的话（查手机的草稿箱）─────────────────
+        'GET /pocket': {
+            handle: ({ query }) => ({ items: listPocketForPhone(db, { charId: query.get('charId') || null }) }),
         },
 
         // ── 即时回复：聊天这一轮交给 mini 跑（spec-agent-backend-instant-chat 阶段一）──

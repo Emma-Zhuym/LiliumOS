@@ -20,7 +20,7 @@ const ROLEPLAY_REFUSAL_RE = /\b(?:I\s+(?:can(?:not|'t)|won't)\s+(?:roleplay|pret
  */
 const EPISODE_CHANNELS = new Set(['group', 'dm', 'email']);
 
-export const parseEpisode = raw => {
+const parseEpisodeFields = raw => {
     if (!raw || typeof raw !== 'object') return null;
     if (!EPISODE_CHANNELS.has(raw.channel)) return null;
     const withWho = String(raw.with ?? '').trim().slice(0, 40);
@@ -52,6 +52,18 @@ export const parseEpisode = raw => {
 };
 
 /**
+ * 话兜那句（tellLater，pocket.mjs）：工作往来和生活小事都可以带。
+ * 给阿萌的礼物不收——惊喜要藏住，攒成「想跟 ta 说的话」迟早说漏。
+ */
+const withTellLater = (parsed, raw) => {
+    if (!parsed || parsed.kind === 'gift') return parsed;
+    const tell = String(raw?.tellLater ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
+    return tell ? { ...parsed, tellLater: tell } : parsed;
+};
+
+export const parseEpisode = raw => withTellLater(parseEpisodeFields(raw), raw);
+
+/**
  * 私人生活里的一件小事（life）：和朋友家人聊几句、点外卖、网购、发朋友圈。
  * 和 episode 一样是附赠的：写坏了只丢这一段。
  */
@@ -78,7 +90,7 @@ const parseLifeLines = raw => (Array.isArray(raw) ? raw : [])
 /** 网购的配送档：跟 shopping.mjs 的 SHIP_KINDS 一致。 */
 const SHIP = new Set(['same_day', 'next_day', 'standard']);
 
-export const parseLife = raw => {
+const parseLifeFields = raw => {
     if (!raw || typeof raw !== 'object' || !LIFE_KINDS.has(raw.kind)) return null;
     const withWho = String(raw.with ?? '').trim().slice(0, 40);
     const detail = String(raw.detail ?? '').trim().slice(0, 400);
@@ -355,3 +367,5 @@ export const createCodexRunnerStub = () => ({
         return { ok: false, error: 'codex 运行器还没接入（1c 只做 API 角色）' };
     },
 });
+
+export const parseLife = raw => withTellLater(parseLifeFields(raw), raw);

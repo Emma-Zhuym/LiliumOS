@@ -27,6 +27,8 @@ import {
     MOMENTS_MAX_PER_BEAT, formatMomentsForPrompt, markMomentsSeen, resolveMomentReactions, unseenMoments,
 } from './moments.mjs';
 import { formatTemporalForPrompt, listTemporalItems, readVisibility, veilForCharacter } from './temporal.mjs';
+import { addPocketItem, listUnsaid, markSaid } from './pocket.mjs';
+import { formatReachReason, herSideCues, pickReachReason, recentLife } from './reachOut.mjs';
 
 /** 心跳最晚执行时间：过了就 expired，mini 睡醒后不会补跑一堆旧心跳（设计 4.1）。 */
 export const HEARTBEAT_TTL_MS = 15 * 60 * 1000;
@@ -407,18 +409,20 @@ export const recordModelRun = (db, {
     intent = null,
     urge = null,
     episode = null,
+    reachReason = null,
 }) => {
     db.prepare(
         `INSERT INTO model_runs (job_uuid, char_id, runtime, started_at, duration_ms, ok, outcome,
                                  shadow, reason, proposed_text, proposed_tool, proposed_args_summary,
-                                 skip_gate, error, activity, raw_output, intent, urge, episode)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                 skip_gate, error, activity, raw_output, intent, urge, episode, reach_reason)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
         jobUuid, charId, runtime, startedAt, durationMs, ok ? 1 : 0, outcome,
         shadow ? 1 : 0, truncate(reason, 500), truncate(proposedText, 2000), proposedTool,
         truncate(proposedArgsSummary, 500), skipGate, truncate(error, 500),
         truncate(activity, 200), truncate(rawOutput, 2000), intent, urge,
         episode ? truncate(JSON.stringify(episode), 4000) : null,
+        reachReason,
     );
 };
 
@@ -486,6 +490,7 @@ export const listModelRuns = (db, { charId = null, limit = 50 } = {}) => {
         rawOutput: row.raw_output,
         intent: row.intent,
         urge: row.urge,
+        reachReason: row.reach_reason ?? null,
         episode: (() => { try { return row.episode ? JSON.parse(row.episode) : null; } catch { return null; } })(),
     }));
 };
@@ -867,6 +872,8 @@ export const HEARTBEAT_SCHEMA = {
                         text: { type: 'string', maxLength: 200 },
                     },
                 },
+                // 这件事里想跟阿萌说的一句（话兜，pocket.mjs）。下次开口时会想起来；没有就省略。
+                tellLater: { type: 'string', maxLength: 120 },
                 // chat / social：顺口约了以后的事。时间写自然语言，由程序解析成绝对时刻（planTime.mjs）。
                 plan: {
                     type: 'object',
@@ -903,6 +910,8 @@ export const HEARTBEAT_SCHEMA = {
                 channel: { type: 'string', enum: ['group', 'dm', 'email'] },
                 with: { type: 'string', maxLength: 40 },
                 subject: { type: 'string', maxLength: 80 },
+                // 这件事里想跟阿萌说的一句（话兜，pocket.mjs）。下次开口时会想起来；没有就省略。
+                tellLater: { type: 'string', maxLength: 120 },
                 lines: {
                     type: 'array',
                     maxItems: 8,
@@ -950,6 +959,21 @@ export const PHOTO_HOW = '发消息时如果想给对方看点什么（刚做的
     + '描述必须用英文，写清拍的是什么、光线和拍法；拍东西、拍风景时写 no people or faces in frame，只有自拍才写 the character is visible。'
     + '不要写成「[一张照片：……]」这种中文描述，那样对方只会看到一行字。';
 
+/**
+ * 话兜那一句（pocket.mjs）：过自己日子时顺手攒下想跟阿萌说的话，下次开口时会想起来。
+ * 只是「可以写」，不是每件事都要写——攒太多就成了待办清单。
+ */
+export const TELL_LATER_HOW = (field, userName) => `\n如果这件事里有你想跟${userName}说说的（好笑的、气人的、想让 ta 知道的），`
+    + `在 ${field}.tellLater 里写一句你到时候会怎么跟 ta 说（第一人称、口语、40 字以内），下次找 ta 时你会想起来；`
+    + `${field} 的其余部分照旧不提 ta。没什么想说的就省略，不是每件事都要说。`;
+
+/** 话兜那句只留在 mini：查手机里的记录不需要它（草稿箱另有接口）。 */
+const withoutTellLater = life => {
+    if (!life || !('tellLater' in life)) return life;
+    const { tellLater: _pocketed, ...rest } = life;
+    return rest;
+};
+
 /** 推送预览里不放照片指令的原文。 */
 export const previewWithoutPhotoTags = text => String(text ?? '')
     .replace(/\[\[\s*SEND_PHOTO\s*[:：][\s\S]*?\]\]/gi, '[照片]')
@@ -962,7 +986,7 @@ export const previewWithoutPhotoTags = text => String(text ?? '')
 export const buildPrompt = (character, snapshot, now = new Date(), intent = 'live', {
     thoughts = [], carried = null, threads = [], plans = [], duePlan = null, episode = false, life = null, canSpeak = true, temporal = '',
     feed = [], opened = null, etas = null, purchases = [], unread = [], moments = [], unanswered = [], userTimezone = null,
-    ownMessages = [],
+    ownMessages = [], lifeLog = [], reachReason = null,
 } = {}) => {
     const p = snapshot.payload || {};
     const lines = [];
@@ -1050,9 +1074,17 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
     }
     if (thoughts.length) {
         lines.push(
-            '你今天早些时候自己待着的样子（这是过去记录，每条只属于标出的那个时刻，不是当前状态；对方并不知道）：\n'
+            '你今天早些时候自己待着的样子（这是过去记录，每条只属于标出的那个时刻，不是当前状态；ta 还不知道，想说就说）：\n'
             + thoughts.map(t => `- ${formatLocal(new Date(t.at), p.timezone)}：${t.activity || ''}`
                 + `${t.reason ? `（心里想：${t.reason}）` : ''}${t.said ? `（你对 ta 说了：${t.said}）` : ''}`).join('\n'),
+        );
+    }
+    // 最近一天自己过的事，带细节（跟谁聊了什么、买了什么、刷到什么）。原来只有 40 字的 activity，
+    // 开口的那一跳想分享日常都没得分享（docs/spec-character-drives.md 4.4）。
+    if (lifeLog.length) {
+        lines.push(
+            '你最近一天里自己过的事（ta 还不知道，想说就说）：\n'
+            + lifeLog.map(item => `- ${formatLocal(new Date(item.at), p.timezone)}：${item.text}`).join('\n'),
         );
     }
     // 自己这两天主动说过的话（不管 ta 回没回）：问过的别再问、说过的约定别当新鲜事再提
@@ -1076,7 +1108,7 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
     // 手头正在推进的事：每一跳都带上，「领口还要改」下一跳才接得上。
     if (threads.length) {
         lines.push(
-            '你手头正在推进的事（这是你真实在做的，对方并不知道细节）：\n'
+            '你手头正在推进的事（这是你真实在做的，ta 还不知道细节，想说就说）：\n'
             + threads.map(t => `- 「${t.title}」${t.summary ? `：${t.summary}` : ''}（id：${String(t.id).slice(0, SHORT_ID_LENGTH)}）`).join('\n'),
         );
     }
@@ -1084,7 +1116,7 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
     const upcoming = plans.filter(t => t.id !== duePlan?.id);
     if (upcoming.length) {
         lines.push(
-            '你跟别人约好、还没到时间的事（对方并不知道，除非你说起）：\n'
+            '你跟别人约好、还没到时间的事（ta 还不知道，想说就说）：\n'
             + upcoming.map(t => `- ${t.title}${t.summary ? `，${t.summary}` : ''}（${formatLocal(new Date(t.dueAt), p.timezone)}）`).join('\n'),
         );
     }
@@ -1120,9 +1152,12 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
                 + 'reason 写你心里的想法，对方看不到它。urge 填 "none"。'
             : intent === 'reach_out'
             ? '现在你想起了对方，并且决定跟 ta 说句话。\n'
+                + (reachReason ? `${formatReachReason(reachReason, { formatGap: at => formatGap(new Date(at), now) })}\n` : '')
                 + '规则：activity 里用第一人称写你这会儿在做什么（40 字以内）；'
                 + 'action 填 "message"，text 写你要说的那句话——'
-                + '要贴着你此刻正在做的事和你们之间还没了结的话头，别写成万能问候。'
+                + (reachReason
+                    ? '要贴着上面那个想起 ta 的缘由和你此刻正在做的事，别写成万能问候。'
+                    : '要贴着你此刻正在做的事和你们之间还没了结的话头，别写成万能问候。')
                 // 约定是天然的话头：「周六要去看展」正是能自然说起的事，别让它从 noop 的口子漏掉
                 + (plans.length ? '你跟别人约好的事也是很自然的话头（比如跟 ta 说一声你周末要去做什么）——前提是你还没跟 ta 提过。' : '')
                 + '真的想不出任何自然的话头时才退回 action="noop"，那说明这一刻确实不合适。'
@@ -1155,6 +1190,8 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
             + '开一件新事就不填 id。事情办完了 status 填 "done"，否则 "open"。\n'
             + '- 只写日常工作里的往来，不要在里面做出辞职、搬家、出事这类会改变你人生的大事。\n'
             + '- 如果你根本没有工作或学业，整段省略 episode。\n'
+            + TELL_LATER_HOW('episode', p.user?.name || '对方')
+            + '\n'
             + 'activity 仍然写你这会儿在做什么，要和 episode 对得上。',
         );
     }
@@ -1233,7 +1270,8 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
             + (life === 'xhs'
                 ? '这是你自己的时间：除了 share 那一句，别的地方不要围着对方转；要贴着你此刻的时段和你的人设。'
                 : '这是你自己的时间：不要提到对方，不要围着对方转；要贴着你此刻的时段和你的人设。')
-            + '也不要在里面做出会改变人生的大事。activity 要和这件事对得上。',
+            + '也不要在里面做出会改变人生的大事。activity 要和这件事对得上。'
+            + TELL_LATER_HOW('life', p.user?.name || '对方'),
         );
     }
     return lines.join('\n\n');
@@ -1590,15 +1628,35 @@ export const createHeartbeatHandler = ({
     const plans = openThreads.filter(isPlanThread);
     const duePlan = plans.find(t => isPlanDue(t, startedAt)) ?? null;
     // 阿萌的现实安排：每天同步一次的缓存，按可见性裁过再进提示词（不调模型、不现读）。
+    const veiledTemporal = veilForCharacter(
+        listTemporalItems(db, { from: new Date(startedAt.getTime() - 4 * 3600_000).toISOString() }),
+        readVisibility(getSetting(db, 'temporal_visibility')),
+    );
     const temporal = formatTemporalForPrompt(
-        veilForCharacter(
-            listTemporalItems(db, { from: new Date(startedAt.getTime() - 3600_000).toISOString() }),
-            readVisibility(getSetting(db, 'temporal_visibility')),
-        ),
+        veiledTemporal.filter(item => Date.parse(item.endAt ?? item.startAt ?? item.dueAt ?? startedAt.toISOString()) >= startedAt.getTime() - 3600_000),
         startedAt,
         timezone,
         snapshot.payload?.user?.name || '对方',
     );
+    // 最近一天自己过的事（带细节）：两种跳都给，开口那一跳才有日常可分享。
+    const lifeLog = recentLife(db, character.charId, startedAt);
+    // 开口那一跳：程序抽「这次为什么想起 ta」。兑现上一跳的「等会儿」时缘由就是那个念头，不再另抽。
+    const pocket = intent === 'reach_out' ? listUnsaid(db, character.charId, startedAt) : [];
+    const reachReason = intent === 'reach_out' && !(carried && unanswered.length < 2)
+        ? pickReachReason({
+            pocket,
+            ownLife: lifeLog,
+            herSide: herSideCues({
+                temporalItems: veiledTemporal,
+                finance: snapshot.payload?.finance ?? null,
+                now: startedAt,
+                userTimeZone: snapshot.payload?.userTimezone || timezone,
+                userName: snapshot.payload?.user?.name || 'ta',
+            }),
+            unanswered: unanswered.length,
+            rng,
+        })
+        : null;
     // 这一跳要不要写一段工作往来：同样由程序抽签，抽中了才要求模型写。
     const { kind: sideKind } = decideEpisode({
         snapshot, now: startedAt, timezone, intent, threads, rng,
@@ -1630,7 +1688,7 @@ export const createHeartbeatHandler = ({
     const promptFor = opened => buildPrompt(character, snapshot, startedAt, intent, {
         thoughts, carried: hush || intent === 'reply' ? null : carried, threads, plans, duePlan, episode: wantsEpisode, life: lifeKind, canSpeak: !hush, temporal, feed, opened,
         etas, purchases, unread: intent === 'reply' ? unread : [], moments,
-        unanswered: intent === 'reach_out' ? unanswered : [], userTimezone, ownMessages,
+        unanswered: intent === 'reach_out' ? unanswered : [], userTimezone, ownMessages, lifeLog, reachReason,
     });
     const firstPass = await runner.run({
         charId: character.charId,
@@ -1756,6 +1814,7 @@ export const createHeartbeatHandler = ({
         // 不能开口时模型写下的那句也留着，排查时能看到 TA 本来想说什么。
         proposedText: result.output.action === 'message' ? result.output.text : null,
         episode: episode ?? (life ? { life } : null),
+        reachReason: reachReason?.kind ?? null,
         // 抽中了逛小红书却没刷成（退回了朋友圈）：原因留在试跑记录里，排查「怎么从来不刷」时看得到
         ...(xhsSkipped ? { skipGate: (staleBedtimeContext && 'stale_bedtime_context') || hush || `xhs:${xhsSkipped}`.slice(0, 120) } : {}),
     });
@@ -1763,6 +1822,12 @@ export const createHeartbeatHandler = ({
     // 影子期到此为止：不写 outbox、不推送、不执行工具（设计 4.3 第 9 步）。
     if (shadow || !deliver) {
         return { ok: true, shadow, intent, action: output.action, activity: output.activity, durationMs };
+    }
+
+    // 话兜：过日子时攒下想跟阿萌说的那句，下次开口时拿出来。这一跳已经开了口就不攒——话正在说。
+    const tellLater = [episode?.tellLater, life?.tellLater].find(text => typeof text === 'string' && text.trim());
+    if (tellLater && output.action !== 'message') {
+        addPocketItem(db, { charId: character.charId, text: tellLater, sourceJobUuid: job.uuid, now: startedAt });
     }
 
     // 刷过的朋友圈：看过就记下（回没回应都一样），回应了的静默送去手机写进朋友圈。
@@ -1785,7 +1850,7 @@ export const createHeartbeatHandler = ({
     let workDelivered = false;
     if (episode) {
         const thread = episode.thread ? applyThread(db, character.charId, episode.thread, startedAt) : null;
-        const { thread: _draft, ...rest } = episode;
+        const { thread: _draft, tellLater: _pocketed, ...rest } = episode;
         await deliver({
             messageId: `hb:${job.uuid}:work`,
             charId: character.charId,
@@ -1823,7 +1888,7 @@ export const createHeartbeatHandler = ({
             jobUuid: job.uuid,
             kind: 'job_result',
             notify: false,
-            payload: { type: 'life_episode', createdAt: startedAt.toISOString(), activity: output.activity, life },
+            payload: { type: 'life_episode', createdAt: startedAt.toISOString(), activity: output.activity, life: withoutTellLater(life) },
         });
         lifeDelivered = true;
     }
@@ -1851,5 +1916,7 @@ export const createHeartbeatHandler = ({
             ...(xhsShare ? { xhsNote: toCardNote(xhsShare.note) } : {}),
         },
     });
+    // 从话兜里拿的那句说出口了：之后不再拿它，草稿箱也不再显示。
+    if (reachReason?.kind === 'pocket') markSaid(db, reachReason.item.id, createdAt);
     return { ok: true, shadow: false, intent, action: 'message', activity: output.activity, delivered: true, workDelivered, lifeDelivered, durationMs };
 };

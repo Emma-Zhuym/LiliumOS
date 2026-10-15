@@ -129,6 +129,14 @@ export interface AgentMessage {
 export type TemporalLevel = 'hidden' | 'busy' | 'title';
 
 /** 后端缓存里的一条现实安排。事件有 startAt，提醒有 dueAt。 */
+/** [EM: char-drives-pocket] 话兜里的一句：心跳过日子时攒下、还没跟阿萌说的话。kind=grievance 是别扭（劲儿系统之后才有）。 */
+export interface AgentPocketItem {
+    charId: string;
+    text: string;
+    kind: 'share' | 'grievance';
+    createdAt: string;
+}
+
 /** [EM: agent-plans] 角色在心跳里跟亲友约下的事（后端 life_threads 里带 due_at 的那些）。 */
 export interface AgentPlan {
     id: string;
@@ -346,6 +354,10 @@ export const AgentBackend = {
 
     /** 后端缓存里的现实安排（日历 App 读这个，不直接连桥接）。 */
     plans: () => request<{ plans: AgentPlan[] }>('/plans').then(data => data.plans), // [EM: agent-plans]
+    /** 话兜：TA 攒着还没跟阿萌说的话（查手机的草稿箱）。不带 charId 就是所有角色的。 */
+    pocket: (charId?: string) => request<{ items: AgentPocketItem[] }>(
+        `/pocket${charId ? `?charId=${encodeURIComponent(charId)}` : ''}`,
+    ).then(data => data.items), // [EM: char-drives-pocket]
     // [EM-START: agent-instant-chat]
     /** 不带设备钥匙的探活：即时回复发之前用，3 秒内没回就当 mini 不在。 */
     health: (timeoutMs = 3_000) => request<{ ok: boolean; version: string }>('/health', { auth: false, timeoutMs }),

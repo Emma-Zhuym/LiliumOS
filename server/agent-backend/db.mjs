@@ -252,6 +252,23 @@ export const MIGRATIONS = [
     INSERT INTO deliveries SELECT message_id, device_id, status, http_status, attempted_at FROM deliveries_v10;
     DROP TABLE deliveries_v10;
     `,
+    // 11：话兜——TA 过日子时攒下、还没跟阿萌说的话（docs/spec-character-drives.md 4.2）。
+    // 开口的那一跳从这里拿；查手机的草稿箱读没说过的。kind=grievance 留给劲儿系统的别扭，第一阶段不写。
+    `
+    CREATE TABLE pocket_items (
+      id              TEXT PRIMARY KEY,
+      char_id         TEXT NOT NULL REFERENCES characters(char_id) ON DELETE CASCADE,
+      text            TEXT NOT NULL,
+      kind            TEXT NOT NULL DEFAULT 'share' CHECK (kind IN ('share','grievance')),
+      source_job_uuid TEXT,
+      created_at      TEXT NOT NULL,
+      expires_at      TEXT NOT NULL,
+      said_at         TEXT
+    );
+    CREATE INDEX idx_pocket_items_unsaid ON pocket_items (char_id, said_at, created_at);
+    -- 开口那一跳程序抽的「为什么想起 ta」（reachOut.mjs）。验收要数分享自己日常的占比。
+    ALTER TABLE model_runs ADD COLUMN reach_reason TEXT;
+    `,
 ];
 
 export const DEFAULT_SETTINGS = {
