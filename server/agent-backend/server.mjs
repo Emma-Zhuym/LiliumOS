@@ -236,6 +236,10 @@ export const createRouter = ctx => {
             // 手机每 60 秒点一次名：只有这里说 failed / gone 才算这一轮没了
             handle: ({ query }) => ctx.chatTurns.status(query.get('turnId')),
         },
+        'POST /chat/turns/cancel': {
+            // 手机上点了「停止」
+            handle: ({ body }) => ctx.chatTurns.cancel(String(body?.turnId || '')),
+        },
 
         // ── 阿萌的现实时间（Apple 日历 / 提醒）──────────────────────────
         'GET /temporal': {

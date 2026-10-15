@@ -375,6 +375,9 @@ export const AgentBackend = {
     }) => request<{ turnId: string; status: string }>('/chat/turns', { method: 'POST', body, timeoutMs: 90_000 }),
     chatTurnStatus: (turnId: string) =>
         request<{ state: string; error?: string }>(`/chat/turns?turnId=${encodeURIComponent(turnId)}`),
+    /** 手机上点了「停止」：还没开跑的取消，正在跑的掐掉、跑完也不推。 */
+    cancelChatTurn: (turnId: string) =>
+        request<{ state: string }>('/chat/turns/cancel', { method: 'POST', body: { turnId }, timeoutMs: 10_000 }), // [EM: reply-stop]
     // [EM-END: agent-instant-chat]
     temporal: (range?: { from?: string; to?: string }) => {
         const query = new URLSearchParams();

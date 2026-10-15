@@ -64,6 +64,7 @@ import { buildAmsg2NoticesText, buildAmsg2TaskContextText, collectAmsg2TaskConte
 import { resolveCharTimeZone } from '../utils/timezone';
 import { resolveCharacterApiConfig } from '../utils/characterApi';
 import { announceInstantChatRoute, getInstantChatPending, resolveInstantChatReadiness, sendInstantChatTurn, stageInstantChatExpiredNotices } from '../utils/amsgInstantChat';
+import { beginLocalReply, isReplyStopError, stopReply } from '../utils/emReplyStop'; // [EM: reply-stop]
 import { isAgentChatReady, sendAgentChatTurn, tokenUsageFromCloudMetadata } from '../utils/emAgentChat'; // [EM: agent-instant-chat]
 // worker 模块的常量叶子（零运行时依赖，前端引它不带进 worker 环境）：
 // 云端 fire 的总时长上限，安全网超时从它推导，worker 调预算时前端自动跟上。
@@ -819,6 +820,11 @@ export const useChatAI = ({
         const releaseReply = acquireChatReply(char.id);
         if (!releaseReply) { onInstantPosted?.(); return; }
         replyBusyRef.current = true;
+        // [EM-START: reply-stop] 用户点了停止：掐掉请求、停止逐条上屏，已经显示的留着
+        const replyRun = beginLocalReply(char.id);
+        let stopPreviewBubbles: string[] = []; // 停的那一刻流式预览里已经露出来的气泡
+        let postProcessingStarted = false;
+        // [EM-END: reply-stop]
         // 本轮里角色自己新排出来的任务。排程现状块每轮现算时靠它把这些点名标出来——不标
         // 的话角色分不清清单上哪条是自己刚排的，回头又排一条一模一样的。
         const amsg2CreatedThisTurn = new Set<string>();
@@ -1524,6 +1530,7 @@ export const useChatAI = ({
             // [EM-START: agent-instant-chat]
             // 这一轮交给 Mac mini：本地这一轮原本要发的全部内容原样交上去（时效段已经烤在 prompt 里，
             // mini 不另补），发完就能锁屏。回复推回来走收件箱同一条后处理管线。
+            if (replyRun.signal.aborted) return; // [EM: reply-stop] 还没交出去就停了
             if (agentChatRoute) {
                 const agentResult = await sendAgentChatTurn({
                     char,
@@ -1541,7 +1548,9 @@ export const useChatAI = ({
                         }
                         : {}),
                 });
-                if (agentResult.ok) {
+                if (agentResult.ok && replyRun.signal.aborted) {
+                    stopReply(char.id); // [EM: reply-stop] 上传途中点了停止：交上去的这一轮当场作废
+                } else if (agentResult.ok) {
                     // 情绪评估第一版留在手机上跑（页面活着时照常更新；被杀后台那一轮会漏一次，spec 里说好的）
                     fireLocalEmotionEval?.();
                 } else {
@@ -1598,6 +1607,7 @@ export const useChatAI = ({
                 if (instantChatResult.ok) {
                     // 这次 POST 已经把权威的那份 fire_pack 传上去了，收尾不必再打脏重传一遍。
                     instantChatAccepted = true;
+                    if (replyRun.signal.aborted) stopReply(char.id); // [EM: reply-stop] 上传途中点了停止
                     // 202 只说明云端收下了，不说明角色真的读到过这些回执：那一轮可能空输出被
                     // 判 skip-push，也可能 fire 重试打光标 failed。所以这里只记账不销账，等回复
                     // 真的落库那一刻（activeMsgRuntime 认末段到齐）再调
@@ -1652,6 +1662,7 @@ export const useChatAI = ({
                     if (streamPreviewEligible) {
                         const bubbles = computeStreamPreviewBubbles(fullText);
                         latestStreamPreviewBubbles = bubbles;
+                        stopPreviewBubbles = bubbles; // [EM: reply-stop]
                         if (bubbles.length > 0) streamPreviewShown = true;
                         setStreamingBubbles(prev =>
                             (prev.length === bubbles.length && prev.every((b, i) => b === bubbles[i])) ? prev : bubbles
@@ -1691,7 +1702,7 @@ export const useChatAI = ({
             let data: any;
             try {
                 data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                    method: 'POST', headers, body: JSON.stringify(initialBody),
+                    method: 'POST', headers, signal: replyRun.signal, body: JSON.stringify(initialBody),
                 }, 0, 0, { appName: '消息', charId: char.id, charName: char.name, purpose: '聊天回复' }, streamHooks);
             } catch (initialError) {
                 let requestError: unknown = initialError;
@@ -1699,7 +1710,7 @@ export const useChatAI = ({
                     claudeCompatibility = true;
                     try {
                         data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                            method: 'POST', headers, body: JSON.stringify(prepareReplyBody(baseReqBody)),
+                            method: 'POST', headers, signal: replyRun.signal, body: JSON.stringify(prepareReplyBody(baseReqBody)),
                         }, 0, 0, { appName: '消息', charId: char.id, charName: char.name, purpose: 'Claude 请求格式兼容重试' }, streamHooks);
                         requestError = null;
                     } catch (compatibilityError) {
@@ -1714,7 +1725,7 @@ export const useChatAI = ({
                     // 持久到本轮后续请求的是工具说明，不是这一刻的排程快照。
                     const fallbackBody = buildMcpRejectedToolsFallbackBody(baseReqBody);
                     data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                        method: 'POST', headers, body: JSON.stringify(prepareReplyBody(fallbackBody)),
+                        method: 'POST', headers, signal: replyRun.signal, body: JSON.stringify(prepareReplyBody(fallbackBody)),
                     }, 0, 0, { appName: '消息', charId: char.id, charName: char.name, purpose: 'MCP tools 兼容重试' });
                     baseReqBody.messages = fallbackBody.messages;
                     delete baseReqBody.tools;
@@ -1727,7 +1738,7 @@ export const useChatAI = ({
             // MCP 多阶段展示：工具前的角色文字先落库，最终工具结果回复仍走统一后处理。
             const displayedMcpLeadIns = new Set<string>();
             const persistMcpLeadIn = async (raw: string, fakedCalls: FakedMcpCall[] = []): Promise<void> => {
-                if (!mcpToolResolve || !raw.trim()) return;
+                if (!mcpToolResolve || !raw.trim() || replyRun.signal.aborted) return; // [EM: reply-stop]
                 const withoutCalls = fakedCalls.length ? stripTextFakedMcpCalls(raw, fakedCalls) : raw.trim();
                 const display = ChatParser.sanitize(sanitizeMcpLeadInText(withoutCalls), { keepCitations: true }).trim();
                 if (!display || !ChatParser.hasDisplayContent(display) || displayedMcpLeadIns.has(display)) return;
@@ -1850,7 +1861,7 @@ export const useChatAI = ({
                     delete followBody.tools;
                     delete followBody.tool_choice;
                     data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                        method: 'POST', headers,
+                        method: 'POST', headers, signal: replyRun.signal,
                         body: JSON.stringify(prepareReplyBody(followBody))
                     });
                     updateTokenUsage(data, historyMsgCount, `mcd-propose-${it + 1}`);
@@ -1953,7 +1964,7 @@ export const useChatAI = ({
                     delete followBody.tools;
                     delete followBody.tool_choice;
                     data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                        method: 'POST', headers,
+                        method: 'POST', headers, signal: replyRun.signal,
                         body: JSON.stringify(prepareReplyBody(followBody))
                     });
                     updateTokenUsage(data, historyMsgCount, `luckin-propose-${it + 1}`);
@@ -2157,7 +2168,7 @@ export const useChatAI = ({
                         delete followBody.tool_choice;
                     }
                     data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                        method: 'POST', headers,
+                        method: 'POST', headers, signal: replyRun.signal,
                         body: JSON.stringify(prepareReplyBody(followBody))
                     });
                     updateTokenUsage(data, historyMsgCount, `${payload.flags.luckinChatActive ? 'luckin-chat' : financeToolTurn ? 'finance-chat' : healthToolTurn ? 'health-chat' : 'mcp-chat'}-${it + 1}`);
@@ -2194,7 +2205,7 @@ export const useChatAI = ({
                         });
                         const wrapBody = buildMcpTextFallbackBody(baseReqBody, textLoopMessages);
                         data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                            method: 'POST', headers,
+                            method: 'POST', headers, signal: replyRun.signal,
                             body: JSON.stringify(prepareReplyBody(wrapBody))
                         });
                         updateTokenUsage(data, historyMsgCount, `mcp-text-wrap-${it + 1}`);
@@ -2243,7 +2254,7 @@ export const useChatAI = ({
                     setSearchStatus('正在整理 MCP 工具结果...');
                     const followBody = buildMcpTextFallbackBody(baseReqBody, textLoopMessages);
                     data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                        method: 'POST', headers,
+                        method: 'POST', headers, signal: replyRun.signal,
                         body: JSON.stringify(prepareReplyBody(followBody))
                     });
                     updateTokenUsage(data, historyMsgCount, `mcp-text-${it + 1}`);
@@ -2290,7 +2301,7 @@ export const useChatAI = ({
                     delete followBody.tools;
                     delete followBody.tool_choice;
                     data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                        method: 'POST', headers,
+                        method: 'POST', headers, signal: replyRun.signal,
                         body: JSON.stringify(prepareReplyBody(followBody)),
                     });
                     updateTokenUsage(data, historyMsgCount, 'intiface-follow');
@@ -2353,7 +2364,9 @@ export const useChatAI = ({
                 commentAuthorNameCache: commentAuthorNameCacheRef.current,
                 commentParentIdCache: commentParentIdCacheRef.current,
             };
+            postProcessingStarted = true; // [EM: reply-stop]
             await applyAssistantPostProcessing(rawAiContent, {
+                signal: replyRun.signal, // [EM: reply-stop]
                 char,
                 userProfile,
                 emojis,
@@ -2407,6 +2420,17 @@ export const useChatAI = ({
             }
 
         } catch (e: any) {
+            // [EM-START: reply-stop] 用户点了停止：不报错；流式预览已经露出来的那几句留下
+            if (isReplyStopError(replyRun.signal)) {
+                if (!postProcessingStarted) {
+                    for (const content of stopPreviewBubbles.map(text => text.trim()).filter(Boolean)) {
+                        await DB.saveMessage({ charId: char.id, role: 'assistant', type: 'text', content });
+                    }
+                }
+                setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
+                return;
+            }
+            // [EM-END: reply-stop]
             // 注意: 这个 catch 兜的是「拿到 API 响应之后」的整条后处理管线 (applyAssistantPostProcessing,
             // 13 步)。这里抛错多半不是网络问题, 而是解析/正则/落库异常。别再叫"连接中断"误导排查。
             const errMsg = e?.message || String(e);
@@ -2422,6 +2446,7 @@ export const useChatAI = ({
             }
             setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
         } finally {
+            replyRun.end(); // [EM: reply-stop]
             releaseReply();
             replyBusyRef.current = false;
             setLocalTyping(false);

@@ -290,6 +290,15 @@ check "多选底栏有收藏钮" components/chat/ChatInputArea.tsx "{/* [EM-STAR
 check "Chat 接多选收藏" apps/Chat.tsx "onFavoriteSelected={handleFavoriteSelected} favoriteSelectedCount={favoriteSelectableCount} // [EM: multi-select-favorite]"
 check "Chat 存对话收藏" apps/Chat.tsx "await saveConversationContentFavorite(selected, char.id, char.name, userProfile.name);"
 
+echo "── 停止回复（本地 / mini / amsg）──"
+check "useChatAI 登记本轮可停" hooks/useChatAI.ts "const replyRun = beginLocalReply(char.id);"
+check "后处理带停止信号" hooks/useChatAI.ts "signal: replyRun.signal, // [EM: reply-stop]"
+check "停了不报错、留下已露出的预览" hooks/useChatAI.ts "if (isReplyStopError(replyRun.signal)) {"
+check "后处理停了不再落库" utils/applyAssistantPostProcessing.ts "if (stopSignal?.aborted) return Promise.reject(new DOMException('回复已停止', 'AbortError')); // [EM: reply-stop]"
+check "收件箱丢掉停过的那一轮" utils/activeMsgRuntime.ts "if (isReplyTurnStopped(message.taskUuid)) {"
+check "输入栏停止钮" components/chat/ChatInputArea.tsx "onClick={isStopButton ? onStopReply : isGenerateButton ? onGenerate : onSend} // [EM: reply-stop]"
+check "Chat 接停止" apps/Chat.tsx "onStopReply={handleStopReply} canStopReply={isTyping || instantChatPending} // [EM: reply-stop]"
+
 echo "── 云端备份带主动消息后端连接 ──"
 check "云端备份始终带连接" context/OSContext.tsx "exportSystem(mode, { includeBackendConnection: true }); // [EM: amsg-backup-connection]"
 check "云端恢复问要不要连回去" context/OSContext.tsx "await importSystem(zipFile, { confirmBackendRestore: askRestoreBackendConnection }); // [EM: amsg-backup-connection]"

@@ -101,6 +101,7 @@ import {
     listContentFavorites,
     saveConversationContentFavorite, // [EM: multi-select-favorite]
 } from '../utils/contentFavorites';
+import { stopReply } from '../utils/emReplyStop'; // [EM: reply-stop]
 import {
     CONTEXT_RANGE_POLICY_VERSION,
     computeContextRangeSnapshot,
@@ -3243,6 +3244,14 @@ const Chat: React.FC = () => {
     };
     // [EM-END: multi-select-favorite]
 
+    // [EM-START: reply-stop] 停止这一轮回复（本地 / mini / amsg 三条路，见 utils/emReplyStop.ts）
+    const handleStopReply = () => {
+        if (!char) return;
+        const result = stopReply(char.id);
+        if (result.local || result.cloud) addToast('已停止，已经显示的回复会留下', 'info');
+    };
+    // [EM-END: reply-stop]
+
     const handleForwardToCharacter = async (targetCharId: string) => {
         if (!char) return;
         const selectedMsgs = messages
@@ -4353,6 +4362,7 @@ const Chat: React.FC = () => {
                     onDeleteSelected={handleBatchDelete}
                     onForwardSelected={handleForwardSelected}
                     onFavoriteSelected={handleFavoriteSelected} favoriteSelectedCount={favoriteSelectableCount} // [EM: multi-select-favorite]
+                    onStopReply={handleStopReply} canStopReply={isTyping || instantChatPending} // [EM: reply-stop]
                     selectedCount={selectedMsgIds.size + Array.from(selectedThinkingMsgIds).filter(id => !selectedMsgIds.has(id)).length}
                     emojis={filteredEmojis}
                     characters={characters} activeCharacterId={activeCharacterId}
