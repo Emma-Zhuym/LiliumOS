@@ -131,7 +131,9 @@ describe('finance chat awareness', () => {
     expect(block).toContain('用户的个人账本');
     expect(block).toContain('可以出于好奇');
     expect(block).toContain('不必等用户先提到钱');
-    expect(block).toContain('先调用一个最合适的财务工具看一眼');
+    expect(block).toContain('是否查看由你此刻真实的好奇、关心和角色性格决定');
+    expect(block).toContain('不要为了完成规则而查');
+    expect(block).not.toContain('先调用一个最合适的财务工具');
     expect(block).toContain('故事情节、角色自己的钱');
     for (const tool of FINANCE_CHAT_TOOLS) {
       expect(tool.function.description).toMatch(/主动|不必等用户/);
