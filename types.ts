@@ -1,6 +1,7 @@
 import type { ChatInputPreferences } from './utils/chatInputPreferences';
 import type { VoiceFavoriteIndex } from './utils/voiceFavorites'; // [EM: text-voice-favorites]
 import type { ContentFavoritesIndex } from './utils/contentFavorites'; // [EM: text-content-favorites]
+import type { HealthProfile } from './utils/healthProfile'; // [EM: em-backup-gaps]
 export enum AppID {
   Launcher = 'launcher',
   Settings = 'settings',
@@ -4434,6 +4435,11 @@ export interface FullBackupData {
     emKitchenSauces?: any[]; // [EM: kitchen-recipes]
     // [EM-END: finance-backup-types]
     gotchiAccentHue?: string;  // 桌面电子宠物主题主色调偏好（tama_accent_hue，账号级 localStorage）
+    // [EM-START: em-backup-gaps]
+    agendaItems?: AgendaItem[];                 // 时光契约日程（agenda store）
+    emHealthProfile?: HealthProfile;            // 健康档案（liliumos_health_profile）
+    emContactRemarks?: Record<string, string>;  // 通讯录备注，角色 id → 备注（em_contact_remark_*）
+    // [EM-END: em-backup-gaps]
 }
 
 // --- CLOUD BACKUP TYPES ---

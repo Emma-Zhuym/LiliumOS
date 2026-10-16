@@ -30,6 +30,14 @@ export function getHealthProfile(): HealthProfile | null {
   } catch { return null; }
 }
 
+/** 备份恢复时用：只认身高体重年龄是数字、性别是 F/M 的档案。 */
+export function isHealthProfile(value: unknown): value is HealthProfile {
+  const p = value as Partial<HealthProfile> | null;
+  return !!p && typeof p === 'object'
+    && [p.heightCm, p.weightKg, p.age].every(n => typeof n === 'number' && Number.isFinite(n))
+    && (p.sex === 'F' || p.sex === 'M');
+}
+
 export function saveHealthProfile(p: HealthProfile): void {
   writeLiliumOSStorage(KEY, JSON.stringify(p), LEGACY_KEYS);
 }

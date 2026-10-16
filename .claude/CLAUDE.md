@@ -100,6 +100,7 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - `context/OSContext.tsx` 里的 `messageSubView` state (`'contacts' | 'chat'`)
 - `components/PhoneShell.tsx` 里 `case AppID.Chat` 根据 `messageSubView` 切换显示
 - `components/chat/ChatHeaderShell.tsx` 里的 `onOpenContacts` prop + 小房子按钮
+- 通讯录备注存 localStorage `em_contact_remark_<角色id>`（`utils/contactRemarks.ts`），随备份走 `emContactRemarks`；恢复只覆盖备份里有的角色
 
 ### 2. Token 面板 (contextComposition)
 - `hooks/useChatAI.ts` 里的 `ContextComposition` interface + state
@@ -130,6 +131,7 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 ### 6. ScheduleApp 分钟精度
 - `apps/ScheduleApp.tsx` — `dateTime` 字段精确到分钟
 - `types.ts` 里 `AgendaItem` 的 `dateTime?`, `charId?`, `reminderMinutes?`, `createdAt?`
+- `agenda` 表随全量/文字备份走（`agendaItems`，哨兵 `em-backup-gaps`）：导出清单、导入的 `availableStores` 和 `runSection` 三处都要在
   - `dateTime` 是 optional，代码中访问时必须用 `item.dateTime ?? ''` 防 undefined
 
 ### 7. 桌面图标与组件布局
@@ -161,7 +163,7 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - `apps/HealthApp.tsx` / `utils/healthDb.ts` / `utils/cycleCalc.ts` — 训练、睡眠、饮食、经期、症状、体重与周期推算
 - `utils/healthContextBuilder.ts` → `hooks/useChatAI.ts` → `chatRequestPayload.ts` — 每轮聊天重新读取轻量健康摘要；Apple Health 常驻只含活动/睡眠和七日极简节律，血氧等生命体征不得重新灌入
 - `utils/externalHealth.ts` / `utils/externalHealthRoleSummary.ts` — HealthSync 当前快照、按日归档缓存与角色极简摘要；原始生命体征只留在 Health/HA 按需查看
-- `context/OSContext.tsx` — Health 事件和个人目标配置随全量备份导出/恢复
+- `context/OSContext.tsx` — Health 事件（`emHealthEvents`）和健康档案（身高体重、目标，`emHealthProfile`，存 localStorage）随全量/文字备份导出/恢复
 - Apple Health 真导入已验收；Notion 同步、完整历史角色工具和 Health 内角色周评仍是 roadmap 待办
 
 ### 16. Shopping 投喂站 + 备份

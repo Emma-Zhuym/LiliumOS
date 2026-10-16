@@ -292,6 +292,16 @@ check "Chat 存对话收藏" apps/Chat.tsx "await saveConversationContentFavorit
 check "文字备份带聊天收藏索引" context/OSContext.tsx "backupData.contentFavoritesIndex = { version: 1, items: await listContentFavorites() };"
 check "恢复只替换聊天收藏这一行" utils/db.ts "await mergeStore(STORE_ASSETS, [{ id: CONTENT_FAVORITES_INDEX_ASSET_ID, data: data.contentFavoritesIndex }], '聊天收藏', false);"
 
+echo "── EM 自己的 App 补进备份（时光契约日程 / 健康档案 / 通讯录备注）──"
+check "导出清单有时光契约日程" context/OSContext.tsx "'agenda', // [EM: em-backup-gaps]"
+check "导出写进 agendaItems" context/OSContext.tsx "case 'agenda': backupData.agendaItems = processedData; break; // [EM: em-backup-gaps]"
+check "导入认得 agenda 表" utils/db.ts "STORE_AGENDA, // [EM: em-backup-gaps]"
+check "导入恢复时光契约日程" utils/db.ts "await clearAndAdd(STORE_AGENDA, data.agendaItems, '时光契约日程', false);"
+check "导出健康档案" context/OSContext.tsx "emHealthProfile: (mode === 'text_only' || mode === 'full') ? (getHealthProfile() || undefined) : undefined,"
+check "导出通讯录备注" context/OSContext.tsx "emContactRemarks: (mode === 'text_only' || mode === 'full') ? exportContactRemarks() : undefined,"
+check "恢复健康档案" context/OSContext.tsx "if (isHealthProfile(data.emHealthProfile)) saveHealthProfile(data.emHealthProfile);"
+check "恢复通讯录备注" context/OSContext.tsx "if (data.emContactRemarks !== undefined) importContactRemarks(data.emContactRemarks);"
+
 echo "── 停止回复（本地 / mini / amsg）──"
 check "useChatAI 登记本轮可停" hooks/useChatAI.ts "const replyRun = beginLocalReply(char.id);"
 check "后处理带停止信号" hooks/useChatAI.ts "signal: replyRun.signal, // [EM: reply-stop]"

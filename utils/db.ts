@@ -3485,7 +3485,8 @@ export const DB = {
           STORE_WORLDS, STORE_WORLD_EPISODES,
           'memory_nodes', 'memory_vectors', 'memory_links', 'topic_boxes', 'anticipations', 'event_boxes',
           'room_plates', 'digest_reports',
-          'memory_batches', 'pixel_home_assets', 'pixel_home_layouts'
+          'memory_batches', 'pixel_home_assets', 'pixel_home_layouts',
+          STORE_AGENDA, // [EM: em-backup-gaps]
       ].filter(name => db.objectStoreNames.contains(name));
 
       const hasStore = (storeName: string) => availableStores.includes(storeName);
@@ -3572,6 +3573,7 @@ export const DB = {
           data.lifeRecords !== undefined,
           data.medPlans !== undefined,
           data.lifeRecordSettings !== undefined,
+          data.agendaItems !== undefined, // [EM: em-backup-gaps]
           data.hotNewsSnapshots !== undefined,
           data.vrNovels !== undefined,
           data.vrAnnotations !== undefined,
@@ -4097,6 +4099,12 @@ export const DB = {
           await clearAndAdd(STORE_LIFE_SETTINGS, data.lifeRecordSettings, '生活记录设置', false);
           data.lifeRecordSettings = undefined as any;
       }, data.lifeRecordSettings?.length || 0);
+      // [EM-START: em-backup-gaps]
+      await runSection('时光契约日程', data.agendaItems !== undefined, async () => {
+          await clearAndAdd(STORE_AGENDA, data.agendaItems, '时光契约日程', false);
+          data.agendaItems = undefined;
+      }, data.agendaItems?.length || 0);
+      // [EM-END: em-backup-gaps]
 
       // 热点快照（全角色共享缓存）
       await runSection('热点快照', data.hotNewsSnapshots !== undefined, async () => {

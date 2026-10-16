@@ -7,6 +7,8 @@ import { collectBlobRefs, writeBlobsToZip, readBlobsIndex, restoreBlobsFromZip, 
 import { encodeVectorsForBackup, encodeVectorsForBackupChunked, MemoryVectorDB } from './memoryPalace/db';
 import { writeV2Backup, assembleV2Backup, shardFileName, type ShardLimits } from './backupFormat';
 import { ActiveMsgStore } from './activeMsgStore';
+import { exportContactRemarks, importContactRemarks } from './contactRemarks';
+import { isHealthProfile } from './healthProfile';
 import { CONTENT_FAVORITES_INDEX_ASSET_ID, listContentFavorites, saveConversationContentFavorite, saveMessageContentFavorite } from './contentFavorites';
 
 // fake-indexeddb 已通过 test-setup.ts 注入。
@@ -707,3 +709,41 @@ describe('文字备份带聊天收藏索引', () => {
     });
 });
 // [EM-END: text-content-favorites]
+
+// [EM-START: em-backup-gaps]
+describe('EM 自己的 App 补进备份', () => {
+    it('时光契约日程随备份往返，旧日程被替换', async () => {
+        await seedStore('agenda', [{ id: 'old', title: '旧的', summary: '' }]);
+        const items = [{ id: 'a1', title: '组会', summary: '', dateTime: '2026-10-16T14:30', charId: 'c1', reminderMinutes: 15, createdAt: 1 }];
+        const zip = new FakeZip();
+        const manifest = await writeV2Backup(zip, { agendaItems: items } as any, {});
+        await DB.importFullData(await assembleV2Backup(zip, manifest) as any);
+        expect(await DB.getAllAgenda()).toEqual(items);
+    });
+
+    it('备份里没有日程：本机日程不动', async () => {
+        await seedStore('agenda', [{ id: 'keep', title: '留着', summary: '' }]);
+        await DB.importFullData({ tasks: [] } as any);
+        expect((await DB.getAllAgenda()).map(item => item.id)).toEqual(['keep']);
+    });
+
+    it('通讯录备注导出再导入，备份没提到的角色保留原备注', () => {
+        localStorage.setItem('em_contact_remark_c1', '小帕');
+        localStorage.setItem('em_contact_remark_c2', '爸爸');
+        const remarks = exportContactRemarks();
+        expect(remarks).toEqual({ c1: '小帕', c2: '爸爸' });
+        localStorage.removeItem('em_contact_remark_c1');
+        localStorage.setItem('em_contact_remark_c3', '本机才有');
+        importContactRemarks({ c1: '小帕' });
+        expect(localStorage.getItem('em_contact_remark_c1')).toBe('小帕');
+        expect(localStorage.getItem('em_contact_remark_c3')).toBe('本机才有');
+        ['c1', 'c2', 'c3'].forEach(id => localStorage.removeItem(`em_contact_remark_${id}`));
+    });
+
+    it('健康档案只认完整的身高体重年龄性别', () => {
+        expect(isHealthProfile({ heightCm: 165, weightKg: 52, age: 24, sex: 'F', goal: 'maintain' })).toBe(true);
+        expect(isHealthProfile({ heightCm: 165, weightKg: '52', age: 24, sex: 'F' })).toBe(false);
+        expect(isHealthProfile(null)).toBe(false);
+    });
+});
+// [EM-END: em-backup-gaps]

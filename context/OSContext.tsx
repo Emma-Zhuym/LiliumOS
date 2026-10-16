@@ -19,6 +19,10 @@ import { VOICE_FAVORITES_INDEX_ASSET_ID, listVoiceFavorites } from '../utils/voi
 import { externalizeVoiceMessageBlobs, restoreVoiceMessageBlobs, shouldIncludeVoiceRelatedAssetInBackup, markVoiceFavoriteAudioOmitted } from '../utils/voiceMessageBackup';
 // [EM-END: text-voice-favorites]
 import { listContentFavorites } from '../utils/contentFavorites'; // [EM: text-content-favorites]
+// [EM-START: em-backup-gaps]
+import { getHealthProfile, saveHealthProfile, isHealthProfile } from '../utils/healthProfile';
+import { exportContactRemarks, importContactRemarks } from '../utils/contactRemarks';
+// [EM-END: em-backup-gaps]
 import { initPwaIcon, clearPwaIcon } from '../utils/appIcon';
 import { LEGACY_DEFAULT_WALLPAPER, isLegacyDefaultWallpaper, shouldPreserveLegacyDefaultWallpaper } from '../utils/wallpaperCompat';
 import { migrateSharkpanAssets } from '../utils/sharkpanAssetMigration';
@@ -4072,7 +4076,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               'worlds', 'world_episodes',
               // 生活记录（档案 App：生理期/药盒/锻炼 + 药盒计划 + 设置；记账走 bank_transactions）
               // 导入端 importFullData 已支持恢复，这里必须同步登记，否则备份不含生活记录。
-              'life_records', 'med_plans', 'life_record_settings'
+              'life_records', 'med_plans', 'life_record_settings',
+              'agenda', // [EM: em-backup-gaps] 时光契约的分钟级日程
           ];
 
           if (mode === 'full') {
@@ -4354,6 +4359,10 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   }
               })(),
               // [EM-END: map-backup-export]
+              // [EM-START: em-backup-gaps] 存在 localStorage 的 EM 资料：健康档案（身高体重、目标）、通讯录备注
+              emHealthProfile: (mode === 'text_only' || mode === 'full') ? (getHealthProfile() || undefined) : undefined,
+              emContactRemarks: (mode === 'text_only' || mode === 'full') ? exportContactRemarks() : undefined,
+              // [EM-END: em-backup-gaps]
               // 桌面电子宠物主题的主色调偏好（账号级 localStorage）。room_card 涓流卡片本身
               // 是普通消息、随 messages store 一起导出，这里只补带走这个纯外观偏好。
               gotchiAccentHue: (mode === 'text_only' || mode === 'full') ? (() => { try { const s = localStorage.getItem('tama_accent_hue'); return s !== null ? s : undefined; } catch { return undefined; } })() : undefined,
@@ -4736,6 +4745,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   case 'life_records': backupData.lifeRecords = processedData; break;
                   case 'med_plans': backupData.medPlans = processedData; break;
                   case 'life_record_settings': backupData.lifeRecordSettings = processedData; break;
+                  case 'agenda': backupData.agendaItems = processedData; break; // [EM: em-backup-gaps]
                   case 'hotnews_snapshots': backupData.hotNewsSnapshots = processedData; break;
                   case 'memory_nodes': backupData.memoryNodes = processedData; break;
                   // memory_vectors 走二进制旁路（上面已 continue），不在此 switch 落 backupData
@@ -5258,6 +5268,10 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           restoreStoryTheaterAppearanceSetting(data.storyTheaterAppearance);
           if (data.dreamCollection && typeof data.dreamCollection === 'object') localStorage.setItem('os_dream_collection', JSON.stringify(data.dreamCollection));
           if (typeof data.gotchiAccentHue === 'string' && /^\d+$/.test(data.gotchiAccentHue)) localStorage.setItem('tama_accent_hue', data.gotchiAccentHue);
+          // [EM-START: em-backup-gaps]
+          if (isHealthProfile(data.emHealthProfile)) saveHealthProfile(data.emHealthProfile);
+          if (data.emContactRemarks !== undefined) importContactRemarks(data.emContactRemarks);
+          // [EM-END: em-backup-gaps]
           if (data.eventNotifFlags && typeof data.eventNotifFlags === 'object') {
               for (const [key, val] of Object.entries(data.eventNotifFlags)) {
                   // 只允许 sullyos_ 前缀，避免污染其它键
