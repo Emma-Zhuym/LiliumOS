@@ -160,3 +160,47 @@ export const formatReachReason = (reason, { formatGap = () => '' } = {}) => {
             return '你想起 ta，没有特别的缘由，就是想了。说说你此刻在做的事就好。';
     }
 };
+
+/**
+ * 攒着的话（2026-10-19 阿萌：兑现「等会儿」的时候也看一眼草稿箱，可以一次性多说点不同的东西——
+ * 想我的、之前想告诉我的、没发消息这段时间他遇到的，各种乱七八糟的）。
+ *
+ * 开口的那一跳，除了「为什么想起 ta」那一件，再把还没说的几句话兜、你们没说话这段时间自己遇到的事
+ * 一起摆出来。用没用、用几件由模型定；说出口的那几句由心跳发完消息后按字面划掉（settleSaidFromMessages）。
+ */
+export const CATCH_UP_POCKET = 3;
+export const CATCH_UP_LIFE = 3;
+
+export const buildCatchUp = ({ pocket = [], lifeLog = [], lastContact = null, reason = null } = {}) => {
+    const usedPocket = reason?.kind === 'pocket' ? reason.item?.id : null;
+    const usedLife = reason?.kind === 'own_life' ? reason.item?.text : null;
+    const since = lastContact ? lastContact.getTime() : 0;
+    return {
+        pocket: pocket.filter(item => item.id !== usedPocket).slice(-CATCH_UP_POCKET),
+        life: lifeLog
+            .filter(item => Date.parse(item.at) > since && item.text !== usedLife)
+            .slice(-CATCH_UP_LIFE),
+    };
+};
+
+/**
+ * 写给模型的那段。东西够多、又隔了一阵没说话时，明说「这次就一起说了」——
+ * 只写「可以」的话它只会挑一件（凡是交给模型判断要不要做的，它都选省事的那个）。
+ * 连发了没回时不鼓励多说：那时候只该说一件自己的事或一句不用回的话。
+ */
+export const formatCatchUp = (catchUp, { formatGap = () => '', gapMs = 0, unanswered = 0 } = {}) => {
+    const lines = [
+        ...catchUp.pocket.map(item => `- 之前就想跟 ta 说的：「${item.text}」${formatGap(item.createdAt) ? `（${formatGap(item.createdAt)}想到的）` : ''}`),
+        ...catchUp.life.map(item => `- 你们没说话这段时间，你这边：${item.text}`),
+    ];
+    if (!lines.length) return '';
+    const plenty = lines.length >= 2 && gapMs >= 60 * 60 * 1000 && unanswered === 0;
+    return '除此之外，你心里还攒着这些没跟 ta 说的：\n'
+        + `${lines.join('\n')}\n`
+        + (unanswered > 0
+            ? 'ta 还没回你上一条，这次只挑其中一件说就好，别一口气倒一堆。'
+            : plenty
+                ? '隔了一阵没说话，这次就像攒了一肚子话终于拿起手机的人：想 ta 的、之前想说的、这段时间遇到的，'
+                    + '挑两三件一起说了，想到哪说到哪，一件一行（会拆成几条消息发出去）；别编号、别列清单，也不用全都说。'
+                : '想顺带说的就一起说，一件一行；不想说的就放着。');
+};

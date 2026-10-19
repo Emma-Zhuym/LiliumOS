@@ -13,7 +13,7 @@ import {
     settleSaidFromMessages,
 } from './pocket.mjs';
 import {
-    REACH_REASON_WEIGHTS, formatReachReason, herSideCues, pickReachReason, recentLife, summarizeEpisode,
+    REACH_REASON_WEIGHTS, buildCatchUp, formatCatchUp, formatReachReason, herSideCues, pickReachReason, recentLife, summarizeEpisode,
 } from './reachOut.mjs';
 import { parseEpisode, parseLife } from './runner.mjs';
 
@@ -229,4 +229,19 @@ test('草稿箱接口：先拿快照把说过的划掉，再筛掉备忘；带�
     const items = listPocketForPhone(db, { charId: CHAR, now: later, snapshotsFor: () => snapshot });
     assert.deepEqual(items.map(i => i.text), ['同事养了只柯基，下次带你去看']);
     assert.ok(items[0].expiresAt);
+});
+
+test('攒着的话：去掉已经当缘由的那句；只算上次说话之后的事；连发没回时只挑一件，刚聊过不硬塞', () => {
+    const pocket = [{ id: 'a', text: '面馆', createdAt: AT.toISOString() }, { id: 'b', text: '柯基', createdAt: AT.toISOString() }];
+    const lifeLog = [
+        { at: new Date(AT.getTime() - 5 * 3600_000).toISOString(), text: '上次说话之前的事' },
+        { at: new Date(AT.getTime() - 3600_000).toISOString(), text: '跟老周打了球' },
+    ];
+    const catchUp = buildCatchUp({ pocket, lifeLog, lastContact: new Date(AT.getTime() - 2 * 3600_000), reason: { kind: 'pocket', item: pocket[0] } });
+    assert.deepEqual(catchUp.pocket.map(i => i.id), ['b']);
+    assert.deepEqual(catchUp.life.map(i => i.text), ['跟老周打了球']);
+    assert.match(formatCatchUp(catchUp, { gapMs: 2 * 3600_000 }), /挑两三件一起说了/);
+    assert.match(formatCatchUp(catchUp, { gapMs: 2 * 3600_000, unanswered: 1 }), /只挑其中一件/);
+    assert.match(formatCatchUp(catchUp, { gapMs: 20 * 60_000 }), /想顺带说的就一起说/);
+    assert.equal(formatCatchUp({ pocket: [], life: [] }), '');
 });

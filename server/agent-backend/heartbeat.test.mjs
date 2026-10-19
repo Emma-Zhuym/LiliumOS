@@ -2183,8 +2183,40 @@ test('兑现上一跳的「等会儿」时不另抽缘由', async () => {
     const runner = { run: async args => { system = args.system; return { ok: true, output: { action: 'noop', activity: 'x', reason: '' } }; } };
     await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 'r3'), rng: () => 0.99 });
     assert.ok(!system.includes('你想起 ta，是因为'));
-    assert.equal(listModelRuns(db)[0].reachReason, null);
+    assert.equal(listModelRuns(db)[0].reachReason, 'carried');
 });
+
+test('兑现「等会儿」时也看一眼草稿箱：攒着的话、没说话这段时间自己遇到的一起摆出来，隔了一阵就鼓励一次多说几件', async () => {
+    const { addPocketItem, listUnsaid } = await import('./pocket.mjs');
+    const db = freshDb();
+    setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+    const character = seedCharacter(db);
+    // 上次说话是四小时前
+    seedSnapshot(db, { recentMessages: [
+        { role: 'user', at: new Date(AT.getTime() - 4 * 3600_000 - 60_000).toISOString(), text: '我去上课啦' },
+        { role: 'char', at: new Date(AT.getTime() - 4 * 3600_000).toISOString(), text: '去吧，好好听' },
+    ] });
+    upsertCharacter(db, { charId: CHAR, lastUserInteractionAt: new Date(AT.getTime() - 4 * 3600_000).toISOString() });
+    // 先是两小时前跟老周聊天，再是半小时前想着「等会儿找她」（按写入顺序认最近一跳）
+    recordModelRun(db, {
+        charId: CHAR, runtime: 'api', startedAt: new Date(AT.getTime() - 2 * 3600_000).toISOString(), ok: true, outcome: 'noop',
+        episode: { life: { kind: 'chat', with: '老周', lines: [{ who: '老周', text: '周末打球？' }] } },
+    });
+    recordModelRun(db, {
+        charId: CHAR, runtime: 'api', startedAt: new Date(AT.getTime() - 30 * 60_000).toISOString(), ok: true, outcome: 'noop',
+        reason: '想问问她课上完没', urge: 'later',
+    });
+    addPocketItem(db, { charId: CHAR, text: '楼下新开了家面馆，改天带你去', freshness: 'days', now: new Date(AT.getTime() - 3 * 3600_000) });
+    let system = '';
+    const runner = { run: async args => { system = args.system; return { ok: true, output: { action: 'message', activity: '下班路上', reason: '', text: '课上完没\n楼下新开了家面馆，改天带你去吃\n老周又约我打球' } }; } };
+    await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 'c1'), rng: () => 0.99, deliver: async () => {} });
+    assert.match(system, /你心里还攒着这些没跟 ta 说的/);
+    assert.match(system, /之前就想跟 ta 说的：「楼下新开了家面馆，改天带你去」/);
+    assert.match(system, /你们没说话这段时间，你这边：跟老周聊了几句/);
+    assert.match(system, /挑两三件一起说了/);
+    assert.equal(listUnsaid(db, CHAR, AT).length, 0, '说出口的那句按字面划掉了');
+});
+
 
 test('提示词：过日子那一跳教写 tellLater，礼物那一跳不教', () => {
     const db = freshDb();

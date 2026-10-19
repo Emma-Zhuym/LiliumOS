@@ -28,7 +28,7 @@ import {
 } from './moments.mjs';
 import { formatTemporalForPrompt, listTemporalItems, readVisibility, veilForCharacter } from './temporal.mjs';
 import { addPocketItem, listUnsaid, markSaid, settleSaidFromMessages } from './pocket.mjs';
-import { formatReachReason, herSideCues, pickReachReason, recentLife } from './reachOut.mjs';
+import { buildCatchUp, formatCatchUp, formatReachReason, herSideCues, pickReachReason, recentLife } from './reachOut.mjs';
 
 /** 心跳最晚执行时间：过了就 expired，mini 睡醒后不会补跑一堆旧心跳（设计 4.1）。 */
 export const HEARTBEAT_TTL_MS = 15 * 60 * 1000;
@@ -995,7 +995,7 @@ export const previewWithoutPhotoTags = text => String(text ?? '')
 export const buildPrompt = (character, snapshot, now = new Date(), intent = 'live', {
     thoughts = [], carried = null, threads = [], plans = [], duePlan = null, episode = false, life = null, canSpeak = true, temporal = '',
     feed = [], opened = null, etas = null, purchases = [], unread = [], moments = [], unanswered = [], userTimezone = null,
-    ownMessages = [], lifeLog = [], reachReason = null,
+    ownMessages = [], lifeLog = [], reachReason = null, catchUp = null,
 } = {}) => {
     const p = snapshot.payload || {};
     const lines = [];
@@ -1162,6 +1162,13 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
             : intent === 'reach_out'
             ? '现在你想起了对方，并且决定跟 ta 说句话。\n'
                 + (reachReason ? `${formatReachReason(reachReason, { formatGap: at => formatGap(new Date(at), now) })}\n` : '')
+                + (catchUp
+                    ? (text => (text ? `${text}\n` : ''))(formatCatchUp(catchUp, {
+                        formatGap: at => formatGap(new Date(at), now),
+                        gapMs: (() => { const last = lastRealInteractionAt(character, snapshot); return last ? now.getTime() - last.getTime() : Infinity; })(),
+                        unanswered: unanswered.length,
+                    }))
+                    : '')
                 + '规则：activity 里用第一人称写你这会儿在做什么（40 字以内）；'
                 + 'action 填 "message"，text 写你要说的那句话——'
                 + (reachReason
@@ -1670,6 +1677,10 @@ export const createHeartbeatHandler = ({
             rng,
         })
         : null;
+    // 开口的那一跳（兑现「等会儿」的也算）把攒着的话一起摆出来：还没说的话兜、没说话这段时间自己遇到的事
+    const catchUp = intent === 'reach_out'
+        ? buildCatchUp({ pocket, lifeLog, lastContact, reason: reachReason })
+        : null;
     // 这一跳要不要写一段工作往来：同样由程序抽签，抽中了才要求模型写。
     const { kind: sideKind } = decideEpisode({
         snapshot, now: startedAt, timezone, intent, threads, rng,
@@ -1701,7 +1712,7 @@ export const createHeartbeatHandler = ({
     const promptFor = opened => buildPrompt(character, snapshot, startedAt, intent, {
         thoughts, carried: hush || intent === 'reply' ? null : carried, threads, plans, duePlan, episode: wantsEpisode, life: lifeKind, canSpeak: !hush, temporal, feed, opened,
         etas, purchases, unread: intent === 'reply' ? unread : [], moments,
-        unanswered: intent === 'reach_out' ? unanswered : [], userTimezone, ownMessages, lifeLog, reachReason,
+        unanswered: intent === 'reach_out' ? unanswered : [], userTimezone, ownMessages, lifeLog, reachReason, catchUp,
     });
     const firstPass = await runner.run({
         charId: character.charId,
@@ -1827,7 +1838,8 @@ export const createHeartbeatHandler = ({
         // 不能开口时模型写下的那句也留着，排查时能看到 TA 本来想说什么。
         proposedText: result.output.action === 'message' ? result.output.text : null,
         episode: episode ?? (life ? { life } : null),
-        reachReason: reachReason?.kind ?? null,
+        // 兑现上一跳「等会儿」的那种不另抽缘由，记成 carried，好数清楚各占多少
+        reachReason: reachReason?.kind ?? (intent === 'reach_out' && carried ? 'carried' : null),
         // 抽中了逛小红书却没刷成（退回了朋友圈）：原因留在试跑记录里，排查「怎么从来不刷」时看得到
         ...(xhsSkipped ? { skipGate: (staleBedtimeContext && 'stale_bedtime_context') || hush || `xhs:${xhsSkipped}`.slice(0, 120) } : {}),
     });

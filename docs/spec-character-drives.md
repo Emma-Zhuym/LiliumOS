@@ -158,6 +158,12 @@ pickCue({ providers, weights, cooldowns, now, rng }) → Cue | null
 
 没有对应内容的缘由权重归零重新分。约定照旧是「很自然的话头」那句，不另算。
 
+### 4.3.1 攒着的话一起说（2026-10-19 阿萌）
+
+兑现「等会儿」的那一跳不抽缘由（缘由就是那个念头），但同样摆出攒着的话：`reachOut.mjs` 的 `buildCatchUp`
+取最多 3 句没说的话兜（去掉已经当缘由的那句）和最多 3 件上次说话之后的生活片段，`formatCatchUp` 写进提示词。
+隔了 ≥ 1 小时且东西 ≥ 2 件时明说「挑两三件一起说了，一件一行」；连发没回时只挑一件。说出口的按字面划掉。
+
 ### 4.4 读回完整的生活片段
 
 新查询 `recentLife(db, charId, { since: 24h, limit: 6 })`：读 `model_runs.episode` 里的 `life` / `work`，压成一行一件（谁、做了什么、一句细节）。`reach_out` 和 `live` 两种跳都带上。
