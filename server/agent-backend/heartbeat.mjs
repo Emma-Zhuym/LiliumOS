@@ -27,7 +27,7 @@ import {
     MOMENTS_MAX_PER_BEAT, formatMomentsForPrompt, markMomentsSeen, resolveMomentReactions, unseenMoments,
 } from './moments.mjs';
 import { formatTemporalForPrompt, listTemporalItems, readVisibility, veilForCharacter } from './temporal.mjs';
-import { addPocketItem, listUnsaid, markSaid } from './pocket.mjs';
+import { addPocketItem, listUnsaid, markSaid, settleSaidFromMessages } from './pocket.mjs';
 import { formatReachReason, herSideCues, pickReachReason, recentLife } from './reachOut.mjs';
 
 /** 心跳最晚执行时间：过了就 expired，mini 睡醒后不会补跑一堆旧心跳（设计 4.1）。 */
@@ -874,6 +874,8 @@ export const HEARTBEAT_SCHEMA = {
                 },
                 // 这件事里想跟阿萌说的一句（话兜，pocket.mjs）。下次开口时会想起来；没有就省略。
                 tellLater: { type: 'string', maxLength: 120 },
+                // 那句能放多久：soon = 一两个小时内说才有意义；today = 今天之内；days = 过两天说也不奇怪。
+                tellLaterFresh: { type: 'string', enum: ['soon', 'today', 'days'] },
                 // chat / social：顺口约了以后的事。时间写自然语言，由程序解析成绝对时刻（planTime.mjs）。
                 plan: {
                     type: 'object',
@@ -912,6 +914,8 @@ export const HEARTBEAT_SCHEMA = {
                 subject: { type: 'string', maxLength: 80 },
                 // 这件事里想跟阿萌说的一句（话兜，pocket.mjs）。下次开口时会想起来；没有就省略。
                 tellLater: { type: 'string', maxLength: 120 },
+                // 那句能放多久：soon = 一两个小时内说才有意义；today = 今天之内；days = 过两天说也不奇怪。
+                tellLaterFresh: { type: 'string', enum: ['soon', 'today', 'days'] },
                 lines: {
                     type: 'array',
                     maxItems: 8,
@@ -962,15 +966,20 @@ export const PHOTO_HOW = '发消息时如果想给对方看点什么（刚做的
 /**
  * 话兜那一句（pocket.mjs）：过自己日子时顺手攒下想跟阿萌说的话，下次开口时会想起来。
  * 只是「可以写」，不是每件事都要写——攒太多就成了待办清单。
+ * 2026-10-19：原来几乎每跳都写（四天 37 句），还常写成给自己的备忘（「得跟她说一声……」）、
+ * 或者「待会儿喝」这种过一两小时就没意义的；所以要写成直接发给 ta 的那句话，并标上能放多久。
  */
-export const TELL_LATER_HOW = (field, userName) => `\n如果这件事里有你想跟${userName}说说的（好笑的、气人的、想让 ta 知道的），`
-    + `在 ${field}.tellLater 里写一句你到时候会怎么跟 ta 说（第一人称、口语、40 字以内），下次找 ta 时你会想起来；`
-    + `${field} 的其余部分照旧不提 ta。没什么想说的就省略，不是每件事都要说。`;
+export const TELL_LATER_HOW = (field, userName) => `\n如果这件事里有你真的会特意找${userName}说的（好笑的、气人的、想让 ta 知道的），`
+    + `在 ${field}.tellLater 里写**你到时候直接发给 ta 的那句话**：用「你」称呼 ta，口语，40 字以内；`
+    + '不是写给自己的备忘（别写「跟 ta 说一下……」「得提醒她……」），也不是要跟别人说的话。'
+    + `再在 ${field}.tellLaterFresh 里写这句能放多久：soon = 只在接下来一两个小时里说才有意义（等会儿、马上、正在发生的事）；`
+    + 'today = 今天之内说；days = 过两天再说也不奇怪的闲话。'
+    + `${field} 的其余部分照旧不提 ta。大多数事不用写，一天攒一两句就够了；没有就省略。`;
 
 /** 话兜那句只留在 mini：查手机里的记录不需要它（草稿箱另有接口）。 */
 const withoutTellLater = life => {
-    if (!life || !('tellLater' in life)) return life;
-    const { tellLater: _pocketed, ...rest } = life;
+    if (!life || !('tellLater' in life || 'tellLaterFresh' in life)) return life;
+    const { tellLater: _pocketed, tellLaterFresh: _fresh, ...rest } = life;
     return rest;
 };
 
@@ -1641,7 +1650,11 @@ export const createHeartbeatHandler = ({
     // 最近一天自己过的事（带细节）：两种跳都给，开口那一跳才有日常可分享。
     const lifeLog = recentLife(db, character.charId, startedAt);
     // 开口那一跳：程序抽「这次为什么想起 ta」。兑现上一跳的「等会儿」时缘由就是那个念头，不再另抽。
-    const pocket = intent === 'reach_out' ? listUnsaid(db, character.charId, startedAt) : [];
+    // 攒下之后在聊天里已经说过的（本地回复、mini 回复都在快照里），先划掉，别再拿来开口
+    if (!shadow) settleSaidFromMessages(db, character.charId, snapshot.payload?.recentMessages, startedAt);
+    const pocket = intent === 'reach_out'
+        ? listUnsaid(db, character.charId, startedAt, { userName: snapshot.payload?.user?.name ?? '' })
+        : [];
     const reachReason = intent === 'reach_out' && !(carried && unanswered.length < 2)
         ? pickReachReason({
             pocket,
@@ -1825,9 +1838,17 @@ export const createHeartbeatHandler = ({
     }
 
     // 话兜：过日子时攒下想跟阿萌说的那句，下次开口时拿出来。这一跳已经开了口就不攒——话正在说。
-    const tellLater = [episode?.tellLater, life?.tellLater].find(text => typeof text === 'string' && text.trim());
-    if (tellLater && output.action !== 'message') {
-        addPocketItem(db, { charId: character.charId, text: tellLater, sourceJobUuid: job.uuid, now: startedAt });
+    const pocketSource = [episode, life].find(part => typeof part?.tellLater === 'string' && part.tellLater.trim());
+    if (pocketSource && output.action !== 'message') {
+        addPocketItem(db, {
+            charId: character.charId,
+            text: pocketSource.tellLater,
+            freshness: pocketSource.tellLaterFresh,
+            sourceJobUuid: job.uuid,
+            now: startedAt,
+            timeZone: timezone,
+            userName,
+        });
     }
 
     // 刷过的朋友圈：看过就记下（回没回应都一样），回应了的静默送去手机写进朋友圈。
@@ -1850,7 +1871,7 @@ export const createHeartbeatHandler = ({
     let workDelivered = false;
     if (episode) {
         const thread = episode.thread ? applyThread(db, character.charId, episode.thread, startedAt) : null;
-        const { thread: _draft, tellLater: _pocketed, ...rest } = episode;
+        const { thread: _draft, tellLater: _pocketed, tellLaterFresh: _fresh, ...rest } = episode;
         await deliver({
             messageId: `hb:${job.uuid}:work`,
             charId: character.charId,
@@ -1918,5 +1939,7 @@ export const createHeartbeatHandler = ({
     });
     // 从话兜里拿的那句说出口了：之后不再拿它，草稿箱也不再显示。
     if (reachReason?.kind === 'pocket') markSaid(db, reachReason.item.id, createdAt);
+    // 这句话顺带说到了话兜里别的事，也一并划掉
+    settleSaidFromMessages(db, character.charId, [{ role: 'char', at: createdAt.toISOString(), text: output.text }], createdAt);
     return { ok: true, shadow: false, intent, action: 'message', activity: output.activity, delivered: true, workDelivered, lifeDelivered, durationMs };
 };

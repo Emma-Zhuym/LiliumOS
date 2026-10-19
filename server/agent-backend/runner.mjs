@@ -58,7 +58,10 @@ const parseEpisodeFields = raw => {
 const withTellLater = (parsed, raw) => {
     if (!parsed || parsed.kind === 'gift') return parsed;
     const tell = String(raw?.tellLater ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
-    return tell ? { ...parsed, tellLater: tell } : parsed;
+    if (!tell) return parsed;
+    // 这句能放多久（pocket.mjs 的 soon / today / days）；不认识的不收，由程序按字面定
+    const fresh = ['soon', 'today', 'days'].includes(raw?.tellLaterFresh) ? raw.tellLaterFresh : null;
+    return { ...parsed, tellLater: tell, ...(fresh ? { tellLaterFresh: fresh } : {}) };
 };
 
 export const parseEpisode = raw => withTellLater(parseEpisodeFields(raw), raw);

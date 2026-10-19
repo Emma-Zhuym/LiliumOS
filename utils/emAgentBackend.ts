@@ -135,6 +135,8 @@ export interface AgentPocketItem {
     text: string;
     kind: 'share' | 'grievance';
     createdAt: string;
+    /** 这句的保质期（等会儿的事几小时、今天的事到今天结束、闲话两天）；旧后端没有这一项 */
+    expiresAt?: string;
 }
 
 /** [EM: agent-plans] 角色在心跳里跟亲友约下的事（后端 life_threads 里带 due_at 的那些）。 */
