@@ -212,6 +212,14 @@ Ombre-Brain、Haven-Ombre、Serein、Latent-memory 都是 Python 自部署服务
   - 仍可做：若手机实测仍嫌首次十几到二十秒太久，再给 mini 服务加一个只取标题、正文、封面、作者和互动数的快速元数据入口，不碰评论区；这会是下一层、需要单独看上游能否稳定拿到页面初始数据。
   - 心跳那边（`server/agent-backend/xhsFeed.mjs`）本来就没开滚动，不受影响。
   - 更狠的路线：`jobsonlook/xhs-mcp`（JS 逆向 x-s/x-t，直接请求接口、不开浏览器，516★，但没有开源协议声明、逆向签名容易随小红书改版失效、封号风险也更高），先不考虑；`aicu-icu/xhs-mcp-server` 需要浏览器扩展常开，不适合 mini 常驻。
+- **Google Maps：让角色帮忙找附近好吃的好玩的**（2026-10-19 阿萌）—— 起因：SullyOS 国内用户接高德 MCP 就能让角色推荐附近的店，阿萌羡慕。美国这边 Google 的评分、评论、营业时间最全。还在想，没决定做。
+  - **两条路**：Google 官方托管的 MCP（2025-12 宣布，叫 Maps Grounding Lite，管地点数据和路线；正式文档还没核实，要先查它能不能直接接、查不查得到店铺评分）；
+    或社区的 [`cablate/mcp-google-map`](https://mcpservers.org/en/servers/cablate/mcp-google-map)（搜地点、地址转坐标、路线，已改用 Places API (New)）。官方能用就省掉 mini 上的常驻服务
+  - **接法**：照小红书 / B 站——mini 上 LaunchAgent 常驻、Key 进 `agent-tools/secrets/`、网关开一条路径，设置里当普通 MCP 服务器加；聊天里说「附近有什么好吃的」按 MCP 话题命中递工具
+  - **钱**：要 Google Cloud 项目 + 绑卡的 API Key。2025-03 起每月 200 美元统一额度改成按功能（SKU）分开的免费次数，第三方说法是「搜附近」这档约每月 5000 次免费，
+    但请求评分 / 评论字段可能落进更贵、免费次数更少的那档——**都是第三方博客的数，没核实官方价目表**。接之前看一眼[官方定价页](https://developers.google.com/maps/billing/overview/)，并在 Google Cloud 设每日用量上限，防意外扣费
+  - **定位不用传坐标**：角色按文字搜（「UAB 附近的拉面」），不违反「经纬度不进提示词和工具结果」（`docs/location-awareness.md`）。要「我现在在哪搜哪」得等 iOS 快捷指令那条语义事件链路（见「想你的时候灯变色」那条）
+  - **以后能顺带用在心跳里**：约会前他自己查好附近评分高的店、周末出门查路线；这些是只读，不碰现实写操作
 
 ## 手帐引导（新功能）
 
