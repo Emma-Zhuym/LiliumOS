@@ -360,6 +360,10 @@ export const AgentBackend = {
     pocket: (charId?: string) => request<{ items: AgentPocketItem[] }>(
         `/pocket${charId ? `?charId=${encodeURIComponent(charId)}` : ''}`,
     ).then(data => data.items), // [EM: char-drives-pocket]
+    /** 劲儿系统：聊天里副 API 评估给的事件标签（她做了什么），mini 按标签定数值。 */
+    driveEvents: (charId: string, events: { label: string; quote?: string }[]) => request<{ accepted: number }>(
+        '/drives/events', { method: 'POST', body: { charId, events } },
+    ), // [EM: char-drives-engine]
     // [EM-START: agent-instant-chat]
     /** 不带设备钥匙的探活：即时回复发之前用，3 秒内没回就当 mini 不在。 */
     health: (timeoutMs = 3_000) => request<{ ok: boolean; version: string }>('/health', { auth: false, timeoutMs }),

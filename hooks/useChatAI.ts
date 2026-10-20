@@ -83,6 +83,7 @@ import {
 } from '../utils/healthChatTools';
 import { routeMiniAppToolCall } from '../utils/miniAppToolRoute';
 import { applyEmotionEvalRaw, extractAssistantText } from '../utils/emotionApply';
+import { buildDriveEventsEvalSection } from '../utils/emDriveEvents'; // [EM: char-drives-engine]
 import { announceChatGen, CHAT_GEN_EVENTS } from '../utils/chatGenEvents';
 import { shouldRequestAmbient, buildAmbientEvalSection } from '../utils/roomAmbient';
 import { isEmotionEvalSkipped } from '../utils/devDebug';
@@ -406,7 +407,8 @@ export async function evaluateEmotionBackground(
     // start/finally 派发一次即可全覆盖；instant 模式的 worker 评估另行点灯。
     announceChatGen(CHAT_GEN_EVENTS.emotionStart, { charId: charData.id, charName: charData.name });
     try {
-        const ambientSection = shouldRequestAmbient(charData.id) ? buildAmbientEvalSection(charData) : '';
+        const ambientSection = (shouldRequestAmbient(charData.id) ? buildAmbientEvalSection(charData) : '')
+            + buildDriveEventsEvalSection(); // [EM: char-drives-engine] 顺风车：劲儿事件标签
         const prompt = buildEmotionEvalPrompt(charData, userProfile, mainSystemPrompt, apiMessages, true, ambientSection);
 
         const baseUrl = api.baseUrl.replace(/\/+$/, '');
@@ -1186,7 +1188,8 @@ export const useChatAI = ({
                     // 把 emotionEval 块压到最小, 让请求体留在 keepalive 64KB 上限内 (关前端也能跑完).
                     prompt: buildEmotionEvalPrompt(
                         charForGen, userProfile, systemPrompt, cleanedApiMessages, false,
-                        shouldRequestAmbient(charForGen.id) ? buildAmbientEvalSection(charForGen) : ''
+                        (shouldRequestAmbient(charForGen.id) ? buildAmbientEvalSection(charForGen) : '')
+                            + buildDriveEventsEvalSection() // [EM: char-drives-engine]
                     ),
                     api: { baseUrl: emotionApi.baseUrl, apiKey: emotionApi.apiKey, model: emotionApi.model },
                 }

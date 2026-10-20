@@ -178,6 +178,16 @@ pickCue({ providers, weights, cooldowns, now, rng }) → Cue | null
 
 ## 5. 劲儿系统（第三阶段）
 
+> **第三阶段进度（2026-10-19，分支 `feat/char-drives-engine`，未合并）**
+> - **已做**：mini 劲儿引擎 `server/agent-backend/drives.mjs`（迁移 12：`drive_state` / `drive_ledger`）——九股劲儿按半衰期往基线回、久不说话「想你」基线上爬、深夜「累」高、别扭距最后作证满 24 小时强制回基线；
+>   事件标签表 `LABEL_EFFECTS`（她这边 11 个 + 心跳自我经历 4 个 `selfEvents`），负面标签无原话不收、15 分钟内同标签 ×0.7、单次封顶 0.15、按剩余空间缩放；真做完才落（`SATISFY`）。
+>   心跳里：开口概率 × `chanceFactor`（0.5–1.6，封顶 0.75，欠着回复 / 兑现「等会儿」不受影响）、生活小事权重 × `lifeWeightFactors`、最强一两股写成感受进提示词、别扭有原话作证时缘由可以是「把不满说出来」（`grievance`）、
+>   念想最强时推送预览改成「X 给你发来一条消息」（阿萌 2026-10-19 定：预览里藏起来）。接口 `POST /drives/events`、`GET /drives`（只给最强一两股 + 档位）。
+>   手机端 `utils/emDriveEvents.ts`：情绪评估顺风车段（配对了才加）、整理、送去 mini（不在线排队 6 小时）；接线 `useChatAI.ts` 两处、`emotionApply.ts` 三处
+> - **没做（下一步）**：脾气读数（5.6，现在所有角色用同一份默认基线、敏感度都是 1）；查手机状态小组件；契机池按劲儿加权（契机池本身还在 `feat/char-drives-cue-pool`）；
+>   `scripts/simulate-drives.mjs` 曲线回放；「交给 mini 即时回复的那一轮情绪评估跑不跑」仍待核实
+> - **合并前要看**：`LABEL_EFFECTS` / `SATISFY` / 半衰期这几张表的数是小帕拍的第一版，合并后要拉一周劲儿账再调
+
 ### 5.1 九股劲儿（阿萌 2026-10-14 定）
 
 | key | 名字 | 主要来源 | 主要出口 / 落 |
