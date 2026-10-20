@@ -135,6 +135,8 @@ export interface AgentPocketItem {
     text: string;
     kind: 'share' | 'grievance';
     createdAt: string;
+    /** 这句的保质期（等会儿的事几小时、今天的事到今天结束、闲话两天）；旧后端没有这一项 */
+    expiresAt?: string;
 }
 
 /** [EM: agent-plans] 角色在心跳里跟亲友约下的事（后端 life_threads 里带 due_at 的那些）。 */
@@ -375,6 +377,9 @@ export const AgentBackend = {
     }) => request<{ turnId: string; status: string }>('/chat/turns', { method: 'POST', body, timeoutMs: 90_000 }),
     chatTurnStatus: (turnId: string) =>
         request<{ state: string; error?: string }>(`/chat/turns?turnId=${encodeURIComponent(turnId)}`),
+    /** 手机上点了「停止」：还没开跑的取消，正在跑的掐掉、跑完也不推。 */
+    cancelChatTurn: (turnId: string) =>
+        request<{ state: string }>('/chat/turns/cancel', { method: 'POST', body: { turnId }, timeoutMs: 10_000 }), // [EM: reply-stop]
     // [EM-END: agent-instant-chat]
     temporal: (range?: { from?: string; to?: string }) => {
         const query = new URLSearchParams();

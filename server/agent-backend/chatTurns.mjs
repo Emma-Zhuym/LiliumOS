@@ -224,16 +224,23 @@ export const validateTurn = body => {
 export const createChatTurnService = ({ db, deliver, fetchImpl = fetch, timeoutMs = CHAT_TURN_TIMEOUT_MS, logger = console }) => {
     /** jobUuid → 这一轮的请求体（含 Key）。只在内存。 */
     const secrets = new Map();
+    /** 正在跑的那一轮的中止开关：手机上点了「停止」就掐掉模型请求。 */
+    const runningControllers = new Map();
+    /** 手机上点过「停止」的轮次：跑完也不推、不进信箱。 */
+    const stopped = new Set();
 
-    const callModel = async ({ api, messages, temperature, maxTokens, extraBody }) => {
+    const callModel = async ({ api, messages, temperature, maxTokens, extraBody }, stopSignal) => {
         const startedAt = Date.now();
-        const result = await callModelOnce({ api, messages, temperature, maxTokens, extraBody });
+        const result = await callModelOnce({ api, messages, temperature, maxTokens, extraBody }, stopSignal);
         return { ...result, modelMs: Date.now() - startedAt };
     };
 
-    const callModelOnce = async ({ api, messages, temperature, maxTokens, extraBody }) => {
+    const callModelOnce = async ({ api, messages, temperature, maxTokens, extraBody }, stopSignal) => {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);
+        const onStop = () => controller.abort();
+        if (stopSignal?.aborted) controller.abort();
+        stopSignal?.addEventListener('abort', onStop, { once: true });
         try {
             const response = await fetchImpl(chatCompletionsUrl(api.baseUrl), {
                 method: 'POST',
@@ -269,10 +276,12 @@ export const createChatTurnService = ({ db, deliver, fetchImpl = fetch, timeoutM
                 ...(reasoning ? {} : { shape: describeResponseShape(data, extraBody) }),
             };
         } catch (error) {
+            if (stopSignal?.aborted) return { ok: false, stopped: true, error: '手机上停止了这一轮' };
             if (error?.name === 'AbortError') return { ok: false, error: `等了 ${Math.round(timeoutMs / 1000)} 秒模型还没回` };
             return { ok: false, error: String(error?.message || error).slice(0, 200) };
         } finally {
             clearTimeout(timer);
+            stopSignal?.removeEventListener('abort', onStop);
         }
     };
 
@@ -296,7 +305,17 @@ export const createChatTurnService = ({ db, deliver, fetchImpl = fetch, timeoutM
         secrets.delete(job.uuid);
         // 进程重启过：凭据只在内存，这一轮没法再跑，让手机重发。
         if (!request) return fail(job, 'Mac mini 后端中途重启过，这一轮没跑完，重发一次就好');
-        const result = await callModel(request);
+        const controller = new AbortController();
+        runningControllers.set(job.uuid, controller);
+        if (stopped.has(job.uuid)) controller.abort();
+        let result;
+        try {
+            result = await callModel(request, controller.signal);
+        } finally {
+            runningControllers.delete(job.uuid);
+        }
+        // 手机上点了停止：不推、不进信箱，这一轮就当没回
+        if (stopped.delete(job.uuid) || result.stopped) return { ok: true, stopped: true };
         if (!result.ok) return fail(job, result.error);
         const { turnId, charId, charName } = job.input;
         const at = new Date().toISOString();
@@ -382,11 +401,35 @@ export const createChatTurnService = ({ db, deliver, fetchImpl = fetch, timeoutM
         return { state: job.status, ...(job.lastError ? { error: job.lastError } : {}) };
     };
 
+    /**
+     * 手机上点了「停止」。还没开跑的直接取消；正在跑的掐掉模型请求，跑完也不推。
+     * 已经跑完的推送收不回来，手机那边认 turnId 丢掉就是。
+     */
+    const cancel = turnId => {
+        if (!isUuidish(turnId)) return { state: 'gone' };
+        const uuid = jobUuidFor(turnId);
+        const changed = db.prepare(
+            `UPDATE jobs SET status = 'cancelled', updated_at = ? WHERE uuid = ? AND status = 'pending'`,
+        ).run(new Date().toISOString(), uuid).changes;
+        if (changed) {
+            secrets.delete(uuid);
+            return { state: 'cancelled' };
+        }
+        const job = toJob(db.prepare('SELECT * FROM jobs WHERE uuid = ?').get(uuid));
+        if (!job) return { state: 'gone' };
+        if (job.status === 'running') {
+            stopped.add(uuid);
+            runningControllers.get(uuid)?.abort();
+            return { state: 'stopping' };
+        }
+        return { state: job.status };
+    };
+
     /** 这个角色有没有一轮正在跑 / 排着：心跳据此不插话。 */
     const busy = charId => Boolean(db.prepare(
         `SELECT 1 FROM jobs WHERE kind = ? AND status IN ('pending', 'running')
             AND json_extract(input, '$.charId') = ? LIMIT 1`,
     ).get(CHAT_TURN_KIND, charId));
 
-    return { submit, status, busy, handler };
+    return { submit, status, cancel, busy, handler };
 };

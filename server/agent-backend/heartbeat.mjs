@@ -27,8 +27,9 @@ import {
     MOMENTS_MAX_PER_BEAT, formatMomentsForPrompt, markMomentsSeen, resolveMomentReactions, unseenMoments,
 } from './moments.mjs';
 import { formatTemporalForPrompt, listTemporalItems, readVisibility, veilForCharacter } from './temporal.mjs';
-import { addPocketItem, listUnsaid, markSaid } from './pocket.mjs';
-import { formatReachReason, herSideCues, pickReachReason, recentLife } from './reachOut.mjs';
+import { addPocketItem, listUnsaid, markSaid, settleSaidFromMessages } from './pocket.mjs';
+import { formatPartnerBrief, isRepeatChat, pickPartner, recentPartners } from './lifeCircle.mjs';
+import { buildCatchUp, formatCatchUp, formatReachReason, herSideCues, pickReachReason, recentLife } from './reachOut.mjs';
 
 /** 心跳最晚执行时间：过了就 expired，mini 睡醒后不会补跑一堆旧心跳（设计 4.1）。 */
 export const HEARTBEAT_TTL_MS = 15 * 60 * 1000;
@@ -776,6 +777,28 @@ export const withPlanTime = (life, now, timezone) => {
  * 所以落审计时换成不点破的说法；**买了什么原样留在 `episode.life` 里**（排查看得到），
  * 真正的那一单也照常进投喂站，送到了自然揭晓。
  */
+/**
+ * 「顺手点了份外卖」「顺手发了个朋友圈」——可这一跳根本没抽到这件事，手机里也就没有记录（阿萌 2026-10-19 抓到两回）。
+ * 这些事在查手机里都会留痕，没留痕就是没做：把 activity / reason 里说做了却没做的那一小句删掉。
+ * 按逗号句号切成小句，只删认得出的那几种说法，别的不碰。
+ */
+const UNBACKED_CLAIMS = [
+    { kinds: ['delivery', 'gift'], re: /(?:点|订|叫)了?(?:份|个|一份|一单)?[^，。；,;]{0,6}(?:外卖|夜宵|宵夜|午餐|晚餐|简餐|饭)/ },
+    { kinds: ['order', 'gift'], re: /(?:下了?单|网购|淘宝|买了[^，。；,;]{0,8}(?:快递|到货))/ },
+    { kinds: ['moment'], re: /发了?(?:条|个|一条)?[^，。；,;]{0,6}朋友圈/ },
+    { kinds: ['xhs'], re: /刷了?(?:会儿|一会儿|下)?小红书/ },
+];
+
+export const stripUnbackedClaims = (text, life) => {
+    const value = String(text ?? '');
+    if (!value) return value;
+    const kind = life?.kind ?? null;
+    const parts = value.split(/(?<=[，。；,;])/);
+    const kept = parts.filter(part => !UNBACKED_CLAIMS.some(claim => !claim.kinds.includes(kind) && claim.re.test(part)));
+    if (kept.length === parts.length) return value;
+    return kept.join('').replace(/[，,；;]+$/, '').trim() || value;
+};
+
 export const veilSurprise = (output, life, userName) => {
     if (!life || life.kind !== 'gift' || !life.surprise) return { activity: output.activity, reason: output.reason };
     const who = userName || '对方';
@@ -874,6 +897,8 @@ export const HEARTBEAT_SCHEMA = {
                 },
                 // 这件事里想跟阿萌说的一句（话兜，pocket.mjs）。下次开口时会想起来；没有就省略。
                 tellLater: { type: 'string', maxLength: 120 },
+                // 那句能放多久：soon = 一两个小时内说才有意义；today = 今天之内；days = 过两天说也不奇怪。
+                tellLaterFresh: { type: 'string', enum: ['soon', 'today', 'days'] },
                 // chat / social：顺口约了以后的事。时间写自然语言，由程序解析成绝对时刻（planTime.mjs）。
                 plan: {
                     type: 'object',
@@ -912,6 +937,8 @@ export const HEARTBEAT_SCHEMA = {
                 subject: { type: 'string', maxLength: 80 },
                 // 这件事里想跟阿萌说的一句（话兜，pocket.mjs）。下次开口时会想起来；没有就省略。
                 tellLater: { type: 'string', maxLength: 120 },
+                // 那句能放多久：soon = 一两个小时内说才有意义；today = 今天之内；days = 过两天说也不奇怪。
+                tellLaterFresh: { type: 'string', enum: ['soon', 'today', 'days'] },
                 lines: {
                     type: 'array',
                     maxItems: 8,
@@ -962,15 +989,20 @@ export const PHOTO_HOW = '发消息时如果想给对方看点什么（刚做的
 /**
  * 话兜那一句（pocket.mjs）：过自己日子时顺手攒下想跟阿萌说的话，下次开口时会想起来。
  * 只是「可以写」，不是每件事都要写——攒太多就成了待办清单。
+ * 2026-10-19：原来几乎每跳都写（四天 37 句），还常写成给自己的备忘（「得跟她说一声……」）、
+ * 或者「待会儿喝」这种过一两小时就没意义的；所以要写成直接发给 ta 的那句话，并标上能放多久。
  */
-export const TELL_LATER_HOW = (field, userName) => `\n如果这件事里有你想跟${userName}说说的（好笑的、气人的、想让 ta 知道的），`
-    + `在 ${field}.tellLater 里写一句你到时候会怎么跟 ta 说（第一人称、口语、40 字以内），下次找 ta 时你会想起来；`
-    + `${field} 的其余部分照旧不提 ta。没什么想说的就省略，不是每件事都要说。`;
+export const TELL_LATER_HOW = (field, userName) => `\n如果这件事里有你真的会特意找${userName}说的（好笑的、气人的、想让 ta 知道的），`
+    + `在 ${field}.tellLater 里写**你到时候直接发给 ta 的那句话**：用「你」称呼 ta，口语，40 字以内；`
+    + '不是写给自己的备忘（别写「跟 ta 说一下……」「得提醒她……」），也不是要跟别人说的话。'
+    + `再在 ${field}.tellLaterFresh 里写这句能放多久：soon = 只在接下来一两个小时里说才有意义（等会儿、马上、正在发生的事）；`
+    + 'today = 今天之内说；days = 过两天再说也不奇怪的闲话。'
+    + `${field} 的其余部分照旧不提 ta。大多数事不用写，一天攒一两句就够了；没有就省略。`;
 
 /** 话兜那句只留在 mini：查手机里的记录不需要它（草稿箱另有接口）。 */
 const withoutTellLater = life => {
-    if (!life || !('tellLater' in life)) return life;
-    const { tellLater: _pocketed, ...rest } = life;
+    if (!life || !('tellLater' in life || 'tellLaterFresh' in life)) return life;
+    const { tellLater: _pocketed, tellLaterFresh: _fresh, ...rest } = life;
     return rest;
 };
 
@@ -986,7 +1018,7 @@ export const previewWithoutPhotoTags = text => String(text ?? '')
 export const buildPrompt = (character, snapshot, now = new Date(), intent = 'live', {
     thoughts = [], carried = null, threads = [], plans = [], duePlan = null, episode = false, life = null, canSpeak = true, temporal = '',
     feed = [], opened = null, etas = null, purchases = [], unread = [], moments = [], unanswered = [], userTimezone = null,
-    ownMessages = [], lifeLog = [], reachReason = null,
+    ownMessages = [], lifeLog = [], reachReason = null, catchUp = null, partnerBrief = '',
 } = {}) => {
     const p = snapshot.payload || {};
     const lines = [];
@@ -1153,6 +1185,13 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
             : intent === 'reach_out'
             ? '现在你想起了对方，并且决定跟 ta 说句话。\n'
                 + (reachReason ? `${formatReachReason(reachReason, { formatGap: at => formatGap(new Date(at), now) })}\n` : '')
+                + (catchUp
+                    ? (text => (text ? `${text}\n` : ''))(formatCatchUp(catchUp, {
+                        formatGap: at => formatGap(new Date(at), now),
+                        gapMs: (() => { const last = lastRealInteractionAt(character, snapshot); return last ? now.getTime() - last.getTime() : Infinity; })(),
+                        unanswered: unanswered.length,
+                    }))
+                    : '')
                 + '规则：activity 里用第一人称写你这会儿在做什么（40 字以内）；'
                 + 'action 填 "message"，text 写你要说的那句话——'
                 + (reachReason
@@ -1172,6 +1211,8 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
             : '现在你自己醒了一下，过你自己的日子。\n'
                 + '规则：activity 里用第一人称写你这会儿在做什么（40 字以内），'
                 + '贴着你当下的时段——在上班就是工作里的事，闲着就是闲着的事。'
+                // 只写真做了的：点外卖、下单、发朋友圈、刷小红书都会在手机里留记录，没让你做就别顺口说做了
+                + '点外卖、网购下单、发朋友圈、刷小红书这几样，只有下面要求你写这件事时才算做了；没要求的话，activity 和 reason 里都别说你做了。'
                 + (canSpeak
                     ? '一般 action 填 "noop"；但如果你心里正放不下 ta、此刻就想说（比如 ta 刚才在难过），'
                         + '那就别等：action 填 "message"，text 写你要说的话。'
@@ -1217,6 +1258,7 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
                 + '是新出现的人就再写 relation（你怎么称呼 ta，比如「发小」「表姐」）和 group'
                 + '（friend=朋友 / family=家人 / school=同学 / online=网友 / other=其他）。'
                 + 'lines 最多 6 句，who 写说话人的名字，你自己写「我」。聊的是你们之间的事，不是对方。'
+                + (partnerBrief ? `\n${partnerBrief}\n` : '')
                 + PLAN_HOW,
             social: '你刚跟朋友有点来往。kind 填 "social"；with 写对方名字'
                 + (circle.length ? '（优先从上面认识的人里选，' : '（')
@@ -1224,6 +1266,7 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
                 + 'detail 写你们做了什么——可以是临时出门（少见，得跟你此刻的时段和人设对得上），'
                 + '也可以是不用出门的（比如临时约好一起上线打游戏、开着语音各干各的）。'
                 + '当场就发生的事写现在时，别写成计划。lines 写约人或者当时说的那几句（最多 6 句，who 写说话人的名字，你自己写「我」）。'
+                + (partnerBrief ? `\n${partnerBrief}\n` : '')
                 + PLAN_HOW,
             delivery: '你刚点了外卖。kind 填 "delivery"；with 写店名，detail 写点了什么，value 写实付金额，用你所在地的货币（在美国就是 $18.50 这样，在国内就是 ¥38.50）。'
                 + (etas ? `这一单${foodWhen()}送到，提到送达就说这个时间，别自己编。` : ''),
@@ -1536,9 +1579,38 @@ const formatLocal = (date, timezone) => {
  * 步骤严格按设计 4.3：代次检查 → **先排下一跳** → 零模型闸 → 调模型 → 记录。
  * 「先排下一跳」不能挪到后面：模型那步一旦抛错，链子就断了，之后这个角色再也不会醒。
  */
+/**
+ * 这一跳失败了，隔几分钟重跳（阿萌 2026-10-19：有时模型莫名拒绝心跳，拒绝之后最好过几分钟再试）。
+ *
+ * 实测失败原因：中转偶尔给模型套上别的身份（「I'm Kiro…」）拒绝角色扮演、503 system cpu overloaded、
+ * 输出被截断解析不出、fetch failed——多半是这一次的运气。Key 错、额度用完（401 / 403）再试也一样，不重跳。
+ * 重跳只补这一跳，不续心跳链（链在原来那一跳开头已经排好了）；下一次正常心跳本来就快到了就不补。
+ */
+export const HEARTBEAT_RETRY_DELAYS_MIN = [5, 10];
+const RETRY_SKIP_IF_REGULAR_WITHIN_MS = 5 * 60_000;
+
+export const planHeartbeatRetry = (db, { character, job, result, now = new Date() }) => {
+    if (!result?.retryable) return null;
+    const done = Number(job.input?.retry) || 0;
+    if (done >= HEARTBEAT_RETRY_DELAYS_MIN.length) return null;
+    const runAt = new Date(now.getTime() + HEARTBEAT_RETRY_DELAYS_MIN[done] * 60_000);
+    const regular = db.prepare(
+        `SELECT MIN(run_at) AS at FROM jobs
+          WHERE char_id = ? AND kind = 'heartbeat' AND status = 'pending' AND uuid != ?
+            AND json_extract(input, '$.retry') IS NULL`,
+    ).get(character.charId, job.uuid)?.at;
+    if (regular && Date.parse(regular) <= runAt.getTime() + RETRY_SKIP_IF_REGULAR_WITHIN_MS) return null;
+    return {
+        uuid: `${job.input?.retryOf ?? job.uuid}:retry${done + 1}`,
+        runAt,
+        retry: done + 1,
+        retryOf: job.input?.retryOf ?? job.uuid,
+    };
+};
+
 export const createHeartbeatHandler = ({
     db, config, runners, scheduleNext, deliver = null, quiet = null, now = () => new Date(), rng = Math.random, xhs = null,
-    chatBusy = () => false,
+    chatBusy = () => false, scheduleRetry = null,
 }) => async job => {
     const row = getCharacter(db, job.charId);
     if (!row) return { skipped: 'unknown_character' };
@@ -1550,7 +1622,8 @@ export const createHeartbeatHandler = ({
     }
     if (!character.heartbeatEnabled) return { cancelled: 'disabled' };
 
-    scheduleNext(character, now());
+    // 重跳那一跳不续链：链在原来那一跳开头已经排好了，再排一次就成了两条链
+    if (!job.input?.retry) scheduleNext(character, now());
 
     // 昨天拼的日程不拿来过今天
     const snapshot = withTodaySchedule(getSnapshot(db, character.charId), now());
@@ -1641,7 +1714,11 @@ export const createHeartbeatHandler = ({
     // 最近一天自己过的事（带细节）：两种跳都给，开口那一跳才有日常可分享。
     const lifeLog = recentLife(db, character.charId, startedAt);
     // 开口那一跳：程序抽「这次为什么想起 ta」。兑现上一跳的「等会儿」时缘由就是那个念头，不再另抽。
-    const pocket = intent === 'reach_out' ? listUnsaid(db, character.charId, startedAt) : [];
+    // 攒下之后在聊天里已经说过的（本地回复、mini 回复都在快照里），先划掉，别再拿来开口
+    if (!shadow) settleSaidFromMessages(db, character.charId, snapshot.payload?.recentMessages, startedAt);
+    const pocket = intent === 'reach_out'
+        ? listUnsaid(db, character.charId, startedAt, { userName: snapshot.payload?.user?.name ?? '' })
+        : [];
     const reachReason = intent === 'reach_out' && !(carried && unanswered.length < 2)
         ? pickReachReason({
             pocket,
@@ -1656,6 +1733,10 @@ export const createHeartbeatHandler = ({
             unanswered: unanswered.length,
             rng,
         })
+        : null;
+    // 开口的那一跳（兑现「等会儿」的也算）把攒着的话一起摆出来：还没说的话兜、没说话这段时间自己遇到的事
+    const catchUp = intent === 'reach_out'
+        ? buildCatchUp({ pocket, lifeLog, lastContact, reason: reachReason })
         : null;
     // 这一跳要不要写一段工作往来：同样由程序抽签，抽中了才要求模型写。
     const { kind: sideKind } = decideEpisode({
@@ -1679,6 +1760,11 @@ export const createHeartbeatHandler = ({
         }
         if (!feed.length) lifeKind = 'moment';
     }
+    // 跟朋友来往（不是去赴约的那种）：程序挑最久没来往的人，并列出最近聊过什么、哪些已经约好，别把同一件事再聊一遍
+    const socialLife = (lifeKind === 'chat' || lifeKind === 'social') && !(duePlan && intent === 'live');
+    const partners = socialLife ? recentPartners(db, character.charId, startedAt) : [];
+    const partner = socialLife ? pickPartner(snapshot.payload?.circle, partners, rng) : null;
+    const partnerBrief = socialLife ? formatPartnerBrief({ partner, partners, plans }) : '';
     // 买东西：送达时刻由程序先抽好写进提示词，落地时同一个时刻带去投喂站；最近买过的也给 TA 看，别重复下单。
     const shopping = SHOPPING_KINDS.has(lifeKind);
     const etas = shopping ? pickEtas(startedAt, timezone, rng) : null;
@@ -1688,7 +1774,7 @@ export const createHeartbeatHandler = ({
     const promptFor = opened => buildPrompt(character, snapshot, startedAt, intent, {
         thoughts, carried: hush || intent === 'reply' ? null : carried, threads, plans, duePlan, episode: wantsEpisode, life: lifeKind, canSpeak: !hush, temporal, feed, opened,
         etas, purchases, unread: intent === 'reply' ? unread : [], moments,
-        unanswered: intent === 'reach_out' ? unanswered : [], userTimezone, ownMessages, lifeLog, reachReason,
+        unanswered: intent === 'reach_out' ? unanswered : [], userTimezone, ownMessages, lifeLog, reachReason, catchUp, partnerBrief,
     });
     const firstPass = await runner.run({
         charId: character.charId,
@@ -1722,6 +1808,8 @@ export const createHeartbeatHandler = ({
     const durationMs = now().getTime() - startedAt.getTime();
 
     if (!result.ok) {
+        const retry = shadow ? null : planHeartbeatRetry(db, { character, job, result, now: now() });
+        if (retry && scheduleRetry) scheduleRetry(character, retry);
         recordModelRun(db, {
             jobUuid: job.uuid,
             charId: character.charId,
@@ -1730,7 +1818,9 @@ export const createHeartbeatHandler = ({
             durationMs,
             ok: false,
             outcome: 'error',
-            error: result.error,
+            error: retry && scheduleRetry
+                ? `${result.error}（${HEARTBEAT_RETRY_DELAYS_MIN[retry.retry - 1]} 分钟后重跳）`
+                : result.error,
             shadow,
             intent,
             rawOutput: shouldCaptureRaw(db) ? result.raw ?? null : null,
@@ -1748,8 +1838,10 @@ export const createHeartbeatHandler = ({
     // 生活里的聊天对象不能是阿萌本人：那不是「自己的时间」，也会在通讯录里凭空多出一个她。
     const userName = String(snapshot.payload?.user?.name ?? '').trim();
     const rawLife = lifeKind ? withXhsFeed(modelOutput.life ?? null, feed) : null;
+    // 跟同一个人把最近聊过的又聊了一遍（「下周二喝酒」约了八次）：这一跳就当没写生活小事
+    const repeatChat = Boolean(rawLife) && isRepeatChat(rawLife, partners.length ? partners : recentPartners(db, character.charId, startedAt));
     const lifeChecked = withEta(withPlanTime(
-        rawLife && !((rawLife.kind === 'chat' || rawLife.kind === 'social') && userName && rawLife.with === userName) ? rawLife : null,
+        rawLife && !repeatChat && !((rawLife.kind === 'chat' || rawLife.kind === 'social') && userName && rawLife.with === userName) ? rawLife : null,
         startedAt,
         timezone,
     ), etas);
@@ -1792,7 +1884,10 @@ export const createHeartbeatHandler = ({
         if (comments.length) life = { ...life, comments };
     }
     // 惊喜礼物不写进起居注的那一句里（阿萌翻得到），买了什么留在 episode.life。
-    const veiled = veilSurprise(output, life, userName);
+    const veiled = (veil => ({
+        activity: stripUnbackedClaims(veil.activity, life),
+        reason: stripUnbackedClaims(veil.reason, life),
+    }))(veilSurprise(output, life, userName));
     recordModelRun(db, {
         jobUuid: job.uuid,
         charId: character.charId,
@@ -1810,11 +1905,13 @@ export const createHeartbeatHandler = ({
         // 开了口就不再欠着；没开口的「等会儿」留给下一跳兑现。上一跳欠下的，这一跳不能开口时继续欠着。
         urge: output.action === 'message' ? 'none' : (hush && carried ? 'later' : output.urge),
         // 这一跳为什么没开口（审计用）；outcome 不是 skipped，界面不会当成「被拦下」显示。
-        skipGate: staleBedtimeContext ? 'stale_bedtime_context' : hush,
+        // 生活小事被当成重聊丢掉时也留个记号，排查「怎么这跳什么都没落」时看得到
+        skipGate: staleBedtimeContext ? 'stale_bedtime_context' : (hush || (repeatChat ? 'life:repeat_chat' : null)),
         // 不能开口时模型写下的那句也留着，排查时能看到 TA 本来想说什么。
         proposedText: result.output.action === 'message' ? result.output.text : null,
         episode: episode ?? (life ? { life } : null),
-        reachReason: reachReason?.kind ?? null,
+        // 兑现上一跳「等会儿」的那种不另抽缘由，记成 carried，好数清楚各占多少
+        reachReason: reachReason?.kind ?? (intent === 'reach_out' && carried ? 'carried' : null),
         // 抽中了逛小红书却没刷成（退回了朋友圈）：原因留在试跑记录里，排查「怎么从来不刷」时看得到
         ...(xhsSkipped ? { skipGate: (staleBedtimeContext && 'stale_bedtime_context') || hush || `xhs:${xhsSkipped}`.slice(0, 120) } : {}),
     });
@@ -1825,9 +1922,17 @@ export const createHeartbeatHandler = ({
     }
 
     // 话兜：过日子时攒下想跟阿萌说的那句，下次开口时拿出来。这一跳已经开了口就不攒——话正在说。
-    const tellLater = [episode?.tellLater, life?.tellLater].find(text => typeof text === 'string' && text.trim());
-    if (tellLater && output.action !== 'message') {
-        addPocketItem(db, { charId: character.charId, text: tellLater, sourceJobUuid: job.uuid, now: startedAt });
+    const pocketSource = [episode, life].find(part => typeof part?.tellLater === 'string' && part.tellLater.trim());
+    if (pocketSource && output.action !== 'message') {
+        addPocketItem(db, {
+            charId: character.charId,
+            text: pocketSource.tellLater,
+            freshness: pocketSource.tellLaterFresh,
+            sourceJobUuid: job.uuid,
+            now: startedAt,
+            timeZone: timezone,
+            userName,
+        });
     }
 
     // 刷过的朋友圈：看过就记下（回没回应都一样），回应了的静默送去手机写进朋友圈。
@@ -1850,7 +1955,7 @@ export const createHeartbeatHandler = ({
     let workDelivered = false;
     if (episode) {
         const thread = episode.thread ? applyThread(db, character.charId, episode.thread, startedAt) : null;
-        const { thread: _draft, tellLater: _pocketed, ...rest } = episode;
+        const { thread: _draft, tellLater: _pocketed, tellLaterFresh: _fresh, ...rest } = episode;
         await deliver({
             messageId: `hb:${job.uuid}:work`,
             charId: character.charId,
@@ -1918,5 +2023,7 @@ export const createHeartbeatHandler = ({
     });
     // 从话兜里拿的那句说出口了：之后不再拿它，草稿箱也不再显示。
     if (reachReason?.kind === 'pocket') markSaid(db, reachReason.item.id, createdAt);
+    // 这句话顺带说到了话兜里别的事，也一并划掉
+    settleSaidFromMessages(db, character.charId, [{ role: 'char', at: createdAt.toISOString(), text: output.text }], createdAt);
     return { ok: true, shadow: false, intent, action: 'message', activity: output.activity, delivered: true, workDelivered, lifeDelivered, durationMs };
 };

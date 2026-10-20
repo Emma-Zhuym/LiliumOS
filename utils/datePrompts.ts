@@ -6,7 +6,9 @@
  *
  * 与聊天侧注入面的差异（刻意为之，不是漏配）：
  *   - 注入：ContextBuilder.buildCoreContext 全量（人设 / 世界书 / 印象 / 记忆 /
- *     记忆宫殿召回 / 情绪 buff）+ 当前虚拟时间。
+ *     记忆宫殿召回 / 情绪 buff）+ 当前虚拟时间。世界书和聊天同一套规则：关键词条目扫
+ *     最近的历史和本轮输入来触发，「聊天记录指定深度」的条目按深度插进对话
+ *     （见 withWorldbookDepthEntries）。
  *   - 不注入：聊天 App 行为规范（IM 气泡 / 表情包 / 语音 / 引用 / 转账 / 小红书 /
  *     日记等工具块）——这些是线上聊天专属指令，面对面场景里输出会破坏 VN 格式。
  *   - 不注入：实时天气 / 新闻、群聊背景、Notion / 飞书日记标题——见面是高沉浸短会话，
@@ -25,6 +27,7 @@ import { injectMemoryPalace } from './memoryPalace/pipeline';
 import { resolveCharTimeZone, nowInTimeZone } from './timezone';
 import { getVoicePromptOverride } from './ttsProvider';
 import { buildDateWritingStylePrompt } from './dateWritingStyle'; // EM: 约会写作风格预设
+import { injectWorldbookDepthEntries, resolveWorldbookDepthEntries, type WorldbookScanMessage } from './worldbook';
 
 export type ApiMessage = { role: string; content: any };
 
@@ -572,6 +575,21 @@ const flattenHistoryToText = (apiMessages: ApiMessage[]): string =>
     }).join('\n');
 
 /**
+ * 把「聊天记录指定深度」的世界书条目插进对话，规则与聊天侧（chatRequestPayload）一致：
+ * 深度从对话末尾往回数，深度 0 放在最后，深度 N 插在倒数第 N 条消息之前。
+ * 其余位置的条目由 buildCoreContext 放进 system prompt，这里只管深度条目。
+ */
+const withWorldbookDepthEntries = (
+    conversation: ApiMessage[],
+    char: CharacterProfile,
+    userName: string,
+    scanMessages: WorldbookScanMessage[],
+): ApiMessage[] => injectWorldbookDepthEntries(
+    conversation,
+    resolveWorldbookDepthEntries(char.mountedWorldbooks || [], scanMessages, char.name, userName),
+);
+
+/**
  * VN 模式系统提示（send 与 reroll 共用同一份，避免两处手抄漂移）。
  * reroll 的差异只体现在末尾 user 消息的 System Note 里，不在这里分叉。
  * 风格 / 人称 / 自定义补充按 char.dateStyleConfig 动态拼装。
@@ -629,7 +647,7 @@ const buildDateHistory = (
         userProfile || ({} as UserProfile),
         emojis,
         undefined,
-        { useVisionDescriptions },
+        { useVisionDescriptions, timeAwarenessEnabled: isDateTimeAwarenessOn(char) },
     );
     return apiMessages;
 };
@@ -652,11 +670,11 @@ export const DatePrompts = {
         const { char, userProfile, allMsgs, emojis } = input;
         const charTz = resolveCharTimeZone(char);
         const dateTimeOn = isDateTimeAwarenessOn(char);
-        const timeStr = getRealTimeStr(charTz);
+        const timeStr = dateTimeOn ? getRealTimeStr(charTz) : '';
         const limit = char.contextLimit || 500;
         const peekLimit = Math.min(limit, 50);
         const lastMsg = allMsgs[allMsgs.length - 1];
-        const gapHint = getTimeGapHint(lastMsg?.timestamp, charTz);
+        const gapHint = dateTimeOn ? getTimeGapHint(lastMsg?.timestamp, charTz) : '';
 
         const { apiMessages } = ChatPrompts.buildMessageHistory(
             allMsgs,
@@ -665,28 +683,39 @@ export const DatePrompts = {
             userProfile || ({} as UserProfile),
             emojis,
             undefined,
-            { useVisionDescriptions: input.useVisionDescriptions === true },
+            {
+                useVisionDescriptions: input.useVisionDescriptions === true,
+                timeAwarenessEnabled: dateTimeOn,
+            },
         );
         const recentMsgs = flattenHistoryToText(apiMessages);
 
         // 线下时间感知关掉 → 抑制 buildCoreContext 的时间注入，让见面真正脱离现实时间线（纯架空）
         // conversational 不给：peek 是「用户还没走过去」的第三人称镜头，时间块末尾那句
         // 语境框定说的是「对方还在跟你说话」，跟这里的框定正好相反（见下面的 peekInstructions）。
-        const baseContext = ContextBuilder.buildCoreContext(char, userProfile, false, undefined, undefined, { skipTimeAwareness: !isDateTimeAwarenessOn(char) });
+        const baseContext = ContextBuilder.buildCoreContext(char, userProfile, false, undefined, undefined, {
+            skipTimeAwareness: !isDateTimeAwarenessOn(char),
+            worldbookMessages: apiMessages,
+        });
 
         // 文风预设也作用于开场感知；人称（pov）刻意不作用——peek 的设计就是
         // 第三人称旁观镜头（用户还没"走过去"），人称指令只影响 session 内叙述
         const preset = getStylePreset(char.dateStyleConfig);
         const extraBlock = buildExtraStyleBlock(char.dateStyleConfig);
 
-        // 根据时间间隔选择合适的分隔符
-        const contextSeparator = gapHint
-            ? `\n\n--- [TIME SKIP: ${gapHint}] ---\n\n`
-            : `\n\n--- [SCENE CONTINUATION: 刚刚还在聊天，现在来到了面对面的场景] ---\n\n`;
+        // 架空模式以剧情衔接，不用现实经过多久判断跳时，也不假定刚刚还在聊天。
+        const contextSeparator = !dateTimeOn
+            ? `\n\n--- [SCENE CONTINUATION: 按最近记录中的剧情时间与事件衔接] ---\n\n`
+            : gapHint
+                ? `\n\n--- [TIME SKIP: ${gapHint}] ---\n\n`
+                : `\n\n--- [SCENE CONTINUATION: 刚刚还在聊天，现在来到了面对面的场景] ---\n\n`;
+        const continuityRule = dateTimeOn
+            ? '参考 [最近记录]（注意消息来源标签：[聊天]是文字聊天、[约会]是面对面、[通话]是语音通话）。如果有 [TIME SKIP] 且间隔很久，开启新场景；如果是 [SCENE CONTINUATION]，说明刚刚还在聊天，**必须**自然衔接最近的聊天话题和情绪状态，不要无视之前的对话内容。'
+            : '参考 [最近记录]（注意消息来源标签：[聊天]是文字聊天、[约会]是面对面、[通话]是语音通话），沿用其中的剧情时间、地点、事件与情绪状态。时间推进以剧情明确内容为准，不要无视之前的对话内容。';
 
         const peekInstructions = `
 ### 场景：感知 (Sense Presence)
-${dateTimeOn ? `当前时间: ${timeStr}\n` : ''}时间上下文: ${gapHint}
+${dateTimeOn ? `当前时间: ${timeStr}\n时间上下文: ${gapHint}\n` : ''}
 
 ### 任务
 你现在并不在和用户直接对话。用户正在悄悄靠近你所在的地点。
@@ -694,15 +723,17 @@ ${dateTimeOn ? `当前时间: ${timeStr}\n` : ''}时间上下文: ${gapHint}
 描述：${char.name} 此时此刻正在做什么？周围环境是怎样的？状态如何？
 
 ### 逻辑检查
-1. **上下文连贯性**: 参考 [最近记录]（注意消息来源标签：[聊天]是文字聊天、[约会]是面对面、[通话]是语音通话）。如果有 [TIME SKIP] 且间隔很久，开启新场景；如果是 [SCENE CONTINUATION]，说明刚刚还在聊天，**必须**自然衔接最近的聊天话题和情绪状态，不要无视之前的对话内容。
+1. **上下文连贯性**: ${continuityRule}
 2. **状态一致性**: ${gapHint.includes('天') ? '如果间隔了很多天，可能在发呆、忙碌或者有点落寞。' : '根据最近的聊天内容和情绪来决定当前状态。如果刚聊完，角色的状态应该与聊天内容相呼应。'}
 3. **描写风格**: ${preset.peekHint}。${isObserveOn(char) ? '先按下方「观测协议」输出观测块，再开始描写内容（描写本身不要加任何前缀）。' : '不要输出任何前缀，直接输出描写内容。'}
 ${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlock(char)}` : ''}`;
 
+        // 历史已经压进这一条 user 消息里，深度条目就以它为准：深度 0 在它之后，其余在它之前
+        const peekMsg: ApiMessage = { role: 'user', content: `[最近记录 (Previous Context)]:${recentMsgs}${contextSeparator}${peekInstructions}\n\n(Start sensing...)` };
         return {
             messages: [
                 { role: 'system', content: baseContext },
-                { role: 'user', content: `[最近记录 (Previous Context)]:${recentMsgs}${contextSeparator}${peekInstructions}\n\n(Start sensing...)` },
+                ...withWorldbookDepthEntries([peekMsg], char, userProfile?.name || '', apiMessages),
             ],
         };
     },
@@ -731,11 +762,15 @@ ${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlo
             input.useVisionDescriptions === true,
         );
 
+        // 世界书关键词扫描：历史 + 本轮输入原文（不带下面的 System Note，免得格式指令里的字眼误触发）
+        const worldbookScan: WorldbookScanMessage[] = [...historyMsgs, { role: 'user', content: userText }];
+
         // 向量召回挂到 char.memoryPalaceInjection，buildCoreContext 会读取
         await injectMemoryPalace(char, allMsgs, undefined, userProfile?.name);
         const systemPrompt = ContextBuilder.buildCoreContext(char, userProfile, true, undefined, undefined, {
             skipTimeAwareness: !isDateTimeAwarenessOn(char),
             conversational: true,
+            worldbookMessages: worldbookScan,
         })
             + buildVNModeBlock(char, userProfile?.name || '')
             + `\n${buildDateWritingStylePrompt(char.dateWritingStyle)}`; // EM: 注入约会写作风格
@@ -749,8 +784,12 @@ ${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlo
         return {
             messages: [
                 { role: 'system', content: systemPrompt },
-                ...historyMsgs,
-                { role: 'user', content: `${userText}\n\n${note}` },
+                ...withWorldbookDepthEntries(
+                    [...historyMsgs, { role: 'user', content: `${userText}\n\n${note}` }],
+                    char,
+                    userProfile?.name || '',
+                    worldbookScan,
+                ),
             ],
         };
     },

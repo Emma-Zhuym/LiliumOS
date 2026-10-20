@@ -58,11 +58,16 @@ SullyOS 会持续更新，需要定期合并上游改动。**建议两周一合�
 
 这条规则高于代理默认的主动执行习惯。
 
-- **上游大改的文件** → 用 SullyOS 版本作为基础，把 EM 个人功能加回去
-- **上游小改的文件** → 保留 EM 版本，把上游改进 cherry-pick 进来
-- **EM 独有的文件** → 不受合并影响，直接保留
+### 按功能移植，不再整体 merge（2026-10-15 起）
 
-合并前先 `_em_backup/` 备份 EM 版本以便参考旧逻辑。
+两边已经分得太远（git 认的合并基线停在 2026-08-11，两边各自几百个提交、核心文件都改了几百行），整体 `git merge` 不再可行。
+审批闸门不变，执行方式改成：
+
+- 每轮从上次看到的上游提交往后读（记在最新的 `docs/upstream-sync-YYYY-MM-DD.md` 的「看到哪里」），列清单给阿萌挑
+- 选中的功能逐个进验收分支：能干净套上的 `git cherry-pick -x`；套不上的手工移植，提交写 `port(upstream <hash>): …`
+- 跟 EM 结构差太多的，只参考思路、按 EM 结构自己写，提交里注明参考的上游提交
+- **许可证**：上游 2026-10-02（`daf99a19`）起改为「源码可见许可」，改了自用需 Discord 社区授权（阿萌有），对外分发修改版要另拿书面许可；LiliumOS 仓库是公开的，10/02 之后的上游代码不直接搬进仓库，只读思路自己写
+- 合并基线不会前进，所以别再用 `git merge-base` 判断「同步到哪了」，以同步记录文件为准
 
 ### 哨兵注释约定（2026-07 起）
 
@@ -95,6 +100,7 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - `context/OSContext.tsx` 里的 `messageSubView` state (`'contacts' | 'chat'`)
 - `components/PhoneShell.tsx` 里 `case AppID.Chat` 根据 `messageSubView` 切换显示
 - `components/chat/ChatHeaderShell.tsx` 里的 `onOpenContacts` prop + 小房子按钮
+- 通讯录备注存 localStorage `em_contact_remark_<角色id>`（`utils/contactRemarks.ts`），随备份走 `emContactRemarks`；恢复只覆盖备份里有的角色
 
 ### 2. Token 面板 (contextComposition)
 - `hooks/useChatAI.ts` 里的 `ContextComposition` interface + state
@@ -125,6 +131,7 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 ### 6. ScheduleApp 分钟精度
 - `apps/ScheduleApp.tsx` — `dateTime` 字段精确到分钟
 - `types.ts` 里 `AgendaItem` 的 `dateTime?`, `charId?`, `reminderMinutes?`, `createdAt?`
+- `agenda` 表随全量/文字备份走（`agendaItems`，哨兵 `em-backup-gaps`）：导出清单、导入的 `availableStores` 和 `runSection` 三处都要在
   - `dateTime` 是 optional，代码中访问时必须用 `item.dateTime ?? ''` 防 undefined
 
 ### 7. 桌面图标与组件布局
@@ -156,7 +163,7 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - `apps/HealthApp.tsx` / `utils/healthDb.ts` / `utils/cycleCalc.ts` — 训练、睡眠、饮食、经期、症状、体重与周期推算
 - `utils/healthContextBuilder.ts` → `hooks/useChatAI.ts` → `chatRequestPayload.ts` — 每轮聊天重新读取轻量健康摘要；Apple Health 常驻只含活动/睡眠和七日极简节律，血氧等生命体征不得重新灌入
 - `utils/externalHealth.ts` / `utils/externalHealthRoleSummary.ts` — HealthSync 当前快照、按日归档缓存与角色极简摘要；原始生命体征只留在 Health/HA 按需查看
-- `context/OSContext.tsx` — Health 事件和个人目标配置随全量备份导出/恢复
+- `context/OSContext.tsx` — Health 事件（`emHealthEvents`）和健康档案（身高体重、目标，`emHealthProfile`，存 localStorage）随全量/文字备份导出/恢复
 - Apple Health 真导入已验收；Notion 同步、完整历史角色工具和 Health 内角色周评仍是 roadmap 待办
 
 ### 16. Shopping 投喂站 + 备份
@@ -379,6 +386,19 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - `chatRequestPayload.ts` — busy 时注入简短回复提示
 - `ScheduleCard.tsx` — 编辑时可手动覆盖状态
 - 三层判断优先级：手动覆盖 > LLM 生成 > 关键词 fallback
+
+### 35. 多选收藏成一段对话（2026-10-15）
+- 聊天多选底栏「收藏」：`apps/Chat.tsx` / `components/chat/ChatInputArea.tsx`（哨兵 `multi-select-favorite`）→ `utils/contentFavorites.ts` 的 `saveConversationContentFavorite`
+- 存成一条 `ChatContentFavorite`，`conversation` 是当时的消息快照（data URL 图换成 blob 令牌，令牌在 assets 表里被引用，孤儿清理不会删）；同一组消息再收只更新
+- 收藏夹「对话」分类由 `components/chat/FavoriteConversationBody.tsx` 按聊天气泡渲染
+- 纯文字备份（含每天的自动备份）带 `contentFavoritesIndex`，`DB.importFullData` 只替换这一行素材（哨兵 `text-content-favorites`）；图片不随文字备份走
+
+### 36. 停止回复（2026-10-15）
+- 核心在 `utils/emReplyStop.ts`：本地生成用 `beginLocalReply` 的中止信号；交给 mini / amsg 的那一轮按 turnId 作废（localStorage 记最近 50 轮）并尽力取消
+- `hooks/useChatAI.ts`（哨兵 `reply-stop`）：所有聊天补全请求带信号，后处理收到 `signal`；停了不报错，流式预览露出来、还没落库的那几句存下来
+- `utils/applyAssistantPostProcessing.ts`：`persistMessage` / `typingPause` 认停止信号，已经上屏的留着
+- `utils/activeMsgRuntime.ts`：收件箱见到停过的 turnId 直接丢掉
+- mini 后端 `POST /chat/turns/cancel`（`server/agent-backend/chatTurns.mjs`）：还没开跑的取消，正在跑的掐掉模型请求、跑完不推不进信箱。改后端要在 mini 上拉代码重启
 
 ### 34. 小厨房（现实食品库存）
 - 详细设计与每次改动见 `docs/kitchen-3d.md`；UI 规则见 `APP_CONVENTIONS.md` 的 P14 与 `utils/kitchenPaperTokens.ts`

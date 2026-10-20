@@ -1,5 +1,6 @@
 import type { GalleryImage, Message } from '../types';
 import { DB } from './db';
+import { migrateDataUrlToRef } from './blobRef';
 
 export const CONTENT_FAVORITES_INDEX_ASSET_ID = 'content_favorites_index_v1';
 export const CONTENT_FAVORITES_CHANGED_EVENT = 'sully:content-favorites-changed';
@@ -16,6 +17,12 @@ export interface ChatFavoriteSnapshot {
     timestamp: number;
     replyTo?: Message['replyTo'];
     metadata?: Message['metadata'];
+}
+
+/** 对话收藏里的一行：当时的消息原样，加上说话人名字。 */
+export interface ConversationFavoriteLine extends ChatFavoriteSnapshot {
+    messageId: number;
+    senderName: string;
 }
 
 export type ContentFavoriteOwner =
@@ -41,6 +48,8 @@ export interface ChatContentFavorite extends ContentFavoriteBase {
     messageId: number;
     /** 文字/卡片及展示元数据的收藏副本；图片仍使用原有引用。 */
     snapshot?: ChatFavoriteSnapshot;
+    /** 多选收藏的一段对话（按消息顺序）。有它时 snapshot 只是整段的文字摘要，用来搜索。 */
+    conversation?: ConversationFavoriteLine[];
 }
 
 export interface ImageContentFavorite extends ContentFavoriteBase {
@@ -56,7 +65,7 @@ export type ResolvedContentFavorite =
     | { favorite: ChatContentFavorite; message: Message | null; sourceAvailable: boolean }
     | { favorite: ImageContentFavorite; imageUrl: string | null; reference: ContentFavoriteReference | null };
 
-interface ContentFavoritesIndex {
+export interface ContentFavoritesIndex { // [EM: text-content-favorites] 文字备份要带这份索引，类型导出给 types.ts
     version: 1;
     items: ContentFavorite[];
 }
@@ -183,7 +192,14 @@ const sanitizeFavorite = (value: unknown): ContentFavorite | null => {
         ),
     };
     if (item.kind === 'chat' && typeof item.messageId === 'number' && Number.isSafeInteger(item.messageId)) {
-        return { ...base, kind: 'chat', messageId: item.messageId, snapshot: sanitizeSnapshot(item.snapshot) };
+        const conversation = Array.isArray(item.conversation) ? item.conversation.flatMap(entry => {
+            const line = sanitizeSnapshot(entry);
+            const raw = entry as Partial<ConversationFavoriteLine> | null;
+            return line && raw && Number.isSafeInteger(raw.messageId) && typeof raw.senderName === 'string'
+                ? [{ ...line, messageId: raw.messageId as number, senderName: raw.senderName }] : [];
+        }) : [];
+        return { ...base, kind: 'chat', messageId: item.messageId, snapshot: sanitizeSnapshot(item.snapshot),
+            ...(conversation.length ? { conversation } : {}) };
     }
     if (item.kind === 'image' && typeof item.fingerprint === 'string') {
         const seen = new Set<string>();
@@ -208,6 +224,19 @@ const loadIndex = async (): Promise<ContentFavorite[]> => {
     if (!Array.isArray(items)) return [];
     return items.map(sanitizeFavorite).filter((item): item is ContentFavorite => !!item);
 };
+
+// [EM-START: text-content-favorites]
+/** 文字备份恢复前校验：整份读不懂或有坏条目就整包拒绝，不写半份、不动原有收藏。 */
+export const validateContentFavoritesIndex = (raw: unknown): ContentFavoritesIndex => {
+    const index = raw as Partial<ContentFavoritesIndex> | null;
+    if (!index || typeof index !== 'object' || index.version !== 1 || !Array.isArray(index.items)) {
+        throw new Error('收藏索引无法读取，原有收藏未改动');
+    }
+    const items = index.items.map(sanitizeFavorite);
+    if (items.some(item => !item)) throw new Error('收藏索引包含损坏条目，原有收藏未改动');
+    return { version: 1, items: items as ContentFavorite[] };
+};
+// [EM-END: text-content-favorites]
 
 const saveIndex = async (items: ContentFavorite[]): Promise<void> => {
     await DB.saveAssetRaw(CONTENT_FAVORITES_INDEX_ASSET_ID, { version: 1, items } satisfies ContentFavoritesIndex);
@@ -441,6 +470,63 @@ export const saveMessageContentFavorite = async (
     return favorite;
 });
 
+export const makeConversationContentFavoriteId = (charId: string, messageIds: number[]): string => (
+    `conversation_${compactHash(`${charId}\u0000${[...messageIds].sort((a, b) => a - b).join(',')}`)}`
+);
+
+/** 对话收藏里一行的纯文字，用于摘要和搜索。 */
+export const conversationLineText = (line: Pick<ConversationFavoriteLine, 'type' | 'content'>): string => (
+    line.type === 'image' ? '[图片]' : line.type === 'emoji' ? '[表情]' : line.content
+);
+
+/**
+ * 多选的几条消息存成一条「对话收藏」。只收同一个角色私聊里的消息；同样一组消息再收一次
+ * 只更新快照，不会多出一条。快照是收藏那一刻的样子，之后改原消息、删聊天都不影响它。
+ */
+export const saveConversationContentFavorite = async (
+    messages: Message[],
+    charId: string,
+    charName: string,
+    userName: string,
+): Promise<ChatContentFavorite> => withWriteLock(async () => {
+    const picked = [...new Map(messages
+        .filter(message => message.charId === charId && Number.isSafeInteger(message.id)
+            && (message.role === 'user' || message.role === 'assistant') && message.type !== 'interaction')
+        .map(message => [message.id, message])).values()]
+        .sort((a, b) => a.timestamp - b.timestamp || a.id - b.id);
+    if (!picked.length) throw new Error('请先选几条聊天消息');
+    const now = Date.now();
+    const conversation: ConversationFavoriteLine[] = await Promise.all(picked.map(async message => ({
+        ...snapshotChatFavoriteMessage(message),
+        // 旧 data URL 图片换成 blob 令牌，别把 Base64 塞进收藏索引；令牌本身在 assets 表里被引用，不会被孤儿清理删掉
+        content: message.type === 'image' && message.content.startsWith('data:')
+            ? await migrateDataUrlToRef(message.content) : message.content,
+        messageId: message.id,
+        senderName: message.role === 'user' ? (userName || '我') : (charName || '角色'),
+    })));
+    const current = await loadReconciledIndex();
+    const id = makeConversationContentFavoriteId(charId, picked.map(message => message.id));
+    const existing = current.find(item => item.id === id);
+    const favorite: ChatContentFavorite = {
+        id,
+        kind: 'chat',
+        messageId: picked[0].id,
+        charId,
+        charName: charName || '未知角色',
+        sourceTimestamp: normalizeTimestamp(picked[0].timestamp, now),
+        favoritedAt: existing?.favoritedAt || now,
+        owners: mergeOwners(existing?.owners || [], [{ kind: 'user', favoritedAt: now }]),
+        snapshot: {
+            role: 'system', type: 'text', timestamp: normalizeTimestamp(picked[0].timestamp, now),
+            content: conversation.map(line => `${line.senderName}：${conversationLineText(line)}`).join('\n'),
+        },
+        conversation,
+    };
+    await saveIndex([favorite, ...current.filter(item => item.id !== id)]);
+    notifyChanged();
+    return favorite;
+});
+
 export const saveGalleryImageContentFavorite = async (
     image: GalleryImage,
     charName: string,
@@ -643,7 +729,7 @@ export const resolveContentFavorite = async (favorite: ContentFavorite): Promise
             content: favorite.snapshot.content,
             timestamp: favorite.snapshot.timestamp,
             replyTo: favorite.snapshot.replyTo,
-            metadata: favorite.snapshot.metadata || sourceMessage?.metadata,
+            metadata: favorite.snapshot.metadata || (favorite.conversation ? undefined : sourceMessage?.metadata),
         } : null;
         return {
             favorite,

@@ -35,7 +35,7 @@ import { buildMcpSystemBlock, MCP_TAIL_REMINDER } from './mcpToolBridge';
 import type { MusicCfg, Song, LyricLine, MusicPlaybackSnapshot, RecentTrackChange } from '../context/MusicContext';
 import { isPromptBuildSkipped, isSystemMessageMergeEnabled } from './devDebug';
 import { mergeSystemMessages } from './systemMessageMerge';
-import { injectWorldbookDepthEntries, resolveWorldbookEntries } from './worldbook';
+import { injectWorldbookDepthEntries, resolveWorldbookDepthEntries } from './worldbook';
 import { normalizeTranslationLangLabel } from './translationLang';
 import { cleanApiMessages, flattenImageContentParts } from './promptMessageCleanup';
 import { materializeVisionDescriptions } from './visionApi';
@@ -418,15 +418,9 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
 
     // ── 8. 剥离历史里旧的双语标签（stripImages 时先压平 image_url → 纯文本占位） ──
     const cleanedApiMessages = cleanApiMessages(input.stripImages ? flattenImageContentParts(apiMessages) : apiMessages);
-    const resolvedWorldbookEntries = resolveWorldbookEntries(
-        char.mountedWorldbooks || [],
-        cleanedApiMessages,
-        char.name,
-        userProfile.name,
-    );
     const messagesWithWorldbookDepth = injectWorldbookDepthEntries(
         cleanedApiMessages,
-        resolvedWorldbookEntries.filter(entry => entry.position === 4),
+        resolveWorldbookDepthEntries(char.mountedWorldbooks || [], cleanedApiMessages, char.name, userProfile.name),
     );
 
     // ── 9. 麦当劳小程序上下文（购物车/菜单实时快照 → 易变尾段） ──

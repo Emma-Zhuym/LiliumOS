@@ -20,10 +20,19 @@ const ROLEPLAY_REFUSAL_RE = /\b(?:I\s+(?:can(?:not|'t)|won't)\s+(?:roleplay|pret
  */
 const EPISODE_CHANNELS = new Set(['group', 'dm', 'email']);
 
+/**
+ * 对方的名字。模型偶尔把 with 写成 {name, relation} 对象，原样 String() 出来就是「[object Object]」
+ * （实测卫斯理品酒会那条，宋星冉的名字整个没了）。
+ */
+const nameOf = value => {
+    const raw = value && typeof value === 'object' ? (value.name ?? value.who ?? '') : (value ?? '');
+    return String(raw).trim().slice(0, 40);
+};
+
 const parseEpisodeFields = raw => {
     if (!raw || typeof raw !== 'object') return null;
     if (!EPISODE_CHANNELS.has(raw.channel)) return null;
-    const withWho = String(raw.with ?? '').trim().slice(0, 40);
+    const withWho = nameOf(raw.with);
     if (!withWho) return null;
     const lines = (Array.isArray(raw.lines) ? raw.lines : [])
         .map(line => ({ who: String(line?.who ?? '').trim().slice(0, 24), text: String(line?.text ?? '').trim().slice(0, 400) }))
@@ -58,7 +67,10 @@ const parseEpisodeFields = raw => {
 const withTellLater = (parsed, raw) => {
     if (!parsed || parsed.kind === 'gift') return parsed;
     const tell = String(raw?.tellLater ?? '').replace(/\s+/g, ' ').trim().slice(0, 120);
-    return tell ? { ...parsed, tellLater: tell } : parsed;
+    if (!tell) return parsed;
+    // 这句能放多久（pocket.mjs 的 soon / today / days）；不认识的不收，由程序按字面定
+    const fresh = ['soon', 'today', 'days'].includes(raw?.tellLaterFresh) ? raw.tellLaterFresh : null;
+    return { ...parsed, tellLater: tell, ...(fresh ? { tellLaterFresh: fresh } : {}) };
 };
 
 export const parseEpisode = raw => withTellLater(parseEpisodeFields(raw), raw);
@@ -92,7 +104,7 @@ const SHIP = new Set(['same_day', 'next_day', 'standard']);
 
 const parseLifeFields = raw => {
     if (!raw || typeof raw !== 'object' || !LIFE_KINDS.has(raw.kind)) return null;
-    const withWho = String(raw.with ?? '').trim().slice(0, 40);
+    const withWho = nameOf(raw.with);
     const detail = String(raw.detail ?? '').trim().slice(0, 400);
     const value = String(raw.value ?? '').trim().slice(0, 20);
     // 和朋友约了以后的事：只有聊天和社交这两种会带
@@ -282,7 +294,8 @@ export const parseHeartbeatOutput = raw => {
     const error = ROLEPLAY_REFUSAL_RE.test(original)
         ? '模型拒绝执行角色心跳（没有返回 JSON）'
         : '模型输出解析不出合法的心跳结果';
-    return { ok: false, error, raw: original };
+    // 拒绝、掉格式多半是这一次的运气（中转偶尔套上别的身份、输出被截断），隔几分钟再试常常就好了
+    return { ok: false, error, raw: original, retryable: true };
 };
 
 /**
@@ -344,7 +357,14 @@ export const createApiRunner = ({ config, fetchImpl = fetch }) => ({
             if (!response.ok) {
                 const detail = await response.text().catch(() => '');
                 // 正文可能带 Key 或整段提示词，只留状态码和很短的一截。
-                return { ok: false, error: `模型返回 ${response.status}：${detail.slice(0, 200)}` };
+                // 5xx / 429 是对面忙（实测「system cpu overloaded」），过几分钟再试；
+                // 404 也补：转接 AI Studio 网页的渠道会时好时坏地回「Ambiguous request」（2026-10-19 实测，同一渠道几分钟后又通了）；
+                // 401 / 403（Key 错、额度用完）再试也一样，别白白多跑
+                return {
+                    ok: false,
+                    error: `模型返回 ${response.status}：${detail.slice(0, 200)}`,
+                    retryable: response.status >= 500 || response.status === 429 || response.status === 404,
+                };
             }
             const data = await response.json();
             const message = data?.choices?.[0]?.message;
@@ -353,8 +373,9 @@ export const createApiRunner = ({ config, fetchImpl = fetch }) => ({
             const text = extractContentText(message?.content) || extractContentText(message);
             return parseHeartbeatOutput(text);
         } catch (error) {
-            if (error?.name === 'AbortError') return { ok: false, error: 'timeout' };
-            return { ok: false, error: String(error?.message || error).slice(0, 200) };
+            if (error?.name === 'AbortError') return { ok: false, error: 'timeout', retryable: true };
+            // 网络没通（fetch failed）：多半是一会儿的事
+            return { ok: false, error: String(error?.message || error).slice(0, 200), retryable: true };
         } finally {
             clearTimeout(timer);
         }

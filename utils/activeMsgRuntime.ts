@@ -19,6 +19,7 @@ import { loadMusicHooks } from '../context/MusicContext';
 import type { XhsNote } from './realtimeContext';
 import { appendDevDebugInstantPushLog, appendDevDebugLog, isCaptureEnabled, makeDebugLogger } from './devDebug';
 import { getLastRealUserMessageAt, shouldExpireFire } from './amsg2ExpireGuard';
+import { isReplyTurnStopped } from './emReplyStop'; // [EM: reply-stop]
 import {
   AMSG_INSTANT_CHAT_PENDING_EVENT,
   INSTANT_CHAT_STATUS_CHECK_INTERVAL_MS,
@@ -1756,6 +1757,14 @@ const flushInboxToChatImpl = async (trigger: FlushTrigger): Promise<string[]> =>
         activeMsgTrace('runtime-inbox-duplicate-dropped', { messageId: message.messageId, charId: message.charId });
         continue;
       }
+
+      // [EM-START: reply-stop] 用户点过停止的那一轮：回复晚到了也不上屏（情绪结果一并丢掉）
+      if (isReplyTurnStopped(message.taskUuid)) {
+        log.info('这一轮用户已经停止，晚到的回复丢弃', { messageId: message.messageId, charId: message.charId });
+        activeMsgTrace('runtime-inbox-stopped-dropped', { messageId: message.messageId, charId: message.charId });
+        continue;
+      }
+      // [EM-END: reply-stop]
 
       // emotion_update: worker 跑完副 API 情绪评估后推回的 buff 结果. 不渲染成聊天消息, 直接落 buff +
       // 广播 innerState (useChatAI 监听 'emotion-innerstate-updated' → setEvolvedNarrative 喂下一轮).

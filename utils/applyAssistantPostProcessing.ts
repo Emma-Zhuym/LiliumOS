@@ -468,6 +468,10 @@ export interface PostProcessCtx {
      * 在线送达 vs 离线补收的判定见 activeMsgRuntime.resolveInboxPersistTimestamp。
      */
     messageTimestamp?: number;
+    // [EM-START: reply-stop]
+    /** 用户点了停止：后面的气泡不再上屏、不再落库，已经上屏的留着。 */
+    signal?: AbortSignal;
+    // [EM-END: reply-stop]
 }
 
 // ─── 主入口 ─────────────────────────────────────────────────────────────────
@@ -500,16 +504,19 @@ export async function applyAssistantPostProcessing(
         directives,
         reasoningContent: pushReasoningContent,
         messageTimestamp,
+        signal: stopSignal, // [EM: reply-stop]
     } = ctx;
     const { baseUrl, headers, effectiveApi } = api;
     // 拟人打字延迟：流式预览已实时展示过气泡时（instantRender）跳过，避免二次慢放
     const typingPause = (ms: number): Promise<void> =>
-        instantRender ? Promise.resolve() : new Promise(r => setTimeout(r, ms));
+        instantRender || stopSignal?.aborted ? Promise.resolve() : new Promise(r => setTimeout(r, ms)); // [EM: reply-stop] 停了就不再等
     // 统一落库入口：ctx.messageTimestamp（若有）盖到每条消息上，保证同一轮拆出的
     // 正文 / 表情 / 卡片 / 系统提示时间戳一致；没传则维持 DB.saveMessage 默认（写库当刻）。
     // 全函数落库一律走这里，别直接调 DB.saveMessage——漏一处就会出现气泡时间戳互相打架。
-    const persistMessage: typeof DB.saveMessage = (msg) =>
-        DB.saveMessage(messageTimestamp != null ? { ...msg, timestamp: messageTimestamp } : msg);
+    const persistMessage: typeof DB.saveMessage = (msg) => {
+        if (stopSignal?.aborted) return Promise.reject(new DOMException('回复已停止', 'AbortError')); // [EM: reply-stop] 停了之后的一条都不落
+        return DB.saveMessage(messageTimestamp != null ? { ...msg, timestamp: messageTimestamp } : msg);
+    };
     const {
         setMessages,
         addToast,

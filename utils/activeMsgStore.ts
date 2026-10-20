@@ -532,17 +532,53 @@ export const ActiveMsgStore = {
 };
 
 /**
- * 备份用：把主动消息 2.0 的全局配置整份取出来（Worker 地址、密钥、即时对话开关等）。
+ * 后端连接那几样：连上用户自己那台 Worker 需要的全部东西。
+ *
+ * 它们合起来就是那台 Worker 的钥匙——地址加主密钥能解开 D1 里所有密文，用户 id 决定
+ * 读得到哪一份数据（数据按它分区），共享密钥是端点的门禁。少一样都连不成，所以要摘
+ * 就得一起摘。
+ */
+const BACKEND_CONNECTION_KEYS = ['workerUrl', 'serverToken', 'masterKey', 'userId'] as const;
+
+/** 这份备份里带着后端连接吗（带了的话，谁拿到这个文件谁就能连上那台 Worker）。 */
+export const backupHasBackendConnection = (
+  config: ActiveMsg2GlobalConfig | null | undefined,
+): boolean => !!config?.workerUrl?.trim();
+
+/**
+ * 导入时问一句要不要连上备份里的后端。程序分不清这份文件是自己的还是别人的
+ * （换新设备时用户 id 本来就对不上），只有拿着文件的人知道，所以把话问出去。
+ */
+export const askRestoreBackendConnection = (workerUrl: string): boolean => {
+  if (typeof window === 'undefined' || typeof window.confirm !== 'function') return false;
+  return window.confirm(
+    `这份备份里带着一个主动消息 2.0 的后端连接：\n\n${workerUrl}\n\n`
+    + '如果这是你自己导出的备份，点「确定」连上它。\n\n'
+    + '如果是别人给你的，点「取消」——连上去的话，你的 API 密钥和聊天记录会被写进对方那台服务器。\n\n'
+    + '（不连也不影响其它数据导入，之后可以在设置里手动填。）',
+  );
+};
+
+/**
+ * 备份用：把主动消息 2.0 的全局配置取出来（即时对话开关等）。
  *
  * 这份配置存在自己的 `ActiveMsg` 库里，不在主库那份 store 清单内，所以必须单独取一次
- * 挂进备份包。没配过 Worker 就返回 undefined，让备份里干脆不出现这个键。
+ * 挂进备份包。
  *
- * 整份带走而不是挑字段：这里将来加了新配置，备份会自动跟上，不用再想起来同步一次。
+ * **后端连接默认不带走。** 备份文件是会被分享出去的——发一份角色合集给朋友，就等于把
+ * 自己那台 Worker 的钥匙一起发了。换设备恢复自己的备份才需要这几样，让用户自己勾。
  */
-export async function exportAmsg2GlobalConfig(): Promise<ActiveMsg2GlobalConfig | undefined> {
+export async function exportAmsg2GlobalConfig(
+  options: { includeBackendConnection?: boolean } = {},
+): Promise<ActiveMsg2GlobalConfig | undefined> {
   try {
     const config = await ActiveMsgStore.getGlobalConfig();
-    return config.workerUrl?.trim() ? config : undefined;
+    if (!config.workerUrl?.trim()) return undefined;
+    if (options.includeBackendConnection) return config;
+    const stripped = { ...config };
+    for (const key of BACKEND_CONNECTION_KEYS) delete stripped[key];
+    // 摘完只剩几个开关。全是默认值的话备份里干脆别出现这个键。
+    return Object.keys(stripped).length > 0 ? stripped : undefined;
   } catch (e) {
     console.warn('[amsg2] 读取全局配置失败，备份将不含这一项', e);
     return undefined;
@@ -556,12 +592,20 @@ export async function exportAmsg2GlobalConfig(): Promise<ActiveMsg2GlobalConfig 
  * 是一次探测的结果而不是用户的选择。备份里那个值可能已经过时（Worker 后来更新过 / 退回过），
  * 照抄回来要么白挡一次、要么在跑不动的 Worker 上放行。留空表示「还没探过」，
  * 握手时会补探一次，之后就有准数了。
+ *
+ * **后端连接要调用方点头才还原**（`allowBackendConnection`）。不点头就只还原那几个开关，
+ * 本机原有的连接不会被顶掉，本地其它数据照常导入。
  */
 export async function importAmsg2GlobalConfig(
   config: ActiveMsg2GlobalConfig | null | undefined,
+  options: { allowBackendConnection?: boolean } = {},
 ): Promise<void> {
   if (!config || typeof config !== 'object') return;
   const { instantChatSupported: _dropped, ...restorable } = config;
+  if (!options.allowBackendConnection) {
+    for (const key of BACKEND_CONNECTION_KEYS) delete restorable[key];
+  }
+  if (Object.keys(restorable).length === 0) return;
   await ActiveMsgStore.saveGlobalConfig({ ...restorable, instantChatSupported: undefined });
 }
 

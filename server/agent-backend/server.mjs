@@ -16,7 +16,7 @@ import { listCredentials, putCredential } from './credentials.mjs';
 import { listModelRuns } from './heartbeat.mjs';
 import { listPlans } from './lifeThreads.mjs';
 import { listPocketForPhone } from './pocket.mjs';
-import { listSnapshotMeta, putSnapshot } from './snapshots.mjs';
+import { getSnapshot, listSnapshotMeta, putSnapshot } from './snapshots.mjs';
 import { getSetting, setSetting } from './db.mjs';
 import {
     createReminder, listTemporalItems, readVisibility, removeTemporalItems, setReminderCompleted,
@@ -220,7 +220,10 @@ export const createRouter = ctx => {
 
         // ── 话兜：TA 攒着还没跟阿萌说的话（查手机的草稿箱）─────────────────
         'GET /pocket': {
-            handle: ({ query }) => ({ items: listPocketForPhone(db, { charId: query.get('charId') || null }) }),
+            // 先拿快照里的聊天记录把已经说过的划掉；她的名字用来筛写给自己的备忘
+            handle: ({ query }) => ({
+                items: listPocketForPhone(db, { charId: query.get('charId') || null, snapshotsFor: id => getSnapshot(db, id) }),
+            }),
         },
 
         // ── 即时回复：聊天这一轮交给 mini 跑（spec-agent-backend-instant-chat 阶段一）──
@@ -235,6 +238,10 @@ export const createRouter = ctx => {
         'GET /chat/turns': {
             // 手机每 60 秒点一次名：只有这里说 failed / gone 才算这一轮没了
             handle: ({ query }) => ctx.chatTurns.status(query.get('turnId')),
+        },
+        'POST /chat/turns/cancel': {
+            // 手机上点了「停止」
+            handle: ({ body }) => ctx.chatTurns.cancel(String(body?.turnId || '')),
         },
 
         // ── 阿萌的现实时间（Apple 日历 / 提醒）──────────────────────────

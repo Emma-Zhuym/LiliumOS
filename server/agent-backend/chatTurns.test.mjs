@@ -105,6 +105,30 @@ test('即时回复：连发时顶掉还没开跑的上一轮', () => {
     assert.equal(service.busy('lumi'), true);
 });
 
+test('停止：还没开跑的直接取消，凭据丢掉', () => {
+    const { service } = setup();
+    service.submit(turn());
+    assert.equal(service.cancel(TURN).state, 'cancelled');
+    assert.equal(service.status(TURN).state, 'cancelled');
+    assert.equal(service.cancel('not a uuid!').state, 'gone');
+});
+
+test('停止：正在跑的掐掉模型请求，跑完不推、不进信箱', async () => {
+    let release;
+    const fetchImpl = (_url, init) => new Promise((resolve, reject) => {
+        init.signal.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+        release = () => resolve({ ok: true, status: 200, json: async () => ({ choices: [{ message: { content: '不该推出去' } }] }) });
+    });
+    const { db, service, handlers, delivered } = setup({ fetchImpl });
+    service.submit(turn());
+    const running = runJobNow(db, jobUuidFor(TURN), { handlers, logger: { warn() {} } });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(service.cancel(TURN).state, 'stopping');
+    assert.equal(await running, 'done');
+    assert.equal(delivered.length, 0, '停了就不推');
+    assert.equal(typeof release, 'function');
+});
+
 test('即时回复：没在后端登记过的角色也能交（只有开了心跳的才登记）', async () => {
     const { db, service, handlers, delivered } = setup();
     service.submit(turn({ charId: 'sully', charName: 'Sully' }));

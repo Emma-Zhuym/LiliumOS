@@ -7,6 +7,9 @@ import { collectBlobRefs, writeBlobsToZip, readBlobsIndex, restoreBlobsFromZip, 
 import { encodeVectorsForBackup, encodeVectorsForBackupChunked, MemoryVectorDB } from './memoryPalace/db';
 import { writeV2Backup, assembleV2Backup, shardFileName, type ShardLimits } from './backupFormat';
 import { ActiveMsgStore } from './activeMsgStore';
+import { exportContactRemarks, importContactRemarks } from './contactRemarks';
+import { isHealthProfile } from './healthProfile';
+import { CONTENT_FAVORITES_INDEX_ASSET_ID, listContentFavorites, saveConversationContentFavorite, saveMessageContentFavorite } from './contentFavorites';
 
 // fake-indexeddb 已通过 test-setup.ts 注入。
 // 这组用例走「真实链路」：writeV2Backup → assembleV2Backup → DB.importFullData，钉死 v2 改造
@@ -139,7 +142,8 @@ describe('v2 真实链路：分片 → 组装 → importFullData', () => {
             instantChatEnabled: true,
         });
 
-        const exported = await DB.exportFullData();
+        // 勾了「包含后端连接」才带走（默认不带，见下面那条守卫）
+        const exported = await DB.exportFullData({ includeBackendConnection: true });
         expect(exported.amsg2GlobalConfig?.workerUrl).toBe('https://amsg.example.workers.dev');
 
         const zip = new FakeZip();
@@ -153,7 +157,7 @@ describe('v2 真实链路：分片 → 组装 → importFullData', () => {
         });
         expect((await ActiveMsgStore.getGlobalConfig()).workerUrl).toBe('');
 
-        await DB.importFullData(data);
+        await DB.importFullData(data, { allowBackendConnection: true });
 
         const restored = await ActiveMsgStore.getGlobalConfig();
         expect(restored.workerUrl).toBe('https://amsg.example.workers.dev');
@@ -170,14 +174,63 @@ describe('v2 真实链路：分片 → 组装 → importFullData', () => {
             workerUrl: 'https://amsg.example.workers.dev',
             instantChatSupported: false, // 备份那会儿那台 Worker 还是旧版
         });
-        const exported = await DB.exportFullData();
+        const exported = await DB.exportFullData({ includeBackendConnection: true });
 
         // 这台机器上的 Worker 早就更新过了
         await ActiveMsgStore.saveGlobalConfig({ workerUrl: '', instantChatSupported: true });
-        await DB.importFullData({ ...exported } as any);
+        await DB.importFullData({ ...exported } as any, { allowBackendConnection: true });
 
         // 照抄回 false 会把即时对话白挡在门外，直到用户手动去重开开关
         expect((await ActiveMsgStore.getGlobalConfig()).instantChatSupported).toBeUndefined();
+    });
+
+    // 备份是会被分享出去的：带上后端连接就等于把自己那台 Worker 的钥匙一起发了——
+    // 对方的 App 会静默连上来，把 ta 的 API 凭据和聊天上下文写进你的 D1，而 ta 手里的
+    // 主密钥能解开你那台机器上所有的密文。所以默认不带，要带得用户自己勾。
+    it('默认导出不带后端连接：地址 / 密钥 / 用户 id 一样都不在备份里', async () => {
+        await ActiveMsgStore.saveGlobalConfig({
+            userId: 'u-secret',
+            workerUrl: 'https://amsg.example.workers.dev',
+            serverToken: 'token-abc',
+            masterKey: 'master-key-xyz',
+            instantChatEnabled: true,
+        });
+
+        const exported = await DB.exportFullData();
+        const config: any = exported.amsg2GlobalConfig;
+
+        expect(config?.workerUrl).toBeUndefined();
+        expect(config?.serverToken).toBeUndefined();
+        expect(config?.masterKey).toBeUndefined();
+        expect(config?.userId).toBeUndefined();
+        // 开关这类无害的偏好照旧跟着走
+        expect(config?.instantChatEnabled).toBe(true);
+    });
+
+    // 老备份里带着这几样，而导入的人未必知道这份文件是谁的。不点头就只还原开关。
+    it('导入不点头就不连后端：本机原有的连接也不会被顶掉', async () => {
+        await ActiveMsgStore.saveGlobalConfig({
+            userId: 'u-mine',
+            workerUrl: 'https://mine.example.workers.dev',
+            masterKey: 'my-key',
+        });
+
+        await DB.importFullData({
+            amsg2GlobalConfig: {
+                userId: 'u-theirs',
+                workerUrl: 'https://theirs.example.workers.dev',
+                serverToken: 'their-token',
+                masterKey: 'their-key',
+                instantChatEnabled: false,
+            },
+        } as any);
+
+        const after = await ActiveMsgStore.getGlobalConfig();
+        expect(after.workerUrl).toBe('https://mine.example.workers.dev');
+        expect(after.masterKey).toBe('my-key');
+        expect(after.userId).toBe('u-mine');
+        // 非连接类的偏好照常还原
+        expect(after.instantChatEnabled).toBe(false);
     });
 
     it('没配过 Worker 的用户：备份里干脆不出现这一项', async () => {
@@ -607,3 +660,90 @@ describe('v3 blob 旁路：令牌原样进包、二进制随包、按原 id 还�
         await expect(restoreBlobsFromZip(zip, entries, async () => {})).rejects.toThrow(/截断/);
     });
 });
+
+// [EM-START: text-content-favorites]
+describe('文字备份带聊天收藏索引', () => {
+    const msg = (id: number, role: 'user' | 'assistant', content: string, extra: Record<string, unknown> = {}) => ({
+        id, charId: 'c1', role, type: 'text', content, timestamp: 1_700_000_000_000 + id, ...extra,
+    }) as any;
+
+    const seedFavorites = async () => {
+        await seedStore('assets', [{ id: 'content_favorite_image_keep', data: 'blobref:keep' }]);
+        await saveMessageContentFavorite(msg(1, 'assistant', '<div>小卡片</div>', { type: 'html_card' }), '小帕');
+        await saveConversationContentFavorite([msg(2, 'user', '今天吃了吗'), msg(3, 'assistant', '吃了，你呢')], 'c1', '小帕', '阿萌');
+        return listContentFavorites();
+    };
+
+    it('文字备份往返：单条卡片收藏和一段对话收藏都回得来，其余素材不动', async () => {
+        const favorites = await seedFavorites();
+        expect(favorites).toHaveLength(2);
+        const zip = new FakeZip();
+        const manifest = await writeV2Backup(zip, { contentFavoritesIndex: { version: 1, items: favorites } } as any, {});
+        const data: any = await assembleV2Backup(zip, manifest);
+
+        // 换台空手机：收藏索引没了，但素材表里还有别的东西
+        await DB.saveAssetRaw(CONTENT_FAVORITES_INDEX_ASSET_ID, { version: 1, items: [] });
+        await DB.importFullData(data);
+
+        const restored = await listContentFavorites();
+        expect(restored.map(item => item.id).sort()).toEqual(favorites.map(item => item.id).sort());
+        const conversation = restored.find(item => item.kind === 'chat' && item.conversation);
+        expect(conversation?.kind === 'chat' && conversation.conversation?.map(line => `${line.senderName}：${line.content}`))
+            .toEqual(['阿萌：今天吃了吗', '小帕：吃了，你呢']);
+        const card = restored.find(item => item.kind === 'chat' && !item.conversation);
+        expect(card?.kind === 'chat' && card.snapshot?.type).toBe('html_card');
+        expect(await DB.getAssetRaw('content_favorite_image_keep')).toBe('blobref:keep');
+    });
+
+    it('备份里没有这一项：原有收藏原样保留', async () => {
+        const favorites = await seedFavorites();
+        await DB.importFullData({ messages: [msg(9, 'user', '别的备份')] } as any);
+        expect((await listContentFavorites()).map(item => item.id).sort()).toEqual(favorites.map(item => item.id).sort());
+    });
+
+    it('索引读不懂：写库前整包拒绝，原有收藏不动', async () => {
+        const favorites = await seedFavorites();
+        await expect(DB.importFullData({ contentFavoritesIndex: { version: 1, items: 'bad' } } as any)).rejects.toThrow('收藏索引无法读取');
+        await expect(DB.importFullData({ contentFavoritesIndex: { version: 1, items: [{ id: 'x' }] } } as any)).rejects.toThrow('损坏条目');
+        expect(await listContentFavorites()).toHaveLength(favorites.length);
+    });
+});
+// [EM-END: text-content-favorites]
+
+// [EM-START: em-backup-gaps]
+describe('EM 自己的 App 补进备份', () => {
+    it('时光契约日程随备份往返，旧日程被替换', async () => {
+        await seedStore('agenda', [{ id: 'old', title: '旧的', summary: '' }]);
+        const items = [{ id: 'a1', title: '组会', summary: '', dateTime: '2026-10-16T14:30', charId: 'c1', reminderMinutes: 15, createdAt: 1 }];
+        const zip = new FakeZip();
+        const manifest = await writeV2Backup(zip, { agendaItems: items } as any, {});
+        await DB.importFullData(await assembleV2Backup(zip, manifest) as any);
+        expect(await DB.getAllAgenda()).toEqual(items);
+    });
+
+    it('备份里没有日程：本机日程不动', async () => {
+        await seedStore('agenda', [{ id: 'keep', title: '留着', summary: '' }]);
+        await DB.importFullData({ tasks: [] } as any);
+        expect((await DB.getAllAgenda()).map(item => item.id)).toEqual(['keep']);
+    });
+
+    it('通讯录备注导出再导入，备份没提到的角色保留原备注', () => {
+        localStorage.setItem('em_contact_remark_c1', '小帕');
+        localStorage.setItem('em_contact_remark_c2', '爸爸');
+        const remarks = exportContactRemarks();
+        expect(remarks).toEqual({ c1: '小帕', c2: '爸爸' });
+        localStorage.removeItem('em_contact_remark_c1');
+        localStorage.setItem('em_contact_remark_c3', '本机才有');
+        importContactRemarks({ c1: '小帕' });
+        expect(localStorage.getItem('em_contact_remark_c1')).toBe('小帕');
+        expect(localStorage.getItem('em_contact_remark_c3')).toBe('本机才有');
+        ['c1', 'c2', 'c3'].forEach(id => localStorage.removeItem(`em_contact_remark_${id}`));
+    });
+
+    it('健康档案只认完整的身高体重年龄性别', () => {
+        expect(isHealthProfile({ heightCm: 165, weightKg: 52, age: 24, sex: 'F', goal: 'maintain' })).toBe(true);
+        expect(isHealthProfile({ heightCm: 165, weightKg: '52', age: 24, sex: 'F' })).toBe(false);
+        expect(isHealthProfile(null)).toBe(false);
+    });
+});
+// [EM-END: em-backup-gaps]

@@ -1,5 +1,7 @@
 import type { ChatInputPreferences } from './utils/chatInputPreferences';
 import type { VoiceFavoriteIndex } from './utils/voiceFavorites'; // [EM: text-voice-favorites]
+import type { ContentFavoritesIndex } from './utils/contentFavorites'; // [EM: text-content-favorites]
+import type { HealthProfile } from './utils/healthProfile'; // [EM: em-backup-gaps]
 export enum AppID {
   Launcher = 'launcher',
   Settings = 'settings',
@@ -701,6 +703,7 @@ export interface CharacterAccommodationPolicy {
 }
 
 export interface MemoryPalaceBackupConfig {
+  relativeTimeAnnotations?: boolean;
     featureFlags?: MemoryPalaceFeatureFlags;
   embedding: {
     baseUrl: string;
@@ -2706,6 +2709,8 @@ export interface CharacterProfile {
   name: string;
   /** 角色主聊天 API：引用设置里已有的命名预设；未设置或预设已删除时跟随主 API。 */
   chatApiPresetId?: string;
+  /** [EM: heartbeat-api] Mac mini 心跳用哪套 API：空 = 副 API 优先、没有就跟聊天 API；'chat' = 跟聊天 API；其余是设置里命名预设的 id */
+  heartbeatApiPresetId?: string;
   themeColor?: number; // [EM: theme-color] 小小窝日程小组件主题色相 (hsl hue 0-360)，undefined=默认260紫
   avatar: string;
   /**
@@ -2988,9 +2993,8 @@ export interface CharacterProfile {
       pitch?: number;
   };
 
-  // 时间感知强化：开启（默认）时会向上下文注入「距离上次聊天已过去多久」的强化提示，
-  // 让角色强化时间观念、主动匹配现实世界时间。关掉后不再注入这组提示词
-  // （注意：历史消息本身仍带时间戳，关掉后弱化程度取决于模型自身理解）。
+  // 聊天时间感知：默认开启，注入当前真实时间、历史消息时间戳与互动间隔。
+  // 关闭后不再附加这些现实时间信息；消息存档与界面收发时间不变。
   timeAwarenessEnabled?: boolean;
 
   // 自定义时区（异国恋 / 角色身处异国等场景）。与「时间感知强化」完全独立、可任意组合：
@@ -2999,8 +3003,8 @@ export interface CharacterProfile {
   customTimezoneEnabled?: boolean;
   customTimezone?: string; // IANA 时区 id，如 'Asia/Tokyo'
 
-  // 线下时间感知（约会 / 见面 App）：开启（默认）时向见面 system prompt 注入「当前真实时间」。
-  // 关掉后见面场景不再注入时间，让剧情脱离现实时间线。独立开关。
+  // 线下时间感知（约会 / 见面 App）：默认开启，独立控制见面的当前真实时间、
+  // 历史消息时间戳与互动间隔。关闭后按剧情时间衔接，不按现实间隔跳时。
   dateTimeAwarenessEnabled?: boolean;
 
   // ─── 生活记录注入（档案 App「生活记录」→ 聊天提示词，per-character）───
@@ -4262,6 +4266,7 @@ export interface FullBackupData {
     savedJournalStickers?: {name: string, url: string}[]; 
     assets?: { id: string, data: string }[];
     voiceFavoritesIndex?: VoiceFavoriteIndex; // [EM: text-voice-favorites] 纯文字收藏补丁，不替换整个素材表。
+    contentFavoritesIndex?: ContentFavoritesIndex; // [EM: text-content-favorites] 文字/卡片/对话收藏索引，同样只替换这一行素材。
     galleryImages?: GalleryImage[];
     userProfile?: UserProfile;
     diaries?: DiaryEntry[];
@@ -4432,6 +4437,11 @@ export interface FullBackupData {
     emKitchenSauces?: any[]; // [EM: kitchen-recipes]
     // [EM-END: finance-backup-types]
     gotchiAccentHue?: string;  // 桌面电子宠物主题主色调偏好（tama_accent_hue，账号级 localStorage）
+    // [EM-START: em-backup-gaps]
+    agendaItems?: AgendaItem[];                 // 时光契约日程（agenda store）
+    emHealthProfile?: HealthProfile;            // 健康档案（liliumos_health_profile）
+    emContactRemarks?: Record<string, string>;  // 通讯录备注，角色 id → 备注（em_contact_remark_*）
+    // [EM-END: em-backup-gaps]
 }
 
 // --- CLOUD BACKUP TYPES ---

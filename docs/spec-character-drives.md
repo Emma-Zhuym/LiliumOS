@@ -145,7 +145,9 @@ pickCue({ providers, weights, cooldowns, now, rng }) → Cue | null
 
 - `HEARTBEAT_SCHEMA` 的 `life` 和 `episode` 各加一个可选字段 `tellLater`：「这件事里你想跟 ta 说的一句话，没有就留空」
 - 新表 `pocket_items`：`id, char_id, text, source_run_id, kind('share'|'grievance'), created_at, said_at, expires_at`
-  - 48 小时过期；`grievance` 是别扭时想说的（第 5 节之后才有）
+  - 保质期分三档（2026-10-19 返工）：`tellLaterFresh` = soon 3 小时 / today 到角色那边今天结束（至少 3 小时、最多 18 小时）/ days 48 小时，与字面（等会儿、今晚……）取更短；`grievance` 是别扭时想说的（第 5 节之后才有）
+  - 不收写给自己的备忘、跟别人说的话、用「她」称呼对方且没有「你」的、跟没说的某句差不多的（两字组覆盖 ≥ 0.5）
+  - 快照里 TA 攒下之后说过的话盖住某句 ≥ 0.45 就算说过了（心跳开头、`GET /pocket`、心跳发消息后各对一次）
 - `reach_out` 那一跳取最早一条没说过、没过期的；发出去了就标 `said_at`
 - 同一时刻最多 5 条没说的，多了丢最旧的
 
@@ -161,6 +163,12 @@ pickCue({ providers, weights, cooldowns, now, rng }) → Cue | null
 | 接上次的话头 | 0.30 | 现在的行为 |
 
 没有对应内容的缘由权重归零重新分。约定照旧是「很自然的话头」那句，不另算。
+
+### 4.3.1 攒着的话一起说（2026-10-19 阿萌）
+
+兑现「等会儿」的那一跳不抽缘由（缘由就是那个念头），但同样摆出攒着的话：`reachOut.mjs` 的 `buildCatchUp`
+取最多 3 句没说的话兜（去掉已经当缘由的那句）和最多 3 件上次说话之后的生活片段，`formatCatchUp` 写进提示词。
+隔了 ≥ 1 小时且东西 ≥ 2 件时明说「挑两三件一起说了，一件一行」；连发没回时只挑一件。说出口的按字面划掉。
 
 ### 4.4 读回完整的生活片段
 

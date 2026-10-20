@@ -34,7 +34,7 @@ export const toggleChatMessageFavorite = (message: Message, charName: string, us
 
 export interface MessageFavoriteEntry {
     id: string;
-    kind: 'text' | 'image' | 'voice' | 'html';
+    kind: 'text' | 'image' | 'voice' | 'html' | 'conversation';
     charId: string;
     charName: string;
     timestamp: number;
@@ -53,7 +53,7 @@ export const mergeMessageFavorites = (contents: ContentFavorite[], voices: Voice
         const message = result && 'message' in result ? result.message : content.kind === 'chat' && content.snapshot
             ? { ...content.snapshot, id: content.messageId, charId: content.charId } as Message : null;
         const isVoice = message && buildChatVoiceFavoriteSnapshot(message, { id: content.charId, name: content.charName }, '你');
-        entries.set(content.id, { id: content.id, kind: content.kind === 'image' ? 'image' : isVoice ? 'voice' : message?.type === 'html_card' ? 'html' : 'text', charId: content.charId, charName: content.charName, timestamp: content.sourceTimestamp, message, content,
+        entries.set(content.id, { id: content.id, kind: content.kind === 'image' ? 'image' : content.kind === 'chat' && content.conversation ? 'conversation' : isVoice ? 'voice' : message?.type === 'html_card' ? 'html' : 'text', charId: content.charId, charName: content.charName, timestamp: content.sourceTimestamp, message, content,
             sourceAvailable: !!(result && 'sourceAvailable' in result && result.sourceAvailable), imageUrl: result && 'imageUrl' in result ? result.imageUrl : undefined });
     }
     for (const voice of voices) {

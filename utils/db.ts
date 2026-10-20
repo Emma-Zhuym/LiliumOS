@@ -23,6 +23,7 @@ import { exportAmsg2GlobalConfig, importAmsg2GlobalConfig } from './activeMsgSto
 import { exportWorldHomeLocal, importWorldHomeLocal } from './worldHome/localBackup';
 import { exportDesktopSkinLocal, importDesktopSkinLocal } from './desktopSkinBackup';
 import { VOICE_FAVORITES_INDEX_ASSET_ID, validateVoiceFavoriteIndex } from './voiceFavorites'; // [EM: text-voice-favorites]
+import { CONTENT_FAVORITES_INDEX_ASSET_ID, validateContentFavoritesIndex } from './contentFavorites'; // [EM: text-content-favorites]
 
 const DB_NAME = 'AetherOS_Data';
 // v67：两条并行线各自用掉了 v65/v66（A线: blob_assets + 生活记录；B线: room_plates 门牌 + digest_reports 消化日志），
@@ -3294,7 +3295,9 @@ export const DB = {
       }
   },
 
-  exportFullData: async (): Promise<Partial<FullBackupData>> => {
+  exportFullData: async (
+      options: { includeBackendConnection?: boolean } = {},
+  ): Promise<Partial<FullBackupData>> => {
       const { StoryVariantStore } = await import('./storyVariantStore');
       const storyVariants = await StoryVariantStore.list();
       const db = await openDB();
@@ -3416,7 +3419,7 @@ export const DB = {
           mcdLocal: exportMcdLocal(),             // 麦当劳 token + 启用状态（存 localStorage）
           mcpLocal: exportMcpLocal(),             // 通用 MCP 服务器配置（存 localStorage）
           smartHomeLocal: exportSmartHomeLocal(), // Home Assistant 连接配置（存 localStorage）
-          amsg2GlobalConfig: await exportAmsg2GlobalConfig(), // 主动消息 2.0 全局配置（存独立的 ActiveMsg 库）
+          amsg2GlobalConfig: await exportAmsg2GlobalConfig(options), // 主动消息 2.0 全局配置（存独立的 ActiveMsg 库；后端连接默认不带走）
           desktopSkinLocal: await exportDesktopSkinLocal(), // 桌面皮肤：界面配色 + 看板 banner（看板图令牌解析为 data URL）
       };
   },
@@ -3433,6 +3436,11 @@ export const DB = {
               itemDone?: number;
               itemTotal?: number;
           }) => void;
+          /**
+           * 让备份里带的 Worker 地址 / 密钥 / 用户 id 落地。默认不落：导入者未必知道
+           * 这份文件是谁的，静默连上去的话，ta 的 API 凭据和聊天上下文会写进别人那台 D1。
+           */
+          allowBackendConnection?: boolean;
       } = {}
   ): Promise<void> => {
       // [EM-START: text-voice-favorites]
@@ -3440,6 +3448,11 @@ export const DB = {
           data.voiceFavoritesIndex = validateVoiceFavoriteIndex(data.voiceFavoritesIndex);
       }
       // [EM-END: text-voice-favorites]
+      // [EM-START: text-content-favorites]
+      if (data.contentFavoritesIndex !== undefined) {
+          data.contentFavoritesIndex = validateContentFavoritesIndex(data.contentFavoritesIndex);
+      }
+      // [EM-END: text-content-favorites]
       const replaceStoryVariants = data.storyVariants !== undefined || (data.messages !== undefined && data.characters !== undefined);
       const storyVariantsToRestore = data.storyVariants ?? [];
       if (data.storyVariants !== undefined) {
@@ -3472,7 +3485,8 @@ export const DB = {
           STORE_WORLDS, STORE_WORLD_EPISODES,
           'memory_nodes', 'memory_vectors', 'memory_links', 'topic_boxes', 'anticipations', 'event_boxes',
           'room_plates', 'digest_reports',
-          'memory_batches', 'pixel_home_assets', 'pixel_home_layouts'
+          'memory_batches', 'pixel_home_assets', 'pixel_home_layouts',
+          STORE_AGENDA, // [EM: em-backup-gaps]
       ].filter(name => db.objectStoreNames.contains(name));
 
       const hasStore = (storeName: string) => availableStores.includes(storeName);
@@ -3516,6 +3530,7 @@ export const DB = {
           data.emojiCategories !== undefined,
           data.assets !== undefined,
           data.voiceFavoritesIndex !== undefined, // [EM: text-voice-favorites]
+          data.contentFavoritesIndex !== undefined, // [EM: text-content-favorites]
           data.savedJournalStickers !== undefined,
           data.galleryImages !== undefined,
           data.diaries !== undefined,
@@ -3558,6 +3573,7 @@ export const DB = {
           data.lifeRecords !== undefined,
           data.medPlans !== undefined,
           data.lifeRecordSettings !== undefined,
+          data.agendaItems !== undefined, // [EM: em-backup-gaps]
           data.hotNewsSnapshots !== undefined,
           data.vrNovels !== undefined,
           data.vrAnnotations !== undefined,
@@ -3763,6 +3779,13 @@ export const DB = {
           data.voiceFavoritesIndex = undefined;
       }, data.voiceFavoritesIndex?.items.length || 0);
       // [EM-END: text-voice-favorites]
+      // [EM-START: text-content-favorites]
+      // 文字备份只带这一份索引：替换这一行，素材表其余内容（图片收藏副本、语音等）不动。
+      await runSection('聊天收藏', data.contentFavoritesIndex !== undefined, async () => {
+          await mergeStore(STORE_ASSETS, [{ id: CONTENT_FAVORITES_INDEX_ASSET_ID, data: data.contentFavoritesIndex }], '聊天收藏', false);
+          data.contentFavoritesIndex = undefined;
+      }, data.contentFavoritesIndex?.items.length || 0);
+      // [EM-END: text-content-favorites]
       await runSection('日记贴纸', data.savedJournalStickers !== undefined, async () => {
           await mergeStore(STORE_JOURNAL_STICKERS, data.savedJournalStickers, '日记贴纸', true);
           data.savedJournalStickers = undefined as any;
@@ -3916,7 +3939,10 @@ export const DB = {
           // 必须在 OSContext 那段「导入后跟云端对一次账」之前落地：那段的第一道门是
           // 「本机有没有 Worker 地址」，地址还没写回去的话它会整段跳过，旧档角色留在
           // 云端的无主任务就没人取消，等用户手填回地址时照样到点推送。
-          await importAmsg2GlobalConfig((data as any).amsg2GlobalConfig);
+          await importAmsg2GlobalConfig(
+              (data as any).amsg2GlobalConfig,
+              { allowBackendConnection: options.allowBackendConnection },
+          );
           (data as any).amsg2GlobalConfig = undefined;
       }, 1);
       await runSection('桌面皮肤偏好', (data as any).desktopSkinLocal !== undefined, async () => {
@@ -4073,6 +4099,12 @@ export const DB = {
           await clearAndAdd(STORE_LIFE_SETTINGS, data.lifeRecordSettings, '生活记录设置', false);
           data.lifeRecordSettings = undefined as any;
       }, data.lifeRecordSettings?.length || 0);
+      // [EM-START: em-backup-gaps]
+      await runSection('时光契约日程', data.agendaItems !== undefined, async () => {
+          await clearAndAdd(STORE_AGENDA, data.agendaItems, '时光契约日程', false);
+          data.agendaItems = undefined;
+      }, data.agendaItems?.length || 0);
+      // [EM-END: em-backup-gaps]
 
       // 热点快照（全角色共享缓存）
       await runSection('热点快照', data.hotNewsSnapshots !== undefined, async () => {

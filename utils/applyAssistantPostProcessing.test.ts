@@ -602,3 +602,29 @@ describe('visible category sticker recovery', () => {
         expect(rows.map(row => row.content).join('')).toContain('Cats: wave');
     });
 });
+
+// [EM-START: reply-stop]
+describe('停止回复：后处理不再落库', () => {
+    it('已经停了：一条都不落，抛 AbortError 交给调用方', async () => {
+        const charId = `c-stop-${Date.now()}`;
+        const ctx = makeCtx(charId, []);
+        ctx.instantRender = true;
+        const controller = new AbortController();
+        controller.abort();
+        ctx.signal = controller.signal;
+        await expect(applyAssistantPostProcessing('第一句\n第二句', ctx)).rejects.toMatchObject({ name: 'AbortError' });
+        expect(await DB.getRecentMessagesByCharId(charId, 20)).toEqual([]);
+    });
+
+    it('上屏途中停了：已经落的留着，后面的不落', async () => {
+        const charId = `c-stop-mid-${Date.now()}`;
+        const ctx = makeCtx(charId, []);
+        const controller = new AbortController();
+        ctx.signal = controller.signal;
+        ctx.hooks.setMessages = vi.fn(() => { controller.abort(); });
+        await expect(applyAssistantPostProcessing('第一句\n第二句\n第三句', ctx)).rejects.toMatchObject({ name: 'AbortError' });
+        const saved = (await DB.getRecentMessagesByCharId(charId, 20)).filter(message => message.role === 'assistant');
+        expect(saved.map(message => message.content)).toEqual(['第一句']);
+    });
+});
+// [EM-END: reply-stop]

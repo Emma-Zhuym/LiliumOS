@@ -53,13 +53,19 @@ export const refreshPocketCache = async (now = Date.now()): Promise<PocketCache>
     }
 };
 
-/** 这个角色还没说的，最新的在前；缓存里已经过了两天的也不显示（后端会让它过期，缓存可能还没刷新）。 */
+/**
+ * 这个角色还没说的，最新的在前。缓存里已经过了保质期的不显示——mini 不在线时缓存不会刷新，
+ * 不能让「待会儿喝」那种话一直挂着（阿萌 2026-10-19：草稿箱里一堆过时了也没说的话）。
+ * 旧后端没给保质期的按两天算。
+ */
 export const pocketItemsFor = (items: AgentPocketItem[], charId: string, now = Date.now()): AgentPocketItem[] =>
     items
         .filter(item => item.charId === charId)
         .filter(item => {
             const at = Date.parse(item.createdAt);
-            return Number.isFinite(at) && now - at < 48 * 60 * 60 * 1000;
+            if (!Number.isFinite(at)) return false;
+            const expires = item.expiresAt ? Date.parse(item.expiresAt) : at + 48 * 60 * 60 * 1000;
+            return Number.isFinite(expires) && now < expires;
         })
         .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
 // [EM-END: char-drives-pocket]

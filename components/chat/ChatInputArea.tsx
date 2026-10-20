@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
-import { ShareNetwork, Trash, Plus, Smiley, PaperPlaneTilt, Lightning, X, Money, BookOpenText, GearSix, Image, Lock, ArrowsClockwise, ChatCircleDots, CalendarBlank, ForkKnife, Coffee, Code, Brain, PencilSimple, BellSimpleRinging, NotePencil, GameController, Microphone, Waveform, Sparkle, CaretDown, FadersHorizontal, LinkSimple, MagicWand, Alarm, Star } from '@phosphor-icons/react'; // [EM: icons NotePencil/GameController/Microphone/Waveform]
+import { ShareNetwork, Trash, Plus, Smiley, PaperPlaneTilt, Lightning, X, Money, BookOpenText, GearSix, Image, Lock, ArrowsClockwise, ChatCircleDots, CalendarBlank, ForkKnife, Coffee, Code, Brain, PencilSimple, BellSimpleRinging, NotePencil, GameController, Microphone, Waveform, Sparkle, CaretDown, FadersHorizontal, LinkSimple, MagicWand, Alarm, Star, Stop } from '@phosphor-icons/react'; // [EM: icons NotePencil/GameController/Microphone/Waveform]
 import { intifaceClient } from '../../utils/intifaceClient'; // [EM: intiface]
 import { CharacterProfile, ChatTheme, EmojiCategory, Emoji, ApiPreset } from '../../types';
 import { PRESET_THEMES } from './ChatConstants';
@@ -32,6 +32,10 @@ interface ChatInputAreaProps {
     onAuxiliaryPanelChange?: (open: boolean) => void; // [EM: chat-quick-toolbar-auto-reply]
     onDeleteSelected: () => void;
     onForwardSelected?: () => void;
+    onFavoriteSelected?: () => void; // [EM: multi-select-favorite]
+    onStopReply?: () => void; // [EM: reply-stop]
+    canStopReply?: boolean; // [EM: reply-stop] 本机在生成，或还欠着一条云端回复
+    favoriteSelectedCount?: number; // [EM: multi-select-favorite]
     selectedCount: number;
     emojis: Emoji[];
     emojiSuggestionsEnabled?: boolean;
@@ -92,7 +96,7 @@ interface ChatInputAreaProps {
 
 const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     input, setInput, isTyping, selectionMode,
-    showPanel, setShowPanel, onSend, onDeleteSelected, onForwardSelected, selectedCount,
+    showPanel, setShowPanel, onSend, onDeleteSelected, onForwardSelected, onFavoriteSelected, favoriteSelectedCount = 0, onStopReply, canStopReply = false, selectedCount, // [EM: multi-select-favorite] [EM: reply-stop]
     sendButtonGenerates = true, enterToSend = true, onGenerate, // [EM: permanent-composer-generation]
     autoReplyEnabled = false, autoReplySeconds = null, onCancelAutoReply, onInputFocusChange, onAuxiliaryPanelChange,
     emojis, characters = [], activeCharacterId = '', onCharSelect = () => {},
@@ -139,7 +143,10 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     const canSwitchToGenerate = sendButtonGenerates && !!onGenerate;
     const canEndEditing = canSwitchToGenerate || autoReplyEnabled;
     const isGenerateButton = canSwitchToGenerate && !isInputFocused;
-    const primaryButtonDisabled = isGenerateButton ? isTyping : !input.trim();
+    // [EM-START: reply-stop] 回复进行中：生成钮（或空输入时的发送钮）变成停止
+    const isStopButton = !!onStopReply && canStopReply && (isGenerateButton || !input.trim());
+    const primaryButtonDisabled = isStopButton ? false : isGenerateButton ? isTyping : !input.trim();
+    // [EM-END: reply-stop]
 
     useEffect(() => {
         onInputFocusChange?.(isInputFocused);
@@ -568,6 +575,20 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
             
             {selectionMode ? (
                 <div className={`p-3 flex gap-2 ${isPixelStyle ? 'bg-[#f3e7d6]' : isDiscordStyle ? 'bg-slate-900/60 backdrop-blur-md' : 'bg-white/50 backdrop-blur-md'}`}>
+                    {/* [EM-START: multi-select-favorite] */}
+                    {onFavoriteSelected && (
+                        <button
+                            type="button"
+                            onClick={onFavoriteSelected}
+                            disabled={favoriteSelectedCount === 0}
+                            className="flex-1 min-w-0 py-3 font-bold active:scale-95 transition-transform flex items-center justify-center gap-2 disabled:opacity-40"
+                            style={{ background: HUE.amber.tint, color: HUE.amber.ink, borderRadius: R.button }}
+                        >
+                            <Star className="w-5 h-5" weight="bold" />
+                            收藏 ({favoriteSelectedCount})
+                        </button>
+                    )}
+                    {/* [EM-END: multi-select-favorite] */}
                     {onForwardSelected && (
                         <button
                             onClick={() => { onForwardSelected?.(); trackEvent('转发选中的消息'); }}
@@ -645,14 +666,16 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                             // 保留点下时的发送模式与光标，避免 blur 先于 click 把这一下变成生成。
                             if (canEndEditing && isInputFocused && e.button === 0) e.preventDefault();
                         }}
-                        onClick={isGenerateButton ? onGenerate : onSend}
+                        onClick={isStopButton ? onStopReply : isGenerateButton ? onGenerate : onSend} // [EM: reply-stop]
                         disabled={primaryButtonDisabled}
-                        aria-label={isGenerateButton ? (isTyping ? '正在生成回复' : '生成回复') : '发送文字'}
-                        title={isGenerateButton ? (isTyping ? '正在生成回复' : '让对方回复已发送的消息') : '发送文字'}
+                        aria-label={isStopButton ? '停止回复' : isGenerateButton ? (isTyping ? '正在生成回复' : '生成回复') : '发送文字'}
+                        title={isStopButton ? '停止这一轮回复，已经显示的会留下' : isGenerateButton ? (isTyping ? '正在生成回复' : '让对方回复已发送的消息') : '发送文字'}
                         className={`sully-chat-send-button ${sendButtonClass} ${primaryButtonDisabled ? 'opacity-45 shadow-none' : ''}`}
                     >
                         {sendButtonStyle === 'pill'
-                            ? <span>{isGenerateButton ? (isTyping ? '生成中' : '生成') : '发送'}</span>
+                            ? <span>{isStopButton ? '停止' : isGenerateButton ? (isTyping ? '生成中' : '生成') : '发送'}</span>
+                            : isStopButton
+                                ? <Stop className="w-5 h-5" weight="fill" />
                             : isGenerateButton
                                 ? <Lightning className={`w-5 h-5 ${isTyping ? 'animate-pulse' : ''}`} weight="fill" />
                                 : <PaperPlaneTilt className="w-5 h-5" weight="fill" />}
