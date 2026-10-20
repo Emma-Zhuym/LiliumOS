@@ -1,10 +1,16 @@
 # 角色更「活」· 契机池与劲儿系统 spec
 
-> **实施状态（2026-10-14）：第一阶段已做并上线（第 4 节 + 第 6 节的草稿箱和屏幕时间）；第二阶段（契机池）在分支 `feat/char-drives-cue-pool` 上做，未合并；第三、四阶段未开始。** 本文档是交接用的执行规格。
+> **实施状态（2026-10-14）：第一阶段已做并上线（第 4 节 + 第 6 节的草稿箱和屏幕时间）；第二阶段（契机池）在分支 `feat/char-drives-cue-pool` 上做，未合并（2026-10-20 修：抽中的念头只拼进这一轮的那一份提示词，本机主动消息、小小窝、彼方再拼同一个角色时不带）；第三、四阶段未开始。** 本文档是交接用的执行规格。
 > 第一阶段落地要点：话兜在 `server/agent-backend/pocket.mjs`（迁移 11，同时给 `model_runs` 加了 `reach_reason`）；
 > 开口缘由、读回生活、她那边的事在 `reachOut.mjs`；`runner.mjs` 的 `parseLife` / `parseEpisode` 保留 `tellLater`（礼物不留）；
 > 手机端 `utils/emAgentPocket.ts`（缓存）、`components/checkphone/DraftsWidget.tsx`、`utils/emScreenTime.ts`，查手机里三处哨兵。
 > 没有工具判断不了的那条「缘由用没用上」第一阶段不记，只记抽了什么。
+> **第二阶段（本分支，未合并）落地要点**：`utils/emCuePool.ts`（纯逻辑：掷不掷、按权重抽、冷却、本机记账 `em_cue_state_v1`、这一轮的念头）、
+> `utils/emCueProviders.ts`（四个来源：账本 / 冰箱 / 日历 / 他自己的生活，各一个纯函数 + 读数据；`rollChatCue` 每轮发送前调一次）。
+> 接线三处：`useChatAI.ts` 路由算完后 `await rollChatCue(...)`、查账工具执行后 `noteCueToolUse`；`chatPrompts.ts` volatileState 一行。
+> 朋友圈、天气、约定本来就每轮在提示词里，不另做来源；健康按第 9 节未定，不接。
+> 第一版另加了「两个念头至少隔 30 分钟」，免得连着两轮都在闪。worker 打包不含这段改动（已核对 amsg bundle 只有路径注释差异），合并后不用重打 worker。
+> **验收**：合并后在手机上聊二三十轮，控制台看 `💭 [Cue]`；`localStorage.em_cue_state_v1` 里各来源都应出现过，同一件事 3 天内不重复。
 > 来源：`docs/ideas.md`「角色更「活」」一节，阿萌与小帕 2026-10-14 当面讨论。
 > 那一节记的是讨论过程和取舍理由，这份只写「怎么搭」；两边冲突时以这份为准。
 

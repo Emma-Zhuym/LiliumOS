@@ -286,6 +286,11 @@ check "查手机草稿箱组件" apps/CheckPhone.tsx "import DraftsWidget from '
 check "查手机首页挂草稿箱" apps/CheckPhone.tsx "<DraftsWidget charId={targetChar.id} palette={CF} />"
 check "屏幕时间按真实记录算" apps/CheckPhone.tsx "const screenTime = summarizeScreenTime(records, { timeZone: resolveCharTimeZone(targetChar) });"
 
+echo "── 角色更活：聊天契机池（spec-character-drives 第二阶段）──"
+check "发送前抽念头" hooks/useChatAI.ts "await rollChatCue(char, {"
+check "查账算念头用上了" hooks/useChatAI.ts "noteCueToolUse(char.id, 'finance'); // [EM: char-drives-cue]"
+check "念头进提示词" utils/chatPrompts.ts "volatileState += buildCueInjection(char.id);"
+
 echo "── 多选收藏成一段对话 ──"
 check "多选底栏有收藏钮" components/chat/ChatInputArea.tsx "{/* [EM-START: multi-select-favorite] */}"
 check "Chat 接多选收藏" apps/Chat.tsx "onFavoriteSelected={handleFavoriteSelected} favoriteSelectedCount={favoriteSelectableCount} // [EM: multi-select-favorite]"

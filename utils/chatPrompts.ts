@@ -29,6 +29,7 @@ import { buildEmScribeInjection } from './emScribe'; // [EM: em-scribe]
 import { buildChronicleInjection } from './emAgentActivity'; // [EM: agent-backend-chronicle]
 import { buildMomentsChatInjection } from './emMomentsContext'; // [EM: moments-chat-context]
 import { buildPlansChatInjection } from './emAgentPlans'; // [EM: agent-plans]
+import { buildCueInjection } from './emCuePool'; // [EM: char-drives-cue]
 import { buildTemporalInjection } from './emTemporal'; // [EM: calendar-temporal]
 import { formatRelativeAge } from './groupChat/relativeTime';
 import { isBlobRef } from './blobRef';
@@ -621,6 +622,11 @@ ${groupLogStr}\n`;
             try { volatileState += buildPlansChatInjection(char.id, { timeZone: charTz || undefined }); } catch (e) { console.error('Failed to inject plans:', e); }
         }
         // [EM-END: agent-plans]
+        // [EM-START: char-drives-cue] 这一轮闪过的念头（发送前已抽好，没抽中就是空）
+        if (!forFirePack) {
+            try { volatileState += buildCueInjection(char.id); } catch (e) { console.error('Failed to inject cue:', e); }
+        }
+        // [EM-END: char-drives-cue]
         // [EM-START: calendar-temporal] 阿萌真实的日历 / 提醒（读本机缓存，不等网络）。
         // fire_pack 不烤：里面有「此刻在忙什么」，打包时算的那一句到点就过期了。
         if (!forFirePack) {
