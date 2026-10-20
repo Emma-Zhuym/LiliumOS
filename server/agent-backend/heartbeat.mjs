@@ -787,6 +787,28 @@ export const withPlanTime = (life, now, timezone) => {
  * 所以落审计时换成不点破的说法；**买了什么原样留在 `episode.life` 里**（排查看得到），
  * 真正的那一单也照常进投喂站，送到了自然揭晓。
  */
+/**
+ * 「顺手点了份外卖」「顺手发了个朋友圈」——可这一跳根本没抽到这件事，手机里也就没有记录（阿萌 2026-10-19 抓到两回）。
+ * 这些事在查手机里都会留痕，没留痕就是没做：把 activity / reason 里说做了却没做的那一小句删掉。
+ * 按逗号句号切成小句，只删认得出的那几种说法，别的不碰。
+ */
+const UNBACKED_CLAIMS = [
+    { kinds: ['delivery', 'gift'], re: /(?:点|订|叫)了?(?:份|个|一份|一单)?[^，。；,;]{0,6}(?:外卖|夜宵|宵夜|午餐|晚餐|简餐|饭)/ },
+    { kinds: ['order', 'gift'], re: /(?:下了?单|网购|淘宝|买了[^，。；,;]{0,8}(?:快递|到货))/ },
+    { kinds: ['moment'], re: /发了?(?:条|个|一条)?[^，。；,;]{0,6}朋友圈/ },
+    { kinds: ['xhs'], re: /刷了?(?:会儿|一会儿|下)?小红书/ },
+];
+
+export const stripUnbackedClaims = (text, life) => {
+    const value = String(text ?? '');
+    if (!value) return value;
+    const kind = life?.kind ?? null;
+    const parts = value.split(/(?<=[，。；,;])/);
+    const kept = parts.filter(part => !UNBACKED_CLAIMS.some(claim => !claim.kinds.includes(kind) && claim.re.test(part)));
+    if (kept.length === parts.length) return value;
+    return kept.join('').replace(/[，,；;]+$/, '').trim() || value;
+};
+
 export const veilSurprise = (output, life, userName) => {
     if (!life || life.kind !== 'gift' || !life.surprise) return { activity: output.activity, reason: output.reason };
     const who = userName || '对方';
@@ -1205,6 +1227,8 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
             : '现在你自己醒了一下，过你自己的日子。\n'
                 + '规则：activity 里用第一人称写你这会儿在做什么（40 字以内），'
                 + '贴着你当下的时段——在上班就是工作里的事，闲着就是闲着的事。'
+                // 只写真做了的：点外卖、下单、发朋友圈、刷小红书都会在手机里留记录，没让你做就别顺口说做了
+                + '点外卖、网购下单、发朋友圈、刷小红书这几样，只有下面要求你写这件事时才算做了；没要求的话，activity 和 reason 里都别说你做了。'
                 + (canSpeak
                     ? '一般 action 填 "noop"；但如果你心里正放不下 ta、此刻就想说（比如 ta 刚才在难过），'
                         + '那就别等：action 填 "message"，text 写你要说的话。'
@@ -1899,7 +1923,10 @@ export const createHeartbeatHandler = ({
         if (comments.length) life = { ...life, comments };
     }
     // 惊喜礼物不写进起居注的那一句里（阿萌翻得到），买了什么留在 episode.life。
-    const veiled = veilSurprise(output, life, userName);
+    const veiled = (veil => ({
+        activity: stripUnbackedClaims(veil.activity, life),
+        reason: stripUnbackedClaims(veil.reason, life),
+    }))(veilSurprise(output, life, userName));
     recordModelRun(db, {
         jobUuid: job.uuid,
         charId: character.charId,

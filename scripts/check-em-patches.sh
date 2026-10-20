@@ -241,6 +241,7 @@ check "推送失效提示：OSContext 弹说明" context/OSContext.tsx "em-agent
 check "心跳发照片：信箱落成待生成图片" utils/emAgentInbox.ts "parsePhotoBubble(chunk)"
 check "心跳发照片：提示词教写法" server/agent-backend/heartbeat.mjs "lines.push(PHOTO_HOW)"
 check "社会责任：聊天行为规范" utils/chatPrompts.ts "\${emDutySection(userProfile.name)}"
+check "聊天开头：只禁动作，不禁在一起" utils/chatPrompts.ts "\${emChatModeLine(userProfile.name)}"
 check "社会责任：心跳提示词" server/agent-backend/heartbeat.mjs "lines.push(DUTY_RULE)"
 check "印象档案：回包宽容解析" apps/Character.tsx "normalizeUserImpression(parseImpressionReply(content))"
 check "印象档案：提示词格式提醒" apps/Character.tsx "emImpressionJsonNote()"

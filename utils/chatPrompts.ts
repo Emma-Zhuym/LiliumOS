@@ -16,7 +16,7 @@ import { FISH_VOICE_ACTING_GUIDE } from './fishAudioTts';
 import { getTtsProvider, getVoicePromptOverride } from './ttsProvider';
 import { resolveCharTimeZone, nowInTimeZone } from './timezone';
 // [EM-START: prompt-addons] 个人化提示词全部在 emPromptAddons.ts，merge 时保住这行 import 和下面的调用点
-import { emSendPhotoAddon, emQuoteSection, emNotionDiarySection, emFeishuDiarySection, emUserNotesSection, emXhsSection, emNotionDiaryNudgePrompt, emFavPhotoAddon, emVoiceAwareAddon, emDutySection } from './emPromptAddons';
+import { emSendPhotoAddon, emQuoteSection, emNotionDiarySection, emFeishuDiarySection, emUserNotesSection, emXhsSection, emNotionDiaryNudgePrompt, emFavPhotoAddon, emVoiceAwareAddon, emDutySection, emChatModeLine } from './emPromptAddons';
 // [EM-END: prompt-addons]
 import { buildLifeRecordInjection } from './lifeRecords';
 import { isWorkerReachableUrl } from './amsgToolPack';
@@ -698,7 +698,7 @@ ${uname} 的化身正挂在《彼方》的【${roomName}】${act ? `，状态写
             && !(timelyByWorker && isAmsg2EnabledForChar(char));
 
         baseSystemPrompt += `### 聊天 App 行为规范 (Chat App Rules)
-            **严格注意，你正在手机聊天，无论之前是什么模式，哪怕上一句话你们还面对面在一起，当前，你都是已经处于线上聊天状态了，请不要输出你的行为**
+            ${emChatModeLine(userProfile.name)}
 1. **沉浸感**: 保持角色扮演。使用适合即时通讯(IM)的口语化风格。
 2. **行为模式**: 不要总是围绕用户转。分享你自己的生活、想法或随意的观察。有时候要”任性”或”以自我为中心”一点，这更像真人，具体的程度视你的性格而定。
 ${emDutySection(userProfile.name)}
