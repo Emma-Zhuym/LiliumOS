@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
     buildCueInjection, CUE_KEY_COOLDOWN_MS, CUE_MIN_GAP_MS, CUE_SOURCE_COOLDOWN_MS, CUE_SOURCE_WEIGHTS, formatCueInjection,
-    loadCueState, noteCueToolUse, pickCue, recordCuePicked, setPendingCue, shouldRollCue, type Cue,
+    getPendingCue, loadCueState, noteCueToolUse, pickCue, recordCuePicked, setPendingCue, shouldRollCue, type Cue,
 } from './emCuePool';
 
 const NOW = Date.parse('2026-10-14T20:00:00.000Z');
@@ -61,6 +61,14 @@ describe('契机池', () => {
         setPendingCue('lumi', null);
         expect(buildCueInjection('lumi')).toBe('');
         expect(buildCueInjection('nobody')).toBe('');
+    });
+
+    it('念头只拼进第一份提示词：之后的主动消息、小小窝拼同一个角色时不再带上', () => {
+        const c = cue('finance');
+        setPendingCue('lumi', c);
+        expect(buildCueInjection('lumi')).toContain('finance 的念头');
+        expect(buildCueInjection('lumi')).toBe('');
+        expect(getPendingCue('lumi')).toEqual(c);
     });
 });
 

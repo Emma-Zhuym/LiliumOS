@@ -1,6 +1,6 @@
 # 角色更「活」· 契机池与劲儿系统 spec
 
-> **实施状态（2026-10-14）：第一阶段已做并上线（第 4 节 + 第 6 节的草稿箱和屏幕时间）；第二阶段（契机池）在分支 `feat/char-drives-cue-pool` 上做，未合并；第三、四阶段未开始。** 本文档是交接用的执行规格。
+> **实施状态（2026-10-14）：第一阶段已做并上线（第 4 节 + 第 6 节的草稿箱和屏幕时间）；第二阶段（契机池）在分支 `feat/char-drives-cue-pool` 上做，未合并（2026-10-20 修：抽中的念头只拼进这一轮的那一份提示词，本机主动消息、小小窝、彼方再拼同一个角色时不带）；第三、四阶段未开始。** 本文档是交接用的执行规格。
 > 第一阶段落地要点：话兜在 `server/agent-backend/pocket.mjs`（迁移 11，同时给 `model_runs` 加了 `reach_reason`）；
 > 开口缘由、读回生活、她那边的事在 `reachOut.mjs`；`runner.mjs` 的 `parseLife` / `parseEpisode` 保留 `tellLater`（礼物不留）；
 > 手机端 `utils/emAgentPocket.ts`（缓存）、`components/checkphone/DraftsWidget.tsx`、`utils/emScreenTime.ts`，查手机里三处哨兵。

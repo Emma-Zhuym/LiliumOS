@@ -193,16 +193,23 @@ export const recordCuePicked = (charId: string, cue: Cue, route: string, now = D
 
 // ── 这一轮的契机（聊天提示词同步读）──────────────────────────────
 // 提示词是同步拼的，读数据是异步的：发送前先抽好放这里，拼提示词时取。
-// 每轮发送都会重新设一次（没抽中就是 null），所以不会把上一轮的念头带到下一轮。
-const pendingCue = new Map<string, Cue | null>();
+// 每轮发送都会重新设一次（没抽中就是 null）。但别的地方也会拼同一个角色的提示词
+// （本机主动消息、小小窝、彼方），所以念头只给拼进去的第一份用，拼过就不再给（2026-10-20 审查）。
+const pendingCue = new Map<string, { cue: Cue; injected: boolean }>();
 
-export const setPendingCue = (charId: string, cue: Cue | null) => { pendingCue.set(charId, cue); };
-export const getPendingCue = (charId: string): Cue | null => pendingCue.get(charId) ?? null;
+export const setPendingCue = (charId: string, cue: Cue | null) => {
+    if (cue) pendingCue.set(charId, { cue, injected: false });
+    else pendingCue.delete(charId);
+};
+/** 这一轮抽中的念头（拼没拼进提示词都算），记「用没用工具」时看。 */
+export const getPendingCue = (charId: string): Cue | null => pendingCue.get(charId)?.cue ?? null;
 
-/** chatPrompts 的 volatileState 调这个。没有念头就是空串。 */
+/** chatPrompts 的 volatileState 调这个。没有念头、或已经拼进过一次就是空串。 */
 export const buildCueInjection = (charId: string): string => {
-    const cue = getPendingCue(charId);
-    return cue ? formatCueInjection(cue) : '';
+    const entry = pendingCue.get(charId);
+    if (!entry || entry.injected) return '';
+    entry.injected = true;
+    return formatCueInjection(entry.cue);
 };
 
 /** 这一轮真调用了某组工具：如果这一轮的契机正是那一组，记一笔「用了」。 */
