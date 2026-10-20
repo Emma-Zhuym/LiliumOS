@@ -325,6 +325,8 @@ check "情绪评估带上劲儿事件段（本地）" hooks/useChatAI.ts "+ buil
 check "情绪评估带上劲儿事件段（上云）" hooks/useChatAI.ts "+ buildDriveEventsEvalSection() // [EM: char-drives-engine]"
 check "解析保留劲儿事件" utils/emotionApply.ts "driveEvents: Array.isArray(v.driveEvents) ? v.driveEvents : undefined, // [EM: char-drives-engine]"
 check "评估落地时送去 mini" utils/emotionApply.ts "void sendDriveEventsFromEval(result, charData.id); // [EM: char-drives-engine]"
+check "角色字段：脾气读数" types.ts "emDriveTemperament?: DriveTemperament;"
+check "快照带上脾气读数" utils/emAgentSnapshot.ts "driveTemperament: char.emDriveTemperament"
 
 echo ""
 if [ $FAIL -gt 0 ]; then

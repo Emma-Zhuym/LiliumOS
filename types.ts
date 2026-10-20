@@ -2704,6 +2704,21 @@ export interface MemoryPalaceWaterlineConfig {
   bufferThreshold?: number;
 }
 
+// [EM-START: char-drives-engine] 脾气读数（docs/spec-character-drives.md 5.6）
+export type DriveKey = 'miss' | 'curious' | 'reminisce' | 'social' | 'stress' | 'sulk' | 'concern' | 'desire' | 'tired';
+export type DriveLevel = 'low' | 'mid' | 'high';
+export interface DriveTemperament {
+  baseline: Partial<Record<DriveKey, DriveLevel>>;
+  sensitivity: Partial<Record<DriveKey, DriveLevel>>;
+  recovery: 'fast' | 'mid' | 'slow';
+  stressOutlet: 'friends' | 'user' | 'work' | 'alone';
+  disabled: DriveKey[];
+  source: 'auto' | 'confirmed';
+  generatedAt: number;
+  reasoning?: string;
+}
+// [EM-END: char-drives-engine]
+
 export interface CharacterProfile {
   id: string;
   name: string;
@@ -2711,6 +2726,8 @@ export interface CharacterProfile {
   chatApiPresetId?: string;
   /** [EM: heartbeat-api] Mac mini 心跳用哪套 API：空 = 副 API 优先、没有就跟聊天 API；'chat' = 跟聊天 API；其余是设置里命名预设的 id */
   heartbeatApiPresetId?: string;
+  /** [EM: char-drives-engine] 脾气读数：副 API 读人设生成、阿萌可改，随快照给 mini 的劲儿系统（utils/emTemperament.ts） */
+  emDriveTemperament?: DriveTemperament;
   themeColor?: number; // [EM: theme-color] 小小窝日程小组件主题色相 (hsl hue 0-360)，undefined=默认260紫
   avatar: string;
   /**

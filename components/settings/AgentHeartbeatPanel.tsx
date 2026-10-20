@@ -14,6 +14,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useOS } from '../../context/OSContext';
 import { DB } from '../../utils/db';
 import { HEARTBEAT_API_AUTO, HEARTBEAT_API_CHAT, resolveHeartbeatApi } from '../../utils/emHeartbeatApi';
+import TemperamentEditor from './TemperamentEditor'; // [EM: char-drives-engine]
 import { buildCharacterSnapshot } from '../../utils/emAgentSnapshot';
 import {
     AgentBackend,
@@ -225,6 +226,8 @@ export default function AgentHeartbeatPanel({ open, onClose }: Props) {
                             {connected && backend?.credRef && credModels[backend.credRef] && (
                                 <p className="mt-1 text-[10px] text-slate-400">心跳在用：{credModels[backend.credRef]}</p>
                             )}
+                            {/* [EM: char-drives-engine] 脾气读数：读人设生成、可改，随快照给 mini */}
+                            <TemperamentEditor char={char} />
                         </div>
                         <div className="flex shrink-0 gap-2">
                             <button disabled={busy} onClick={() => void handleConnect(char.id)} className={BTN}>
