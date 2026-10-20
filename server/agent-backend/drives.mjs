@@ -50,6 +50,13 @@ const MISS_DRIFT = {
  * - 在一块的亲密：当作满足了，落到四成，之后 3 小时不应期（这段时间不再往上推，早上的脉冲也不算）
  */
 const DESIRE_REFRACTORY_MS = 3 * 60 * 60 * 1000;
+/**
+ * 两个人的时间：说了去洗澡 / 在床上等你之后，这么久里心跳整个跳过——不发消息、也不写跟朋友聊天之类的生活小事。
+ * 看到事后的话就提前结束；没看到也最多这么久。
+ */
+export const PRIVATE_MOMENT_MS = 2 * 60 * 60 * 1000;
+export const inPrivateMoment = (state, now = new Date()) =>
+    Boolean(state?.privateUntil) && now.getTime() < Date.parse(state.privateUntil);
 const DESIRE_MORNING = 0.1;
 
 /** 撒娇 / 亲密时「想你」怎么变：在一块是满足了，分开时是更想见面。 */
@@ -76,7 +83,12 @@ export const NEGATIVE_LABELS = new Set(['cold', 'dismissive', 'conflict', 'broke
 export const LABEL_EFFECTS = {
     // 她这边
     affectionate: { miss: -0.10, desire: 0.05, sulk: -0.10 },
-    intimate: { desire: 0.15, miss: -0.10 },
+    // 亲密分三段（阿萌 2026-10-19：调情到位了 → 说去洗澡 / 在床上等 → 一个多小时后发事后的话，这样就算做过了）
+    flirt: { desire: 0.15, miss: -0.05 },
+    getting_intimate: { desire: 0.10 },
+    intimacy_done: { sulk: -0.05 },
+    // 旧手机 / 旧评估还会送 intimate：当调情算
+    intimate: { desire: 0.15, miss: -0.05 },
     vulnerable: { concern: 0.15 },
     reassuring: { sulk: -0.30, stress: -0.10 },
     sharing: { curious: 0.05, miss: -0.05 },
@@ -94,7 +106,7 @@ export const LABEL_EFFECTS = {
     friend_fun: { social: -0.10, stress: -0.05 },
     tired_day: { tired: 0.15 },
 };
-export const CHAT_LABELS = ['affectionate', 'intimate', 'vulnerable', 'reassuring', 'sharing', 'cold', 'dismissive', 'conflict', 'broken_promise', 'pressing', 'concern_fact', 'neutral'];
+export const CHAT_LABELS = ['affectionate', 'flirt', 'getting_intimate', 'intimacy_done', 'intimate', 'vulnerable', 'reassuring', 'sharing', 'cold', 'dismissive', 'conflict', 'broken_promise', 'pressing', 'concern_fact', 'neutral'];
 export const SELF_LABELS = ['work_trouble', 'work_win', 'friend_fun', 'tired_day'];
 
 /** 真做完了：按比例往下落（乘性），之后两跳内这股不再加权。 */
@@ -216,11 +228,14 @@ export const applyLabel = (state, { label, quote = '', source = 'chat', now = ne
     if (!table) return { state, changes: [], rejected: 'unknown_label' };
     // 撒娇 / 亲密对「想你」的作用看你们此刻在不在一块
     const apart = apartnessOf(state, now);
-    const togetherIntimacy = label === 'intimate' && apart === 'together';
+    // 事后才算满足（不管此刻判的是不是在一块：隔着屏幕也可能是两个人的时间）
+    const togetherIntimacy = label === 'intimacy_done';
     const refractory = state.desireRefractoryUntil && now.getTime() < Date.parse(state.desireRefractoryUntil);
-    let effects = label === 'affectionate' || label === 'intimate'
+    let effects = label === 'affectionate' || label === 'flirt' || label === 'intimate'
         ? { ...table, miss: AFFECTION_MISS[apart] }
-        : table;
+        : label === 'intimacy_done'
+            ? { ...table, miss: -0.15 }
+            : table;
     // 在一块的亲密不往上冲（下面当作满足处理）；不应期里性欲不再往上推
     if (togetherIntimacy || (refractory && (effects.desire ?? 0) > 0)) effects = { ...effects, desire: 0 };
     const cleanQuote = String(quote ?? '').trim().slice(0, 120);
@@ -253,7 +268,8 @@ export const applyLabel = (state, { label, quote = '', source = 'chat', now = ne
     return {
         state: {
             ...state,
-            ...(togetherIntimacy ? { desireRefractoryUntil: new Date(now.getTime() + DESIRE_REFRACTORY_MS).toISOString() } : {}),
+            ...(togetherIntimacy ? { desireRefractoryUntil: new Date(now.getTime() + DESIRE_REFRACTORY_MS).toISOString(), privateUntil: null } : {}),
+            ...(label === 'getting_intimate' ? { privateUntil: new Date(now.getTime() + PRIVATE_MOMENT_MS).toISOString() } : {}),
             values,
             labels: { ...(state.labels ?? {}), [label]: { at: now.toISOString(), repeats } },
             sulkEvidence: sulkReset ? null : sulkUp ? { at: now.toISOString(), quote: cleanQuote, label } : state.sulkEvidence,

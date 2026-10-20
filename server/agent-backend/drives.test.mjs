@@ -183,11 +183,13 @@ test('心跳：别扭有原话作证时，开口的缘由可以是把不满说�
     assert.ok(loadState(db, CHAR, AT).values.sulk < s.values.sulk, '说出来了就落一截');
 });
 
-test('性欲（念想）：分开时被撩往上冲；在一块的亲密算满足，之后 3 小时不应期；早上小脉冲；累了、上班时压着', () => {
+test('性欲（念想）：调情往上冲；事后才算满足，之后 3 小时不应期；早上小脉冲；累了、上班时压着', () => {
     const together = withApartness(freshState(DEFAULT_BASELINE, AT), 'together', AT);
     const apart = withApartness(freshState(DEFAULT_BASELINE, AT), 'far', AT);
-    assert.ok(applyLabel(apart, { label: 'intimate', now: AT }).state.values.desire > DEFAULT_BASELINE.desire);
-    const after = applyLabel({ ...together, values: { ...together.values, desire: 0.7 } }, { label: 'intimate', now: AT }).state;
+    assert.ok(applyLabel(apart, { label: 'flirt', now: AT }).state.values.desire > DEFAULT_BASELINE.desire);
+    assert.ok(applyLabel(together, { label: 'flirt', now: AT }).state.values.desire > DEFAULT_BASELINE.desire, '在一块调情也是升温，不是满足');
+    assert.ok(applyLabel(apart, { label: 'intimate', now: AT }).state.values.desire > DEFAULT_BASELINE.desire, '旧标签当调情');
+    const after = applyLabel({ ...together, values: { ...together.values, desire: 0.7 } }, { label: 'intimacy_done', now: AT }).state;
     assert.ok(Math.abs(after.values.desire - 0.28) < 1e-9, '落到四成');
     assert.ok(after.desireRefractoryUntil);
     const flirtDuring = applyLabel(after, { label: 'affectionate', now: new Date(AT.getTime() + H) }).state;
@@ -210,7 +212,7 @@ test('脾气读数：基线、敏感度、回落快慢按角色自己的；不�
     const easy = applyTemperament(freshState(DEFAULT_BASELINE, AT), { sensitivity: { sulk: 'low' }, recovery: 'fast' });
     const hurt = st => applyLabel(st, { label: 'cold', quote: '嗯', now: AT }).state.values.sulk;
     assert.ok(hurt(touchy) > hurt(easy), '同一句「嗯」，敏感的人更在意');
-    assert.equal(applyLabel(touchy, { label: 'intimate', now: AT }).state.values.desire, 0, '不适用的不涨');
+    assert.equal(applyLabel(touchy, { label: 'flirt', now: AT }).state.values.desire, 0, '不适用的不涨');
     const stressed = { ...touchy, values: { ...touchy.values, stress: 0.8 } };
     assert.match(formatFeelings(stressed).text, /习惯找朋友吐槽/);
     assert.ok(lifeWeightFactors(stressed).chat > lifeWeightFactors({ ...stressed, stressOutlet: null }).chat);
@@ -218,4 +220,28 @@ test('脾气读数：基线、敏感度、回落快慢按角色自己的；不�
     const slowLater = evolve({ ...touchy, values: { ...touchy.values, sulk: 0.6 } }, new Date(AT.getTime() + 6 * H), { localHour: 15 }).values.sulk;
     const fastLater = evolve({ ...easy, values: { ...easy.values, sulk: 0.6 } }, new Date(AT.getTime() + 6 * H), { localHour: 15 }).values.sulk;
     assert.ok(slowLater > fastLater);
+});
+
+test('两个人的时间：说要开始了就进去，事后就出来，最多两小时；这期间心跳连模型都不叫，手动补跑也一样', async () => {
+    const { PRIVATE_MOMENT_MS, inPrivateMoment } = await import('./drives.mjs');
+    const s0 = withApartness(freshState(DEFAULT_BASELINE, AT), 'together', AT);
+    const going = applyLabel(applyLabel(s0, { label: 'flirt', now: AT }).state, { label: 'getting_intimate', now: AT }).state;
+    assert.equal(inPrivateMoment(going, new Date(AT.getTime() + H)), true);
+    assert.equal(inPrivateMoment(going, new Date(AT.getTime() + PRIVATE_MOMENT_MS + 1)), false, '最多两小时');
+    const done = applyLabel(going, { label: 'intimacy_done', now: new Date(AT.getTime() + 70 * 60_000) }).state;
+    assert.equal(inPrivateMoment(done, new Date(AT.getTime() + 80 * 60_000)), false, '事后就结束');
+    assert.ok(done.values.desire < going.values.desire);
+    assert.ok(done.desireRefractoryUntil);
+
+    const db = freshDb();
+    setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+    const character = upsertCharacter(db, { charId: CHAR, heartbeatEnabled: true });
+    seedSnapshot(db);
+    saveState(db, CHAR, going);
+    let called = false;
+    const runner = { run: async () => { called = true; return { ok: true, output: { action: 'message', activity: '等她洗澡', reason: '', text: '在干嘛' } }; } };
+    const result = await handlerFor(db, runner)({ uuid: 'manual:x', kind: 'heartbeat', charId: CHAR, generation: character.heartbeatGeneration, attempts: 1, input: { retry: 1 } });
+    assert.deepEqual(result, { skipped: 'private_moment' });
+    assert.equal(called, false, '模型都不叫');
+    assert.equal(db.prepare("SELECT skip_gate FROM model_runs ORDER BY id DESC LIMIT 1").get().skip_gate, 'private_moment');
 });

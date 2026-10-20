@@ -32,7 +32,7 @@ import { formatPartnerBrief, isRepeatChat, pickPartner, recentPartners } from '.
 import {
     SELF_LABELS, applyLabel, chanceFactor as driveChanceFactor, evolve as evolveDrives, formatFeelings, grievanceOf,
     lifeWeightFactors, loadState as loadDriveState, satisfy as satisfyDrive, saveState as saveDriveState, writeLedger as writeDriveLedger,
-    APARTNESS, applyTemperament, withApartness,
+    APARTNESS, applyTemperament, inPrivateMoment, withApartness,
 } from './drives.mjs';
 import { buildCatchUp, formatCatchUp, formatReachReason, herSideCues, pickReachReason, recentLife } from './reachOut.mjs';
 
@@ -1710,6 +1710,20 @@ export const createHeartbeatHandler = ({
         localHour: Math.floor(localMinutesOf(startedAt, timezone) / 60),
         busy: isWorkSlot(currentSlot(withTodaySchedule(snapshot, startedAt), startedAt, timezone)),
     });
+    // 两个人的时间（说了去洗澡 / 在床上等之后，还没看到事后的话）：这一跳整个跳过，连模型都不叫
+    if (inPrivateMoment(drives, startedAt)) {
+        recordModelRun(db, {
+            jobUuid: job.uuid,
+            charId: character.charId,
+            runtime: character.runtime,
+            startedAt: startedAt.toISOString(),
+            ok: true,
+            outcome: 'skipped',
+            skipGate: 'private_moment',
+            shadow,
+        });
+        return { skipped: 'private_moment' };
+    }
     const { intent } = decideIntent({
         snapshot,
         now: startedAt,

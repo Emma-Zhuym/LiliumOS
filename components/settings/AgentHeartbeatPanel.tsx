@@ -41,6 +41,7 @@ const GATE_LABELS: Record<string, string> = {
     active_chat: '你们正在聊天',
     message_cooldown: '离上次主动消息太近',
     daily_budget: '今天想得够多了',
+    private_moment: '两个人的时间', // [EM: char-drives-engine]
 };
 
 const OUTCOME_LABELS: Record<string, string> = {

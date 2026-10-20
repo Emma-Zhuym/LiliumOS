@@ -13,7 +13,7 @@
 import { AgentBackend, isAgentPaired } from './emAgentBackend';
 
 export const DRIVE_EVENT_LABELS = [
-    'affectionate', 'intimate', 'vulnerable', 'reassuring', 'sharing',
+    'affectionate', 'flirt', 'getting_intimate', 'intimacy_done', 'vulnerable', 'reassuring', 'sharing',
     'cold', 'dismissive', 'conflict', 'broken_promise', 'pressing', 'concern_fact',
 ] as const;
 export type DriveEventLabel = typeof DRIVE_EVENT_LABELS[number];
@@ -32,7 +32,9 @@ export const buildDriveEventsEvalSection = (): string => {
 只看**对方（用户）最近这几条消息里做了什么**，挑 0–${MAX_EVENTS} 个最贴切的标签，写进 JSON 的 "driveEvents" 数组：[{"label": "...", "quote": "她的原话"}]。
 标签只能从下面选，不看角色人设、只看对方的行为：
 - affectionate：亲昵、撒娇、说想你 / 喜欢你
-- intimate：亲密、调情
+- flirt：调情、在升温
+- getting_intimate：说要开始了——去洗澡等对方、在床上等着、说「来吧」这类（之后多半会有一段时间不发消息）
+- intimacy_done：亲热完了，在说事后的话（事后的撒娇、困了、「刚才……」）
 - vulnerable：难受、生病、哭、说自己很累很崩溃
 - reassuring：安抚、道歉、和好
 - sharing：兴冲冲分享一件事
