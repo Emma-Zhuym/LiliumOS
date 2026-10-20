@@ -18,6 +18,8 @@ import {
 } from './heartbeat.mjs';
 import { getSnapshot } from './snapshots.mjs';
 import { isDriveTrial } from './drives.mjs';
+import { readAdminSettings } from './adminSettings.mjs';
+import { createXhsLoginProbe } from './xhsFeed.mjs';
 import { createHaWatchdogHandler, createTemporalRefreshHandler, createTestPingHandler, probeHomeAssistant, syncState } from './kinds.mjs';
 import { createApiRunner, createCodexRunnerStub } from './runner.mjs';
 import { createJob, inQuietWindow, recoverStaleLeases, runTick } from './jobs.mjs';
@@ -40,6 +42,8 @@ export const createContext = async (config = loadConfig()) => {
     // 小红书：令牌文件缺了就当没接，心跳抽中「逛小红书」时退回发朋友圈。
     const xhsToken = readSecret(config, 'xhs-mcp-token');
     const xhs = xhsToken ? createMcpClient({ url: config.xhsMcpUrl, token: xhsToken }) : null;
+    // 机房 App 连接页：小红书还登没登着（查一次要开浏览器，带缓存，见 xhsFeed.mjs）
+    const xhsLogin = xhs ? createXhsLoginProbe(xhs) : null;
 
     /** 写信箱 + 推送 + 记投递结果。所有对外说话都走这一个口子。 */
     const deliver = async ({ messageId, charId = null, jobUuid = null, kind, payload, title, body, notify = true, pushPayload = null }) => {
@@ -157,12 +161,16 @@ export const createContext = async (config = loadConfig()) => {
                 push: { ok: pusher.ready, detail: pusher.reason, activeDevices },
                 // Codex 那条路还没接：如实报「没有」，前端据此不给 codex 角色开心跳。
                 codex: { ok: false, detail: 'not-implemented' },
+                // 没配小红书令牌就不报这一项；配了报登录态（logged_in 才算好）
+                ...(xhsLogin ? { xhs: (({ state, checkedAt }) => ({ ok: state === 'logged_in', detail: state, checkedAt }))(xhsLogin.peek()) } : {}),
             },
             heartbeat: {
                 // 影子期：照常判断、照常调模型，但不发消息、不执行工具。
                 shadow: isShadowMode(db),
                 // 劲儿试运行：只记账、不影响角色（drives.mjs isDriveTrial）。面板据此提示「还在试运行」。
                 drivesTrial: isDriveTrial(db),
+                // 解析失败时存模型原文：排查开关，开着要记得关（机房 App 里看得到）
+                captureRawOnError: readAdminSettings(db).captureRawOnError,
                 // 试跑提速开着时必须报出来，否则很容易忘了它还在生效。
                 everyMinOverride: config.heartbeatEveryMinOverride || null,
                 // 前端据此显示「平均 60 分钟（约 30–90）」，不必自己再抄一份幅度。

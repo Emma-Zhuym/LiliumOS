@@ -7,14 +7,10 @@
 
 import React, { useState } from 'react';
 
-import { useOS } from '../../context/OSContext';
-import { DB } from '../../utils/db';
 import type { CharacterProfile, DriveKey, DriveLevel, DriveTemperament } from '../../types';
-import { buildCharacterSnapshot } from '../../utils/emAgentSnapshot';
-import { flushSnapshotUpload, isAgentPaired } from '../../utils/emAgentBackend';
-import { resolveHeartbeatApi } from '../../utils/emHeartbeatApi';
+import { useTemperament } from '../../hooks/useTemperament';
 import {
-    DRIVE_KEYS, DRIVE_NAMES, LEVEL_NAMES, OUTLET_NAMES, RECOVERY_NAMES, editTemperament, generateTemperament,
+    DRIVE_KEYS, DRIVE_NAMES, LEVEL_NAMES, OUTLET_NAMES, RECOVERY_NAMES, editTemperament,
 } from '../../utils/emTemperament';
 
 const SELECT = 'rounded-lg border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] text-slate-500 outline-none';
@@ -22,36 +18,8 @@ const BTN = 'px-2 py-1 bg-white border border-slate-200 rounded-lg text-[10px] f
 const LEVELS: DriveLevel[] = ['low', 'mid', 'high'];
 
 export default function TemperamentEditor({ char }: { char: CharacterProfile }) {
-    const { addToast, apiConfig, apiPresets, updateCharacter, userProfile } = useOS();
     const [open, setOpen] = useState(false);
-    const [busy, setBusy] = useState(false);
-    const t = char.emDriveTemperament;
-
-    const save = async (next: DriveTemperament) => {
-        updateCharacter(char.id, { emDriveTemperament: next });
-        if (!isAgentPaired()) return;
-        try {
-            const messages = await DB.getMessagesByCharId(char.id);
-            await flushSnapshotUpload(await buildCharacterSnapshot({ ...char, emDriveTemperament: next }, messages, { userName: userProfile?.name }));
-        } catch { /* 下次聊天或打开 App 时会再传 */ }
-    };
-
-    const read = async () => {
-        setBusy(true);
-        try {
-            const emotionApi = char.emotionConfig?.api;
-            const api = emotionApi?.baseUrl && emotionApi.apiKey && emotionApi.model
-                ? emotionApi
-                : resolveHeartbeatApi(char, apiConfig, apiPresets);
-            const next = await generateTemperament(char, api);
-            await save(next);
-            addToast(`读好了：${next.reasoning || char.name}`, 'success');
-        } catch (error) {
-            addToast(error instanceof Error ? error.message : '读脾气失败', 'error');
-        } finally {
-            setBusy(false);
-        }
-    };
+    const { temperament: t, busy, save, read } = useTemperament(char); // [EM: machine-room] 跟机房 App 共用
 
     const setLevel = (field: 'baseline' | 'sensitivity', key: DriveKey, level: DriveLevel) =>
         t && void save(editTemperament(t, { [field]: { ...t[field], [key]: level } }));

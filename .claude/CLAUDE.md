@@ -400,6 +400,13 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - `utils/activeMsgRuntime.ts`：收件箱见到停过的 turnId 直接丢掉
 - mini 后端 `POST /chat/turns/cancel`（`server/agent-backend/chatTurns.mjs`）：还没开跑的取消，正在跑的掐掉模型请求、跑完不推不进信箱。改后端要在 mini 上拉代码重启
 
+### 37. 机房 App（Mac mini 后端的家，2026-10-20）
+- `apps/MachineRoomApp.tsx` + `components/machineRoom/*`：此刻（mini 在不在、各角色刚才干嘛、下一跳几点）/ 记录（心跳流水筛选）/ 连接（服务状态 + 开关）；角色详情里有心跳、心里、脾气、攒着想说的、最近几跳。主色 mint，纯逻辑在 `utils/emMachineRoom.ts`
+- 接入和脾气读写跟设置页的心跳面板共用：`utils/emAgentConnect.ts`（`connectCharacterToAgent`）、`hooks/useTemperament.ts`，别再各写一份
+- 开关走后端 `GET/POST /settings`（`server/agent-backend/adminSettings.mjs`）：**只认白名单**（只试跑、劲儿试运行、存原文、安静时段），一项不对整批不改；关掉「只试跑」要确认。新开关加进白名单之前想清楚该不该从手机改
+- 状态里的小红书登录态查一次要开浏览器，`createXhsLoginProbe` 带 10 分钟缓存、不在请求里现等；`GET /characters` 带 `nextHeartbeatAt`
+- 上游文件只有接线：`types.ts` AppID、`constants.tsx` 图标、`PhoneShell.tsx` 路由、`safeAreaApps.ts`（测试里的名单也要加），设置页 `AgentBackendSection` 一个「打开机房」入口。配对、推送登记还在设置页
+
 ### 34. 小厨房（现实食品库存）
 - 详细设计与每次改动见 `docs/kitchen-3d.md`；UI 规则见 `APP_CONVENTIONS.md` 的 P14 与 `utils/kitchenPaperTokens.ts`
 - `utils/kitchenDb.ts` 是唯一能改库存的地方（独立库 `LiliumOS_Kitchen`）：每次改数量记一笔事件、带 operationId 去重；**一起发生的一批（拍一张小票、做一道菜）一个事务写完、同一个 `batchId`，「撤销最近操作」整批撤回**，做菜撤销连「做过几次」一起退

@@ -337,6 +337,13 @@ check "查手机状态小组件" apps/CheckPhone.tsx "<StatusWidget charId={targ
 check "聊天工具栏：贴贴按钮" components/chat/ChatInputArea.tsx "<PrivateMomentButton"
 check "心跳面板：劲儿试运行提示" components/settings/AgentHeartbeatPanel.tsx "setDrivesTrial(typeof status.heartbeat?.drivesTrial"
 
+echo "── 机房 App（Mac mini 后端的家）──"
+check "AppID：机房" types.ts "MachineRoom = 'machine_room', // [EM: machine-room]"
+check "桌面图标：机房" constants.tsx "{ id: AppID.MachineRoom, name: '机房', icon: 'MachineRoom', color: 'teal' }, // [EM: machine-room]"
+check "PhoneShell 路由：机房" components/PhoneShell.tsx "case AppID.MachineRoom: return <MachineRoomApp />; // [EM: machine-room]"
+check "安全区自理：机房" utils/safeAreaApps.ts "AppID.MachineRoom, // [EM: machine-room]"
+check "设置页入口：打开机房" components/settings/AgentBackendSection.tsx "openApp(AppID.MachineRoom)"
+
 echo ""
 if [ $FAIL -gt 0 ]; then
     echo "🔴 $FAIL 项缺失（$PASS 项通过）——EM 功能被 merge 冲掉了，对照 .claude/CLAUDE.md 补回来"

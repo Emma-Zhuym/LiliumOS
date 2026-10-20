@@ -63,6 +63,7 @@ const SmartHomeApp = lazyApp(() => import('../apps/SmartHomeApp'));
 const MomentsApp = lazyApp(() => import('../apps/MomentsApp')); // [EM: moments]
 const CalendarApp = lazyApp(() => import('../apps/CalendarApp')); // [EM: calendar-temporal]
 const KitchenApp = lazyApp(() => import('../apps/KitchenApp')); // [EM: kitchen-app]
+const MachineRoomApp = lazyApp(() => import('../apps/MachineRoomApp')); // [EM: machine-room]
 const ContactsList = lazyApp(() => import('../components/chat/ContactsList'));
 
 // 预取优先级：高频/常驻 App 先预热，其余随后；逐个在空闲时触发，避免与交互抢主线程/带宽。
@@ -72,7 +73,7 @@ const APP_IDLE_PRELOAD_ORDER: PreloadableLazy[] = [
   StudyApp, GameApp, NovelApp, BankApp, WorldbookApp, MemoryPalaceApp, HandbookApp,
   VRWorldApp, WorldHomeApp, LifeSimApp, SongwritingApp, GuidebookApp, FAQApp, HotNewsApp,
   XhsStockApp, XhsFreeRoamApp, BrowserApp, VoiceDesignerApp, ThemeMaker, QQBridge,
-  SpecialMomentsApp, CharCreatorDevApp, SmartHomeApp, MomentsApp, CalendarApp, KitchenApp, // [EM: moments] [EM: calendar-temporal] [EM: kitchen-app]
+  SpecialMomentsApp, CharCreatorDevApp, SmartHomeApp, MomentsApp, CalendarApp, KitchenApp, MachineRoomApp, // [EM: moments] [EM: calendar-temporal] [EM: kitchen-app] [EM: machine-room]
 ];
 
 const IDLE_PRELOAD_START_MS = 600;
@@ -97,6 +98,7 @@ const APP_BY_ID: Partial<Record<AppID, PreloadableLazy>> = {
   [AppID.WorldHome]: WorldHomeApp,
   [AppID.Map]: MapApp, [AppID.Health]: HealthApp, [AppID.Shopping]: ShoppingApp, [AppID.SmartHome]: SmartHomeApp, [AppID.Moments]: MomentsApp, [AppID.Calendar]: CalendarApp, // EM
   [AppID.Kitchen]: KitchenApp, // [EM: kitchen-app]
+  [AppID.MachineRoom]: MachineRoomApp, // [EM: machine-room]
 };
 // 注入负载预热器：AppIcon 的 pointerdown → preloadApp(id) → 这里 warmLazy，连 React.lazy 负载一起解析。
 setAppPayloadWarmer((id: AppID) => APP_BY_ID[id]?.preload());
@@ -856,6 +858,7 @@ const PhoneShell: React.FC = () => {
       case AppID.Moments: return <MomentsApp />; // [EM: moments]
       case AppID.Calendar: return <CalendarApp />; // [EM: calendar-temporal]
       case AppID.Kitchen: return <KitchenApp />; // [EM: kitchen-app]
+      case AppID.MachineRoom: return <MachineRoomApp />; // [EM: machine-room]
       case AppID.SpecialMoments: return <SpecialMomentsApp />;
       case AppID.VRWorld: return <VRWorldApp />;
       case AppID.WorldHome: return <WorldHomeApp />;

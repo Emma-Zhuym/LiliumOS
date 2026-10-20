@@ -21,6 +21,7 @@ import {
 } from './drives.mjs';
 import { getSnapshot, listSnapshotMeta, putSnapshot } from './snapshots.mjs';
 import { getSetting, setSetting } from './db.mjs';
+import { readAdminSettings, writeAdminSettings } from './adminSettings.mjs';
 import {
     createReminder, listTemporalItems, readVisibility, removeTemporalItems, setReminderCompleted,
     upsertTemporalItem, veilForCharacter, VISIBILITY, SOURCES_TIMEOUT_MS,
@@ -120,6 +121,9 @@ export const createRouter = ctx => {
         },
 
         'GET /status': { handle: () => ctx.buildStatus() },
+        // 机房 App 的开关：只认白名单里那几项（adminSettings.mjs）
+        'GET /settings': { handle: () => ({ settings: readAdminSettings(db) }) },
+        'POST /settings': { handle: ({ body }) => ({ settings: writeAdminSettings(db, body.settings) }) },
 
         'GET /devices': { handle: () => ({ devices: listDevices(db) }) },
         'POST /devices/push': {
@@ -178,7 +182,15 @@ export const createRouter = ctx => {
             handle: ({ body }) => ({ cancelled: cancelJob(db, String(body.uuid || '')) }),
         },
 
-        'GET /characters': { handle: () => ({ characters: listCharacters(db) }) },
+        // 每个角色带上下一跳几点（机房 App「此刻」那一行）；没排上就是 null
+        'GET /characters': {
+            handle: () => {
+                const next = db.prepare(
+                    "SELECT run_at FROM jobs WHERE kind = 'heartbeat' AND char_id = ? AND status IN ('pending','running') ORDER BY run_at LIMIT 1",
+                );
+                return { characters: listCharacters(db).map(c => ({ ...c, nextHeartbeatAt: next.get(c.charId)?.run_at ?? null })) };
+            },
+        },
         'POST /characters/upsert': {
             handle: ({ body }) => ({ character: upsertCharacter(db, body) }),
         },

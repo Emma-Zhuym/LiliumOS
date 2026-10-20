@@ -11,6 +11,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useOS } from '../../context/OSContext';
+import { AppID } from '../../types'; // [EM: machine-room]
 import Modal from '../os/Modal';
 import AgentHeartbeatPanel from './AgentHeartbeatPanel';
 import AgentTemporalPanel from './AgentTemporalPanel'; // [EM: calendar-temporal]
@@ -38,7 +39,7 @@ const BTN = 'py-2.5 bg-white border border-slate-200 rounded-xl text-[11px] font
 const INPUT = 'w-full bg-white/80 border border-slate-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-300';
 
 export default function AgentBackendSection() {
-    const { addToast } = useOS();
+    const { addToast, openApp } = useOS(); // [EM: machine-room] openApp
     const [config, setConfig] = useState(loadAgentConfig);
     const [status, setStatus] = useState<AgentStatus | null>(null);
     const [reachable, setReachable] = useState<boolean | null>(null);
@@ -272,6 +273,11 @@ export default function AgentBackendSection() {
                 {/* [EM-END: agent-instant-chat] */}
 
                 {paired ? <>
+                    {/* [EM-START: machine-room] 心跳、劲儿、连接、开关都收进了机房 App；这里留一次性的配对和推送登记 */}
+                    <button onClick={() => openApp(AppID.MachineRoom)} className="w-full py-3 bg-violet-500 text-white rounded-xl text-xs font-bold shadow-sm active:scale-95 transition-all">
+                        打开机房（心跳、脾气、连接、开关）
+                    </button>
+                    {/* [EM-END: machine-room] */}
                     {/* 一行两个：挤到一行六个时，按钮里的中文会被压成竖排。 */}
                     <div className="grid grid-cols-2 gap-2">
                         <button disabled={busy} onClick={() => void refresh()} className={BTN}>刷新状态</button>

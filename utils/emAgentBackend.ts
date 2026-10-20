@@ -53,7 +53,7 @@ export const clearAgentConfig = (): void => {
 export const isAgentPaired = (config = loadAgentConfig()): boolean =>
     Boolean(config.baseUrl && config.deviceToken);
 
-export interface AgentDependency { ok: boolean; detail?: string; activeDevices?: number }
+export interface AgentDependency { ok: boolean; detail?: string; activeDevices?: number; checkedAt?: string | null } // [EM: machine-room] checkedAt
 
 export interface AgentStatus {
     version: string;
@@ -62,7 +62,7 @@ export interface AgentStatus {
     quiet: { active: boolean; start: string; end: string; timezone: string };
     deps: Record<string, AgentDependency>;
     /** 心跳状态：shadow=true 表示只试跑、不真发消息；everyMinOverride 非空表示试跑提速开着。 */
-    heartbeat?: { shadow: boolean; everyMinOverride: number | null; jitterSpread?: number; drivesTrial?: boolean }; // [EM: char-drives-engine] drivesTrial
+    heartbeat?: { shadow: boolean; everyMinOverride: number | null; jitterSpread?: number; drivesTrial?: boolean; captureRawOnError?: boolean }; // [EM: char-drives-engine] drivesTrial [EM: machine-room] captureRawOnError
     capabilities: string[];
 }
 
@@ -82,6 +82,17 @@ export interface AgentCharacter {
     lastUserInteractionAt: string | null;
     heartbeatPaused: string | null;
     updatedAt: string;
+    /** 下一跳排在几点（ISO）；没排上或旧后端是 null / 没有 */
+    nextHeartbeatAt?: string | null; // [EM: machine-room]
+}
+
+/** [EM: machine-room] 机房 App 能从手机上改的那几个开关（后端 adminSettings.mjs 的白名单）。 */
+export interface AgentAdminSettings {
+    heartbeatShadow: boolean;
+    drivesTrial: boolean;
+    captureRawOnError: boolean;
+    quietStart: string;
+    quietEnd: string;
 }
 
 /** 一次「动脑」的记录。影子期就靠它看角色本来想说什么。 */
@@ -285,6 +296,11 @@ export const AgentBackend = {
     },
 
     status: () => request<AgentStatus>('/status'),
+    /** [EM: machine-room] 机房 App 的开关：读 / 改（只认白名单里的几项，整批改或整批不改）。 */
+    settings: () => request<{ settings: AgentAdminSettings }>('/settings').then(data => data.settings),
+    putSettings: (settings: Partial<AgentAdminSettings>) => request<{ settings: AgentAdminSettings }>(
+        '/settings', { method: 'POST', body: { settings } },
+    ).then(data => data.settings),
     devices: () => request<{ devices: AgentDevice[] }>('/devices').then(data => data.devices),
     revokeDevice: (deviceId: string) => request<{ ok: true }>('/devices/revoke', { method: 'POST', body: { deviceId } }),
 
@@ -371,6 +387,10 @@ export const AgentBackend = {
     drives: (charId: string) => request<{ drives: { drive: string; level: 'mid' | 'high' }[] }>(
         `/drives?charId=${encodeURIComponent(charId)}`,
     ).then(data => data.drives), // [EM: char-drives-engine]
+    /** [EM: machine-room] 劲儿摘要和两个人的时间一起拿（机房 App 角色页）。 */
+    driveState: (charId: string) => request<{ drives: { drive: string; level: 'mid' | 'high' }[]; private?: AgentPrivateMoment }>(
+        `/drives?charId=${encodeURIComponent(charId)}`,
+    ),
     /** 劲儿系统：在不在两个人的时间里（聊天工具栏「贴贴」按钮用）。 */
     privateMoment: (charId: string) => request<{ private: AgentPrivateMoment }>(
         `/drives?charId=${encodeURIComponent(charId)}`,

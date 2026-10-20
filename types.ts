@@ -48,6 +48,7 @@ export enum AppID {
   Calendar = 'calendar', // [EM: calendar-temporal] 日历 — 阿萌真实的 Apple 日历 / 提醒（mini 每天同步）
   Moments = 'moments', // [EM: moments] 朋友圈 — 所有人的动态汇总，用户可发图文、点赞评论
   Kitchen = 'kitchen', // [EM: kitchen-app] Lilian Kitchen — 现实食品库存与小厨房
+  MachineRoom = 'machine_room', // [EM: machine-room] 机房 — Mac mini 后端的家（心跳、劲儿、连接、开关）
 }
 
 export interface SystemLog {

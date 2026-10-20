@@ -254,3 +254,34 @@ export const applyXhsActions = async (xhs, picks, { maxActions = XHS_MAX_ACTIONS
     }
     return out;
 };
+
+/**
+ * 小红书还登没登着（「机房」App 连接页那一行）。上游的 check_login_status 要开一次浏览器，几秒到十几秒，
+ * 所以不在状态接口里现等：有缓存就给缓存，过期了后台再查一次，这次先报上一次的（第一次报 checking）。
+ */
+const XHS_LOGIN_TTL_MS = 10 * 60_000;
+export const parseXhsLogin = result => {
+    const text = (Array.isArray(result?.content) ? result.content : []).map(block => block?.text ?? '').join('\n');
+    if (/未登录|not\s*logged|请.*登录|login required/i.test(text)) return 'need_login';
+    return text.trim() ? 'logged_in' : 'unknown';
+};
+export const createXhsLoginProbe = (xhs, { ttlMs = XHS_LOGIN_TTL_MS, timeoutMs = 20_000, now = () => Date.now() } = {}) => {
+    let cached = null;
+    let pending = null;
+    const check = () => {
+        if (pending) return pending;
+        pending = xhs.callTool('check_login_status', {}, { timeoutMs })
+            .then(result => { cached = { state: parseXhsLogin(result), at: now() }; })
+            .catch(() => { cached = { state: 'unreachable', at: now() }; })
+            .finally(() => { pending = null; });
+        return pending;
+    };
+    return {
+        /** 立刻返回：{ state, checkedAt }；state = logged_in / need_login / unreachable / unknown / checking */
+        peek() {
+            if (!cached || now() - cached.at >= ttlMs) void check();
+            return cached ? { state: cached.state, checkedAt: new Date(cached.at).toISOString() } : { state: 'checking', checkedAt: null };
+        },
+        check,
+    };
+};

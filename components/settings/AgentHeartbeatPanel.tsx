@@ -12,14 +12,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
 
 import { useOS } from '../../context/OSContext';
-import { DB } from '../../utils/db';
-import { HEARTBEAT_API_AUTO, HEARTBEAT_API_CHAT, resolveHeartbeatApi } from '../../utils/emHeartbeatApi';
+import { HEARTBEAT_API_AUTO, HEARTBEAT_API_CHAT } from '../../utils/emHeartbeatApi';
 import TemperamentEditor from './TemperamentEditor'; // [EM: char-drives-engine]
-import { generateTemperament } from '../../utils/emTemperament'; // [EM: char-drives-engine]
-import { buildCharacterSnapshot } from '../../utils/emAgentSnapshot';
+import { connectCharacterToAgent } from '../../utils/emAgentConnect'; // [EM: machine-room]
 import {
     AgentBackend,
-    flushSnapshotUpload,
     isAgentPaired,
     type AgentCharacter,
     type AgentModelRun,
@@ -105,65 +102,15 @@ export default function AgentHeartbeatPanel({ open, onClose }: Props) {
         }
     };
 
-    /**
-     * 把这个角色接到后端：登记 → 同步 API → 传一份近况。
-     *
-     * 三步都做完心跳才有可能真的跑起来；少了 API 后端调不动模型，
-     * 少了近况后端会一直卡在「还没收到近况」这道闸上安静跳过。
-     */
+    /** 把这个角色接到后端（登记 → 同步 API → 传近况，见 utils/emAgentConnect.ts）。choice 是刚在下拉里选的那套 API。 */
     const handleConnect = (charId: string, choice?: string) => run(async () => {
         const char = characters.find(item => item.id === charId);
         if (!char) return;
-
-        /**
-         * 心跳用哪套 API 由角色自己选（emHeartbeatApi.ts）。没选时老规矩：优先「副 API」，
-         * 和日程生成、情绪评估同一条便宜的路——心跳绝大多数时候只换来一句「想了想，没说话」，
-         * 每次拿主模型买一次沉默太贵；没配副 API 才跟聊天 API。
-         * choice 是刚在下拉里选的那个（角色身上的字段还没来得及更新）。
-         */
-        const resolved = resolveHeartbeatApi(char, apiConfig, apiPresets, choice);
-        if (!resolved.apiKey || !resolved.baseUrl || !resolved.model) {
-            addToast('这个角色还没配好 API（地址 / Key / 模型）', 'error');
-            return;
-        }
-        if (resolved.missingPresetId) addToast('选的那套 API 预设已经删掉了，先按自动来', 'error');
-
-        const ref = `char-${charId}`.replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 64);
-        await AgentBackend.putCredential({
-            ref,
-            baseUrl: resolved.baseUrl,
-            model: resolved.model,
-            apiKey: resolved.apiKey,
+        const result = await connectCharacterToAgent(char, { // [EM: machine-room] 跟机房 App 共用
+            apiConfig, apiPresets, userName: userProfile?.name, choice,
+            onTemperament: temperament => updateCharacter(charId, { emDriveTemperament: temperament }),
         });
-        await AgentBackend.upsertCharacter({
-            charId,
-            displayName: char.name,
-            runtime: 'api',
-            credRef: ref,
-        });
-
-        // [EM-START: char-drives-engine] 还没读过脾气的角色，接上时顺手读一次（失败不拦接入，之后可在「脾气」里手动读）
-        let charForSnapshot = char;
-        if (!char.emDriveTemperament) {
-            try {
-                const emotionApi = char.emotionConfig?.api;
-                const readApi = emotionApi?.baseUrl && emotionApi.apiKey && emotionApi.model ? emotionApi : resolved;
-                const temperament = await generateTemperament(char, readApi);
-                updateCharacter(charId, { emDriveTemperament: temperament });
-                charForSnapshot = { ...char, emDriveTemperament: temperament };
-            } catch (error) {
-                console.warn('读脾气失败，先按默认来', error);
-            }
-        }
-        // [EM-END: char-drives-engine]
-        const messages = await DB.getMessagesByCharId(charId);
-        const ok = await flushSnapshotUpload(await buildCharacterSnapshot(charForSnapshot, messages, {
-            userName: userProfile?.name,
-        }));
-        addToast(
-            ok ? `已接上（${resolved.label} · ${resolved.model}），近况也传过去了` : '已接上，但近况没传成功',
-            ok ? 'success' : 'error',
-        );
+        addToast(result.message, result.ok ? 'success' : 'error');
         await refresh();
     });
 
