@@ -27,14 +27,36 @@ const HALF_LIFE_H = {
 
 /** 别扭最多一天就消（阿萌 2026-10-14 定）：距最后一次有原话作证满 24 小时，强制回基线。 */
 export const SULK_MAX_MS = 24 * 60 * 60 * 1000;
-/** 久不说话「想你」的基线往上爬，最多爬这么多（攻略的「慢地板」）。 */
-const MISS_SILENCE_MAX = 0.35;
-const MISS_SILENCE_PER_HOUR = 0.04;
+/**
+ * 你们此刻在不在一块（心跳每跳判断一次，存在状态里，6 小时内有效）。阿萌 2026-10-19：
+ * 同居的晚上「想你」该回落、异地异国该涨；她上课他上班那几个小时也算分开，但只是几个小时，不该跟隔着半个地球一样涨。
+ * - together：就在一块（同居在家、他来看她那几天）——不涨，往下回
+ * - today：各忙各的，今天之内会见到——慢慢涨
+ * - far：好几天见不到（异地、异国、出差）——涨得快
+ * - unknown：看不出来——中间速度
+ */
+export const APARTNESS = ['together', 'today', 'far', 'unknown'];
+const APARTNESS_TTL_MS = 6 * 60 * 60 * 1000;
+/** 不说话时「想你」的基线每小时爬多少、最多爬多少（攻略的「慢地板」）。together 是负的：在一块时往下回。 */
+const MISS_DRIFT = {
+    together: { perHour: -0.02, max: -0.15 },
+    today: { perHour: 0.015, max: 0.2 },
+    far: { perHour: 0.045, max: 0.35 },
+    unknown: { perHour: 0.03, max: 0.28 },
+};
+/** 撒娇 / 亲密时「想你」怎么变：在一块是满足了，分开时是更想见面。 */
+const AFFECTION_MISS = { together: -0.10, today: 0.03, far: 0.08, unknown: 0 };
+
+/** 这一刻算哪种：心跳判断过、还没过期就用它，否则 unknown。 */
+export const apartnessOf = (state, now = new Date()) => {
+    const a = state?.apartness;
+    return a && APARTNESS.includes(a.value) && now.getTime() - Date.parse(a.at) < APARTNESS_TTL_MS ? a.value : 'unknown';
+};
 /** 同一标签 15 分钟内重复，每次 ×0.7（Drivesoid）。 */
 const HABITUATION_MS = 15 * 60_000;
 const HABITUATION = 0.7;
 /** 一个事件对一股劲儿最多推这么多。 */
-const EVENT_CAP = 0.15;
+const EVENT_CAP = 0.2;
 
 /** 负面标签：没有原话就不收（攻略的教训：小模型把「我！去！看！看！」判成压力，天天积成假账）。 */
 export const NEGATIVE_LABELS = new Set(['cold', 'dismissive', 'conflict', 'broken_promise', 'pressing']);
@@ -50,8 +72,9 @@ export const LABEL_EFFECTS = {
     vulnerable: { concern: 0.15 },
     reassuring: { sulk: -0.30, stress: -0.10 },
     sharing: { curious: 0.05, miss: -0.05 },
-    cold: { sulk: 0.08, miss: 0.05 },
-    dismissive: { sulk: 0.10 },
+    // 轻的（冷淡、不当回事）单独一次只让他心里有点堵；重的（吵架、失约）一次就够他主动提（阿萌 2026-10-19）
+    cold: { sulk: 0.06, miss: 0.05 },
+    dismissive: { sulk: 0.07 },
     conflict: { sulk: 0.15, stress: 0.05 },
     broken_promise: { sulk: 0.15 },
     pressing: { stress: 0.08 },
@@ -98,14 +121,18 @@ const tiredBaseFor = (base, localHour) => {
 
 /**
  * 时间往前走：每股按半衰期往（当下的）基线回。
- * silenceHours = 离上次真聊天多久；localHour = 角色那边几点。
+ * silenceHours = 离上次真聊天多久；localHour = 角色那边几点；在不在一块看状态里心跳上次的判断。
  */
 export const evolve = (state, now = new Date(), { silenceHours = 0, localHour = 12 } = {}) => {
+    const drift = MISS_DRIFT[apartnessOf(state, now)];
     const dtH = Math.max(0, (now.getTime() - Date.parse(state.updatedAt)) / 3_600_000);
     const values = {};
     for (const key of DRIVES) {
         let base = state.baseline[key] ?? DEFAULT_BASELINE[key];
-        if (key === 'miss') base = clamp01(base + Math.min(MISS_SILENCE_MAX, MISS_SILENCE_PER_HOUR * silenceHours));
+        if (key === 'miss') {
+            const moved = drift.perHour * silenceHours;
+            base = clamp01(base + (drift.perHour >= 0 ? Math.min(drift.max, moved) : Math.max(drift.max, moved)));
+        }
         if (key === 'tired') base = tiredBaseFor(base, localHour);
         const current = state.values[key] ?? base;
         const factor = Math.pow(0.5, dtH / HALF_LIFE_H[key]);
@@ -124,8 +151,12 @@ export const evolve = (state, now = new Date(), { silenceHours = 0, localHour = 
  * sensitivity：脾气读数的敏感度倍数（还没有脾气读数时都是 1）。
  */
 export const applyLabel = (state, { label, quote = '', source = 'chat', now = new Date(), sensitivity = {} }) => {
-    const effects = LABEL_EFFECTS[label];
-    if (!effects) return { state, changes: [], rejected: 'unknown_label' };
+    const table = LABEL_EFFECTS[label];
+    if (!table) return { state, changes: [], rejected: 'unknown_label' };
+    // 撒娇 / 亲密对「想你」的作用看你们此刻在不在一块
+    const effects = label === 'affectionate' || label === 'intimate'
+        ? { ...table, miss: AFFECTION_MISS[apartnessOf(state, now)] }
+        : table;
     const cleanQuote = String(quote ?? '').trim().slice(0, 120);
     if (NEGATIVE_LABELS.has(label) && !cleanQuote) return { state, changes: [], rejected: 'no_quote' };
     const last = state.labels?.[label];
@@ -139,7 +170,7 @@ export const applyLabel = (state, { label, quote = '', source = 'chat', now = ne
         // 涨按剩余空间缩放，落按当前值缩放：满了不会再顶，空了不会落成负的
         const delta = Math.max(-EVENT_CAP, Math.min(EVENT_CAP, scaled >= 0 ? scaled * (1 - before) * 1.6 : scaled * before * 1.6));
         const after = clamp01(before + delta);
-        if (Math.abs(after - before) < 0.001) continue;
+        if (Math.abs(after - before) < 0.001 || !raw) continue;
         values[key] = after;
         changes.push({ drive: key, delta: after - before, valueAfter: after, label, source, reason: cleanQuote || label });
     }
@@ -199,8 +230,10 @@ export const lifeWeightFactors = state => {
     };
 };
 
-/** 高出基线这么多才算「有感觉」，写进提示词。 */
+/** 高出基线这么多才算「有感觉」，写进提示词。别扭门槛低一点：冷淡一次就该有点堵。 */
 const FEEL_AT = 0.15;
+const FEEL_AT_FOR = { sulk: 0.08 };
+const feelAt = key => FEEL_AT_FOR[key] ?? FEEL_AT;
 
 /**
  * 给模型看的感受：最强的一两股，一句话一股。别扭、挂心带上作证的原话。
@@ -221,7 +254,7 @@ export const formatFeelings = (state, { userName = 'ta' } = {}) => {
     };
     const strong = DRIVES
         .map(key => ({ key, over: above(state, key) }))
-        .filter(item => item.over >= FEEL_AT)
+        .filter(item => item.over >= feelAt(item.key))
         .sort((a, b) => b.over - a.over)
         .slice(0, 2);
     if (!strong.length) return { text: '', top: null };
@@ -233,7 +266,13 @@ export const formatFeelings = (state, { userName = 'ta' } = {}) => {
 
 /** 别扭到一定程度、又有原话作证时，开口的缘由里可以有「把不满说出来」。 */
 export const grievanceOf = state => (
-    state && above(state, 'sulk') >= 0.25 && state.sulkEvidence?.quote ? state.sulkEvidence : null
+    // 一次失约 / 吵架就够（+0.2）；冷淡、不当回事单独一次够不着（+0.1 上下）
+    state && above(state, 'sulk') >= 0.15 && state.sulkEvidence?.quote ? state.sulkEvidence : null
+);
+
+/** 心跳判断完「此刻在不在一块」，存进状态。不认识的值不存。 */
+export const withApartness = (state, value, now = new Date()) => (
+    APARTNESS.includes(value) && value !== 'unknown' ? { ...state, apartness: { value, at: now.toISOString() } } : state
 );
 
 /** 给手机看的摘要：最强的一两股和档位，不给精确数值。 */
@@ -241,7 +280,7 @@ export const summarizeForPhone = state => {
     if (!state) return [];
     return DRIVES
         .map(key => ({ drive: key, over: above(state, key) }))
-        .filter(item => item.over >= FEEL_AT)
+        .filter(item => item.over >= feelAt(item.drive))
         .sort((a, b) => b.over - a.over)
         .slice(0, 2)
         .map(item => ({ drive: item.drive, level: item.over >= 0.35 ? 'high' : 'mid' }));

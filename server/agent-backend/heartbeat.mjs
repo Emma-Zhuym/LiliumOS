@@ -32,6 +32,7 @@ import { formatPartnerBrief, isRepeatChat, pickPartner, recentPartners } from '.
 import {
     SELF_LABELS, applyLabel, chanceFactor as driveChanceFactor, evolve as evolveDrives, formatFeelings, grievanceOf,
     lifeWeightFactors, loadState as loadDriveState, satisfy as satisfyDrive, saveState as saveDriveState, writeLedger as writeDriveLedger,
+    APARTNESS, withApartness,
 } from './drives.mjs';
 import { buildCatchUp, formatCatchUp, formatReachReason, herSideCues, pickReachReason, recentLife } from './reachOut.mjs';
 
@@ -898,6 +899,8 @@ export const HEARTBEAT_SCHEMA = {
                 },
             },
         },
+        // 你们此刻在不在一块（劲儿系统用：同居在家时「想你」回落，异地异国涨得快）
+        together: { type: 'string', enum: APARTNESS },
         // 这一跳的事对自己的影响（劲儿系统用）：只给标签，数值由程序定。
         selfEvents: { type: 'array', maxItems: 3, items: { type: 'string', enum: SELF_LABELS } },
         // 刷到阿萌的新朋友圈：只有提示词里列了动态才会要求写。index 是列表里的编号。
@@ -1307,8 +1310,14 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
         );
     }
     if (askSelfEvents) lines.push(SELF_EVENTS_HOW);
+    lines.push(TOGETHER_HOW);
     return lines.join('\n\n');
 };
+
+/** 每跳顺手判断你们此刻在不在一块。是判断事实，不是做决定（drives.mjs APARTNESS）。 */
+export const TOGETHER_HOW = 'together：你们此刻在不在一块——together = 就在一块（同一个屋子里、你来看 ta 或 ta 来看你这几天）；'
+    + 'today = 现在各忙各的，今天之内会见到（你上班 ta 上课、晚上回家）；far = 好几天都见不到（异地、异国、出差）；'
+    + '看不出来就填 unknown。按你的设定、你们的记忆、此刻的日程和最近的聊天判断。';
 
 /** 过日子那一跳顺手标一下这件事对自己有什么影响（drives.mjs 的 SELF_LABELS）。只给标签，数值程序定。 */
 export const SELF_EVENTS_HOW = 'selfEvents：如果这一跳的事让你自己有点什么，写对应的词（可以几个，也可以省略）：'
@@ -1936,6 +1945,7 @@ export const createHeartbeatHandler = ({
             if (reachReason?.kind === 'grievance') absorb(satisfyDrive(next, 'grievance_said'));
         }
         if (life?.kind) absorb(satisfyDrive(next, life.kind));
+        next = withApartness(next, modelOutput.together, startedAt);
         writeDriveLedger(db, character.charId, changes, startedAt);
         saveDriveState(db, character.charId, next);
     }
