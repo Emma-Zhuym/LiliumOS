@@ -44,6 +44,14 @@ const MISS_DRIFT = {
     far: { perHour: 0.045, max: 0.35 },
     unknown: { perHour: 0.03, max: 0.28 },
 };
+/**
+ * 性欲（界面上叫「念想」）照攻略的做法：基线压得低、亲密留尾迹、有不应期、早上有小脉冲、累和上班压它。
+ * - 分开时被撩到（intimate）：往上冲一截，4 小时半衰慢慢退
+ * - 在一块的亲密：当作满足了，落到四成，之后 3 小时不应期（这段时间不再往上推，早上的脉冲也不算）
+ */
+const DESIRE_REFRACTORY_MS = 3 * 60 * 60 * 1000;
+const DESIRE_MORNING = 0.1;
+
 /** 撒娇 / 亲密时「想你」怎么变：在一块是满足了，分开时是更想见面。 */
 const AFFECTION_MISS = { together: -0.10, today: 0.03, far: 0.08, unknown: 0 };
 
@@ -123,8 +131,10 @@ const tiredBaseFor = (base, localHour) => {
  * 时间往前走：每股按半衰期往（当下的）基线回。
  * silenceHours = 离上次真聊天多久；localHour = 角色那边几点；在不在一块看状态里心跳上次的判断。
  */
-export const evolve = (state, now = new Date(), { silenceHours = 0, localHour = 12 } = {}) => {
+export const evolve = (state, now = new Date(), { silenceHours = 0, localHour = 12, busy = false } = {}) => {
     const drift = MISS_DRIFT[apartnessOf(state, now)];
+    const refractory = state.desireRefractoryUntil && now.getTime() < Date.parse(state.desireRefractoryUntil);
+    const tiredOver = Math.max(0, (state.values.tired ?? 0) - (state.baseline.tired ?? DEFAULT_BASELINE.tired));
     const dtH = Math.max(0, (now.getTime() - Date.parse(state.updatedAt)) / 3_600_000);
     const values = {};
     for (const key of DRIVES) {
@@ -134,6 +144,12 @@ export const evolve = (state, now = new Date(), { silenceHours = 0, localHour = 
             base = clamp01(base + (drift.perHour >= 0 ? Math.min(drift.max, moved) : Math.max(drift.max, moved)));
         }
         if (key === 'tired') base = tiredBaseFor(base, localHour);
+        if (key === 'desire') {
+            // 早上有个小脉冲（不应期里不算）；累了、在上班时往下压
+            if (!refractory && localHour >= 6 && localHour < 9) base += DESIRE_MORNING;
+            base -= 0.5 * tiredOver + (busy ? 0.1 : 0);
+            base = clamp01(base);
+        }
         const current = state.values[key] ?? base;
         const factor = Math.pow(0.5, dtH / HALF_LIFE_H[key]);
         values[key] = clamp01(base + (current - base) * factor);
@@ -154,9 +170,14 @@ export const applyLabel = (state, { label, quote = '', source = 'chat', now = ne
     const table = LABEL_EFFECTS[label];
     if (!table) return { state, changes: [], rejected: 'unknown_label' };
     // 撒娇 / 亲密对「想你」的作用看你们此刻在不在一块
-    const effects = label === 'affectionate' || label === 'intimate'
-        ? { ...table, miss: AFFECTION_MISS[apartnessOf(state, now)] }
+    const apart = apartnessOf(state, now);
+    const togetherIntimacy = label === 'intimate' && apart === 'together';
+    const refractory = state.desireRefractoryUntil && now.getTime() < Date.parse(state.desireRefractoryUntil);
+    let effects = label === 'affectionate' || label === 'intimate'
+        ? { ...table, miss: AFFECTION_MISS[apart] }
         : table;
+    // 在一块的亲密不往上冲（下面当作满足处理）；不应期里性欲不再往上推
+    if (togetherIntimacy || (refractory && (effects.desire ?? 0) > 0)) effects = { ...effects, desire: 0 };
     const cleanQuote = String(quote ?? '').trim().slice(0, 120);
     if (NEGATIVE_LABELS.has(label) && !cleanQuote) return { state, changes: [], rejected: 'no_quote' };
     const last = state.labels?.[label];
@@ -174,11 +195,19 @@ export const applyLabel = (state, { label, quote = '', source = 'chat', now = ne
         values[key] = after;
         changes.push({ drive: key, delta: after - before, valueAfter: after, label, source, reason: cleanQuote || label });
     }
+    if (togetherIntimacy) {
+        const before = values.desire ?? 0;
+        values.desire = clamp01(before * 0.4);
+        if (Math.abs(values.desire - before) >= 0.001) {
+            changes.push({ drive: 'desire', delta: values.desire - before, valueAfter: values.desire, label, source, reason: 'together' });
+        }
+    }
     const sulkUp = changes.some(c => c.drive === 'sulk' && c.delta > 0);
     const sulkReset = label === 'reassuring';
     return {
         state: {
             ...state,
+            ...(togetherIntimacy ? { desireRefractoryUntil: new Date(now.getTime() + DESIRE_REFRACTORY_MS).toISOString() } : {}),
             values,
             labels: { ...(state.labels ?? {}), [label]: { at: now.toISOString(), repeats } },
             sulkEvidence: sulkReset ? null : sulkUp ? { at: now.toISOString(), quote: cleanQuote, label } : state.sulkEvidence,

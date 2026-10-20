@@ -1683,6 +1683,7 @@ export const createHeartbeatHandler = ({
     const drives = evolveDrives(loadDriveState(db, character.charId, startedAt), startedAt, {
         silenceHours: lastContact ? (startedAt.getTime() - lastContact.getTime()) / 3_600_000 : 0,
         localHour: Math.floor(localMinutesOf(startedAt, timezone) / 60),
+        busy: isWorkSlot(currentSlot(withTodaySchedule(snapshot, startedAt), startedAt, timezone)),
     });
     const { intent } = decideIntent({
         snapshot,

@@ -182,3 +182,18 @@ test('心跳：别扭有原话作证时，开口的缘由可以是把不满说�
     assert.match(system, /心里还有点堵/);
     assert.ok(loadState(db, CHAR, AT).values.sulk < s.values.sulk, '说出来了就落一截');
 });
+
+test('性欲（念想）：分开时被撩往上冲；在一块的亲密算满足，之后 3 小时不应期；早上小脉冲；累了、上班时压着', () => {
+    const together = withApartness(freshState(DEFAULT_BASELINE, AT), 'together', AT);
+    const apart = withApartness(freshState(DEFAULT_BASELINE, AT), 'far', AT);
+    assert.ok(applyLabel(apart, { label: 'intimate', now: AT }).state.values.desire > DEFAULT_BASELINE.desire);
+    const after = applyLabel({ ...together, values: { ...together.values, desire: 0.7 } }, { label: 'intimate', now: AT }).state;
+    assert.ok(Math.abs(after.values.desire - 0.28) < 1e-9, '落到四成');
+    assert.ok(after.desireRefractoryUntil);
+    const flirtDuring = applyLabel(after, { label: 'affectionate', now: new Date(AT.getTime() + H) }).state;
+    assert.ok(flirtDuring.values.desire <= after.values.desire + 1e-9, '不应期里不再往上推');
+    const morning = evolve(freshState(DEFAULT_BASELINE, AT), new Date(AT.getTime() + 2 * H), { localHour: 7 }).values.desire;
+    const noon = evolve(freshState(DEFAULT_BASELINE, AT), new Date(AT.getTime() + 2 * H), { localHour: 12 }).values.desire;
+    const working = evolve(freshState(DEFAULT_BASELINE, AT), new Date(AT.getTime() + 2 * H), { localHour: 12, busy: true }).values.desire;
+    assert.ok(morning > noon && noon > working);
+});
