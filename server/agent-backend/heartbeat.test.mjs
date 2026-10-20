@@ -17,7 +17,7 @@ import {
     ACTIVE_CHAT_WINDOW_MS, buildPrompt, checkGates, speakBlock, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
     BREAK_COOLDOWN_MIN, currentSlot, decideIntent, formatGap, inBreakWindow, upcomingBreakStarts, jitterRatio, lastRealInteractionAt, listModelRuns, messageChance,
     nextRunAt, recordModelRun, shouldCaptureRaw, decideEpisode, episodeChance, isWorkSlot, lifeChance, pickLifeKind, veilSurprise,
-    MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, withPlanTime, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule, unansweredProactive, lastUserSpokeAt, unansweredFactor, reachOutTimeRule, timeProgressRule, shouldSuppressStaleBedtimeMessage, recentOwnMessages, fillMomentComments, DUTY_RULE, PHOTO_HOW, previewWithoutPhotoTags,
+    MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, stripUnbackedClaims, withPlanTime, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule, unansweredProactive, lastUserSpokeAt, unansweredFactor, reachOutTimeRule, timeProgressRule, shouldSuppressStaleBedtimeMessage, recentOwnMessages, fillMomentComments, DUTY_RULE, PHOTO_HOW, previewWithoutPhotoTags,
 } from './heartbeat.mjs';
 import { chatCompletionsUrl, createApiRunner, extractContentText, parseEpisode, parseHeartbeatOutput, parseLife } from './runner.mjs';
 import { applyThread, closePassedPlans, closeStaleThreads, isPlanDue, isPlanThread, listOpenThreads, listPlans } from './lifeThreads.mjs';
@@ -2354,4 +2354,13 @@ test('重跳：404（转接渠道时好时坏）也补，403 不补', async () =
     const call = { charId: 'x', credRef: 'x', system: '', user: '', schema: {} };
     assert.equal((await make(404).run(call)).retryable, true);
     assert.equal((await make(403).run(call)).retryable, false);
+});
+
+test('没做的事不许说做了：没抽到外卖 / 朋友圈，activity 里那一小句删掉；真做了的留着', () => {
+    assert.equal(stripUnbackedClaims('在地毯上拆航模配件包裹，顺手点了份夜宵外卖', null), '在地毯上拆航模配件包裹');
+    assert.equal(stripUnbackedClaims('刚跑通小帕的逻辑树分支，顺手发了个技术圈朋友圈。浴室门水声停了', null), '刚跑通小帕的逻辑树分支，浴室门水声停了');
+    assert.equal(stripUnbackedClaims('顺手点了份夜宵外卖', { kind: 'delivery' }), '顺手点了份夜宵外卖');
+    assert.equal(stripUnbackedClaims('发了条朋友圈', { kind: 'moment' }), '发了条朋友圈');
+    assert.equal(stripUnbackedClaims('在办公室批预算', null), '在办公室批预算');
+    assert.equal(stripUnbackedClaims('顺手订了午餐简餐', null), '顺手订了午餐简餐', '整句都删光就留原样，免得空着');
 });
