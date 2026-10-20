@@ -358,11 +358,12 @@ export const createApiRunner = ({ config, fetchImpl = fetch }) => ({
                 const detail = await response.text().catch(() => '');
                 // 正文可能带 Key 或整段提示词，只留状态码和很短的一截。
                 // 5xx / 429 是对面忙（实测「system cpu overloaded」），过几分钟再试；
+                // 404 也补：转接 AI Studio 网页的渠道会时好时坏地回「Ambiguous request」（2026-10-19 实测，同一渠道几分钟后又通了）；
                 // 401 / 403（Key 错、额度用完）再试也一样，别白白多跑
                 return {
                     ok: false,
                     error: `模型返回 ${response.status}：${detail.slice(0, 200)}`,
-                    retryable: response.status >= 500 || response.status === 429,
+                    retryable: response.status >= 500 || response.status === 429 || response.status === 404,
                 };
             }
             const data = await response.json();

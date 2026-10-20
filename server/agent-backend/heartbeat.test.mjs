@@ -2340,3 +2340,18 @@ test('重聊：程序挑最久没来往的人，提示词列出聊过什么、�
     assert.equal(sent.filter(e => e.payload?.type === 'life_episode').length, 0, '重聊的不送');
     assert.equal(listModelRuns(db)[0].skipGate, 'life:repeat_chat');
 });
+
+test('重跳：404（转接渠道时好时坏）也补，403 不补', async () => {
+    const { mkdtempSync, writeFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const { tmpdir } = await import('node:os');
+    const dir = mkdtempSync(join(tmpdir(), 'hb-cred-'));
+    writeFileSync(join(dir, 'cred.x.json'), JSON.stringify({ baseUrl: 'https://x/v1', model: 'm', apiKey: 'k' }));
+    const make = status => createApiRunner({
+        config: { secretsDir: dir },
+        fetchImpl: async () => ({ ok: false, status, text: async () => 'Ambiguous request for service' }),
+    });
+    const call = { charId: 'x', credRef: 'x', system: '', user: '', schema: {} };
+    assert.equal((await make(404).run(call)).retryable, true);
+    assert.equal((await make(403).run(call)).retryable, false);
+});
