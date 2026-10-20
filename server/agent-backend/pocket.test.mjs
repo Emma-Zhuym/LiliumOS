@@ -245,3 +245,8 @@ test('攒着的话：去掉已经当缘由的那句；只算上次说话之后�
     assert.match(formatCatchUp(catchUp, { gapMs: 20 * 60_000 }), /想顺带说的就一起说/);
     assert.equal(formatCatchUp({ pocket: [], life: [] }), '');
 });
+
+test('解析：with 写成对象时取它的名字，不再变成「[object Object]」', () => {
+    const life = parseLife({ kind: 'social', with: { name: '宋星冉', relation: '朋友' }, detail: '在酒区等我' });
+    assert.equal(life.with, '宋星冉');
+});

@@ -316,6 +316,10 @@ check "云端备份始终带连接" context/OSContext.tsx "exportSystem(mode, { 
 check "云端恢复问要不要连回去" context/OSContext.tsx "await importSystem(zipFile, { confirmBackendRestore: askRestoreBackendConnection }); // [EM: amsg-backup-connection]"
 check "自动备份带连接" context/OSContext.tsx "exportSystem('text_only', { silent: true, includeBackendConnection: true })"
 
+echo "── 心跳 API 可选 ──"
+check "角色字段：心跳用哪套 API" types.ts "heartbeatApiPresetId?: string;"
+check "分享角色卡剥掉心跳预设 id" utils/characterCard.ts "'heartbeatApiPresetId',   // [EM: heartbeat-api]"
+
 echo ""
 if [ $FAIL -gt 0 ]; then
     echo "🔴 $FAIL 项缺失（$PASS 项通过）——EM 功能被 merge 冲掉了，对照 .claude/CLAUDE.md 补回来"

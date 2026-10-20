@@ -1343,11 +1343,13 @@ test('真实执行：新约的事落成带时间的 thread；解析不了就不�
     assert.equal(plan.dueAt, new Date(Date.UTC(2026, 8, 26, 20)).toISOString());
     assert.equal(sent[0].payload.life.plan.dueAt, plan.dueAt);
 
-    await runHandler(db, { runner: runnerFor(social({ what: '和林越吃饭', at: '改天' })), job: jobFor(character.heartbeatGeneration, 'p2'), now: chicago(22, 30), rng: seq([0.99, 0.3, 0.5]), deliver: async e => sent.push(e) });
+    // 第二次聊的是别的（同一段话再聊一遍会被当成重聊丢掉，见「重聊」那几条）
+    const another = { kind: 'social', with: '林越', detail: '语音里吐槽了他新买的键盘', lines: [{ who: '林越', text: '这键盘声音像下冰雹' }, { who: '我', text: '退了吧' }], plan: { what: '和林越吃饭', at: '改天' } };
+    await runHandler(db, { runner: runnerFor(another), job: jobFor(character.heartbeatGeneration, 'p2'), now: chicago(22, 30), rng: seq([0.99, 0.3, 0.5]), deliver: async e => sent.push(e) });
     assert.equal(listOpenThreads(db, CHAR).length, 1, '解析不了的 plan 不落库');
     assert.equal(sent.length, 2, '生活照样送到手机');
     assert.equal(sent[1].payload.life.plan, undefined);
-    assert.equal(sent[1].payload.life.detail, '一起打了两把');
+    assert.equal(sent[1].payload.life.detail, '语音里吐槽了他新买的键盘');
 });
 
 test('约定到点：这一跳就去做这件事、写完收掉；没到点的留着，并进提示词当话头', async () => {
@@ -2227,4 +2229,114 @@ test('提示词：过日子那一跳教写 tellLater，礼物那一跳不教', (
     assert.ok(!buildPrompt(character, snapshot, AT, 'live', { life: 'gift' }).includes('tellLater'));
     assert.ok(HEARTBEAT_SCHEMA.properties.life.properties.tellLater);
     assert.ok(HEARTBEAT_SCHEMA.properties.episode.properties.tellLater);
+});
+
+// ── 失败的那一跳隔几分钟重跳（2026-10-19）──────────────────────────────
+
+const retryHarness = (db, runner, { now = AT } = {}) => {
+    const scheduled = [];
+    const retries = [];
+    const handler = createHeartbeatHandler({
+        db,
+        config: { heartbeatTimeoutMs: 1000 },
+        runners: { api: runner },
+        scheduleNext: (character, at) => scheduled.push({ charId: character.charId, at }),
+        scheduleRetry: (character, retry) => retries.push(retry),
+        now: () => now,
+        rng: () => 0.99,
+        deliver: async () => {},
+    });
+    return { handler, scheduled, retries };
+};
+
+test('重跳：拒绝 / 503 / 超时过 5 分钟再跳，再失败过 10 分钟，第三次不再补；重跳那一跳不续链', async () => {
+    const { planHeartbeatRetry, HEARTBEAT_RETRY_DELAYS_MIN } = await import('./heartbeat.mjs');
+    assert.deepEqual(HEARTBEAT_RETRY_DELAYS_MIN, [5, 10]);
+    const db = freshDb();
+    setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+    const character = seedCharacter(db);
+    seedSnapshot(db);
+    const refusing = { run: async () => ({ ok: false, error: '模型拒绝执行角色心跳（没有返回 JSON）', retryable: true }) };
+
+    const first = retryHarness(db, refusing);
+    await assert.rejects(first.handler(jobFor(character.heartbeatGeneration, 'hb:a')));
+    assert.equal(first.scheduled.length, 1, '原来那一跳照常续链');
+    assert.equal(first.retries.length, 1);
+    assert.equal(first.retries[0].retry, 1);
+    assert.equal(first.retries[0].uuid, 'hb:a:retry1');
+    assert.equal(first.retries[0].runAt.getTime() - AT.getTime(), 5 * 60_000);
+    assert.match(listModelRuns(db)[0].error, /5 分钟后重跳/);
+
+    const second = retryHarness(db, refusing, { now: new Date(AT.getTime() + 5 * 60_000) });
+    await assert.rejects(second.handler({ ...jobFor(character.heartbeatGeneration, 'hb:a:retry1'), input: { retry: 1, retryOf: 'hb:a' } }));
+    assert.equal(second.scheduled.length, 0, '重跳不续链');
+    assert.equal(second.retries[0].uuid, 'hb:a:retry2');
+    assert.equal(second.retries[0].runAt.getTime() - AT.getTime(), 15 * 60_000);
+
+    const job3 = { ...jobFor(character.heartbeatGeneration, 'hb:a:retry2'), input: { retry: 2, retryOf: 'hb:a' } };
+    assert.equal(planHeartbeatRetry(db, { character, job: job3, result: { ok: false, retryable: true }, now: AT }), null, '补两次就够了');
+});
+
+test('重跳：Key 错 / 额度用完不补；试跑期不补；下一次正常心跳几分钟内就到也不补', async () => {
+    const { planHeartbeatRetry } = await import('./heartbeat.mjs');
+    const db = freshDb();
+    const character = seedCharacter(db);
+    seedSnapshot(db);
+    const job = jobFor(character.heartbeatGeneration, 'hb:b');
+    assert.equal(planHeartbeatRetry(db, { character, job, result: { ok: false, error: '模型返回 403', retryable: false }, now: AT }), null);
+
+    // 试跑期：handler 不排重跳
+    const refusing = { run: async () => ({ ok: false, error: 'timeout', retryable: true }) };
+    const shadowRun = retryHarness(db, refusing);
+    await assert.rejects(shadowRun.handler(job));
+    assert.equal(shadowRun.retries.length, 0);
+
+    // 下一次正常心跳 8 分钟后就到：5 分钟后的重跳没必要
+    createJob(db, {
+        uuid: 'hb:next', kind: 'heartbeat', charId: CHAR, runAt: new Date(AT.getTime() + 8 * 60_000).toISOString(),
+        maxAttempts: 1, generation: character.heartbeatGeneration, createdBy: 'scheduler',
+    }, AT);
+    assert.equal(planHeartbeatRetry(db, { character, job, result: { ok: false, retryable: true }, now: AT }), null);
+});
+
+test('解析：「I am Kiro」式的拒绝和掉格式都算可以重跳', () => {
+    const refusal = parseHeartbeatOutput("I appreciate the setup, but I need to be direct: I'm Kiro, an AI development environment. I can't roleplay as this character.");
+    assert.equal(refusal.ok, false);
+    assert.equal(refusal.retryable, true);
+    const truncated = parseHeartbeatOutput('```json {"activity": "厨房里收拾", "reason": "刚吃完');
+    assert.equal(truncated.ok, false);
+    assert.equal(truncated.retryable, true);
+});
+
+// ── 重聊：已经约好的事别跟同一个人再约一遍（2026-10-19）──────────────────
+
+test('重聊：程序挑最久没来往的人，提示词列出聊过什么、约好了什么；跟同一个人把聊过的再聊一遍就丢掉', async () => {
+    const { recentPartners, pickPartner, isRepeatChat, formatPartnerBrief } = await import('./lifeCircle.mjs');
+    const db = freshDb();
+    setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+    const character = seedCharacter(db);
+    const circle = [{ name: '邵子昂', relation: '发小' }, { name: '江驰', relation: '朋友' }, { name: '宋星冉', relation: '朋友' }];
+    seedSnapshot(db, { circle, todaySchedule: [{ start: '18:00', title: '在家', availability: 'online' }] }, chicago(20));
+    const drinks = { kind: 'chat', with: '邵子昂', lines: [{ who: '邵子昂', text: '哥，下周二晚上有空吗，一起喝酒' }, { who: '我', text: '行，周二晚八点' }] };
+    recordModelRun(db, { charId: CHAR, runtime: 'api', startedAt: chicago(18).toISOString(), ok: true, outcome: 'noop', episode: { life: drinks } });
+    recordModelRun(db, { charId: CHAR, runtime: 'api', startedAt: chicago(19).toISOString(), ok: true, outcome: 'noop', episode: { life: { kind: 'chat', with: '江驰', lines: [{ who: '江驰', text: '周末打网球？' }] } } });
+
+    const partners = recentPartners(db, CHAR, chicago(20));
+    assert.deepEqual(partners.map(p => [p.name, p.count]), [['邵子昂', 1], ['江驰', 1]]);
+    assert.equal(pickPartner(circle, partners, () => 0).name, '宋星冉', '三天没来往的优先');
+    assert.equal(isRepeatChat(drinks, partners), true);
+    assert.equal(isRepeatChat({ ...drinks, lines: [{ who: '邵子昂', text: '上周德扑又输了，庄家肯定出千' }] }, partners), false);
+    const brief = formatPartnerBrief({ partner: circle[2], partners, plans: [{ title: '周二晚八点和邵子昂喝酒' }] });
+    assert.match(brief, /这次是跟「宋星冉」/);
+    assert.match(brief, /已经约好了，不用再约一遍.*周二晚八点和邵子昂喝酒/);
+
+    // 真跑一跳：模型还是跟邵子昂把喝酒又约了一遍 → 不送去手机，记一笔
+    const sent = [];
+    let system = '';
+    const runner = { run: async args => { system = args.system; return { ok: true, output: { action: 'noop', activity: '刷手机', reason: '', urge: 'none', life: drinks } }; } };
+    const seq = rolls => { let i = 0; return () => rolls[i++] ?? 0.99; };
+    await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 'rc1'), now: chicago(20), rng: seq([0.99, 0.3, 0.1]), deliver: async e => sent.push(e) });
+    assert.match(system, /这次是跟「宋星冉」/);
+    assert.equal(sent.filter(e => e.payload?.type === 'life_episode').length, 0, '重聊的不送');
+    assert.equal(listModelRuns(db)[0].skipGate, 'life:repeat_chat');
 });

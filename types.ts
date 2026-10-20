@@ -2709,6 +2709,8 @@ export interface CharacterProfile {
   name: string;
   /** 角色主聊天 API：引用设置里已有的命名预设；未设置或预设已删除时跟随主 API。 */
   chatApiPresetId?: string;
+  /** [EM: heartbeat-api] Mac mini 心跳用哪套 API：空 = 副 API 优先、没有就跟聊天 API；'chat' = 跟聊天 API；其余是设置里命名预设的 id */
+  heartbeatApiPresetId?: string;
   themeColor?: number; // [EM: theme-color] 小小窝日程小组件主题色相 (hsl hue 0-360)，undefined=默认260紫
   avatar: string;
   /**

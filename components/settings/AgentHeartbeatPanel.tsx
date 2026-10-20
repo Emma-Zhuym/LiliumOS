@@ -13,7 +13,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 
 import { useOS } from '../../context/OSContext';
 import { DB } from '../../utils/db';
-import { resolveCharacterApiConfig } from '../../utils/characterApi';
+import { HEARTBEAT_API_AUTO, HEARTBEAT_API_CHAT, resolveHeartbeatApi } from '../../utils/emHeartbeatApi';
 import { buildCharacterSnapshot } from '../../utils/emAgentSnapshot';
 import {
     AgentBackend,
@@ -56,9 +56,11 @@ interface Props {
 }
 
 export default function AgentHeartbeatPanel({ open, onClose }: Props) {
-    const { addToast, characters, apiConfig, userProfile } = useOS();
+    const { addToast, characters, apiConfig, apiPresets, updateCharacter, userProfile } = useOS();
     const [backendChars, setBackendChars] = useState<AgentCharacter[]>([]);
     const [runs, setRuns] = useState<AgentModelRun[]>([]);
+    /** mini 上每个凭据现在存的模型名（只读得到模型，读不到 Key），给「心跳在用」那一行 */
+    const [credModels, setCredModels] = useState<Record<string, string>>({});
     const [shadow, setShadow] = useState(true);
     const [jitterSpread, setJitterSpread] = useState(DEFAULT_JITTER_SPREAD);
     const [busy, setBusy] = useState(false);
@@ -67,12 +69,14 @@ export default function AgentHeartbeatPanel({ open, onClose }: Props) {
     const refresh = useCallback(async () => {
         if (!isAgentPaired()) return;
         try {
-            const [list, audit, status] = await Promise.all([
+            const [list, audit, status, creds] = await Promise.all([
                 AgentBackend.characters(),
                 AgentBackend.audit(undefined, 30),
                 AgentBackend.status(),
+                AgentBackend.credentials().catch(() => []),
             ]);
             setBackendChars(list);
+            setCredModels(Object.fromEntries(creds.map(cred => [cred.ref, cred.model])));
             setRuns(audit);
             setShadow(status.heartbeat?.shadow !== false);
             setJitterSpread(status.heartbeat?.jitterSpread ?? DEFAULT_JITTER_SPREAD);
@@ -102,24 +106,22 @@ export default function AgentHeartbeatPanel({ open, onClose }: Props) {
      * 三步都做完心跳才有可能真的跑起来；少了 API 后端调不动模型，
      * 少了近况后端会一直卡在「还没收到近况」这道闸上安静跳过。
      */
-    const handleConnect = (charId: string) => run(async () => {
+    const handleConnect = (charId: string, choice?: string) => run(async () => {
         const char = characters.find(item => item.id === charId);
         if (!char) return;
 
         /**
-         * 心跳优先走「副 API」，和日程生成、情绪评估同一条便宜的路。
-         *
-         * 心跳绝大多数时候只换来一句「想了想，没说话」——每 15 分钟拿主模型买一次沉默太贵。
-         * 角色没配副 API 时才回退到它的聊天 API（预设优先，否则主 API）。
+         * 心跳用哪套 API 由角色自己选（emHeartbeatApi.ts）。没选时老规矩：优先「副 API」，
+         * 和日程生成、情绪评估同一条便宜的路——心跳绝大多数时候只换来一句「想了想，没说话」，
+         * 每次拿主模型买一次沉默太贵；没配副 API 才跟聊天 API。
+         * choice 是刚在下拉里选的那个（角色身上的字段还没来得及更新）。
          */
-        const { apiConfig: chatApi } = resolveCharacterApiConfig(char, apiConfig);
-        const secondary = char.proactiveConfig?.secondaryApi;
-        const usingSecondary = Boolean(secondary?.baseUrl && secondary?.apiKey && secondary?.model);
-        const resolved = usingSecondary ? secondary! : chatApi;
+        const resolved = resolveHeartbeatApi(char, apiConfig, apiPresets, choice);
         if (!resolved.apiKey || !resolved.baseUrl || !resolved.model) {
             addToast('这个角色还没配好 API（地址 / Key / 模型）', 'error');
             return;
         }
+        if (resolved.missingPresetId) addToast('选的那套 API 预设已经删掉了，先按自动来', 'error');
 
         const ref = `char-${charId}`.replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 64);
         await AgentBackend.putCredential({
@@ -140,11 +142,17 @@ export default function AgentHeartbeatPanel({ open, onClose }: Props) {
             userName: userProfile?.name,
         }));
         addToast(
-            ok ? `已接上（${usingSecondary ? '副 API' : '聊天 API'}），近况也传过去了` : '已接上，但近况没传成功',
+            ok ? `已接上（${resolved.label} · ${resolved.model}），近况也传过去了` : '已接上，但近况没传成功',
             ok ? 'success' : 'error',
         );
         await refresh();
     });
+
+    /** 换心跳的 API：存在角色身上（随备份走），接着重传一次凭据，下一跳就用新的。 */
+    const handleApiChoice = (charId: string, value: string, connected: boolean) => {
+        updateCharacter(charId, { heartbeatApiPresetId: value || undefined });
+        if (connected) void handleConnect(charId, value);
+    };
 
     const handleToggle = (charId: string, enabled: boolean) => run(async () => {
         await AgentBackend.upsertCharacter({ charId, heartbeatEnabled: enabled });
@@ -199,6 +207,23 @@ export default function AgentHeartbeatPanel({ open, onClose }: Props) {
                                         <option key={minutes} value={minutes}>平均每 {minutes} 分钟</option>
                                     ))}
                                 </select>
+                            )}
+                            {/* [EM: heartbeat-api] 心跳用哪套 API；换了就重传凭据 */}
+                            <select
+                                value={char.heartbeatApiPresetId ?? HEARTBEAT_API_AUTO}
+                                disabled={busy}
+                                onChange={event => handleApiChoice(char.id, event.target.value, connected)}
+                                aria-label="心跳用的 API"
+                                className="mt-1.5 ml-1 max-w-[11rem] rounded-lg border border-slate-200 bg-white px-2 py-1 text-[10px] text-slate-500 outline-none"
+                            >
+                                <option value={HEARTBEAT_API_AUTO}>API：自动（副 API → 聊天）</option>
+                                <option value={HEARTBEAT_API_CHAT}>API：跟聊天 API</option>
+                                {apiPresets.map(preset => (
+                                    <option key={preset.id} value={preset.id}>API：{preset.name}</option>
+                                ))}
+                            </select>
+                            {connected && backend?.credRef && credModels[backend.credRef] && (
+                                <p className="mt-1 text-[10px] text-slate-400">心跳在用：{credModels[backend.credRef]}</p>
                             )}
                         </div>
                         <div className="flex shrink-0 gap-2">

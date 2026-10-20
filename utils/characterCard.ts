@@ -21,6 +21,7 @@ export const CARD_STRIPPED_FIELDS = [
   'emotionConfig',
   'embeddingConfig',
   'chatApiPresetId',        // 本机预设 id；接收方可能恰好有同 id 的另一套私密配置
+  'heartbeatApiPresetId',   // [EM: heartbeat-api] 同上，心跳用的那套
   'proactiveConfig',
   'activeMsg2Config',
 

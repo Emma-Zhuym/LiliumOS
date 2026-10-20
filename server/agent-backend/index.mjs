@@ -101,6 +101,20 @@ export const createContext = async (config = loadConfig()) => {
         return job;
     };
 
+    /** 失败的那一跳隔几分钟重跳一次（planHeartbeatRetry 定什么时候、要不要）。不续链。 */
+    const scheduleHeartbeatRetry = (character, retry) => createJob(db, {
+        uuid: retry.uuid,
+        kind: 'heartbeat',
+        charId: character.charId,
+        runAt: retry.runAt.toISOString(),
+        missedPolicy: 'drop',
+        expiresAt: new Date(retry.runAt.getTime() + HEARTBEAT_TTL_MS).toISOString(),
+        maxAttempts: 1,
+        generation: character.heartbeatGeneration,
+        input: { retry: retry.retry, retryOf: retry.retryOf },
+        createdBy: 'retry',
+    }).job;
+
     // 即时回复：手机发完就走，mini 跑完推回去。凭据只在内存。
     const chatTurns = createChatTurnService({ db, deliver });
 
@@ -117,6 +131,7 @@ export const createContext = async (config = loadConfig()) => {
         heartbeat: createHeartbeatHandler({
             db, config, runners, scheduleNext: scheduleNextHeartbeat, deliver, xhs,
             chatBusy: charId => chatTurns.busy(charId),
+            scheduleRetry: scheduleHeartbeatRetry,
         }),
         [CHAT_TURN_KIND]: chatTurns.handler,
     };
@@ -174,9 +189,11 @@ export const ensureHeartbeatJobs = (ctx, now = new Date()) => {
     const { db } = ctx;
     for (const character of listCharacters(db)) {
         if (!character.heartbeatEnabled || character.heartbeatPaused) continue;
+        // 只剩一条「重跳」挂着不算有链：重跳不续链，靠它的话心跳会在它跑完后停住
         const pending = db.prepare(
             `SELECT COUNT(*) AS n FROM jobs
-              WHERE char_id = ? AND kind = 'heartbeat' AND status IN ('pending','running')`,
+              WHERE char_id = ? AND kind = 'heartbeat' AND status IN ('pending','running')
+                AND json_extract(input, '$.retry') IS NULL`,
         ).get(character.charId).n;
         if (pending > 0) continue;
         const runAt = new Date(now.getTime() + FIRST_BEAT_DELAY_MS);

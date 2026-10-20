@@ -28,6 +28,7 @@ import {
 } from './moments.mjs';
 import { formatTemporalForPrompt, listTemporalItems, readVisibility, veilForCharacter } from './temporal.mjs';
 import { addPocketItem, listUnsaid, markSaid, settleSaidFromMessages } from './pocket.mjs';
+import { formatPartnerBrief, isRepeatChat, pickPartner, recentPartners } from './lifeCircle.mjs';
 import { buildCatchUp, formatCatchUp, formatReachReason, herSideCues, pickReachReason, recentLife } from './reachOut.mjs';
 
 /** 心跳最晚执行时间：过了就 expired，mini 睡醒后不会补跑一堆旧心跳（设计 4.1）。 */
@@ -995,7 +996,7 @@ export const previewWithoutPhotoTags = text => String(text ?? '')
 export const buildPrompt = (character, snapshot, now = new Date(), intent = 'live', {
     thoughts = [], carried = null, threads = [], plans = [], duePlan = null, episode = false, life = null, canSpeak = true, temporal = '',
     feed = [], opened = null, etas = null, purchases = [], unread = [], moments = [], unanswered = [], userTimezone = null,
-    ownMessages = [], lifeLog = [], reachReason = null, catchUp = null,
+    ownMessages = [], lifeLog = [], reachReason = null, catchUp = null, partnerBrief = '',
 } = {}) => {
     const p = snapshot.payload || {};
     const lines = [];
@@ -1233,6 +1234,7 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
                 + '是新出现的人就再写 relation（你怎么称呼 ta，比如「发小」「表姐」）和 group'
                 + '（friend=朋友 / family=家人 / school=同学 / online=网友 / other=其他）。'
                 + 'lines 最多 6 句，who 写说话人的名字，你自己写「我」。聊的是你们之间的事，不是对方。'
+                + (partnerBrief ? `\n${partnerBrief}\n` : '')
                 + PLAN_HOW,
             social: '你刚跟朋友有点来往。kind 填 "social"；with 写对方名字'
                 + (circle.length ? '（优先从上面认识的人里选，' : '（')
@@ -1240,6 +1242,7 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
                 + 'detail 写你们做了什么——可以是临时出门（少见，得跟你此刻的时段和人设对得上），'
                 + '也可以是不用出门的（比如临时约好一起上线打游戏、开着语音各干各的）。'
                 + '当场就发生的事写现在时，别写成计划。lines 写约人或者当时说的那几句（最多 6 句，who 写说话人的名字，你自己写「我」）。'
+                + (partnerBrief ? `\n${partnerBrief}\n` : '')
                 + PLAN_HOW,
             delivery: '你刚点了外卖。kind 填 "delivery"；with 写店名，detail 写点了什么，value 写实付金额，用你所在地的货币（在美国就是 $18.50 这样，在国内就是 ¥38.50）。'
                 + (etas ? `这一单${foodWhen()}送到，提到送达就说这个时间，别自己编。` : ''),
@@ -1552,9 +1555,38 @@ const formatLocal = (date, timezone) => {
  * 步骤严格按设计 4.3：代次检查 → **先排下一跳** → 零模型闸 → 调模型 → 记录。
  * 「先排下一跳」不能挪到后面：模型那步一旦抛错，链子就断了，之后这个角色再也不会醒。
  */
+/**
+ * 这一跳失败了，隔几分钟重跳（阿萌 2026-10-19：有时模型莫名拒绝心跳，拒绝之后最好过几分钟再试）。
+ *
+ * 实测失败原因：中转偶尔给模型套上别的身份（「I'm Kiro…」）拒绝角色扮演、503 system cpu overloaded、
+ * 输出被截断解析不出、fetch failed——多半是这一次的运气。Key 错、额度用完（401 / 403）再试也一样，不重跳。
+ * 重跳只补这一跳，不续心跳链（链在原来那一跳开头已经排好了）；下一次正常心跳本来就快到了就不补。
+ */
+export const HEARTBEAT_RETRY_DELAYS_MIN = [5, 10];
+const RETRY_SKIP_IF_REGULAR_WITHIN_MS = 5 * 60_000;
+
+export const planHeartbeatRetry = (db, { character, job, result, now = new Date() }) => {
+    if (!result?.retryable) return null;
+    const done = Number(job.input?.retry) || 0;
+    if (done >= HEARTBEAT_RETRY_DELAYS_MIN.length) return null;
+    const runAt = new Date(now.getTime() + HEARTBEAT_RETRY_DELAYS_MIN[done] * 60_000);
+    const regular = db.prepare(
+        `SELECT MIN(run_at) AS at FROM jobs
+          WHERE char_id = ? AND kind = 'heartbeat' AND status = 'pending' AND uuid != ?
+            AND json_extract(input, '$.retry') IS NULL`,
+    ).get(character.charId, job.uuid)?.at;
+    if (regular && Date.parse(regular) <= runAt.getTime() + RETRY_SKIP_IF_REGULAR_WITHIN_MS) return null;
+    return {
+        uuid: `${job.input?.retryOf ?? job.uuid}:retry${done + 1}`,
+        runAt,
+        retry: done + 1,
+        retryOf: job.input?.retryOf ?? job.uuid,
+    };
+};
+
 export const createHeartbeatHandler = ({
     db, config, runners, scheduleNext, deliver = null, quiet = null, now = () => new Date(), rng = Math.random, xhs = null,
-    chatBusy = () => false,
+    chatBusy = () => false, scheduleRetry = null,
 }) => async job => {
     const row = getCharacter(db, job.charId);
     if (!row) return { skipped: 'unknown_character' };
@@ -1566,7 +1598,8 @@ export const createHeartbeatHandler = ({
     }
     if (!character.heartbeatEnabled) return { cancelled: 'disabled' };
 
-    scheduleNext(character, now());
+    // 重跳那一跳不续链：链在原来那一跳开头已经排好了，再排一次就成了两条链
+    if (!job.input?.retry) scheduleNext(character, now());
 
     // 昨天拼的日程不拿来过今天
     const snapshot = withTodaySchedule(getSnapshot(db, character.charId), now());
@@ -1703,6 +1736,11 @@ export const createHeartbeatHandler = ({
         }
         if (!feed.length) lifeKind = 'moment';
     }
+    // 跟朋友来往（不是去赴约的那种）：程序挑最久没来往的人，并列出最近聊过什么、哪些已经约好，别把同一件事再聊一遍
+    const socialLife = (lifeKind === 'chat' || lifeKind === 'social') && !(duePlan && intent === 'live');
+    const partners = socialLife ? recentPartners(db, character.charId, startedAt) : [];
+    const partner = socialLife ? pickPartner(snapshot.payload?.circle, partners, rng) : null;
+    const partnerBrief = socialLife ? formatPartnerBrief({ partner, partners, plans }) : '';
     // 买东西：送达时刻由程序先抽好写进提示词，落地时同一个时刻带去投喂站；最近买过的也给 TA 看，别重复下单。
     const shopping = SHOPPING_KINDS.has(lifeKind);
     const etas = shopping ? pickEtas(startedAt, timezone, rng) : null;
@@ -1712,7 +1750,7 @@ export const createHeartbeatHandler = ({
     const promptFor = opened => buildPrompt(character, snapshot, startedAt, intent, {
         thoughts, carried: hush || intent === 'reply' ? null : carried, threads, plans, duePlan, episode: wantsEpisode, life: lifeKind, canSpeak: !hush, temporal, feed, opened,
         etas, purchases, unread: intent === 'reply' ? unread : [], moments,
-        unanswered: intent === 'reach_out' ? unanswered : [], userTimezone, ownMessages, lifeLog, reachReason, catchUp,
+        unanswered: intent === 'reach_out' ? unanswered : [], userTimezone, ownMessages, lifeLog, reachReason, catchUp, partnerBrief,
     });
     const firstPass = await runner.run({
         charId: character.charId,
@@ -1746,6 +1784,8 @@ export const createHeartbeatHandler = ({
     const durationMs = now().getTime() - startedAt.getTime();
 
     if (!result.ok) {
+        const retry = shadow ? null : planHeartbeatRetry(db, { character, job, result, now: now() });
+        if (retry && scheduleRetry) scheduleRetry(character, retry);
         recordModelRun(db, {
             jobUuid: job.uuid,
             charId: character.charId,
@@ -1754,7 +1794,9 @@ export const createHeartbeatHandler = ({
             durationMs,
             ok: false,
             outcome: 'error',
-            error: result.error,
+            error: retry && scheduleRetry
+                ? `${result.error}（${HEARTBEAT_RETRY_DELAYS_MIN[retry.retry - 1]} 分钟后重跳）`
+                : result.error,
             shadow,
             intent,
             rawOutput: shouldCaptureRaw(db) ? result.raw ?? null : null,
@@ -1772,8 +1814,10 @@ export const createHeartbeatHandler = ({
     // 生活里的聊天对象不能是阿萌本人：那不是「自己的时间」，也会在通讯录里凭空多出一个她。
     const userName = String(snapshot.payload?.user?.name ?? '').trim();
     const rawLife = lifeKind ? withXhsFeed(modelOutput.life ?? null, feed) : null;
+    // 跟同一个人把最近聊过的又聊了一遍（「下周二喝酒」约了八次）：这一跳就当没写生活小事
+    const repeatChat = Boolean(rawLife) && isRepeatChat(rawLife, partners.length ? partners : recentPartners(db, character.charId, startedAt));
     const lifeChecked = withEta(withPlanTime(
-        rawLife && !((rawLife.kind === 'chat' || rawLife.kind === 'social') && userName && rawLife.with === userName) ? rawLife : null,
+        rawLife && !repeatChat && !((rawLife.kind === 'chat' || rawLife.kind === 'social') && userName && rawLife.with === userName) ? rawLife : null,
         startedAt,
         timezone,
     ), etas);
@@ -1834,7 +1878,8 @@ export const createHeartbeatHandler = ({
         // 开了口就不再欠着；没开口的「等会儿」留给下一跳兑现。上一跳欠下的，这一跳不能开口时继续欠着。
         urge: output.action === 'message' ? 'none' : (hush && carried ? 'later' : output.urge),
         // 这一跳为什么没开口（审计用）；outcome 不是 skipped，界面不会当成「被拦下」显示。
-        skipGate: staleBedtimeContext ? 'stale_bedtime_context' : hush,
+        // 生活小事被当成重聊丢掉时也留个记号，排查「怎么这跳什么都没落」时看得到
+        skipGate: staleBedtimeContext ? 'stale_bedtime_context' : (hush || (repeatChat ? 'life:repeat_chat' : null)),
         // 不能开口时模型写下的那句也留着，排查时能看到 TA 本来想说什么。
         proposedText: result.output.action === 'message' ? result.output.text : null,
         episode: episode ?? (life ? { life } : null),
