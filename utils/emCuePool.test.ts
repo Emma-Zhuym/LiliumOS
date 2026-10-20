@@ -63,3 +63,15 @@ describe('契机池', () => {
         expect(buildCueInjection('nobody')).toBe('');
     });
 });
+
+describe('契机池按劲儿加权', () => {
+    it('哪股劲儿强，跟它沾边的来源权重高；没劲儿数据就是原表', async () => {
+        const { driveWeightedWeights, driveCueChance, CUE_CHANCE_MAX, CHAT_CUE_CHANCE } = await import('./emCuePool');
+        expect(driveWeightedWeights([])).toEqual(CUE_SOURCE_WEIGHTS);
+        const caring = driveWeightedWeights([{ drive: 'concern', level: 'high' }]);
+        expect(caring.kitchen).toBeCloseTo(CUE_SOURCE_WEIGHTS.kitchen * 3);
+        expect(caring.own_life).toBeCloseTo(CUE_SOURCE_WEIGHTS.own_life);
+        expect(driveCueChance([])).toBe(CHAT_CUE_CHANCE);
+        expect(driveCueChance([{ drive: 'miss', level: 'high' }, { drive: 'stress', level: 'mid' }, { drive: 'x', level: 'mid' }])).toBe(CUE_CHANCE_MAX);
+    });
+});

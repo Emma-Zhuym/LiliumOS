@@ -43,6 +43,35 @@ export const CUE_SOURCE_WEIGHTS: Record<CueSource, number> = {
     own_life: 0.25,
 };
 const CUE_TEXT_MAX = 120;
+
+/**
+ * 按劲儿加权（第三阶段，劲儿系统在 feat/char-drives-engine）：哪股劲儿强，跟它沾边的来源更容易闪过。
+ * 好奇高 → 更容易想起她的账本；挂心高 → 冰箱、日历、账本；想你 / 社交高 → 日历、自己今天的事。
+ * 有劲儿冒头时这一轮更容易闪念头（最多 0.2）。拿不到劲儿数据就是原来的固定权重。
+ */
+const SOURCE_DRIVES: Record<CueSource, string[]> = {
+    finance: ['curious', 'concern'],
+    kitchen: ['concern'],
+    calendar: ['concern', 'miss'],
+    own_life: ['social', 'miss'],
+};
+const LEVEL_BOOST = { mid: 1, high: 2 } as const;
+export const CUE_CHANCE_MAX = 0.2;
+
+export const driveWeightedWeights = (
+    drives: { drive: string; level: 'mid' | 'high' }[],
+    base: Record<CueSource, number> = CUE_SOURCE_WEIGHTS,
+): Record<CueSource, number> => {
+    const out = { ...base };
+    for (const source of Object.keys(out) as CueSource[]) {
+        const boost = drives.filter(d => SOURCE_DRIVES[source].includes(d.drive)).reduce((sum, d) => sum + (LEVEL_BOOST[d.level] ?? 0), 0);
+        out[source] = base[source] * (1 + boost);
+    }
+    return out;
+};
+
+export const driveCueChance = (drives: { drive: string; level: 'mid' | 'high' }[], base = CHAT_CUE_CHANCE): number =>
+    Math.min(CUE_CHANCE_MAX, base * (1 + 0.5 * drives.length));
 const LOG_MAX = 50;
 
 export interface CueLogEntry {
