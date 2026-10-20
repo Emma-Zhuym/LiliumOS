@@ -16,6 +16,7 @@ import { listCredentials, putCredential } from './credentials.mjs';
 import { listModelRuns } from './heartbeat.mjs';
 import { listPlans } from './lifeThreads.mjs';
 import { listPocketForPhone } from './pocket.mjs';
+import { evolve as evolveDrives, ingestChatEvents, loadState as loadDriveState, summarizeForPhone } from './drives.mjs';
 import { getSnapshot, listSnapshotMeta, putSnapshot } from './snapshots.mjs';
 import { getSetting, setSetting } from './db.mjs';
 import {
@@ -216,6 +217,29 @@ export const createRouter = ctx => {
         'GET /plans': {
             // 日历 App 摆出来、聊天里告诉 TA 自己约了什么。默认往前一周、往后两个月。
             handle: ({ query }) => ({ plans: listPlans(db, { from: query.get('from'), to: query.get('to') }) }),
+        },
+
+        // ── 劲儿系统：聊天里副 API 评估给的事件标签（drives.mjs）──────────────
+        'POST /drives/events': {
+            handle: ({ body }) => {
+                const charId = String(body.charId || '');
+                if (!characterExists(db, charId)) {
+                    throw Object.assign(new Error('这个角色还没在后端登记'), { code: 'UNKNOWN_CHARACTER', status: 400 });
+                }
+                const now = new Date();
+                const timeZone = getSnapshot(db, charId)?.payload?.timezone || getSetting(db, 'timezone') || 'UTC';
+                const localHour = Number(new Intl.DateTimeFormat('en-US', { timeZone, hourCycle: 'h23', hour: 'numeric' }).format(now)) || 12;
+                // 她正在聊天：「想你」不再因为久不说话往上爬
+                return { accepted: ingestChatEvents(db, { charId, events: body.events, now, silenceHours: 0, localHour }) };
+            },
+        },
+        // 查手机的状态小组件用（以后）：最强的一两股和档位，不给精确数值
+        'GET /drives': {
+            handle: ({ query }) => {
+                const charId = String(query.get('charId') || '');
+                const now = new Date();
+                return { drives: charId ? summarizeForPhone(evolveDrives(loadDriveState(db, charId, now), now)) : [] };
+            },
         },
 
         // ── 话兜：TA 攒着还没跟阿萌说的话（查手机的草稿箱）─────────────────

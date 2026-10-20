@@ -269,6 +269,26 @@ export const MIGRATIONS = [
     -- 开口那一跳程序抽的「为什么想起 ta」（reachOut.mjs）。验收要数分享自己日常的占比。
     ALTER TABLE model_runs ADD COLUMN reach_reason TEXT;
     `,
+    // 12：劲儿系统（drives.mjs）。每个角色一份当前状态，外加劲儿账：每次变了多少、为什么——验收全靠拉这本账。
+    `
+    CREATE TABLE drive_state (
+      char_id    TEXT PRIMARY KEY REFERENCES characters(char_id) ON DELETE CASCADE,
+      state_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE drive_ledger (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      char_id     TEXT NOT NULL REFERENCES characters(char_id) ON DELETE CASCADE,
+      at          TEXT NOT NULL,
+      drive       TEXT NOT NULL,
+      delta       REAL NOT NULL,
+      value_after REAL NOT NULL,
+      source      TEXT NOT NULL,
+      label       TEXT NOT NULL,
+      reason      TEXT
+    );
+    CREATE INDEX idx_drive_ledger_char ON drive_ledger (char_id, at);
+    `,
 ];
 
 export const DEFAULT_SETTINGS = {

@@ -29,6 +29,10 @@ import {
 import { formatTemporalForPrompt, listTemporalItems, readVisibility, veilForCharacter } from './temporal.mjs';
 import { addPocketItem, listUnsaid, markSaid, settleSaidFromMessages } from './pocket.mjs';
 import { formatPartnerBrief, isRepeatChat, pickPartner, recentPartners } from './lifeCircle.mjs';
+import {
+    SELF_LABELS, applyLabel, chanceFactor as driveChanceFactor, evolve as evolveDrives, formatFeelings, grievanceOf,
+    lifeWeightFactors, loadState as loadDriveState, satisfy as satisfyDrive, saveState as saveDriveState, writeLedger as writeDriveLedger,
+} from './drives.mjs';
 import { buildCatchUp, formatCatchUp, formatReachReason, herSideCues, pickReachReason, recentLife } from './reachOut.mjs';
 
 /** 心跳最晚执行时间：过了就 expired，mini 睡醒后不会补跑一堆旧心跳（设计 4.1）。 */
@@ -625,6 +629,7 @@ export const messageChance = ({ availability, minutesSinceContact, inBreak = fal
  */
 export const decideIntent = ({
     snapshot, now, timezone, minutesSinceContact, carried = null, canSpeak = true, owed = false, unanswered = 0, rng = Math.random,
+    chanceFactor = 1,
 }) => {
     const slot = currentSlot(snapshot, now, timezone);
     const availability = slot?.availability ?? null;
@@ -646,7 +651,8 @@ export const decideIntent = ({
     const backoff = unansweredFactor(unanswered);
     const chance = !canSpeak ? 0
         : carried && unanswered < 2 ? 1
-            : messageChance({ availability, minutesSinceContact, inBreak }) * backoff;
+            // 劲儿系统的系数（想你、挂心推高，累、别扭压低）只动抽签这一档，封顶 0.75；欠着回复、兑现「等会儿」不受它影响
+            : Math.min(0.75, messageChance({ availability, minutesSinceContact, inBreak }) * backoff * chanceFactor);
     return {
         intent: rng() < chance ? 'reach_out' : 'live',
         chance,
@@ -716,16 +722,19 @@ export const OTHER_LIFE_WEIGHTS = [
 export const isMealtime = minutesOfDay =>
     (minutesOfDay >= 11 * 60 && minutesOfDay < 13 * 60 + 30) || (minutesOfDay >= 17 * 60 && minutesOfDay < 20 * 60 + 30);
 
-export const pickLifeKind = (minutesOfDay, rng = Math.random) => {
+export const pickLifeKind = (minutesOfDay, rng = Math.random, factors = null) => {
     // gift = 给阿萌买点东西（网购或外卖，TA 自己定要不要当惊喜）；少见才珍贵
     // social = 跟朋友当场有点来往：临时出门（少见），或临时约好上线打游戏
     // xhs = 刷会儿小红书首页（真实首页，程序先刷好再交给模型）
-    const weights = isMealtime(minutesOfDay) ? MEALTIME_LIFE_WEIGHTS : OTHER_LIFE_WEIGHTS;
+    const base = isMealtime(minutesOfDay) ? MEALTIME_LIFE_WEIGHTS : OTHER_LIFE_WEIGHTS;
+    // 劲儿系统给的系数（社交高多找朋友、好奇高多刷手机……），乘完重新归一；没有就是原表
+    const scaled = factors ? base.map(([kind, weight]) => [kind, weight * (factors[kind] ?? 1)]) : base;
+    const total = scaled.reduce((sum, [, weight]) => sum + weight, 0) || 1;
     // 按千分位累加再比：浮点一路相减，分档边界（0.42 / 0.58 …）会差一个 ε 落错档
     const roll = rng() * 1000;
     let edge = 0;
-    for (const [kind, weight] of weights) {
-        edge += Math.round(weight * 1000);
+    for (const [kind, weight] of scaled) {
+        edge += Math.round((weight / total) * 1000);
         if (roll < edge) return kind;
     }
     return 'chat';
@@ -889,6 +898,8 @@ export const HEARTBEAT_SCHEMA = {
                 },
             },
         },
+        // 这一跳的事对自己的影响（劲儿系统用）：只给标签，数值由程序定。
+        selfEvents: { type: 'array', maxItems: 3, items: { type: 'string', enum: SELF_LABELS } },
         // 刷到阿萌的新朋友圈：只有提示词里列了动态才会要求写。index 是列表里的编号。
         moments: {
             type: 'array',
@@ -996,7 +1007,7 @@ export const previewWithoutPhotoTags = text => String(text ?? '')
 export const buildPrompt = (character, snapshot, now = new Date(), intent = 'live', {
     thoughts = [], carried = null, threads = [], plans = [], duePlan = null, episode = false, life = null, canSpeak = true, temporal = '',
     feed = [], opened = null, etas = null, purchases = [], unread = [], moments = [], unanswered = [], userTimezone = null,
-    ownMessages = [], lifeLog = [], reachReason = null, catchUp = null, partnerBrief = '',
+    ownMessages = [], lifeLog = [], reachReason = null, catchUp = null, partnerBrief = '', feelings = '', askSelfEvents = false,
 } = {}) => {
     const p = snapshot.payload || {};
     const lines = [];
@@ -1022,6 +1033,8 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
     if (p.sleepWindow) lines.push(`你的作息：${p.sleepWindow.start} 睡，${p.sleepWindow.end} 起。`);
     // 情绪底色：聊天那边每轮情绪评估写出来的叙事。缺了它，心跳里的 TA 永远是出厂情绪。
     if (p.mood) lines.push(`你此刻的情绪底色：\n${p.mood}`);
+    // 劲儿系统：最强的一两股，一句话一股的感受（drives.mjs formatFeelings）。不出现数字、不写该做什么。
+    if (feelings) lines.push(feelings);
     // 日常节律：跟聊天日程生成用的是同一份自由文本。没有它，心跳完全不知道 TA 平时在哪、忙什么。
     if (p.dailyRhythm) lines.push(`你平时的生活节律（稳定的框架，不是今天必须逐字照做）：\n${p.dailyRhythm}`);
     // 阿萌的现实安排（她勾选可见的那几个 Apple 日历 / 提醒清单）。
@@ -1293,8 +1306,14 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
             + TELL_LATER_HOW('life', p.user?.name || '对方'),
         );
     }
+    if (askSelfEvents) lines.push(SELF_EVENTS_HOW);
     return lines.join('\n\n');
 };
+
+/** 过日子那一跳顺手标一下这件事对自己有什么影响（drives.mjs 的 SELF_LABELS）。只给标签，数值程序定。 */
+export const SELF_EVENTS_HOW = 'selfEvents：如果这一跳的事让你自己有点什么，写对应的词（可以几个，也可以省略）：'
+    + 'work_trouble = 工作 / 学业上遇到头疼的事；work_win = 顺利搞定了一件事；friend_fun = 跟朋友待得挺开心；tired_day = 今天挺累。'
+    + '没有就省略，别为了写而写。';
 
 /**
  * 只补朋友圈的亲友评论：短提示词、同一份 schema（回 noop + life.moment），读 life.comments。
@@ -1651,6 +1670,11 @@ export const createHeartbeatHandler = ({
         // 即时回复正在跑：这一轮就是在回她，心跳别抢着插一句。
         || (chatBusy(character.charId) ? 'chat_turn_running' : null);
     // 开不开口由程序抽签，不再让模型做判断题——它总能为沉默找到理由（设计 3.3）。
+    // 劲儿：先按经过的时间往前走（久不说话「想你」慢慢涨、深夜「累」高一点），再拿去给抽签加权
+    const drives = evolveDrives(loadDriveState(db, character.charId, startedAt), startedAt, {
+        silenceHours: lastContact ? (startedAt.getTime() - lastContact.getTime()) / 3_600_000 : 0,
+        localHour: Math.floor(localMinutesOf(startedAt, timezone) / 60),
+    });
     const { intent } = decideIntent({
         snapshot,
         now: startedAt,
@@ -1661,6 +1685,7 @@ export const createHeartbeatHandler = ({
         owed: unread.length > 0,
         unanswered: unanswered.length,
         rng,
+        chanceFactor: driveChanceFactor(drives),
     });
     // 只回看最近 12 小时：更早的那些，今天的聊天多半已经盖过去了。
     const thoughts = recentThoughts(db, character.charId, {
@@ -1707,6 +1732,7 @@ export const createHeartbeatHandler = ({
                 userName: snapshot.payload?.user?.name || 'ta',
             }),
             unanswered: unanswered.length,
+            grievance: grievanceOf(drives),
             rng,
         })
         : null;
@@ -1719,7 +1745,7 @@ export const createHeartbeatHandler = ({
         snapshot, now: startedAt, timezone, intent, threads, rng,
     });
     // 约定到点了：过自己日子的这一跳就是去赴约，不再抽别的事（抽签照样抽，保持随机序列不变）。
-    const pickedLife = sideKind === 'life' ? pickLifeKind(localMinutesOf(startedAt, timezone), rng) : null;
+    const pickedLife = sideKind === 'life' ? pickLifeKind(localMinutesOf(startedAt, timezone), rng, lifeWeightFactors(drives)) : null;
     const wantsEpisode = sideKind === 'work' && !(duePlan && intent === 'live');
     let lifeKind = duePlan && intent === 'live' ? 'social' : pickedLife;
     // 逛小红书：先真的刷一次首页再叫模型。角色没开小红书、服务没起来、没刷到东西，
@@ -1747,10 +1773,12 @@ export const createHeartbeatHandler = ({
     const purchases = shopping ? recentPurchases(db, character.charId, startedAt) : [];
     // 阿萌的新朋友圈：回她消息的那一跳专心回消息，别的跳顺手刷一下。
     const moments = intent === 'reply' ? [] : unseenMoments(db, character.charId, snapshot);
+    const feelings = formatFeelings(drives, { userName: snapshot.payload?.user?.name || 'ta' });
     const promptFor = opened => buildPrompt(character, snapshot, startedAt, intent, {
         thoughts, carried: hush || intent === 'reply' ? null : carried, threads, plans, duePlan, episode: wantsEpisode, life: lifeKind, canSpeak: !hush, temporal, feed, opened,
         etas, purchases, unread: intent === 'reply' ? unread : [], moments,
         unanswered: intent === 'reach_out' ? unanswered : [], userTimezone, ownMessages, lifeLog, reachReason, catchUp, partnerBrief,
+        feelings: feelings.text, askSelfEvents: intent === 'live' && Boolean(wantsEpisode || lifeKind),
     });
     const firstPass = await runner.run({
         charId: character.charId,
@@ -1894,6 +1922,24 @@ export const createHeartbeatHandler = ({
         return { ok: true, shadow, intent, action: output.action, activity: output.activity, durationMs };
     }
 
+    // 劲儿：这一跳自己的经历推一把（selfEvents），真做完的事落一截（只认真写出来、真发出去的），一起记账
+    {
+        let next = drives;
+        const changes = [];
+        const absorb = result => { next = result.state; changes.push(...result.changes); };
+        for (const label of new Set(Array.isArray(modelOutput.selfEvents) ? modelOutput.selfEvents : [])) {
+            if (SELF_LABELS.includes(label)) absorb(applyLabel(next, { label, source: 'heartbeat', now: startedAt }));
+        }
+        if (output.action === 'message') {
+            absorb(satisfyDrive(next, 'message'));
+            if (reachReason?.kind === 'her_side') absorb(satisfyDrive(next, 'reach_her_side'));
+            if (reachReason?.kind === 'grievance') absorb(satisfyDrive(next, 'grievance_said'));
+        }
+        if (life?.kind) absorb(satisfyDrive(next, life.kind));
+        writeDriveLedger(db, character.charId, changes, startedAt);
+        saveDriveState(db, character.charId, next);
+    }
+
     // 话兜：过日子时攒下想跟阿萌说的那句，下次开口时拿出来。这一跳已经开了口就不攒——话正在说。
     const pocketSource = [episode, life].find(part => typeof part?.tellLater === 'string' && part.tellLater.trim());
     if (pocketSource && output.action !== 'message') {
@@ -1983,7 +2029,8 @@ export const createHeartbeatHandler = ({
         jobUuid: job.uuid,
         kind: 'chat_message',
         title: character.displayName,
-        body: previewWithoutPhotoTags(output.text),
+        // 念想那股劲儿推出来的话不放进锁屏预览（阿萌 2026-10-19 定：预览里藏起来），点开才看得到
+        body: feelings.top === 'desire' ? `${character.displayName}给你发来一条消息` : previewWithoutPhotoTags(output.text),
         payload: {
             text: output.text,
             source: 'heartbeat',
