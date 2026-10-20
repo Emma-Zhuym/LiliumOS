@@ -965,6 +965,42 @@ export const HEARTBEAT_SCHEMA = {
     },
 };
 
+/** 每种生活小事提示词要求写、解析也要用到的字段（kind 之外）。 */
+const LIFE_REQUIRED = {
+    chat: ['with', 'lines'],
+    social: ['with', 'detail'],
+    delivery: ['with', 'detail', 'value'],
+    order: ['with', 'detail', 'value', 'ship'],
+    moment: ['detail', 'comments', 'likes'],
+    xhs: ['detail', 'picks'],
+    gift: ['via', 'with', 'detail', 'value'],
+};
+
+/**
+ * 这一跳实际要交的 schema：程序抽中了什么，就把对应字段改成必填。
+ *
+ * 2026-10-20：心跳换成 Gemini 3.8 Flash 后，抽中生活小事也只写 activity、不写 life。
+ * 严格 json_schema 下 Gemini 只交必填项，提示词里「在 life 里写」它不认；Claude 会照提示词补上。
+ * 所以 life / episode / moments 在抽中时设成必填，life.kind 也收窄成抽中的那一种。
+ */
+export const heartbeatSchemaFor = ({ life = null, episode = false, moments = false } = {}) => {
+    if (!life && !episode && !moments) return HEARTBEAT_SCHEMA;
+    const properties = { ...HEARTBEAT_SCHEMA.properties };
+    const required = [...HEARTBEAT_SCHEMA.required];
+    if (life) {
+        const base = HEARTBEAT_SCHEMA.properties.life;
+        properties.life = {
+            ...base,
+            required: ['kind', ...(LIFE_REQUIRED[life] ?? [])],
+            properties: { ...base.properties, kind: { type: 'string', enum: [life] } },
+        };
+        required.push('life');
+    }
+    if (episode) required.push('episode');
+    if (moments) required.push('moments');
+    return { ...HEARTBEAT_SCHEMA, required, properties };
+};
+
 /**
  * 角色是活在社会里的人：有自己在乎的事业、指望着 TA 的人、要兑现的承诺。
  *
@@ -1352,7 +1388,7 @@ export const fillMomentComments = async ({ runner, character, snapshot, life, us
         credRef: character.credRef,
         system,
         user: '写评论。只按 schema 回一个 JSON。',
-        schema: HEARTBEAT_SCHEMA,
+        schema: heartbeatSchemaFor({ life: 'moment' }),
         timeoutMs,
     });
     const comments = result.ok && result.output?.life?.kind === 'moment' ? result.output.life.comments ?? [] : [];
@@ -1776,12 +1812,18 @@ export const createHeartbeatHandler = ({
         etas, purchases, unread: intent === 'reply' ? unread : [], moments,
         unanswered: intent === 'reach_out' ? unanswered : [], userTimezone, ownMessages, lifeLog, reachReason, catchUp, partnerBrief,
     });
+    // 提示词要求写的，schema 里就是必填（主动找 TA 的那一跳不写生活和工作，见 buildPrompt）
+    const schema = heartbeatSchemaFor({
+        life: intent === 'reach_out' ? null : lifeKind,
+        episode: wantsEpisode && intent !== 'reach_out',
+        moments: moments.length > 0,
+    });
     const firstPass = await runner.run({
         charId: character.charId,
         credRef: character.credRef,
         system: promptFor(null),
         user: '现在要做什么？只按 schema 回一个 JSON。',
-        schema: HEARTBEAT_SCHEMA,
+        schema,
         timeoutMs: config.heartbeatTimeoutMs,
     });
     // 逛小红书：多看了两眼的第一条，程序替 TA 点开看正文和评论区，看完再把这一跳重写一遍（第二次调模型）。
@@ -1798,7 +1840,7 @@ export const createHeartbeatHandler = ({
                 credRef: character.credRef,
                 system: promptFor(opened),
                 user: '你刚点开看完了。把这一跳写完，只按 schema 回一个 JSON。',
-                schema: HEARTBEAT_SCHEMA,
+                schema,
                 timeoutMs: config.heartbeatTimeoutMs,
             });
             if (secondPass.ok && secondPass.output?.life?.kind === 'xhs') result = secondPass;

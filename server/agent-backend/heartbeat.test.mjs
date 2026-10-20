@@ -17,7 +17,7 @@ import {
     ACTIVE_CHAT_WINDOW_MS, buildPrompt, checkGates, speakBlock, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
     BREAK_COOLDOWN_MIN, currentSlot, decideIntent, formatGap, inBreakWindow, upcomingBreakStarts, jitterRatio, lastRealInteractionAt, listModelRuns, messageChance,
     nextRunAt, recordModelRun, shouldCaptureRaw, decideEpisode, episodeChance, isWorkSlot, lifeChance, pickLifeKind, veilSurprise,
-    MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, stripUnbackedClaims, withPlanTime, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule, unansweredProactive, lastUserSpokeAt, unansweredFactor, reachOutTimeRule, timeProgressRule, shouldSuppressStaleBedtimeMessage, recentOwnMessages, fillMomentComments, DUTY_RULE, PHOTO_HOW, previewWithoutPhotoTags,
+    MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, heartbeatSchemaFor, stripUnbackedClaims, withPlanTime, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule, unansweredProactive, lastUserSpokeAt, unansweredFactor, reachOutTimeRule, timeProgressRule, shouldSuppressStaleBedtimeMessage, recentOwnMessages, fillMomentComments, DUTY_RULE, PHOTO_HOW, previewWithoutPhotoTags,
 } from './heartbeat.mjs';
 import { chatCompletionsUrl, createApiRunner, extractContentText, parseEpisode, parseHeartbeatOutput, parseLife } from './runner.mjs';
 import { applyThread, closePassedPlans, closeStaleThreads, isPlanDue, isPlanThread, listOpenThreads, listPlans } from './lifeThreads.mjs';
@@ -1212,6 +1212,44 @@ test('生活权重：两行各自合计 1.00，购物三项都压在 0.20', () =
     assert.equal(pickLifeKind(17 * 60, () => 0.65), 'delivery');
     assert.equal(pickLifeKind(20 * 60 + 29, () => 0.65), 'delivery');
     assert.equal(pickLifeKind(20 * 60 + 30, () => 0.65), 'order');
+});
+
+test('schema：抽中什么就把什么设成必填（Gemini 严格模式只交必填项）', () => {
+    assert.equal(heartbeatSchemaFor(), HEARTBEAT_SCHEMA, '什么都没抽中就是原表');
+    const chat = heartbeatSchemaFor({ life: 'chat' });
+    assert.deepEqual(chat.required, ['action', 'activity', 'reason', 'life']);
+    assert.deepEqual(chat.properties.life.required, ['kind', 'with', 'lines']);
+    assert.deepEqual(chat.properties.life.properties.kind.enum, ['chat'], 'kind 收窄成抽中的那一种');
+    assert.deepEqual(heartbeatSchemaFor({ life: 'moment' }).properties.life.required, ['kind', 'detail', 'comments', 'likes']);
+    assert.deepEqual(heartbeatSchemaFor({ episode: true, moments: true }).required, ['action', 'activity', 'reason', 'episode', 'moments']);
+    // 原表不被改动
+    assert.deepEqual(HEARTBEAT_SCHEMA.required, ['action', 'activity', 'reason']);
+    assert.deepEqual(HEARTBEAT_SCHEMA.properties.life.required, ['kind']);
+    assert.ok(HEARTBEAT_SCHEMA.properties.life.properties.kind.enum.length > 1);
+});
+
+test('真实执行：抽中生活 / 工作那一跳交给模型的 schema 里它们是必填', async () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    seedSnapshot(db, { todaySchedule: [{ start: '18:00', title: '在家', availability: 'online' }] });
+    const schemas = [];
+    const runner = { run: async ({ schema }) => {
+        schemas.push(schema);
+        return { ok: true, output: { action: 'noop', activity: 'x', reason: '', urge: 'none' } };
+    } };
+    const seq = rolls => { let i = 0; return () => rolls[i++] ?? 0.99; };
+    // 意图（不开口）→ 抽签（0.3 落在生活）→ 做什么（0.1 → 聊天）
+    await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 's1'), now: chicago(20), rng: seq([0.99, 0.3, 0.1]), deliver: async () => {} });
+    assert.ok(schemas[0].required.includes('life'));
+    assert.deepEqual(schemas[0].properties.life.properties.kind.enum, ['chat']);
+    // 上班时段抽中工作往来：episode 必填，没抽中生活就不要求 life
+    const workDb = freshDb();
+    const worker = seedCharacter(workDb);
+    seedSnapshot(workDb, { todaySchedule: WORKDAY });
+    let call = 0;
+    await runHandler(workDb, { runner, job: jobFor(worker.heartbeatGeneration, 's2'), now: chicago(10), rng: () => (call++ === 0 ? 0.99 : 0.1), deliver: async () => {} });
+    assert.ok(schemas[1].required.includes('episode'));
+    assert.ok(!schemas[1].required.includes('life'));
 });
 
 test('social：抽得中，schema 收得下，解析后带 detail；约人那几句可有可无', () => {
