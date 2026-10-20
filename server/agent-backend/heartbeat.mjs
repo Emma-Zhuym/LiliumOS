@@ -32,7 +32,7 @@ import { formatPartnerBrief, isRepeatChat, pickPartner, recentPartners } from '.
 import {
     SELF_LABELS, applyLabel, chanceFactor as driveChanceFactor, evolve as evolveDrives, formatFeelings, grievanceOf,
     lifeWeightFactors, loadState as loadDriveState, satisfy as satisfyDrive, saveState as saveDriveState, writeLedger as writeDriveLedger,
-    APARTNESS, withApartness,
+    APARTNESS, applyTemperament, withApartness,
 } from './drives.mjs';
 import { buildCatchUp, formatCatchUp, formatReachReason, herSideCues, pickReachReason, recentLife } from './reachOut.mjs';
 
@@ -1680,7 +1680,8 @@ export const createHeartbeatHandler = ({
         || (chatBusy(character.charId) ? 'chat_turn_running' : null);
     // 开不开口由程序抽签，不再让模型做判断题——它总能为沉默找到理由（设计 3.3）。
     // 劲儿：先按经过的时间往前走（久不说话「想你」慢慢涨、深夜「累」高一点），再拿去给抽签加权
-    const drives = evolveDrives(loadDriveState(db, character.charId, startedAt), startedAt, {
+    // 脾气读数随快照来（手机读人设生成、阿萌可改）：基线、敏感度、回落快慢都按这个角色自己的
+    const drives = evolveDrives(applyTemperament(loadDriveState(db, character.charId, startedAt), snapshot.payload?.driveTemperament), startedAt, {
         silenceHours: lastContact ? (startedAt.getTime() - lastContact.getTime()) / 3_600_000 : 0,
         localHour: Math.floor(localMinutesOf(startedAt, timezone) / 60),
         busy: isWorkSlot(currentSlot(withTodaySchedule(snapshot, startedAt), startedAt, timezone)),

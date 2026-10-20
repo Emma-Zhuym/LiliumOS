@@ -111,6 +111,49 @@ export const SATISFY = {
 
 const clamp01 = v => Math.max(0, Math.min(1, v));
 
+// ── 脾气读数（spec 5.6）──────────────────────────────────────────
+/**
+ * 同一件事每个角色在意的程度不一样：敏感的人被冷落一下别扭很多，大大咧咧的几乎不动。
+ * 手机读人设生成一张读数（低 / 中 / 高三档，阿萌可以改），随快照传上来。这里把档位翻成数：
+ * - baseline：平常的水平。低 ×0.6、中 ×1、高 ×1.5（+0.05）
+ * - sensitivity：同样的事推多少。低 ×0.6、中 ×1、高 ×1.5
+ * - recovery：别扭、压力回落快慢。快 = 半衰期 ×0.7、慢 = ×1.5（别扭仍然一天封顶）
+ * - disabled：不适用的几股（比如没有身体的意识系角色不「想出门社交」），固定为 0、不涨
+ * - stressOutlet：压力大时习惯怎么排解，只写进感受、并稍微偏一下抽签
+ */
+const LEVEL_SCALE = { low: 0.6, mid: 1, high: 1.5 };
+const RECOVERY_SCALE = { fast: 0.7, mid: 1, slow: 1.5 };
+export const STRESS_OUTLETS = ['friends', 'user', 'work', 'alone'];
+
+export const temperamentFrom = raw => {
+    if (!raw || typeof raw !== 'object') return null;
+    const levels = obj => Object.fromEntries(DRIVES
+        .filter(key => obj && typeof obj === 'object' && LEVEL_SCALE[obj[key]])
+        .map(key => [key, obj[key]]));
+    return {
+        baseline: levels(raw.baseline),
+        sensitivity: levels(raw.sensitivity),
+        recovery: RECOVERY_SCALE[raw.recovery] ? raw.recovery : 'mid',
+        stressOutlet: STRESS_OUTLETS.includes(raw.stressOutlet) ? raw.stressOutlet : null,
+        disabled: Array.isArray(raw.disabled) ? raw.disabled.filter(key => DRIVES.includes(key)) : [],
+    };
+};
+
+/** 把脾气读数落到状态上：基线、敏感度、回落快慢、不适用的几股。没有读数就照默认。 */
+export const applyTemperament = (state, rawTemperament) => {
+    const t = temperamentFrom(rawTemperament);
+    if (!t) return state;
+    const baseline = {};
+    for (const key of DRIVES) {
+        const scale = LEVEL_SCALE[t.baseline[key] ?? 'mid'];
+        baseline[key] = t.disabled.includes(key) ? 0 : clamp01(DEFAULT_BASELINE[key] * scale + (scale > 1 ? 0.05 : 0));
+    }
+    const sensitivity = Object.fromEntries(DRIVES.map(key => [key, t.disabled.includes(key) ? 0 : LEVEL_SCALE[t.sensitivity[key] ?? 'mid']]));
+    const values = { ...state.values };
+    for (const key of t.disabled) values[key] = 0;
+    return { ...state, baseline, sensitivity, recovery: t.recovery, stressOutlet: t.stressOutlet, disabled: t.disabled, values };
+};
+
 export const freshState = (baseline = DEFAULT_BASELINE, now = new Date()) => ({
     values: { ...baseline },
     baseline: { ...baseline },
@@ -150,8 +193,10 @@ export const evolve = (state, now = new Date(), { silenceHours = 0, localHour = 
             base -= 0.5 * tiredOver + (busy ? 0.1 : 0);
             base = clamp01(base);
         }
+        if (state.disabled?.includes(key)) { values[key] = 0; continue; }
         const current = state.values[key] ?? base;
-        const factor = Math.pow(0.5, dtH / HALF_LIFE_H[key]);
+        const slowness = key === 'sulk' || key === 'stress' ? RECOVERY_SCALE[state.recovery] ?? 1 : 1;
+        const factor = Math.pow(0.5, dtH / (HALF_LIFE_H[key] * slowness));
         values[key] = clamp01(base + (current - base) * factor);
     }
     let sulkEvidence = state.sulkEvidence;
@@ -166,7 +211,7 @@ export const evolve = (state, now = new Date(), { silenceHours = 0, localHour = 
  * 吃进一个事件标签。返回 { state, changes }，changes 每项进劲儿账。
  * sensitivity：脾气读数的敏感度倍数（还没有脾气读数时都是 1）。
  */
-export const applyLabel = (state, { label, quote = '', source = 'chat', now = new Date(), sensitivity = {} }) => {
+export const applyLabel = (state, { label, quote = '', source = 'chat', now = new Date(), sensitivity = state.sensitivity ?? {} }) => {
     const table = LABEL_EFFECTS[label];
     if (!table) return { state, changes: [], rejected: 'unknown_label' };
     // 撒娇 / 亲密对「想你」的作用看你们此刻在不在一块
@@ -186,6 +231,7 @@ export const applyLabel = (state, { label, quote = '', source = 'chat', now = ne
     const values = { ...state.values };
     const changes = [];
     for (const [key, raw] of Object.entries(effects)) {
+        if (state.disabled?.includes(key)) continue;
         const before = values[key] ?? 0;
         const scaled = raw * damp * (sensitivity[key] ?? 1);
         // 涨按剩余空间缩放，落按当前值缩放：满了不会再顶，空了不会落成负的
@@ -240,7 +286,9 @@ const above = (state, key) => (state.values[key] ?? 0) - (state.baseline[key] ??
  */
 export const chanceFactor = state => {
     if (!state) return 1;
-    const f = 1 + 1.2 * above(state, 'miss') + 0.8 * above(state, 'concern') - 0.8 * above(state, 'tired') - 0.6 * above(state, 'sulk');
+    // 压力大时习惯找她说的人，压力也往「开口」那边推一点
+    const outletToUser = state.stressOutlet === 'user' ? 0.6 * Math.max(0, above(state, 'stress')) : 0;
+    const f = 1 + 1.2 * above(state, 'miss') + 0.8 * above(state, 'concern') - 0.8 * above(state, 'tired') - 0.6 * above(state, 'sulk') + outletToUser;
     return Math.max(0.5, Math.min(1.6, f));
 };
 
@@ -248,9 +296,11 @@ export const chanceFactor = state => {
 export const lifeWeightFactors = state => {
     if (!state) return null;
     const v = key => state.values[key] ?? 0;
+    // 压力大时习惯找朋友吐槽的人，压力也往「找朋友」那边推
+    const vent = state.stressOutlet === 'friends' ? Math.max(0, above(state, 'stress')) : 0;
     return {
-        chat: 0.6 + v('social'),
-        social: 0.6 + v('social'),
+        chat: 0.6 + v('social') + vent,
+        social: 0.6 + v('social') + vent,
         moment: 0.7 + 0.6 * v('curious'),
         xhs: 0.5 + v('curious'),
         gift: 0.6 + v('miss'),
@@ -275,7 +325,12 @@ export const formatFeelings = (state, { userName = 'ta' } = {}) => {
         curious: () => '你有点坐不住，想看看外面在发生什么。',
         reminisce: () => '你脑子里时不时冒出以前的事。',
         social: () => '你想找朋友说说话。',
-        stress: () => '工作上的事压得你有点烦。',
+        stress: () => `工作上的事压得你有点烦${{
+            friends: '（你压力大时习惯找朋友吐槽）',
+            user: `（你压力大时习惯找${userName}说说）`,
+            work: '（你压力大时习惯闷头把事做完）',
+            alone: '（你压力大时习惯自己消化）',
+        }[state.stressOutlet] ?? ''}。`,
         sulk: () => `你心里还有点堵${state.sulkEvidence?.quote ? `：${userName}说过「${state.sulkEvidence.quote}」` : ''}。`,
         concern: () => `你有点挂心${userName}。`,
         desire: () => `你对${userName}有点念想。`,
@@ -354,8 +409,8 @@ export const pruneLedger = (db, now = new Date()) => {
  * 手机送来的事件（聊天里副 API 评估给的标签）。同一个标签 + 同一句原话 30 分钟内只收一次，
  * 免得重发、补跑把同一件事记两遍。返回收下了几个。
  */
-export const ingestChatEvents = (db, { charId, events = [], now = new Date(), silenceHours = 0, localHour = 12 }) => {
-    let state = evolve(loadState(db, charId, now), now, { silenceHours, localHour });
+export const ingestChatEvents = (db, { charId, events = [], now = new Date(), silenceHours = 0, localHour = 12, temperament = null }) => {
+    let state = evolve(applyTemperament(loadState(db, charId, now), temperament), now, { silenceHours, localHour });
     let accepted = 0;
     const seen = db.prepare(
         `SELECT 1 FROM drive_ledger WHERE char_id = ? AND label = ? AND reason = ? AND at >= ? LIMIT 1`,

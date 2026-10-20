@@ -230,7 +230,8 @@ export const createRouter = ctx => {
                 const timeZone = getSnapshot(db, charId)?.payload?.timezone || getSetting(db, 'timezone') || 'UTC';
                 const localHour = Number(new Intl.DateTimeFormat('en-US', { timeZone, hourCycle: 'h23', hour: 'numeric' }).format(now)) || 12;
                 // 她正在聊天：「想你」不再因为久不说话往上爬
-                return { accepted: ingestChatEvents(db, { charId, events: body.events, now, silenceHours: 0, localHour }) };
+                const temperament = getSnapshot(db, charId)?.payload?.driveTemperament ?? null;
+                return { accepted: ingestChatEvents(db, { charId, events: body.events, now, silenceHours: 0, localHour, temperament }) };
             },
         },
         // 查手机的状态小组件用（以后）：最强的一两股和档位，不给精确数值

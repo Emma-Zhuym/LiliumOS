@@ -197,3 +197,25 @@ test('性欲（念想）：分开时被撩往上冲；在一块的亲密算满�
     const working = evolve(freshState(DEFAULT_BASELINE, AT), new Date(AT.getTime() + 2 * H), { localHour: 12, busy: true }).values.desire;
     assert.ok(morning > noon && noon > working);
 });
+
+test('脾气读数：基线、敏感度、回落快慢按角色自己的；不适用的固定为 0；压力出口写进感受', async () => {
+    const { applyTemperament, temperamentFrom } = await import('./drives.mjs');
+    assert.equal(temperamentFrom(null), null);
+    const touchy = applyTemperament(freshState(DEFAULT_BASELINE, AT), {
+        baseline: { miss: 'high', social: 'low' }, sensitivity: { sulk: 'high' }, recovery: 'slow', stressOutlet: 'friends', disabled: ['desire'],
+    });
+    assert.ok(touchy.baseline.miss > DEFAULT_BASELINE.miss);
+    assert.ok(touchy.baseline.social < DEFAULT_BASELINE.social);
+    assert.equal(touchy.values.desire, 0);
+    const easy = applyTemperament(freshState(DEFAULT_BASELINE, AT), { sensitivity: { sulk: 'low' }, recovery: 'fast' });
+    const hurt = st => applyLabel(st, { label: 'cold', quote: '嗯', now: AT }).state.values.sulk;
+    assert.ok(hurt(touchy) > hurt(easy), '同一句「嗯」，敏感的人更在意');
+    assert.equal(applyLabel(touchy, { label: 'intimate', now: AT }).state.values.desire, 0, '不适用的不涨');
+    const stressed = { ...touchy, values: { ...touchy.values, stress: 0.8 } };
+    assert.match(formatFeelings(stressed).text, /习惯找朋友吐槽/);
+    assert.ok(lifeWeightFactors(stressed).chat > lifeWeightFactors({ ...stressed, stressOutlet: null }).chat);
+    // 慢的人别扭消得慢
+    const slowLater = evolve({ ...touchy, values: { ...touchy.values, sulk: 0.6 } }, new Date(AT.getTime() + 6 * H), { localHour: 15 }).values.sulk;
+    const fastLater = evolve({ ...easy, values: { ...easy.values, sulk: 0.6 } }, new Date(AT.getTime() + 6 * H), { localHour: 15 }).values.sulk;
+    assert.ok(slowLater > fastLater);
+});
