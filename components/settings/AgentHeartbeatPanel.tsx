@@ -15,6 +15,7 @@ import { useOS } from '../../context/OSContext';
 import { DB } from '../../utils/db';
 import { HEARTBEAT_API_AUTO, HEARTBEAT_API_CHAT, resolveHeartbeatApi } from '../../utils/emHeartbeatApi';
 import TemperamentEditor from './TemperamentEditor'; // [EM: char-drives-engine]
+import { generateTemperament } from '../../utils/emTemperament'; // [EM: char-drives-engine]
 import { buildCharacterSnapshot } from '../../utils/emAgentSnapshot';
 import {
     AgentBackend,
@@ -139,8 +140,22 @@ export default function AgentHeartbeatPanel({ open, onClose }: Props) {
             credRef: ref,
         });
 
+        // [EM-START: char-drives-engine] 还没读过脾气的角色，接上时顺手读一次（失败不拦接入，之后可在「脾气」里手动读）
+        let charForSnapshot = char;
+        if (!char.emDriveTemperament) {
+            try {
+                const emotionApi = char.emotionConfig?.api;
+                const readApi = emotionApi?.baseUrl && emotionApi.apiKey && emotionApi.model ? emotionApi : resolved;
+                const temperament = await generateTemperament(char, readApi);
+                updateCharacter(charId, { emDriveTemperament: temperament });
+                charForSnapshot = { ...char, emDriveTemperament: temperament };
+            } catch (error) {
+                console.warn('读脾气失败，先按默认来', error);
+            }
+        }
+        // [EM-END: char-drives-engine]
         const messages = await DB.getMessagesByCharId(charId);
-        const ok = await flushSnapshotUpload(await buildCharacterSnapshot(char, messages, {
+        const ok = await flushSnapshotUpload(await buildCharacterSnapshot(charForSnapshot, messages, {
             userName: userProfile?.name,
         }));
         addToast(

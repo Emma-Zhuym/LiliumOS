@@ -364,6 +364,10 @@ export const AgentBackend = {
     driveEvents: (charId: string, events: { label: string; quote?: string }[]) => request<{ accepted: number }>(
         '/drives/events', { method: 'POST', body: { charId, events } },
     ), // [EM: char-drives-engine]
+    /** 劲儿系统：最强的一两股和档位（不给精确数值），查手机的状态小组件用。 */
+    drives: (charId: string) => request<{ drives: { drive: string; level: 'mid' | 'high' }[] }>(
+        `/drives?charId=${encodeURIComponent(charId)}`,
+    ).then(data => data.drives), // [EM: char-drives-engine]
     // [EM-START: agent-instant-chat]
     /** 不带设备钥匙的探活：即时回复发之前用，3 秒内没回就当 mini 不在。 */
     health: (timeoutMs = 3_000) => request<{ ok: boolean; version: string }>('/health', { auth: false, timeoutMs }),

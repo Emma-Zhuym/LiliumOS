@@ -22,7 +22,8 @@ export const DEFAULT_BASELINE = {
 
 /** 往基线回的快慢（小时，越小回得越快）。负面的回得慢一点，但别扭有 24 小时硬封顶。 */
 const HALF_LIFE_H = {
-    miss: 10, curious: 6, reminisce: 8, social: 8, stress: 8, sulk: 6, concern: 8, desire: 4, tired: 5,
+    // 想你 6 小时：跟得上「好几天见不到」那条慢慢抬高的基线（回放里 10 小时太迟钝，异国一整天没说话到半夜才「有点想」）
+    miss: 6, curious: 6, reminisce: 8, social: 8, stress: 8, sulk: 6, concern: 8, desire: 4, tired: 5,
 };
 
 /** 别扭最多一天就消（阿萌 2026-10-14 定）：距最后一次有原话作证满 24 小时，强制回基线。 */
@@ -41,7 +42,7 @@ const APARTNESS_TTL_MS = 6 * 60 * 60 * 1000;
 const MISS_DRIFT = {
     together: { perHour: -0.02, max: -0.15 },
     today: { perHour: 0.015, max: 0.2 },
-    far: { perHour: 0.045, max: 0.35 },
+    far: { perHour: 0.06, max: 0.4 },
     unknown: { perHour: 0.03, max: 0.28 },
 };
 /**

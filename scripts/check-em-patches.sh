@@ -328,6 +328,7 @@ check "解析保留劲儿事件" utils/emotionApply.ts "driveEvents: Array.isArr
 check "评估落地时送去 mini" utils/emotionApply.ts "void sendDriveEventsFromEval(result, charData.id); // [EM: char-drives-engine]"
 check "角色字段：脾气读数" types.ts "emDriveTemperament?: DriveTemperament;"
 check "快照带上脾气读数" utils/emAgentSnapshot.ts "driveTemperament: char.emDriveTemperament"
+check "查手机状态小组件" apps/CheckPhone.tsx "<StatusWidget charId={targetChar.id} palette={CF} />"
 
 echo ""
 if [ $FAIL -gt 0 ]; then
