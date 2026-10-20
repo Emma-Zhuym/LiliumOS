@@ -13,6 +13,8 @@
  * 数值是时间的纯函数：读的时候按经过的时间往基线回，不需要单独的定时器。
  */
 
+import { getSetting } from './db.mjs';
+
 export const DRIVES = ['miss', 'curious', 'reminisce', 'social', 'stress', 'sulk', 'concern', 'desire', 'tired'];
 
 /** 默认基线（还没有脾气读数时用）。 */
@@ -269,8 +271,8 @@ export const applyLabel = (state, { label, quote = '', source = 'chat', now = ne
     return {
         state: {
             ...state,
-            ...(togetherIntimacy ? { desireRefractoryUntil: new Date(now.getTime() + DESIRE_REFRACTORY_MS).toISOString(), privateUntil: null } : {}),
-            ...(label === 'getting_intimate' ? { privateUntil: new Date(now.getTime() + PRIVATE_MOMENT_MS).toISOString() } : {}),
+            ...(togetherIntimacy ? { desireRefractoryUntil: new Date(now.getTime() + DESIRE_REFRACTORY_MS).toISOString() } : {}),
+            ...privateMomentAfter(state, label, source, now),
             values,
             labels: { ...(state.labels ?? {}), [label]: { at: now.toISOString(), repeats } },
             sulkEvidence: sulkReset ? null : sulkUp ? { at: now.toISOString(), quote: cleanQuote, label } : state.sulkEvidence,
@@ -278,6 +280,24 @@ export const applyLabel = (state, { label, quote = '', source = 'chat', now = ne
         changes,
     };
 };
+
+/**
+ * 两个人的时间怎么跟着标签变（阿萌 2026-10-20：手动按钮是主开关，自动判断只兜底）。
+ * - 开始（getting_intimate）：从现在起 2 小时；本来就在里面就往后延，不缩短
+ * - 结束（intimacy_done）：手动开的只认手动结束——副 API 猜到的「事后」不替她关
+ */
+const privateMomentAfter = (state, label, source, now) => {
+    const manualActive = state.privateSource === 'manual' && inPrivateMoment(state, now);
+    if (label === 'getting_intimate') {
+        const until = Math.max(now.getTime() + PRIVATE_MOMENT_MS, state.privateUntil ? Date.parse(state.privateUntil) || 0 : 0);
+        return { privateUntil: new Date(until).toISOString(), privateSource: source === 'manual' || manualActive ? 'manual' : 'auto' };
+    }
+    if (label === 'intimacy_done' && (source === 'manual' || !manualActive)) return { privateUntil: null, privateSource: null };
+    return {};
+};
+
+/** 这个标签除了推数值，还会改状态（两个人的时间、不应期、别扭的依据）：数值没动也要存下来。 */
+const STATEFUL_LABELS = new Set(['getting_intimate', 'intimacy_done', 'reassuring']);
 
 /** 真做完了一件事：对应的劲儿按比例往下落。 */
 export const satisfy = (state, what, { source = 'heartbeat' } = {}) => {
@@ -422,9 +442,17 @@ export const pruneLedger = (db, now = new Date()) => {
     db.prepare('DELETE FROM drive_ledger WHERE at < ?').run(new Date(now.getTime() - 90 * 24 * 3600_000).toISOString());
 };
 
+/** 手机排队补送的事件按它真发生的时刻算；太旧的（手机那边也只排 6 小时）和将来的都按现在。 */
+const EVENT_MAX_AGE_MS = 6 * 60 * 60 * 1000;
+const eventTime = (raw, now) => {
+    const at = Date.parse(raw ?? '');
+    return Number.isFinite(at) && at <= now.getTime() && now.getTime() - at <= EVENT_MAX_AGE_MS ? new Date(at) : now;
+};
+
 /**
  * 手机送来的事件（聊天里副 API 评估给的标签）。同一个标签 + 同一句原话 30 分钟内只收一次，
  * 免得重发、补跑把同一件事记两遍。返回收下了几个。
+ * 没带原话的标签（亲昵、调情）没法按原话认重复，靠手机那边的批次 id 去重，这里不拦。
  */
 export const ingestChatEvents = (db, { charId, events = [], now = new Date(), silenceHours = 0, localHour = 12, temperament = null }) => {
     let state = evolve(applyTemperament(loadState(db, charId, now), temperament), now, { silenceHours, localHour });
@@ -436,13 +464,48 @@ export const ingestChatEvents = (db, { charId, events = [], now = new Date(), si
         const label = String(event?.label ?? '');
         if (!CHAT_LABELS.includes(label) || label === 'neutral') continue;
         const quote = String(event?.quote ?? '').trim().slice(0, 120);
-        if (seen.get(charId, label, quote || label, new Date(now.getTime() - 30 * 60_000).toISOString())) continue;
-        const { state: next, changes } = applyLabel(state, { label, quote, source: 'chat', now });
-        if (!changes.length) continue;
+        const at = eventTime(event?.at, now);
+        if (quote && seen.get(charId, label, quote, new Date(at.getTime() - 30 * 60_000).toISOString())) continue;
+        const { state: next, changes, rejected } = applyLabel(state, { label, quote, source: 'chat', now: at });
+        if (rejected || (!changes.length && !STATEFUL_LABELS.has(label))) continue;
         state = next;
-        writeLedger(db, charId, changes, now);
+        writeLedger(db, charId, changes, at);
         accepted += 1;
     }
     saveState(db, charId, state);
     return accepted;
+};
+
+/**
+ * 聊天工具栏的「贴贴」按钮（阿萌 2026-10-20）：她自己说开始 / 结束，比副 API 猜准。
+ * 开始 = getting_intimate（心跳闭嘴 2 小时），结束 = intimacy_done（念想落下来、进不应期）。
+ * 返回此刻还在不在两个人的时间里，以及到几点。
+ */
+export const setPrivateMoment = (db, { charId, on, now = new Date(), silenceHours = 0, localHour = 12, temperament = null }) => {
+    const before = evolve(applyTemperament(loadState(db, charId, now), temperament), now, { silenceHours, localHour });
+    const { state, changes } = applyLabel(before, { label: on ? 'getting_intimate' : 'intimacy_done', source: 'manual', now });
+    writeLedger(db, charId, changes, now);
+    saveState(db, charId, state);
+    return privateMomentOf(state, now);
+};
+
+/** 给手机按钮看的：在不在两个人的时间里、到几点、是不是她自己按的。 */
+export const privateMomentOf = (state, now = new Date()) => (
+    inPrivateMoment(state, now)
+        ? { active: true, until: state.privateUntil, source: state.privateSource ?? 'auto' }
+        : { active: false, until: null, source: null }
+);
+
+/**
+ * 劲儿试运行（阿萌 2026-10-20）：数值照常算、照常记账，但不拿去影响角色——
+ * 开口概率、过日子抽什么、提示词里的感受、别扭时主动提，全按没有劲儿系统时那样。
+ * 看一周劲儿账觉得像这个人了再关。两个人的时间不算「影响」，试运行里照样生效。
+ * 设置读坏了按试运行算：宁可没效果，也不要没人看着时乱动。
+ */
+export const isDriveTrial = db => {
+    try {
+        return JSON.parse(getSetting(db, 'drives_trial') || '{}').enabled !== false;
+    } catch {
+        return true;
+    }
 };

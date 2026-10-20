@@ -62,9 +62,12 @@ export interface AgentStatus {
     quiet: { active: boolean; start: string; end: string; timezone: string };
     deps: Record<string, AgentDependency>;
     /** 心跳状态：shadow=true 表示只试跑、不真发消息；everyMinOverride 非空表示试跑提速开着。 */
-    heartbeat?: { shadow: boolean; everyMinOverride: number | null; jitterSpread?: number };
+    heartbeat?: { shadow: boolean; everyMinOverride: number | null; jitterSpread?: number; drivesTrial?: boolean }; // [EM: char-drives-engine] drivesTrial
     capabilities: string[];
 }
+
+/** [EM: char-drives-engine] 两个人的时间：until 是到几点（ISO），source=manual 表示她自己按的。 */
+export interface AgentPrivateMoment { active: boolean; until: string | null; source: 'manual' | 'auto' | null }
 
 export interface AgentCharacter {
     charId: string;
@@ -361,13 +364,21 @@ export const AgentBackend = {
         `/pocket${charId ? `?charId=${encodeURIComponent(charId)}` : ''}`,
     ).then(data => data.items), // [EM: char-drives-pocket]
     /** 劲儿系统：聊天里副 API 评估给的事件标签（她做了什么），mini 按标签定数值。 */
-    driveEvents: (charId: string, events: { label: string; quote?: string }[]) => request<{ accepted: number }>(
+    driveEvents: (charId: string, events: { label: string; quote?: string; at?: string }[]) => request<{ accepted: number }>(
         '/drives/events', { method: 'POST', body: { charId, events } },
     ), // [EM: char-drives-engine]
     /** 劲儿系统：最强的一两股和档位（不给精确数值），查手机的状态小组件用。 */
     drives: (charId: string) => request<{ drives: { drive: string; level: 'mid' | 'high' }[] }>(
         `/drives?charId=${encodeURIComponent(charId)}`,
     ).then(data => data.drives), // [EM: char-drives-engine]
+    /** 劲儿系统：在不在两个人的时间里（聊天工具栏「贴贴」按钮用）。 */
+    privateMoment: (charId: string) => request<{ private: AgentPrivateMoment }>(
+        `/drives?charId=${encodeURIComponent(charId)}`,
+    ).then(data => data.private), // [EM: char-drives-engine]
+    /** 劲儿系统：她自己按的开始 / 结束两个人的时间。 */
+    setPrivateMoment: (charId: string, on: boolean) => request<{ private: AgentPrivateMoment }>(
+        '/drives/private', { method: 'POST', body: { charId, on } },
+    ).then(data => data.private), // [EM: char-drives-engine]
     // [EM-START: agent-instant-chat]
     /** 不带设备钥匙的探活：即时回复发之前用，3 秒内没回就当 mini 不在。 */
     health: (timeoutMs = 3_000) => request<{ ok: boolean; version: string }>('/health', { auth: false, timeoutMs }),

@@ -6,12 +6,13 @@
  *   node server/agent-backend/cli.mjs devices     列出设备
  *   node server/agent-backend/cli.mjs ping        排一个连通测试任务
  *   node server/agent-backend/cli.mjs vapid       生成一对 VAPID 密钥（仅在还没有时用）
+ *   node server/agent-backend/cli.mjs drives-trial [on|off]  劲儿试运行：看 / 开 / 关
  */
 
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ensureDataDir, loadConfig } from './config.mjs';
-import { openDb } from './db.mjs';
+import { getSetting, openDb, setSetting } from './db.mjs';
 import { createPairingCode, listDevices } from './devices.mjs';
 import { createJob } from './jobs.mjs';
 
@@ -51,10 +52,19 @@ if (command === 'pair') {
     writeFileSync(join(config.secretsDir, 'vapid-private'), `${keys.privateKey}\n`, { mode: 0o600 });
     console.log('已写入 secrets/vapid-public 与 secrets/vapid-private。');
     console.log(`公钥（要填回 LiliumOS 的推送凭据面板）：\n${keys.publicKey}`);
+} else if (command === 'drives-trial') {
+    // 劲儿试运行：开着时只记账、不影响角色。看过一周劲儿账、觉得像这个人了再 off。
+    const db = openDb(config.dbPath);
+    const want = process.argv[3];
+    if (want === 'on' || want === 'off') setSetting(db, 'drives_trial', JSON.stringify({ enabled: want === 'on' }));
+    const enabled = (() => { try { return JSON.parse(getSetting(db, 'drives_trial') || '{}').enabled !== false; } catch { return true; } })();
+    console.log(enabled ? '劲儿试运行中：只记账，不影响角色。' : '劲儿已生效：开口、过日子、感受都按劲儿来。');
+    if (want) console.log('不用重启，下一跳心跳就按新设置。');
 } else {
     console.log(`用法：
   node server/agent-backend/cli.mjs pair      生成配对码
   node server/agent-backend/cli.mjs devices   列出设备
   node server/agent-backend/cli.mjs ping      排一个连通测试任务
-  node server/agent-backend/cli.mjs vapid     生成 VAPID 密钥（仅在还没有时）`);
+  node server/agent-backend/cli.mjs vapid     生成 VAPID 密钥（仅在还没有时）
+  node server/agent-backend/cli.mjs drives-trial [on|off]  劲儿试运行：看 / 开 / 关`);
 }

@@ -32,7 +32,7 @@ import { formatPartnerBrief, isRepeatChat, pickPartner, recentPartners } from '.
 import {
     SELF_LABELS, applyLabel, chanceFactor as driveChanceFactor, evolve as evolveDrives, formatFeelings, grievanceOf,
     lifeWeightFactors, loadState as loadDriveState, satisfy as satisfyDrive, saveState as saveDriveState, writeLedger as writeDriveLedger,
-    APARTNESS, applyTemperament, inPrivateMoment, withApartness,
+    APARTNESS, applyTemperament, inPrivateMoment, isDriveTrial, withApartness,
 } from './drives.mjs';
 import { buildCatchUp, formatCatchUp, formatReachReason, herSideCues, pickReachReason, recentLife } from './reachOut.mjs';
 
@@ -996,9 +996,10 @@ const LIFE_REQUIRED = {
  * 2026-10-20：心跳换成 Gemini 3.8 Flash 后，抽中生活小事也只写 activity、不写 life。
  * 严格 json_schema 下 Gemini 只交必填项，提示词里「在 life 里写」它不认；Claude 会照提示词补上。
  * 所以 life / episode / moments 在抽中时设成必填，life.kind 也收窄成抽中的那一种。
+ * 劲儿系统要的 together（每跳都问）和 selfEvents（过日子那跳才问）同理：提示词问了就必填，selfEvents 可以是空数组。
  */
-export const heartbeatSchemaFor = ({ life = null, episode = false, moments = false } = {}) => {
-    if (!life && !episode && !moments) return HEARTBEAT_SCHEMA;
+export const heartbeatSchemaFor = ({ life = null, episode = false, moments = false, together = false, selfEvents = false } = {}) => {
+    if (!life && !episode && !moments && !together && !selfEvents) return HEARTBEAT_SCHEMA;
     const properties = { ...HEARTBEAT_SCHEMA.properties };
     const required = [...HEARTBEAT_SCHEMA.required];
     if (life) {
@@ -1012,6 +1013,8 @@ export const heartbeatSchemaFor = ({ life = null, episode = false, moments = fal
     }
     if (episode) required.push('episode');
     if (moments) required.push('moments');
+    if (together) required.push('together');
+    if (selfEvents) required.push('selfEvents');
     return { ...HEARTBEAT_SCHEMA, required, properties };
 };
 
@@ -1746,7 +1749,9 @@ export const createHeartbeatHandler = ({
         localHour: Math.floor(localMinutesOf(startedAt, timezone) / 60),
         busy: isWorkSlot(currentSlot(withTodaySchedule(snapshot, startedAt), startedAt, timezone)),
     });
-    // 两个人的时间（说了去洗澡 / 在床上等之后，还没看到事后的话）：这一跳整个跳过，连模型都不叫
+    // 试运行：劲儿照常算、照常记账，但下面的抽签、感受、别扭时主动提都按没有劲儿时那样
+    const drivesLive = !isDriveTrial(db);
+    // 两个人的时间（说了去洗澡 / 在床上等之后，还没看到事后的话）：这一跳整个跳过，连模型都不叫。试运行里也生效
     if (inPrivateMoment(drives, startedAt)) {
         recordModelRun(db, {
             jobUuid: job.uuid,
@@ -1770,7 +1775,7 @@ export const createHeartbeatHandler = ({
         owed: unread.length > 0,
         unanswered: unanswered.length,
         rng,
-        chanceFactor: driveChanceFactor(drives),
+        chanceFactor: drivesLive ? driveChanceFactor(drives) : 1,
     });
     // 只回看最近 12 小时：更早的那些，今天的聊天多半已经盖过去了。
     const thoughts = recentThoughts(db, character.charId, {
@@ -1817,7 +1822,7 @@ export const createHeartbeatHandler = ({
                 userName: snapshot.payload?.user?.name || 'ta',
             }),
             unanswered: unanswered.length,
-            grievance: grievanceOf(drives),
+            grievance: drivesLive ? grievanceOf(drives) : null,
             rng,
         })
         : null;
@@ -1830,7 +1835,7 @@ export const createHeartbeatHandler = ({
         snapshot, now: startedAt, timezone, intent, threads, rng,
     });
     // 约定到点了：过自己日子的这一跳就是去赴约，不再抽别的事（抽签照样抽，保持随机序列不变）。
-    const pickedLife = sideKind === 'life' ? pickLifeKind(localMinutesOf(startedAt, timezone), rng, lifeWeightFactors(drives)) : null;
+    const pickedLife = sideKind === 'life' ? pickLifeKind(localMinutesOf(startedAt, timezone), rng, drivesLive ? lifeWeightFactors(drives) : null) : null;
     const wantsEpisode = sideKind === 'work' && !(duePlan && intent === 'live');
     let lifeKind = duePlan && intent === 'live' ? 'social' : pickedLife;
     // 逛小红书：先真的刷一次首页再叫模型。角色没开小红书、服务没起来、没刷到东西，
@@ -1858,18 +1863,21 @@ export const createHeartbeatHandler = ({
     const purchases = shopping ? recentPurchases(db, character.charId, startedAt) : [];
     // 阿萌的新朋友圈：回她消息的那一跳专心回消息，别的跳顺手刷一下。
     const moments = intent === 'reply' ? [] : unseenMoments(db, character.charId, snapshot);
-    const feelings = formatFeelings(drives, { userName: snapshot.payload?.user?.name || 'ta' });
+    const feelings = drivesLive ? formatFeelings(drives, { userName: snapshot.payload?.user?.name || 'ta' }) : { text: '', top: null };
+    const askSelfEvents = intent === 'live' && Boolean(wantsEpisode || lifeKind);
     const promptFor = opened => buildPrompt(character, snapshot, startedAt, intent, {
         thoughts, carried: hush || intent === 'reply' ? null : carried, threads, plans, duePlan, episode: wantsEpisode, life: lifeKind, canSpeak: !hush, temporal, feed, opened,
         etas, purchases, unread: intent === 'reply' ? unread : [], moments,
         unanswered: intent === 'reach_out' ? unanswered : [], userTimezone, ownMessages, lifeLog, reachReason, catchUp, partnerBrief,
-        feelings: feelings.text, askSelfEvents: intent === 'live' && Boolean(wantsEpisode || lifeKind),
+        feelings: feelings.text, askSelfEvents,
     });
     // 提示词要求写的，schema 里就是必填（主动找 TA 的那一跳不写生活和工作，见 buildPrompt）
     const schema = heartbeatSchemaFor({
         life: intent === 'reach_out' ? null : lifeKind,
         episode: wantsEpisode && intent !== 'reach_out',
         moments: moments.length > 0,
+        together: true,
+        selfEvents: askSelfEvents,
     });
     const firstPass = await runner.run({
         charId: character.charId,
@@ -2016,13 +2024,19 @@ export const createHeartbeatHandler = ({
         return { ok: true, shadow, intent, action: output.action, activity: output.activity, durationMs };
     }
 
-    // 劲儿：这一跳自己的经历推一把（selfEvents），真做完的事落一截（只认真写出来、真发出去的），一起记账
+    // 劲儿：这一跳自己的经历推一把（selfEvents），真做完的事落一截（只认真写出来、真发出去的），一起记账。
+    // 从库里重新读一次再改：等模型那一两分钟里，聊天可能刚送来标签（失约、说去洗澡），拿开头那份写回去会把它盖掉。
     {
-        let next = drives;
+        const settledAt = now();
+        let next = evolveDrives(applyTemperament(loadDriveState(db, character.charId, settledAt), snapshot.payload?.driveTemperament), settledAt, {
+            silenceHours: lastContact ? (settledAt.getTime() - lastContact.getTime()) / 3_600_000 : 0,
+            localHour: Math.floor(localMinutesOf(settledAt, timezone) / 60),
+            busy: isWorkSlot(currentSlot(withTodaySchedule(snapshot, settledAt), settledAt, timezone)),
+        });
         const changes = [];
         const absorb = result => { next = result.state; changes.push(...result.changes); };
         for (const label of new Set(Array.isArray(modelOutput.selfEvents) ? modelOutput.selfEvents : [])) {
-            if (SELF_LABELS.includes(label)) absorb(applyLabel(next, { label, source: 'heartbeat', now: startedAt }));
+            if (SELF_LABELS.includes(label)) absorb(applyLabel(next, { label, source: 'heartbeat', now: settledAt }));
         }
         if (output.action === 'message') {
             absorb(satisfyDrive(next, 'message'));
@@ -2030,8 +2044,8 @@ export const createHeartbeatHandler = ({
             if (reachReason?.kind === 'grievance') absorb(satisfyDrive(next, 'grievance_said'));
         }
         if (life?.kind) absorb(satisfyDrive(next, life.kind));
-        next = withApartness(next, modelOutput.together, startedAt);
-        writeDriveLedger(db, character.charId, changes, startedAt);
+        next = withApartness(next, modelOutput.together, settledAt);
+        writeDriveLedger(db, character.charId, changes, settledAt);
         saveDriveState(db, character.charId, next);
     }
 

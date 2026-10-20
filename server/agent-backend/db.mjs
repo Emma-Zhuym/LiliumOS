@@ -303,6 +303,8 @@ export const DEFAULT_SETTINGS = {
     // 排查开关：打开后，解析失败时把模型的原始输出截一段存进 model_runs.raw_output。
     // 原始输出里有角色的话，只留在 mini 的库里、不进日志，查完记得关。
     heartbeat_debug: JSON.stringify({ captureRawOnError: false }),
+    // 劲儿试运行（drives.mjs isDriveTrial）：照常算、照常记账，不影响角色。看过一周劲儿账再关。
+    drives_trial: JSON.stringify({ enabled: true }),
     // 阿萌的现实时间：逐个日历 / 提醒清单设可见性，默认什么都不给看。
     // 空 = 一个都没开，同步任务什么都不读，角色也就什么都不知道。
     temporal_visibility: JSON.stringify({ calendars: {}, lists: {} }),

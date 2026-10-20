@@ -11,12 +11,14 @@ import { createServer } from 'node:http';
 import { authenticate, createPairingCode, listDevices, putPushSubscription, redeemPairingCode, revokeDevice } from './devices.mjs';
 import { ack, listUnacked } from './outbox.mjs';
 import { cancelJob, createJob, listJobs } from './jobs.mjs';
-import { characterExists, listCharacters, touchPresence, upsertCharacter } from './characters.mjs';
+import { characterExists, getCharacter, listCharacters, toCharacter, touchPresence, upsertCharacter } from './characters.mjs';
 import { listCredentials, putCredential } from './credentials.mjs';
-import { listModelRuns } from './heartbeat.mjs';
+import { lastRealInteractionAt, listModelRuns } from './heartbeat.mjs';
 import { listPlans } from './lifeThreads.mjs';
 import { listPocketForPhone } from './pocket.mjs';
-import { evolve as evolveDrives, ingestChatEvents, loadState as loadDriveState, summarizeForPhone } from './drives.mjs';
+import {
+    applyTemperament, evolve as evolveDrives, ingestChatEvents, loadState as loadDriveState, privateMomentOf, setPrivateMoment, summarizeForPhone,
+} from './drives.mjs';
 import { getSnapshot, listSnapshotMeta, putSnapshot } from './snapshots.mjs';
 import { getSetting, setSetting } from './db.mjs';
 import {
@@ -82,6 +84,26 @@ const readBody = (req, limit = MAX_BODY_BYTES) => new Promise((resolve, reject) 
  */
 export const createRouter = ctx => {
     const { db, config } = ctx;
+    const requireDriveChar = raw => {
+        const charId = String(raw || '');
+        if (!characterExists(db, charId)) {
+            throw Object.assign(new Error('这个角色还没在后端登记'), { code: 'UNKNOWN_CHARACTER', status: 400 });
+        }
+        return charId;
+    };
+    /** 劲儿系统算时间要的：角色那边几点、多久没真聊天、脾气读数（都跟心跳读的同一份快照）。 */
+    const driveContext = (charId, now) => {
+        const snapshot = getSnapshot(db, charId);
+        const timeZone = snapshot?.payload?.timezone || getSetting(db, 'timezone') || 'UTC';
+        const localHour = Number(new Intl.DateTimeFormat('en-US', { timeZone, hourCycle: 'h23', hour: 'numeric' }).format(now)) || 12;
+        const character = toCharacter(getCharacter(db, charId));
+        const lastContact = character ? lastRealInteractionAt(character, snapshot) : null;
+        return {
+            localHour,
+            silenceHours: lastContact ? Math.max(0, (now.getTime() - lastContact.getTime()) / 3_600_000) : 0,
+            temperament: snapshot?.payload?.driveTemperament ?? null,
+        };
+    };
     const routes = {
         'GET /health': { auth: false, handle: () => ({ ok: true, version: config.version }) },
 
@@ -222,24 +244,31 @@ export const createRouter = ctx => {
         // ── 劲儿系统：聊天里副 API 评估给的事件标签（drives.mjs）──────────────
         'POST /drives/events': {
             handle: ({ body }) => {
-                const charId = String(body.charId || '');
-                if (!characterExists(db, charId)) {
-                    throw Object.assign(new Error('这个角色还没在后端登记'), { code: 'UNKNOWN_CHARACTER', status: 400 });
-                }
-                const now = new Date();
-                const timeZone = getSnapshot(db, charId)?.payload?.timezone || getSetting(db, 'timezone') || 'UTC';
-                const localHour = Number(new Intl.DateTimeFormat('en-US', { timeZone, hourCycle: 'h23', hour: 'numeric' }).format(now)) || 12;
+                const charId = requireDriveChar(body.charId);
+                const { localHour, temperament } = driveContext(charId, new Date());
                 // 她正在聊天：「想你」不再因为久不说话往上爬
-                const temperament = getSnapshot(db, charId)?.payload?.driveTemperament ?? null;
-                return { accepted: ingestChatEvents(db, { charId, events: body.events, now, silenceHours: 0, localHour, temperament }) };
+                return { accepted: ingestChatEvents(db, { charId, events: body.events, now: new Date(), silenceHours: 0, localHour, temperament }) };
             },
         },
-        // 查手机的状态小组件用（以后）：最强的一两股和档位，不给精确数值
+        // 查手机的状态小组件、聊天的「贴贴」按钮用：最强的一两股和档位（不给精确数值），以及在不在两个人的时间里
         'GET /drives': {
             handle: ({ query }) => {
                 const charId = String(query.get('charId') || '');
+                if (!charId) return { drives: [], private: privateMomentOf(null) };
                 const now = new Date();
-                return { drives: charId ? summarizeForPhone(evolveDrives(loadDriveState(db, charId, now), now)) : [] };
+                // 跟心跳同一种算法：带上多久没说话、角色那边几点，不然查手机看到的跟心跳感觉到的对不上
+                const { localHour, silenceHours, temperament } = driveContext(charId, now);
+                const state = evolveDrives(applyTemperament(loadDriveState(db, charId, now), temperament), now, { silenceHours, localHour });
+                return { drives: summarizeForPhone(state), private: privateMomentOf(state, now) };
+            },
+        },
+        // 「贴贴」按钮：她自己说开始 / 结束（drives.mjs setPrivateMoment）
+        'POST /drives/private': {
+            handle: ({ body }) => {
+                const charId = requireDriveChar(body.charId);
+                const now = new Date();
+                const { localHour, temperament } = driveContext(charId, now);
+                return { private: setPrivateMoment(db, { charId, on: body.on === true, now, silenceHours: 0, localHour, temperament }) };
             },
         },
 

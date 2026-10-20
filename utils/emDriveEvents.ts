@@ -84,9 +84,18 @@ const writeQueue = (queue: QueuedBatch[]) => {
 
 /**
  * 情绪评估落地时调（emotionApply.ts）。先把排着的旧的送掉，再送这一批；送不出去就排队。
+ * 每批带上它真发生的时刻：mini 不在线时排着的「说要开始了」，晚两小时送到不该再拦两小时心跳。
+ * 一次只跑一趟：两次评估挨着落地时，同一批排队的不会被送两遍（没带原话的标签 mini 认不出重复）。
  * 永不抛错：这是顺风车，坏了不该连累情绪评估本身。
  */
-export const sendDriveEventsFromEval = async (parsed: any, charId: string, now = Date.now()): Promise<void> => {
+let sending: Promise<void> = Promise.resolve();
+
+export const sendDriveEventsFromEval = (parsed: any, charId: string, now = Date.now()): Promise<void> => {
+    sending = sending.then(() => flushDriveEvents(parsed, charId, now));
+    return sending;
+};
+
+const flushDriveEvents = async (parsed: any, charId: string, now: number): Promise<void> => {
     try {
         const events = sanitizeDriveEvents(parsed?.driveEvents);
         if (!isAgentPaired()) return;
@@ -96,7 +105,8 @@ export const sendDriveEventsFromEval = async (parsed: any, charId: string, now =
         const left: QueuedBatch[] = [];
         for (const batch of queue) {
             try {
-                await AgentBackend.driveEvents(batch.charId, batch.events);
+                const at = new Date(batch.at).toISOString();
+                await AgentBackend.driveEvents(batch.charId, batch.events.map(event => ({ ...event, at })));
             } catch {
                 left.push(batch);
             }

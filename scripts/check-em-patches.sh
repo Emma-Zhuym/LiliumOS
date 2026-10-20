@@ -329,6 +329,8 @@ check "评估落地时送去 mini" utils/emotionApply.ts "void sendDriveEventsFr
 check "角色字段：脾气读数" types.ts "emDriveTemperament?: DriveTemperament;"
 check "快照带上脾气读数" utils/emAgentSnapshot.ts "driveTemperament: char.emDriveTemperament"
 check "查手机状态小组件" apps/CheckPhone.tsx "<StatusWidget charId={targetChar.id} palette={CF} />"
+check "聊天工具栏：贴贴按钮" components/chat/ChatInputArea.tsx "<PrivateMomentButton"
+check "心跳面板：劲儿试运行提示" components/settings/AgentHeartbeatPanel.tsx "setDrivesTrial(typeof status.heartbeat?.drivesTrial"
 
 echo ""
 if [ $FAIL -gt 0 ]; then

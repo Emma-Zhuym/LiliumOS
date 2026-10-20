@@ -10,9 +10,9 @@ import { upsertCharacter } from './characters.mjs';
 import { putSnapshot } from './snapshots.mjs';
 import {
     DEFAULT_BASELINE, SULK_MAX_MS, apartnessOf, applyLabel, chanceFactor, evolve, formatFeelings, freshState, grievanceOf,
-    ingestChatEvents, lifeWeightFactors, loadState, satisfy, saveState, summarizeForPhone, withApartness,
+    ingestChatEvents, isDriveTrial, lifeWeightFactors, loadState, privateMomentOf, satisfy, saveState, setPrivateMoment, summarizeForPhone, withApartness,
 } from './drives.mjs';
-import { createHeartbeatHandler, decideIntent, pickLifeKind } from './heartbeat.mjs';
+import { createHeartbeatHandler, decideIntent, heartbeatSchemaFor, pickLifeKind } from './heartbeat.mjs';
 
 const AT = new Date('2026-10-14T20:00:00.000Z'); // 芝加哥 15:00
 const CHAR = 'lumi';
@@ -140,6 +140,7 @@ const handlerFor = (db, runner, { rng = () => 0.99, deliver = async () => {} } =
 test('心跳：感受进提示词；selfEvents 和真做完的事落进劲儿账', async () => {
     const db = freshDb();
     setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+    setSetting(db, 'drives_trial', JSON.stringify({ enabled: false }));
     const character = upsertCharacter(db, { charId: CHAR, heartbeatEnabled: true });
     seedSnapshot(db, { todaySchedule: [{ start: '09:00', end: '18:00', title: '上班', availability: 'busy' }] });
     saveState(db, CHAR, { ...freshState(DEFAULT_BASELINE, AT), values: { ...DEFAULT_BASELINE, stress: 0.6 } });
@@ -156,6 +157,7 @@ test('心跳：感受进提示词；selfEvents 和真做完的事落进劲儿账
 test('心跳：念想那股最强时发的消息，锁屏预览藏起来', async () => {
     const db = freshDb();
     setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+    setSetting(db, 'drives_trial', JSON.stringify({ enabled: false }));
     const character = upsertCharacter(db, { charId: CHAR, heartbeatEnabled: true });
     seedSnapshot(db);
     saveState(db, CHAR, { ...freshState(DEFAULT_BASELINE, AT), values: { ...DEFAULT_BASELINE, desire: 0.95 } });
@@ -170,6 +172,7 @@ test('心跳：念想那股最强时发的消息，锁屏预览藏起来', async
 test('心跳：别扭有原话作证时，开口的缘由可以是把不满说出来', async () => {
     const db = freshDb();
     setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+    setSetting(db, 'drives_trial', JSON.stringify({ enabled: false }));
     const character = upsertCharacter(db, { charId: CHAR, heartbeatEnabled: true });
     seedSnapshot(db);
     let s = freshState(DEFAULT_BASELINE, new Date(AT.getTime() - H));
@@ -244,4 +247,100 @@ test('两个人的时间：说要开始了就进去，事后就出来，最多�
     assert.deepEqual(result, { skipped: 'private_moment' });
     assert.equal(called, false, '模型都不叫');
     assert.equal(db.prepare("SELECT skip_gate FROM model_runs ORDER BY id DESC LIMIT 1").get().skip_gate, 'private_moment');
+});
+
+test('两个人的时间：不应期里第二次说要开始了，照样进去（数值不动也要存状态）', () => {
+    const db = freshDb();
+    const at = min => new Date(AT.getTime() + min * 60_000);
+    ingestChatEvents(db, { charId: CHAR, events: [{ label: 'getting_intimate' }], now: at(0) });
+    ingestChatEvents(db, { charId: CHAR, events: [{ label: 'intimacy_done' }], now: at(60) });
+    assert.ok(loadState(db, CHAR, at(61)).desireRefractoryUntil, '进了不应期');
+    assert.equal(ingestChatEvents(db, { charId: CHAR, events: [{ label: 'getting_intimate' }], now: at(150) }), 1);
+    assert.equal(privateMomentOf(loadState(db, CHAR, at(151)), at(160)).active, true);
+});
+
+test('贴贴按钮：手动开始、自动猜的「事后」不替她关、手动结束才算满足', () => {
+    const db = freshDb();
+    const at = min => new Date(AT.getTime() + min * 60_000);
+    const on = setPrivateMoment(db, { charId: CHAR, on: true, now: at(0) });
+    assert.equal(on.active, true);
+    assert.equal(on.source, 'manual');
+    ingestChatEvents(db, { charId: CHAR, events: [{ label: 'intimacy_done' }], now: at(30) });
+    assert.equal(privateMomentOf(loadState(db, CHAR, at(31)), at(31)).active, true, '副 API 猜的不算数');
+    const desireBefore = loadState(db, CHAR, at(40)).values.desire;
+    const off = setPrivateMoment(db, { charId: CHAR, on: false, now: at(40) });
+    assert.equal(off.active, false);
+    const after = loadState(db, CHAR, at(41));
+    assert.ok(after.values.desire < desireBefore, '念想落下来');
+    assert.ok(Date.parse(after.desireRefractoryUntil) > at(41).getTime(), '进不应期');
+    assert.ok(db.prepare("SELECT 1 FROM drive_ledger WHERE label = 'intimacy_done' AND source = 'manual'").get(), '记进劲儿账');
+    // 忘了按结束：两小时后自己出来
+    setPrivateMoment(db, { charId: CHAR, on: true, now: at(300) });
+    assert.equal(privateMomentOf(loadState(db, CHAR, at(301)), at(300 + 121)).active, false);
+});
+
+test('排队补送的事件按真发生的时刻算：三小时前的「说要开始了」现在不再拦心跳', () => {
+    const db = freshDb();
+    const old = new Date(AT.getTime() - 3 * H).toISOString();
+    ingestChatEvents(db, { charId: CHAR, events: [{ label: 'getting_intimate', at: old }], now: AT });
+    assert.equal(privateMomentOf(loadState(db, CHAR, AT), AT).active, false);
+    // 时间写坏了 / 太旧 / 在将来：按现在算
+    ingestChatEvents(db, { charId: CHAR, events: [{ label: 'getting_intimate', at: 'nope' }], now: AT });
+    assert.equal(privateMomentOf(loadState(db, CHAR, AT), AT).active, true);
+});
+
+test('试运行（默认开）：照常记账，但感受不进提示词、念想不藏预览', async () => {
+    const db = freshDb();
+    setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+    assert.equal(isDriveTrial(db), true, '默认试运行');
+    const character = upsertCharacter(db, { charId: CHAR, heartbeatEnabled: true });
+    seedSnapshot(db, { todaySchedule: [{ start: '09:00', end: '18:00', title: '上班', availability: 'busy' }] });
+    saveState(db, CHAR, { ...freshState(DEFAULT_BASELINE, AT), values: { ...DEFAULT_BASELINE, stress: 0.6, desire: 0.9 } });
+    let system = '';
+    const sent = [];
+    const runner = { run: async args => { system = args.system; return { ok: true, output: { action: 'message', activity: '改方案', reason: '', urge: 'none', text: '想你了', selfEvents: ['work_trouble'], together: 'today' } }; } };
+    await handlerFor(db, runner, { rng: () => 0, deliver: async e => sent.push(e) })({ uuid: 't1', kind: 'heartbeat', charId: CHAR, generation: character.heartbeatGeneration, attempts: 1 });
+    assert.doesNotMatch(system, /你此刻身上的感觉/);
+    assert.equal(sent.find(e => e.kind === 'chat_message')?.body, '想你了');
+    assert.ok(db.prepare("SELECT 1 FROM drive_ledger WHERE label = 'work_trouble'").get(), '账照记');
+});
+
+test('心跳等模型时聊天送来的标签不会被心跳写回时盖掉', async () => {
+    const db = freshDb();
+    setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+    const character = upsertCharacter(db, { charId: CHAR, heartbeatEnabled: true });
+    seedSnapshot(db);
+    const runner = { run: async () => {
+        // 模型还没回来，她在聊天里放了鸽子、又说去洗澡等他
+        ingestChatEvents(db, { charId: CHAR, events: [{ label: 'broken_promise', quote: '啊我忘了' }, { label: 'getting_intimate' }], now: AT });
+        return { ok: true, output: { action: 'noop', activity: '看书', reason: '', urge: 'none', together: 'together' } };
+    } };
+    await handlerFor(db, runner)({ uuid: 'r1', kind: 'heartbeat', charId: CHAR, generation: character.heartbeatGeneration, attempts: 1 });
+    const state = loadState(db, CHAR, AT);
+    assert.equal(state.sulkEvidence?.quote, '啊我忘了');
+    assert.equal(privateMomentOf(state, AT).active, true);
+    assert.equal(apartnessOf(state, AT), 'together', '心跳自己的判断也存上了');
+});
+
+test('schema：together 每跳必填，selfEvents 过日子那跳必填（Gemini 不写选填项）', async () => {
+    const db = freshDb();
+    const character = upsertCharacter(db, { charId: CHAR, heartbeatEnabled: true });
+    seedSnapshot(db, { todaySchedule: [{ start: '18:00', title: '在家', availability: 'online' }] });
+    const schemas = [];
+    const runner = { run: async ({ schema }) => { schemas.push(schema); return { ok: true, output: { action: 'noop', activity: 'x', reason: '', urge: 'none' } }; } };
+    await handlerFor(db, runner, { rng: () => 0.99 })({ uuid: 's1', kind: 'heartbeat', charId: CHAR, generation: character.heartbeatGeneration, attempts: 1 });
+    assert.ok(schemas[0].required.includes('together'));
+    const live = heartbeatSchemaFor({ life: 'chat', together: true, selfEvents: true });
+    assert.ok(live.required.includes('selfEvents') && live.required.includes('together'));
+});
+
+test('GET /drives 跟心跳算的一样：异国十小时没说话，查手机也看得到「有点想你」', async () => {
+    const db = freshDb();
+    const { createRouter } = await import('./server.mjs');
+    const routes = createRouter({ db, config: {} });
+    seedSnapshot(db, { lastInteraction: { userAt: new Date(Date.now() - 10 * H).toISOString() } });
+    saveState(db, CHAR, withApartness(freshState(DEFAULT_BASELINE, new Date(Date.now() - 10 * H)), 'far', new Date(Date.now() - 1000)));
+    const result = routes['GET /drives'].handle({ query: new URLSearchParams({ charId: CHAR }) });
+    assert.equal(result.drives[0]?.drive, 'miss');
+    assert.equal(result.private.active, false);
 });
