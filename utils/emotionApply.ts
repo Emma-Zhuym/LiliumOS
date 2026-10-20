@@ -198,7 +198,7 @@ export interface EmotionEvalResult {
     innerState?: string;
     /** true = 整体 JSON.parse 全失败, 靠字段级正则抢救出来的部分结果 */
     salvaged?: boolean;
-    driveEvents?: unknown[]; // [EM: char-drives-engine] 劲儿事件标签（顺风车，见 utils/emDriveEvents.ts）
+    driveEvents?: unknown[]; // [EM: char-drives-engine] 心思事件标签（顺风车，见 utils/emDriveEvents.ts）
 }
 
 const looksLikeEvalResult = (v: any): boolean =>
@@ -383,7 +383,7 @@ export async function applyEmotionEvalRaw(
         // 本函数是在线 / instant(worker) 两条路径的共用落点，所以在这里接。
         // 与情绪主链路完全解耦——失败只丢这条动态，不影响 buff。
         await landAmbientEventFromEval(result, charData);
-        void sendDriveEventsFromEval(result, charData.id); // [EM: char-drives-engine] 劲儿事件标签送去 mini，不等它
+        void sendDriveEventsFromEval(result, charData.id); // [EM: char-drives-engine] 心思事件标签送去 mini，不等它
 
         if (!result.changed) {
             console.log('🎭 [Emotion] No change detected, skipping buff update');

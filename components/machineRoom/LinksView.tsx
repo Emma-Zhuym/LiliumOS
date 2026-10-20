@@ -75,9 +75,9 @@ const LinksView: React.FC<{ data: MachineRoomData }> = ({ data }) => {
                     <Row first title="心跳只试跑，不真发" sub={settings.heartbeatShadow ? '角色照常醒、照常想，想说的话只记在「记录」里' : '关着：角色想说话时会真的发给你'}
                         right={<Toggle label="心跳只试跑" checked={settings.heartbeatShadow} disabled={saving}
                             onChange={() => (settings.heartbeatShadow ? setConfirmLive(true) : void save({ heartbeatShadow: true }, '回到试跑了'))} />} />
-                    <Row title="劲儿试运行" sub={settings.drivesTrial ? '想你、别扭这些只在后台记账，不影响 TA 找不找你' : '关着：TA 找不找你、过日子做什么跟着劲儿走'}
-                        right={<Toggle label="劲儿试运行" checked={settings.drivesTrial} disabled={saving}
-                            onChange={() => void save({ drivesTrial: !settings.drivesTrial }, settings.drivesTrial ? '劲儿生效了' : '劲儿回到试运行')} />} />
+                    <Row title="心思试运行" sub={settings.drivesTrial ? '想你、别扭这些只在后台记账，不影响 TA 找不找你' : '关着：TA 找不找你、过日子做什么跟着心思走'}
+                        right={<Toggle label="心思试运行" checked={settings.drivesTrial} disabled={saving}
+                            onChange={() => void save({ drivesTrial: !settings.drivesTrial }, settings.drivesTrial ? '心思生效了' : '心思回到试运行')} />} />
                     <Row title="安静时段" sub="这段时间心跳不排，也不发推送"
                         right={<span className="flex items-center shrink-0" style={{ gap: 4 }}>
                             <input type="time" aria-label="安静开始" value={settings.quietStart} disabled={saving} style={{ ...selectStyle, padding: '4px 6px' }}

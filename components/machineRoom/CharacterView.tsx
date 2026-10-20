@@ -1,6 +1,6 @@
 // [EM-START: machine-room]
 /**
- * 机房里的角色详情：心跳（开关、频率、用哪套 API）、心里（劲儿摘要、两个人的时间）、
+ * 机房里的角色详情：心跳（开关、频率、用哪套 API）、心里（心思摘要、两个人的时间）、
  * 脾气（原来藏在心跳面板一行 10px 的小字里）、攒着想说的、最近几跳。
  * 接入逻辑和脾气读写跟设置页的心跳面板共用（utils/emAgentConnect.ts、hooks/useTemperament.ts）。
  */
@@ -43,7 +43,7 @@ const TemperamentCard: React.FC<{ char: CharacterProfile }> = ({ char }) => {
                 <PillButton onClick={() => void read()} disabled={busy}>{busy ? '读着呢…' : t ? '重新读一遍' : '读一下'}</PillButton>
             </div>
             <p style={{ fontSize: 12, color: F.textTertiary, marginTop: 6, lineHeight: 1.6 }}>
-                {t?.reasoning || '读一下人设，定这个角色各种劲儿平时多强、多容易被触动。读完每一项都能改。'}
+                {t?.reasoning || '读一下人设，定这个角色各种心思平时多强、多容易被触动。读完每一项都能改。'}
             </p>
             {t && (
                 <>
@@ -93,7 +93,7 @@ const CharacterView: React.FC<{ char: CharacterProfile; data: MachineRoomData }>
         let alive = true;
         AgentBackend.driveState(char.id)
             .then(result => { if (alive) { setDrives(result.drives); setPrivateMoment(result.private ?? null); } })
-            .catch(() => { /* 旧后端没有劲儿：这一块显示「还没有」 */ });
+            .catch(() => { /* 旧后端没有心思：这一块显示「还没有」 */ });
         AgentBackend.pocket(char.id).then(items => { if (alive) setPocket(items); }).catch(() => {});
         return () => { alive = false; };
     }, [char.id, connected, data.reachable]);
@@ -164,7 +164,7 @@ const CharacterView: React.FC<{ char: CharacterProfile; data: MachineRoomData }>
                 <>
                     <SectionTitle right={trial === true ? '试运行中，只记账' : undefined}>心里</SectionTitle>
                     <Card style={{ padding: '2px 16px' }}>
-                        <Row first title={phrase || (drives ? '都在平常水平' : '还没有劲儿数据')} sub="只给档位、不给数字，跟查手机首页那句一样" />
+                        <Row first title={phrase || (drives ? '都在平常水平' : '还没有心思数据')} sub="只给档位、不给数字，跟查手机首页那句一样" />
                         <Row title="两个人的时间" sub={privateMoment?.active ? `到 ${clockText(privateMoment.until)}，这期间心跳不打扰` : '开着时心跳整个跳过；聊天工具栏的「贴贴」也是它'}
                             right={<Toggle label="两个人的时间" checked={Boolean(privateMoment?.active)} disabled={busy || privateMoment === null} onChange={() => void togglePrivate()} />} />
                     </Card>

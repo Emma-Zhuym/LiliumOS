@@ -1,6 +1,6 @@
 // [EM-START: char-drives-engine]
 /**
- * 劲儿系统在手机这一侧：副 API 评估情绪时顺手给几个「事件标签」，送去 mini 的劲儿引擎。
+ * 心思系统在手机这一侧：副 API 评估情绪时顺手给几个「事件标签」，送去 mini 的心思引擎。
  * 规格见 docs/spec-character-drives.md 5.2。
  *
  * - 照 roomAmbient 的先例搭顺风车：评估提示词末尾多一段可选输出，不多调一次 API

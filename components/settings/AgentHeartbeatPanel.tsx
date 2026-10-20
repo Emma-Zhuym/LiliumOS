@@ -62,7 +62,7 @@ export default function AgentHeartbeatPanel({ open, onClose }: Props) {
     /** mini 上每个凭据现在存的模型名（只读得到模型，读不到 Key），给「心跳在用」那一行 */
     const [credModels, setCredModels] = useState<Record<string, string>>({});
     const [shadow, setShadow] = useState(true);
-    const [drivesTrial, setDrivesTrial] = useState<boolean | null>(null); // [EM: char-drives-engine] null = 后端还没装劲儿系统
+    const [drivesTrial, setDrivesTrial] = useState<boolean | null>(null); // [EM: char-drives-engine] null = 后端还没装心思系统
     const [jitterSpread, setJitterSpread] = useState(DEFAULT_JITTER_SPREAD);
     const [busy, setBusy] = useState(false);
     const [loaded, setLoaded] = useState(false);
@@ -144,10 +144,10 @@ export default function AgentHeartbeatPanel({ open, onClose }: Props) {
                 {shadow
                     ? '现在是试跑：角色会自己醒来、自己判断要不要找你，但不会真的发消息，只把想说的话记下来给你看。'
                     : '真实执行已开启：角色判断要说话时会真的发给你。'}
-                {/* [EM-START: char-drives-engine] 劲儿试运行：只记账、不影响角色；看过一周劲儿账再在 mini 上关 */}
+                {/* [EM-START: char-drives-engine] 心思试运行：只记账、不影响角色；看过一周心思账再在 mini 上关 */}
                 {drivesTrial !== null && <><br />{drivesTrial
-                    ? '劲儿系统试运行中：想你、别扭这些只在后台记账，还不影响 TA 找不找你、做什么。'
-                    : '劲儿系统已生效：TA 找不找你、过日子做什么会跟着心里的劲儿走。'}</>}
+                    ? '心思系统试运行中：想你、别扭这些只在后台记账，还不影响 TA 找不找你、做什么。'
+                    : '心思系统已生效：TA 找不找你、过日子做什么会跟着 TA 的心思走。'}</>}
                 {/* [EM-END: char-drives-engine] */}
             </p>
 

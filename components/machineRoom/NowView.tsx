@@ -34,7 +34,7 @@ const NowView: React.FC<{ data: MachineRoomData; onOpenChar: (id: string) => voi
         ? '连不上，多半是每天 4–7 点的休眠，或者在重启。下面是上一次拿到的样子。'
         : [
             shadow ? '心跳只试跑，不真发' : '心跳真发中',
-            trial === true ? '劲儿试运行中' : trial === false ? '劲儿已生效' : null,
+            trial === true ? '心思试运行中' : trial === false ? '心思已生效' : null,
             status?.quiet?.active ? '安静时段' : null,
         ].filter(Boolean).join(' · ');
 

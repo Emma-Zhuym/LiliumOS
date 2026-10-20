@@ -2,8 +2,8 @@
 /**
  * 脾气读数（docs/spec-character-drives.md 5.6）：同一件事，每个角色在意的程度不一样。
  *
- * LiliumOS 的人设很厚，性格早就写好了；劲儿系统不能自己再发明一套性格，只能把人设「翻译」成数。
- * 所以由副 API 读一次人设，给出每股劲儿平常的水平、敏感度、回落快慢、压力出口、哪几股不适用——
+ * LiliumOS 的人设很厚，性格早就写好了；心思系统不能自己再发明一套性格，只能把人设「翻译」成数。
+ * 所以由副 API 读一次人设，给出每种心思平常的水平、敏感度、回落快慢、压力出口、哪几种不适用——
  * 全是低 / 中 / 高三档（模型分档比给小数靠谱，阿萌看着也好改）。照记忆宫殿「性格检测」的路子，
  * 已有的反刍倾向直接拿来当参考（高 → 回味高、别扭消得慢）。
  *
@@ -30,16 +30,16 @@ ${persona}
 ${typeof char.ruminationTendency === 'number' ? `\n（已有的检测：反刍倾向 ${char.ruminationTendency}，越高越容易纠结旧事。）` : ''}
 ${char.scheduleStyle === 'mindful' ? '\n（这是没有物理身体的 AI 存在：没有出门社交、没有身体上的累和性欲。）' : ''}
 
-## 要判断的九股劲儿
+## 要判断的九种心思
 ${DRIVE_KEYS.map(key => `- ${key}（${DRIVE_NAMES[key]}）`).join('\n')}
 
-每股给两个档位（low / mid / high）：
-- baseline：平时这股劲儿有多强（比如黏人的人「想你」平时就高）
+每种给两个档位（low / mid / high）：
+- baseline：平时这种心思有多强（比如黏人的人「想你」平时就高）
 - sensitivity：同样的事对 TA 触动多大（比如敏感的人被冷落一下「别扭」涨很多）
 另外：
 - recovery：别扭、压力消得快慢：fast / mid / slow
 - stressOutlet：压力大时习惯怎么排解：friends（找朋友吐槽）/ user（找对方说）/ work（闷头干活）/ alone（自己消化）
-- disabled：设定里根本不适用的几股（没有就空数组）
+- disabled：设定里根本不适用的几种（没有就空数组）
 - reasoning：30 字以内的理由
 
 只输出 JSON：

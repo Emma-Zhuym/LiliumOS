@@ -191,7 +191,7 @@ export const rollChatCue = async (
     if (skip) return null;
     try {
         const state = loadCueState(char.id);
-        // 掷不掷先看本机缓存的劲儿（不等网络）；掷中了再去 mini 拉新的给来源加权
+        // 掷不掷先看本机缓存的心思（不等网络）；掷中了再去 mini 拉新的给来源加权
         if (!shouldRollCue(state, now, rng, driveCueChance(readDriveSummaryCache(char.id)))) return null;
         const [candidates, drives] = await Promise.all([gatherCueCandidates(char, userName, now), fetchDriveSummary(char.id)]);
         const cue = pickCue(candidates, state, now, rng, driveWeightedWeights(drives));

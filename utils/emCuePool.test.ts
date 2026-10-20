@@ -72,8 +72,8 @@ describe('契机池', () => {
     });
 });
 
-describe('契机池按劲儿加权', () => {
-    it('哪股劲儿强，跟它沾边的来源权重高；没劲儿数据就是原表', async () => {
+describe('契机池按心思加权', () => {
+    it('哪种心思强，跟它沾边的来源权重高；没心思数据就是原表', async () => {
         const { driveWeightedWeights, driveCueChance, CUE_CHANCE_MAX, CHAT_CUE_CHANCE } = await import('./emCuePool');
         expect(driveWeightedWeights([])).toEqual(CUE_SOURCE_WEIGHTS);
         const caring = driveWeightedWeights([{ drive: 'concern', level: 'high' }]);

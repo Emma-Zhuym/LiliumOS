@@ -1,6 +1,6 @@
 // [EM-START: char-drives-engine]
 /**
- * 查手机首页的状态小组件：TA 此刻身上最强的一两股劲儿，写成一句话（docs/spec-character-drives.md 第 6 节）。
+ * 查手机首页的状态小组件：TA 此刻身上最强的一两种心思，写成一句话（docs/spec-character-drives.md 第 6 节）。
  *
  * 阿萌定：要能看到，但不完全展示、不放聊天页能直达的地方——所以只在查手机，只给一两句、不给数字。
  * mini 不在线时显示上次拉到的（缓存），都在平常水平时不占位置。样式跟草稿箱同一套（CheckPhone 的 CF）。

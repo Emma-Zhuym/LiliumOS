@@ -92,7 +92,7 @@ export const createRouter = ctx => {
         }
         return charId;
     };
-    /** 劲儿系统算时间要的：角色那边几点、多久没真聊天、脾气读数（都跟心跳读的同一份快照）。 */
+    /** 心思系统算时间要的：角色那边几点、多久没真聊天、脾气读数（都跟心跳读的同一份快照）。 */
     const driveContext = (charId, now) => {
         const snapshot = getSnapshot(db, charId);
         const timeZone = snapshot?.payload?.timezone || getSetting(db, 'timezone') || 'UTC';
@@ -253,7 +253,7 @@ export const createRouter = ctx => {
             handle: ({ query }) => ({ plans: listPlans(db, { from: query.get('from'), to: query.get('to') }) }),
         },
 
-        // ── 劲儿系统：聊天里副 API 评估给的事件标签（drives.mjs）──────────────
+        // ── 心思系统：聊天里副 API 评估给的事件标签（drives.mjs）──────────────
         'POST /drives/events': {
             handle: ({ body }) => {
                 const charId = requireDriveChar(body.charId);
@@ -262,7 +262,7 @@ export const createRouter = ctx => {
                 return { accepted: ingestChatEvents(db, { charId, events: body.events, now: new Date(), silenceHours: 0, localHour, temperament }) };
             },
         },
-        // 查手机的状态小组件、聊天的「贴贴」按钮用：最强的一两股和档位（不给精确数值），以及在不在两个人的时间里
+        // 查手机的状态小组件、聊天的「贴贴」按钮用：最强的一两种和档位（不给精确数值），以及在不在两个人的时间里
         'GET /drives': {
             handle: ({ query }) => {
                 const charId = String(query.get('charId') || '');

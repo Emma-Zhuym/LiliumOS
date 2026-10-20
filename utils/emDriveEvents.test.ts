@@ -8,7 +8,7 @@ vi.mock('./emAgentBackend', () => ({
 import { AgentBackend, isAgentPaired } from './emAgentBackend';
 import { buildDriveEventsEvalSection, sanitizeDriveEvents, sendDriveEventsFromEval } from './emDriveEvents';
 
-describe('劲儿事件标签（手机侧）', () => {
+describe('心思事件标签（手机侧）', () => {
     beforeEach(() => {
         localStorage.clear();
         vi.mocked(AgentBackend.driveEvents).mockReset().mockResolvedValue({ accepted: 1 });

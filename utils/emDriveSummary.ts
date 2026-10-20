@@ -1,10 +1,10 @@
 // [EM-START: char-drives-cue]
 /**
- * 契机池按劲儿加权要的那一小份：mini 劲儿系统此刻最强的一两股 + 档位（`GET /drives`，见 feat/char-drives-engine）。
+ * 契机池按心思加权要的那一小份：mini 心思系统此刻最强的一两种 + 档位（`GET /drives`，见 feat/char-drives-engine）。
  *
  * - 先读本机缓存（跟查手机状态小组件同一个键），抽中了念头才去 mini 拉一份新的，最多等 1.5 秒
- * - mini 还没装劲儿系统（404）、不在线、没配对：都当作空——契机池退回固定权重，不报错
- * 自己发请求、不往 emAgentBackend 里加方法，免得跟劲儿系统那个分支撞在同一处。
+ * - mini 还没装心思系统（404）、不在线、没配对：都当作空——契机池退回固定权重，不报错
+ * 自己发请求、不往 emAgentBackend 里加方法，免得跟心思系统那个分支撞在同一处。
  */
 
 import { isAgentPaired, loadAgentConfig } from './emAgentBackend';

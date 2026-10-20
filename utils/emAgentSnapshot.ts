@@ -93,7 +93,7 @@ export interface CharacterSnapshot {
         sleepWindow?: { start: string; end: string };
         /** 情绪底色：聊天里每轮情绪评估写出的那段叙事（char.buffInjection）。 */
         mood?: string;
-        /** [EM: char-drives-engine] 脾气读数：mini 的劲儿系统按它定基线、敏感度、回落快慢 */
+        /** [EM: char-drives-engine] 脾气读数：mini 的心思系统按它定基线、敏感度、回落快慢 */
         driveTemperament?: import('../types').DriveTemperament;
         /** 日常节律：聊天「日程/情绪」面板里的自由文本，日程生成器一直在用的那份。 */
         dailyRhythm?: string;

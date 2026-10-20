@@ -1,5 +1,5 @@
 /**
- * 劲儿系统（docs/spec-character-drives.md 第 5 节）：角色身上九股会涨会落的劲儿。
+ * 心思系统（docs/spec-character-drives.md 第 5 节）：角色身上九种会涨会落的心思。
  *
  * 不是性格——性格在人设里。这里是「身体里此刻的状态」：很久没说话就更想她、被工作折腾了就压着火、
  * 她失约了就有点别扭。程序拿它给抽签加权（开不开口、过日子做哪类事），写给模型的只有一两句感受，
@@ -73,14 +73,14 @@ export const apartnessOf = (state, now = new Date()) => {
 /** 同一标签 15 分钟内重复，每次 ×0.7（Drivesoid）。 */
 const HABITUATION_MS = 15 * 60_000;
 const HABITUATION = 0.7;
-/** 一个事件对一股劲儿最多推这么多。 */
+/** 一个事件对一种心思最多推这么多。 */
 const EVENT_CAP = 0.2;
 
 /** 负面标签：没有原话就不收（攻略的教训：小模型把「我！去！看！看！」判成压力，天天积成假账）。 */
 export const NEGATIVE_LABELS = new Set(['cold', 'dismissive', 'conflict', 'broken_promise', 'pressing']);
 
 /**
- * 标签 → 各股劲儿的增减。chat 开头的来自聊天里副 API 的评估（她做了什么），
+ * 标签 → 各种心思的增减。chat 开头的来自聊天里副 API 的评估（她做了什么），
  * self 开头的来自心跳里 TA 自己的经历。
  */
 export const LABEL_EFFECTS = {
@@ -112,7 +112,7 @@ export const LABEL_EFFECTS = {
 export const CHAT_LABELS = ['affectionate', 'flirt', 'getting_intimate', 'intimacy_done', 'intimate', 'vulnerable', 'reassuring', 'sharing', 'cold', 'dismissive', 'conflict', 'broken_promise', 'pressing', 'concern_fact', 'neutral'];
 export const SELF_LABELS = ['work_trouble', 'work_win', 'friend_fun', 'tired_day'];
 
-/** 真做完了：按比例往下落（乘性），之后两跳内这股不再加权。 */
+/** 真做完了：按比例往下落（乘性），之后两跳内这种不再加权。 */
 export const SATISFY = {
     message: { miss: 0.5 },
     reach_her_side: { concern: 0.6 },
@@ -133,7 +133,7 @@ const clamp01 = v => Math.max(0, Math.min(1, v));
  * - baseline：平常的水平。低 ×0.6、中 ×1、高 ×1.5（+0.05）
  * - sensitivity：同样的事推多少。低 ×0.6、中 ×1、高 ×1.5
  * - recovery：别扭、压力回落快慢。快 = 半衰期 ×0.7、慢 = ×1.5（别扭仍然一天封顶）
- * - disabled：不适用的几股（比如没有身体的意识系角色不「想出门社交」），固定为 0、不涨
+ * - disabled：不适用的几种（比如没有身体的意识系角色不「想出门社交」），固定为 0、不涨
  * - stressOutlet：压力大时习惯怎么排解，只写进感受、并稍微偏一下抽签
  */
 const LEVEL_SCALE = { low: 0.6, mid: 1, high: 1.5 };
@@ -154,7 +154,7 @@ export const temperamentFrom = raw => {
     };
 };
 
-/** 把脾气读数落到状态上：基线、敏感度、回落快慢、不适用的几股。没有读数就照默认。 */
+/** 把脾气读数落到状态上：基线、敏感度、回落快慢、不适用的几种。没有读数就照默认。 */
 export const applyTemperament = (state, rawTemperament) => {
     const t = temperamentFrom(rawTemperament);
     if (!t) return state;
@@ -186,7 +186,7 @@ const tiredBaseFor = (base, localHour) => {
 };
 
 /**
- * 时间往前走：每股按半衰期往（当下的）基线回。
+ * 时间往前走：每种按半衰期往（当下的）基线回。
  * silenceHours = 离上次真聊天多久；localHour = 角色那边几点；在不在一块看状态里心跳上次的判断。
  */
 export const evolve = (state, now = new Date(), { silenceHours = 0, localHour = 12, busy = false } = {}) => {
@@ -223,7 +223,7 @@ export const evolve = (state, now = new Date(), { silenceHours = 0, localHour = 
 };
 
 /**
- * 吃进一个事件标签。返回 { state, changes }，changes 每项进劲儿账。
+ * 吃进一个事件标签。返回 { state, changes }，changes 每项进心思账。
  * sensitivity：脾气读数的敏感度倍数（还没有脾气读数时都是 1）。
  */
 export const applyLabel = (state, { label, quote = '', source = 'chat', now = new Date(), sensitivity = state.sensitivity ?? {} }) => {
@@ -299,7 +299,7 @@ const privateMomentAfter = (state, label, source, now) => {
 /** 这个标签除了推数值，还会改状态（两个人的时间、不应期、别扭的依据）：数值没动也要存下来。 */
 const STATEFUL_LABELS = new Set(['getting_intimate', 'intimacy_done', 'reassuring']);
 
-/** 真做完了一件事：对应的劲儿按比例往下落。 */
+/** 真做完了一件事：对应的心思按比例往下落。 */
 export const satisfy = (state, what, { source = 'heartbeat' } = {}) => {
     const table = SATISFY[what];
     if (!table) return { state, changes: [] };
@@ -352,8 +352,8 @@ const FEEL_AT_FOR = { sulk: 0.08 };
 const feelAt = key => FEEL_AT_FOR[key] ?? FEEL_AT;
 
 /**
- * 给模型看的感受：最强的一两股，一句话一股。别扭、挂心带上作证的原话。
- * 返回 { text, top }，top 是最强那股的名字（发消息时推送要不要藏预览看它）。
+ * 给模型看的感受：最强的一两种，一句话一种。别扭、挂心带上作证的原话。
+ * 返回 { text, top }，top 是最强那种的名字（发消息时推送要不要藏预览看它）。
  */
 export const formatFeelings = (state, { userName = 'ta' } = {}) => {
     if (!state) return { text: '', top: null };
@@ -396,7 +396,7 @@ export const withApartness = (state, value, now = new Date()) => (
     APARTNESS.includes(value) && value !== 'unknown' ? { ...state, apartness: { value, at: now.toISOString() } } : state
 );
 
-/** 给手机看的摘要：最强的一两股和档位，不给精确数值。 */
+/** 给手机看的摘要：最强的一两种和档位，不给精确数值。 */
 export const summarizeForPhone = state => {
     if (!state) return [];
     return DRIVES
@@ -437,7 +437,7 @@ export const writeLedger = (db, charId, changes, now = new Date()) => {
     }
 };
 
-/** 劲儿账只留 90 天。 */
+/** 心思账只留 90 天。 */
 export const pruneLedger = (db, now = new Date()) => {
     db.prepare('DELETE FROM drive_ledger WHERE at < ?').run(new Date(now.getTime() - 90 * 24 * 3600_000).toISOString());
 };
@@ -497,9 +497,9 @@ export const privateMomentOf = (state, now = new Date()) => (
 );
 
 /**
- * 劲儿试运行（阿萌 2026-10-20）：数值照常算、照常记账，但不拿去影响角色——
- * 开口概率、过日子抽什么、提示词里的感受、别扭时主动提，全按没有劲儿系统时那样。
- * 看一周劲儿账觉得像这个人了再关。两个人的时间不算「影响」，试运行里照样生效。
+ * 心思试运行（阿萌 2026-10-20）：数值照常算、照常记账，但不拿去影响角色——
+ * 开口概率、过日子抽什么、提示词里的感受、别扭时主动提，全按没有心思系统时那样。
+ * 看一周心思账觉得像这个人了再关。两个人的时间不算「影响」，试运行里照样生效。
  * 设置读坏了按试运行算：宁可没效果，也不要没人看着时乱动。
  */
 export const isDriveTrial = db => {

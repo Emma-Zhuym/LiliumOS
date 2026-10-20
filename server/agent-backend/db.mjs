@@ -253,7 +253,7 @@ export const MIGRATIONS = [
     DROP TABLE deliveries_v10;
     `,
     // 11：话兜——TA 过日子时攒下、还没跟阿萌说的话（docs/spec-character-drives.md 4.2）。
-    // 开口的那一跳从这里拿；查手机的草稿箱读没说过的。kind=grievance 留给劲儿系统的别扭，第一阶段不写。
+    // 开口的那一跳从这里拿；查手机的草稿箱读没说过的。kind=grievance 留给心思系统的别扭，第一阶段不写。
     `
     CREATE TABLE pocket_items (
       id              TEXT PRIMARY KEY,
@@ -269,7 +269,7 @@ export const MIGRATIONS = [
     -- 开口那一跳程序抽的「为什么想起 ta」（reachOut.mjs）。验收要数分享自己日常的占比。
     ALTER TABLE model_runs ADD COLUMN reach_reason TEXT;
     `,
-    // 12：劲儿系统（drives.mjs）。每个角色一份当前状态，外加劲儿账：每次变了多少、为什么——验收全靠拉这本账。
+    // 12：心思系统（drives.mjs）。每个角色一份当前状态，外加心思账：每次变了多少、为什么——验收全靠拉这本账。
     `
     CREATE TABLE drive_state (
       char_id    TEXT PRIMARY KEY REFERENCES characters(char_id) ON DELETE CASCADE,
@@ -303,7 +303,7 @@ export const DEFAULT_SETTINGS = {
     // 排查开关：打开后，解析失败时把模型的原始输出截一段存进 model_runs.raw_output。
     // 原始输出里有角色的话，只留在 mini 的库里、不进日志，查完记得关。
     heartbeat_debug: JSON.stringify({ captureRawOnError: false }),
-    // 劲儿试运行（drives.mjs isDriveTrial）：照常算、照常记账，不影响角色。看过一周劲儿账再关。
+    // 心思试运行（drives.mjs isDriveTrial）：照常算、照常记账，不影响角色。看过一周心思账再关。
     drives_trial: JSON.stringify({ enabled: true }),
     // 阿萌的现实时间：逐个日历 / 提醒清单设可见性，默认什么都不给看。
     // 空 = 一个都没开，同步任务什么都不读，角色也就什么都不知道。

@@ -403,7 +403,7 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 ### 37. 机房 App（Mac mini 后端的家，2026-10-20）
 - `apps/MachineRoomApp.tsx` + `components/machineRoom/*`：此刻（mini 在不在、各角色刚才干嘛、下一跳几点）/ 记录（心跳流水筛选）/ 连接（服务状态 + 开关）；角色详情里有心跳、心里、脾气、攒着想说的、最近几跳。主色 mint，纯逻辑在 `utils/emMachineRoom.ts`
 - 接入和脾气读写跟设置页的心跳面板共用：`utils/emAgentConnect.ts`（`connectCharacterToAgent`）、`hooks/useTemperament.ts`，别再各写一份
-- 开关走后端 `GET/POST /settings`（`server/agent-backend/adminSettings.mjs`）：**只认白名单**（只试跑、劲儿试运行、存原文、安静时段），一项不对整批不改；关掉「只试跑」要确认。新开关加进白名单之前想清楚该不该从手机改
+- 开关走后端 `GET/POST /settings`（`server/agent-backend/adminSettings.mjs`）：**只认白名单**（只试跑、心思试运行、存原文、安静时段），一项不对整批不改；关掉「只试跑」要确认。新开关加进白名单之前想清楚该不该从手机改
 - 状态里的小红书登录态查一次要开浏览器，`createXhsLoginProbe` 带 10 分钟缓存、不在请求里现等；`GET /characters` 带 `nextHeartbeatAt`
 - 上游文件只有接线：`types.ts` AppID、`constants.tsx` 图标、`PhoneShell.tsx` 路由、`safeAreaApps.ts`（测试里的名单也要加），设置页 `AgentBackendSection` 一个「打开机房」入口。配对、推送登记还在设置页
 

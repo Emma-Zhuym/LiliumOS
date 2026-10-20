@@ -652,7 +652,7 @@ export const decideIntent = ({
     const backoff = unansweredFactor(unanswered);
     const chance = !canSpeak ? 0
         : carried && unanswered < 2 ? 1
-            // 劲儿系统的系数（想你、挂心推高，累、别扭压低）只动抽签这一档，封顶 0.75；欠着回复、兑现「等会儿」不受它影响
+            // 心思系统的系数（想你、挂心推高，累、别扭压低）只动抽签这一档，封顶 0.75；欠着回复、兑现「等会儿」不受它影响
             : Math.min(0.75, messageChance({ availability, minutesSinceContact, inBreak }) * backoff * chanceFactor);
     return {
         intent: rng() < chance ? 'reach_out' : 'live',
@@ -728,7 +728,7 @@ export const pickLifeKind = (minutesOfDay, rng = Math.random, factors = null) =>
     // social = 跟朋友当场有点来往：临时出门（少见），或临时约好上线打游戏
     // xhs = 刷会儿小红书首页（真实首页，程序先刷好再交给模型）
     const base = isMealtime(minutesOfDay) ? MEALTIME_LIFE_WEIGHTS : OTHER_LIFE_WEIGHTS;
-    // 劲儿系统给的系数（社交高多找朋友、好奇高多刷手机……），乘完重新归一；没有就是原表
+    // 心思系统给的系数（社交高多找朋友、好奇高多刷手机……），乘完重新归一；没有就是原表
     const scaled = factors ? base.map(([kind, weight]) => [kind, weight * (factors[kind] ?? 1)]) : base;
     const total = scaled.reduce((sum, [, weight]) => sum + weight, 0) || 1;
     // 按千分位累加再比：浮点一路相减，分档边界（0.42 / 0.58 …）会差一个 ε 落错档
@@ -921,9 +921,9 @@ export const HEARTBEAT_SCHEMA = {
                 },
             },
         },
-        // 你们此刻在不在一块（劲儿系统用：同居在家时「想你」回落，异地异国涨得快）
+        // 你们此刻在不在一块（心思系统用：同居在家时「想你」回落，异地异国涨得快）
         together: { type: 'string', enum: APARTNESS },
-        // 这一跳的事对自己的影响（劲儿系统用）：只给标签，数值由程序定。
+        // 这一跳的事对自己的影响（心思系统用）：只给标签，数值由程序定。
         selfEvents: { type: 'array', maxItems: 3, items: { type: 'string', enum: SELF_LABELS } },
         // 刷到阿萌的新朋友圈：只有提示词里列了动态才会要求写。index 是列表里的编号。
         moments: {
@@ -996,7 +996,7 @@ const LIFE_REQUIRED = {
  * 2026-10-20：心跳换成 Gemini 3.8 Flash 后，抽中生活小事也只写 activity、不写 life。
  * 严格 json_schema 下 Gemini 只交必填项，提示词里「在 life 里写」它不认；Claude 会照提示词补上。
  * 所以 life / episode / moments 在抽中时设成必填，life.kind 也收窄成抽中的那一种。
- * 劲儿系统要的 together（每跳都问）和 selfEvents（过日子那跳才问）同理：提示词问了就必填，selfEvents 可以是空数组。
+ * 心思系统要的 together（每跳都问）和 selfEvents（过日子那跳才问）同理：提示词问了就必填，selfEvents 可以是空数组。
  */
 export const heartbeatSchemaFor = ({ life = null, episode = false, moments = false, together = false, selfEvents = false } = {}) => {
     if (!life && !episode && !moments && !together && !selfEvents) return HEARTBEAT_SCHEMA;
@@ -1097,7 +1097,7 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
     if (p.sleepWindow) lines.push(`你的作息：${p.sleepWindow.start} 睡，${p.sleepWindow.end} 起。`);
     // 情绪底色：聊天那边每轮情绪评估写出来的叙事。缺了它，心跳里的 TA 永远是出厂情绪。
     if (p.mood) lines.push(`你此刻的情绪底色：\n${p.mood}`);
-    // 劲儿系统：最强的一两股，一句话一股的感受（drives.mjs formatFeelings）。不出现数字、不写该做什么。
+    // 心思系统：最强的一两种，一句话一种的感受（drives.mjs formatFeelings）。不出现数字、不写该做什么。
     if (feelings) lines.push(feelings);
     // 日常节律：跟聊天日程生成用的是同一份自由文本。没有它，心跳完全不知道 TA 平时在哪、忙什么。
     if (p.dailyRhythm) lines.push(`你平时的生活节律（稳定的框架，不是今天必须逐字照做）：\n${p.dailyRhythm}`);
@@ -1742,14 +1742,14 @@ export const createHeartbeatHandler = ({
         // 即时回复正在跑：这一轮就是在回她，心跳别抢着插一句。
         || (chatBusy(character.charId) ? 'chat_turn_running' : null);
     // 开不开口由程序抽签，不再让模型做判断题——它总能为沉默找到理由（设计 3.3）。
-    // 劲儿：先按经过的时间往前走（久不说话「想你」慢慢涨、深夜「累」高一点），再拿去给抽签加权
+    // 心思：先按经过的时间往前走（久不说话「想你」慢慢涨、深夜「累」高一点），再拿去给抽签加权
     // 脾气读数随快照来（手机读人设生成、阿萌可改）：基线、敏感度、回落快慢都按这个角色自己的
     const drives = evolveDrives(applyTemperament(loadDriveState(db, character.charId, startedAt), snapshot.payload?.driveTemperament), startedAt, {
         silenceHours: lastContact ? (startedAt.getTime() - lastContact.getTime()) / 3_600_000 : 0,
         localHour: Math.floor(localMinutesOf(startedAt, timezone) / 60),
         busy: isWorkSlot(currentSlot(withTodaySchedule(snapshot, startedAt), startedAt, timezone)),
     });
-    // 试运行：劲儿照常算、照常记账，但下面的抽签、感受、别扭时主动提都按没有劲儿时那样
+    // 试运行：心思照常算、照常记账，但下面的抽签、感受、别扭时主动提都按没有心思时那样
     const drivesLive = !isDriveTrial(db);
     // 两个人的时间（说了去洗澡 / 在床上等之后，还没看到事后的话）：这一跳整个跳过，连模型都不叫。试运行里也生效
     if (inPrivateMoment(drives, startedAt)) {
@@ -2024,7 +2024,7 @@ export const createHeartbeatHandler = ({
         return { ok: true, shadow, intent, action: output.action, activity: output.activity, durationMs };
     }
 
-    // 劲儿：这一跳自己的经历推一把（selfEvents），真做完的事落一截（只认真写出来、真发出去的），一起记账。
+    // 心思：这一跳自己的经历推一把（selfEvents），真做完的事落一截（只认真写出来、真发出去的），一起记账。
     // 从库里重新读一次再改：等模型那一两分钟里，聊天可能刚送来标签（失约、说去洗澡），拿开头那份写回去会把它盖掉。
     {
         const settledAt = now();
@@ -2138,7 +2138,7 @@ export const createHeartbeatHandler = ({
         jobUuid: job.uuid,
         kind: 'chat_message',
         title: character.displayName,
-        // 念想那股劲儿推出来的话不放进锁屏预览（阿萌 2026-10-19 定：预览里藏起来），点开才看得到
+        // 念想那种心思推出来的话不放进锁屏预览（阿萌 2026-10-19 定：预览里藏起来），点开才看得到
         body: feelings.top === 'desire' ? `${character.displayName}给你发来一条消息` : previewWithoutPhotoTags(output.text),
         payload: {
             text: output.text,

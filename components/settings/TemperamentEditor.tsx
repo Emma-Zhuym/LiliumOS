@@ -29,7 +29,7 @@ export default function TemperamentEditor({ char }: { char: CharacterProfile }) 
             {t ? `脾气（${t.source === 'confirmed' ? '你改过' : '自动读的'}）` : '脾气：还没读过'}
         </button>
         {open && <div className="mt-1.5 space-y-1.5 rounded-xl border border-slate-200 bg-white p-2">
-            {!t && <p className="text-[10px] text-slate-400">读一下人设，定这个角色各种劲儿平时多强、多容易被触动。读完可以改。</p>}
+            {!t && <p className="text-[10px] text-slate-400">读一下人设，定这个角色各种心思平时多强、多容易被触动。读完可以改。</p>}
             {t && <>
                 {t.reasoning && <p className="text-[10px] text-slate-400">{t.reasoning}</p>}
                 <div className="grid grid-cols-[3rem_1fr_1fr] gap-x-1.5 gap-y-1 items-center text-[10px] text-slate-500">

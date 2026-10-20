@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * 劲儿曲线回放（docs/spec-character-drives.md 第 11 节）：虚拟时钟、不碰数据库，人看形状。
+ * 心思曲线回放（docs/spec-character-drives.md 第 11 节）：虚拟时钟、不碰数据库，人看形状。
  *
  *   node server/agent-backend/scripts/simulate-drives.mjs            # 全部场景
  *   node server/agent-backend/scripts/simulate-drives.mjs 异国          # 名字里带「异国」的
  *
- * 每个场景一串事件（几点、发生了什么），每小时打一行最关心的那几股。调 drives.mjs 里的表之后跑一遍，
+ * 每个场景一串事件（几点、发生了什么），每小时打一行最关心的那几种。调 drives.mjs 里的表之后跑一遍，
  * 看曲线有没有离谱：别扭会不会过夜、异国一天不说话「想你」顶到多高、同居的晚上会不会反而越来越想。
  */
 

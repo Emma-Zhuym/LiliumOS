@@ -48,7 +48,7 @@ export enum AppID {
   Calendar = 'calendar', // [EM: calendar-temporal] 日历 — 阿萌真实的 Apple 日历 / 提醒（mini 每天同步）
   Moments = 'moments', // [EM: moments] 朋友圈 — 所有人的动态汇总，用户可发图文、点赞评论
   Kitchen = 'kitchen', // [EM: kitchen-app] Lilian Kitchen — 现实食品库存与小厨房
-  MachineRoom = 'machine_room', // [EM: machine-room] 机房 — Mac mini 后端的家（心跳、劲儿、连接、开关）
+  MachineRoom = 'machine_room', // [EM: machine-room] 机房 — Mac mini 后端的家（心跳、心思、连接、开关）
 }
 
 export interface SystemLog {
@@ -2727,7 +2727,7 @@ export interface CharacterProfile {
   chatApiPresetId?: string;
   /** [EM: heartbeat-api] Mac mini 心跳用哪套 API：空 = 副 API 优先、没有就跟聊天 API；'chat' = 跟聊天 API；其余是设置里命名预设的 id */
   heartbeatApiPresetId?: string;
-  /** [EM: char-drives-engine] 脾气读数：副 API 读人设生成、阿萌可改，随快照给 mini 的劲儿系统（utils/emTemperament.ts） */
+  /** [EM: char-drives-engine] 脾气读数：副 API 读人设生成、阿萌可改，随快照给 mini 的心思系统（utils/emTemperament.ts） */
   emDriveTemperament?: DriveTemperament;
   themeColor?: number; // [EM: theme-color] 小小窝日程小组件主题色相 (hsl hue 0-360)，undefined=默认260紫
   avatar: string;

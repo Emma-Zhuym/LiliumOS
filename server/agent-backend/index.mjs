@@ -167,7 +167,7 @@ export const createContext = async (config = loadConfig()) => {
             heartbeat: {
                 // 影子期：照常判断、照常调模型，但不发消息、不执行工具。
                 shadow: isShadowMode(db),
-                // 劲儿试运行：只记账、不影响角色（drives.mjs isDriveTrial）。面板据此提示「还在试运行」。
+                // 心思试运行：只记账、不影响角色（drives.mjs isDriveTrial）。面板据此提示「还在试运行」。
                 drivesTrial: isDriveTrial(db),
                 // 解析失败时存模型原文：排查开关，开着要记得关（机房 App 里看得到）
                 captureRawOnError: readAdminSettings(db).captureRawOnError,

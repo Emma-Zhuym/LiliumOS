@@ -17,7 +17,7 @@ const readJson = (db, key, fallback) => {
 const WRITERS = {
     // 心跳只试跑不真发
     heartbeatShadow: value => (typeof value === 'boolean' ? ['heartbeat_shadow', JSON.stringify({ enabled: value })] : null),
-    // 劲儿试运行（drives.mjs isDriveTrial）
+    // 心思试运行（drives.mjs isDriveTrial）
     drivesTrial: value => (typeof value === 'boolean' ? ['drives_trial', JSON.stringify({ enabled: value })] : null),
     // 解析失败时存模型原文（排查用，查完要关）
     captureRawOnError: value => (typeof value === 'boolean' ? ['heartbeat_debug', JSON.stringify({ captureRawOnError: value })] : null),

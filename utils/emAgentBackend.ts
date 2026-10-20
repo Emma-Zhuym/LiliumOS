@@ -143,7 +143,7 @@ export interface AgentMessage {
 export type TemporalLevel = 'hidden' | 'busy' | 'title';
 
 /** 后端缓存里的一条现实安排。事件有 startAt，提醒有 dueAt。 */
-/** [EM: char-drives-pocket] 话兜里的一句：心跳过日子时攒下、还没跟阿萌说的话。kind=grievance 是别扭（劲儿系统之后才有）。 */
+/** [EM: char-drives-pocket] 话兜里的一句：心跳过日子时攒下、还没跟阿萌说的话。kind=grievance 是别扭（心思系统之后才有）。 */
 export interface AgentPocketItem {
     charId: string;
     text: string;
@@ -379,23 +379,23 @@ export const AgentBackend = {
     pocket: (charId?: string) => request<{ items: AgentPocketItem[] }>(
         `/pocket${charId ? `?charId=${encodeURIComponent(charId)}` : ''}`,
     ).then(data => data.items), // [EM: char-drives-pocket]
-    /** 劲儿系统：聊天里副 API 评估给的事件标签（她做了什么），mini 按标签定数值。 */
+    /** 心思系统：聊天里副 API 评估给的事件标签（她做了什么），mini 按标签定数值。 */
     driveEvents: (charId: string, events: { label: string; quote?: string; at?: string }[]) => request<{ accepted: number }>(
         '/drives/events', { method: 'POST', body: { charId, events } },
     ), // [EM: char-drives-engine]
-    /** 劲儿系统：最强的一两股和档位（不给精确数值），查手机的状态小组件用。 */
+    /** 心思系统：最强的一两种和档位（不给精确数值），查手机的状态小组件用。 */
     drives: (charId: string) => request<{ drives: { drive: string; level: 'mid' | 'high' }[] }>(
         `/drives?charId=${encodeURIComponent(charId)}`,
     ).then(data => data.drives), // [EM: char-drives-engine]
-    /** [EM: machine-room] 劲儿摘要和两个人的时间一起拿（机房 App 角色页）。 */
+    /** [EM: machine-room] 心思摘要和两个人的时间一起拿（机房 App 角色页）。 */
     driveState: (charId: string) => request<{ drives: { drive: string; level: 'mid' | 'high' }[]; private?: AgentPrivateMoment }>(
         `/drives?charId=${encodeURIComponent(charId)}`,
     ),
-    /** 劲儿系统：在不在两个人的时间里（聊天工具栏「贴贴」按钮用）。 */
+    /** 心思系统：在不在两个人的时间里（聊天工具栏「贴贴」按钮用）。 */
     privateMoment: (charId: string) => request<{ private: AgentPrivateMoment }>(
         `/drives?charId=${encodeURIComponent(charId)}`,
     ).then(data => data.private), // [EM: char-drives-engine]
-    /** 劲儿系统：她自己按的开始 / 结束两个人的时间。 */
+    /** 心思系统：她自己按的开始 / 结束两个人的时间。 */
     setPrivateMoment: (charId: string, on: boolean) => request<{ private: AgentPrivateMoment }>(
         '/drives/private', { method: 'POST', body: { charId, on } },
     ).then(data => data.private), // [EM: char-drives-engine]

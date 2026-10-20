@@ -1,5 +1,5 @@
 /**
- * 劲儿系统（docs/spec-character-drives.md 第 5 节）。内存库、假时钟，跟真账本物理隔离。
+ * 心思系统（docs/spec-character-drives.md 第 5 节）。内存库、假时钟，跟真账本物理隔离。
  */
 
 import assert from 'node:assert/strict';
@@ -137,7 +137,7 @@ const handlerFor = (db, runner, { rng = () => 0.99, deliver = async () => {} } =
     db, config: { heartbeatTimeoutMs: 1000 }, runners: { api: runner }, scheduleNext: () => {}, now: () => AT, rng, deliver,
 });
 
-test('心跳：感受进提示词；selfEvents 和真做完的事落进劲儿账', async () => {
+test('心跳：感受进提示词；selfEvents 和真做完的事落进心思账', async () => {
     const db = freshDb();
     setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
     setSetting(db, 'drives_trial', JSON.stringify({ enabled: false }));
@@ -154,7 +154,7 @@ test('心跳：感受进提示词；selfEvents 和真做完的事落进劲儿账
     assert.equal(apartnessOf(loadState(db, CHAR, AT), AT), 'today', '判断存下来了');
 });
 
-test('心跳：念想那股最强时发的消息，锁屏预览藏起来', async () => {
+test('心跳：念想那种最强时发的消息，锁屏预览藏起来', async () => {
     const db = freshDb();
     setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
     setSetting(db, 'drives_trial', JSON.stringify({ enabled: false }));
@@ -273,7 +273,7 @@ test('贴贴按钮：手动开始、自动猜的「事后」不替她关、手�
     const after = loadState(db, CHAR, at(41));
     assert.ok(after.values.desire < desireBefore, '念想落下来');
     assert.ok(Date.parse(after.desireRefractoryUntil) > at(41).getTime(), '进不应期');
-    assert.ok(db.prepare("SELECT 1 FROM drive_ledger WHERE label = 'intimacy_done' AND source = 'manual'").get(), '记进劲儿账');
+    assert.ok(db.prepare("SELECT 1 FROM drive_ledger WHERE label = 'intimacy_done' AND source = 'manual'").get(), '记进心思账');
     // 忘了按结束：两小时后自己出来
     setPrivateMoment(db, { charId: CHAR, on: true, now: at(300) });
     assert.equal(privateMomentOf(loadState(db, CHAR, at(301)), at(300 + 121)).active, false);

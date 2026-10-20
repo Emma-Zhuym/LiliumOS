@@ -3656,7 +3656,7 @@ ${olderText}
                 {/* [EM-END: char-drives-screen-time] */}
             </div>
 
-            {/* [EM: char-drives-engine] 此刻的状态：最强的一两股劲儿，一句话 */}
+            {/* [EM: char-drives-engine] 此刻的状态：最强的一两种心思，一句话 */}
             {targetChar && <StatusWidget charId={targetChar.id} palette={CF} />}
             {/* [EM: char-drives-pocket] 草稿箱：TA 攒着还没发给你的话 */}
             {targetChar && <DraftsWidget charId={targetChar.id} palette={CF} />}

@@ -273,7 +273,7 @@ export default function AgentBackendSection() {
                 {/* [EM-END: agent-instant-chat] */}
 
                 {paired ? <>
-                    {/* [EM-START: machine-room] 心跳、劲儿、连接、开关都收进了机房 App；这里留一次性的配对和推送登记 */}
+                    {/* [EM-START: machine-room] 心跳、心思、连接、开关都收进了机房 App；这里留一次性的配对和推送登记 */}
                     <button onClick={() => openApp(AppID.MachineRoom)} className="w-full py-3 bg-violet-500 text-white rounded-xl text-xs font-bold shadow-sm active:scale-95 transition-all">
                         打开机房（心跳、脾气、连接、开关）
                     </button>

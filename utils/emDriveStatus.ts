@@ -1,5 +1,5 @@
 // [EM-START: char-drives-engine]
-/** 查手机状态小组件的那句话：每股劲儿 × 档位一句，不出现数字（components/checkphone/StatusWidget.tsx）。 */
+/** 查手机状态小组件的那句话：每种心思 × 档位一句，不出现数字（components/checkphone/StatusWidget.tsx）。 */
 export type DriveStatusLevel = 'mid' | 'high';
 
 const PHRASES: Record<string, Record<DriveStatusLevel, string>> = {

@@ -410,7 +410,7 @@ export async function evaluateEmotionBackground(
     announceChatGen(CHAT_GEN_EVENTS.emotionStart, { charId: charData.id, charName: charData.name });
     try {
         const ambientSection = (shouldRequestAmbient(charData.id) ? buildAmbientEvalSection(charData) : '')
-            + buildDriveEventsEvalSection(); // [EM: char-drives-engine] 顺风车：劲儿事件标签
+            + buildDriveEventsEvalSection(); // [EM: char-drives-engine] 顺风车：心思事件标签
         const prompt = buildEmotionEvalPrompt(charData, userProfile, mainSystemPrompt, apiMessages, true, ambientSection);
 
         const baseUrl = api.baseUrl.replace(/\/+$/, '');
