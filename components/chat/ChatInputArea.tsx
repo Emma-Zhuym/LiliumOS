@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { ShareNetwork, Trash, Plus, Smiley, PaperPlaneTilt, Lightning, X, Money, BookOpenText, GearSix, Image, Lock, ArrowsClockwise, ChatCircleDots, CalendarBlank, ForkKnife, Coffee, Code, Brain, PencilSimple, BellSimpleRinging, NotePencil, GameController, Microphone, Waveform, Sparkle, CaretDown, FadersHorizontal, LinkSimple, MagicWand, Alarm, Star, Stop } from '@phosphor-icons/react'; // [EM: icons NotePencil/GameController/Microphone/Waveform]
 import { intifaceClient } from '../../utils/intifaceClient'; // [EM: intiface]
+import PrivateMomentButton from './PrivateMomentButton'; // [EM: char-drives-private]
 import { CharacterProfile, ChatTheme, EmojiCategory, Emoji, ApiPreset } from '../../types';
 import { PRESET_THEMES } from './ChatConstants';
 import TokenImg from '../os/TokenImg';
@@ -1118,6 +1119,18 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                 </button>
                               );
                             })()}
+                            {/* [EM-START: char-drives-private] 贴贴：她自己说开始 / 结束两个人的时间，mini 那边心跳闭嘴 */}
+                            {activeCharacterId && (
+                              <PrivateMomentButton
+                                charId={activeCharacterId}
+                                textClassName={acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}
+                                tileClassName={active => `w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border ${active
+                                  ? (isDiscordStyle ? 'bg-rose-500/20 text-rose-300 border-rose-400/40' : 'bg-rose-100 text-rose-600 border-rose-200')
+                                  : (isDiscordStyle ? 'bg-slate-800 text-rose-300 border-rose-400/20' : 'bg-rose-50 text-rose-500 border-rose-100')}`}
+                                onDone={() => setShowPanel('none')}
+                              />
+                            )}
+                            {/* [EM-END: char-drives-private] */}
                             {/* 记忆链接与提示音同级：都是聊天工具入口，不单独占一整块。 */}
                             <button
                               onClick={() => onPanelAction('memory-link')}

@@ -203,6 +203,7 @@ export const GATE_LABELS: Record<string, string> = {
     active_chat: '正和你说着话',
     message_cooldown: '刚说过话',
     daily_budget: '今天已经想了很多次',
+    private_moment: '两个人的时间', // [EM: char-drives-engine]
 };
 
 /** 时间轴上的一段：要么是一次真的活动，要么是「醒了几次又睡回去」。 */

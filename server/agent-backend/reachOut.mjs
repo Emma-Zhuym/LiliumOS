@@ -9,6 +9,7 @@
 
 /** 缘由的初始权重。没有对应内容的那一项归零，其余按比例重分。 */
 export const REACH_REASON_WEIGHTS = [
+    ['grievance', 0.30],
     ['pocket', 0.35],
     ['own_life', 0.20],
     ['her_side', 0.15],
@@ -118,8 +119,10 @@ export const herSideCues = ({ temporalItems = [], finance = null, now = new Date
  * 抽「这次为什么想起 ta」。没有内容的缘由不参与；连发了没回时不接话头（别追着上一轮问）。
  * rng 可注入，测试钉死。返回 { kind, item }，kind=thread 时 item 为 null。
  */
-export const pickReachReason = ({ pocket = [], ownLife = [], herSide = [], unanswered = 0, rng = Math.random }) => {
+export const pickReachReason = ({ pocket = [], ownLife = [], herSide = [], unanswered = 0, grievance = null, rng = Math.random }) => {
     const pools = {
+        // 别扭有原话作证时（drives.mjs grievanceOf）：心跳可以主动提（阿萌 2026-10-14 定）
+        grievance: grievance && unanswered === 0 ? grievance : null,
         pocket: pocket.length ? pocket[0] : null,
         own_life: ownLife.length ? ownLife[ownLife.length - 1 - Math.floor(rng() * Math.min(3, ownLife.length))] : null,
         her_side: herSide.length ? herSide[Math.floor(rng() * herSide.length)] : null,
@@ -156,6 +159,9 @@ export const formatReachReason = (reason, { formatGap = () => '' } = {}) => {
                 + '可以借这个关心一句、或者就这件事聊起来；别像在查岗，也别猜 ta 没说的事。';
         case 'thread':
             return '你想起 ta，是因为你们上次聊的那些还在你心里，想接着说下去。';
+        case 'grievance':
+            return `你想起 ta，是因为心里还有点堵：ta 说过「${reason.item.quote}」。`
+                + '可以把不满说出来，用你自己的方式——别憋着，也别借题发挥吵大；说开了，心里就过去了。';
         default:
             return '你想起 ta，没有特别的缘由，就是想了。说说你此刻在做的事就好。';
     }

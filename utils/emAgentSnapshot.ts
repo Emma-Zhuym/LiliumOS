@@ -93,6 +93,8 @@ export interface CharacterSnapshot {
         sleepWindow?: { start: string; end: string };
         /** 情绪底色：聊天里每轮情绪评估写出的那段叙事（char.buffInjection）。 */
         mood?: string;
+        /** [EM: char-drives-engine] 脾气读数：mini 的劲儿系统按它定基线、敏感度、回落快慢 */
+        driveTemperament?: import('../types').DriveTemperament;
         /** 日常节律：聊天「日程/情绪」面板里的自由文本，日程生成器一直在用的那份。 */
         dailyRhythm?: string;
         /** 私人生活里认识的人（通讯录里的虚构联系人），心跳写「和谁聊了几句」时优先从这里挑，名字才前后一致。 */
@@ -307,6 +309,7 @@ export const buildCharacterSnapshot = async (
             ...(isScheduleFeatureOn(char) && char.emotionConfig?.enabled && char.buffInjection?.trim()
                 ? { mood: char.buffInjection.trim().slice(0, MAX_MOOD_CHARS) }
                 : {}),
+            ...(char.emDriveTemperament ? { driveTemperament: char.emDriveTemperament } : {}), // [EM: char-drives-engine]
             ...(() => {
                 const circle = buildCircle(char, options.userName);
                 return circle.length ? { circle } : {};

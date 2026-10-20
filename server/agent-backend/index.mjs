@@ -17,6 +17,7 @@ import {
     upcomingBreakStarts, withTodaySchedule, HEARTBEAT_JITTER_SPREAD,
 } from './heartbeat.mjs';
 import { getSnapshot } from './snapshots.mjs';
+import { isDriveTrial } from './drives.mjs';
 import { createHaWatchdogHandler, createTemporalRefreshHandler, createTestPingHandler, probeHomeAssistant, syncState } from './kinds.mjs';
 import { createApiRunner, createCodexRunnerStub } from './runner.mjs';
 import { createJob, inQuietWindow, recoverStaleLeases, runTick } from './jobs.mjs';
@@ -160,6 +161,8 @@ export const createContext = async (config = loadConfig()) => {
             heartbeat: {
                 // 影子期：照常判断、照常调模型，但不发消息、不执行工具。
                 shadow: isShadowMode(db),
+                // 劲儿试运行：只记账、不影响角色（drives.mjs isDriveTrial）。面板据此提示「还在试运行」。
+                drivesTrial: isDriveTrial(db),
                 // 试跑提速开着时必须报出来，否则很容易忘了它还在生效。
                 everyMinOverride: config.heartbeatEveryMinOverride || null,
                 // 前端据此显示「平均 60 分钟（约 30–90）」，不必自己再抄一份幅度。

@@ -232,6 +232,8 @@ export const salvageFields = raw => {
 const MISSING_COLON_RE = /([{,]\s*)"(action|activity|reason|urge|text|message|content|reply)(?=[^"\s:])/g;
 export const repairMissingColons = raw => raw.replace(MISSING_COLON_RE, '$1"$2": "');
 
+const SELF_EVENT_LABELS = new Set(['work_trouble', 'work_win', 'friend_fun', 'tired_day']);
+
 const toOutput = (parsed, { inferMissingAction = false } = {}) => {
     const body = pickText(parsed);
     const declaredAction = parsed?.action;
@@ -260,6 +262,12 @@ const toOutput = (parsed, { inferMissingAction = false } = {}) => {
         reason: String(parsed.reason ?? '').slice(0, 500),
         urge: parsed.urge === 'later' || parsed.urge === 'now' ? parsed.urge : 'none',
         ...(action === 'message' ? { text: body.slice(0, 2000) } : {}),
+        // 你们此刻在不在一块（劲儿系统用）；不认识的不收
+        ...(['together', 'today', 'far', 'unknown'].includes(parsed.together) ? { together: parsed.together } : {}),
+        // 劲儿系统用的自我经历标签：只收认识的，最多三个
+        ...(Array.isArray(parsed.selfEvents)
+            ? { selfEvents: parsed.selfEvents.filter(label => SELF_EVENT_LABELS.has(label)).slice(0, 3) }
+            : {}),
     };
 };
 

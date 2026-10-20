@@ -106,7 +106,8 @@ test('她那边的：只认裁过可见性还看得到标题的；账本只认�
 });
 
 test('开口缘由：权重合计 1；没内容的不参与；连发没回时不接话头', () => {
-    const total = REACH_REASON_WEIGHTS.reduce((sum, [, w]) => sum + Math.round(w * 1000), 0);
+    // 「把不满说出来」只在别扭有原话作证时才加进来，平时那四样合计 1
+    const total = REACH_REASON_WEIGHTS.filter(([kind]) => kind !== 'grievance').reduce((sum, [, w]) => sum + Math.round(w * 1000), 0);
     assert.equal(total, 1000);
     const pocket = [{ id: 'p1', text: '想跟你说个事', createdAt: AT.toISOString() }];
     const ownLife = [{ at: AT.toISOString(), text: '跟老周打了球' }];

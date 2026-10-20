@@ -22,6 +22,7 @@ import ChronicleApp from '../components/checkphone/ChronicleApp';
 // [EM: work-app] 工作：TA 的工作群 / 私聊 / 邮件 / 正在推进的事（和短信、通讯录是两条独立的线）
 import WorkApp from '../components/checkphone/WorkApp';
 import DraftsWidget from '../components/checkphone/DraftsWidget'; // [EM: char-drives-pocket]
+import StatusWidget from '../components/checkphone/StatusWidget'; // [EM: char-drives-engine]
 import { summarizeScreenTime } from '../utils/emScreenTime'; // [EM: char-drives-screen-time]
 import { resolveCharTimeZone } from '../utils/timezone'; // [EM: char-drives-screen-time]
 import { usePersonaSim, personaSimStore } from '../utils/personaSimStore';
@@ -3655,6 +3656,8 @@ ${olderText}
                 {/* [EM-END: char-drives-screen-time] */}
             </div>
 
+            {/* [EM: char-drives-engine] 此刻的状态：最强的一两股劲儿，一句话 */}
+            {targetChar && <StatusWidget charId={targetChar.id} palette={CF} />}
             {/* [EM: char-drives-pocket] 草稿箱：TA 攒着还没发给你的话 */}
             {targetChar && <DraftsWidget charId={targetChar.id} palette={CF} />}
 

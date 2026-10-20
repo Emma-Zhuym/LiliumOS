@@ -321,6 +321,17 @@ echo "── 心跳 API 可选 ──"
 check "角色字段：心跳用哪套 API" types.ts "heartbeatApiPresetId?: string;"
 check "分享角色卡剥掉心跳预设 id" utils/characterCard.ts "'heartbeatApiPresetId',   // [EM: heartbeat-api]"
 
+echo "── 劲儿系统（spec-character-drives 第三阶段）──"
+check "情绪评估带上劲儿事件段（本地）" hooks/useChatAI.ts "+ buildDriveEventsEvalSection(); // [EM: char-drives-engine]"
+check "情绪评估带上劲儿事件段（上云）" hooks/useChatAI.ts "+ buildDriveEventsEvalSection() // [EM: char-drives-engine]"
+check "解析保留劲儿事件" utils/emotionApply.ts "driveEvents: Array.isArray(v.driveEvents) ? v.driveEvents : undefined, // [EM: char-drives-engine]"
+check "评估落地时送去 mini" utils/emotionApply.ts "void sendDriveEventsFromEval(result, charData.id); // [EM: char-drives-engine]"
+check "角色字段：脾气读数" types.ts "emDriveTemperament?: DriveTemperament;"
+check "快照带上脾气读数" utils/emAgentSnapshot.ts "driveTemperament: char.emDriveTemperament"
+check "查手机状态小组件" apps/CheckPhone.tsx "<StatusWidget charId={targetChar.id} palette={CF} />"
+check "聊天工具栏：贴贴按钮" components/chat/ChatInputArea.tsx "<PrivateMomentButton"
+check "心跳面板：劲儿试运行提示" components/settings/AgentHeartbeatPanel.tsx "setDrivesTrial(typeof status.heartbeat?.drivesTrial"
+
 echo ""
 if [ $FAIL -gt 0 ]; then
     echo "🔴 $FAIL 项缺失（$PASS 项通过）——EM 功能被 merge 冲掉了，对照 .claude/CLAUDE.md 补回来"
