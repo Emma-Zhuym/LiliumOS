@@ -28,10 +28,13 @@ import {
 } from './temporal.mjs';
 import { syncState } from './kinds.mjs';
 import { flattenContent } from './mcp.mjs';
+import { fetchRemoteImage, listImages, MAX_IMAGE_BYTES, putImage } from './imageVault.mjs';
 
 const MAX_BODY_BYTES = 256 * 1024;
 /** 即时回复这一路：整轮对话连同阿萌发过的图（已还原成 data URL）一起上来，给足。 */
 const CHAT_TURN_MAX_BODY_BYTES = 16 * 1024 * 1024;
+/** 图片仓库：一张图 base64 后约大三分之一，再留点 JSON 余量。 */
+const IMAGE_PUT_MAX_BODY_BYTES = Math.ceil(MAX_IMAGE_BYTES * 4 / 3) + 64 * 1024;
 const PREFIX = '/agent/v1';
 
 const json = (res, status, payload, origin) => {
@@ -382,6 +385,31 @@ export const createRouter = ctx => {
                 // 缓存里只存没完成的，勾掉就从缓存里拿走；取消勾选等明天那次同步补回来。
                 if (completed) removeTemporalItems(db, sourceId);
                 return { sourceId, completed };
+            },
+        },
+
+        // ── 图片仓库：外链图存进手机时在 mini 留一份底（imageVault.mjs）──────────
+        'POST /images/put': {
+            maxBodyBytes: IMAGE_PUT_MAX_BODY_BYTES,
+            handle: ({ body }) => {
+                const raw = typeof body.dataBase64 === 'string' ? body.dataBase64 : '';
+                if (!raw) throw Object.assign(new Error('没有图片内容'), { code: 'EMPTY_IMAGE', status: 400 });
+                return putImage(config, { data: Buffer.from(raw, 'base64'), mime: body.mime, source: body.source, label: body.label });
+            },
+        },
+        // 浏览器跨域下载不了的外链图：mini 代为下载，存一份，再把图交回手机
+        'POST /images/fetch': {
+            handle: async ({ body }) => {
+                const fetched = await fetchRemoteImage(String(body.url || ''), ctx.imageFetchOptions);
+                const saved = putImage(config, { data: fetched.data, mime: fetched.mime, source: body.url, label: body.label });
+                return { ...saved, dataBase64: fetched.data.toString('base64') };
+            },
+        },
+        // 只回元数据，不回图
+        'GET /images': {
+            handle: () => {
+                const { count, totalBytes } = listImages(config);
+                return { count, totalBytes };
             },
         },
 

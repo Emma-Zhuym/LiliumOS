@@ -22,6 +22,7 @@ cd server/agent-backend && npm install
   agent.db          SQLite（WAL）
   secrets/          600 权限的密钥文件
   logs/             路由、状态码、耗时，不含聊天内容
+  images/           图片仓库：<sha256>.<扩展名> + 同名 .json（原网址、用在哪），只收不发
 ```
 
 `secrets/` 下的文件（缺哪个就少哪项能力，服务不会因此拒绝启动）：
@@ -84,6 +85,9 @@ node server/agent-backend/cli.mjs vapid     # 生成 VAPID 密钥（只在还没
 | POST | `/jobs/cancel` | 是 | `{ uuid }` |
 | GET | `/outbox` | 是 | 取未 ack 的消息 |
 | POST | `/outbox/ack` | 是 | `{ messageIds }` |
+| POST | `/images/put` | 是 | `{ dataBase64, mime, source?, label? }` 存一张图（单张 ≤ 15 MB，按内容去重） |
+| POST | `/images/fetch` | 是 | `{ url, label? }` 代为下载外链图并存一份，回 `dataBase64`；只认公网 http(s)，跳转逐跳检查；图床挂了回 502 `UPSTREAM_*` |
+| GET | `/images` | 是 | 只回 `{ count, totalBytes }`，不回图 |
 
 ## 验收（阶段 1a / 1b）
 

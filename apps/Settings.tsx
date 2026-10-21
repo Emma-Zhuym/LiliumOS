@@ -47,6 +47,7 @@ import {
 } from '../utils/notionExtraConfig';
 import ApiCallLogModal from '../components/settings/ApiCallLogModal';
 import StorageUsagePanel from '../components/settings/StorageUsagePanel';
+import ExternalImagesPanel from '../components/settings/ExternalImagesPanel'; // [EM: external-images-rescue]
 import { DB } from '../utils/db';
 import { getBackupReminderState, setBackupReminderIntervalDays, daysSinceLastBackup, BACKUP_REMINDER_MIN_DAYS, BACKUP_REMINDER_MAX_DAYS } from '../utils/backupReminder';
 import {
@@ -2209,6 +2210,7 @@ const Settings: React.FC = () => {
             }
         >
             <StorageUsagePanel />
+            <ExternalImagesPanel /> {/* [EM: external-images-rescue] */}
 
             <label
                 className="mb-3 flex items-start gap-2 p-3 cursor-pointer"

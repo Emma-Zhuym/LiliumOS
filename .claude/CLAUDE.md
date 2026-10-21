@@ -407,6 +407,15 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - 状态里的小红书登录态查一次要开浏览器，`createXhsLoginProbe` 带 10 分钟缓存、不在请求里现等；`GET /characters` 带 `nextHeartbeatAt`
 - 上游文件只有接线：`types.ts` AppID、`constants.tsx` 图标、`PhoneShell.tsx` 路由、`safeAreaApps.ts`（测试里的名单也要加），设置页 `AgentBackendSection` 一个「打开机房」入口。配对、推送登记还在设置页
 
+### 38. 外链图片存本机 + mini 图片仓库（2026-10-21）
+- 起因：表情包 / 头像是别人图床上的链接（sharkpan 已下线、catbox 时好时坏），图床一挂就变问号；完整备份只带网址
+- 纯逻辑在 `utils/emExternalImages.ts`（扫描 → 下载 → 存令牌 → 改写），面板 `components/settings/ExternalImagesPanel.tsx`，挂在设置「备份与恢复」里 `StorageUsagePanel` 下面（两行 `[EM: external-images-rescue]`）
+- 改写范围：表情库 url、角色头像、我的头像 / 分角色头像，**加上 messages 里 type 为 emoji / image 且 content 是那个网址的行**——表情消息存的是网址，角色靠 `stickerNameFromUrl` 按网址反查表情名，只改表情库会让旧记录的名字对不上
+- 角色和我的头像走 OSContext 的 `updateCharacter` / `updateUserProfile`，别直接写库（内存里的旧网址会被下一次更新写回去）；跑的时候拿 `maintenanceLock`，跟「优化资源存储」、孤儿 GC 互斥
+- 浏览器下不了（跨域 / https 页面上的 http 图）就交给 mini：后端 `server/agent-backend/imageVault.mjs`，`POST /images/fetch` 代为下载、`POST /images/put` 收手机下好的、`GET /images` 只回数量。**代为下载只认公网地址**（解析出内网 / 本机 / Tailscale 段一律拒，跳转逐跳检查）——mini 本机跑着日历桥接、小红书这些服务，别放宽
+- 仓库在 `<数据目录>/images/`，`<sha256>.<扩展名>` + 同名 `.json`，只收不发；「从 mini 恢复图片」还没做
+- OSContext 网络日志加了 `__sullySuppressNetworkFailureLog`（一行 `[EM: external-images-rescue]`）：图床挂了是预期结果，不点亮 SYSTEM ERROR
+
 ### 34. 小厨房（现实食品库存）
 - 详细设计与每次改动见 `docs/kitchen-3d.md`；UI 规则见 `APP_CONVENTIONS.md` 的 P14 与 `utils/kitchenPaperTokens.ts`
 - `utils/kitchenDb.ts` 是唯一能改库存的地方（独立库 `LiliumOS_Kitchen`）：每次改数量记一笔事件、带 operationId 去重；**一起发生的一批（拍一张小票、做一道菜）一个事务写完、同一个 `batchId`，「撤销最近操作」整批撤回**，做菜撤销连「做过几次」一起退

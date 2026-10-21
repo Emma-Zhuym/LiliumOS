@@ -177,7 +177,7 @@ export const createContext = async (config = loadConfig()) => {
                 jitterSpread: HEARTBEAT_JITTER_SPREAD,
             },
             // 前端只认这个字段判断功能可用与否（设计约束 4）。
-            capabilities: ['jobs', 'outbox', 'watchdog', 'heartbeat-shadow', 'chat-turns'],
+            capabilities: ['jobs', 'outbox', 'watchdog', 'heartbeat-shadow', 'chat-turns', 'image-vault'],
         };
     };
 

@@ -344,6 +344,14 @@ check "PhoneShell 路由：机房" components/PhoneShell.tsx "case AppID.Machine
 check "安全区自理：机房" utils/safeAreaApps.ts "AppID.MachineRoom, // [EM: machine-room]"
 check "设置页入口：打开机房" components/settings/AgentBackendSection.tsx "openApp(AppID.MachineRoom)"
 
+echo "── 外链图片存本机 + mini 图片仓库 ──"
+check "设置页：外链图片面板 import" apps/Settings.tsx "import ExternalImagesPanel from '../components/settings/ExternalImagesPanel'; // [EM: external-images-rescue]"
+check "设置页：外链图片面板挂载" apps/Settings.tsx "<ExternalImagesPanel /> {/* [EM: external-images-rescue] */}"
+check "网络日志：预期失败不点亮 SYSTEM ERROR" context/OSContext.tsx "const suppressExpectedFailure = Boolean((config as any)?.__sullySuppressNetworkFailureLog); // [EM: external-images-rescue]"
+check "网络日志：判断里带上预期失败" context/OSContext.tsx "!suppressExpectedTimeout && !suppressExpectedFailure"
+check "后端客户端：代为下载" utils/emAgentBackend.ts "'/images/fetch'"
+check "后端路由：图片仓库" server/agent-backend/server.mjs "'POST /images/put'"
+
 echo ""
 if [ $FAIL -gt 0 ]; then
     echo "🔴 $FAIL 项缺失（$PASS 项通过）——EM 功能被 merge 冲掉了，对照 .claude/CLAUDE.md 补回来"

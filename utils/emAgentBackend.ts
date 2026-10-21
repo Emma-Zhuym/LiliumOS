@@ -296,6 +296,16 @@ export const AgentBackend = {
     },
 
     status: () => request<AgentStatus>('/status'),
+    // [EM-START: external-images-rescue] 图片仓库：外链图存本机时在 mini 留一份底（imageVault.mjs）
+    /** 浏览器下不了的外链图，请 mini 代为下载；mini 顺手存一份。 */
+    fetchImage: (url: string, label: string) => request<{ sha256: string; mime: string; bytes: number; dataBase64: string }>(
+        '/images/fetch', { method: 'POST', body: { url, label }, timeoutMs: 45_000 },
+    ),
+    putImage: (input: { dataBase64: string; mime: string; source?: string; label?: string }) => request<{ sha256: string; existed: boolean }>(
+        '/images/put', { method: 'POST', body: input, timeoutMs: 60_000 },
+    ),
+    imageVaultStats: () => request<{ count: number; totalBytes: number }>('/images'),
+    // [EM-END: external-images-rescue]
     /** [EM: machine-room] 机房 App 的开关：读 / 改（只认白名单里的几项，整批改或整批不改）。 */
     settings: () => request<{ settings: AgentAdminSettings }>('/settings').then(data => data.settings),
     putSettings: (settings: Partial<AgentAdminSettings>) => request<{ settings: AgentAdminSettings }>(
