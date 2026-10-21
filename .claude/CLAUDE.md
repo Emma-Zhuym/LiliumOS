@@ -416,6 +416,14 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - 仓库在 `<数据目录>/images/`，`<sha256>.<扩展名>` + 同名 `.json`，只收不发；「从 mini 恢复图片」还没做
 - OSContext 网络日志加了 `__sullySuppressNetworkFailureLog`（一行 `[EM: external-images-rescue]`）：图床挂了是预期结果，不点亮 SYSTEM ERROR
 
+### 39. 表情包描述 + 聊天图片存为表情包（2026-10-21）
+- `Emoji.description?`（行尾 `[EM: emoji-descriptions]`）：图上画了什么。**只在阿萌发的表情后面带**（阿萌 2026-10-21 定），角色挑表情用的 `buildEmojiContext` 清单不带——一百多个表情每轮都会多一大截
+- 给角色看的那一行在 `utils/emEmojiStickerLabel.ts`（不带依赖），`chatPrompts.ts` 私聊历史、`groupChat/prompts.ts` 群聊各一行接线；读图、选 API、批量在 `utils/emEmojiDescriptions.ts`
+- `DB.saveEmoji` 改成同名覆盖时保留原行的其他字段（`[EM-START: emoji-descriptions]`），否则换图 / 改分类 / 外链存本机会把描述抹掉；只改描述用 `DB.setEmojiDescription`
+- 读图 API：识图 API（开着优先）/ 主 API / 任一预设，选择存本机 `lilium.emoji.visionChoice`，不进备份
+- 弹窗都是 EM 自己的文件：`components/chat/EmojiDescriptionModal.tsx`、`SaveImageAsEmojiModal.tsx`、`EmojiVisionControls.tsx`；上游 `ChatModals.tsx` 只多两个可选 prop 和两个按钮，`Chat.tsx` 两个 state + 两个弹窗
+- 存为表情包：图一律尽量存本机（令牌直接共用、data URL 转令牌、网址先试下载），下不了才留网址并提示
+
 ### 34. 小厨房（现实食品库存）
 - 详细设计与每次改动见 `docs/kitchen-3d.md`；UI 规则见 `APP_CONVENTIONS.md` 的 P14 与 `utils/kitchenPaperTokens.ts`
 - `utils/kitchenDb.ts` 是唯一能改库存的地方（独立库 `LiliumOS_Kitchen`）：每次改数量记一笔事件、带 operationId 去重；**一起发生的一批（拍一张小票、做一道菜）一个事务写完、同一个 `batchId`，「撤销最近操作」整批撤回**，做菜撤销连「做过几次」一起退

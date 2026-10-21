@@ -4039,6 +4039,8 @@ export interface Emoji {
     name: string;
     url: string;
     categoryId?: string; 
+    /** 图上画了什么（阿萌发这个表情时一起给角色看）。见 utils/emEmojiDescriptions.ts */
+    description?: string; // [EM: emoji-descriptions]
 }
 
 // ============================================================

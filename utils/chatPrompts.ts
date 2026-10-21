@@ -5,6 +5,7 @@ import { DB } from './db';
 import { formatLifeSimResetCardForContext } from './lifeSimChatCard';
 import { formatQixiEventCardForContext, tryParseQixiEventChatCard } from './qixiChatCard';
 import { normalizeMessageContent, stickerNameFromUrl, theaterWhenPhrase } from './messageFormat';
+import { stickerDescriptionFromUrl, stickerLabelWithDescription } from './emEmojiStickerLabel'; // [EM: emoji-descriptions]
 import { formatTransferRecord } from './transferFormat';
 import { computeCurrentListening, getCurrentSlot } from './charMusicSchedule';
 import { getCharLyricSnippet } from './charLyricCache';
@@ -1208,7 +1209,8 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
                 }
                 else if (m.type === 'emoji') {
                      const stickerName = stickerNameFromUrl(emojis, m.content);
-                     content = `${timeStr} [${m.role === 'user' ? '用户' : '你'} 发送了表情包: ${stickerName}]`;
+                     const stickerLabel = m.role === 'user' ? stickerLabelWithDescription(stickerName, stickerDescriptionFromUrl(emojis, m.content)) : stickerName; // [EM: emoji-descriptions] 只在阿萌发的表情后带描述
+                     content = `${timeStr} [${m.role === 'user' ? '用户' : '你'} 发送了表情包: ${stickerLabel}]`;
                 }
                 else if ((m.type as string) === 'chat_forward') {
                     try {

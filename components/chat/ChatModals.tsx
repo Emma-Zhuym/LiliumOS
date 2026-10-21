@@ -90,6 +90,8 @@ interface ChatModalsProps {
     onReplyMessage: () => void;
     messageFavorited?: boolean;
     onToggleMessageFavorite?: () => void;
+    onSaveImageAsEmoji?: () => void; // [EM: save-image-as-emoji]
+    onEditEmojiDescription?: () => void; // [EM: emoji-descriptions]
     onEditMessageStart: () => void;
     onConfirmEditMessage: () => void;
     onDeleteMessage: () => void;
@@ -272,7 +274,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
     onTransfer, onImportEmoji, onSaveSettings,
     onBgUpload, onRemoveBg, onClearHistory, onOpenHistoryCleanup,
     onArchive, onCreatePrompt, onEditPrompt, onSavePrompt, onDeletePrompt,
-    onSetHistoryStart, onRestoreAdaptiveContext, onJumpToMessageInChat, onEnterSelectionMode, onReplyMessage, messageFavorited, onToggleMessageFavorite, onEditMessageStart, onConfirmEditMessage, onDeleteMessage, onCopyMessage, onDeleteEmoji, onDeleteCategory,
+    onSetHistoryStart, onRestoreAdaptiveContext, onJumpToMessageInChat, onEnterSelectionMode, onReplyMessage, messageFavorited, onToggleMessageFavorite, onSaveImageAsEmoji, onEditEmojiDescription, onEditMessageStart, onConfirmEditMessage, onDeleteMessage, onCopyMessage, onDeleteEmoji, onDeleteCategory,
     allCharacters = [], onSaveCategoryVisibility,
     translationEnabled, onToggleTranslation, translationExpanded, onToggleTranslationExpanded, translateSourceLang, translateTargetLang, onSetTranslateSourceLang, onSetTranslateLang,
     xhsEnabled, onToggleXhs,
@@ -1011,6 +1013,13 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                             {messageFavorited ? '取消收藏' : '收藏'}
                         </button>
                     )}
+                    {/* [EM-START: save-image-as-emoji] */}
+                    {selectedMessage?.type === 'image' && onSaveImageAsEmoji && (
+                        <button onClick={onSaveImageAsEmoji} className="w-full py-3 bg-slate-50 text-slate-700 font-medium rounded-2xl active:bg-slate-100 transition-colors flex items-center justify-center gap-2">
+                            存为表情包
+                        </button>
+                    )}
+                    {/* [EM-END: save-image-as-emoji] */}
                     {selectedMessage?.type === 'text' && (
                         <button onClick={onEditMessageStart} className="w-full py-3 bg-slate-50 text-slate-700 font-medium rounded-2xl active:bg-slate-100 transition-colors flex items-center justify-center gap-2">
                             编辑内容
@@ -1079,6 +1088,13 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                             </svg>
                             修改名称
                         </button>
+                        {/* [EM-START: emoji-descriptions] */}
+                        {onEditEmojiDescription && selectedEmoji && !Array.isArray(selectedEmoji) && (
+                            <button onClick={onEditEmojiDescription} className="w-full py-3 bg-slate-50 text-slate-700 font-medium rounded-2xl active:bg-slate-100 transition-colors flex items-center justify-center gap-2">
+                                图上画了什么{(selectedEmoji as { description?: string }).description ? '（已写）' : ''}
+                            </button>
+                        )}
+                        {/* [EM-END: emoji-descriptions] */}
                         <button
                             onClick={() => setModalType('delete-emoji')}
                             className="w-full py-3 bg-red-50 text-red-500 font-medium rounded-2xl active:bg-red-100 transition-colors flex items-center justify-center gap-2"

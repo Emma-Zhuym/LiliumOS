@@ -2,6 +2,7 @@
 // 供导演模式与轮询模式（每成员一次调用）共用。
 import { Message, CharacterProfile, EmojiCategory } from '../../types';
 import { stickerNameFromUrl } from '../messageFormat';
+import { stickerDescriptionFromUrl, stickerLabelWithDescription } from '../emEmojiStickerLabel'; // [EM: emoji-descriptions]
 import { isBlobRef } from '../blobRef';
 import { packetHistoryLine } from './redpacket';
 import { formatRelativeAge } from './relativeTime';
@@ -141,7 +142,8 @@ export function buildGroupHistoryBlock(
                 content = '[图片]';
             }
         } else if (m.type === 'emoji') {
-            content = `[表情包: ${stickerNameFromUrl(emojis, rawText.trim())}]`;
+            const stickerName = stickerNameFromUrl(emojis, rawText.trim());
+            content = `[表情包: ${m.role === 'user' ? stickerLabelWithDescription(stickerName, stickerDescriptionFromUrl(emojis, rawText.trim())) : stickerName}]`; // [EM: emoji-descriptions]
         } else if (m.type === 'transfer') {
             // 回执行自带完整句子（[系统: X 领取了 Y 的红包]），不加名字前缀
             if (m.metadata?.packetReceipt) { lines.push(`${timePrefix}${packetHistoryLine(m, nameOf, now)}`); return; }

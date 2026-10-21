@@ -352,6 +352,17 @@ check "网络日志：判断里带上预期失败" context/OSContext.tsx "!suppr
 check "后端客户端：代为下载" utils/emAgentBackend.ts "'/images/fetch'"
 check "后端路由：图片仓库" server/agent-backend/server.mjs "'POST /images/put'"
 
+echo "── 表情包描述 + 聊天图片存为表情包 ──"
+check "Emoji 类型：描述字段" types.ts "description?: string; // [EM: emoji-descriptions]"
+check "saveEmoji 同名覆盖留住描述" utils/db.ts "store.put({ ...(existingReq.result || {}), name, url, categoryId });"
+check "DB：只改描述" utils/db.ts "setEmojiDescription: async (name: string, description: string)"
+check "私聊提示词：阿萌发的表情带描述" utils/chatPrompts.ts "stickerLabelWithDescription(stickerName, stickerDescriptionFromUrl(emojis, m.content))"
+check "群聊提示词：阿萌发的表情带描述" utils/groupChat/prompts.ts "stickerLabelWithDescription(stickerName, stickerDescriptionFromUrl(emojis, rawText.trim()))"
+check "表情长按：图上画了什么" components/chat/ChatModals.tsx "{onEditEmojiDescription && selectedEmoji && !Array.isArray(selectedEmoji) && ("
+check "消息长按：存为表情包" components/chat/ChatModals.tsx "{selectedMessage?.type === 'image' && onSaveImageAsEmoji && ("
+check "Chat 挂描述弹窗" apps/Chat.tsx "<EmojiDescriptionModal emoji={emojiDescriptionTarget}"
+check "Chat 挂存表情弹窗" apps/Chat.tsx "<SaveImageAsEmojiModal message={emojiFromMessage}"
+
 echo ""
 if [ $FAIL -gt 0 ]; then
     echo "🔴 $FAIL 项缺失（$PASS 项通过）——EM 功能被 merge 冲掉了，对照 .claude/CLAUDE.md 补回来"

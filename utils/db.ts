@@ -1127,12 +1127,39 @@ export const DB = {
     // （iOS Safari 常见）时写入静默丢失，「一键优化」还会照报「已转 N 张」。
     return new Promise((resolve, reject) => {
       const transaction = db.transaction(STORE_EMOJIS, 'readwrite');
-      transaction.objectStore(STORE_EMOJIS).put({ name, url, categoryId });
+      // [EM-START: emoji-descriptions] 同名覆盖时留住原有的描述等额外字段：换图、改分类、
+      // 外链存本机都走这里，直接整行 put 会把描述抹掉
+      const store = transaction.objectStore(STORE_EMOJIS);
+      const existingReq = store.get(name);
+      existingReq.onsuccess = () => {
+        store.put({ ...(existingReq.result || {}), name, url, categoryId });
+      };
+      // [EM-END: emoji-descriptions]
       transaction.oncomplete = () => resolve();
       transaction.onerror = () => reject(transaction.error);
       transaction.onabort = () => reject(transaction.error || new Error('saveEmoji transaction aborted'));
     });
   },
+
+  // [EM-START: emoji-descriptions] 只改描述；空串 = 清掉。找不到这个表情就报错
+  setEmojiDescription: async (name: string, description: string): Promise<void> => {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const transaction = db.transaction(STORE_EMOJIS, 'readwrite');
+      const store = transaction.objectStore(STORE_EMOJIS);
+      const req = store.get(name);
+      req.onsuccess = () => {
+        if (!req.result) { reject(new Error('找不到这个表情包')); transaction.abort(); return; }
+        const next = { ...req.result };
+        if (description.trim()) next.description = description.trim(); else delete next.description;
+        store.put(next);
+      };
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error || new Error('setEmojiDescription aborted'));
+    });
+  },
+  // [EM-END: emoji-descriptions]
 
   deleteEmoji: async (name: string): Promise<void> => {
     const db = await openDB();
