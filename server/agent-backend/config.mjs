@@ -7,7 +7,9 @@
 
 import { existsSync, readFileSync, mkdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const DEFAULT_DIR = join(
     homedir(),
@@ -26,6 +28,18 @@ const list = (raw, fallback) => String(raw ?? fallback)
     .split(',')
     .map(item => item.trim())
     .filter(Boolean);
+
+/** 0.1.0 · 提交号。拿不到 git（打包部署、没装 git）就只有 0.1.0。启动时读一次。 */
+const runningVersion = () => {
+    try {
+        const sha = execFileSync('git', ['rev-parse', '--short=8', 'HEAD'], {
+            cwd: dirname(fileURLToPath(import.meta.url)), stdio: ['ignore', 'pipe', 'ignore'], timeout: 2000,
+        }).toString().trim();
+        return sha ? `0.1.0 · ${sha}` : '0.1.0';
+    } catch {
+        return '0.1.0';
+    }
+};
 
 export const loadConfig = (env = process.env) => {
     const dataDir = env.AGENT_BACKEND_DIR || DEFAULT_DIR;
@@ -59,7 +73,8 @@ export const loadConfig = (env = process.env) => {
         heartbeatEveryMinOverride: num(env.AGENT_HEARTBEAT_EVERY_MIN, 0),
         /** 心跳调模型的超时（设计 5：默认 120s）。 */
         heartbeatTimeoutMs: num(env.AGENT_HEARTBEAT_TIMEOUT_MS, 120_000),
-        version: '0.1.0',
+        // 带上正在跑的提交号：机房「后端版本」原来永远是 0.1.0，看不出 mini 到底拉没拉新代码（阿萌 2026-10-20）
+        version: runningVersion(),
         apiVersion: 1,
     };
 };
