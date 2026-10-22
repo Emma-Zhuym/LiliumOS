@@ -4033,6 +4033,8 @@ export interface EmojiCategory {
     name: string;
     isSystem?: boolean;
     allowedCharacterIds?: string[]; // If set, only these characters can see this category
+    /** 这一组是谁（小豆泥：圆眼睛的小暹罗猫）。写进角色的表情清单，阿萌发这组的表情时也带上组名 */
+    intro?: string; // [EM: emoji-group-intro]
 }
 
 export interface Emoji {

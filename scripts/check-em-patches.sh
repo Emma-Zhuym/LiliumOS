@@ -390,6 +390,15 @@ check "主动消息 2.0 内嵌" components/settings/ActiveMsgGlobalSettingsModal
 echo "── 网页卡片进私聊历史 ──"
 check "网页 / B 站卡片正文和字幕进历史" utils/chatPrompts.ts "[EM: webpage-card-history]"
 
+echo "── 表情分组是谁 ──"
+check "分组介绍字段" types.ts "intro?: string; // [EM: emoji-group-intro]"
+check "表情清单带分组介绍" utils/chatPrompts.ts "groupIntroLine(categories, Object.keys(grouped)); // [EM: emoji-group-intro]"
+check "阿萌发的表情带组名" utils/chatPrompts.ts "stickerGroupFromUrl(emojis, options?.emojiCategories, m.content)"
+check "历史拿得到分组" utils/chatRequestPayload.ts "emojiCategories: categories }, // [EM: emoji-group-intro]"
+check "群聊表情清单带介绍" utils/groupChat/prompts.ts "groupIntroLine(visibleCats, Object.keys(grouped)); // [EM: emoji-group-intro]"
+check "分类操作里的入口" components/chat/ChatModals.tsx "onEditCategoryIntro && selectedCategory"
+check "介绍编辑弹窗接线" apps/Chat.tsx "<EmojiGroupIntroModal category={groupIntroTarget}"
+
 echo ""
 if [ $FAIL -gt 0 ]; then
     echo "🔴 $FAIL 项缺失（$PASS 项通过）——EM 功能被冲掉了，对照 .claude/CLAUDE.md 补回来"

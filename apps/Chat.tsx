@@ -104,6 +104,7 @@ import {
 import { stopReply } from '../utils/emReplyStop'; // [EM: reply-stop]
 import EmojiDescriptionModal from '../components/chat/EmojiDescriptionModal'; // [EM: emoji-descriptions]
 import SaveImageAsEmojiModal from '../components/chat/SaveImageAsEmojiModal'; // [EM: save-image-as-emoji]
+import EmojiGroupIntroModal from '../components/chat/EmojiGroupIntroModal'; // [EM: emoji-group-intro]
 import {
     CONTEXT_RANGE_POLICY_VERSION,
     computeContextRangeSnapshot,
@@ -207,6 +208,7 @@ const Chat: React.FC = () => {
     const [categories, setCategories] = useState<EmojiCategory[]>([]);
     const [activeCategory, setActiveCategory] = useState<string>('default');
     const [emojiDescriptionTarget, setEmojiDescriptionTarget] = useState<Emoji | null>(null); // [EM: emoji-descriptions]
+    const [groupIntroTarget, setGroupIntroTarget] = useState<EmojiCategory | null>(null); // [EM: emoji-group-intro]
     const [emojiFromMessage, setEmojiFromMessage] = useState<Message | null>(null); // [EM: save-image-as-emoji]
     const [newCategoryName, setNewCategoryName] = useState('');
     const [newEmojiName, setNewEmojiName] = useState(''); // 表情包重命名输入框
@@ -3746,7 +3748,8 @@ const Chat: React.FC = () => {
                  addToast('选中的原文已清理，记忆与收藏保留', 'success');
              }} />}
              {/* [EM-START: emoji-descriptions] */}
-             <EmojiDescriptionModal emoji={emojiDescriptionTarget} allEmojis={emojis} onClose={() => setEmojiDescriptionTarget(null)} onSaved={async () => { await loadEmojiData(); markEmojiLibraryChanged(); }} />
+             <EmojiDescriptionModal emoji={emojiDescriptionTarget} allEmojis={emojis} categories={categories} onClose={() => setEmojiDescriptionTarget(null)} onSaved={async () => { await loadEmojiData(); markEmojiLibraryChanged(); }} />
+             <EmojiGroupIntroModal category={groupIntroTarget} onClose={() => setGroupIntroTarget(null)} onSaved={async () => { await loadEmojiData(); markEmojiLibraryChanged(); }} />{/* [EM: emoji-group-intro] */}
              <SaveImageAsEmojiModal message={emojiFromMessage} categories={categories} defaultCategoryId={activeCategory} onClose={() => setEmojiFromMessage(null)} onSaved={async () => { await loadEmojiData(); markEmojiLibraryChanged(); }} />
              {/* [EM-END: emoji-descriptions] */}
              <ChatModals
@@ -3784,6 +3787,7 @@ const Chat: React.FC = () => {
                 messageFavorited={!!selectedMessage && (userContentFavoriteIds.has(contentFavoriteIdForMessage(selectedMessage)) || voiceFavoriteKeys.has(chatVoiceKey(selectedMessage)))}
                 onToggleMessageFavorite={selectedMessage ? handleToggleSelectedMessageFavorite : undefined}
                 onSaveImageAsEmoji={selectedMessage?.type === 'image' ? () => { setEmojiFromMessage(selectedMessage); setModalType('none'); setSelectedMessage(null); } : undefined} // [EM: save-image-as-emoji]
+                onEditCategoryIntro={selectedCategory ? () => { setGroupIntroTarget(selectedCategory); setModalType('none'); setSelectedCategory(null); } : undefined} // [EM: emoji-group-intro]
                 onEditEmojiDescription={selectedEmoji && !Array.isArray(selectedEmoji) ? () => { setEmojiDescriptionTarget(selectedEmoji); setModalType('none'); setSelectedEmoji(null); } : undefined} // [EM: emoji-descriptions]
                 onEditMessageStart={() => { if (selectedMessage) { setEditContent(selectedMessage.content); setModalType('edit-message'); } }}
                 onConfirmEditMessage={confirmEditMessage} onDeleteMessage={handleDeleteMessage} onCopyMessage={handleCopyMessage} onDeleteEmoji={handleDeleteEmoji} onDeleteCategory={handleDeleteCategory}

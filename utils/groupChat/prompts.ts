@@ -2,7 +2,7 @@
 // 供导演模式与轮询模式（每成员一次调用）共用。
 import { Message, CharacterProfile, EmojiCategory } from '../../types';
 import { stickerNameFromUrl } from '../messageFormat';
-import { stickerDescriptionFromUrl, stickerLabelWithDescription } from '../emEmojiStickerLabel'; // [EM: emoji-descriptions]
+import { groupIntroLine, stickerDescriptionFromUrl, stickerLabelWithDescription } from '../emEmojiStickerLabel'; // [EM: emoji-descriptions] [EM: emoji-group-intro]
 import { isBlobRef } from '../blobRef';
 import { packetHistoryLine } from './redpacket';
 import { formatRelativeAge } from './relativeTime';
@@ -51,10 +51,12 @@ export function buildEmojiContextStr(
         grouped[cid].push(e.name);
     });
 
-    return Object.entries(grouped).map(([cid, names]) => {
+    const listed = Object.entries(grouped).map(([cid, names]) => {
         const cName = catMap[cid] || '其他';
         return `${cName}: [${names.join(', ')}]`;
     }).join('; ');
+    const intros = groupIntroLine(visibleCats, Object.keys(grouped)); // [EM: emoji-group-intro]
+    return intros ? `${listed}\n${intros}` : listed;
 }
 
 export interface GroupHistoryBlock {

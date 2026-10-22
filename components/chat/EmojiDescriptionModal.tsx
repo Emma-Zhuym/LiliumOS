@@ -1,6 +1,7 @@
 // [EM-START: emoji-descriptions]
 import React, { useEffect, useRef, useState } from 'react';
-import type { Emoji } from '../../types';
+import type { Emoji, EmojiCategory } from '../../types';
+import { groupVisionHint } from '../../utils/emEmojiStickerLabel'; // [EM: emoji-group-intro]
 import Modal from '../os/Modal';
 import TokenImg from '../os/TokenImg';
 import { useOS } from '../../context/OSContext';
@@ -19,10 +20,13 @@ import { EmojiDescriptionField, useEmojiVisionChoice } from './EmojiVisionContro
 const EmojiDescriptionModal: React.FC<{
     emoji: Emoji | null;
     allEmojis: Emoji[];
+    /** [EM: emoji-group-intro] 表情分组：读图时告诉模型这一组是谁 */
+    categories?: EmojiCategory[];
     onClose: () => void;
     /** 存完让聊天页重读表情库 */
     onSaved: () => void | Promise<void>;
-}> = ({ emoji, allEmojis, onClose, onSaved }) => {
+}> = ({ emoji, allEmojis, categories = [], onClose, onSaved }) => {
+    const hintFor = (target: Emoji) => groupVisionHint(categories.find(c => c.id === target.categoryId)); // [EM: emoji-group-intro]
     const { addToast } = useOS();
     const { choices, choice, select } = useEmojiVisionChoice();
     const [text, setText] = useState('');
@@ -42,7 +46,7 @@ const EmojiDescriptionModal: React.FC<{
 
     const describeOne = async (selected: NonNullable<typeof choice>) => {
         setBusy(true);
-        try { setText(await describeEmojiImage(emoji.url, selected.config)); } catch (error) {
+        try { setText(await describeEmojiImage(emoji.url, selected.config, hintFor(emoji))); } catch (error) {
             addToast((error as Error)?.message || '没看出来', 'error');
         } finally { setBusy(false); }
     };
@@ -64,7 +68,7 @@ const EmojiDescriptionModal: React.FC<{
         setBatchResult(null);
         setBatch({ done: 0, total: missing.length });
         const result = await describeEmojisInBatch(missing, {
-            describe: image => describeEmojiImage(image, choice.config),
+            describe: (image, target) => describeEmojiImage(image, choice.config, hintFor(target)),
             save: (name, description) => DB.setEmojiDescription(name, description),
             onProgress: (done, total) => setBatch({ done, total }),
             shouldStop: () => stopRef.current,

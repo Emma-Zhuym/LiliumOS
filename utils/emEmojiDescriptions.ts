@@ -68,7 +68,12 @@ export const pickEmojiVisionChoice = (choices: EmojiVisionChoice[], savedId: str
  * 让模型看一眼表情包写描述。图可以是本机令牌（blobref:）、data URL 或网址：
  * safeFetchJson 发出去之前会把令牌还原成 data URL。
  */
-export const describeEmojiImage = async (imageValue: string, config: VisionApiConfig): Promise<string> => {
+export const describeEmojiImage = async (
+    imageValue: string,
+    config: VisionApiConfig,
+    /** [EM: emoji-group-intro] 这一组是谁（groupVisionHint 拼好的），让描述直接叫它「小豆泥」 */
+    groupHint = '',
+): Promise<string> => {
     if (!isVisionApiReady(config)) throw new Error('读图用的 API 没填完整（地址、Key、模型）');
     const baseUrl = config.baseUrl.trim().replace(/\/+$/, '');
     const data = await safeFetchJson(`${baseUrl}/chat/completions`, {
@@ -77,7 +82,7 @@ export const describeEmojiImage = async (imageValue: string, config: VisionApiCo
         body: JSON.stringify({
             model: config.model.trim(),
             messages: [{ role: 'user', content: [
-                { type: 'text', text: EMOJI_VISION_PROMPT },
+                { type: 'text', text: groupHint ? `${EMOJI_VISION_PROMPT}\n${groupHint}` : EMOJI_VISION_PROMPT },
                 { type: 'image_url', image_url: { url: imageValue } },
             ] }],
             temperature: 0,
@@ -100,7 +105,7 @@ export interface DescribeBatchResult { done: number; failed: { name: string; rea
 export const describeEmojisInBatch = async (
     emojis: Emoji[],
     deps: {
-        describe: (imageValue: string) => Promise<string>;
+        describe: (imageValue: string, emoji: Emoji) => Promise<string>;
         save: (name: string, description: string) => Promise<void>;
         onProgress?: (done: number, total: number) => void;
         shouldStop?: () => boolean;
@@ -112,7 +117,7 @@ export const describeEmojisInBatch = async (
         if (deps.shouldStop?.()) break;
         const emoji = emojis[i];
         try {
-            await deps.save(emoji.name, await deps.describe(emoji.url));
+            await deps.save(emoji.name, await deps.describe(emoji.url, emoji));
             result.done += 1;
             streak = 0;
         } catch (error) {

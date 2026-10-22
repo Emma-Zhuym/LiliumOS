@@ -5,7 +5,7 @@ import { DB } from './db';
 import { formatLifeSimResetCardForContext } from './lifeSimChatCard';
 import { formatQixiEventCardForContext, tryParseQixiEventChatCard } from './qixiChatCard';
 import { normalizeMessageContent, stickerNameFromUrl, theaterWhenPhrase } from './messageFormat';
-import { stickerDescriptionFromUrl, stickerLabelWithDescription } from './emEmojiStickerLabel'; // [EM: emoji-descriptions]
+import { groupIntroLine, stickerDescriptionFromUrl, stickerGroupFromUrl, stickerLabelWithDescription } from './emEmojiStickerLabel'; // [EM: emoji-descriptions] [EM: emoji-group-intro]
 import { formatTransferRecord } from './transferFormat';
 import { computeCurrentListening, getCurrentSlot } from './charMusicSchedule';
 import { getCharLyricSnippet } from './charLyricCache';
@@ -235,10 +235,12 @@ export const ChatPrompts = {
             grouped[cid].push(e.name);
         });
         
-        return Object.entries(grouped).map(([cid, names]) => {
+        const listed = Object.entries(grouped).map(([cid, names]) => {
             const cName = catMap[cid] || '其他';
             return `${cName}: [${names.join(', ')}]`;
         }).join('; ');
+        const intros = groupIntroLine(categories, Object.keys(grouped)); // [EM: emoji-group-intro] 这几组是谁（小豆泥＝圆眼睛的小暹罗猫）
+        return intros ? `${listed}\n     ${intros}` : listed;
     },
 
     // 构建 System Prompt（拼接版，给主动消息等单串消费方；聊天主路径用 buildSystemPromptParts）
@@ -917,6 +919,8 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
             useVisionDescriptions?: boolean;
             /** 默认使用聊天时间感知；见面入口传线下开关，控制时间戳与互动间隔。 */
             timeAwarenessEnabled?: boolean;
+            /** [EM: emoji-group-intro] 表情分组：阿萌发的表情后面带上组名（小豆泥 / pingu） */
+            emojiCategories?: EmojiCategory[];
         },
     ) => {
         // Filter Logic
@@ -1212,7 +1216,7 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
                 }
                 else if (m.type === 'emoji') {
                      const stickerName = stickerNameFromUrl(emojis, m.content);
-                     const stickerLabel = m.role === 'user' ? stickerLabelWithDescription(stickerName, stickerDescriptionFromUrl(emojis, m.content)) : stickerName; // [EM: emoji-descriptions] 只在阿萌发的表情后带描述
+                     const stickerLabel = m.role === 'user' ? stickerLabelWithDescription(stickerName, stickerDescriptionFromUrl(emojis, m.content), stickerGroupFromUrl(emojis, options?.emojiCategories, m.content)) : stickerName; // [EM: emoji-descriptions] [EM: emoji-group-intro] 只在阿萌发的表情后带描述和组名
                      content = `${timeStr} [${m.role === 'user' ? '用户' : '你'} 发送了表情包: ${stickerLabel}]`;
                 }
                 else if ((m.type as string) === 'chat_forward') {

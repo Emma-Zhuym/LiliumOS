@@ -425,6 +425,9 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - 读图 API：识图 API（开着优先）/ 主 API / 任一预设，选择存本机 `lilium.emoji.visionChoice`，不进备份
 - 弹窗都是 EM 自己的文件：`components/chat/EmojiDescriptionModal.tsx`、`SaveImageAsEmojiModal.tsx`、`EmojiVisionControls.tsx`；上游 `ChatModals.tsx` 只多两个可选 prop 和两个按钮，`Chat.tsx` 两个 state + 两个弹窗
 - 存为表情包：图一律尽量存本机（令牌直接共用、data URL 转令牌、网址先试下载），下不了才留网址并提示
+- **分组「这一组是谁」**（2026-10-22）：`EmojiCategory.intro?`（`[EM: emoji-group-intro]`），长按分组 → 分类操作 →「这一组是谁」（`components/chat/EmojiGroupIntroModal.tsx`）。
+  介绍不进分组标题（角色发表情偶尔写「组名:表情名」，程序按组名对），而是在表情清单后面单独一行「这几组表情包的主角：小豆泥＝…」（`groupIntroLine`，私聊和群聊都有）；
+  阿萌发的表情在私聊历史里带组名「抱抱（小豆泥）（图上：…）」，`buildMessageHistory` 的 `options.emojiCategories` 由 `chatRequestPayload` 传；默认 / 系统组不带。让 AI 写描述时也把组名和介绍给读图模型（`groupVisionHint`）
 
 ### 40. 设置页：苹果式分组列表（2026-10-21）
 - 首页 `components/settings/SettingsHome.tsx`：个人卡片 + 有事才出现的提醒行 + API / 连接 / 备份 / 后台 / 其他五组，每行右边直接写状态，点一行推进子页。样稿 https://claude.ai/artifact/9ptEF5b6AV45mUnBuMcvbN

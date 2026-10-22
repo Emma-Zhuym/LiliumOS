@@ -8,6 +8,7 @@ import { DB } from '../../utils/db';
 import { isBlobRef, migrateDataUrlToRef, putImageBlobDeduped } from '../../utils/blobRef';
 import { readVisionDescription } from '../../utils/visionApi';
 import { cleanEmojiDescription, describeEmojiImage } from '../../utils/emEmojiDescriptions';
+import { groupVisionHint } from '../../utils/emEmojiStickerLabel'; // [EM: emoji-group-intro]
 import { looksLikeImage } from '../../utils/emExternalImages';
 import { F, R } from '../../utils/clayTokens';
 import { EmojiDescriptionField, inputStyle, useEmojiVisionChoice } from './EmojiVisionControls';
@@ -69,7 +70,7 @@ const SaveImageAsEmojiModal: React.FC<{
 
     const describe = async (selected: NonNullable<typeof choice>) => {
         setBusy(true);
-        try { setDescription(await describeEmojiImage(image, selected.config)); } catch (error) {
+        try { setDescription(await describeEmojiImage(image, selected.config, groupVisionHint(categories.find(c => c.id === categoryId)))); } catch (error) { // [EM: emoji-group-intro]
             addToast((error as Error)?.message || '没看出来', 'error');
         } finally { setBusy(false); }
     };
