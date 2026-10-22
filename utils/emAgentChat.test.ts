@@ -160,12 +160,12 @@ describe('[EM: agent-push-stale-notice] 推送没送到时要让阿萌知道', (
         vi.unstubAllGlobals();
     });
 
-    it('自动登记没成功：提示里说清原因，让她去点「登记推送」', async () => {
+    it('自动登记没成功：提示里说清原因，让她去机房点「重新登记」', async () => {
         registerPush.mockResolvedValue({ ok: false, reason: '浏览器没有给出推送订阅' });
         await send(); await notePollRescue(1_000);
         await send(); await notePollRescue(2_000);
         expect(pushStaleNoticeText(heard[0])).toContain('自动重新登记没成功（浏览器没有给出推送订阅）');
-        expect(pushStaleNoticeText(heard[0])).toContain('点一次「登记推送」');
+        expect(pushStaleNoticeText(heard[0])).toContain('机房 → 连接 点一次「重新登记」');
         vi.unstubAllGlobals();
     });
 });

@@ -1,7 +1,7 @@
 // [EM-START: machine-room]
 /**
  * 把一个角色接到 Mac mini 后端：登记 → 同步心跳要用的 API → 传一份近况。
- * 心跳面板（components/settings/AgentHeartbeatPanel.tsx）和机房 App 共用这一份，免得两边接法不一样。
+ * 机房 App 的角色详情用它（原来设置里的心跳面板 2026-10-21 已并进机房）。
  *
  * 三步都做完心跳才有可能真的跑起来；少了 API 后端调不动模型，
  * 少了近况后端会一直卡在「还没收到近况」这道闸上安静跳过。

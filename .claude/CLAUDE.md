@@ -402,10 +402,12 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 
 ### 37. 机房 App（Mac mini 后端的家，2026-10-20）
 - `apps/MachineRoomApp.tsx` + `components/machineRoom/*`：此刻（mini 在不在、各角色刚才干嘛、下一跳几点）/ 记录（心跳流水筛选）/ 连接（服务状态 + 开关）；角色详情里有心跳、心里、脾气、攒着想说的、最近几跳。主色 mint，纯逻辑在 `utils/emMachineRoom.ts`
-- 接入和脾气读写跟设置页的心跳面板共用：`utils/emAgentConnect.ts`（`connectCharacterToAgent`）、`hooks/useTemperament.ts`，别再各写一份
+- 接入和脾气读写在 `utils/emAgentConnect.ts`（`connectCharacterToAgent`）、`hooks/useTemperament.ts`；设置里原来的心跳面板和脾气编辑 2026-10-21 已删，别再在别处写一份
 - 开关走后端 `GET/POST /settings`（`server/agent-backend/adminSettings.mjs`）：**只认白名单**（只试跑、心思试运行、存原文、安静时段），一项不对整批不改；关掉「只试跑」要确认。新开关加进白名单之前想清楚该不该从手机改
 - 状态里的小红书登录态查一次要开浏览器，`createXhsLoginProbe` 带 10 分钟缓存、不在请求里现等；`GET /characters` 带 `nextHeartbeatAt`
-- 上游文件只有接线：`types.ts` AppID、`constants.tsx` 图标、`PhoneShell.tsx` 路由、`safeAreaApps.ts`（测试里的名单也要加），设置页 `AgentBackendSection` 一个「打开机房」入口。配对、推送登记还在设置页
+- 上游文件只有接线：`types.ts` AppID、`constants.tsx` 图标、`PhoneShell.tsx` 路由、`safeAreaApps.ts`（测试里的名单也要加），设置页 `AgentBackendSection` 一个「打开机房」入口
+- **分工（2026-10-21 阿萌定）**：手机关了还在跑的归机房，手机自己的配置归设置。设置 → Mac mini 只剩配对 / 解绑 / 看连不连得上；「连接」页的「这台手机」组放聊天交给 mini（本机开关 `em_agent_chat_enabled_v1`）、推送重新登记、连通测试、立刻收信箱，「这台 mini」组放日历可见性、设备列表（可作废）
+- 「立刻收信箱」只发 `em-agent-pull` 事件，走 OSContext 跟回到前台同一条收信路；**别直接调 `AgentBackend.inbox()` 再 ack**——那样消息不进聊天就被确认收下，等于吞掉（旧设置页按钮就是这样）
 
 ### 38. 外链图片存本机 + mini 图片仓库（2026-10-21）
 - 起因：表情包 / 头像是别人图床上的链接（sharkpan 已下线、catbox 时好时坏），图床一挂就变问号；完整备份只带网址
@@ -432,7 +434,7 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - Instant Push 已停用：推送页里只在它还开着时出现，首页提醒行催去关（开着会抢在 mini 前面接走聊天）
 - 测试 `utils/apiSettingsUi.test.ts` 的 `open()` 是「回首页再点那一行」，跨几块的草稿测试按子页来回切
 - 图标格是灰底 32px（公约 C 的例外，见 `APP_CONVENTIONS.md` P16）；设置认领的主色是 `HUE.blue`
-- 还没做：设置里的心跳面板、脾气编辑、配对搬进机房；子页里面的上游内容换成 F
+- 设置 → Mac mini 只管配对（见第 37 节分工）；还没做：子页里面的上游内容换成 F
 
 ### 34. 小厨房（现实食品库存）
 - 详细设计与每次改动见 `docs/kitchen-3d.md`；UI 规则见 `APP_CONVENTIONS.md` 的 P14 与 `utils/kitchenPaperTokens.ts`

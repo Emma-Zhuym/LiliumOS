@@ -199,8 +199,8 @@ export const notePollRescue = async (now = Date.now()): Promise<void> => {
 
 /** 提示条文案：发生了什么、现在怎么样、要不要她动手。 */
 export const pushStaleNoticeText = (detail: { fixed?: boolean; reason?: string }): string => (detail.fixed
-    ? 'Mac mini 的推送没送到手机，最近的回复都晚了约一分钟。已经自动重新登记推送，下一条应该恢复；还慢的话到 设置 → Mac mini 后端 再点一次「登记推送」。'
-    : `Mac mini 的推送没送到手机，最近的回复都晚了约一分钟。自动重新登记没成功${detail.reason ? `（${detail.reason}）` : ''}，请到 设置 → Mac mini 后端 点一次「登记推送」。`);
+    ? 'Mac mini 的推送没送到手机，最近的回复都晚了约一分钟。已经自动重新登记推送，下一条应该恢复；还慢的话到 机房 → 连接 点一次「重新登记」。'
+    : `Mac mini 的推送没送到手机，最近的回复都晚了约一分钟。自动重新登记没成功${detail.reason ? `（${detail.reason}）` : ''}，请到 机房 → 连接 点一次「重新登记」。`);
 
 /** 测试用 */
 export const resetPushStaleForTest = () => { pollRescueStreak = 0; lastTurnNeededPoll = false; lastPushStaleNoticeAt = -Infinity; };

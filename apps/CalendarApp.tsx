@@ -379,11 +379,11 @@ const CalendarApp: React.FC = () => {
                 <div style={{ background: F.surfaceWarm, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, padding: '14px 16px' }}>
                     {!isAgentPaired() ? (
                         <p style={{ fontSize: 12, color: F.textSecondary, lineHeight: 1.7 }}>
-                            还没连上 Mac mini 后端。在「设置 → Mac mini 后端」里配对，再选好哪些日历可以读。
+                            还没连上 Mac mini 后端。在「设置 → Mac mini」里配对，再到「机房 → 连接」选好哪些日历可以读。
                         </p>
                     ) : !hasOpenSource(cache?.visibility) ? (
                         <p style={{ fontSize: 12, color: F.textSecondary, lineHeight: 1.7 }}>
-                            一个日历都还没开。去「设置 → Mac mini 后端 → 角色能看到我哪些日历」勾上要读的日历和提醒清单。
+                            一个日历都还没开。去「机房 → 连接 → 角色能看到我哪些日历」勾上要读的日历和提醒清单。
                         </p>
                     ) : (
                         <div className="flex items-center justify-between gap-3">

@@ -8,7 +8,7 @@
  * - 记录：所有角色的心跳流水，能按「发了消息 / 过日子 / 被跳过 / 出错」筛
  * - 连接：推送、日历、小红书、HA 的状态，和那几个开关
  *
- * 配对、推送登记这些一次性的事还留在「设置 → Mac mini 后端」。mini 每天 4–7 点休眠，
+ * 配对、解绑留在「设置 → Mac mini」；其余跟 mini 有关的（含推送登记、聊天交给 mini）都在这里。mini 每天 4–7 点休眠，
  * 连不上时安静显示上一次拿到的样子，不弹错。主色 mint，F 规范（全平），取值只从 clayTokens。
  */
 
@@ -124,7 +124,7 @@ const MachineRoomApp: React.FC = () => {
     const body = !paired ? (
         <div className="flex flex-col" style={{ gap: 12, paddingTop: 24 }}>
             <Empty icon={<HardDrives size={18} weight="bold" color={F.textTertiary} />}>
-                还没连上 Mac mini。先在「设置 → Mac mini 后端」里配对，配好了这里就是 mini 的家。
+                还没连上 Mac mini。先在「设置 → Mac mini」里配对，配好了这里就是 mini 的家。
             </Empty>
             <div className="flex justify-center"><PillButton strong onClick={() => openApp(AppID.Settings)}>去设置里配对</PillButton></div>
         </div>
@@ -153,7 +153,7 @@ const MachineRoomApp: React.FC = () => {
             <div ref={scroller} className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3.5"
                 style={{ padding: '8px 20px 16px', WebkitOverflowScrolling: 'touch', overscrollBehaviorY: 'contain', touchAction: 'pan-y' }}>
                 {paired && data.revoked && (
-                    <Card><p style={{ fontSize: 13, color: F.textSecondary, lineHeight: 1.6 }}>这台手机在 mini 上的钥匙失效了，要去「设置 → Mac mini 后端」重新配对。</p></Card>
+                    <Card><p style={{ fontSize: 13, color: F.textSecondary, lineHeight: 1.6 }}>这台手机在 mini 上的钥匙失效了，要去「设置 → Mac mini」重新配对。</p></Card>
                 )}
                 {body}
             </div>

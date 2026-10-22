@@ -193,7 +193,7 @@ pickCue({ providers, weights, cooldowns, now, rng }) → Cue | null
 >   念想最强时推送预览改成「X 给你发来一条消息」（阿萌 2026-10-19 定：预览里藏起来）。接口 `POST /drives/events`、`GET /drives`（只给最强一两种 + 档位）。
 >   手机端 `utils/emDriveEvents.ts`：情绪评估顺风车段（配对了才加）、整理、送去 mini（不在线排队 6 小时）；接线 `useChatAI.ts` 两处、`emotionApply.ts` 三处
 > - **脾气读数（2026-10-19 做了）**：手机 `utils/emTemperament.ts`（副 API 读人设 + 反刍倾向 → 九种各自「平时 / 多容易触动」三档、别扭压力消得快慢、压力出口、不适用的几种）、
->   心跳面板里每个角色下面的「脾气」可展开逐项改（`components/settings/TemperamentEditor.tsx`，改过标 confirmed），字段 `CharacterProfile.emDriveTemperament` 随快照（`driveTemperament`）给 mini；
+>   机房角色详情里的「脾气」卡可逐项改（`components/machineRoom/CharacterView.tsx`，改过标 confirmed；2026-10-21 前在设置的心跳面板里），字段 `CharacterProfile.emDriveTemperament` 随快照（`driveTemperament`）给 mini；
 >   mini `drives.mjs` 的 `applyTemperament` 把档位翻成数：基线 / 敏感度 低 ×0.6、中 ×1、高 ×1.5；回落 快 ×0.7、慢 ×1.5（只管别扭和压力）；不适用的固定 0；
 >   压力出口写进感受，「找朋友」偏抽签去聊天、「找你说」偏开口。**还没有的**：没读过的角色不会自动读（要在面板里点「读一下」）
 > - **性欲（念想）细则（同日）**：分开时被撩往上冲、4 小时半衰；在一块的亲密算满足（落到四成）+ 3 小时不应期；早上 6–9 点 +0.1；累和上班时往下压

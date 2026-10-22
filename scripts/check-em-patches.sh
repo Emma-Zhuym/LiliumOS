@@ -254,7 +254,7 @@ check "即时回复：mini 的轮次单独点名" utils/activeMsgRuntime.ts "p.v
 check "即时回复：待收记录带 via" utils/amsgInstantChat.ts "via?: 'mini'"
 check "即时回复：信箱回复进收件箱" utils/emAgentInbox.ts "route === 'reply'"
 check "即时回复：去取信号" utils/amsgResults.ts "case 'agent-pull'"
-check "即时回复：设置开关" components/settings/AgentBackendSection.tsx "聊天交给 Mac mini 回复"
+check "即时回复：机房里的开关" components/machineRoom/LinksView.tsx "聊天交给 Mac mini 回复"
 check "即时回复：后端接口" server/agent-backend/server.mjs "'POST /chat/turns'"
 check "推送订阅换了自动重新登记给 mini" context/OSContext.tsx "ensureAgentPushRegistered()"
 check "SimpleFIN 撤掉的预扣款不计入" utils/simplefinSync.ts "[EM-START: finance-dropped-holds]"
@@ -335,7 +335,7 @@ check "角色字段：脾气读数" types.ts "emDriveTemperament?: DriveTemperam
 check "快照带上脾气读数" utils/emAgentSnapshot.ts "driveTemperament: char.emDriveTemperament"
 check "查手机状态小组件" apps/CheckPhone.tsx "<StatusWidget charId={targetChar.id} palette={CF} />"
 check "聊天工具栏：贴贴按钮" components/chat/ChatInputArea.tsx "<PrivateMomentButton"
-check "心跳面板：心思试运行提示" components/settings/AgentHeartbeatPanel.tsx "setDrivesTrial(typeof status.heartbeat?.drivesTrial"
+check "机房：心思试运行提示" components/machineRoom/NowView.tsx "trial === true ? '心思试运行中'"
 
 echo "── 机房 App（Mac mini 后端的家）──"
 check "AppID：机房" types.ts "MachineRoom = 'machine_room', // [EM: machine-room]"
@@ -369,7 +369,9 @@ check "设置页：外壳不再原地折叠" apps/Settings.tsx "const SettingsSe
 check "设置页：F 顶栏子页返回首页" apps/Settings.tsx "onClick={() => (settingsPage ? setSettingsPage(null) : closeApp())}"
 check "设置页：个人档案子页" apps/Settings.tsx "{onPage('profile') && <ProfileSettingsPage />}"
 check "设置页：Instant Push 只在开着时出现" apps/Settings.tsx "{onPage('push') && instantPushOn && (<>"
-check "设置页：mini 子页直接展开" components/settings/AgentBackendSection.tsx "useState(defaultOpen)"
+check "设置页：mini 子页只管配对" components/settings/AgentBackendSection.tsx "AgentBackend.pair(form.baseUrl, form.code"
+check "机房：推送登记 / 连通测试 / 收信箱" components/machineRoom/LinksView.tsx "window.dispatchEvent(new Event('em-agent-pull'))"
+check "机房：作废设备" components/machineRoom/LinksView.tsx "AgentBackend.revokeDevice(device.id)"
 check "桌面不再放档案" constants.tsx "// { id: AppID.User, name: '档案', icon: 'User', color: 'blue' }, // [EM: settings-ios-list]"
 
 echo ""

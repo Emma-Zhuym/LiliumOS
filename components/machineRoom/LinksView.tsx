@@ -2,7 +2,9 @@
 /**
  * 机房「连接」：mini 那边各项服务的状态，和那几个原来只能在 mini 终端里改的开关。
  * 关掉「只试跑」= 角色会真的给你发消息，所以要确认一下；其余开关点了就改。
- * 日历可见性复用原来的面板（AgentTemporalPanel）；配对、推送登记还在设置页。
+ * 日历可见性复用原来的面板（AgentTemporalPanel）。
+ * 2026-10-21 起设置里「Mac mini」只留配对 / 解绑，其余（聊天交给 mini、推送登记、连通测试、
+ * 立刻收信箱、设备列表和作废）都在这里——手机关了还在跑的归机房，手机自己的配置归设置。
  */
 
 import React, { useEffect, useState } from 'react';
@@ -10,7 +12,8 @@ import React, { useEffect, useState } from 'react';
 import { useOS } from '../../context/OSContext';
 import { AppID } from '../../types';
 import { F, R, STATUS } from '../../utils/clayTokens';
-import { AgentBackend, type AgentAdminSettings, type AgentDevice } from '../../utils/emAgentBackend';
+import { AgentBackend, loadAgentConfig, type AgentAdminSettings, type AgentDevice } from '../../utils/emAgentBackend';
+import { isAgentChatEnabled, setAgentChatEnabled } from '../../utils/emAgentChat';
 import { clockText, linkRows } from '../../utils/emMachineRoom';
 import ClayDialog from '../os/ClayDialog';
 import AgentTemporalPanel from '../settings/AgentTemporalPanel';
@@ -24,12 +27,29 @@ const LinksView: React.FC<{ data: MachineRoomData }> = ({ data }) => {
     const [confirmLive, setConfirmLive] = useState(false);
     const [temporalOpen, setTemporalOpen] = useState(false);
     const [devices, setDevices] = useState<AgentDevice[] | null>(null);
+    const [devicesOpen, setDevicesOpen] = useState(false);
+    const [agentChat, setAgentChat] = useState(isAgentChatEnabled);
+    const [busy, setBusy] = useState(false);
+    const myDeviceId = loadAgentConfig().deviceId;
 
     useEffect(() => { setSettings(data.settings); }, [data.settings]);
+    const loadDevices = () => AgentBackend.devices().then(setDevices).catch(() => setDevices(null));
     useEffect(() => {
         if (!data.reachable) return;
-        AgentBackend.devices().then(setDevices).catch(() => setDevices(null));
+        void loadDevices();
     }, [data.reachable]);
+
+    /** 一次性的小动作：做完弹一句，失败说原因。 */
+    const act = async (task: () => Promise<string>) => {
+        setBusy(true);
+        try {
+            addToast(await task(), 'success');
+        } catch (error) {
+            addToast(error instanceof Error ? error.message : '没做成', 'error');
+        } finally {
+            setBusy(false);
+        }
+    };
 
     const save = async (patch: Partial<AgentAdminSettings>, done: string) => {
         if (!settings) return;
@@ -48,6 +68,8 @@ const LinksView: React.FC<{ data: MachineRoomData }> = ({ data }) => {
 
     const rows = linkRows(data.status);
     const activeDevices = devices?.filter(device => !device.revokedAt) ?? [];
+    const myDevice = devices?.find(device => device.id === myDeviceId);
+    const pushText = !myDevice ? '—' : myDevice.pushStatus === 'active' ? '已登记' : myDevice.pushStatus === 'gone' ? '失效了，重新登记一次' : '还没登记';
 
     return (
         <>
@@ -92,15 +114,56 @@ const LinksView: React.FC<{ data: MachineRoomData }> = ({ data }) => {
                 </Card>
             )}
 
+            <SectionTitle>这台手机</SectionTitle>
+            <Card style={{ padding: '2px 16px' }}>
+                {/* [EM: agent-instant-chat] 本机开关（存 localStorage），从设置搬来 */}
+                <Row first title="聊天交给 Mac mini 回复" sub="点生成后就能锁屏或划掉 App，回复推送回来；mini 不在时这一轮照旧在手机上生成"
+                    right={<Toggle label="聊天交给 Mac mini 回复" checked={agentChat}
+                        onChange={() => { setAgentChatEnabled(!agentChat); setAgentChat(!agentChat); }} />} />
+                <Row title="推送" sub={`这台手机：${pushText}。回到前台时会自动补登记`}
+                    right={<PillButton disabled={busy} onClick={() => void act(async () => {
+                        const result = await AgentBackend.registerPush();
+                        void loadDevices();
+                        if (!result.ok) throw new Error(result.reason || '推送登记没完成');
+                        return '这台手机的推送登记好了';
+                    })}>重新登记</PillButton>} />
+                <Row title="连通测试" sub="让 mini 发一条测试通知，看推送通不通"
+                    right={<PillButton disabled={busy} onClick={() => void act(async () => { await AgentBackend.testPing(); return '排上了，稍等一下看通知'; })}>测试</PillButton>} />
+                <Row title="立刻收一次信箱" sub="平时回到前台会自动收；推送没到、又想马上看时点一下"
+                    right={<PillButton disabled={busy} onClick={() => void act(async () => {
+                        // 走跟回到前台同一条收信路（OSContext 的 em-agent-pull），消息会进聊天，不会被吞掉
+                        window.dispatchEvent(new Event('em-agent-pull'));
+                        return '去收了，有新消息会进聊天';
+                    })}>收取</PillButton>} />
+            </Card>
+
             <SectionTitle>这台 mini</SectionTitle>
             <Card style={{ padding: '2px 16px' }}>
                 <Row first title="角色能看到我哪些日历" sub="逐个日历选给不给看、给看多少" onClick={() => setTemporalOpen(true)} />
-                <Row title="配对的设备" sub={devices ? activeDevices.map(device => `${device.name}${device.lastSeenAt ? `（${clockText(device.lastSeenAt)}）` : ''}`).join('、') || '一台都没有' : '—'} />
-                <Row title="配对、推送登记、解绑" sub="在设置页「Mac mini 后端」里" onClick={() => openApp(AppID.Settings)} />
+                <Row title="配对的设备" sub={devices ? activeDevices.map(device => `${device.name}${device.lastSeenAt ? `（${clockText(device.lastSeenAt)}）` : ''}`).join('、') || '一台都没有' : '—'}
+                    onClick={devices ? () => setDevicesOpen(true) : undefined} />
+                <Row title="配对、解绑" sub="在「设置 → Mac mini」里" onClick={() => openApp(AppID.Settings)} />
                 {data.status?.version && <Row title="后端版本" right={<span style={{ fontSize: 12, color: F.textTertiary }}>{data.status.version}</span>} />}
             </Card>
 
             <AgentTemporalPanel open={temporalOpen} onClose={() => setTemporalOpen(false)} />
+            <ClayDialog isOpen={devicesOpen} title="配对的设备" onClose={() => setDevicesOpen(false)}>
+                <div className="flex flex-col">
+                    {(devices || []).map((device, index) => (
+                        <Row key={device.id} first={index === 0}
+                            title={`${device.name}${device.id === myDeviceId ? '（这台）' : ''}`}
+                            sub={`推送${device.pushStatus === 'active' ? '已登记' : device.pushStatus === 'gone' ? '已失效' : '未登记'}${device.lastSeenAt ? ` · ${clockText(device.lastSeenAt)} 来过` : ''}${device.revokedAt ? ' · 已作废' : ''}`}
+                            right={!device.revokedAt && device.id !== myDeviceId ? (
+                                <button type="button" disabled={busy} className="shrink-0 active:opacity-40 transition-opacity disabled:opacity-50"
+                                    style={{ padding: '8px 12px', borderRadius: R.pill, background: STATUS.danger.tint, color: STATUS.danger.ink, fontSize: 13, fontWeight: 600 }}
+                                    onClick={() => void act(async () => { await AgentBackend.revokeDevice(device.id); await loadDevices(); return '那台设备作废了'; })}>
+                                    作废
+                                </button>
+                            ) : undefined} />
+                    ))}
+                    {devices?.length === 0 && <p style={{ fontSize: 13, color: F.textTertiary }}>还没有配对过的设备。</p>}
+                </div>
+            </ClayDialog>
             <ClayDialog isOpen={confirmLive} title="让角色真的发消息？" onClose={() => setConfirmLive(false)}
                 footer={<div className="flex justify-end" style={{ gap: 8 }}>
                     <button type="button" onClick={() => setConfirmLive(false)} style={{ padding: '10px 16px', borderRadius: R.button, color: F.textSecondary, fontSize: 14, fontWeight: 600 }}>再想想</button>
