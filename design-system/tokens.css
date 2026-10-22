@@ -44,6 +44,11 @@
   --brown-tint:#F8EEE7;--brown-soft:#E3CCBB;--brown-main:#9F7655;--brown-ink:#614731;
   --gray-tint:#EEF1EF;--gray-soft:#D1D6D1;--gray-main:#818882;--gray-ink:#434A44;
 
+  /* ---- 烛下（深谈）夜间纸面，2026-10-22 ---- */
+  --candle-night-paper:#1B1F2E;--candle-night-ink:#ECE3CF;--candle-night-ink-mid:#AEB8F0;--candle-night-ink-me:#BCC3E8;
+  --candle-night-ink-soft:#9A9DB4;--candle-night-line:#3A4163;--candle-night-rule:#282E44;
+  --candle-night-flame:#F2C37A;--candle-night-flame-fill:rgba(242,195,122,.16);
+
   /* ---- Radius ---- */
   --r-tiny:4px; --r-small:8px; --r-medium:10px; --r-large:12px;
   --r-panel:14px; --r-sheet:16px; --r-pill:999px;
@@ -71,6 +76,7 @@
   /* ---- Type ---- */
   --font: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
   --font-heading: 'Noto Serif SC', 'Songti SC', serif;
+  --font-hand: 'Long Cang', 'Kaiti SC', 'STKaiti', cursive; /* 只给烛下（深谈） */
 
   /* ---- Motion ---- */
   --dur-tap:100ms; --dur-hover:140ms; --dur-card:180ms; --dur-sheet:240ms; --dur-page:280ms;

@@ -79,7 +79,7 @@ LiliumOS 和 SullyOS 早就各走各的了（git 认的合并基线停在 2026-0
 ### 吸收后必跑自检
 
 ```bash
-bash scripts/check-em-patches.sh   # 当前 277 项锚点检查，红了就是功能被冲掉
+bash scripts/check-em-patches.sh   # 当前 316 项锚点检查，红了就是功能被冲掉
 pnpm vitest run                    # 单元测试
 ```
 
@@ -249,7 +249,7 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 ### 27. 换皮「F」（2026-09-25）
 - `utils/clayTokens.ts` 是唯一取值来源：全平（`S.*` = none）、中性底、圆角 12、OKLCH 16 色、`FONT` 衬线标题、`OVERLAY` 雾面浮层、`MOTION` 三条曲线
 - `utils/clayMotion.css` 由 clayTokens 顶部 `import './clayMotion.css';` 引入；删掉这行所有动效（sheet 滑入、提示条、圆环画出、选中日弹出）都会失效
-- **两处上游文件补丁**：`components/PhoneShell.tsx` 的提示条改为渲染 `components/os/ClayToast`（`[EM: skin-f-toast]`，一行 import + 一处替换）；`index.html` 字体链接末尾追加 `Noto+Serif+SC:wght@600;700`（上一行有 `[EM: skin-f]` 注释）。吸收上游功能时保住这两处
+- **两处上游文件补丁**：`components/PhoneShell.tsx` 的提示条改为渲染 `components/os/ClayToast`（`[EM: skin-f-toast]`，一行 import + 一处替换）；`index.html` 字体链接末尾追加 `Noto+Serif+SC:wght@400;600;700`（上一行有 `[EM: skin-f]` 注释；400 是 2026-10-22 给烛下信笺正文加的）。吸收上游功能时保住这两处
 - 其余 22 个引用 clayTokens 的上游文件不改代码、被动跟着换皮；其中 VRWorld / 记忆宫殿 / Launcher / Chat / CallApp 有上游手写阴影，暂时新旧混搭，按约定不改
 - sheet 打开时自动聚焦必须 `focus({ preventScroll: true })`：sheet 从屏幕外滑入，普通 focus 会把整页外层滚上去（日历「记一件事」踩过）
 - 日历与健康是样板：以后其他 App 迁移照这两个改
@@ -443,6 +443,19 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - **配置直接铺在子页里（2026-10-22 阿萌：点进去还要再点进去）**：实时感知、MCP、主动消息 2.0 的弹窗换成 `components/settings/SettingsSheet.tsx`（参数同 os/Modal，多一个 `inline`）：在自己的子页里 portal 进滚动区的挂点（`SettingsInlineSlotContext`），别处照旧弹窗。进实时感知页要调 `openRealtimeModal()`（读 Notion 栏位），离开 MCP 页要 `flushMcpToolConfigSync()`（原来关弹窗时做的事），都在 Settings 的 `[EM: settings-inline-config]` effect 里；三页摘要卡上的「配置」按钮去掉了
 - 颜色那一大段由 `node scripts/gen-settings-skin.mjs` 扫设置页和 `components/settings/*` 生成，**上游设置页加了新颜色类就重跑它**；只认真正的颜色名，`border-b`、`text-xs` 这种不能当颜色
 - 内联 style 不受这层皮管：生图页上游写的是 `HUE.rose` 内联（一页一色，不算违规）；Intiface 标题的 🎮、几处 💡 / 🔗 / 🧪 是写在上游文字里的 emoji，要去掉得改上游 JSX
+
+### 41. 烛下：聊天里的深谈（2026-10-22）
+- 契约 `docs/spec-deep-talk.md`，UI 模式 `APP_CONVENTIONS.md` P17。阶段一（手机端闭环）已做，阶段二（mini 到点来叫、TA 主动约）、阶段三（动态蜡烛、情侣空间书架）待做
+- 纯逻辑 `utils/deepTalk.ts`（状态、`[[DEEP_TALK: accept / later | HH:mm / decline]]` 标记、约定时间按角色时区、昼夜、提示词、历史折叠），落库 `utils/deepTalkActions.ts`，「这一夜」的记录在独立库 `utils/deepTalkDb.ts`（`LiliumOS_DeepTalk`，随备份 `emDeepTalkNights`）；界面在 `components/deepTalk/*`
+- **正文是普通聊天消息**（`metadata.source = 'deep_talk'` + `deepTalkId`）：记忆宫殿只认消息流。聊天列表不显示它们（`chatMessageVisibility.ts`），结束了的那夜在 `buildMessageHistory` 里只剩折叠卡那一行（`keepInPromptHistory`），结束后第一轮走「模式切换」拉回短消息
+- 邀请那一轮和开着的深谈**固定本机生成**（`useChatAI.ts` 的 `deepTalkLocal`：否决 mini / amsg 即时对话和 Instant Push），TA 那段话不进 `applyAssistantPostProcessing`，整段存一条
+- 开着时：快照 `deepTalk` → 心跳 `speakBlock` 返回 `deep_talk`（since 超 3 小时不认）；本地主动消息跳过；amsg 云端排程管不到（阿萌本来也不靠它）。放着 3 小时没动，下次打开聊天自动收卡（「蜡烛燃尽了」）
+- 夜间配色 `CANDLE_NIGHT`、手写体 `FONT.hand` 都在 clayTokens；卡片和系统气泡在聊天里一律白天配色
+- **说真话的夜（每一夜都是）**：深谈原文不进记忆宫殿（`pipeline.ts` 三处 `!isDeepTalkMessage`）、不进角色 App 手动记忆总结、不进心跳快照、深谈轮次不跑情绪评估；
+  收尾留两份摘要——`summary` 只写感受（给平时）、`candleSummary` 照实写（只给以后的烛下）；TA 挑的一两句原话（`kept`，程序校验真说过、不带现实处境）才写成卧室记忆，信笺里可删。
+  **以后给深谈加新的「带走」路径（导出、摘要、快照…）都要先想会不会把真话漏回平时**
+- 收尾时 TA 写一句只写感受的「余温」`afterglow`：当下一轮平时聊天的内心状态，并写进卡片那一行——深谈中不跑情绪评估，靠它接上氛围
+- TA 的思考存 `metadata.deepTalkThinking`，纸面 / 信笺名字旁一个手写体 `<Thinking>` 小标签点开看；不用心象卡片样式
 
 ### 34. 小厨房（现实食品库存）
 - 详细设计与每次改动见 `docs/kitchen-3d.md`；UI 规则见 `APP_CONVENTIONS.md` 的 P14 与 `utils/kitchenPaperTokens.ts`

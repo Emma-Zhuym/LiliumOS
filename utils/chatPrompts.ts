@@ -32,6 +32,8 @@ import { buildMomentsChatInjection } from './emMomentsContext'; // [EM: moments-
 import { buildPlansChatInjection } from './emAgentPlans'; // [EM: agent-plans]
 import { buildCueInjection } from './emCuePool'; // [EM: char-drives-cue]
 import { buildTemporalInjection } from './emTemporal'; // [EM: calendar-temporal]
+import { DEEP_TALK_EVENT_KIND, keepInPromptHistory } from './deepTalk'; // [EM: deep-talk]
+import { getCachedOpenNightId } from './deepTalkDb'; // [EM: deep-talk]
 import { formatRelativeAge } from './groupChat/relativeTime';
 import { isBlobRef } from './blobRef';
 
@@ -107,10 +109,11 @@ function summarizeGroupMsgContent(m: Message): string {
 /** [EM: webpage-card-history] 网页 / 视频卡片分享后这么多轮以内带全文（正文、B 站字幕）；按阿萌之后说了几次话算，TA 拆成几条气泡不算 */
 export const WEBPAGE_CARD_FULL_ROUNDS = 5;
 
-export type ChatModeTransition = 'call' | 'video' | 'date' | 'story';
+export type ChatModeTransition = 'call' | 'video' | 'date' | 'story' | 'deep_talk'; // [EM: deep-talk]
 
 const getChatModeTransition = (message: Message): ChatModeTransition | null => {
     const source = message.metadata?.source;
+    if (source === 'deep_talk') return 'deep_talk'; // [EM: deep-talk]
     if (source === 'date') return 'date';
     if (source === 'story_theater' || source === 'story_theater_memory') return 'story';
     if (source === 'call' || source === 'call-end-popup') {
@@ -788,6 +791,7 @@ ${xhsEnabled ? emXhsSection(userProfile.name, [notionEnabled, feishuEnabled, not
                 video: '视频通话',
                 date: '线下见面',
                 story: '剧情模式',
+                deep_talk: '烛下的深谈（一人一段的长谈）', // [EM: deep-talk]
             };
             volatileState += `\n\n[系统提示｜模式切换（最高优先级）: 你刚刚结束了${modeLabel[returningFromMode]}，现在已经回到 ChatApp 的文字聊天界面。之前模式中的台词、旁白、动作、场景或转录格式只代表已经发生的历史，绝不是当前回复的格式范例。从这一条开始，只按 ChatApp 当前启用的输出规则回复：使用自然的 IM 短句/气泡，不沿用通话口吻、连续口语转录、动作描写、小说旁白、场景标题或说话人标签；如果 ChatApp 当前开启了语音消息，仍可遵守它自己的语音消息格式。你可以自然承接刚才发生的事，但必须以正在聊天界面发消息的方式表达。]`;
         }
@@ -934,6 +938,8 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
         if (processedExcludeIds && processedExcludeIds.size > 0) {
             effectiveHistory = effectiveHistory.filter(m => !processedExcludeIds.has(m.id));
         }
+        // [EM: deep-talk] 结束了的深谈只留折叠卡那一行，原文不再逐条进上下文
+        effectiveHistory = effectiveHistory.filter(m => keepInPromptHistory(m, getCachedOpenNightId(char.id)));
         const historySlice = effectiveHistory.slice(-limit);
         const charTz = resolveCharTimeZone(char);
         const timeAwarenessOn = options?.timeAwarenessEnabled ?? (char.timeAwarenessEnabled !== false);
@@ -1039,7 +1045,10 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
                 // [EM-END: voice-aware]
                 
                 // [EM-START: interaction-dispatch] 按 metadata.kind 分发，必须在普通 interaction 判断之前
-                if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
+                if (m.metadata?.kind === DEEP_TALK_EVENT_KIND) { // [EM: deep-talk] 烛下的系统气泡（邀请 / 改约 / 烛花落了）
+                    const eventText = String(m.content || '').replace(/^\[|\]$/g, '');
+                    content = `${timeStr} [烛下：${eventText}]`;
+                } else if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
                     content = emNotionDiaryNudgePrompt(timeStr);
                 } else if (m.type === 'interaction' && m.metadata?.kind === 'delivery_arrived') {
                     const meta = m.metadata as any;

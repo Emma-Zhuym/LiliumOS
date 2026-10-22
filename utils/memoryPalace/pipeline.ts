@@ -83,6 +83,7 @@ import { rerankDocuments } from './rerank';
 import { MemoryNodeDB, MemoryVectorDB, MemoryLinkDB, AnticipationDB, EventBoxDB } from './db';
 import { DB } from '../db';
 import { isMessageSemanticallyRelevant, formatMessageForPrompt } from '../messageFormat';
+import { isDeepTalkMessage } from '../deepTalk'; // [EM: deep-talk]
 import { sanitizeQuerySourceMessages } from './querySanitizer';
 import { getLocalDateKey } from '../localDate';
 import { extractExternalMemoryText } from './externalMemory';
@@ -1628,7 +1629,7 @@ export async function getMemoryPalaceUnprocessedBufferCount(
     waterlineOverride?: MemoryPalaceWaterlineConfig,
 ): Promise<number> {
     const allMessages = await DB.getMessagesByCharId(charId, true);
-    const semantic = allMessages.filter(m => !m.groupId && isMessageSemanticallyRelevant(m));
+    const semantic = allMessages.filter(m => !m.groupId && isMessageSemanticallyRelevant(m) && !isDeepTalkMessage(m)); // [EM: deep-talk] 烛下原文不进记忆宫殿
     const highWaterMark = await getReliableMemoryPalaceHighWaterMark(charId);
     const waterline = await loadCharacterWaterline(charId, waterlineOverride);
     return countUnprocessedBufferMessages(semantic, highWaterMark, waterline.hotZoneSize);
@@ -1644,7 +1645,7 @@ export async function getMemoryPalaceOneShotPendingCount(
 ): Promise<number> {
     const allMessages = await DB.getMessagesByCharId(charId, true);
     const privateMessages = allMessages.filter(message => !message.groupId);
-    const semantic = privateMessages.filter(message => isMessageSemanticallyRelevant(message));
+    const semantic = privateMessages.filter(message => isMessageSemanticallyRelevant(message) && !isDeepTalkMessage(message)); // [EM: deep-talk]
     const highWaterMark = await getReliableMemoryPalaceHighWaterMark(charId);
     return countOneShotPendingMessages(
         semantic,
@@ -2073,7 +2074,7 @@ export async function processNewMessages(
             .filter(message => !message.groupId)
             .sort((a, b) => a.id - b.id);
         const textMessages = privateMessages
-            .filter(m => isMessageSemanticallyRelevant(m))
+            .filter(m => isMessageSemanticallyRelevant(m) && !isDeepTalkMessage(m)) // [EM: deep-talk] 烛下原文不进记忆宫殿，只有 TA 挑的原话另外写进去
             .sort((a, b) => a.id - b.id);
 
         const totalCount = textMessages.length;

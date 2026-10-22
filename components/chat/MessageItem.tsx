@@ -18,6 +18,7 @@ import HtmlCard from './HtmlCard';
 import LuckinCard from './LuckinCard';
 import LuckinCheckoutCard from './LuckinCheckoutCard';
 import QixiEventCardView from './QixiEventCard';
+import DeepTalkChatItem from '../deepTalk/DeepTalkChatItem'; // [EM: deep-talk]
 
 // 思考链卡片支持的 12 种风格预设 — 同时被 MessageItem 与 ThinkingChainSettingsModal 复用
 export type ThinkingChainStyleId = 'echo' | 'whisper' | 'minimal' | 'ink' | 'neon' | 'terminal' | 'stellar' | 'tama' | 'pixel' | 'muji' | 'ins' | 'custom';
@@ -1746,6 +1747,9 @@ avatarShape = 'circle',
             </div>
         );
     };
+
+    // [EM: deep-talk] 烛下的蜡烛气泡（含阿萌那条邀请）和折叠卡
+    if (String(m.metadata?.kind || '').startsWith('deep_talk_')) return <DeepTalkChatItem msg={m} charName={charName} />;
 
     // --- SYSTEM MESSAGE RENDERING ---
     if (isSystem) {

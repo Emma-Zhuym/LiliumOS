@@ -1131,6 +1131,17 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                               />
                             )}
                             {/* [EM-END: char-drives-private] */}
+                            {/* [EM-START: deep-talk] 烛下：点一支蜡烛，邀请 TA 认真聊一次 */}
+                            <button onClick={() => onPanelAction('deep-talk')} className={`flex flex-col items-center gap-2 tool-btn ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}>
+                              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border ${acnh ? 'bg-white/70 border-[#e6dab4] text-[#8f674a]' : isDiscordStyle ? 'bg-slate-800 text-indigo-300 border-indigo-400/20' : 'bg-indigo-50 text-indigo-500 border-indigo-100'}`}>
+                                <svg viewBox="0 0 24 32" className="w-6 h-7" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <path d="M12 2.6c-2.3 3.1-3.1 4.7-3.1 6.4 0 1.8 1.4 3.2 3.1 3.2s3-1.3 3-3.1c0-1.8-.8-3.3-3-6.5z" />
+                                  <path d="M12 12.4v2.1M8.3 14.9c.1 4.3 0 9.2.2 13.1M15.8 14.7c-.2 4.4-.1 9.4 0 13.3M8.2 15c2.5-.5 5.2-.4 7.7-.3M4.8 28.3c4.7.5 9.8.3 14.4 0" />
+                                </svg>
+                              </div>
+                              <span className="text-xs font-bold">深谈</span>
+                            </button>
+                            {/* [EM-END: deep-talk] */}
                             {/* 记忆链接与提示音同级：都是聊天工具入口，不单独占一整块。 */}
                             <button
                               onClick={() => onPanelAction('memory-link')}

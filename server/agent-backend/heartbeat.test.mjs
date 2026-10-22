@@ -14,7 +14,7 @@ import { createJob, listJobs } from './jobs.mjs';
 import { enqueue } from './outbox.mjs';
 import { putSnapshot, normalizeSnapshotPayload } from './snapshots.mjs';
 import {
-    ACTIVE_CHAT_WINDOW_MS, buildPrompt, checkGates, speakBlock, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
+    ACTIVE_CHAT_WINDOW_MS, DEEP_TALK_STALE_MS, buildPrompt, checkGates, speakBlock, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
     BREAK_COOLDOWN_MIN, currentSlot, decideIntent, formatGap, inBreakWindow, upcomingBreakStarts, jitterRatio, lastRealInteractionAt, listModelRuns, messageChance,
     nextRunAt, recordModelRun, shouldCaptureRaw, decideEpisode, episodeChance, isWorkSlot, lifeChance, pickLifeKind, veilSurprise,
     MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, heartbeatSchemaFor, stripUnbackedClaims, withPlanTime, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule, unansweredProactive, lastUserSpokeAt, unansweredFactor, reachOutTimeRule, timeProgressRule, shouldSuppressStaleBedtimeMessage, recentOwnMessages, fillMomentComments, DUTY_RULE, PHOTO_HOW, previewWithoutPhotoTags,
@@ -91,6 +91,17 @@ test('10 分钟内聊过：照样醒，只是这一跳不开口；过了窗口�
 
     const later = new Date(AT.getTime() + ACTIVE_CHAT_WINDOW_MS);
     assert.equal(speakBlock(db, { character, snapshot, now: later }), null);
+});
+
+test('烛下开着：这一跳不开口；三小时没动就不再拦', () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    const since = new Date(AT.getTime() - 20 * 60_000).toISOString();
+    const snapshot = { receivedAt: AT.toISOString(), payload: { timezone: 'America/Chicago', deepTalk: { open: true, since } } };
+    assert.equal(speakBlock(db, { character, snapshot, now: AT }), 'deep_talk');
+    const stale = new Date(Date.parse(since) + DEEP_TALK_STALE_MS + 1);
+    assert.equal(speakBlock(db, { character, snapshot, now: stale }), null);
+    assert.equal(speakBlock(db, { character, snapshot: { ...snapshot, payload: { timezone: 'America/Chicago' } }, now: AT }), null);
 });
 
 test('闸门：手机时钟跑快也封不死心跳（快照时间夹到 received_at）', () => {

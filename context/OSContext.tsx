@@ -2376,6 +2376,16 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               console.log(`🔕 [Proactive/Global] Skipped for ${char.name}: 正在通话 (CallApp active)`);
               return;
           }
+          // [EM-START: deep-talk] 烛下开着：两个人正认真聊着，不插一条主动消息进来
+          try {
+              const { DeepTalkDB } = await import('../utils/deepTalkDb');
+              if ((await DeepTalkDB.getActive(charId))?.status === 'open') {
+                  drainQueuedProactive();
+                  console.log(`🔕 [Proactive/Global] Skipped for ${char.name}: 正在烛下深谈`);
+                  return;
+              }
+          } catch { /* 读不出来就照常 */ }
+          // [EM-END: deep-talk]
 
           // Determine which API to use
           const pCfg = char.proactiveConfig;
@@ -4347,6 +4357,18 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   }
               })(),
               // [EM-END: moments]
+              // [EM-START: deep-talk] 烛下：每一夜的记录（名字、一句话、摘要；正文随聊天消息走）
+              ...await (async () => {
+                  if (mode !== 'text_only' && mode !== 'full') return {};
+                  try {
+                      const { DeepTalkDB } = await import('../utils/deepTalkDb');
+                      return { emDeepTalkNights: await DeepTalkDB.exportAll() };
+                  } catch (error) {
+                      console.warn('EM DeepTalkDB backup failed:', error);
+                      return {};
+                  }
+              })(),
+              // [EM-END: deep-talk]
 
               // [EM-START: map-backup-export] LiliumOS 地图系统（legacy IndexedDB: SullyEM_Map）
               ...await (async () => {
@@ -5363,6 +5385,14 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               } catch (e) { console.warn('EM MomentsDB restore failed:', e); }
           }
           // [EM-END: moments]
+          // [EM-START: deep-talk]
+          if (data.emDeepTalkNights !== undefined) {
+              try {
+                  const { DeepTalkDB } = await import('../utils/deepTalkDb');
+                  await DeepTalkDB.importAll(data.emDeepTalkNights);
+              } catch (e) { console.warn('EM DeepTalkDB restore failed:', e); }
+          }
+          // [EM-END: deep-talk]
 
           // [EM-START: map-backup-restore] LiliumOS 地图系统（legacy IndexedDB: SullyEM_Map）
           if (data.emMapWorlds !== undefined) {

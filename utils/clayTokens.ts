@@ -51,6 +51,8 @@ export const SP = [4, 8, 12, 16, 20, 24, 32, 48, 64] as const;
 export const FONT = {
   heading: '"Noto Serif SC", "Songti SC", serif',
   body:    '"Noto Sans SC", -apple-system, "PingFang SC", sans-serif',
+  // 手写体只给「烛下」（深谈）：系统气泡、说话人名字、签名（2026-10-22 阿萌定 Long Cang）
+  hand:    '"Long Cang", "Kaiti SC", "STKaiti", cursive',
   navTitle:     { fontSize: 17, fontWeight: 700 },
   sectionTitle: { fontSize: 15.5, fontWeight: 600 },
 } as const;
@@ -84,6 +86,21 @@ export const HUE = {
   violet: { tint: '#F5EBF7', soft: '#EBCDF2', main: '#AA6FB8', ink: '#694073' },
   brown:  { tint: '#F8EEE7', soft: '#E3CCBB', main: '#9F7655', ink: '#614731' },
   gray:   { tint: '#EEF1EF', soft: '#D1D6D1', main: '#818882', ink: '#434A44' },
+} as const;
+
+// ── 烛下（深谈）的夜间纸面（2026-10-22 阿萌定） ──
+// 只有深谈的纸面、信笺、所有夜晚分昼夜，聊天其他地方不变。白天直接用 HUE.indigo 和 F。
+// 深靛蓝的纸配烛光暖白的墨，火苗是这一屏唯一的暖色。
+export const CANDLE_NIGHT = {
+  paper:     '#1B1F2E',
+  ink:       '#ECE3CF',
+  inkMid:    '#AEB8F0',   // 名字、强调
+  inkMe:     '#BCC3E8',   // 阿萌那段的字
+  inkSoft:   '#9A9DB4',   // 小字标签
+  line:      '#3A4163',   // 边线、页边线
+  rule:      '#282E44',   // 横格
+  flame:     '#F2C37A',
+  flameFill: 'rgba(242,195,122,.16)',
 } as const;
 
 // ── Overlay（浮在内容上面的 sheet / 提示条，iOS 18 雾面材质） ──
