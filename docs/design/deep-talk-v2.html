@@ -28,6 +28,10 @@
   --ink-tint: #EBEFFC;   /* HUE.indigo.tint */
   --paper: #F8F9F7;
   --rule: #DDE2F2;
+  --ink-me: #5B6290;     /* 阿萌那段的字 */
+  --flame: var(--ink);
+  --flame-fill: none;
+  --rule-img: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='30'%3E%3Cpath d='M0 29.5H10' stroke='%23DDE2F2' stroke-width='1'/%3E%3C/svg%3E");
 
   --serif: "Noto Serif SC", "Songti SC", "STSong", Georgia, serif;
   --sans: "Noto Sans SC", -apple-system, "PingFang SC", sans-serif;
@@ -35,6 +39,36 @@
   --ease-sheet: cubic-bezier(.32,.72,0,1);
   color-scheme: light;
 }
+/* 夜间：深靛蓝的纸 + 烛光暖白的墨，火苗是这一屏唯一的暖色。F 还没有夜间 token，这组值待定 */
+:root[data-theme="night"] {
+  --page: #14161D;
+  --page-ink: #E6E4DC;
+  --page-soft: #A3A6B4;
+  --page-faint: #6E7282;
+  --page-line: #2E3242;
+
+  --f-bg: #171A23;
+  --f-surface: #20242F;
+  --f-text: #E8E6DF;
+  --f-soft: #A6A9B5;
+  --f-faint: #737889;
+  --f-border: #2C3140;
+  --f-user: #2A3150;
+
+  --ink: #ECE3CF;
+  --ink-mid: #AEB8F0;
+  --ink-soft: #9A9DB4;
+  --ink-line: #3A4163;
+  --ink-tint: #232945;
+  --paper: #1B1F2E;
+  --rule: #282E44;
+  --ink-me: #BCC3E8;
+  --flame: #F2C37A;
+  --flame-fill: rgba(242, 195, 122, .16);
+  --rule-img: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='30'%3E%3Cpath d='M0 29.5H10' stroke='%23282E44' stroke-width='1'/%3E%3C/svg%3E");
+  color-scheme: dark;
+}
+.ready :is(body, .phone, .bar, .scroll, .input, .field, .msg, .card, .sheet), .ready body { transition: background-color 360ms ease, color 360ms ease, border-color 360ms ease; }
 * { box-sizing: border-box; }
 body {
   background: var(--page); color: var(--page-ink); font-family: var(--sans);
@@ -53,7 +87,9 @@ button { font: inherit; color: inherit; }
   font: 500 14px/1 var(--sans); color: var(--page-soft); background: transparent;
   border: 1px solid var(--page-line); border-radius: 999px; padding: 9px 16px; min-height: 38px; cursor: pointer;
 }
-.tab[aria-selected="true"] { background: var(--page-ink); color: #FFFFFF; border-color: var(--page-ink); }
+.tab[aria-selected="true"], .tab[aria-pressed="true"] { background: var(--page-ink); color: var(--page); border-color: var(--page-ink); }
+.head-row { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+.theme { display: flex; gap: 8px; }
 
 .screens { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; align-items: start; }
 .col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
@@ -78,7 +114,11 @@ button { font: inherit; color: inherit; }
   flex: none; display: grid; grid-template-columns: 44px 1fr 44px; align-items: center;
   height: 54px; padding: 0 4px; border-bottom: 1px solid var(--f-border); background: var(--f-bg);
 }
-.iconbtn { all: unset; width: 44px; height: 44px; display: grid; place-items: center; cursor: pointer; }
+.iconbtn { all: unset; width: 44px; height: 44px; display: grid; place-items: center; cursor: pointer; color: var(--f-text); }
+.papermode .iconbtn, .sheet .iconbtn, .nights .iconbtn { color: var(--ink); }
+.flip .sun { display: none; }
+:root[data-theme="night"] .flip .sun { display: block; }
+:root[data-theme="night"] .flip .moon { display: none; }
 .bar .who { text-align: center; display: flex; flex-direction: column; gap: 1px; align-items: center; }
 .bar .who b { font-family: var(--serif); font-size: 17px; font-weight: 700; color: var(--f-text); }
 .bar .who span { font-size: 11px; color: var(--f-faint); display: inline-flex; gap: 4px; align-items: center; }
@@ -106,6 +146,7 @@ button { font: inherit; color: inherit; }
 .ink { fill: none; stroke: var(--ink); stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
 .ink .faint { stroke: var(--ink-line); }
 .ink .soft { stroke: var(--ink-soft); stroke-width: 1; }
+.fl { stroke: var(--flame); fill: var(--flame-fill); }
 .wob { filter: url(#wob); }
 
 /* system line */
@@ -123,7 +164,7 @@ button { font: inherit; color: inherit; }
 .papermode .bar { background: var(--paper); }
 .papermode .scroll {
   background-color: var(--paper);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='30'%3E%3Cpath d='M0 29.5H10' stroke='%23DDE2F2' stroke-width='1'/%3E%3C/svg%3E");
+  background-image: var(--rule-img);
   background-size: 100% 30px; background-attachment: local;
 }
 .talk {
@@ -135,7 +176,7 @@ button { font: inherit; color: inherit; }
 .seg { display: flex; flex-direction: column; }
 .seg .who { height: var(--lh); font-family: var(--hand); font-size: 19px; color: var(--ink); }
 .seg.me .who { color: var(--ink-mid); }
-.seg.me p { color: #5B6290; }
+.seg.me p { color: var(--ink-me); }
 .seg p { margin: 0; text-indent: 2em; }
 .typing { height: var(--lh); font-family: var(--hand); font-size: 17px; color: var(--ink-soft); }
 .papermode .input { background: var(--paper); }
@@ -211,7 +252,7 @@ button { font: inherit; color: inherit; }
 .tl .dot { width: 24px; height: 30px; background: var(--paper); position: relative; z-index: 1; }
 .tl .row { display: flex; flex-direction: column; gap: 3px; min-width: 0; border-bottom: 1px solid var(--rule); padding-bottom: 14px; }
 .tl .t { font-family: var(--serif); font-weight: 600; font-size: 17px; color: var(--ink); }
-.tl .s { font-family: var(--serif); font-size: 13.5px; line-height: 1.7; color: #5B6290; }
+.tl .s { font-family: var(--serif); font-size: 13.5px; line-height: 1.7; color: var(--ink-me); }
 
 @media (prefers-reduced-motion: reduce) {
   .sheet { transition: none; }
@@ -226,7 +267,7 @@ button { font: inherit; color: inherit; }
     <feDisplacementMap in="SourceGraphic" in2="n" scale="3" xChannelSelector="R" yChannelSelector="G"/>
   </filter>
   <symbol id="c-lit" viewBox="0 0 24 32">
-    <path d="M12 2.6c-2.3 3.1-3.1 4.7-3.1 6.4 0 1.8 1.4 3.2 3.1 3.2s3-1.3 3-3.1c0-1.8-.8-3.3-3-6.5z"/>
+    <path class="fl" d="M12 2.6c-2.3 3.1-3.1 4.7-3.1 6.4 0 1.8 1.4 3.2 3.1 3.2s3-1.3 3-3.1c0-1.8-.8-3.3-3-6.5z"/>
     <path d="M12 12.4v2.1"/>
     <path d="M8.3 14.9c.1 4.3 0 9.2.2 13.1M15.8 14.7c-.2 4.4-.1 9.4 0 13.3M8.2 15c2.5-.5 5.2-.4 7.7-.3"/>
     <path d="M10.2 17.3c.2 1 .1 2-.3 2.7"/>
@@ -245,10 +286,16 @@ button { font: inherit; color: inherit; }
   <header class="head">
     <h1>烛下 · 第二版样稿</h1>
     <p>只用一种墨：F 色板里的 indigo。聊的时候整个聊天区变成纸，一人一段，宽度用满；聊完收成一张卡；点卡翻开整页信笺，右上角进「所有夜晚」。第三屏点那支大蜡烛的火苗，会飘出某一夜 TA 说过的一句话。角色和对话都是示例。插画是我手画的占位，以后换成正式线稿。</p>
+    <div class="head-row">
+    <div class="theme" role="group" aria-label="昼夜">
+      <button class="tab" type="button" data-theme-set="day" aria-pressed="true">白天</button>
+      <button class="tab" type="button" data-theme-set="night" aria-pressed="false">夜里</button>
+    </div>
     <div class="tabs" role="tablist" aria-label="切换画面">
       <button class="tab" role="tab" aria-selected="true" data-col="0">聊的时候</button>
       <button class="tab" role="tab" aria-selected="false" data-col="1">聊完以后</button>
       <button class="tab" role="tab" aria-selected="false" data-col="2">所有夜晚</button>
+    </div>
     </div>
   </header>
 
@@ -258,9 +305,12 @@ button { font: inherit; color: inherit; }
       <div class="cap"><b>聊的时候</b><span>没有气泡，名字 + 整段话，压在横格上。顶栏多一支点着的蜡烛，输入框旁边是结束。</span></div>
       <div class="phone papermode">
         <div class="bar">
-          <span class="iconbtn" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 256 256"><path d="M160 208 80 128l80-80" fill="none" stroke="#23262A" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <span class="iconbtn" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 256 256"><path d="M160 208 80 128l80-80" fill="none" stroke="currentColor" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
           <div class="who"><b>既白</b><span><svg class="ink" width="10" height="13" aria-hidden="true"><use href="#c-lit"/></svg>烛下</span></div>
-          <span></span>
+          <button class="iconbtn flip" type="button" aria-label="切换白天 / 夜里">
+            <svg class="ink moon" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><path d="M16.5 3.8a8.4 8.4 0 1 0 3.7 11.9 6.9 6.9 0 0 1-3.7-11.9z"/></svg>
+            <svg class="ink sun" width="20" height="20" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/></svg>
+          </button>
         </div>
         <div class="scroll">
           <div class="talk">
@@ -289,7 +339,7 @@ button { font: inherit; color: inherit; }
       <div class="cap"><b>聊完以后</b><span>聊天回到原来的样子，那段收成一张卡。点卡片，信笺从下面翻上来。</span></div>
       <div class="phone">
         <div class="bar">
-          <span class="iconbtn" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 256 256"><path d="M160 208 80 128l80-80" fill="none" stroke="#23262A" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <span class="iconbtn" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 256 256"><path d="M160 208 80 128l80-80" fill="none" stroke="currentColor" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
           <div class="who"><b>既白</b><span>在线</span></div>
           <span></span>
         </div>
@@ -323,7 +373,7 @@ button { font: inherit; color: inherit; }
 
         <div class="sheet" id="letter" role="dialog" aria-label="第 07 夜 信笺">
           <div class="bar">
-            <button class="iconbtn" id="close-letter" type="button" aria-label="收起信笺"><svg width="22" height="22" viewBox="0 0 256 256" aria-hidden="true"><path d="M48 96l80 80 80-80" fill="none" stroke="#434D87" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            <button class="iconbtn" id="close-letter" type="button" aria-label="收起信笺"><svg width="22" height="22" viewBox="0 0 256 256" aria-hidden="true"><path d="M48 96l80 80 80-80" fill="none" stroke="currentColor" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
             <span></span>
             <button class="lnk" id="to-nights" type="button">所有夜晚</button>
           </div>
@@ -368,7 +418,7 @@ button { font: inherit; color: inherit; }
       <div class="cap"><b>所有夜晚</b><span>和这个角色的每一次深谈。每深谈一次，蜡烛上多一道烛泪、短一截。点火苗，飘出一句旧话。</span></div>
       <div class="phone nights">
         <div class="bar" style="background:var(--paper);border-bottom-color:transparent">
-          <span class="iconbtn" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 256 256"><path d="M160 208 80 128l80-80" fill="none" stroke="#434D87" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <span class="iconbtn" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 256 256"><path d="M160 208 80 128l80-80" fill="none" stroke="currentColor" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
           <span></span><span></span>
         </div>
         <div class="scroll">
@@ -380,7 +430,7 @@ button { font: inherit; color: inherit; }
             </div>
             <button class="bigcandle" id="flame" type="button" aria-label="点一下火苗，看一句旧话">
               <svg class="ink" viewBox="0 0 84 150" aria-hidden="true">
-                <g class="flame"><path d="M42 14c-6 8-8.5 12.6-8.5 17.2 0 5 3.8 8.8 8.5 8.8s8.4-3.7 8.4-8.6c0-4.8-2.4-9-8.4-17.4z"/><path class="faint" d="M42 24c-2 3-3 5-3 7 0 2 1.4 3.3 3 3.3"/></g>
+                <g class="flame"><path class="fl" d="M42 14c-6 8-8.5 12.6-8.5 17.2 0 5 3.8 8.8 8.5 8.8s8.4-3.7 8.4-8.6c0-4.8-2.4-9-8.4-17.4z"/><path class="faint" d="M42 24c-2 3-3 5-3 7 0 2 1.4 3.3 3 3.3"/></g>
                 <path d="M42 40v6"/>
                 <g class="wob">
                   <path d="M30 47c.3 26 0 56 .5 86M54.5 46.5c-.4 27-.2 58 0 86.5M29.8 47.4c8-1.4 16.6-1.3 24.8-.6"/>
@@ -409,12 +459,26 @@ button { font: inherit; color: inherit; }
 <script>
 (() => {
   const cols = [...document.querySelectorAll('.col')];
-  const tabs = [...document.querySelectorAll('.tab')];
+  const tabs = [...document.querySelectorAll('.tab[role="tab"]')];
   const show = (i) => {
     cols.forEach((c, k) => c.classList.toggle('on', k === i));
     tabs.forEach((t, k) => t.setAttribute('aria-selected', String(k === i)));
   };
   tabs.forEach((t, i) => t.addEventListener('click', () => show(i)));
+
+  // 昼夜：默认看现在几点（19 点到 6 点算夜里），可以手动切
+  const themeBtns = [...document.querySelectorAll('[data-theme-set]')];
+  const setTheme = (name) => {
+    document.documentElement.dataset.theme = name;
+    themeBtns.forEach(b => b.setAttribute('aria-pressed', String(b.dataset.themeSet === name)));
+  };
+  const h = new Date().getHours();
+  const pinned = location.hash.slice(1);
+  setTheme(pinned === 'night' || pinned === 'day' ? pinned : (h >= 19 || h < 6 ? 'night' : 'day'));
+  requestAnimationFrame(() => requestAnimationFrame(() => document.documentElement.classList.add('ready')));
+  themeBtns.forEach(b => b.addEventListener('click', () => setTheme(b.dataset.themeSet)));
+  document.querySelector('.flip').addEventListener('click', () =>
+    setTheme(document.documentElement.dataset.theme === 'night' ? 'day' : 'night'));
 
   const letter = document.getElementById('letter');
   document.getElementById('open-letter').addEventListener('click', () => letter.classList.add('open'));
