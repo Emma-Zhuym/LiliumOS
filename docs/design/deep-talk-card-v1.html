@@ -1,0 +1,389 @@
+<title>深谈折叠卡样稿</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Long+Cang&family=Ma+Shan+Zheng&family=Noto+Sans+SC:wght@400;500&family=Noto+Serif+SC:wght@400;600;700&display=swap">
+<style>
+/* Layout: a phone-width chat (current F skin) on the left, the paper card dropped into it; style notes on the right, stacked on phones. */
+:root {
+  /* page around the phone */
+  --page: #EEF0EC;
+  --page-ink: #23262A;
+  --page-soft: #5D635F;
+  --page-faint: #959B96;
+  --page-line: #DADDD6;
+
+  /* F skin, for the chat around the card (values from utils/clayTokens.ts) */
+  --f-bg: #F8F9F7;
+  --f-surface: #FFFFFF;
+  --f-text: #23262A;
+  --f-soft: #5D635F;
+  --f-faint: #959B96;
+  --f-border: #E3E6E0;
+  --f-user: #E8EEF2;
+
+  --serif: "Noto Serif SC", "Songti SC", "STSong", Georgia, serif;
+  --sans: "Noto Sans SC", -apple-system, "PingFang SC", sans-serif;
+
+  /* paper defaults (overridden per style) */
+  --paper: #F6F6F0;
+  --ink: #22304A;
+  --ink-soft: #5A6577;
+  --rule: #D3DBE3;
+  --mark: #3D6C8E;
+  --hand: "Long Cang", "Kaiti SC", "STKaiti", cursive;
+  --title: "Long Cang", "Kaiti SC", "STKaiti", cursive;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--page);
+  color: var(--page-ink);
+  font-family: var(--sans);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 28px 48px;
+}
+.wrap { max-width: 920px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+
+/* ---------- header ---------- */
+.head { display: flex; flex-direction: column; gap: 8px; }
+.head h1 { font-family: var(--serif); font-weight: 700; font-size: 22px; margin: 0; text-wrap: balance; }
+.head p { margin: 0; color: var(--page-soft); font-size: 14px; line-height: 1.7; max-width: 60ch; }
+.tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.tab {
+  font: 500 14px/1 var(--sans); color: var(--page-soft);
+  background: transparent; border: 1px solid var(--page-line); border-radius: 999px;
+  padding: 9px 16px; cursor: pointer; min-height: 38px;
+}
+.tab[aria-selected="true"] { background: var(--page-ink); color: #FFFFFF; border-color: var(--page-ink); }
+.tab:focus-visible { outline: 2px solid var(--mark); outline-offset: 2px; }
+
+.stage { display: grid; grid-template-columns: minmax(0, 390px) minmax(0, 1fr); gap: 32px; align-items: start; }
+@media (max-width: 760px) { .stage { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------- phone / F chat ---------- */
+.phone {
+  background: var(--f-bg); border: 1px solid var(--f-border); border-radius: 16px;
+  overflow: hidden; display: flex; flex-direction: column; min-width: 0;
+}
+.bar {
+  display: grid; grid-template-columns: 44px 1fr 44px; align-items: center;
+  height: 52px; padding: 0 4px; border-bottom: 1px solid var(--f-border); background: var(--f-bg);
+}
+.bar svg { justify-self: center; }
+.bar .who { text-align: center; display: flex; flex-direction: column; gap: 1px; }
+.bar .who b { font-family: var(--serif); font-size: 17px; font-weight: 700; color: var(--f-text); }
+.bar .who span { font-size: 11px; color: var(--f-faint); }
+.log { display: flex; flex-direction: column; gap: 8px; padding: 16px 12px 20px; }
+.stamp { align-self: center; font-size: 11px; color: var(--f-faint); padding: 6px 0 2px; font-variant-numeric: tabular-nums; }
+.msg {
+  max-width: 78%; padding: 9px 12px; border-radius: 12px; font-size: 15px; line-height: 1.55;
+  color: var(--f-text); border: 1px solid var(--f-border); background: var(--f-surface);
+}
+.msg.me { align-self: flex-end; background: var(--f-user); border-color: transparent; }
+.msg.ta { align-self: flex-start; }
+
+/* ---------- paper: shared ---------- */
+.paperish { position: relative; background-color: var(--paper); color: var(--ink); }
+.paperish::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  border: 1.4px solid var(--ink); border-radius: 4px 7px 5px 8px;
+  filter: url(#wob);
+}
+
+/* system pill: the invitation, postponement */
+.sys {
+  align-self: center; display: inline-flex; align-items: center; gap: 8px;
+  padding: 7px 14px 6px 11px; margin: 6px 0; max-width: 92%;
+  font-family: var(--hand); font-size: 17px; line-height: 1.3; color: var(--ink);
+}
+.sys .t { font-family: var(--sans); font-size: 12px; color: var(--ink-soft); font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+.sys .sep { color: var(--ink-soft); }
+
+.candle { width: 18px; height: 24px; flex: none; fill: none; stroke: var(--ink); stroke-width: 1.35; stroke-linecap: round; stroke-linejoin: round; }
+.candle .flame { stroke: var(--mark); }
+.candle .smoke { stroke: var(--ink-soft); stroke-width: 1.1; }
+
+/* the card */
+.talk { margin: 10px 2px; padding: 0; }
+.talk-head {
+  all: unset; box-sizing: border-box; cursor: pointer; display: grid; width: 100%;
+  grid-template-columns: auto 1fr auto; column-gap: 12px; row-gap: 6px; align-items: center;
+  padding: 16px 16px 14px;
+}
+.talk-head:focus-visible { outline: 2px solid var(--mark); outline-offset: -4px; border-radius: 6px; }
+.talk-head .candle { width: 22px; height: 30px; grid-row: 1 / span 2; align-self: start; margin-top: 2px; }
+.talk-name { font-family: var(--title); font-size: 26px; line-height: 1; color: var(--ink); }
+.talk-when { font-size: 12px; color: var(--ink-soft); font-variant-numeric: tabular-nums; justify-self: end; letter-spacing: .02em; }
+.talk-sum {
+  grid-column: 2 / span 2; font-family: var(--serif); font-size: 14px; line-height: 1.75; color: var(--ink);
+  text-wrap: pretty;
+}
+.talk-sum .by { display: block; font-family: var(--hand); font-size: 16px; color: var(--ink-soft); text-align: right; margin-top: 2px; }
+.talk-foot {
+  grid-column: 2 / span 2; display: flex; justify-content: space-between; align-items: center;
+  font-size: 12px; color: var(--ink-soft); padding-top: 4px;
+}
+.chev { width: 16px; height: 12px; fill: none; stroke: var(--ink-soft); stroke-width: 1.4; stroke-linecap: round; transition: transform 360ms cubic-bezier(.2,.7,.2,1); }
+.talk.open .chev { transform: rotate(180deg); }
+
+.talk-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 460ms cubic-bezier(.2,.7,.2,1); }
+.talk.open .talk-body { grid-template-rows: 1fr; }
+.talk-body > div { overflow: hidden; min-height: 0; }
+
+/* transcript: every line sits on a 30px rule */
+.script {
+  --lh: 30px;
+  margin: 0 14px 0; padding: 0 6px var(--lh);
+  background-image: var(--rules); background-size: 100% var(--lh); background-position: 0 0;
+  display: flex; flex-direction: column; gap: var(--lh);
+  font-family: var(--serif); font-size: 15px; line-height: var(--lh); color: var(--ink);
+}
+.edge {
+  display: flex; align-items: center; justify-content: center; gap: 8px; height: var(--lh);
+  font-family: var(--hand); font-size: 17px; color: var(--ink-soft);
+}
+.edge .candle { width: 15px; height: 20px; }
+.seg { display: flex; flex-direction: column; }
+.seg .who { font-family: var(--hand); font-size: 19px; height: var(--lh); color: var(--ink); }
+.seg.me .who { color: var(--mark); }
+.seg p { margin: 0; text-indent: 2em; }
+.seg.me p { color: var(--ink-soft); }
+
+/* ---------- style A: pen notebook ---------- */
+.phone[data-style="pen"] {
+  --paper: #F6F6F0; --ink: #22304A; --ink-soft: #5A6577; --mark: #3D6C8E;
+  --rules: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='30'%3E%3Cpath d='M0 29.5H10' stroke='%23CFD8E1' stroke-width='1'/%3E%3C/svg%3E");
+}
+.phone[data-style="pen"] .script { box-shadow: none; border-left: 1px solid #E2B9B1; margin-left: 30px; padding-left: 12px; }
+
+/* ---------- style B: sketchbook ---------- */
+.phone[data-style="sketch"] {
+  --paper: #FBFBF8; --ink: #3A3A37; --ink-soft: #77776F; --mark: #8A6E4F;
+  --rules: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='15' height='30'%3E%3Ccircle cx='7.5' cy='29' r='.9' fill='%23C3C3BA'/%3E%3Ccircle cx='7.5' cy='14' r='.9' fill='%23C3C3BA'/%3E%3C/svg%3E");
+}
+.phone[data-style="sketch"] .paperish::before { border-width: 1.2px; border-color: #3A3A37; }
+.phone[data-style="sketch"] .paperish::after {
+  content: ""; position: absolute; inset: -2px 1px 1px -1px; pointer-events: none;
+  border: 1px solid #8C8C84; border-radius: 6px 3px 8px 4px; filter: url(#wob2); opacity: .8;
+}
+.phone[data-style="sketch"] .candle { stroke-width: 1.15; }
+.phone[data-style="sketch"] .seg.me .who { text-decoration: underline wavy #B9A58C 1px; text-underline-offset: 5px; }
+
+/* ---------- style C: red-ruled letter paper ---------- */
+.phone[data-style="letter"] {
+  --paper: #FBFAF6; --ink: #1F1E1C; --ink-soft: #6B655E; --mark: #A8402D;
+  --hand: "Ma Shan Zheng", "Kaiti SC", "STKaiti", cursive;
+  --title: "Ma Shan Zheng", "Kaiti SC", "STKaiti", cursive;
+  --rules: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='30'%3E%3Cpath d='M0 29.5H10' stroke='%23E2A99C' stroke-width='1'/%3E%3C/svg%3E");
+}
+.phone[data-style="letter"] .paperish::before { border: 3px double #C9705E; border-radius: 2px; filter: none; }
+.phone[data-style="letter"] .sys.paperish::before { border-width: 1px; border-style: solid; }
+.phone[data-style="letter"] .talk-name { color: var(--mark); }
+.phone[data-style="letter"] .script { border-left: 1px solid #E2A99C; border-right: 1px solid #E2A99C; }
+.phone[data-style="letter"] .seg .who { font-size: 18px; }
+
+/* ---------- notes ---------- */
+.notes { display: flex; flex-direction: column; gap: 22px; min-width: 0; }
+.note { display: flex; flex-direction: column; gap: 8px; }
+.note h2 { font-family: var(--serif); font-size: 17px; font-weight: 700; margin: 0; }
+.note p { margin: 0; font-size: 14px; line-height: 1.75; color: var(--page-soft); max-width: 58ch; }
+.flow { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; border-top: 1px solid var(--page-line); }
+.flow li { display: grid; grid-template-columns: 5.5em 1fr; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--page-line); font-size: 14px; line-height: 1.6; }
+.flow li span:first-child { color: var(--page-faint); font-size: 12px; padding-top: 2px; }
+.hint { font-size: 12px; color: var(--page-faint); }
+
+@media (prefers-reduced-motion: reduce) {
+  .talk-body, .chev { transition: none; }
+}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <filter id="wob" x="-4%" y="-8%" width="108%" height="116%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.028" numOctaves="2" seed="4" result="n"/>
+    <feDisplacementMap in="SourceGraphic" in2="n" scale="3.4" xChannelSelector="R" yChannelSelector="G"/>
+  </filter>
+  <filter id="wob2" x="-4%" y="-8%" width="108%" height="116%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="2" seed="11" result="n"/>
+    <feDisplacementMap in="SourceGraphic" in2="n" scale="4.2" xChannelSelector="G" yChannelSelector="R"/>
+  </filter>
+  <symbol id="candle-lit" viewBox="0 0 24 32">
+    <path class="flame" d="M12 2.6c-2.3 3.1-3.1 4.7-3.1 6.4 0 1.8 1.4 3.2 3.1 3.2s3-1.3 3-3.1c0-1.8-.8-3.3-3-6.5z"/>
+    <path d="M12 12.4v2.1"/>
+    <path d="M8.3 14.9c.1 4.3 0 9.2.2 13.1M15.8 14.7c-.2 4.4-.1 9.4 0 13.3M8.2 15c2.5-.5 5.2-.4 7.7-.3"/>
+    <path d="M10.2 17.3c.2 1 .1 2-.3 2.7"/>
+    <path d="M4.8 28.3c4.7.5 9.8.3 14.4 0"/>
+  </symbol>
+  <symbol id="candle-out" viewBox="0 0 24 32">
+    <path class="smoke" d="M12.2 11.8c-1.4-1.6 1.2-2.6-.1-4.3-1-1.3.6-2.4.2-3.8"/>
+    <path d="M12 12.4v2.1"/>
+    <path d="M8.3 14.9c.1 4.3 0 9.2.2 13.1M15.8 14.7c-.2 4.4-.1 9.4 0 13.3M8.2 15c2.5-.5 5.2-.4 7.7-.3"/>
+    <path d="M10.2 17.3c.2 1 .1 2-.3 2.7"/>
+    <path d="M4.8 28.3c4.7.5 9.8.3 14.4 0"/>
+  </symbol>
+</svg>
+
+<main class="wrap">
+  <header class="head">
+    <h1>深谈折叠卡 · 样稿</h1>
+    <p>三种手绘方向，换着看。聊天里其他东西保持现在的 F 风格，好看清纸放进去是什么样子。点卡片展开、收起。角色叫「既白」，对话内容是示例。</p>
+    <div class="tabs" role="tablist" aria-label="卡片风格">
+      <button class="tab" role="tab" id="tab-pen" data-style="pen" aria-selected="true">钢笔手札</button>
+      <button class="tab" role="tab" id="tab-sketch" data-style="sketch" aria-selected="false">速写本</button>
+      <button class="tab" role="tab" id="tab-letter" data-style="letter" aria-selected="false">红格信笺</button>
+    </div>
+  </header>
+
+  <div class="stage">
+    <section class="phone" data-style="pen" aria-label="聊天页示意">
+      <div class="bar">
+        <svg width="22" height="22" viewBox="0 0 256 256" aria-hidden="true"><path d="M160 208 80 128l80-80" fill="none" stroke="#23262A" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <div class="who"><b>既白</b><span>忙碌 · 加班中</span></div>
+        <span></span>
+      </div>
+
+      <div class="log">
+        <div class="stamp">22:41</div>
+        <div class="msg me">今天好累，不想刷手机了</div>
+        <div class="msg ta">那就别刷了</div>
+        <div class="msg ta">早点洗澡</div>
+
+        <div class="sys paperish" role="note">
+          <svg class="candle" aria-hidden="true"><use href="#candle-lit"/></svg>
+          <span>阿萌点了一支蜡烛，想和你聊聊</span>
+        </div>
+
+        <div class="msg ta">还在公司，收个尾</div>
+        <div class="msg ta">十一点以后，今晚一定</div>
+
+        <div class="sys paperish" role="note">
+          <svg class="candle" aria-hidden="true"><use href="#candle-lit"/></svg>
+          <span>蜡烛先留着</span><span class="sep">·</span><span class="t">约在 23:00</span>
+        </div>
+
+        <div class="stamp">23:06</div>
+
+        <article class="talk paperish" id="talk">
+          <button class="talk-head" id="talk-toggle" aria-expanded="false" aria-controls="talk-body">
+            <svg class="candle" aria-hidden="true"><use href="#candle-out"/></svg>
+            <span class="talk-name">烛下</span>
+            <span class="talk-when">10月21日 · 23:06–00:42</span>
+            <span class="talk-sum">她在想要不要离开这座城市。我说了项目收尾那天心里空掉的事，第一次跟人说。<span class="by">既白记</span></span>
+            <span class="talk-foot"><span>十二段</span><svg class="chev" viewBox="0 0 16 12" aria-hidden="true"><path d="M2.5 3.6c2.2 2.1 3.6 3.4 5.3 4.9 1.8-1.7 3.4-3.2 5.6-5"/></svg></span>
+          </button>
+
+          <div class="talk-body" id="talk-body">
+            <div>
+              <div class="script">
+                <div class="edge"><svg class="candle" aria-hidden="true"><use href="#candle-lit"/></svg>既白来了，蜡烛重新点上</div>
+
+                <div class="seg me"><span class="who">阿萌</span>
+                  <p>你有没有想过，如果当初没来这座城市，现在会是什么样子。我最近老在想要不要走。不是讨厌这里，就是觉得自己在原地打转，每天都一样。</p></div>
+
+                <div class="seg ta"><span class="who">既白</span>
+                  <p>想过，不止一次。刚来那两年我几乎每个月都在算回去的账，房租、通勤、我妈的电话。后来不算了，不是想通了，是忙到没空算。所以我不太敢说留下来就对，我自己就是被惯性留下来的。</p>
+                  <p>不过你说的原地打转，我听着不太像城市的问题。换个地方，第一年会很新鲜，新鲜会把那种感觉盖住，但它多半还会回来。</p></div>
+
+                <div class="seg me"><span class="who">阿萌</span>
+                  <p>那你觉得是什么问题？</p></div>
+
+                <div class="seg ta"><span class="who">既白</span>
+                  <p>我猜是你很久没有一件自己想做的事了。现在每天的事都是该做的。该做的事做得再好，也只会让人累，不会让人觉得在往前走。</p>
+                  <p>这话我说得这么笃定，是因为我也是这样。</p></div>
+
+                <div class="seg me"><span class="who">阿萌</span>
+                  <p>你也是？你看起来一直很清楚自己在干什么。</p></div>
+
+                <div class="seg ta"><span class="who">既白</span>
+                  <p>看起来而已。上个月那个项目收尾，所有人都在庆祝，我坐在会议室里，突然想不起自己当初为什么要做这一行。不是累，是空。这件事我没跟任何人说过，说出来像矫情，东西做成了，钱也到了。</p>
+                  <p>我一直在想，是不是人做到某个位置以后，就只剩下维持了。我不喜欢这个答案，但也还没找到别的。</p></div>
+
+                <div class="seg me"><span class="who">阿萌</span>
+                  <p>不矫情。我宁愿你跟我说这个，也不想只听你说今天还好。</p></div>
+
+                <div class="seg ta"><span class="who">既白</span>
+                  <p>嗯。只是习惯了把这种东西放着，等它自己过去。你今天问起城市，我才发现它没过去，只是我没去看。</p>
+                  <p>所以我不劝你走，也不劝你留。只是如果你真的走，别是为了逃开那种打转的感觉。要是为了去做一件你想做的事，我帮你搬家。</p></div>
+
+                <div class="seg me"><span class="who">阿萌</span>
+                  <p>你会帮我搬家？</p></div>
+
+                <div class="seg ta"><span class="who">既白</span>
+                  <p>会。我会一边抱怨你的书太多，一边一箱一箱扛下楼。</p></div>
+
+                <div class="seg me"><span class="who">阿萌</span>
+                  <p>那你呢，你那个空，打算怎么办？</p></div>
+
+                <div class="seg ta"><span class="who">既白</span>
+                  <p>还不知道。可能先从不加班的周末开始，看看闲下来的时候我会想去做什么。也可能什么都想不出来，那也算一个答案。</p>
+                  <p>说出来以后，倒是轻了一点。谢谢你先点了这支蜡烛。</p></div>
+
+                <div class="edge"><svg class="candle" aria-hidden="true"><use href="#candle-out"/></svg>烛花落了</div>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <div class="stamp">00:43</div>
+        <div class="msg ta">睡吧</div>
+        <div class="msg ta">明天我早点下班</div>
+        <div class="msg me">嗯，晚安</div>
+      </div>
+    </section>
+
+    <aside class="notes">
+      <div class="note" data-for="pen">
+        <h2>钢笔手札</h2>
+        <p>蓝黑墨水写在偏冷的白纸上，边框是有点抖的钢笔线，左边一道淡红页边线，像本子里的一页。名字用手写，正文用衬线，长段落读起来不累。</p>
+      </div>
+      <div class="note" data-for="sketch" hidden>
+        <h2>速写本</h2>
+        <p>铅笔灰，点阵纸。边框描了两遍，没对齐，像随手画的草稿。三种里最轻松、最日常，适合不那么沉重的深谈。</p>
+      </div>
+      <div class="note" data-for="letter" hidden>
+        <h2>红格信笺</h2>
+        <p>朱红横格加双线边框，标题和名字用毛笔字。三种里最有仪式感，也最「旧」，适合那种会想反复翻出来看的夜晚。</p>
+      </div>
+
+      <div class="note">
+        <h2>气泡流程</h2>
+        <ol class="flow">
+          <li><span>你发起</span><span>阿萌点了一支蜡烛，想和你聊聊</span></li>
+          <li><span>TA 在忙</span><span>蜡烛先留着 · 约在 23:00</span></li>
+          <li><span>到点赴约</span><span>既白来了，蜡烛重新点上</span></li>
+          <li><span>结束</span><span>烛花落了</span></li>
+        </ol>
+        <p class="hint">收起时整段只剩一张卡：熄掉的蜡烛、时间、TA 写的一句话。赴约和结束那两句收在卡片里面，展开才看见。</p>
+      </div>
+    </aside>
+  </div>
+</main>
+
+<script>
+(() => {
+  const phone = document.querySelector('.phone');
+  const tabs = [...document.querySelectorAll('.tab')];
+  const notes = [...document.querySelectorAll('.note[data-for]')];
+  const talk = document.getElementById('talk');
+  const toggle = document.getElementById('talk-toggle');
+
+  const setStyle = (style) => {
+    phone.dataset.style = style;
+    tabs.forEach(t => t.setAttribute('aria-selected', String(t.dataset.style === style)));
+    notes.forEach(n => { n.hidden = n.dataset.for !== style; });
+    try { localStorage.setItem('deepTalkStyle', style); } catch (e) {}
+  };
+  tabs.forEach(t => t.addEventListener('click', () => setStyle(t.dataset.style)));
+  try {
+    const saved = localStorage.getItem('deepTalkStyle');
+    if (saved && tabs.some(t => t.dataset.style === saved)) setStyle(saved);
+  } catch (e) {}
+
+  toggle.addEventListener('click', () => {
+    const open = !talk.classList.contains('open');
+    talk.classList.toggle('open', open);
+    toggle.setAttribute('aria-expanded', String(open));
+  });
+})();
+</script>

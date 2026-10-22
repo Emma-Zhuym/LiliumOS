@@ -1,0 +1,443 @@
+<title>烛下 · 第二版样稿</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Long+Cang&family=Noto+Sans+SC:wght@400;500&family=Noto+Serif+SC:wght@400;600;700&display=swap">
+<style>
+/* Layout: three phone screens side by side (talking / after / the nights); one at a time with tabs on narrow screens.
+   One ink only: HUE.indigo from utils/clayTokens.ts. Paper = F appBg. */
+:root {
+  --page: #ECEEEA;
+  --page-ink: #23262A;
+  --page-soft: #5D635F;
+  --page-faint: #959B96;
+  --page-line: #D8DBD4;
+
+  --f-bg: #F8F9F7;
+  --f-surface: #FFFFFF;
+  --f-text: #23262A;
+  --f-soft: #5D635F;
+  --f-faint: #959B96;
+  --f-border: #E3E6E0;
+  --f-user: #E8EEF2;
+
+  --ink: #434D87;        /* HUE.indigo.ink */
+  --ink-mid: #6170C0;    /* HUE.indigo.main */
+  --ink-soft: #7D84A8;
+  --ink-line: #CED7FE;   /* HUE.indigo.soft */
+  --ink-tint: #EBEFFC;   /* HUE.indigo.tint */
+  --paper: #F8F9F7;
+  --rule: #DDE2F2;
+
+  --serif: "Noto Serif SC", "Songti SC", "STSong", Georgia, serif;
+  --sans: "Noto Sans SC", -apple-system, "PingFang SC", sans-serif;
+  --hand: "Long Cang", "Kaiti SC", "STKaiti", cursive;
+  --ease-sheet: cubic-bezier(.32,.72,0,1);
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--page); color: var(--page-ink); font-family: var(--sans);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 28px 48px;
+}
+button { font: inherit; color: inherit; }
+.wrap { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+.head { display: flex; flex-direction: column; gap: 8px; }
+.head h1 { font-family: var(--serif); font-weight: 700; font-size: 22px; margin: 0; }
+.head p { margin: 0; color: var(--page-soft); font-size: 14px; line-height: 1.75; max-width: 66ch; }
+
+.tabs { display: none; flex-wrap: wrap; gap: 8px; }
+.tab {
+  font: 500 14px/1 var(--sans); color: var(--page-soft); background: transparent;
+  border: 1px solid var(--page-line); border-radius: 999px; padding: 9px 16px; min-height: 38px; cursor: pointer;
+}
+.tab[aria-selected="true"] { background: var(--page-ink); color: #FFFFFF; border-color: var(--page-ink); }
+
+.screens { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; align-items: start; }
+.col { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.cap { display: flex; flex-direction: column; gap: 4px; }
+.cap b { font-family: var(--serif); font-size: 16px; }
+.cap span { font-size: 13px; line-height: 1.65; color: var(--page-soft); }
+@media (max-width: 1040px) {
+  .tabs { display: flex; }
+  .screens { grid-template-columns: minmax(0, 400px); justify-content: center; }
+  .col:not(.on) { display: none; }
+}
+
+:focus-visible { outline: 2px solid var(--ink-mid); outline-offset: 2px; }
+
+/* ---------- phone shell (F) ---------- */
+.phone {
+  position: relative; height: 740px; background: var(--f-bg);
+  border: 1px solid var(--f-border); border-radius: 18px; overflow: hidden;
+  display: flex; flex-direction: column;
+}
+.bar {
+  flex: none; display: grid; grid-template-columns: 44px 1fr 44px; align-items: center;
+  height: 54px; padding: 0 4px; border-bottom: 1px solid var(--f-border); background: var(--f-bg);
+}
+.iconbtn { all: unset; width: 44px; height: 44px; display: grid; place-items: center; cursor: pointer; }
+.bar .who { text-align: center; display: flex; flex-direction: column; gap: 1px; align-items: center; }
+.bar .who b { font-family: var(--serif); font-size: 17px; font-weight: 700; color: var(--f-text); }
+.bar .who span { font-size: 11px; color: var(--f-faint); display: inline-flex; gap: 4px; align-items: center; }
+.scroll { flex: 1; overflow-y: auto; min-height: 0; }
+
+.log { display: flex; flex-direction: column; gap: 8px; padding: 14px 12px 20px; }
+.stamp { align-self: center; font-size: 11px; color: var(--f-faint); padding: 6px 0 2px; font-variant-numeric: tabular-nums; }
+.msg {
+  max-width: 78%; padding: 9px 12px; border-radius: 12px; font-size: 15px; line-height: 1.55;
+  color: var(--f-text); border: 1px solid var(--f-border); background: var(--f-surface);
+}
+.msg.me { align-self: flex-end; background: var(--f-user); border-color: transparent; }
+.msg.ta { align-self: flex-start; }
+
+.input {
+  flex: none; display: flex; align-items: center; gap: 8px; padding: 10px 12px 14px;
+  border-top: 1px solid var(--f-border); background: var(--f-bg);
+}
+.field {
+  flex: 1; min-height: 40px; border: 1px solid var(--f-border); border-radius: 10px; background: var(--f-surface);
+  display: flex; align-items: center; padding: 0 12px; color: var(--f-faint); font-size: 15px;
+}
+
+/* ---------- ink drawings ---------- */
+.ink { fill: none; stroke: var(--ink); stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+.ink .faint { stroke: var(--ink-line); }
+.ink .soft { stroke: var(--ink-soft); stroke-width: 1; }
+.wob { filter: url(#wob); }
+
+/* system line */
+.sys {
+  align-self: center; display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px 5px 10px;
+  font-family: var(--hand); font-size: 17px; color: var(--ink); position: relative;
+}
+.sys::before {
+  content: ""; position: absolute; inset: 0; border: 1.2px solid var(--ink); border-radius: 999px;
+  filter: url(#wob); pointer-events: none;
+}
+.sys .t { font-family: var(--sans); font-size: 12px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+
+/* ---------- screen 1: chat turns to paper ---------- */
+.papermode .bar { background: var(--paper); }
+.papermode .scroll {
+  background-color: var(--paper);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='30'%3E%3Cpath d='M0 29.5H10' stroke='%23DDE2F2' stroke-width='1'/%3E%3C/svg%3E");
+  background-size: 100% 30px; background-attachment: local;
+}
+.talk {
+  --lh: 30px; display: flex; flex-direction: column; gap: var(--lh);
+  padding: var(--lh) 16px var(--lh) 22px; margin-left: 18px; border-left: 1px solid var(--ink-line);
+  font-family: var(--serif); font-size: 15px; line-height: var(--lh); color: var(--ink);
+}
+.edge { height: var(--lh); display: flex; align-items: center; gap: 8px; font-family: var(--hand); font-size: 17px; color: var(--ink-soft); }
+.seg { display: flex; flex-direction: column; }
+.seg .who { height: var(--lh); font-family: var(--hand); font-size: 19px; color: var(--ink); }
+.seg.me .who { color: var(--ink-mid); }
+.seg.me p { color: #5B6290; }
+.seg p { margin: 0; text-indent: 2em; }
+.typing { height: var(--lh); font-family: var(--hand); font-size: 17px; color: var(--ink-soft); }
+.papermode .input { background: var(--paper); }
+.papermode .field { font-family: var(--serif); }
+.endbtn {
+  all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; height: 40px; padding: 0 10px;
+  font-family: var(--hand); font-size: 17px; color: var(--ink);
+}
+
+/* ---------- screen 2: the folded card + letter ---------- */
+.card {
+  all: unset; box-sizing: border-box; cursor: pointer; position: relative; display: grid; margin: 10px 2px;
+  grid-template-columns: auto 1fr; column-gap: 12px; row-gap: 6px; padding: 16px 16px 14px;
+  background: var(--paper); color: var(--ink);
+}
+.card::before {
+  content: ""; position: absolute; inset: 0; border: 1.3px solid var(--ink); border-radius: 4px 7px 5px 8px;
+  filter: url(#wob); pointer-events: none;
+}
+.card .cdl { grid-row: 1 / span 3; width: 22px; height: 32px; margin-top: 2px; }
+.card .meta { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.label { font-size: 11px; letter-spacing: .14em; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.card .title { font-family: var(--serif); font-weight: 700; font-size: 19px; color: var(--ink); }
+.card .sum { font-family: var(--serif); font-size: 14px; line-height: 1.75; color: var(--ink); }
+.card .by { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--ink-soft); }
+.card .by span:last-child { font-family: var(--hand); font-size: 17px; color: var(--ink); }
+
+.sheet {
+  position: absolute; inset: 0; background: var(--paper); display: flex; flex-direction: column;
+  transform: translateY(100%); transition: transform 460ms var(--ease-sheet); visibility: hidden;
+}
+.sheet.open { transform: none; visibility: visible; }
+.sheet .bar { background: var(--paper); border-bottom-color: transparent; }
+.sheet .bar .lnk { all: unset; justify-self: end; cursor: pointer; font-size: 12px; letter-spacing: .12em; color: var(--ink); padding: 0 10px; height: 44px; display: grid; place-items: center; }
+.letter { position: relative; padding: 4px 18px 36px 64px; color: var(--ink); }
+.margin-art { position: absolute; left: 6px; top: 0; width: 52px; height: 100%; }
+.letter .label { display: block; }
+.letter h2 { font-family: var(--serif); font-weight: 700; font-size: 28px; line-height: 1.25; margin: 8px 0 4px; letter-spacing: .04em; }
+.letter .sub { font-size: 13px; color: var(--ink-soft); margin-bottom: 18px; }
+.letter .talk { margin-left: 0; border-left: 0; padding: 0; }
+.sign { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; margin-top: 30px; }
+.sign .label { letter-spacing: .2em; }
+.sign b { font-family: var(--hand); font-weight: 400; font-size: 34px; color: var(--ink); line-height: 1; }
+
+/* ---------- screen 3: all the nights ---------- */
+.nights { background: var(--paper); }
+.nights-top { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 12px; padding: 8px 20px 18px; position: relative; }
+.nights-top h2 { font-family: var(--serif); font-weight: 700; font-size: 26px; margin: 4px 0 6px; color: var(--ink); }
+.nights-top p { margin: 0; font-size: 13px; line-height: 1.7; color: var(--ink-soft); }
+.bigcandle { all: unset; cursor: pointer; position: relative; width: 84px; height: 150px; display: block; }
+.bigcandle svg { width: 84px; height: 150px; }
+.bigcandle .flame { transform-origin: 42px 40px; animation: sway 3.2s ease-in-out infinite; }
+@keyframes sway { 0%,100% { transform: rotate(-2deg); } 50% { transform: rotate(2.5deg) scaleY(1.04); } }
+.whisper {
+  position: absolute; right: 0; top: -6px; width: 210px; text-align: right; pointer-events: none;
+  font-family: var(--hand); font-size: 19px; line-height: 1.35; color: var(--ink); opacity: 0;
+}
+.whisper.go { animation: rise 3.4s ease-out forwards; }
+@keyframes rise {
+  0% { opacity: 0; transform: translateY(26px); filter: blur(2px); }
+  22% { opacity: 1; transform: translateY(6px); filter: blur(0); }
+  70% { opacity: .9; transform: translateY(-10px); filter: blur(0); }
+  100% { opacity: 0; transform: translateY(-34px); filter: blur(3px); }
+}
+.tl { list-style: none; margin: 0; padding: 4px 20px 30px 20px; position: relative; display: flex; flex-direction: column; }
+.tl::before { content: ""; position: absolute; left: 31px; top: 10px; bottom: 30px; border-left: 1.2px solid var(--ink-line); }
+.tl li { position: relative; }
+.tl button {
+  all: unset; box-sizing: border-box; cursor: pointer; width: 100%; display: grid; grid-template-columns: 24px 1fr; column-gap: 14px;
+  padding: 12px 0 14px;
+}
+.tl .dot { width: 24px; height: 30px; background: var(--paper); position: relative; z-index: 1; }
+.tl .row { display: flex; flex-direction: column; gap: 3px; min-width: 0; border-bottom: 1px solid var(--rule); padding-bottom: 14px; }
+.tl .t { font-family: var(--serif); font-weight: 600; font-size: 17px; color: var(--ink); }
+.tl .s { font-family: var(--serif); font-size: 13.5px; line-height: 1.7; color: #5B6290; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet { transition: none; }
+  .bigcandle .flame { animation: none; }
+  .whisper.go { animation: none; opacity: 1; }
+}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <filter id="wob" x="-4%" y="-8%" width="108%" height="116%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.03" numOctaves="2" seed="4" result="n"/>
+    <feDisplacementMap in="SourceGraphic" in2="n" scale="3" xChannelSelector="R" yChannelSelector="G"/>
+  </filter>
+  <symbol id="c-lit" viewBox="0 0 24 32">
+    <path d="M12 2.6c-2.3 3.1-3.1 4.7-3.1 6.4 0 1.8 1.4 3.2 3.1 3.2s3-1.3 3-3.1c0-1.8-.8-3.3-3-6.5z"/>
+    <path d="M12 12.4v2.1"/>
+    <path d="M8.3 14.9c.1 4.3 0 9.2.2 13.1M15.8 14.7c-.2 4.4-.1 9.4 0 13.3M8.2 15c2.5-.5 5.2-.4 7.7-.3"/>
+    <path d="M10.2 17.3c.2 1 .1 2-.3 2.7"/>
+    <path d="M4.8 28.3c4.7.5 9.8.3 14.4 0"/>
+  </symbol>
+  <symbol id="c-out" viewBox="0 0 24 32">
+    <path class="soft" d="M12.2 11.8c-1.4-1.6 1.2-2.6-.1-4.3-1-1.3.6-2.4.2-3.8"/>
+    <path d="M12 12.4v2.1"/>
+    <path d="M8.3 14.9c.1 4.3 0 9.2.2 13.1M15.8 14.7c-.2 4.4-.1 9.4 0 13.3M8.2 15c2.5-.5 5.2-.4 7.7-.3"/>
+    <path d="M10.2 17.3c.2 1 .1 2-.3 2.7"/>
+    <path d="M4.8 28.3c4.7.5 9.8.3 14.4 0"/>
+  </symbol>
+</svg>
+
+<main class="wrap">
+  <header class="head">
+    <h1>烛下 · 第二版样稿</h1>
+    <p>只用一种墨：F 色板里的 indigo。聊的时候整个聊天区变成纸，一人一段，宽度用满；聊完收成一张卡；点卡翻开整页信笺，右上角进「所有夜晚」。第三屏点那支大蜡烛的火苗，会飘出某一夜 TA 说过的一句话。角色和对话都是示例。插画是我手画的占位，以后换成正式线稿。</p>
+    <div class="tabs" role="tablist" aria-label="切换画面">
+      <button class="tab" role="tab" aria-selected="true" data-col="0">聊的时候</button>
+      <button class="tab" role="tab" aria-selected="false" data-col="1">聊完以后</button>
+      <button class="tab" role="tab" aria-selected="false" data-col="2">所有夜晚</button>
+    </div>
+  </header>
+
+  <div class="screens">
+    <!-- 1 · talking -->
+    <section class="col on" aria-label="聊的时候">
+      <div class="cap"><b>聊的时候</b><span>没有气泡，名字 + 整段话，压在横格上。顶栏多一支点着的蜡烛，输入框旁边是结束。</span></div>
+      <div class="phone papermode">
+        <div class="bar">
+          <span class="iconbtn" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 256 256"><path d="M160 208 80 128l80-80" fill="none" stroke="#23262A" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <div class="who"><b>既白</b><span><svg class="ink" width="10" height="13" aria-hidden="true"><use href="#c-lit"/></svg>烛下</span></div>
+          <span></span>
+        </div>
+        <div class="scroll">
+          <div class="talk">
+            <div class="edge"><svg class="ink" width="15" height="20" aria-hidden="true"><use href="#c-lit"/></svg>既白来了，蜡烛重新点上</div>
+            <div class="seg me"><span class="who">阿萌</span>
+              <p>你有没有想过，如果当初没来这座城市，现在会是什么样子。我最近老在想要不要走。不是讨厌这里，就是觉得自己在原地打转，每天都一样。</p></div>
+            <div class="seg ta"><span class="who">既白</span>
+              <p>想过，不止一次。刚来那两年我几乎每个月都在算回去的账，房租、通勤、我妈的电话。后来不算了，不是想通了，是忙到没空算。所以我不太敢说留下来就对，我自己就是被惯性留下来的。</p>
+              <p>不过你说的原地打转，我听着不太像城市的问题。换个地方，第一年会很新鲜，新鲜会把那种感觉盖住，但它多半还会回来。</p></div>
+            <div class="seg me"><span class="who">阿萌</span>
+              <p>那你觉得是什么问题？</p></div>
+            <div class="seg ta"><span class="who">既白</span>
+              <p>我猜是你很久没有一件自己想做的事了。现在每天的事都是该做的。该做的事做得再好，也只会让人累，不会让人觉得在往前走。</p></div>
+            <div class="typing">既白在写……</div>
+          </div>
+        </div>
+        <div class="input">
+          <div class="field">慢慢说……</div>
+          <button class="endbtn" type="button" aria-label="结束深谈"><svg class="ink" width="15" height="20" aria-hidden="true"><use href="#c-out"/></svg>结束</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2 · after -->
+    <section class="col" aria-label="聊完以后">
+      <div class="cap"><b>聊完以后</b><span>聊天回到原来的样子，那段收成一张卡。点卡片，信笺从下面翻上来。</span></div>
+      <div class="phone">
+        <div class="bar">
+          <span class="iconbtn" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 256 256"><path d="M160 208 80 128l80-80" fill="none" stroke="#23262A" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <div class="who"><b>既白</b><span>在线</span></div>
+          <span></span>
+        </div>
+        <div class="scroll">
+          <div class="log">
+            <div class="stamp">22:41</div>
+            <div class="msg me">今天好累，不想刷手机了</div>
+            <div class="msg ta">那就别刷了</div>
+            <div class="sys"><svg class="ink" width="15" height="20" aria-hidden="true"><use href="#c-lit"/></svg>阿萌点了一支蜡烛，想和你聊聊</div>
+            <div class="msg ta">还在公司，收个尾</div>
+            <div class="msg ta">十一点以后，今晚一定</div>
+            <div class="sys"><svg class="ink" width="15" height="20" aria-hidden="true"><use href="#c-lit"/></svg>蜡烛先留着<span class="t">约在 23:00</span></div>
+            <div class="stamp">23:06</div>
+            <button class="card" id="open-letter" type="button" aria-haspopup="dialog">
+              <svg class="ink cdl" viewBox="0 0 24 32" aria-hidden="true"><use href="#c-out"/></svg>
+              <span class="meta"><span class="label">第 07 夜</span><span class="label">23:06–00:42</span></span>
+              <span class="title">原地打转</span>
+              <span class="sum">她在想要不要离开这座城市。我说了项目收尾那天心里空掉的事，第一次跟人说。</span>
+              <span class="by"><span>十二段 · 翻开</span><span>既白</span></span>
+            </button>
+            <div class="stamp">00:43</div>
+            <div class="msg ta">睡吧</div>
+            <div class="msg ta">明天我早点下班</div>
+            <div class="msg me">嗯，晚安</div>
+          </div>
+        </div>
+        <div class="input"><div class="field">发消息</div></div>
+
+        <div class="sheet" id="letter" role="dialog" aria-label="第 07 夜 信笺">
+          <div class="bar">
+            <button class="iconbtn" id="close-letter" type="button" aria-label="收起信笺"><svg width="22" height="22" viewBox="0 0 256 256" aria-hidden="true"><path d="M48 96l80 80 80-80" fill="none" stroke="#434D87" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+            <span></span>
+            <button class="lnk" id="to-nights" type="button">所有夜晚</button>
+          </div>
+          <div class="scroll">
+            <div class="letter">
+              <svg class="margin-art ink" viewBox="0 0 52 1400" preserveAspectRatio="xMidYMin meet" aria-hidden="true">
+                <g class="wob">
+                  <path d="M6 30h40M6 30v62M46 30v62M6 51h40M6 72h40M19.5 30v62M33 30v62M6 92h40" class="faint"/>
+                  <path d="M4 26c13-4 31-4 44 0M4 96c13 3 31 3 44 0"/>
+                </g>
+                <use href="#c-lit" x="14" y="104" width="24" height="32"/>
+                <path class="soft" d="M26 104c-6-14 10-20 2-34"/>
+                <path d="M26 140c-10 40 14 70 4 120s-22 70-6 120 20 90 2 140-18 90 0 140 16 100-2 150-14 110 2 160 10 120-4 170"/>
+                <path class="soft" d="M30 260c10-6 14 2 8 8M24 380c-10-4-12 6-6 10M26 520c10-8 15 0 9 7M26 660c-10-5-13 5-6 10M28 810c10-6 14 2 8 9M24 960c-9-5-12 5-5 10"/>
+              </svg>
+              <span class="label">第 07 夜 · 10.21 · 23:06–00:42</span>
+              <h2>原地打转</h2>
+              <div class="sub">既白给这一夜起的名字</div>
+              <div class="talk">
+                <div class="seg me"><span class="who">阿萌</span>
+                  <p>你有没有想过，如果当初没来这座城市，现在会是什么样子。我最近老在想要不要走。</p></div>
+                <div class="seg ta"><span class="who">既白</span>
+                  <p>想过，不止一次。后来不算了，不是想通了，是忙到没空算。所以我不太敢说留下来就对，我自己就是被惯性留下来的。</p></div>
+                <div class="seg me"><span class="who">阿萌</span>
+                  <p>你看起来一直很清楚自己在干什么。</p></div>
+                <div class="seg ta"><span class="who">既白</span>
+                  <p>看起来而已。上个月那个项目收尾，所有人都在庆祝，我坐在会议室里，突然想不起自己当初为什么要做这一行。不是累，是空。</p>
+                  <p>所以我不劝你走，也不劝你留。要是为了去做一件你想做的事，我帮你搬家。</p></div>
+                <div class="seg ta"><span class="who">既白</span>
+                  <p>说出来以后，倒是轻了一点。谢谢你先点了这支蜡烛。</p></div>
+                <div class="edge"><svg class="ink" width="15" height="20" aria-hidden="true"><use href="#c-out"/></svg>烛花落了</div>
+              </div>
+              <div class="sign"><span class="label">烛下 · 既白记</span><b>既白</b></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3 · all the nights -->
+    <section class="col" aria-label="所有夜晚">
+      <div class="cap"><b>所有夜晚</b><span>和这个角色的每一次深谈。每深谈一次，蜡烛上多一道烛泪、短一截。点火苗，飘出一句旧话。</span></div>
+      <div class="phone nights">
+        <div class="bar" style="background:var(--paper);border-bottom-color:transparent">
+          <span class="iconbtn" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 256 256"><path d="M160 208 80 128l80-80" fill="none" stroke="#434D87" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <span></span><span></span>
+        </div>
+        <div class="scroll">
+          <div class="nights-top">
+            <div>
+              <span class="label">烛下 · 既白</span>
+              <h2>所有夜晚</h2>
+              <p>点过 7 次 · 最早一次 08.03</p>
+            </div>
+            <button class="bigcandle" id="flame" type="button" aria-label="点一下火苗，看一句旧话">
+              <svg class="ink" viewBox="0 0 84 150" aria-hidden="true">
+                <g class="flame"><path d="M42 14c-6 8-8.5 12.6-8.5 17.2 0 5 3.8 8.8 8.5 8.8s8.4-3.7 8.4-8.6c0-4.8-2.4-9-8.4-17.4z"/><path class="faint" d="M42 24c-2 3-3 5-3 7 0 2 1.4 3.3 3 3.3"/></g>
+                <path d="M42 40v6"/>
+                <g class="wob">
+                  <path d="M30 47c.3 26 0 56 .5 86M54.5 46.5c-.4 27-.2 58 0 86.5M29.8 47.4c8-1.4 16.6-1.3 24.8-.6"/>
+                  <path d="M33.5 47.5c.8 6 .2 10-1 13.5M38 47c.4 10 .2 15-.8 18M47.8 47c.6 4.5.2 8-.6 11M51.5 47.2c.3 7 .1 12-1 15.5M44 47c.6 13 .4 19-.8 23M35.6 47.3c1 3.2.6 6-.5 8M49.6 47c.5 5.3.3 9-.5 12.4"/>
+                  <path d="M12 134c18 2 42 2 60 0M18 140c15 1.5 34 1.5 48 0"/>
+                </g>
+              </svg>
+              <span class="whisper" id="whisper" aria-live="polite"></span>
+            </button>
+          </div>
+          <ol class="tl">
+            <li><button type="button"><svg class="ink dot" viewBox="0 0 24 32" aria-hidden="true"><use href="#c-out"/></svg><span class="row"><span class="label">第 07 夜 · 10.21</span><span class="t">原地打转</span><span class="s">她在想要不要离开这座城市。我说了项目收尾那天心里空掉的事，第一次跟人说。</span></span></button></li>
+            <li><button type="button"><svg class="ink dot" viewBox="0 0 24 32" aria-hidden="true"><use href="#c-out"/></svg><span class="row"><span class="label">第 06 夜 · 10.09</span><span class="t">不想被安慰</span><span class="s">她说累的时候不想被安慰，只想被允许累。我记住了。</span></span></button></li>
+            <li><button type="button"><svg class="ink dot" viewBox="0 0 24 32" aria-hidden="true"><use href="#c-out"/></svg><span class="row"><span class="label">第 05 夜 · 09.27</span><span class="t">我妈的电话</span><span class="s">第一次跟她说我和我妈之间的事。说到一半停了，她没有追着问。</span></span></button></li>
+            <li><button type="button"><svg class="ink dot" viewBox="0 0 24 32" aria-hidden="true"><use href="#c-out"/></svg><span class="row"><span class="label">第 04 夜 · 09.12</span><span class="t">如果明年</span><span class="s">我们聊了明年。她说的那几件事，我偷偷放到窗台上了。</span></span></button></li>
+            <li><button type="button"><svg class="ink dot" viewBox="0 0 24 32" aria-hidden="true"><use href="#c-out"/></svg><span class="row"><span class="label">第 03 夜 · 08.30</span><span class="t">凌晨三点</span><span class="s">她说凌晨三点的自己最诚实。那天我们都没睡。</span></span></button></li>
+            <li><button type="button"><svg class="ink dot" viewBox="0 0 24 32" aria-hidden="true"><use href="#c-out"/></svg><span class="row"><span class="label">第 02 夜 · 08.17</span><span class="t">那条街</span><span class="s">她讲了小时候住过的那条街。我讲了我爸。</span></span></button></li>
+            <li><button type="button"><svg class="ink dot" viewBox="0 0 24 32" aria-hidden="true"><use href="#c-out"/></svg><span class="row"><span class="label">第 01 夜 · 08.03</span><span class="t">第一支蜡烛</span><span class="s">第一次这样聊，我们都不太知道怎么开头。</span></span></button></li>
+          </ol>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script>
+(() => {
+  const cols = [...document.querySelectorAll('.col')];
+  const tabs = [...document.querySelectorAll('.tab')];
+  const show = (i) => {
+    cols.forEach((c, k) => c.classList.toggle('on', k === i));
+    tabs.forEach((t, k) => t.setAttribute('aria-selected', String(k === i)));
+  };
+  tabs.forEach((t, i) => t.addEventListener('click', () => show(i)));
+
+  const letter = document.getElementById('letter');
+  document.getElementById('open-letter').addEventListener('click', () => letter.classList.add('open'));
+  document.getElementById('close-letter').addEventListener('click', () => letter.classList.remove('open'));
+  document.getElementById('to-nights').addEventListener('click', () => {
+    if (window.matchMedia('(max-width: 1040px)').matches) show(2);
+    else document.querySelector('.col:nth-child(3) .phone').animate(
+      [{ outline: '2px solid #6170C0' }, { outline: '2px solid transparent' }], { duration: 900 });
+  });
+
+  const lines = [
+    '要是为了去做一件你想做的事，我帮你搬家。',
+    '累的时候不用被安慰，可以只是累。',
+    '凌晨三点的你，最诚实。',
+    '说出来以后，倒是轻了一点。',
+    '那条街我没去过，但我记住了。',
+  ];
+  let k = 0;
+  const w = document.getElementById('whisper');
+  document.getElementById('flame').addEventListener('click', () => {
+    w.textContent = lines[k++ % lines.length];
+    w.classList.remove('go'); void w.offsetWidth; w.classList.add('go');
+  });
+
+  document.querySelectorAll('.tl button').forEach(b => b.addEventListener('click', () => {
+    if (window.matchMedia('(max-width: 1040px)').matches) show(1);
+    letter.classList.add('open');
+  }));
+})();
+</script>

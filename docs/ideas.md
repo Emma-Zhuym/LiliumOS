@@ -257,7 +257,9 @@ Ombre-Brain、Haven-Ombre、Serein、Latent-memory 都是 Python 自部署服务
   聊天里的卡保持 F 的克制；点开才是整页信笺（覆在聊天上，不上桌面）。隆重程度跟频率走：深谈不常有，点开那一下可以隆重，平时看到的那张卡不行。
 - **聊的时候不在卡片里聊**（阿萌 2026-10-21：卡片里文本太窄）：深谈开着时整个聊天区换成纸，没有气泡、一人一段占满宽度；烛花落了才收成卡。
 - **「所有夜晚」时间轴**（阿萌想回头翻每次深谈）：信笺右上角进入，每夜由 TA 起名 + 一句话，蜡烛按次数长烛泪、变短，点火苗飘出一句旧话。先挂在信笺里，不等情侣空间。
-  第二版样稿：https://claude.ai/artifact/2BUgGM1h2iPVz9jjpSvsz1
+  样稿：第一版（三种手绘风格的折叠卡）https://claude.ai/artifact/BDYbzF3uCpHMWTsj3jq4qK ，文件 `docs/design/deep-talk-card-v1.html`；
+  第二版（聊的时候整屏变纸 / 聊完收成卡 / 所有夜晚）https://claude.ai/artifact/2BUgGM1h2iPVz9jjpSvsz1 ，文件 `docs/design/deep-talk-v2.html`。
+  阿萌对第一版的「钢笔手札」最有感觉；第二版收成只用 F 的 indigo 一支墨。
 - 视觉方向：单一 indigo 墨（F 的 `HUE.indigo.ink`）、西窗夜雨的意象（窗棂、烛、烟、烛泪），参考过一套钢笔线稿风的小红书作品，只借思路不借图案。
 
 ## 情侣空间便签纸

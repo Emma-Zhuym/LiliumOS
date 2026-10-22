@@ -1,0 +1,440 @@
+<title>设置页改版样稿</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600&family=Noto+Serif+SC:wght@600;700&display=swap">
+<style>
+/* Layout: one phone running the new Settings (F skin, light), notes beside it; stacked on phones.
+   All values from utils/clayTokens.ts. Product colour for Settings proposed as HUE.blue. */
+:root {
+  --page: #ECEEEA;
+  --bg: #F8F9F7;          /* F.appBg */
+  --surface: #FFFFFF;     /* F.surface */
+  --sunken: #EDEFEA;      /* F.surfaceSunken */
+  --text: #23262A;        /* F.textPrimary */
+  --text2: #5D635F;       /* F.textSecondary */
+  --text3: #959B96;       /* F.textTertiary */
+  --border: #E3E6E0;      /* F.borderSoft */
+  --strong: #CBCFC8;      /* F.borderStrong */
+  --divider: #EBEEE8;     /* F.divider */
+  --main: #4982C9;        /* HUE.blue.main  (proposed Product) */
+  --tint: #E7F0FC;        /* HUE.blue.tint */
+  --ink: #2B5386;         /* HUE.blue.ink */
+  --ok: #53A768; --ok-ink: #246135; --ok-tint: #E7F3E9;
+  --bad: #CA6862; --bad-ink: #7F3B37; --bad-tint: #FCEBE9;
+  --serif: "Noto Serif SC", "Songti SC", serif;
+  --sans: "Noto Sans SC", -apple-system, "PingFang SC", sans-serif;
+  --ease: cubic-bezier(.32,.72,0,1);
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--page); color: var(--text); font-family: var(--sans);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 28px 48px;
+}
+button { font: inherit; color: inherit; }
+.wrap { max-width: 900px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 390px) minmax(0, 1fr); gap: 36px; align-items: start; }
+@media (max-width: 780px) { .wrap { grid-template-columns: minmax(0, 1fr); } }
+
+/* ---------- phone ---------- */
+.phone {
+  position: relative; height: 780px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 18px; overflow: hidden;
+}
+.page {
+  position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--bg);
+  transition: transform 280ms var(--ease);
+}
+.page.sub { transform: translateX(100%); }
+.page.sub.on { transform: none; }
+.page.home.behind { transform: translateX(-28%); }
+.bar {
+  flex: none; height: 52px; display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; padding: 0 4px;
+}
+.bar h1 { margin: 0; text-align: center; font-family: var(--serif); font-size: 17px; font-weight: 700; }
+.back { all: unset; width: 44px; height: 44px; display: grid; place-items: center; cursor: pointer; }
+.back:focus-visible, .row:focus-visible, .chip:focus-visible, .txtbtn:focus-visible { outline: 2px solid var(--main); outline-offset: -2px; border-radius: 10px; }
+.scroll { flex: 1; overflow-y: auto; min-height: 0; padding: 4px 16px 32px; display: flex; flex-direction: column; gap: 22px; }
+
+.group { display: flex; flex-direction: column; gap: 6px; }
+.gtitle { font-size: 12px; color: var(--text3); padding: 0 4px; letter-spacing: .04em; }
+.gfoot { font-size: 12px; color: var(--text3); padding: 0 4px; line-height: 1.6; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+
+.row {
+  all: unset; box-sizing: border-box; width: 100%; cursor: pointer; position: relative;
+  display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; column-gap: 12px;
+  min-height: 56px; padding: 8px 12px 8px 12px;
+}
+.row:active { background: var(--sunken); }
+.row + .row::before { content: ""; position: absolute; top: 0; right: 0; left: 56px; border-top: 1px solid var(--divider); }
+.row.noicon + .row.noicon::before { left: 14px; }
+.row.noicon { grid-template-columns: 1fr auto auto; padding-left: 14px; }
+.tile { width: 32px; height: 32px; border-radius: 8px; background: var(--sunken); display: grid; place-items: center; }
+.tile svg { width: 18px; height: 18px; fill: none; stroke: var(--text); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.label { font-size: 16px; line-height: 1.35; min-width: 0; }
+.label small { display: block; font-size: 12px; color: var(--text3); margin-top: 1px; }
+.val { font-size: 14px; color: var(--text3); text-align: right; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.chev { width: 14px; height: 14px; fill: none; stroke: var(--strong); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); flex: none; }
+.dot.bad { background: var(--bad); }
+.badge { min-width: 22px; height: 22px; padding: 0 7px; border-radius: 999px; background: var(--bad); color: #FFFFFF; font-size: 12px; font-weight: 600; display: inline-grid; place-items: center; }
+.val.bad { color: var(--bad-ink); }
+
+/* profile */
+.me { grid-template-columns: auto 1fr auto; min-height: 76px; padding: 12px 12px 12px 14px; column-gap: 14px; }
+.avatar { width: 52px; height: 52px; border-radius: 50%; background: var(--tint); color: var(--ink); display: grid; place-items: center; font-family: var(--serif); font-size: 22px; font-weight: 700; }
+.me .label { font-size: 18px; font-weight: 600; }
+.me .label small { font-size: 13px; font-weight: 400; color: var(--text2); }
+
+/* sub pages */
+.check { width: 18px; height: 18px; fill: none; stroke: var(--main); stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; visibility: hidden; }
+.row.picked .check { visibility: visible; }
+.txtbtn { all: unset; cursor: pointer; color: var(--main); font-size: 15px; font-weight: 500; min-height: 44px; display: inline-flex; align-items: center; padding: 0 4px; }
+.hero { background: var(--tint); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 4px; }
+.hero b { font-size: 20px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.hero span { font-size: 13px; color: var(--text2); }
+.hero .acts { display: flex; justify-content: flex-end; margin-top: 2px; }
+.placeholder { background: var(--surface); border: 1px dashed var(--strong); border-radius: 12px; padding: 22px 16px; font-size: 14px; line-height: 1.75; color: var(--text2); }
+.field { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; }
+.field + .field { border-top: 1px solid var(--divider); }
+.field span { font-size: 12px; color: var(--text3); }
+.field div { font-size: 15px; line-height: 1.6; }
+
+/* ---------- notes ---------- */
+.notes { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.notes h2 { font-family: var(--serif); font-size: 22px; margin: 0; }
+.notes h3 { font-family: var(--serif); font-size: 16px; margin: 0 0 6px; }
+.notes p, .notes li { font-size: 14px; line-height: 1.75; color: var(--text2); margin: 0; }
+.notes ul { margin: 0; padding-left: 1.1em; display: flex; flex-direction: column; gap: 4px; }
+.sw { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip { font-size: 13px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--strong); background: transparent; cursor: pointer; min-height: 36px; }
+.chip[aria-pressed="true"] { background: var(--text); color: #FFFFFF; border-color: var(--text); }
+
+@media (prefers-reduced-motion: reduce) { .page { transition: none; } }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="M11 12l8-8M16 7l2 2M14 9l2 2"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-img" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-8 9"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0V8zM12 17v4"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-route" viewBox="0 0 24 24"><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="6" r="2.5"/><path d="M8.5 18H15a3.5 3.5 0 0 0 0-7H9a3.5 3.5 0 0 1 0-7h6.5"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="M3 7h18v4H3zM5 11v9h14v-9M10 15h4"/></symbol>
+  <symbol id="i-disk" viewBox="0 0 24 24"><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M5 13l2.5-8h9L19 13M17 16.5h.01"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></symbol>
+  <symbol id="i-mac" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M9 15h6"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 21h4"/></symbol>
+  <symbol id="i-wave" viewBox="0 0 24 24"><path d="M3 12h2M7 8v8M11 5v14M15 9v6M19 11v2"/></symbol>
+  <symbol id="i-aid" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V4h6v3M12 11v5M9.5 13.5h5"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-back" viewBox="0 0 256 256"><path d="M160 208 80 128l80-80"/></symbol>
+</svg>
+
+<main class="wrap">
+  <section class="phone" aria-label="设置页示意">
+    <!-- HOME -->
+    <div class="page home" id="home">
+      <div class="bar">
+        <button class="back" aria-label="返回桌面"><svg width="22" height="22" style="fill:none;stroke:var(--text);stroke-width:24;stroke-linecap:round;stroke-linejoin:round"><use href="#i-back"/></svg></button>
+        <h1>设置</h1><span></span>
+      </div>
+      <div class="scroll">
+        <div class="group">
+          <div class="card">
+            <button class="row me" data-go="profile">
+              <span class="avatar" aria-hidden="true">萌</span>
+              <span class="label">阿萌<small>头像、名字、关于我</small></span>
+              <svg class="chev"><use href="#i-chev"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="group" id="alerts">
+          <div class="card">
+            <button class="row noicon" data-go="backup"><span class="label">超过 3 天没备份</span><span class="badge">1</span><svg class="chev"><use href="#i-chev"/></svg></button>
+            <button class="row noicon" data-go="push"><span class="label">Instant Push 还开着<small>它会抢在 mini 前面接走聊天</small></span><span class="badge">1</span><svg class="chev"><use href="#i-chev"/></svg></button>
+          </div>
+        </div>
+
+        <div class="group">
+          <div class="gtitle">API</div>
+          <div class="card">
+            <button class="row" data-go="api"><span class="tile"><svg><use href="#i-key"/></svg></span><span class="label">主 API</span><span class="val" id="api-val">DeepSeek 主力</span><svg class="chev"><use href="#i-chev"/></svg></button>
+            <button class="row" data-go="generic" data-name="识图 API"><span class="tile"><svg><use href="#i-eye"/></svg></span><span class="label">识图</span><span class="val">跟随主 API</span><svg class="chev"><use href="#i-chev"/></svg></button>
+            <button class="row" data-go="generic" data-name="生图 API"><span class="tile"><svg><use href="#i-img"/></svg></span><span class="label">生图</span><span class="val">已设置</span><svg class="chev"><use href="#i-chev"/></svg></button>
+            <button class="row" data-go="generic" data-name="API 调用记录"><span class="tile"><svg><use href="#i-list"/></svg></span><span class="label">调用记录</span><span class="val">今天 86 次</span><svg class="chev"><use href="#i-chev"/></svg></button>
+          </div>
+        </div>
+
+        <div class="group">
+          <div class="gtitle">连接</div>
+          <div class="card">
+            <button class="row" data-go="mcp"><span class="tile"><svg><use href="#i-plug"/></svg></span><span class="label">MCP 工具</span><span class="val bad" id="mcp-val"><span class="dot bad"></span>4/5 在线</span><svg class="chev"><use href="#i-chev"/></svg></button>
+            <button class="row" data-go="generic" data-name="实时感知"><span class="tile"><svg><use href="#i-sun"/></svg></span><span class="label">实时感知</span><span class="val">天气 · Notion</span><svg class="chev"><use href="#i-chev"/></svg></button>
+            <button class="row" data-go="generic" data-name="自定义网络代理 (Worker)"><span class="tile"><svg><use href="#i-route"/></svg></span><span class="label">Worker 代理</span><span class="val">默认</span><svg class="chev"><use href="#i-chev"/></svg></button>
+          </div>
+        </div>
+
+        <div class="group">
+          <div class="gtitle">备份</div>
+          <div class="card">
+            <button class="row" data-go="backup"><span class="tile"><svg><use href="#i-box"/></svg></span><span class="label">备份与恢复</span><span class="val" id="bk-val">4 天前</span><svg class="chev"><use href="#i-chev"/></svg></button>
+            <button class="row" data-go="generic" data-name="存储空间"><span class="tile"><svg><use href="#i-disk"/></svg></span><span class="label">存储空间</span><span class="val">1.4 GB</span><svg class="chev"><use href="#i-chev"/></svg></button>
+            <button class="row" data-go="generic" data-name="外链图片存本机"><span class="tile"><svg><use href="#i-link"/></svg></span><span class="label">外链图片</span><span class="val">3 张没存</span><svg class="chev"><use href="#i-chev"/></svg></button>
+          </div>
+        </div>
+
+        <div class="group">
+          <div class="gtitle">后台</div>
+          <div class="card">
+            <button class="row" data-go="mini"><span class="tile"><svg><use href="#i-mac"/></svg></span><span class="label">Mac mini</span><span class="val"><span class="dot"></span>在线</span><svg class="chev"><use href="#i-chev"/></svg></button>
+            <button class="row" data-go="generic" data-name="主动消息 2.0"><span class="tile"><svg><use href="#i-clock"/></svg></span><span class="label">主动消息 2.0</span><span class="val">已开</span><svg class="chev"><use href="#i-chev"/></svg></button>
+            <button class="row" data-go="push"><span class="tile"><svg><use href="#i-bell"/></svg></span><span class="label">推送</span><span class="val">已订阅</span><svg class="chev"><use href="#i-chev"/></svg></button>
+          </div>
+        </div>
+
+        <div class="group">
+          <div class="gtitle">其他</div>
+          <div class="card">
+            <button class="row" data-go="generic" data-name="语音与写歌"><span class="tile"><svg><use href="#i-wave"/></svg></span><span class="label">语音与写歌</span><span class="val">未设置</span><svg class="chev"><use href="#i-chev"/></svg></button>
+            <button class="row" data-go="generic" data-name="外观急救"><span class="tile"><svg><use href="#i-aid"/></svg></span><span class="label">外观急救</span><span></span><svg class="chev"><use href="#i-chev"/></svg></button>
+            <button class="row" data-go="generic" data-name="关于"><span class="tile"><svg><use href="#i-info"/></svg></span><span class="label">关于</span><span class="val">1.21.0</span><svg class="chev"><use href="#i-chev"/></svg></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 主 API -->
+    <div class="page sub" id="p-api" role="region" aria-label="主 API">
+      <div class="bar"><button class="back" data-back aria-label="返回设置"><svg width="22" height="22" style="fill:none;stroke:var(--text);stroke-width:24;stroke-linecap:round;stroke-linejoin:round"><use href="#i-back"/></svg></button><h1>主 API</h1><span></span></div>
+      <div class="scroll">
+        <div class="group">
+          <div class="gtitle">预设（点一下就换）</div>
+          <div class="card" id="presets">
+            <button class="row noicon picked" data-preset="DeepSeek 主力"><span class="label">DeepSeek 主力<small>deepseek-chat</small></span><span></span><svg class="check"><use href="#i-check"/></svg></button>
+            <button class="row noicon" data-preset="Claude 深夜"><span class="label">Claude 深夜<small>claude-sonnet-5-5</small></span><span></span><svg class="check"><use href="#i-check"/></svg></button>
+            <button class="row noicon" data-preset="Gemini 备用"><span class="label">Gemini 备用<small>gemini-flash</small></span><span></span><svg class="check"><use href="#i-check"/></svg></button>
+          </div>
+          <div class="gfoot">各角色单独绑的 API 不受影响；没绑的角色跟着这里走。长按预设可以编辑或删除。</div>
+        </div>
+        <div class="group">
+          <div class="card">
+            <button class="row noicon"><span class="label" style="color:var(--main)">新建预设</span><span></span><span></span></button>
+          </div>
+        </div>
+        <div class="group">
+          <div class="gtitle">当前这一套</div>
+          <div class="card">
+            <button class="row noicon"><span class="label">地址</span><span class="val">api.deepseek.com</span><svg class="chev"><use href="#i-chev"/></svg></button>
+            <button class="row noicon"><span class="label">模型</span><span class="val">deepseek-chat</span><svg class="chev"><use href="#i-chev"/></svg></button>
+            <button class="row noicon"><span class="label">Key</span><span class="val">已填</span><svg class="chev"><use href="#i-chev"/></svg></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MCP -->
+    <div class="page sub" id="p-mcp" role="region" aria-label="MCP 工具">
+      <div class="bar"><button class="back" data-back aria-label="返回设置"><svg width="22" height="22" style="fill:none;stroke:var(--text);stroke-width:24;stroke-linecap:round;stroke-linejoin:round"><use href="#i-back"/></svg></button><h1>MCP 工具</h1><span></span></div>
+      <div class="scroll">
+        <div class="hero">
+          <b id="mcp-hero">4/5 在线</b>
+          <span id="mcp-when">打开这页时测过 · 刚刚</span>
+          <div class="acts"><button class="txtbtn" id="retest">全部重测</button></div>
+        </div>
+        <div class="group">
+          <div class="card" id="mcp-list">
+            <button class="row noicon"><span class="label">日历与提醒<small>mini · 5 个工具</small></span><span class="val"><span class="dot"></span>在线</span><svg class="chev"><use href="#i-chev"/></svg></button>
+            <button class="row noicon"><span class="label">小红书<small>mini · 4 个工具</small></span><span class="val"><span class="dot"></span>在线</span><svg class="chev"><use href="#i-chev"/></svg></button>
+            <button class="row noicon"><span class="label">B 站<small>mini · 12 个工具</small></span><span class="val"><span class="dot"></span>在线</span><svg class="chev"><use href="#i-chev"/></svg></button>
+            <button class="row noicon"><span class="label">Home Assistant<small>共栖舱</small></span><span class="val"><span class="dot"></span>在线</span><svg class="chev"><use href="#i-chev"/></svg></button>
+            <button class="row noicon" id="mcp-bad"><span class="label">Notion 工具<small>401 · Token 可能过期了</small></span><span class="val bad"><span class="dot bad"></span>连不上</span><svg class="chev"><use href="#i-chev"/></svg></button>
+          </div>
+        </div>
+        <div class="group"><div class="card"><button class="row noicon"><span class="label" style="color:var(--main)">添加服务器</span><span></span><span></span></button></div></div>
+      </div>
+    </div>
+
+    <!-- 备份 -->
+    <div class="page sub" id="p-backup" role="region" aria-label="备份与恢复">
+      <div class="bar"><button class="back" data-back aria-label="返回设置"><svg width="22" height="22" style="fill:none;stroke:var(--text);stroke-width:24;stroke-linecap:round;stroke-linejoin:round"><use href="#i-back"/></svg></button><h1>备份与恢复</h1><span></span></div>
+      <div class="scroll">
+        <div class="hero">
+          <b id="bk-hero">上次备份 4 天前</b>
+          <span id="bk-sub">自动备份连着 3 次没成功：GitHub 回 401</span>
+          <div class="acts"><button class="txtbtn" id="backup-now">立即备份</button></div>
+        </div>
+        <div class="group">
+          <div class="gtitle">云端</div>
+          <div class="card">
+            <button class="row noicon"><span class="label">GitHub 备份</span><span class="val">已设置</span><svg class="chev"><use href="#i-chev"/></svg></button>
+            <button class="row noicon"><span class="label">从云端恢复</span><span class="val">12 份</span><svg class="chev"><use href="#i-chev"/></svg></button>
+          </div>
+          <div class="gfoot">自动备份每天一次、只带文字，留最近 7 份；手点的完整备份另外留 5 份。</div>
+        </div>
+        <div class="group">
+          <div class="gtitle">本机</div>
+          <div class="card">
+            <button class="row noicon"><span class="label">导出 ZIP</span><span class="val">完整 / 纯文字</span><svg class="chev"><use href="#i-chev"/></svg></button>
+            <button class="row noicon"><span class="label">从 ZIP 恢复</span><span></span><svg class="chev"><use href="#i-chev"/></svg></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mac mini -->
+    <div class="page sub" id="p-mini" role="region" aria-label="Mac mini">
+      <div class="bar"><button class="back" data-back aria-label="返回设置"><svg width="22" height="22" style="fill:none;stroke:var(--text);stroke-width:24;stroke-linecap:round;stroke-linejoin:round"><use href="#i-back"/></svg></button><h1>Mac mini</h1><span></span></div>
+      <div class="scroll">
+        <div class="hero"><b>在线</b><span>上一跳 12 分钟前 · 3 个角色接着</span><div class="acts"><button class="txtbtn">打开机房</button></div></div>
+        <div class="group">
+          <div class="card">
+            <button class="row noicon"><span class="label">地址与配对</span><span class="val">已配对</span><svg class="chev"><use href="#i-chev"/></svg></button>
+          </div>
+          <div class="gfoot">心跳、脾气这些都在机房里调。设置里只留连哪台 mini。</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 推送 -->
+    <div class="page sub" id="p-push" role="region" aria-label="推送">
+      <div class="bar"><button class="back" data-back aria-label="返回设置"><svg width="22" height="22" style="fill:none;stroke:var(--text);stroke-width:24;stroke-linecap:round;stroke-linejoin:round"><use href="#i-back"/></svg></button><h1>推送</h1><span></span></div>
+      <div class="scroll">
+        <div class="group">
+          <div class="card">
+            <button class="row noicon"><span class="label">订阅状态</span><span class="val"><span class="dot"></span>已订阅</span><svg class="chev"><use href="#i-chev"/></svg></button>
+            <button class="row noicon"><span class="label">推送凭据 (VAPID)</span><span class="val">已设置</span><svg class="chev"><use href="#i-chev"/></svg></button>
+            <button class="row noicon"><span class="label">主动消息 Push 加速</span><span class="val">关</span><svg class="chev"><use href="#i-chev"/></svg></button>
+          </div>
+        </div>
+        <div class="group" id="ip-group">
+          <div class="gtitle">已停用</div>
+          <div class="card">
+            <button class="row noicon"><span class="label">Instant Push<small>2026-08-27 起停用，由主动消息 2.0 接替</small></span><span class="val bad">还开着</span><svg class="chev"><use href="#i-chev"/></svg></button>
+          </div>
+          <div class="gfoot">关掉以后，这一行就不再出现。</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 个人档案 -->
+    <div class="page sub" id="p-profile" role="region" aria-label="个人档案">
+      <div class="bar"><button class="back" data-back aria-label="返回设置"><svg width="22" height="22" style="fill:none;stroke:var(--text);stroke-width:24;stroke-linecap:round;stroke-linejoin:round"><use href="#i-back"/></svg></button><h1>个人档案</h1><span></span></div>
+      <div class="scroll">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:12px 0 4px">
+          <span class="avatar" style="width:84px;height:84px;font-size:34px" aria-hidden="true">萌</span>
+          <button class="txtbtn">换头像</button>
+        </div>
+        <div class="card">
+          <div class="field"><span>名字</span><div>阿萌</div></div>
+          <div class="field"><span>关于我 / 设定</span><div>角色们读到的「我」就是这一段。</div></div>
+        </div>
+        <div class="gfoot">原来桌面上的「档案」App 收进这里，桌面少一个图标。</div>
+      </div>
+    </div>
+
+    <!-- 其余：原内容整块搬进来 -->
+    <div class="page sub" id="p-generic" role="region" aria-label="子页">
+      <div class="bar"><button class="back" data-back aria-label="返回设置"><svg width="22" height="22" style="fill:none;stroke:var(--text);stroke-width:24;stroke-linecap:round;stroke-linejoin:round"><use href="#i-back"/></svg></button><h1 id="g-title">子页</h1><span></span></div>
+      <div class="scroll">
+        <div class="placeholder" id="g-body"></div>
+      </div>
+    </div>
+  </section>
+
+  <aside class="notes">
+    <h2>设置页改版样稿</h2>
+    <p>点任意一行进子页，左上角返回。主 API、MCP、备份、Mac mini、推送、个人档案做了真样子，其余几页先用占位说明。名字、预设、数字都是示例。</p>
+
+    <div>
+      <h3>模拟一下</h3>
+      <div class="sw">
+        <button class="chip" id="sw-alerts" aria-pressed="true">有事要管</button>
+        <button class="chip" id="sw-calm" aria-pressed="false">一切正常</button>
+      </div>
+      <p style="margin-top:8px">提醒那一组只在有事时出现。切到「一切正常」，个人卡片下面就直接接 API 了。</p>
+    </div>
+
+    <div>
+      <h3>跟苹果不一样的地方</h3>
+      <ul>
+        <li>图标格子全是浅灰底配深色线条，不用彩色；颜色只留给红色角标、绿点红点。</li>
+        <li>顶栏是 F 的居中衬线标题，不用大标题，跟健康、记账一致。</li>
+        <li>选中、按钮的蓝是给设置认领的主色（F 色板里的 blue），你不喜欢可以换。</li>
+      </ul>
+    </div>
+
+    <div>
+      <h3>原来的东西去哪了</h3>
+      <ul>
+        <li>原来的每一大块都整块变成一页子页，功能不动，只是不再原地展开。</li>
+        <li>心跳面板、脾气编辑以后搬进机房，这里的 Mac mini 页只留连接和配对。</li>
+        <li>Instant Push 平时藏起来，只在还开着时出现在提醒和推送页里。</li>
+      </ul>
+    </div>
+  </aside>
+</main>
+
+<script>
+(() => {
+  const home = document.getElementById('home');
+  let current = null;
+  const open = (id, name) => {
+    const page = document.getElementById('p-' + id);
+    if (!page) return;
+    if (id === 'generic') {
+      document.getElementById('g-title').textContent = name;
+      document.getElementById('g-body').textContent = '原来设置页里「' + name + '」那一整块内容放在这里。里面的东西一样都不少，只是从原地展开改成单独一页，看完点左上角回去。';
+    }
+    page.classList.add('on'); home.classList.add('behind'); current = page;
+    page.querySelector('.back')?.focus({ preventScroll: true });
+  };
+  const close = () => { if (current) current.classList.remove('on'); home.classList.remove('behind'); current = null; };
+  document.querySelectorAll('[data-go]').forEach(b => b.addEventListener('click', () => open(b.dataset.go, b.dataset.name)));
+  document.querySelectorAll('[data-back]').forEach(b => b.addEventListener('click', close));
+
+  // switch main API
+  const apiVal = document.getElementById('api-val');
+  document.querySelectorAll('#presets .row').forEach(r => r.addEventListener('click', () => {
+    document.querySelectorAll('#presets .row').forEach(x => x.classList.toggle('picked', x === r));
+    apiVal.textContent = r.dataset.preset;
+  }));
+
+  // retest MCP
+  const retest = document.getElementById('retest');
+  retest.addEventListener('click', () => {
+    const hero = document.getElementById('mcp-hero'), when = document.getElementById('mcp-when');
+    hero.textContent = '测试中……'; when.textContent = '挨个连一遍，几秒钟';
+    setTimeout(() => { hero.textContent = '4/5 在线'; when.textContent = '刚刚测过 · Notion 工具还是 401'; }, 1400);
+  });
+
+  // backup now
+  document.getElementById('backup-now').addEventListener('click', () => {
+    document.getElementById('bk-hero').textContent = '上次备份 刚刚';
+    document.getElementById('bk-sub').textContent = '纯文字 · 已传到 GitHub';
+    document.getElementById('bk-val').textContent = '刚刚';
+  });
+
+  // simulate states
+  const alerts = document.getElementById('alerts'), ip = document.getElementById('ip-group');
+  const mcpVal = document.getElementById('mcp-val'), bkVal = document.getElementById('bk-val');
+  const set = calm => {
+    alerts.hidden = calm; ip.hidden = calm;
+    document.getElementById('sw-alerts').setAttribute('aria-pressed', String(!calm));
+    document.getElementById('sw-calm').setAttribute('aria-pressed', String(calm));
+    mcpVal.className = 'val' + (calm ? '' : ' bad');
+    mcpVal.innerHTML = calm ? '<span class="dot"></span>5/5 在线' : '<span class="dot bad"></span>4/5 在线';
+    bkVal.textContent = calm ? '3 小时前' : '4 天前';
+  };
+  document.getElementById('sw-alerts').addEventListener('click', () => set(false));
+  document.getElementById('sw-calm').addEventListener('click', () => set(true));
+})();
+</script>
