@@ -283,6 +283,7 @@ export const buildCharacterSnapshot = async (
 
     const recent = mergeConsecutiveBubbles(messages
         .filter(message => message.type !== 'system')
+        .filter(message => message.metadata?.source !== 'deep_talk') // [EM: deep-talk] 烛下说的真话不给心跳看
         // 合并前多取一些：合完才截到 MAX_RECENT_MESSAGES 条
         .slice(-MAX_RECENT_MESSAGES * 8)
         .map(message => ({

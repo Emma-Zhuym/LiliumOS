@@ -14,7 +14,6 @@ import { buildCharacterSnapshot } from '../utils/emAgentSnapshot';
 // [EM-START: deep-talk]
 import { flushSnapshotUpload } from '../utils/emAgentBackend';
 import { resolveCharacterApiConfig } from '../utils/characterApi';
-import { runCallMemoryPalacePostFlow } from '../utils/memoryPalace/callPostFlow';
 import { isDeepTalkIdle } from '../utils/deepTalk';
 import { endDeepTalk, loadNightSegments, saveDeepTalkSegment, startDeepTalkInvite } from '../utils/deepTalkActions';
 import DeepTalkPaper from '../components/deepTalk/DeepTalkPaper';
@@ -1058,26 +1057,18 @@ const Chat: React.FC = () => {
                 names: deepTalkNames,
                 api: resolveCharacterApiConfig(current, apiConfig, apiPresets).apiConfig,
                 reason,
+                // 原文不进记忆宫殿，只有 TA 挑的一两句原话写进去（没开记忆宫殿就不写）
+                palace: current.memoryPalaceEnabled ? { embedding: memoryPalaceConfig?.embedding, remote: remoteVectorConfig } : null,
             });
             await reloadMessages(visibleCountRef.current);
             void flushDeepTalkSnapshot();
-            // 这一夜的话马上进记忆宫殿的缓冲区，不用等下次聊天
-            if (closed.status === 'closed') {
-                void runCallMemoryPalacePostFlow({
-                    char: current,
-                    getLiveChar: () => charRef.current,
-                    memoryPalaceConfig,
-                    apiConfig,
-                    userName: userProfile?.name,
-                    updateCharacter,
-                }).catch(e => console.warn('[DeepTalk] 记忆整理失败', e));
-            }
+            if (closed.kept?.length) addToast(`${current.name}记下了 ${closed.kept.length} 句话，信笺里能看到`, 'info');
         } catch (e: any) {
             addToast(e?.message || '收卡失败，过一会儿再点一次结束', 'error');
         } finally {
             setDeepTalkEnding(false);
         }
-    }, [deepTalkNight, deepTalkEnding, deepTalkNames, apiConfig, apiPresets, reloadMessages, flushDeepTalkSnapshot, memoryPalaceConfig, userProfile?.name, updateCharacter, addToast]);
+    }, [deepTalkNight, deepTalkEnding, deepTalkNames, apiConfig, apiPresets, reloadMessages, flushDeepTalkSnapshot, memoryPalaceConfig, remoteVectorConfig, addToast]);
     // 「蜡烛先留着」那个气泡被点了：重新点上
     useEffect(() => {
         const handler = (event: Event) => {

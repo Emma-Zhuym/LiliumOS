@@ -66,7 +66,7 @@ import { resolveCharacterApiConfig } from '../utils/characterApi';
 import { announceInstantChatRoute, getInstantChatPending, resolveInstantChatReadiness, sendInstantChatTurn, stageInstantChatExpiredNotices } from '../utils/amsgInstantChat';
 import { beginLocalReply, isReplyStopError, stopReply } from '../utils/emReplyStop'; // [EM: reply-stop]
 import { isAgentChatReady, sendAgentChatTurn, tokenUsageFromCloudMetadata } from '../utils/emAgentChat'; // [EM: agent-instant-chat]
-import { cleanDeepTalkReply, parseDeepTalkAnswer, type DeepTalkNight } from '../utils/deepTalk'; // [EM: deep-talk]
+import { cleanDeepTalkReply, extractDeepTalkThinking, parseDeepTalkAnswer, type DeepTalkNight } from '../utils/deepTalk'; // [EM: deep-talk]
 import { DeepTalkDB } from '../utils/deepTalkDb'; // [EM: deep-talk]
 import { applyDeepTalkAnswer, saveDeepTalkSegment } from '../utils/deepTalkActions'; // [EM: deep-talk]
 // worker 模块的常量叶子（零运行时依赖，前端引它不带进 worker 环境）：
@@ -1176,7 +1176,8 @@ export const useChatAI = ({
             //    - 上云模式 (Instant Push / 即时对话): 不在客户端跑, 改把 eval prompt + 副 API 凭据
             //      一起交给 worker, worker 跑完把结果推回来, 客户端 flush 时落 buff —— 这样前端被杀
             //      也算数, 且不会跟客户端 eval 双跑双扣费. 见下方两个上云分支 + activeMsgRuntime.
-            const emotionEvalEnabled = !!(!promptBuildSkipped && !isEmotionEvalSkipped() && isScheduleFeatureOn(char) && char.emotionConfig?.enabled);
+            const emotionEvalEnabled = !!(!promptBuildSkipped && !isEmotionEvalSkipped() && isScheduleFeatureOn(char) && char.emotionConfig?.enabled)
+                && deepTalkTurn?.mode !== 'open'; // [EM: deep-talk] 烛下说的真话不写进情绪底色（它会带进平时聊天和心跳）
             // 这一轮的生成在云端跑（两条路互斥，见 instantChatRoute 的算法）。
             // instantPushConfigured 是路由判定处冻结的同一回合终值——这里绝不自己再读
             // 一次，否则可能「按上云模式把评估打包走了，实际却走本地」，情绪底色悄悄停更。
@@ -2396,7 +2397,8 @@ export const useChatAI = ({
             const deepTalkAnswer = deepTalkTurn?.mode === 'invite' ? parseDeepTalkAnswer(rawAiContent) : null;
             if (deepTalkTurn?.mode === 'open') {
                 const segment = cleanDeepTalkReply(rawAiContent, char.name);
-                if (segment && !replyRun.signal.aborted) await saveDeepTalkSegment(char.id, deepTalkTurn.night.id, 'assistant', segment);
+                const thinking = extractDeepTalkThinking(rawAiContent, data.choices?.[0]?.message?.reasoning_content);
+                if (segment && !replyRun.signal.aborted) await saveDeepTalkSegment(char.id, deepTalkTurn.night.id, 'assistant', segment, thinking);
                 updateTokenUsage(data, historyMsgCount, 'deep-talk');
                 setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
             } else

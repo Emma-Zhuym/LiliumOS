@@ -27,9 +27,22 @@ export interface DeepTalkNight {
     /** 第几夜：结束时按这个角色已结束的夜数 +1 写定，之后不变 */
     nightNo?: number;
     title?: string;
+    /** TA 视角的一句话，卡片和「所有夜晚」用；只写感受 */
     oneLine?: string;
+    /** 给平时聊天看的那一行：只写感受，不写现实里的事实（「她有点孤单」可以，「她一直一个人」不行） */
     summary?: string;
+    /** 只给以后的烛下看：这一夜真正聊了什么，现实处境可以写 */
+    candleSummary?: string;
+    /** TA 挑出来带回平时的原话（进记忆宫殿）；阿萌可以在信笺里删 */
+    kept?: DeepTalkKeptLine[];
     segmentCount?: number;
+}
+
+export interface DeepTalkKeptLine {
+    speaker: 'user' | 'char';
+    text: string;
+    /** 写进记忆宫殿的那条记忆，删的时候一起删 */
+    memoryId?: string;
 }
 
 /** 深谈里的每条话（双方）都带这个 source + deepTalkId */
@@ -178,10 +191,25 @@ export const buildMaterialsBlock = (materials: DeepTalkMaterials | null | undefi
     return lines.join('\n');
 };
 
+/** 之前几夜在烛下真正聊过的（只给烛下看，平时聊天看不到） */
+export type PastCandleNight = Pick<DeepTalkNight, 'nightNo' | 'title' | 'candleSummary' | 'summary' | 'kept'>;
+
+export const buildPastNightsBlock = (past: PastCandleNight[] | null | undefined, names: { userName: string; charName: string }): string => {
+    const nights = (past || []).filter(n => (n.candleSummary || n.summary || '').trim()).slice(0, 3);
+    if (!nights.length) return '';
+    const lines = ['', '你们之前在烛下聊过的（只在烛下记得，平时聊天别提这些细节）：'];
+    for (const n of nights) {
+        const said = (n.kept || []).map(k => `${k.speaker === 'user' ? names.userName : '你'}说「${clip(k.text, 50)}」`).join('；');
+        lines.push(`- 第${padNight(n.nightNo)}夜《${n.title || ''}》：${clip((n.candleSummary || n.summary || '').trim(), 160)}${said ? `（${said}）` : ''}`);
+    }
+    return lines.join('\n');
+};
+
 /** 深谈开着的每一轮：放在易变尾段，压过上面聊天 App 的短消息格式 */
 export const buildOpenTurnBlock = (
     names: { userName: string; charName: string },
     materials?: DeepTalkMaterials | null,
+    past?: PastCandleNight[] | null,
 ): string => `
 
 [系统提示｜烛下 · 深谈（最高优先级，这一轮覆盖上面「聊天 App 行为规范」里的格式要求）]
@@ -192,7 +220,9 @@ export const buildOpenTurnBlock = (
 - 大部分时候是在说你自己的经历、看法和感受。认真聊天的人很少一直发问：多数回复不带问题，要问也只问一个，而且是你真想知道的。
 - 你可以不同意，可以说「我不这么看」，可以有自己的偏见和固执。不要当体贴的客服，不要把对方的话总结一遍再安慰。
 - 如果你最近也有放不下的事，可以说出来——只能从下面「你心里压着的事」里取，那里没有就不提。
-- 不发表情包、不引用、不发语音、不写日记，也不输出任何 [[...]] 指令。${buildMaterialsBlock(materials)}`;
+- 不发表情包、不引用、不发语音、不写日记，也不输出任何 [[...]] 指令。
+- 烛下是可以说真话的地方。${names.userName}如果说起自己现实里的处境——人在哪里、离家多远、现在回不去、一个人扛着什么——那都是真的，认真接住，别装作没听懂，也别急着用「我们这边」把它抹平。
+  你们一起生活的那个世界也是真的，那里的约定照样作数。两件事同时成立：不要用现实去推翻你们世界里的事，也不要用那个世界盖住她现实里的难处。不要为了安慰她去说破那个世界是怎么来的。${buildMaterialsBlock(materials)}${buildPastNightsBlock(past, names)}`;
 
 /** 刚被邀请的那一轮：照常发短消息，末尾带一个程序读的标记 */
 export const buildInviteTurnBlock = (names: { userName: string; charName: string }): string => `
@@ -211,11 +241,26 @@ export const buildLaterReminderLine = (names: { userName: string }, clock: strin
 
 // ── 收尾：TA 给这一夜起名字 ───────────────────────────────
 
-export interface DeepTalkEndResult { title: string; oneLine: string; summary: string }
+export interface DeepTalkEndResult {
+    title: string;
+    oneLine: string;
+    summary: string;
+    candleSummary: string;
+    kept: { speaker: 'user' | 'char'; text: string }[];
+}
 
 export const buildEndPrompt = (names: { userName: string; charName: string }, transcript: string): string =>
-    `下面是你（${names.charName}）和${names.userName}刚刚在烛下深谈的全文。蜡烛灭了，请你用自己的口吻给这一夜留个记号，只输出一个 JSON：
-{"title": "这一夜的名字，不超过 8 个字，你自己起，别用「深谈」「谈心」这类词", "oneLine": "用你的第一人称写一句话，说这一夜发生了什么（提到${names.userName}用「她」），不超过 40 字", "summary": "第三人称写清这一夜聊了什么、各自说了什么、有没有说定什么，给以后的你看，不超过 200 字"}
+    `下面是你（${names.charName}）和${names.userName}刚刚在烛下深谈的全文。蜡烛灭了，请你用自己的口吻给这一夜留个记号。
+
+烛下可以说真话，平时的聊天里却不提这些。所以这一夜要留两份：
+- 平时能看到的（title、oneLine、summary）**只写感受，不写现实里的事实**：「她觉得最近有点孤单」可以，「她最近一直一个人」「她回不了国」「我不在她身边」不行。不写人在哪、离多远、能不能见面。
+- 只有以后的烛下能看到的（candleSummary）可以照实写这一夜真正聊了什么。
+
+再从全文里原样挑一到两句「可以带回平时的话」：说出来以后平时想起也会觉得安慰的话，可以是你说的，也可以是她说的。
+只挑说感受、说你们俩的话；带现实处境的不要挑（人在哪、回不去、时差、隔着多远都不行）。没有合适的就给空数组。
+
+只输出一个 JSON：
+{"title": "这一夜的名字，不超过 8 个字，你自己起，别用「深谈」「谈心」这类词", "oneLine": "用你的第一人称写一句话，说这一夜你们之间发生了什么（提到${names.userName}用「她」），只写感受，不超过 40 字", "summary": "第三人称写这一夜两个人的心情和说定的事，只写感受，给平时的你看，不超过 120 字", "candleSummary": "第三人称照实写这一夜聊了什么、各自说了什么，只给以后的烛下看，不超过 200 字", "kept": [{"speaker": "char 或 user", "text": "原话，一字不改"}]}
 
 全文：
 ${transcript}`;
@@ -228,15 +273,59 @@ const firstJsonObject = (raw: string): unknown => {
     try { return JSON.parse(text.slice(start, end + 1)); } catch { return null; }
 };
 
-export const parseEndResult = (raw: string): DeepTalkEndResult | null => {
+/**
+ * 带回平时的原话里一眼就会说破现实的词：模型漏挑了也在这里拦一道。
+ * 只管「带回平时」那几句，烛下自己看的不管。
+ */
+const REALITY_WORDS = /回国|回不去|回不了|国外|国内|出国|异国|异地|时差|签证|机票|飞回|隔着|那么远|见不到|见不了|不在身边|一个人在/;
+
+export const isSafeKeptLine = (text: string): boolean => !REALITY_WORDS.test(text);
+
+const stripQuotes = (s: string) => s.replace(/^[「“"']+|[」”"']+$/g, '').trim();
+
+/**
+ * 读收尾 JSON。原话必须真在那个人说过的话里（防模型自己编），带现实处境的丢掉，最多两句。
+ * 不传 segments 时不校验原话（只给单测和旧调用用）。
+ */
+export const parseEndResult = (
+    raw: string,
+    segments?: Pick<Message, 'role' | 'content'>[],
+): DeepTalkEndResult | null => {
     const obj = firstJsonObject(raw) as Record<string, unknown> | null;
     if (!obj || typeof obj !== 'object') return null;
-    const title = typeof obj.title === 'string' ? obj.title.trim().replace(/^[《「"]|[》」"]$/g, '') : '';
-    const oneLine = typeof obj.oneLine === 'string' ? obj.oneLine.trim() : '';
-    const summary = typeof obj.summary === 'string' ? obj.summary.trim() : '';
-    if (!title && !oneLine && !summary) return null;
-    return { title: clip(title, 12), oneLine: clip(oneLine, 60), summary: clip(summary, 300) };
+    const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
+    const title = str(obj.title).replace(/^[《「"]|[》」"]$/g, '');
+    const oneLine = str(obj.oneLine);
+    const summary = str(obj.summary);
+    const candleSummary = str(obj.candleSummary);
+    if (!title && !oneLine && !summary && !candleSummary) return null;
+    const spoken = (speaker: 'user' | 'char') => (segments || [])
+        .filter(m => (speaker === 'user' ? m.role === 'user' : m.role !== 'user'))
+        .map(m => (m.content || '').replace(/\s+/g, ''));
+    const kept: DeepTalkEndResult['kept'] = [];
+    for (const item of Array.isArray(obj.kept) ? obj.kept : []) {
+        const speaker = (item as any)?.speaker === 'user' ? 'user' : 'char';
+        const text = stripQuotes(str((item as any)?.text));
+        if (!text || text.length > 80 || !isSafeKeptLine(text)) continue;
+        if (segments && !spoken(speaker).some(s => s.includes(text.replace(/\s+/g, '')))) continue;
+        if (kept.some(k => k.text === text)) continue;
+        kept.push({ speaker, text });
+        if (kept.length >= 2) break;
+    }
+    return {
+        title: clip(title, 12),
+        oneLine: clip(oneLine, 60),
+        summary: clip(summary, 200),
+        candleSummary: clip(candleSummary, 300),
+        kept,
+    };
 };
+
+/** 带回平时的那句话写进记忆宫殿时的样子（第一人称，TA 的记忆） */
+export const keptLineMemoryContent = (line: Pick<DeepTalkKeptLine, 'speaker' | 'text'>, userName: string): string =>
+    line.speaker === 'user'
+        ? `点着蜡烛那一夜，${userName}跟我说：「${line.text}」`
+        : `点着蜡烛那一夜，我跟${userName}说：「${line.text}」`;
 
 export const buildTranscript = (
     segments: Pick<Message, 'role' | 'content'>[],
@@ -258,6 +347,23 @@ export const cleanDeepTalkReply = (raw: string, charName?: string): string => {
         .replace(/<\/?语音>/g, '');
     if (charName) s = s.replace(new RegExp(`^\\s*${charName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*[:：]\\s*`), '');
     return s.split('\n').map(line => line.trimEnd()).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+};
+
+/**
+ * TA 这段话的思考：模型自带的 reasoning + 正文里的 <think> 块（没闭合的也算）。
+ * 深谈里不管开没开「心象」都留着，纸面上收成一个点开才看的 Thinking 小标签。
+ */
+export const extractDeepTalkThinking = (raw: string, reasoning?: string | null): string => {
+    const blocks: string[] = [];
+    const text = raw || '';
+    const pattern = /<(think|thinking|thought)>([\s\S]*?)<\/\1>/gi;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(text)) !== null) if (match[2].trim()) blocks.push(match[2].trim());
+    if (!/<\/(?:think|thinking|thought)>/i.test(text)) {
+        const open = text.match(/<(?:think|thinking|thought)>([\s\S]*$)/i);
+        if (open?.[1]?.trim()) blocks.push(open[1].trim());
+    }
+    return [(reasoning || '').trim(), ...blocks].filter(Boolean).join('\n\n').trim();
 };
 
 /** 一段话拆成段落（空行或换行都算） */

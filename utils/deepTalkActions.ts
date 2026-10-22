@@ -8,7 +8,9 @@ import type { APIConfig, CharacterProfile, Message } from '../types';
 import { DB } from './db';
 import { safeFetchJson } from './safeApi';
 import { resolveCharTimeZone } from './timezone';
-import { AnticipationDB, MemoryNodeDB } from './memoryPalace/db';
+import { AnticipationDB, MemoryNodeDB, MemoryVectorDB } from './memoryPalace/db';
+import { vectorizeAndStore } from './memoryPalace/vectorStore';
+import type { EmbeddingConfig, MemoryNode, RemoteVectorConfig } from './memoryPalace/types';
 import {
     buildCardContent,
     buildEndPrompt,
@@ -19,18 +21,23 @@ import {
     DEEP_TALK_EVENT_KIND,
     DEEP_TALK_SOURCE,
     isDeepTalkMessage,
+    keptLineMemoryContent,
     nextNightNo,
     padNight,
     parseEndResult,
     resolveLaterTime,
     type DeepTalkAnswer,
     type DeepTalkEvent,
+    type DeepTalkKeptLine,
     type DeepTalkMaterials,
     type DeepTalkNight,
+    type PastCandleNight,
 } from './deepTalk';
 import { DeepTalkDB, notifyDeepTalkChanged } from './deepTalkDb';
 
 type Names = { userName: string; charName: string };
+/** 记忆宫殿的向量配置：有就当场向量化，没有就先落盘，等消化时补 */
+export type DeepTalkPalaceConfig = { embedding?: EmbeddingConfig | null; remote?: RemoteVectorConfig | null };
 
 const END_TIMEOUT_MS = 90_000;
 
@@ -126,13 +133,15 @@ export const saveDeepTalkSegment = async (
     nightId: string,
     role: 'user' | 'assistant',
     content: string,
+    thinking?: string,
 ): Promise<number> => {
     const id = await DB.saveMessage({
         charId,
         role,
         type: 'text',
         content,
-        metadata: { source: DEEP_TALK_SOURCE, deepTalkId: nightId },
+        // 思考只存在这条消息上：不进历史正文、深谈原文也不进记忆宫殿
+        metadata: { source: DEEP_TALK_SOURCE, deepTalkId: nightId, ...(thinking ? { deepTalkThinking: thinking } : {}) },
     });
     notifyDeepTalkChanged(charId);
     return id;
@@ -148,6 +157,7 @@ export const endDeepTalk = async (input: {
     names: Names;
     api: Pick<APIConfig, 'baseUrl' | 'apiKey' | 'model'>;
     reason?: 'end' | 'burnt_out';
+    palace?: DeepTalkPalaceConfig | null;
 }): Promise<DeepTalkNight> => {
     const { char, night, names, api } = input;
     const reason = input.reason || 'end';
@@ -184,7 +194,7 @@ export const endDeepTalk = async (input: {
                     { appId: 'chat', appName: '消息', charId: char.id, charName: char.name, purpose: '烛下收尾' },
                 );
                 const content = data?.choices?.[0]?.message?.content;
-                result = typeof content === 'string' ? parseEndResult(content) : null;
+                result = typeof content === 'string' ? parseEndResult(content, segments) : null;
             } catch (error) {
                 console.warn('[DeepTalk] 收尾生成失败', error);
             }
@@ -201,8 +211,17 @@ export const endDeepTalk = async (input: {
         title: result?.title || `第 ${padNight(nightNo)} 夜`,
         oneLine: result?.oneLine || '',
         summary: result?.summary || '',
+        candleSummary: result?.candleSummary || '',
+        kept: [],
         segmentCount: segments.length,
     };
+    // 原文不进记忆宫殿（说真话的夜），只把 TA 挑的那一两句写进去，平时想得起原话
+    for (const line of result?.kept || []) {
+        // palace 传 null = 这个角色没开记忆宫殿：原话只留在这一夜的记录里
+        const memoryId = input.palace === null ? undefined
+            : await saveKeptLineToPalace(char.id, line, names.userName, input.palace).catch(() => undefined);
+        next.kept!.push({ ...line, ...(memoryId ? { memoryId } : {}) });
+    }
     await DeepTalkDB.saveNight(next);
     await saveEvent(char.id, next, reason, names);
     await DB.saveMessage({
@@ -231,5 +250,59 @@ export const loadDeepTalkMaterials = async (charId: string): Promise<DeepTalkMat
             .map(h => h.content || '')
             .filter(Boolean),
     };
+};
+/** 之前几夜在烛下真正聊过的，最近的三夜（开着的深谈里给 TA 看） */
+export const loadPastCandleNights = async (charId: string, excludeId?: string): Promise<PastCandleNight[]> =>
+    (await DeepTalkDB.listClosed(charId)).filter(n => n.id !== excludeId).slice(0, 3);
+
+/** 带回平时的一句话写成 TA 的一条卧室记忆；返回记忆 id（被判重复就没有） */
+export const saveKeptLineToPalace = async (
+    charId: string,
+    line: Pick<DeepTalkKeptLine, 'speaker' | 'text'>,
+    userName: string,
+    palace?: DeepTalkPalaceConfig,
+): Promise<string | undefined> => {
+    const now = Date.now();
+    const node: MemoryNode = {
+        id: `mn_${now}_${Math.random().toString(36).slice(2, 8)}`,
+        charId,
+        content: keptLineMemoryContent(line, userName),
+        room: 'bedroom',
+        tags: ['烛下', '原话'],
+        importance: 7,
+        mood: 'tender',
+        embedded: false,
+        createdAt: now,
+        lastAccessedAt: now,
+        accessCount: 0,
+        origin: 'system',
+    };
+    const embedding = palace?.embedding;
+    if (embedding?.baseUrl && embedding.apiKey) {
+        try {
+            const { stored } = await vectorizeAndStore([node], embedding, palace?.remote || undefined);
+            return stored ? node.id : undefined;
+        } catch (error) {
+            console.warn('[DeepTalk] 原话向量化失败，先存下来等消化时补', error);
+        }
+    }
+    await MemoryNodeDB.save(node);
+    return node.id;
+};
+
+/** 阿萌在信笺里删掉一句不想让 TA 带回去的：连那条记忆一起删 */
+export const removeKeptLine = async (night: DeepTalkNight, index: number, remote?: RemoteVectorConfig | null): Promise<DeepTalkNight> => {
+    const line = night.kept?.[index];
+    if (!line) return night;
+    if (line.memoryId) {
+        const memoryId = line.memoryId;
+        await Promise.all([MemoryVectorDB.delete(memoryId), MemoryNodeDB.delete(memoryId)]).catch(() => {});
+        if (remote?.enabled && remote.initialized) {
+            void import('./memoryPalace/supabaseVector').then(({ deleteVector }) => deleteVector(remote, memoryId)).catch(() => {});
+        }
+    }
+    const next: DeepTalkNight = { ...night, kept: (night.kept || []).filter((_, i) => i !== index) };
+    await DeepTalkDB.saveNight(next);
+    return next;
 };
 // [EM-END: deep-talk]

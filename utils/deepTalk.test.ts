@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
     buildCardContent,
+    buildOpenTurnBlock,
+    buildPastNightsBlock,
+    isSafeKeptLine,
+    keptLineMemoryContent,
     buildMaterialsBlock,
     cleanDeepTalkReply,
     DEEP_TALK_IDLE_MS,
@@ -117,14 +121,67 @@ describe('prompt pieces', () => {
     });
 
     it('parses the end JSON even inside a code fence', () => {
-        expect(parseEndResult('```json\n{"title":"《原地打转》","oneLine":"我第一次跟人说那件事。","summary":"她在想要不要走。"}\n```'))
-            .toEqual({ title: '原地打转', oneLine: '我第一次跟人说那件事。', summary: '她在想要不要走。' });
+        expect(parseEndResult('```json\n{"title":"《原地打转》","oneLine":"我第一次跟人说那件事。","summary":"她有点迷茫。","candleSummary":"她在想要不要走。","kept":[]}\n```'))
+            .toEqual({ title: '原地打转', oneLine: '我第一次跟人说那件事。', summary: '她有点迷茫。', candleSummary: '她在想要不要走。', kept: [] });
         expect(parseEndResult('没有 JSON')).toBeNull();
+    });
+
+    it('keeps only lines that were really said, by that speaker, and safe to bring back', () => {
+        const segments = [
+            { role: 'user' as const, content: '我最近老在想要不要走。我在这边回不去，一个人在宿舍。' },
+            { role: 'assistant' as const, content: '累的时候不用被安慰，可以只是累。\n\n我在。' },
+        ];
+        const raw = JSON.stringify({
+            title: '原地打转', oneLine: '', summary: '她有点累。', candleSummary: '',
+            kept: [
+                { speaker: 'char', text: '「累的时候不用被安慰，可以只是累。」' },
+                { speaker: 'user', text: '我在这边回不去' },          // 现实处境：不带回去
+                { speaker: 'char', text: '我会一直陪着你' },          // 没说过：不收
+                { speaker: 'user', text: '累的时候不用被安慰，可以只是累。' }, // 不是她说的
+                { speaker: 'user', text: '我最近老在想要不要走。' },
+                { speaker: 'char', text: '我在。' },                  // 已经两句了
+            ],
+        });
+        expect(parseEndResult(raw, segments)?.kept).toEqual([
+            { speaker: 'char', text: '累的时候不用被安慰，可以只是累。' },
+            { speaker: 'user', text: '我最近老在想要不要走。' },
+        ]);
     });
 
     it('cleans a reply down to paragraphs', () => {
         const cleaned = cleanDeepTalkReply('<think>想想</think>既白：想过。\n\n\n\n[[SEND_EMOJI: 抱抱]]后来不算了。', '既白');
         expect(cleaned).toBe('想过。\n\n后来不算了。');
         expect(toParagraphs(cleaned)).toEqual(['想过。', '后来不算了。']);
+    });
+});
+
+describe('truth-telling nights', () => {
+    const names = { userName: '阿萌', charName: '既白' };
+
+    it('tells TA reality and the shared world are both true', () => {
+        const block = buildOpenTurnBlock(names);
+        expect(block).toContain('烛下是可以说真话的地方');
+        expect(block).toContain('不要用现实去推翻你们世界里的事');
+    });
+
+    it('lets later candle nights see what earlier ones really said', () => {
+        const block = buildPastNightsBlock([
+            { nightNo: 7, title: '原地打转', candleSummary: '她说在国外回不去。', summary: '她有点孤单。', kept: [{ speaker: 'char', text: '可以只是累' }] },
+        ], names);
+        expect(block).toContain('第07夜《原地打转》：她说在国外回不去。');
+        expect(block).toContain('你说「可以只是累」');
+        expect(buildPastNightsBlock([], names)).toBe('');
+        expect(buildOpenTurnBlock(names, null, [{ nightNo: 1, title: 'x', candleSummary: '聊了很多' }])).toContain('只在烛下记得');
+    });
+
+    it('screens out lines that would give away reality', () => {
+        expect(isSafeKeptLine('你回不了国也没关系')).toBe(false);
+        expect(isSafeKeptLine('我们隔着时差')).toBe(false);
+        expect(isSafeKeptLine('累的时候不用被安慰')).toBe(true);
+    });
+
+    it('writes a kept line as TA\'s own memory', () => {
+        expect(keptLineMemoryContent({ speaker: 'user', text: '想被允许累' }, '阿萌')).toBe('点着蜡烛那一夜，阿萌跟我说：「想被允许累」');
+        expect(keptLineMemoryContent({ speaker: 'char', text: '我在' }, '阿萌')).toBe('点着蜡烛那一夜，我跟阿萌说：「我在」');
     });
 });

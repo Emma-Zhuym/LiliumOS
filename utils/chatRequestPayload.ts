@@ -40,7 +40,7 @@ import { normalizeTranslationLangLabel } from './translationLang';
 import { cleanApiMessages, flattenImageContentParts } from './promptMessageCleanup';
 import { materializeVisionDescriptions } from './visionApi';
 import { buildInviteTurnBlock, buildLaterReminderLine, buildOpenTurnBlock, formatClock, type DeepTalkNight } from './deepTalk'; // [EM: deep-talk]
-import { loadDeepTalkMaterials } from './deepTalkActions'; // [EM: deep-talk]
+import { loadDeepTalkMaterials, loadPastCandleNights } from './deepTalkActions'; // [EM: deep-talk]
 import { resolveCharTimeZone } from './timezone'; // [EM: deep-talk]
 
 export { cleanApiMessages, flattenImageContentParts } from './promptMessageCleanup';
@@ -477,7 +477,11 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     if (input.deepTalk) {
         const names = { userName: userProfile?.name || '用户', charName: char.name };
         if (input.deepTalk.mode === 'open') {
-            volatileTail += buildOpenTurnBlock(names, await loadDeepTalkMaterials(char.id).catch(() => null));
+            volatileTail += buildOpenTurnBlock(
+                names,
+                await loadDeepTalkMaterials(char.id).catch(() => null),
+                await loadPastCandleNights(char.id, input.deepTalk.night.id).catch(() => null),
+            );
         } else if (input.deepTalk.mode === 'invite') {
             volatileTail += buildInviteTurnBlock(names);
         } else if (input.deepTalk.night.laterAt) {
