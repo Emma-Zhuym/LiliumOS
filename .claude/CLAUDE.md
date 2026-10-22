@@ -40,34 +40,32 @@ LiliumOS 默认只用 Git 跟踪的仓库文档在 Claude Code、Codex、两台�
 4. **完工自查**：新页面与 Health/Bank 截图摆一起对比顶栏——不像同一个系统 = 抄漏了，回 §0 重对。
 5. 遇到公约没覆盖的新模式 → 按通用公约推导 → **把结果补录进 APP_CONVENTIONS.md 第二部分模式库**。
 
-## 上游合并策略
+## 吸收上游功能
 
-SullyOS 会持续更新，需要定期合并上游改动。**建议两周一合，别攒**（上游一周能出几十个提交，攒久了很痛）。
+LiliumOS 和 SullyOS 早就各走各的了（git 认的合并基线停在 2026-08-11，之后两边各自几百个提交、核心文件都改了几百行）。
+**没有「合并上游」这件事了**：隔一阵看看上游出了什么，挑真正不错的小功能吸收进来，没有固定节奏（2026-10-21 阿萌定）。
 
-### 合并前审批闸门（最高优先级）
+### 吸收前审批闸门（最高优先级）
 
-**先汇报上游更新，再由阿萌决定要哪些，最后才允许执行合并。** 上游没有 Git 冲突，不代表阿萌接受它新增的产品功能。
+**先汇报上游有什么，再由阿萌挑要哪些，最后才动手。** 能干净套上，不代表阿萌想要这个功能。
 
-1. 调研阶段可以 `git fetch`、查看 log/diff、读取代码和测试，但不得创建或切换合并分支，不得 merge、rebase、cherry-pick、commit 或 push。
-2. 必须先汇报：提交范围和规模、所有用户可见新功能、行为变化、修复与工程改动、和 EM 功能的重叠或冲突，以及逐项建议保留/排除/改造的方案。
-3. 汇报后等待阿萌明确批准。`看看`、`研究一下`、`合并看看`、`看看怎么合`只表示先调研，不是执行授权；只有“按这份清单开始合并”“这些全部要”“把 A/B/C 合进去”等明确答复才算批准。
-4. 即使 Git 自动合并成功，只要是用户可见功能或行为变化，也必须事先列出供阿萌选择。不得把“技术上无冲突”等同于“产品上默认接受”。
-5. 获批后才建立 `merge-upstream-YYYY-MM-DD` 分支。机械冲突按下方策略和 EM 哨兵处理；涉及产品行为、UI、数据语义或两套功能取舍的冲突必须再次询问。
-6. 验收分支完成后先汇报。推进或 push `main` 需要单独、明确批准，不能从“同意合并到验收分支”自行推断。
+1. 调研阶段可以 `git fetch`、查看 log/diff、读取代码和测试，但不得创建或切换验收分支，不得 merge、rebase、cherry-pick、commit 或 push。
+2. 必须先汇报：提交范围和规模、所有用户可见新功能、行为变化、修复与工程改动、和 EM 功能的重叠或冲突，以及逐项建议要 / 不要 / 改了再要。
+3. 汇报后等待阿萌明确批准。`看看`、`研究一下`、`看看上游有啥`、`合并看看`、`看看怎么合`只表示先调研，不是执行授权；只有“按这份清单开始”“这些全部要”“把 A/B/C 拿进来”等明确答复才算批准。
+4. 即使 cherry-pick 能干净套上，只要是用户可见功能或行为变化，也必须事先列出供阿萌选择。不得把“技术上套得上”等同于“产品上默认接受”。
+5. 获批后才建立验收分支 `upstream-picks-YYYY-MM-DD`（2026-10-15 及以前叫 `merge-upstream-YYYY-MM-DD`，旧分支不改名）。机械冲突按下方做法和 EM 哨兵处理；涉及产品行为、UI、数据语义或两套功能取舍的冲突必须再次询问。
+6. 验收分支完成后先汇报。推进或 push `main` 需要单独、明确批准，不能从“同意吸收到验收分支”自行推断。
 7. 如果误操作，立即停止并准确报告 main、工作分支和远端状态；未经阿萌允许，不得删除分支、reset 或 force push 来掩盖。
 
 这条规则高于代理默认的主动执行习惯。
 
-### 按功能移植，不再整体 merge（2026-10-15 起）
-
-两边已经分得太远（git 认的合并基线停在 2026-08-11，两边各自几百个提交、核心文件都改了几百行），整体 `git merge` 不再可行。
-审批闸门不变，执行方式改成：
+### 怎么吸收
 
 - 每轮从上次看到的上游提交往后读（记在最新的 `docs/upstream-sync-YYYY-MM-DD.md` 的「看到哪里」），列清单给阿萌挑
 - 选中的功能逐个进验收分支：能干净套上的 `git cherry-pick -x`；套不上的手工移植，提交写 `port(upstream <hash>): …`
 - 跟 EM 结构差太多的，只参考思路、按 EM 结构自己写，提交里注明参考的上游提交
 - **许可证**：上游 2026-10-02（`daf99a19`）起改为「源码可见许可」，改了自用需 Discord 社区授权（阿萌有），对外分发修改版要另拿书面许可；LiliumOS 仓库是公开的，10/02 之后的上游代码不直接搬进仓库，只读思路自己写
-- 合并基线不会前进，所以别再用 `git merge-base` 判断「同步到哪了」，以同步记录文件为准
+- 两边不会再有新的共同基线，别用 `git merge-base` 判断「看到哪了」，以同步记录文件为准
 
 ### 哨兵注释约定（2026-07 起）
 
@@ -76,12 +74,12 @@ SullyOS 会持续更新，需要定期合并上游改动。**建议两周一合�
 - 多行块：`// [EM-START: 功能名]` ... `// [EM-END: 功能名]`（JSX 里用 `{/* [EM-START: xxx] */}`）
 - 单行改动：行尾 `// [EM: 功能名]`
 
-merge 时 `grep -rn "EM-START\|\[EM:" --include="*.ts" --include="*.tsx"` 就能找到全部个人补丁。
+`grep -rn "EM-START\|\[EM:" --include="*.ts" --include="*.tsx"` 就能找到全部个人补丁；往上游文件里移植改动前先看一眼，别把它们冲掉。
 
-### merge 后必跑自检
+### 吸收后必跑自检
 
 ```bash
-bash scripts/check-em-patches.sh   # 当前 194 项锚点检查，红了就是功能被冲掉
+bash scripts/check-em-patches.sh   # 当前 270 项锚点检查，红了就是功能被冲掉
 pnpm vitest run                    # 单元测试
 ```
 
@@ -89,11 +87,11 @@ pnpm vitest run                    # 单元测试
 
 EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔记/小红书压缩版）**全部在
 `utils/emPromptAddons.ts`**，`chatPrompts.ts` 里只有 import + 一行函数调用。
-改措辞直接改 emPromptAddons.ts；merge 冲突时保住 chatPrompts.ts 里的调用行即可。
+改措辞直接改 emPromptAddons.ts；移植上游 chatPrompts 改动时保住里面的调用行即可。
 
 ## EM 个人功能清单
 
-以下功能是 EM 独有的，上游没有，合并时必须保留：
+以下功能是 EM 独有的，上游没有，吸收上游功能时不得冲掉：
 
 ### 1. 通讯录 (ContactsList / messageSubView)
 - `components/chat/ContactsList.tsx` — 独立文件，不冲突
@@ -251,7 +249,7 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 ### 27. 换皮「F」（2026-09-25）
 - `utils/clayTokens.ts` 是唯一取值来源：全平（`S.*` = none）、中性底、圆角 12、OKLCH 16 色、`FONT` 衬线标题、`OVERLAY` 雾面浮层、`MOTION` 三条曲线
 - `utils/clayMotion.css` 由 clayTokens 顶部 `import './clayMotion.css';` 引入；删掉这行所有动效（sheet 滑入、提示条、圆环画出、选中日弹出）都会失效
-- **两处上游文件补丁**：`components/PhoneShell.tsx` 的提示条改为渲染 `components/os/ClayToast`（`[EM: skin-f-toast]`，一行 import + 一处替换）；`index.html` 字体链接末尾追加 `Noto+Serif+SC:wght@600;700`（上一行有 `[EM: skin-f]` 注释）。合并上游时保住这两处
+- **两处上游文件补丁**：`components/PhoneShell.tsx` 的提示条改为渲染 `components/os/ClayToast`（`[EM: skin-f-toast]`，一行 import + 一处替换）；`index.html` 字体链接末尾追加 `Noto+Serif+SC:wght@600;700`（上一行有 `[EM: skin-f]` 注释）。吸收上游功能时保住这两处
 - 其余 22 个引用 clayTokens 的上游文件不改代码、被动跟着换皮；其中 VRWorld / 记忆宫殿 / Launcher / Chat / CallApp 有上游手写阴影，暂时新旧混搭，按约定不改
 - sheet 打开时自动聚焦必须 `focus({ preventScroll: true })`：sheet 从屏幕外滑入，普通 focus 会把整页外层滚上去（日历「记一件事」踩过）
 - 日历与健康是样板：以后其他 App 迁移照这两个改
@@ -305,7 +303,9 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - 请求统一借 `ghRequest`（`gitBackupContext`），所以三种线路都能列 / 恢复 / 删这种备份；报错沿用 `describeGithubHttpError`
 - 测试里「GitHub 事务式上传」那组用 `vi.spyOn(gitBackup, 'shouldUseGitDataUpload')` 固定在 Release 路径，别删
 
-## 合并时常见坑（踩过的 bug）
+## 吸收上游时常见坑（踩过的 bug）
+
+下面多是以前整体合并时踩的；往同一个文件移植上游改动时照样会踩。
 
 ### PhoneShell.tsx — messageSubView 必须解构
 `useOS()` 解构时**必须**包含 `messageSubView`，否则 Chat 页面直接白屏（只剩背景图）。
@@ -320,10 +320,10 @@ const { ..., messageSubView } = useOS();
 - 头像尺寸 `w-10 h-10`，行间距 `gap-0.5`
 
 ### chatPrompts.ts — 日程注入
-上游 `chatPrompts.ts` 的 `buildSystemPrompt` 会调用 `ContextBuilder.buildScheduleInjection()` 注入角色日程。如果用旧版 EM 的 chatPrompts 会导致角色聊天时完全不知道自己的日程（比如该开会的角色说去床上等你）。合并时优先用上游版本。
+上游 `chatPrompts.ts` 的 `buildSystemPrompt` 会调用 `ContextBuilder.buildScheduleInjection()` 注入角色日程。如果用旧版 EM 的 chatPrompts 会导致角色聊天时完全不知道自己的日程（比如该开会的角色说去床上等你）。这一段别退回旧版 EM 的写法。
 
 ### chatPrompts.ts — notion_diary_nudge
-上游的 chatPrompts 没有 `notion_diary_nudge` 处理。合并后必须在 `buildMessageHistory` 的 interaction 类型判断处手动加回：
+上游的 chatPrompts 没有 `notion_diary_nudge` 处理。移植上游 chatPrompts 改动后必须确认在 `buildMessageHistory` 的 interaction 类型判断处手动加回：
 ```typescript
 if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
     content = `${timeStr} [系统: 用户通过快捷操作希望你立刻写一篇 Notion 私人日记...]`;
@@ -331,13 +331,13 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 ```
 
 ### useChatAI.ts — contextComposition 不能硬编码 0
-合并上游 useChatAI 后，`setContextComposition` 里的值不能写死为 0，必须从 `payload.contextBreakdown` 读取实际值。
+移植上游 useChatAI 改动后，`setContextComposition` 里的值不能写死为 0，必须从 `payload.contextBreakdown` 读取实际值。
 
 ### useChatAI.ts — notionDiaryExtraProperties
 `NotionManager.createDiaryPage()` 必须传第四个参数 `realtimeConfig.notionDiaryExtraProperties`，否则 Notion 日记不会自动填充角色标签等额外列。
 
 ### types.ts — NotionExtraDatabase
-字段名是 `name`（不是 `displayName`），合并时注意不要搞混。
+字段名是 `name`（不是 `displayName`），移植时注意不要搞混。
 
 ### ValentineEvent.tsx — 520 等活动入口
 特别时光 App 的活动入口在 `ValentineEvent.tsx` 的 `SpecialMomentsApp` 组件里。上游新增活动时需要更新此文件（如 Like520Event 的 import 和卡片入口）。
@@ -347,11 +347,11 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 
 ## 架构原则
 
-0. **上游文件的纯类型瑕疵不修**（阿萌 2026-07-10 定）：上游 build 只跑 vite 不跑 tsc，他们看不见自己的类型错误（MemoryPalace 的 char 断言、vite.config 隐式 any 等 ~60 个）。修了只会给未来 merge 埋散点冲突。tsc 错误数只修 EM 自己文件的，数字跟自己比。真影响运行时行为的 bug（如 healthDb openDB 笔误）不在此限。
+0. **上游文件的纯类型瑕疵不修**（阿萌 2026-07-10 定）：上游 build 只跑 vite 不跑 tsc，他们看不见自己的类型错误（MemoryPalace 的 char 断言、vite.config 隐式 any 等 ~60 个）。修了只会给以后移植上游改动埋散点冲突。tsc 错误数只修 EM 自己文件的，数字跟自己比。真影响运行时行为的 bug（如 healthDb openDB 笔误）不在此限。
 
 1. **个人新功能尽量做成独立文件**（新 App、新 util），减少对上游文件的侵入
 2. **必须改上游文件时**，改动越小越好——加一行 import、加一个 case、加一个 hook 调用
-3. **不要大面积重写上游文件**，否则每次合并都痛苦
+3. **不要大面积重写上游文件**，否则以后吸收上游功能会很痛苦
 4. **未来新功能**（如 Notion 高级管理）建议做成独立 App（`apps/NotionApp.tsx`），配置和逻辑放自己的文件里，跟上游 Settings 里的基础 Notion 配置互不干扰
 
 ### 9. 天气 Open-Meteo（免 key）
@@ -455,7 +455,7 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 
 ## 文件说明
 
-- `_em_backup/` — 合并前的 EM 旧版备份，供参考旧逻辑用
+- `_em_backup/` — 以前整体合并上游前留的 EM 旧版备份，供参考旧逻辑用
 - `.claude/launch.json` — Vite dev/preview server 配置
 - 部署：Vercel（绑 GitHub main 分支自动部署）+ GitHub Pages
 
