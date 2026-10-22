@@ -24,7 +24,14 @@ import Settings from '../apps/Settings';
 function Harness() { const [api, setApi] = useState(st.initial), [presets, setPresets] = useState(st.presets); st.latest = { api, presets }; st.ctx = { apiConfig: api, apiPresets: presets, updateApiConfig: (patch: any) => { st.updates(patch); const next = normalizeApiConfig({ ...api, ...patch }); setApi(next); localStorage.setItem('os_api_config', JSON.stringify(next)); }, updateApiPreset: (id: string, name: string, config: any) => { st.presetUpdates(id, name, config); const next = presets.map((x: any) => x.id === id ? { ...x, name, config } : x); localStorage.setItem('os_api_presets', JSON.stringify(next)); setPresets(next); }, removeApiPreset: (id: string) => { const next = presets.filter((x: any) => x.id !== id); localStorage.setItem('os_api_presets', JSON.stringify(next)); setPresets(next); st.sync(api); void st.refresh(api); }, availableModels: ['m-a', 'm-b'], setAvailableModels: vi.fn(), characters: [{ id: 'role-b', name: 'Role B', chatApiPresetId: 'b' }], groups: [], userProfile: { name: 'Test' }, realtimeConfig: {}, cloudBackupConfig: { webdavUrl: '', username: '', password: '' }, sysOperation: { active: false }, addToast: st.toast, showError: vi.fn() }; return React.createElement(Settings); }
 let root: Root, container: HTMLDivElement;
 const section = (title: string) => Array.from(document.querySelectorAll('section')).find(el => el.querySelector('h2')?.textContent === title)!;
-const open = async (title: string) => act(async () => section(title).querySelector<HTMLButtonElement>('button')!.click());
+// [EM: settings-ios-list] 设置改成首页列表 + 子页：「打开某块」= 回到首页再点那一行
+const HOME_ROW: Record<string, string> = { 'API 配置': '主 API', '识图 API': '识图', '生图 API': '生图', '其他 API': '语音与写歌' };
+const open = async (title: string) => {
+    const back = document.querySelector<HTMLButtonElement>('button[aria-label="返回设置"]');
+    if (back) await act(async () => back.click());
+    const row = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(b => b.textContent?.trim().startsWith(HOME_ROW[title]));
+    await act(async () => row!.click());
+};
 const textButton = (text: string, within: ParentNode = document) => Array.from(within.querySelectorAll<HTMLButtonElement>('button')).find(x => x.textContent === text)!;
 const edit = async (input: HTMLInputElement, value: string) => act(async () => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value); input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true })); });
 const key = () => section('API 配置').querySelector<HTMLInputElement>('input[type=password]')!;
@@ -38,9 +45,41 @@ it('a fresh vision setup can fill credentials before enabling without a preset',
 it('editing a role-bound non-global preset refreshes its background route without changing the global API', async () => { await render(); await open('API 配置'); await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="编辑预设 B"]')!.click()); await edit(document.querySelector<HTMLInputElement>('[aria-label="预设Key"]')!, 'test-b-new'); await act(async () => textButton('保存预设').click()); expect(st.latest.api.apiKey).toBe('test-a'); expect(resolveCharacterApiConfig({ chatApiPresetId: 'b' }, st.latest.api).apiConfig.apiKey).toBe('test-b-new'); expect(st.sync).toHaveBeenCalled(); expect(st.refresh).toHaveBeenCalled(); });
 it('main save changes only current config, never rewrites active preset', async () => { await render(); await open('API 配置'); await edit(key(), 'new-main'); await act(async () => textButton('保存配置', section('API 配置')).click()); expect(st.latest.api.apiKey).toBe('new-main'); expect(st.latest.presets[0].config.apiKey).toBe('test-a'); expect(st.presetUpdates).not.toHaveBeenCalled(); });
 it('editing active preset saves global and preset together, cancel does neither', async () => { await render(); await open('API 配置'); await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="编辑预设 A"]')!.click()); await edit(document.querySelector<HTMLInputElement>('[aria-label="预设Key"]')!, 'new-a'); await act(async () => textButton('保存预设').click()); expect(st.latest.api.apiKey).toBe('new-a'); expect(st.latest.presets[0].config.apiKey).toBe('new-a'); expect(key().value).toBe('new-a'); await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="编辑预设 A"]')!.click()); await edit(document.querySelector<HTMLInputElement>('[aria-label="预设Key"]')!, 'cancelled'); await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="关闭编辑预设"]')!.click()); expect(st.latest.api.apiKey).toBe('new-a'); await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="编辑预设 A"]')!.click()); expect(document.querySelector<HTMLInputElement>('[aria-label="预设Key"]')!.value).toBe('new-a'); });
-it('vision, image and TTS saves preserve independent main and other drafts', async () => { await render(); for (const title of ['API 配置', '识图 API', '生图 API', '其他 API'])
-    await open(title); const v = () => section('识图 API').querySelector<HTMLInputElement>('input[type=password]')!, i = () => section('生图 API').querySelector<HTMLInputElement>('input[type=password]')!, t = () => document.querySelector<HTMLInputElement>('[name=minimax-api-secret]')!; await edit(key(), 'main-draft'); await edit(v(), 'vision-draft'); await edit(i(), 'image-draft'); await edit(t(), 'tts-draft'); await act(async () => textButton('保存识图 API').click()); expect(st.latest.api.visionApi.apiKey).toBe('vision-draft'); expect(key().value).toBe('main-draft'); expect(i().value).toBe('image-draft'); expect(t().value).toBe('tts-draft'); await act(async () => textButton('保存生图 API').click()); expect(st.latest.api.imageGeneration.apiKey).toBe('image-draft'); expect(key().value).toBe('main-draft'); expect(t().value).toBe('tts-draft'); await act(async () => textButton('保存其他 API').click()); expect(st.latest.api.minimaxApiKey).toBe('tts-draft'); expect(key().value).toBe('main-draft'); expect(st.latest.api.apiKey).toBe('test-a'); await edit(v(), 'vision-unsaved-2'); await edit(i(), 'image-unsaved-2'); await edit(t(), 'tts-unsaved-2'); await clickPreset('B'); expect(v().value).toBe('vision-unsaved-2'); expect(i().value).toBe('image-unsaved-2'); expect(t().value).toBe('tts-unsaved-2'); expect(key().value).toBe('test-b'); });
-it('vision off immediately saves only enabled=false and preserves saved credentials and draft', async () => { await render(); await open('API 配置'); await open('识图 API'); await edit(key(), 'main-draft'); const v = () => section('识图 API').querySelector<HTMLInputElement>('input[type=password]')!; await edit(v(), 'vision-draft'); await act(async () => section('识图 API').querySelector<HTMLButtonElement>('[role=switch]')!.click()); expect(st.latest.api.visionApi).toMatchObject({ enabled: false, apiKey: 'vision-saved', model: 'vision' }); expect(v().value).toBe('vision-draft'); expect(key().value).toBe('main-draft'); await act(async () => section('识图 API').querySelector<HTMLButtonElement>('[role=switch]')!.click()); expect(st.latest.api.visionApi).toMatchObject({ enabled: true, apiKey: 'vision-draft' }); expect(key().value).toBe('main-draft'); });
+it('vision, image and TTS saves preserve independent main and other drafts', async () => {
+    await render();
+    const v = () => section('识图 API').querySelector<HTMLInputElement>('input[type=password]')!, i = () => section('生图 API').querySelector<HTMLInputElement>('input[type=password]')!, t = () => document.querySelector<HTMLInputElement>('[name=minimax-api-secret]')!;
+    await open('API 配置'); await edit(key(), 'main-draft');
+    await open('识图 API'); await edit(v(), 'vision-draft');
+    await open('生图 API'); await edit(i(), 'image-draft');
+    await open('其他 API'); await edit(t(), 'tts-draft');
+    await open('识图 API'); await act(async () => textButton('保存识图 API').click()); expect(st.latest.api.visionApi.apiKey).toBe('vision-draft');
+    await open('API 配置'); expect(key().value).toBe('main-draft');
+    await open('生图 API'); expect(i().value).toBe('image-draft');
+    await open('其他 API'); expect(t().value).toBe('tts-draft');
+    await open('生图 API'); await act(async () => textButton('保存生图 API').click()); expect(st.latest.api.imageGeneration.apiKey).toBe('image-draft');
+    await open('API 配置'); expect(key().value).toBe('main-draft');
+    await open('其他 API'); expect(t().value).toBe('tts-draft');
+    await act(async () => textButton('保存其他 API').click()); expect(st.latest.api.minimaxApiKey).toBe('tts-draft');
+    await open('API 配置'); expect(key().value).toBe('main-draft'); expect(st.latest.api.apiKey).toBe('test-a');
+    await open('识图 API'); await edit(v(), 'vision-unsaved-2');
+    await open('生图 API'); await edit(i(), 'image-unsaved-2');
+    await open('其他 API'); await edit(t(), 'tts-unsaved-2');
+    await open('API 配置'); await clickPreset('B'); expect(key().value).toBe('test-b');
+    await open('识图 API'); expect(v().value).toBe('vision-unsaved-2');
+    await open('生图 API'); expect(i().value).toBe('image-unsaved-2');
+    await open('其他 API'); expect(t().value).toBe('tts-unsaved-2');
+});
+it('vision off immediately saves only enabled=false and preserves saved credentials and draft', async () => {
+    await render();
+    const v = () => section('识图 API').querySelector<HTMLInputElement>('input[type=password]')!;
+    const toggle = () => act(async () => section('识图 API').querySelector<HTMLButtonElement>('[role=switch]')!.click());
+    await open('API 配置'); await edit(key(), 'main-draft');
+    await open('识图 API'); await edit(v(), 'vision-draft');
+    await toggle(); expect(st.latest.api.visionApi).toMatchObject({ enabled: false, apiKey: 'vision-saved', model: 'vision' }); expect(v().value).toBe('vision-draft');
+    await open('API 配置'); expect(key().value).toBe('main-draft');
+    await open('识图 API'); await toggle(); expect(st.latest.api.visionApi).toMatchObject({ enabled: true, apiKey: 'vision-draft' });
+    await open('API 配置'); expect(key().value).toBe('main-draft');
+});
 it('section reopen keeps local draft while a full Settings remount restores saved values', async () => { await render(); await open('API 配置'); await edit(key(), 'discard-on-remount'); await open('API 配置'); await open('API 配置'); expect(key().value).toBe('discard-on-remount'); st.initial = st.latest.api; st.presets = st.latest.presets; await act(async () => root.render(null)); await render(); await open('API 配置'); expect(key().value).toBe('test-a'); });
 it('deleting a role-bound preset keeps main config and lets the role resolver fall back', async () => { await render(); await open('API 配置'); expect(resolveCharacterApiConfig({ chatApiPresetId: 'b' }, st.latest.api).source).toBe('preset'); await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="长按或双击删除预设 B"]')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))); const resolved = resolveCharacterApiConfig({ chatApiPresetId: 'b' }, st.latest.api); expect(resolved).toMatchObject({ source: 'global', missingPresetId: 'b', apiConfig: { apiKey: 'test-a' } }); expect(st.latest.api.apiKey).toBe('test-a'); expect(st.sync).toHaveBeenCalled(); expect(st.refresh).toHaveBeenCalled(); });
 it('legacy preset keeps saved stream/temperature rather than committing unsaved advanced draft', async () => { delete st.presets[0].config.stream; delete st.presets[0].config.temperature; st.initial.stream = true; st.initial.temperature = 1.25; await render(); await open('API 配置'); await act(async () => Array.from(section('API 配置').querySelectorAll<HTMLButtonElement>('button')).find(x => x.textContent?.includes('高级（不建议修改）'))!.click()); const range = () => section('API 配置').querySelector<HTMLInputElement>('input[type=range]')!; await edit(range(), '0.25'); await clickPreset('A'); expect(st.latest.api.temperature).toBe(1.25); expect(st.latest.api.stream).toBe(true); expect(range().value).toBe('1.25'); });

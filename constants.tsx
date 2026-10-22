@@ -105,7 +105,7 @@ export const INSTALLED_APPS: AppConfig[] = [
   { id: AppID.CheckPhone, name: '查手机', icon: 'CheckPhone', color: 'slate' },
   // { id: AppID.Browser, name: '浏览器', icon: 'Browser', color: 'blue' }, // Hidden
   { id: AppID.Date, name: '见面', icon: 'Date', color: 'pink' },
-  { id: AppID.User, name: '档案', icon: 'User', color: 'blue' },
+  // { id: AppID.User, name: '档案', icon: 'User', color: 'blue' }, // [EM: settings-ios-list] 档案收进设置顶上的个人卡片（openApp(AppID.User) 仍可渲染）
   { id: AppID.Bank, name: '存钱罐', icon: 'Bank', color: 'lime' }, // Hidden
   { id: AppID.Health, name: '健康', icon: 'Health', color: 'rose' },
   { id: AppID.Shopping, name: '投喂站', icon: 'Shopping', color: 'teal' },

@@ -363,9 +363,18 @@ check "消息长按：存为表情包" components/chat/ChatModals.tsx "{selected
 check "Chat 挂描述弹窗" apps/Chat.tsx "<EmojiDescriptionModal emoji={emojiDescriptionTarget}"
 check "Chat 挂存表情弹窗" apps/Chat.tsx "<SaveImageAsEmojiModal message={emojiFromMessage}"
 
+echo "── 设置页：苹果式分组列表 ──"
+check "设置页：首页列表" apps/Settings.tsx "{!settingsPage && <SettingsHome values={settingsHomeValues} onOpen={setSettingsPage} onOpenApiLog={() => setShowApiCallLog(true)} />}"
+check "设置页：外壳不再原地折叠" apps/Settings.tsx "const SettingsSectionTitleContext = React.createContext(false);"
+check "设置页：F 顶栏子页返回首页" apps/Settings.tsx "onClick={() => (settingsPage ? setSettingsPage(null) : closeApp())}"
+check "设置页：个人档案子页" apps/Settings.tsx "{onPage('profile') && <ProfileSettingsPage />}"
+check "设置页：Instant Push 只在开着时出现" apps/Settings.tsx "{onPage('push') && instantPushOn && (<>"
+check "设置页：mini 子页直接展开" components/settings/AgentBackendSection.tsx "useState(defaultOpen)"
+check "桌面不再放档案" constants.tsx "// { id: AppID.User, name: '档案', icon: 'User', color: 'blue' }, // [EM: settings-ios-list]"
+
 echo ""
 if [ $FAIL -gt 0 ]; then
-    echo "🔴 $FAIL 项缺失（$PASS 项通过）——EM 功能被 merge 冲掉了，对照 .claude/CLAUDE.md 补回来"
+    echo "🔴 $FAIL 项缺失（$PASS 项通过）——EM 功能被冲掉了，对照 .claude/CLAUDE.md 补回来"
     exit 1
 else
     echo "🟢 全部 $PASS 项通过，EM 功能完好"

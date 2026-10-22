@@ -61,7 +61,7 @@ import { normalizeApiBaseUrl, normalizeApiCredential, normalizeApiModel } from '
 import { describeImageWithVisionApi, VISION_API_TEST_IMAGE_DATA_URL, visionApiConfigFromPreset } from '../utils/visionApi';
 import { readLiliumOSStorage, writeLiliumOSStorage } from '../utils/liliumosStorage';
 import { buildImageModelsUrl, generateChatImage, resolveImageGenerationConfig } from '../utils/imageGeneration';
-import { F, HUE, R, S, SP, STATUS } from '../utils/clayTokens';
+import { F, FONT, HUE, R, S, SP, STATUS, iconButtonBare } from '../utils/clayTokens'; // [EM: settings-ios-list] FONT、iconButtonBare
 import { askRestoreBackendConnection } from '../utils/activeMsgStore';
 import CloudBackupAutoStatus from '../components/settings/CloudBackupAutoStatus'; // [EM: auto-cloud-backup]
 // [EM-START: github-backup-status]
@@ -71,6 +71,16 @@ import GithubBackupRoute from '../components/settings/GithubBackupRoute';
 import ClayDialog from '../components/os/ClayDialog';
 import { groupApiPresets, listPresetGroups } from '../utils/apiPresetGroups'; // [EM: api-preset-group]
 // [EM-END: github-backup-status]
+// [EM-START: settings-ios-list]
+import SettingsHome, { type SettingsHomeValues } from '../components/settings/SettingsHome';
+import McpStatusPanel from '../components/settings/McpStatusPanel';
+import ProfileSettingsPage from '../components/settings/ProfileSettingsPage';
+import { CaretLeft } from '@phosphor-icons/react';
+import { MULTI_SECTION_PAGES, SETTINGS_PAGE_TITLES, relativeAgo, type SettingsPageId } from '../utils/emSettingsPages';
+import { staleBackupDays } from '../utils/autoCloudBackup';
+import { loadInstantConfig } from '../utils/instantPushClient';
+import { APP_VERSION } from '../utils/buildInfo';
+// [EM-END: settings-ios-list]
 
 const MOTION_ENABLED_KEY = 'liliumos_motion_enabled';
 const LEGACY_MOTION_ENABLED_KEYS = ['sullyem_motion_enabled'];
@@ -159,9 +169,13 @@ const formatBackupBytes = (bytes: number): string => {
     return `${(bytes / 1024 / 1024).toFixed(bytes >= 100 * 1024 * 1024 ? 0 : 1)} MB`;
 };
 
+// [EM-START: settings-ios-list]
+/** 一页里放了不止一块时（备份页、推送页）才露出每块的小标题；单块的页面顶栏标题就够了。 */
+const SettingsSectionTitleContext = React.createContext(false);
+
 /**
- * 设置大板块的折叠外壳：默认收起，标题行常显、点击开合；
- * actions 放右侧动作（配置按钮 / 状态 chip / 问号），点击不触发开合。
+ * 设置大板块的外壳。原来是原地折叠的长卡片（展开两屏还得划回去收），
+ * 现在每块都推进成子页，这里只剩一张白卡 + 右上角的动作（配置按钮 / 状态 chip / 问号）。
  */
 const SettingsSection: React.FC<{
     icon: React.ReactNode;
@@ -170,25 +184,28 @@ const SettingsSection: React.FC<{
     actions?: React.ReactNode;
     sectionProps?: Record<string, any>;
     children: React.ReactNode;
-}> = ({ icon, title, badge, actions, sectionProps, children }) => {
-    const [open, setOpen] = useState(false);
+}> = ({ title, badge, actions, sectionProps, children }) => {
+    const showTitle = React.useContext(SettingsSectionTitleContext);
     return (
-        <section {...sectionProps} className="bg-[#fffefe] rounded-3xl p-5 shadow-[0_8px_24px_rgba(15,23,42,0.05)] border border-slate-200/80">
-            <div className={`flex items-center justify-between gap-2 ${open ? 'mb-4' : ''}`}>
-                <button type="button" onClick={() => setOpen(v => !v)} className="flex items-center gap-2 flex-1 min-w-0 rounded-xl text-left outline-none focus-visible:ring-2 focus-visible:ring-slate-300">
-                    {icon}
-                    <h2 className="text-sm font-semibold text-slate-600 tracking-wider">{title}</h2>
-                    {badge}
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className={`w-3 h-3 text-slate-300 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-                    </svg>
-                </button>
-                {actions && <div className="flex items-center gap-2 shrink-0">{actions}</div>}
+        <section {...sectionProps} className="flex flex-col" style={{ gap: 8, ...(sectionProps?.style || {}) }}>
+            {/* 只有一块的页面，顶栏已经写了标题：小标题留给读屏 */}
+            {!showTitle && <h2 className="sr-only">{title}</h2>}
+            {(showTitle || badge || actions) && (
+                <div className="flex items-center justify-between gap-2 px-1" style={{ minHeight: 28 }}>
+                    <div className="flex items-center gap-2 min-w-0">
+                        {showTitle && <h2 style={{ ...FONT.sectionTitle, fontFamily: FONT.heading, color: F.textPrimary, margin: 0 }}>{title}</h2>}
+                        {badge}
+                    </div>
+                    {actions && <div className="flex items-center gap-2 shrink-0">{actions}</div>}
+                </div>
+            )}
+            <div style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, padding: 16 }}>
+                {children}
             </div>
-            {open && children}
         </section>
     );
 };
+// [EM-END: settings-ios-list]
 
 let mcpToolConfigSyncTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingMcpToolConfigSync: (() => void) | null = null;
@@ -2165,8 +2182,36 @@ const Settings: React.FC = () => {
       }
   };
 
+  // [EM-START: settings-ios-list] 苹果式分组列表：首页一列短行、右边写状态，点进子页
+  const [settingsPage, setSettingsPage] = useState<SettingsPageId | null>(null);
+  const onPage = (id: SettingsPageId) => settingsPage === id;
+  const instantPushOn = (() => { try { return loadInstantConfig().enabled === true; } catch { return false; } })();
+  const settingsHomeValues: SettingsHomeValues = (() => {
+      const now = Date.now();
+      const imageGen = resolveImageGenerationConfig(apiConfig.imageGeneration);
+      const realtimeOn = [
+          realtimeConfig.weatherEnabled && '天气', realtimeConfig.newsEnabled && '新闻', realtimeConfig.notionEnabled && 'Notion',
+          realtimeConfig.feishuEnabled && '飞书', realtimeConfig.xhsEnabled && '小红书',
+      ].filter(Boolean) as string[];
+      return {
+          mainApi: apiPresets.find(p => p.id === activePresetId)?.name || String(apiConfig.model || '') || '未设置',
+          vision: apiConfig.visionApi?.enabled ? (apiConfig.visionApi.model || '已接入') : '未接入',
+          image: imageGen.provider === 'pollinations-free' ? '内置免费' : (imageGen.model || '自定义'),
+          voice: apiConfig.minimaxApiKey || apiConfig.fishAudioApiKey ? '已设置' : '未设置',
+          realtime: realtimeOn.length ? realtimeOn.slice(0, 2).join(' · ') + (realtimeOn.length > 2 ? ' 等' : '') : '都关着',
+          proxy: getProxyWorkerUrl() === DEFAULT_PROXY_WORKER ? '默认' : '自定义',
+          backup: cloudBackupConfig.lastBackupTime ? relativeAgo(cloudBackupConfig.lastBackupTime, now) : (cloudBackupConfig.enabled ? '还没成功过' : '没开云端'),
+          amsg: '',
+          push: isPushVapidReady() ? '已设置' : '未设置',
+          version: APP_VERSION.replace(/\s*[（(].*$/, ''),
+          staleBackupDays: staleBackupDays(cloudBackupConfig, now),
+          instantPushOn,
+      };
+  })();
+  // [EM-END: settings-ios-list]
+
   return (
-    <div className="h-full w-full bg-[#f3f4f8] flex flex-col font-light relative isolate">
+    <div className="h-full w-full flex flex-col font-light relative isolate" style={{ background: F.appBg }}> {/* [EM: settings-ios-list] */}
 
       {/* GLOBAL PROGRESS OVERLAY */}
       {sysOperation.status === 'processing' && (
@@ -2183,23 +2228,32 @@ const Settings: React.FC = () => {
           </div>
       )}
 
-      {/* Header */}
-      <div className="bg-[#fffefe] border-b border-slate-200 shrink-0 z-10 sticky top-0" style={{ paddingTop: 'var(--safe-top)' }}>
-        <div className="flex items-center px-4 py-3">
-        <div className="flex items-center gap-2 w-full">
-            <button onClick={closeApp} className="p-2 -ml-2 rounded-full hover:bg-black/5 active:scale-90 transition-transform">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6 text-slate-600">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
-                </svg>
-            </button>
-            <h1 className="text-xl font-medium text-slate-700 tracking-wide">系统设置</h1>
-        </div>
+      {/* [EM-START: settings-ios-list] F 顶栏：首页返回桌面，子页返回首页 */}
+      <div className="shrink-0 z-10" style={{ paddingTop: 'var(--chrome-top)', background: F.appBg }}>
+        <div className="relative flex items-center" style={{ minHeight: 52, padding: '0 8px' }}>
+          <button type="button" onClick={() => (settingsPage ? setSettingsPage(null) : closeApp())} aria-label={settingsPage ? '返回设置' : '返回'}
+            className="relative z-10 flex items-center justify-center active:opacity-40 transition-opacity" style={iconButtonBare}>
+            <CaretLeft size={22} weight="bold" color={F.textPrimary} />
+          </button>
+          <h1 className="absolute left-0 right-0 text-center pointer-events-none truncate" style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: F.textPrimary, padding: '0 64px', margin: 0 }}>
+            {settingsPage ? SETTINGS_PAGE_TITLES[settingsPage] : '设置'}
+          </h1>
         </div>
       </div>
+      {/* [EM-END: settings-ios-list] */}
 
-      <div className="flex-1 overflow-y-auto p-5 space-y-6 no-scrollbar pb-20">
+      {/* [EM-START: settings-ios-list] 首页是分组列表，子页只渲染属于它的那几块；换页时滚动回顶 */}
+      <div key={settingsPage ?? 'home'} className="flex-1 overflow-y-auto no-scrollbar flex flex-col" style={{ padding: '4px 16px 80px', gap: 22, background: F.appBg }}>
+      <SettingsSectionTitleContext.Provider value={!!settingsPage && MULTI_SECTION_PAGES.has(settingsPage)}>
+        {!settingsPage && <SettingsHome values={settingsHomeValues} onOpen={setSettingsPage} onOpenApiLog={() => setShowApiCallLog(true)} />}
+        {onPage('profile') && <ProfileSettingsPage />}
+        {onPage('mcp') && <McpStatusPanel />}
+        {onPage('storage') && <StorageUsagePanel />}
+        {onPage('external-images') && (<><ExternalImagesPanel /> {/* [EM: external-images-rescue] */}</>)}
+      {/* [EM-END: settings-ios-list] */}
         
-        <AppearanceEmergency />
+        {onPage('appearance') && <AppearanceEmergency />} {/* [EM: settings-ios-list] */}
+        {onPage('backup') && (<> {/* [EM: settings-ios-list] */}
         {/* 数据备份区域 */}
         <SettingsSection
             title="备份与恢复 (ZIP)"
@@ -2209,8 +2263,7 @@ const Settings: React.FC = () => {
                 </div>
             }
         >
-            <StorageUsagePanel />
-            <ExternalImagesPanel /> {/* [EM: external-images-rescue] */}
+            {/* [EM: settings-ios-list] 存储空间、外链图片各自成了一页，挪到滚动区开头 */}
 
             <label
                 className="mb-3 flex items-start gap-2 p-3 cursor-pointer"
@@ -2394,10 +2447,13 @@ const Settings: React.FC = () => {
                 格式化系统 (出厂设置)
             </button>
         </SettingsSection>
+        </>)} {/* [EM: settings-ios-list] */}
 
+        {onPage('backup') && (<> {/* [EM: settings-ios-list] */}
         {/* 云端备份区域 */}
         <SettingsSection
             title="云端备份"
+            sectionProps={{ style: { order: -1 } }} // [EM: settings-ios-list] 备份页里云端在前
             icon={
                 <div className="p-2 bg-sky-100 rounded-xl text-sky-600">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15a4.5 4.5 0 004.5 4.5H18a3.75 3.75 0 001.332-7.257 3 3 0 00-3.758-3.848 5.25 5.25 0 00-10.233 2.33A4.502 4.502 0 002.25 15z" /></svg>
@@ -2526,7 +2582,9 @@ const Settings: React.FC = () => {
                 备份保存在你自己的账号下；若使用中转，凭据和备份会经过配置的中转服务。
             </p>
         </SettingsSection>
+        </>)} {/* [EM: settings-ios-list] */}
 
+        {onPage('api-main') && (<> {/* [EM: settings-ios-list] */}
         {/* AI 连接设置区域 */}
         <SettingsSection
             title="API 配置"
@@ -2726,7 +2784,9 @@ const Settings: React.FC = () => {
                 )}
             </div>
         </SettingsSection>
+        </>)} {/* [EM: settings-ios-list] */}
 
+        {onPage('api-vision') && (<> {/* [EM: settings-ios-list] */}
         {/* 独立识图 API：给不支持 image_url 的主模型补视觉能力；可手动从通用模型预设载入。 */}
         <SettingsSection
             title="识图 API"
@@ -2881,7 +2941,9 @@ const Settings: React.FC = () => {
                 )}
             </div>
         </SettingsSection>
+        </>)} {/* [EM: settings-ios-list] */}
 
+        {onPage('api-image') && (<> {/* [EM: settings-ios-list] */}
         {/* 聊天 [[SEND_PHOTO]] 的独立生图通道。默认沿用免配置免费服务；自定义接口可上传角色立绘作身份参考。 */}
         <SettingsSection
             title="生图 API"
@@ -3128,7 +3190,9 @@ const Settings: React.FC = () => {
                 )}
             </div>
         </SettingsSection>
+        </>)} {/* [EM: settings-ios-list] */}
 
+        {onPage('api-main') && (<> {/* [EM: settings-ios-list] */}
         {/* API 调用记录入口 — 点开看最近 5 天各 App / 角色 / 用途的调用明细 */}
         <button
             type="button"
@@ -3148,7 +3212,9 @@ const Settings: React.FC = () => {
                 <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 0 1 .02-1.06L11.168 10 7.23 6.29a.75.75 0 1 1 1.04-1.08l4.5 4.25a.75.75 0 0 1 0 1.08l-4.5 4.25a.75.75 0 0 1-1.06-.02Z" clipRule="evenodd" />
             </svg>
         </button>
+        </>)} {/* [EM: settings-ios-list] */}
 
+        {onPage('voice') && (<> {/* [EM: settings-ios-list] */}
         {/* 其他 API 区域 — 非 LLM 类（语音、写歌等），不会跟随预设切换 */}
         <SettingsSection
             title="其他 API"
@@ -3415,7 +3481,9 @@ const Settings: React.FC = () => {
                 </button>
             </div>
         </SettingsSection>
+        </>)} {/* [EM: settings-ios-list] */}
 
+        {onPage('realtime') && (<> {/* [EM: settings-ios-list] */}
         {/* 实时感知配置区域 */}
         <SettingsSection
             title="实时感知"
@@ -3483,7 +3551,9 @@ const Settings: React.FC = () => {
                 </button>
             </div>
         </SettingsSection>
+        </>)} {/* [EM: settings-ios-list] */}
 
+        {onPage('mcp') && (<> {/* [EM: settings-ios-list] */}
         {/* MCP 工具服务器（高级玩法）—— 通用外接工具，独立于实时感知 */}
         <SettingsSection
             title="MCP 工具服务器"
@@ -3525,7 +3595,9 @@ const Settings: React.FC = () => {
                 );
             })()}
         </SettingsSection>
+        </>)} {/* [EM: settings-ios-list] */}
 
+        {onPage('push') && (<> {/* [EM: settings-ios-list] */}
         {/* ───────── 推送凭据 (VAPID) ───────── */}
         {/* VAPID 公私钥, 与 Proactive / Instant Push 共用一份 — 独立成块, 避免再被当成 */}
         {/* Instant Push 的子配置, 也避免两边 key 不一致互相抢同一个 pushManager 订阅. */}
@@ -3557,7 +3629,9 @@ const Settings: React.FC = () => {
                 {isPushVapidReady() ? '查看 / 重新生成' : '生成 VAPID 密钥对 →'}
             </button>
         </SettingsSection>
+        </>)} {/* [EM: settings-ios-list] */}
 
+        {onPage('push') && (<> {/* [EM: settings-ios-list] */}
         {/* ───────── 推送订阅状态（诊断 + 重置） ───────── */}
         <SettingsSection
             title="推送订阅状态"
@@ -3571,7 +3645,9 @@ const Settings: React.FC = () => {
         >
             <PushSubscriptionPanel addToast={addToast} />
         </SettingsSection>
+        </>)} {/* [EM: settings-ios-list] */}
 
+        {onPage('push') && (<> {/* [EM: settings-ios-list] */}
         {/* ───────── 主动消息 Push 加速器（开关） ───────── */}
         {SHOW_PROACTIVE_PUSH_ACCEL_UI && ppAvailable && (
         <SettingsSection
@@ -3757,7 +3833,9 @@ const Settings: React.FC = () => {
             </div>
         </SettingsSection>
         )}
+        </>)} {/* [EM: settings-ios-list] */}
 
+        {onPage('push') && instantPushOn && (<> {/* [EM: settings-ios-list] */}
         {/* ───────── Instant Push ───────── */}
         <SettingsSection
             title="Instant Push"
@@ -3781,7 +3859,9 @@ const Settings: React.FC = () => {
                 与上方 Push 加速器不同：前端发 prompt 到你自部署的 Worker，Worker 调你自己的 LLM 生成回复后分句逐条 Web Push。零数据库、零 cron。
             </p>
         </SettingsSection>
+        </>)} {/* [EM: settings-ios-list] */}
 
+        {onPage('intiface') && (<> {/* [EM: settings-ios-list] */}
         {/* EM: Intiface 硬件集成 */}
         <section className="bg-white/80 rounded-3xl p-5 shadow-sm border border-white/50">
             <div className="flex items-center gap-2 mb-1">
@@ -3888,6 +3968,8 @@ const Settings: React.FC = () => {
                 </div>
             )}
         </section>
+        </>)} {/* [EM: settings-ios-list] */}
+        {onPage('amsg') && (<> {/* [EM: settings-ios-list] */}
         {/* ───────── 主动消息 2.0（定时推送） ───────── */}
         <section className="bg-white/80 rounded-3xl p-5 shadow-sm border border-white/50">
             <div className="flex items-center justify-between mb-3">
@@ -3910,12 +3992,14 @@ const Settings: React.FC = () => {
                 角色到点自动给你发消息，App 关着也能收。需要你自己部署一个 Cloudflare Worker（自带 D1 数据库 + 定时触发），在配置里填地址即可。聊天上云（即时对话）与定时主动消息都由它承担。
             </p>
         </section>
+        </>)} {/* [EM: settings-ios-list] */}
 
-        <FirecrawlSettings />
+        {onPage('web-fetch') && <FirecrawlSettings />} {/* [EM: settings-ios-list] */}
 
+        {onPage('proxy') && (<> {/* [EM: settings-ios-list] */}
         {/* 自定义网络代理 — 刻意低调的高级入口。默认折叠，不主动指引基本发现不了。
             普通用户无需配置：默认走作者部署的公共 Worker，所有功能开箱即用。 */}
-        {!showProxyConfig ? (
+        {!showProxyConfig && !onPage('proxy') ? ( // [EM: settings-ios-list] 在代理页里直接展开
             <button
                 onClick={() => setShowProxyConfig(true)}
                 className="w-full text-center text-[10px] text-slate-300 hover:text-slate-400 py-1 transition-colors"
@@ -3962,11 +4046,13 @@ const Settings: React.FC = () => {
                 </p>
             </section>
         )}
+        </>)} {/* [EM: settings-ios-list] */}
 
         {/* [EM-START: agent-backend-panel] 放在最后：日常用不到，不该挤在备份和 API 前面 */}
-        <AgentBackendSection />
+        {onPage('mini') && <AgentBackendSection defaultOpen />} {/* [EM: settings-ios-list] */}
         {/* [EM-END: agent-backend-panel] */}
 
+        {onPage('about') && (<> {/* [EM: settings-ios-list] */}
         <VersionInfo />
 
         {/* QQ 小群入口不主动曝光：接近水印，仅在 hover / 键盘聚焦 / 按住时略微显现。 */}
@@ -3978,6 +4064,8 @@ const Settings: React.FC = () => {
         >
             · 社区迁移说明 ·
         </button>
+        </>)} {/* [EM: settings-ios-list] */}
+      </SettingsSectionTitleContext.Provider> {/* [EM: settings-ios-list] */}
       </div>
 
       {/* 主动消息 Push 加速 · 启用前确认 */}

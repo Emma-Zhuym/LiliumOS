@@ -38,7 +38,7 @@ const DEP_LABELS: Record<string, string> = {
 const BTN = 'py-2.5 bg-white border border-slate-200 rounded-xl text-[11px] font-bold text-slate-600 shadow-sm active:scale-95 transition-all disabled:opacity-50';
 const INPUT = 'w-full bg-white/80 border border-slate-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-violet-300';
 
-export default function AgentBackendSection() {
+export default function AgentBackendSection({ defaultOpen = false }: { defaultOpen?: boolean } = {}) { // [EM: settings-ios-list] 设置子页里直接展开
     const { addToast, openApp } = useOS(); // [EM: machine-room] openApp
     const [config, setConfig] = useState(loadAgentConfig);
     const [status, setStatus] = useState<AgentStatus | null>(null);
@@ -51,7 +51,7 @@ export default function AgentBackendSection() {
     const [pairing, setPairing] = useState(false);
     const [busy, setBusy] = useState(false);
     const [agentChat, setAgentChat] = useState(isAgentChatEnabled); // [EM: agent-instant-chat]
-    const [open, setOpen] = useState(false);
+    const [open, setOpen] = useState(defaultOpen);
     const [form, setForm] = useState({ baseUrl: '', code: '', deviceName: '' });
     const [heartbeatOpen, setHeartbeatOpen] = useState(false);
     const [temporalOpen, setTemporalOpen] = useState(false); // [EM: calendar-temporal]

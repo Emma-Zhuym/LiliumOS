@@ -334,8 +334,9 @@ describe('CompanionHome touch request boundaries', () => {
   it('keeps system settings on opaque neutral surfaces', () => {
     const source = readFileSync(path.resolve(__dirname, '../apps/Settings.tsx'), 'utf8');
 
-    expect(source).toContain('bg-[#f3f4f8]');
-    expect(source).toContain('bg-[#fffefe]');
+    // [EM: settings-ios-list] 换成 F：整页 appBg、每块白卡，都不透明
+    expect(source).toContain("style={{ background: F.appBg }}");
+    expect(source).toContain('background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard');
     expect(source).not.toContain('bg-slate-50/50 flex flex-col');
   });
 

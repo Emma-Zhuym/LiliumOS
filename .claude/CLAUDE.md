@@ -79,7 +79,7 @@ LiliumOS 和 SullyOS 早就各走各的了（git 认的合并基线停在 2026-0
 ### 吸收后必跑自检
 
 ```bash
-bash scripts/check-em-patches.sh   # 当前 270 项锚点检查，红了就是功能被冲掉
+bash scripts/check-em-patches.sh   # 当前 277 项锚点检查，红了就是功能被冲掉
 pnpm vitest run                    # 单元测试
 ```
 
@@ -423,6 +423,16 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - 读图 API：识图 API（开着优先）/ 主 API / 任一预设，选择存本机 `lilium.emoji.visionChoice`，不进备份
 - 弹窗都是 EM 自己的文件：`components/chat/EmojiDescriptionModal.tsx`、`SaveImageAsEmojiModal.tsx`、`EmojiVisionControls.tsx`；上游 `ChatModals.tsx` 只多两个可选 prop 和两个按钮，`Chat.tsx` 两个 state + 两个弹窗
 - 存为表情包：图一律尽量存本机（令牌直接共用、data URL 转令牌、网址先试下载），下不了才留网址并提示
+
+### 40. 设置页：苹果式分组列表（2026-10-21）
+- 首页 `components/settings/SettingsHome.tsx`：个人卡片 + 有事才出现的提醒行 + API / 连接 / 备份 / 后台 / 其他五组，每行右边直接写状态，点一行推进子页。样稿 https://claude.ai/artifact/9ptEF5b6AV45mUnBuMcvbN
+- 纯逻辑（子页清单、标题、右侧状态怎么说、提醒行什么时候冒）在 `utils/emSettingsPages.ts`；MCP 体检在 `utils/emMcpHealth.ts`（只测不改配置，5 分钟内不重测）
+- 上游 `apps/Settings.tsx` 只有接线（`[EM-START/EM: settings-ios-list]`）：`SettingsSection` 不再原地折叠，改成白卡外壳（单块的页小标题只给读屏）；原来每一大块用 `{onPage('…') && (<>…</>)}` 包住，内容一个字没改；顶栏换 F（子页返回首页）
+- 「档案」App 收进设置顶上的个人卡片（`ProfileSettingsPage.tsx`），桌面图标在 `constants.tsx` 注释掉，`AppID.User` 仍能打开
+- Instant Push 已停用：推送页里只在它还开着时出现，首页提醒行催去关（开着会抢在 mini 前面接走聊天）
+- 测试 `utils/apiSettingsUi.test.ts` 的 `open()` 是「回首页再点那一行」，跨几块的草稿测试按子页来回切
+- 图标格是灰底 32px（公约 C 的例外，见 `APP_CONVENTIONS.md` P16）；设置认领的主色是 `HUE.blue`
+- 还没做：设置里的心跳面板、脾气编辑、配对搬进机房；子页里面的上游内容换成 F
 
 ### 34. 小厨房（现实食品库存）
 - 详细设计与每次改动见 `docs/kitchen-3d.md`；UI 规则见 `APP_CONVENTIONS.md` 的 P14 与 `utils/kitchenPaperTokens.ts`
