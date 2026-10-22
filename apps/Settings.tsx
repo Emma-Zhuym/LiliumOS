@@ -76,7 +76,7 @@ import SettingsHome, { type SettingsHomeValues } from '../components/settings/Se
 import McpStatusPanel from '../components/settings/McpStatusPanel';
 import ProfileSettingsPage from '../components/settings/ProfileSettingsPage';
 import { CaretLeft } from '@phosphor-icons/react';
-import { MULTI_SECTION_PAGES, SETTINGS_PAGE_TITLES, relativeAgo, type SettingsPageId } from '../utils/emSettingsPages';
+import { MULTI_SECTION_PAGES, REALTIME_SHEET_PAGES, SETTINGS_PAGE_TITLES, relativeAgo, type SettingsPageId } from '../utils/emSettingsPages';
 import { staleBackupDays } from '../utils/autoCloudBackup';
 import { loadInstantConfig } from '../utils/instantPushClient';
 import { APP_VERSION } from '../utils/buildInfo';
@@ -2187,10 +2187,17 @@ const Settings: React.FC = () => {
   // [EM-START: settings-ios-list] 苹果式分组列表：首页一列短行、右边写状态，点进子页
   const [settingsPage, setSettingsPage] = useState<SettingsPageId | null>(null);
   const onPage = (id: SettingsPageId) => settingsPage === id;
+  // [EM-START: settings-split-senses] 实时感知那张配置单拆给三页：感知（天气、新闻、运动）/ 日记同步 / 小红书。
+  // 不在这三页上（从别处当弹窗打开）时全显示，跟原来一样。
+  const rtSheetShows = (section: 'sense' | 'diary' | 'xhs') => {
+      if (!settingsPage || !REALTIME_SHEET_PAGES.has(settingsPage)) return true;
+      return (section === 'sense' && settingsPage === 'realtime') || (section === 'diary' && settingsPage === 'diary-sync') || (section === 'xhs' && settingsPage === 'xhs');
+  };
+  // [EM-END: settings-split-senses]
   // [EM: settings-inline-config] 实时感知 / MCP / 主动消息的配置直接铺在子页里：留给它们的节点 + 进出页时补上弹窗开合要做的事
   const [inlineSlot, setInlineSlot] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
-      if (settingsPage === 'realtime') openRealtimeModal(); // 跟点「配置」一样先把 Notion 栏位读出来
+      if (settingsPage && REALTIME_SHEET_PAGES.has(settingsPage)) openRealtimeModal(); // 跟点「配置」一样先把 Notion 栏位读出来 [EM: settings-split-senses] 三页共用这张配置
       else setShowRealtimeModal(false);
       if (settingsPage !== 'mcp') flushMcpToolConfigSync(); // 离开 MCP 页 = 原来关弹窗：攒着的改动当场传上去
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2199,16 +2206,17 @@ const Settings: React.FC = () => {
   const settingsHomeValues: SettingsHomeValues = (() => {
       const now = Date.now();
       const imageGen = resolveImageGenerationConfig(apiConfig.imageGeneration);
-      const realtimeOn = [
-          realtimeConfig.weatherEnabled && '天气', realtimeConfig.newsEnabled && '新闻', realtimeConfig.notionEnabled && 'Notion',
-          realtimeConfig.feishuEnabled && '飞书', realtimeConfig.xhsEnabled && '小红书',
-      ].filter(Boolean) as string[];
+      // [EM: settings-split-senses] 感知只算天气、新闻、运动；日记同步、小红书各算各的
+      const realtimeOn = [realtimeConfig.weatherEnabled && '天气', realtimeConfig.newsEnabled && '新闻', rtMotionEnabled && '运动'].filter(Boolean) as string[];
+      const diaryOn = [realtimeConfig.notionEnabled && 'Notion', realtimeConfig.feishuEnabled && '飞书'].filter(Boolean) as string[];
       return {
           mainApi: apiPresets.find(p => p.id === activePresetId)?.name || String(apiConfig.model || '') || '未设置',
           vision: apiConfig.visionApi?.enabled ? (apiConfig.visionApi.model || '已接入') : '未接入',
           image: imageGen.provider === 'pollinations-free' ? '内置免费' : (imageGen.model || '自定义'),
           voice: apiConfig.minimaxApiKey || apiConfig.fishAudioApiKey ? '已设置' : '未设置',
-          realtime: realtimeOn.length ? realtimeOn.slice(0, 2).join(' · ') + (realtimeOn.length > 2 ? ' 等' : '') : '都关着',
+          realtime: realtimeOn.length ? realtimeOn.join(' · ') : '都关着',
+          diary: diaryOn.length ? diaryOn.join(' · ') : '没开', // [EM: settings-split-senses]
+          xhs: realtimeConfig.xhsEnabled ? (rtXhsMode === 'local' ? 'mini 上那台' : '云端 Lite') : '没开', // [EM: settings-split-senses]
           proxy: getProxyWorkerUrl() === DEFAULT_PROXY_WORKER ? '默认' : '自定义',
           backup: cloudBackupConfig.lastBackupTime ? relativeAgo(cloudBackupConfig.lastBackupTime, now) : (cloudBackupConfig.enabled ? '还没成功过' : '没开云端'),
           amsg: '',
@@ -3508,10 +3516,10 @@ const Settings: React.FC = () => {
             // [EM: settings-inline-config] 配置直接铺在这一页下面，不再要「配置」按钮（原来是 openRealtimeModal，带 [EM: notion-extra-init]，现在进页时调）
         >
             <p className="text-xs text-slate-500 mb-3 leading-relaxed">
-                让AI角色感知真实世界：天气、新闻热点、当前时间。角色可以根据天气关心你、聊聊最近的热点话题。
+                让AI角色感知真实世界：天气、新闻热点、当前时间。角色可以根据天气关心你、聊聊最近的热点话题。日记同步和小红书在「角色能用的工具」里。{/* [EM: settings-split-senses] */}
             </p>
 
-            <div className="grid grid-cols-6 gap-2 text-center">
+            <div className="grid grid-cols-3 gap-2 text-center"> {/* [EM: settings-split-senses] 只剩感知三项；Notion / 飞书 / 小红书各自一页 */}
                 <div className={`py-3 rounded-xl text-xs font-bold ${rtWeatherEnabled ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-400'}`}>
                     <div className="text-lg mb-1">{rtWeatherEnabled ? <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/2600.png" className="w-5 h-5 inline" alt="" /> : <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f32b.png" className="w-5 h-5 inline" alt="" />}</div>
                     天气
@@ -3519,18 +3527,6 @@ const Settings: React.FC = () => {
                 <div className={`py-3 rounded-xl text-xs font-bold ${rtNewsEnabled ? 'bg-blue-50 text-blue-600' : 'bg-slate-50 text-slate-400'}`}>
                     <div className="text-lg mb-1">{rtNewsEnabled ? <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f4f0.png" className="w-5 h-5 inline" alt="" /> : <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f4c4.png" className="w-5 h-5 inline" alt="" />}</div>
                     新闻
-                </div>
-                <div className={`py-3 rounded-xl text-xs font-bold ${rtNotionEnabled ? 'bg-orange-50 text-orange-600' : 'bg-slate-50 text-slate-400'}`}>
-                    <div className="text-lg mb-1">{rtNotionEnabled ? <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f4dd.png" className="w-5 h-5 inline" alt="" /> : <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f4cb.png" className="w-5 h-5 inline" alt="" />}</div>
-                    Notion
-                </div>
-                <div className={`py-3 rounded-xl text-xs font-bold ${rtFeishuEnabled ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-50 text-slate-400'}`}>
-                    <div className="text-lg mb-1">{rtFeishuEnabled ? <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f4d2.png" className="w-5 h-5 inline" alt="" /> : <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f4cb.png" className="w-5 h-5 inline" alt="" />}</div>
-                    飞书
-                </div>
-                <div className={`py-3 rounded-xl text-xs font-bold ${rtXhsEnabled ? 'bg-red-50 text-red-600' : 'bg-slate-50 text-slate-400'}`}>
-                    <div className="text-lg mb-1">{rtXhsEnabled ? <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f4d5.png" className="w-5 h-5 inline" alt="" /> : <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f4cb.png" className="w-5 h-5 inline" alt="" />}</div>
-                    小红书
                 </div>
                 <button
                     onClick={async () => {
@@ -4665,13 +4661,14 @@ const Settings: React.FC = () => {
       </Modal>
 
       {/* 实时感知配置 Modal */}
-      <SettingsSheet inline={onPage('realtime')} // [EM: settings-inline-config]
+      <SettingsSheet inline={onPage('realtime') || onPage('diary-sync') || onPage('xhs')} // [EM: settings-inline-config] [EM: settings-split-senses]
           isOpen={showRealtimeModal}
-          title="实时感知配置"
+          title={settingsPage && REALTIME_SHEET_PAGES.has(settingsPage) && settingsPage !== 'realtime' ? SETTINGS_PAGE_TITLES[settingsPage] : '实时感知配置'}
           onClose={() => setShowRealtimeModal(false)}
           footer={<button onClick={handleSaveRealtimeConfig} className="w-full py-3 bg-violet-500 text-white font-bold rounded-2xl shadow-lg">保存配置</button>}
       >
           <div className="space-y-5 max-h-[60vh] overflow-y-auto no-scrollbar">
+              {rtSheetShows('sense') && (<> {/* [EM: settings-split-senses] 天气、新闻是感知 */}
               {/* 天气配置 */}
               <div className="bg-emerald-50/50 p-4 rounded-2xl space-y-3">
                   <div className="flex items-center justify-between">
@@ -4776,7 +4773,9 @@ const Settings: React.FC = () => {
                       </div>
                   )}
               </div>
+              </>)} {/* [EM: settings-split-senses] */}
 
+              {rtSheetShows('diary') && (<> {/* [EM: settings-split-senses] Notion / 飞书日记单独一页（工具） */}
               {/* Notion 配置 */}
               <div className="bg-orange-50/50 p-4 rounded-2xl space-y-3">
                   <div className="flex items-center justify-between">
@@ -4923,7 +4922,9 @@ const Settings: React.FC = () => {
                       </div>
                   )}
               </div>
+              </>)} {/* [EM: settings-split-senses] */}
 
+              {rtSheetShows('xhs') && (<> {/* [EM: settings-split-senses] 小红书单独一页（工具） */}
               {/* 小红书自动化 */}
               <div className="bg-red-50/50 p-4 rounded-2xl space-y-3">
                   <div className="flex items-center justify-between">
@@ -5109,7 +5110,9 @@ const Settings: React.FC = () => {
                       </div>
                   )}
               </div>
+              </>)} {/* [EM: settings-split-senses] */}
 
+              {rtSheetShows('sense') && (<> {/* [EM: settings-split-senses] 运动也是感知 */}
               {/* 运动感知 */}
               <div className="bg-purple-50/50 p-4 rounded-2xl space-y-3">
                   <div className="flex items-center justify-between">
@@ -5156,6 +5159,7 @@ const Settings: React.FC = () => {
                       </div>
                   )}
               </div>
+              </>)} {/* [EM: settings-split-senses] */}
 
               {/* 测试状态 */}
               {rtTestStatus && (

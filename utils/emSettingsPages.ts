@@ -10,7 +10,7 @@
 export type SettingsPageId =
     | 'profile'
     | 'api-main' | 'api-vision' | 'api-image' | 'voice'
-    | 'mcp' | 'realtime' | 'web-fetch' | 'intiface' | 'proxy'
+    | 'mcp' | 'realtime' | 'diary-sync' | 'xhs' | 'web-fetch' | 'intiface' | 'proxy'
     | 'backup' | 'storage' | 'external-images'
     | 'mini' | 'amsg' | 'push'
     | 'appearance' | 'about';
@@ -23,6 +23,9 @@ export const SETTINGS_PAGE_TITLES: Record<SettingsPageId, string> = {
     voice: '语音与写歌',
     mcp: 'MCP 工具',
     realtime: '实时感知',
+    // 2026-10-22 结构梳理：Notion / 飞书日记、小红书原来塞在实时感知里，它们是角色能用的工具，各自一页
+    'diary-sync': '日记同步',
+    xhs: '小红书',
     'web-fetch': '网页抓取',
     intiface: 'Intiface 硬件',
     proxy: 'Worker 代理',
@@ -38,6 +41,9 @@ export const SETTINGS_PAGE_TITLES: Record<SettingsPageId, string> = {
 
 /** 一页里放了不止一块原内容时，每块要露出自己的小标题，不然分不清。 */
 export const MULTI_SECTION_PAGES: ReadonlySet<SettingsPageId> = new Set<SettingsPageId>(['backup', 'push']);
+
+/** 共用「实时感知配置」那张单子的三页：进页时都要先读一遍配置（Notion 栏位等）。 */
+export const REALTIME_SHEET_PAGES: ReadonlySet<SettingsPageId> = new Set<SettingsPageId>(['realtime', 'diary-sync', 'xhs']);
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
