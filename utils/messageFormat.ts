@@ -11,7 +11,7 @@
  * 抽到这里后单点维护。
  */
 
-import { transcriptForPrompt } from './emBiliTranscriptPrompt'; // [EM: bili-transcript]
+import { transcriptBriefForPrompt, transcriptForPrompt } from './emBiliTranscriptPrompt'; // [EM: bili-transcript]
 import type { Message, Emoji } from '../types';
 import { formatLifeSimResetCardForContext } from './lifeSimChatCard';
 import { formatQixiEventCardForContext, tryParseQixiEventChatCard } from './qixiChatCard';
@@ -99,6 +99,8 @@ export function normalizeMessageContent(
     msg: Message,
     charName: string,
     userName: string,
+    /** [EM: webpage-card-history] brief：分享过几轮的网页 / 视频卡片只留一小段，不再每轮带全文 */
+    opts?: { brief?: boolean },
 ): string {
     const type = msg.type as string;
 
@@ -299,7 +301,7 @@ export function normalizeMessageContent(
                 v.commentCount ? `评论 ${formatStatCount(v.commentCount)}` : '',
                 v.collectCount ? `收藏 ${formatStatCount(v.collectCount)}` : '',
             ].filter(Boolean);
-            const transcript = transcriptForPrompt(meta); // [EM: bili-transcript] B 站链接经 mini 读到的字幕
+            const transcript = opts?.brief ? transcriptBriefForPrompt(meta) : transcriptForPrompt(meta); // [EM: bili-transcript] B 站链接经 mini 读到的字幕
             const note = transcript ?? (isImage
                 ? '（注：你能看到的是这个图文的标题、作者和热度数据，看不到图片内容本身，别假装看过图。）'
                 : '（注：你能看到的是这个视频的标题、作者和热度数据，看不到视频画面和声音，别假装看过视频内容。）');
@@ -317,6 +319,11 @@ export function normalizeMessageContent(
         // 正文抓空（登录墙 / SPA 动态渲染等）：明确告诉角色没读到正文，避免它对着标题瞎编网页内容。
         if (!bodyRaw) {
             return `${head}\n（注：这个网页的正文没能抓取到——可能需要登录，或是用 JS 动态渲染的页面。你只看到标题和链接，不知道正文写了什么，别假装读过内容。）`;
+        }
+        // [EM: webpage-card-history] 分享过几轮以后只留开头一小段
+        if (opts?.brief) {
+            const lead = bodyRaw.length > 200 ? bodyRaw.slice(0, 200) + '…' : bodyRaw;
+            return `${head}\n正文开头：${lead}\n（注：你之前读过全文，这里只留开头提个醒；细节记不清就别硬编。）`;
         }
         const body = bodyRaw.length > 1500 ? bodyRaw.slice(0, 1500) + '…（正文过长已截断）' : bodyRaw;
         return `${head}\n网页正文：\n${body}`;

@@ -104,6 +104,9 @@ function summarizeGroupMsgContent(m: Message): string {
     }
 }
 
+/** [EM: webpage-card-history] 网页 / 视频卡片分享后这么多轮以内带全文（正文、B 站字幕）；按阿萌之后说了几次话算，TA 拆成几条气泡不算 */
+export const WEBPAGE_CARD_FULL_ROUNDS = 5;
+
 export type ChatModeTransition = 'call' | 'video' | 'date' | 'story';
 
 const getChatModeTransition = (message: Message): ChatModeTransition | null => {
@@ -1267,9 +1270,12 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
                         content = `${timeStr} [系统卡片]`;
                     }
                 }
-                // [EM: webpage-card-history] 网页 / 视频卡片：正文和 B 站字幕在 metadata.webpage 里，content 只是标题
+                // [EM: webpage-card-history] 网页 / 视频卡片：正文和 B 站字幕在 metadata.webpage 里，content 只是标题。
+                // 刚分享的五轮以内带全文；更早的只留开头一小段，免得之后每一轮都扛着几千字
                 else if ((m.type as string) === 'webpage_card') {
-                    content = `${timeStr} ${normalizeMessageContent(m, char?.name || '你', userProfile?.name || '用户')}`;
+                    const roundsAfter = historySlice.slice(index + 1).filter(later => later.role === 'user' && !later.metadata?.proactiveHint).length;
+                    const brief = roundsAfter >= WEBPAGE_CARD_FULL_ROUNDS;
+                    content = `${timeStr} ${normalizeMessageContent(m, char?.name || '你', userProfile?.name || '用户', { brief })}`;
                 }
                 else if ((m.type as string) === 'trpg_card' || (m.type as string) === 'novel_card') {
                     // TRPG 跑团片段 / 笔友会小说章节：从对应 app 多选转发进来的内容。
