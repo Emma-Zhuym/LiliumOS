@@ -387,6 +387,9 @@ check "设置：实时感知内嵌" apps/Settings.tsx "<SettingsSheet inline={on
 check "设置：MCP 内嵌" apps/Settings.tsx "<SettingsSheet inline={onPage('mcp')}"
 check "主动消息 2.0 内嵌" components/settings/ActiveMsgGlobalSettingsModal.tsx "inline={inline} // [EM: settings-inline-config]"
 
+echo "── 网页卡片进私聊历史 ──"
+check "网页 / B 站卡片正文和字幕进历史" utils/chatPrompts.ts "[EM: webpage-card-history]"
+
 echo ""
 if [ $FAIL -gt 0 ]; then
     echo "🔴 $FAIL 项缺失（$PASS 项通过）——EM 功能被冲掉了，对照 .claude/CLAUDE.md 补回来"

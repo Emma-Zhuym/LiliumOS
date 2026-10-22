@@ -282,7 +282,7 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - 12 个工具全只读（视频信息 / 字幕 / 章节 / 评论 / 搜视频 / 搜 UP 主 / 收藏夹），不需要停用名单；阿萌 2026-10-08 定「只读，不需要输出」，不得加发评论 / 弹幕 / 动态类工具
 - **启动必须 `node <真实路径>/dist/cli.js`**，`npx` / `.bin` 软链接在 Node 23/24 上静默退出；**必须 `USER_AGENT=bilibili-mcp/1.14.2`**，默认浏览器 UA 读视频被 B 站 412。两条都在 `run-macos.sh`
 - 登录 Cookie 在 mini 的 `~/.bilibili-mcp/config.json`，扫码要在 mini 本人的大终端窗口里做；没装 ASR，无字幕视频读不到正文
-- **聊天里发 B 站链接读字幕**（2026-10-14）：`apps/Chat.tsx` 建 webpage_card 前，`utils/emBiliTranscript.ts` 从已发现的 MCP 工具清单里找 B 站那台的字幕工具（不写死工具名 / 参数名）读字幕，存 `webpage.transcript`；`utils/messageFormat.ts` 视频分支经 `utils/emBiliTranscriptPrompt.ts`（不带依赖，messageFormat 会进 worker）把字幕喂给角色。两处哨兵 `[EM: bili-transcript]`
+- **聊天里发 B 站链接读字幕**（2026-10-14）：`apps/Chat.tsx` 建 webpage_card 前，`utils/emBiliTranscript.ts` 从已发现的 MCP 工具清单里找 B 站那台的字幕工具（不写死工具名 / 参数名）读字幕，存 `webpage.transcript`；`utils/messageFormat.ts` 视频分支经 `utils/emBiliTranscriptPrompt.ts`（不带依赖，messageFormat 会进 worker）把字幕喂给角色。两处哨兵 `[EM: bili-transcript]`。**私聊历史要经 `chatPrompts.ts` 的 `[EM: webpage-card-history]` 分支走 `normalizeMessageContent`**——2026-10-22 之前没有这一支，网页卡片只把标题给了角色，字幕和网页正文都白读
 - 心跳自己逛 B 站还没做（`docs/ideas.md`）
 
 ### 32. 断网可打开（离线 app shell）+ 云端自动备份
