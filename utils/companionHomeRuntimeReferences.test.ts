@@ -335,7 +335,7 @@ describe('CompanionHome touch request boundaries', () => {
     const source = readFileSync(path.resolve(__dirname, '../apps/Settings.tsx'), 'utf8');
 
     // [EM: settings-ios-list] 换成 F：整页 appBg、每块白卡，都不透明
-    expect(source).toContain("style={{ background: F.appBg }}");
+    expect(source).toContain("style={{ ...SETTINGS_F_VARS, background: F.appBg }}");
     expect(source).toContain('background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard');
     expect(source).not.toContain('bg-slate-50/50 flex flex-col');
   });

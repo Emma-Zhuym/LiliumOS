@@ -434,7 +434,10 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - Instant Push 已停用：推送页里只在它还开着时出现，首页提醒行催去关（开着会抢在 mini 前面接走聊天）
 - 测试 `utils/apiSettingsUi.test.ts` 的 `open()` 是「回首页再点那一行」，跨几块的草稿测试按子页来回切
 - 图标格是灰底 32px（公约 C 的例外，见 `APP_CONVENTIONS.md` P16）；设置认领的主色是 `HUE.blue`
-- 设置 → Mac mini 只管配对（见第 37 节分工）；还没做：子页里面的上游内容换成 F
+- 设置 → Mac mini 只管配对（见第 37 节分工）
+- **子页换 F 皮（2026-10-22）不改上游 JSX**：设置根节点挂 `settings-f` + `SETTINGS_F_VARS`（`components/settings/settingsF.ts`，取值全来自 clayTokens），`settingsF.css` 把上游 Tailwind 的颜色 / 圆角 / 阴影 / 10px 小字映射成 F：装饰色（violet / sky / indigo…）一律收成设置主色 `HUE.blue`，绿 / 琥珀 / 红走状态色，渐变拍平，开关打开一律主色
+- 颜色那一大段由 `node scripts/gen-settings-skin.mjs` 扫设置页和 `components/settings/*` 生成，**上游设置页加了新颜色类就重跑它**；只认真正的颜色名，`border-b`、`text-xs` 这种不能当颜色
+- 内联 style 不受这层皮管：生图页上游写的是 `HUE.rose` 内联（一页一色，不算违规）；Intiface 标题的 🎮、几处 💡 / 🔗 / 🧪 是写在上游文字里的 emoji，要去掉得改上游 JSX
 
 ### 34. 小厨房（现实食品库存）
 - 详细设计与每次改动见 `docs/kitchen-3d.md`；UI 规则见 `APP_CONVENTIONS.md` 的 P14 与 `utils/kitchenPaperTokens.ts`

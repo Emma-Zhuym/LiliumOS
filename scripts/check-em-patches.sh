@@ -374,6 +374,11 @@ check "机房：推送登记 / 连通测试 / 收信箱" components/machineRoom/
 check "机房：作废设备" components/machineRoom/LinksView.tsx "AgentBackend.revokeDevice(device.id)"
 check "桌面不再放档案" constants.tsx "// { id: AppID.User, name: '档案', icon: 'User', color: 'blue' }, // [EM: settings-ios-list]"
 
+echo "── 设置页子页换 F 皮 ──"
+check "设置根节点挂 F 皮" apps/Settings.tsx "className={\`h-full w-full flex flex-col relative isolate \${SETTINGS_F_CLASS}\`}"
+check "F 皮变量来自 clayTokens" components/settings/settingsF.ts "export const SETTINGS_F_VARS"
+check "F 皮颜色映射已生成" components/settings/settingsF.css ".settings-f .peer:checked ~"
+
 echo ""
 if [ $FAIL -gt 0 ]; then
     echo "🔴 $FAIL 项缺失（$PASS 项通过）——EM 功能被冲掉了，对照 .claude/CLAUDE.md 补回来"

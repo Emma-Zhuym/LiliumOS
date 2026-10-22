@@ -1,0 +1,277 @@
+/* [EM-START: settings-skin-f]
+   设置页换 F 皮：把上游 Tailwind 的颜色 / 圆角 / 阴影 / 小字统一映射到 F。
+   变量由 components/settings/settingsF.ts 从 clayTokens 注入，这里不写任何色值。
+   用 `.settings-f [class~="…"]`（两层类）压过 Tailwind 的单类；内联 style（已经是 F 的 EM 组件）不受影响。
+   颜色那一大段由 scripts/gen-settings-skin.mjs 生成，上游加了新颜色类就重跑它。 */
+
+.settings-f { font-family: var(--sf-body); font-weight: 400; color: var(--sf-text); }
+
+/* ── 全平：去掉所有投影与 focus 光圈 ── */
+.settings-f [class*="shadow"] { box-shadow: none !important; }
+.settings-f [class*="ring-"] { --tw-ring-color: transparent; --tw-ring-offset-width: 0; }
+.settings-f :focus-visible { outline: 2px solid var(--sf-accent); outline-offset: 2px; }
+
+/* ── 小字：F 最小 12px ── */
+.settings-f [class~="text-[9px]"],
+.settings-f [class~="text-[10px]"],
+.settings-f [class~="text-[11px]"] { font-size: 12px; }
+
+/* ── 标题衬线 ── */
+.settings-f h2, .settings-f h3 { font-family: var(--sf-heading); letter-spacing: 0; }
+
+/* ── 白卡 ── */
+.settings-f [class~="bg-white"], .settings-f [class~="bg-white/50"], .settings-f [class~="bg-white/60"],
+.settings-f [class~="bg-white/70"], .settings-f [class~="bg-white/80"], .settings-f [class~="bg-white/90"],
+.settings-f [class~="bg-[#fffefe]"] { background-color: var(--sf-surface); }
+.settings-f [class~="border-white/20"], .settings-f [class~="border-white/50"] { border-color: var(--sf-border); }
+
+/* ── 渐变一律拍平（全系统禁止渐变填充），底色由下面 from-* 的映射决定 ── */
+.settings-f [class~="bg-gradient-to-r"], .settings-f [class~="bg-gradient-to-br"],
+.settings-f [class~="bg-gradient-to-b"], .settings-f [class~="bg-gradient-to-tr"] { background-image: none; }
+
+/* ── 颜色映射（scripts/gen-settings-skin.mjs 生成，别手改）── */
+.settings-f [class~="bg-gray-200"],
+.settings-f [class~="bg-slate-200"],
+.settings-f [class~="bg-slate-300"] { background-color: var(--sf-border-strong); }
+.settings-f [class~="bg-red-500"],
+.settings-f [class~="bg-rose-500"],
+.settings-f [class~="from-rose-400"],
+.settings-f [class~="from-rose-500"] { background-color: var(--sf-danger); }
+.settings-f [class~="bg-red-100"],
+.settings-f [class~="bg-red-50"],
+.settings-f [class~="bg-red-50/50"],
+.settings-f [class~="bg-rose-100"],
+.settings-f [class~="bg-rose-50"],
+.settings-f [class~="bg-rose-50/60"],
+.settings-f [class~="from-rose-50"] { background-color: var(--sf-danger-tint); }
+.settings-f [class~="bg-emerald-500"],
+.settings-f [class~="bg-emerald-600"],
+.settings-f [class~="bg-green-400"] { background-color: var(--sf-ok); }
+.settings-f [class~="bg-emerald-100"],
+.settings-f [class~="bg-emerald-100/50"],
+.settings-f [class~="bg-emerald-50"],
+.settings-f [class~="bg-emerald-50/40"],
+.settings-f [class~="bg-emerald-50/50"],
+.settings-f [class~="bg-green-100"] { background-color: var(--sf-ok-tint); }
+.settings-f .peer:checked ~ [class~="peer-checked:bg-blue-500"],
+.settings-f .peer:checked ~ [class~="peer-checked:bg-emerald-500"],
+.settings-f .peer:checked ~ [class~="peer-checked:bg-indigo-500"],
+.settings-f .peer:checked ~ [class~="peer-checked:bg-orange-400"],
+.settings-f .peer:checked ~ [class~="peer-checked:bg-orange-500"],
+.settings-f .peer:checked ~ [class~="peer-checked:bg-purple-500"],
+.settings-f .peer:checked ~ [class~="peer-checked:bg-red-500"],
+.settings-f .peer:checked ~ [class~="peer-checked:bg-rose-500"],
+.settings-f .peer:checked ~ [class~="peer-checked:bg-violet-500"],
+.settings-f .peer:checked ~ [class~="peer-checked:bg-yellow-500"],
+.settings-f [class~="bg-amber-500"],
+.settings-f [class~="bg-blue-500"],
+.settings-f [class~="bg-indigo-500"],
+.settings-f [class~="bg-orange-500"],
+.settings-f [class~="bg-primary"],
+.settings-f [class~="bg-sky-500"],
+.settings-f [class~="bg-teal-500"],
+.settings-f [class~="bg-violet-500"],
+.settings-f [class~="bg-violet-600"],
+.settings-f [class~="from-amber-400"],
+.settings-f [class~="from-violet-400"],
+.settings-f [class~="from-violet-500"] { background-color: var(--sf-p-main); }
+.settings-f [class~="bg-violet-300"] { background-color: var(--sf-p-soft); }
+.settings-f [class~="bg-blue-100"],
+.settings-f [class~="bg-blue-50"],
+.settings-f [class~="bg-blue-50/50"],
+.settings-f [class~="bg-blue-50/60"],
+.settings-f [class~="bg-cyan-50"],
+.settings-f [class~="bg-fuchsia-50"],
+.settings-f [class~="bg-indigo-100"],
+.settings-f [class~="bg-indigo-100/60"],
+.settings-f [class~="bg-indigo-50"],
+.settings-f [class~="bg-indigo-50/50"],
+.settings-f [class~="bg-pink-50"],
+.settings-f [class~="bg-primary/10"],
+.settings-f [class~="bg-primary/5"],
+.settings-f [class~="bg-primary/50"],
+.settings-f [class~="bg-primary/55"],
+.settings-f [class~="bg-purple-100"],
+.settings-f [class~="bg-purple-50"],
+.settings-f [class~="bg-purple-50/50"],
+.settings-f [class~="bg-sky-100"],
+.settings-f [class~="bg-sky-100/60"],
+.settings-f [class~="bg-sky-50"],
+.settings-f [class~="bg-sky-50/60"],
+.settings-f [class~="bg-teal-100"],
+.settings-f [class~="bg-teal-100/60"],
+.settings-f [class~="bg-violet-100"],
+.settings-f [class~="bg-violet-100/40"],
+.settings-f [class~="bg-violet-100/50"],
+.settings-f [class~="bg-violet-100/60"],
+.settings-f [class~="bg-violet-100/80"],
+.settings-f [class~="bg-violet-50"],
+.settings-f [class~="bg-violet-50/60"] { background-color: var(--sf-p-tint); }
+.settings-f [class~="bg-slate-100"],
+.settings-f [class~="bg-slate-100/60"],
+.settings-f [class~="bg-slate-50"],
+.settings-f [class~="bg-slate-50/60"],
+.settings-f [class~="bg-slate-50/70"] { background-color: var(--sf-sunken); }
+.settings-f [class~="bg-slate-400"],
+.settings-f [class~="bg-slate-700"],
+.settings-f [class~="bg-slate-800"],
+.settings-f [class~="bg-slate-900"],
+.settings-f [class~="from-slate-800"] { background-color: var(--sf-text); }
+.settings-f [class~="bg-amber-100"],
+.settings-f [class~="bg-amber-100/50"],
+.settings-f [class~="bg-amber-50"],
+.settings-f [class~="bg-amber-50/60"],
+.settings-f [class~="bg-amber-50/70"],
+.settings-f [class~="bg-amber-50/80"],
+.settings-f [class~="bg-orange-100"],
+.settings-f [class~="bg-orange-50"],
+.settings-f [class~="bg-orange-50/50"],
+.settings-f [class~="bg-yellow-100"],
+.settings-f [class~="bg-yellow-50/60"] { background-color: var(--sf-warn-tint); }
+.settings-f [class~="border-slate-100"],
+.settings-f [class~="border-slate-200"],
+.settings-f [class~="border-slate-200/60"],
+.settings-f [class~="border-slate-200/70"],
+.settings-f [class~="border-slate-200/80"] { border-color: var(--sf-border); }
+.settings-f [class~="border-slate-300"] { border-color: var(--sf-border-strong); }
+.settings-f [class~="border-rose-500"] { border-color: var(--sf-danger); }
+.settings-f [class~="border-red-100"],
+.settings-f [class~="border-red-200"],
+.settings-f [class~="border-rose-100"],
+.settings-f [class~="border-rose-200"],
+.settings-f [class~="border-rose-200/40"],
+.settings-f [class~="border-rose-200/50"],
+.settings-f [class~="border-rose-200/60"] { border-color: var(--sf-danger-soft); }
+.settings-f [class~="border-emerald-400"],
+.settings-f [class~="border-emerald-600"] { border-color: var(--sf-ok); }
+.settings-f [class~="border-emerald-100/70"],
+.settings-f [class~="border-emerald-100/80"],
+.settings-f [class~="border-emerald-200"],
+.settings-f [class~="border-emerald-200/70"],
+.settings-f [class~="border-emerald-300"] { border-color: var(--sf-ok-soft); }
+.settings-f [class~="border-blue-200"],
+.settings-f [class~="border-blue-200/50"],
+.settings-f [class~="border-indigo-200"],
+.settings-f [class~="border-primary"],
+.settings-f [class~="border-primary/15"],
+.settings-f [class~="border-primary/20"],
+.settings-f [class~="border-primary/25"],
+.settings-f [class~="border-primary/30"],
+.settings-f [class~="border-violet-100"],
+.settings-f [class~="border-violet-200"],
+.settings-f [class~="border-violet-300"] { border-color: var(--sf-p-soft); }
+.settings-f [class~="border-amber-100"],
+.settings-f [class~="border-amber-200"],
+.settings-f [class~="border-amber-200/60"],
+.settings-f [class~="border-amber-400"],
+.settings-f [class~="border-orange-200"],
+.settings-f [class~="border-orange-200/50"],
+.settings-f [class~="border-orange-300"],
+.settings-f [class~="border-yellow-200"] { border-color: var(--sf-warn-soft); }
+.settings-f [class~="text-red-400"],
+.settings-f [class~="text-red-500"],
+.settings-f [class~="text-red-500/70"],
+.settings-f [class~="text-red-600"],
+.settings-f [class~="text-red-700"],
+.settings-f [class~="text-rose-400"],
+.settings-f [class~="text-rose-500"],
+.settings-f [class~="text-rose-500/70"],
+.settings-f [class~="text-rose-500/80"],
+.settings-f [class~="text-rose-600"],
+.settings-f [class~="text-rose-700"] { color: var(--sf-danger-ink); }
+.settings-f [class~="text-emerald-500"],
+.settings-f [class~="text-emerald-600"],
+.settings-f [class~="text-emerald-700"],
+.settings-f [class~="text-emerald-800"],
+.settings-f [class~="text-emerald-900"],
+.settings-f [class~="text-green-500"],
+.settings-f [class~="text-green-600"] { color: var(--sf-ok-ink); }
+.settings-f [class~="text-blue-500"],
+.settings-f [class~="text-blue-600"],
+.settings-f [class~="text-blue-600/70"],
+.settings-f [class~="text-blue-700"],
+.settings-f [class~="text-blue-700/70"],
+.settings-f [class~="text-blue-800"],
+.settings-f [class~="text-blue-900"],
+.settings-f [class~="text-cyan-700"],
+.settings-f [class~="text-fuchsia-700"],
+.settings-f [class~="text-indigo-500"],
+.settings-f [class~="text-indigo-500/70"],
+.settings-f [class~="text-indigo-600"],
+.settings-f [class~="text-indigo-700"],
+.settings-f [class~="text-pink-500"],
+.settings-f [class~="text-primary"],
+.settings-f [class~="text-primary/40"],
+.settings-f [class~="text-purple-500"],
+.settings-f [class~="text-purple-500/60"],
+.settings-f [class~="text-purple-500/70"],
+.settings-f [class~="text-purple-600"],
+.settings-f [class~="text-purple-700"],
+.settings-f [class~="text-sky-500"],
+.settings-f [class~="text-sky-600"],
+.settings-f [class~="text-sky-700"],
+.settings-f [class~="text-teal-600"],
+.settings-f [class~="text-violet-400"],
+.settings-f [class~="text-violet-500"],
+.settings-f [class~="text-violet-600"],
+.settings-f [class~="text-violet-700"],
+.settings-f [class~="text-violet-700/60"],
+.settings-f [class~="text-violet-700/70"],
+.settings-f [class~="text-violet-800"] { color: var(--sf-p-ink); }
+.settings-f [class~="text-slate-700"],
+.settings-f [class~="text-slate-800"],
+.settings-f [class~="text-stone-700"] { color: var(--sf-text); }
+.settings-f [class~="text-slate-500"],
+.settings-f [class~="text-slate-600"],
+.settings-f [class~="text-stone-500"] { color: var(--sf-text2); }
+.settings-f [class~="text-slate-300"],
+.settings-f [class~="text-slate-400"],
+.settings-f [class~="text-slate-400/70"],
+.settings-f [class~="text-slate-400/80"],
+.settings-f [class~="text-slate-400/90"] { color: var(--sf-text3); }
+.settings-f [class~="text-amber-500"],
+.settings-f [class~="text-amber-500/80"],
+.settings-f [class~="text-amber-600"],
+.settings-f [class~="text-amber-700"],
+.settings-f [class~="text-amber-700/80"],
+.settings-f [class~="text-amber-800"],
+.settings-f [class~="text-amber-900"],
+.settings-f [class~="text-orange-400"],
+.settings-f [class~="text-orange-500"],
+.settings-f [class~="text-orange-500/60"],
+.settings-f [class~="text-orange-500/70"],
+.settings-f [class~="text-orange-600"],
+.settings-f [class~="text-orange-700"],
+.settings-f [class~="text-yellow-600"],
+.settings-f [class~="text-yellow-700"],
+.settings-f [class~="text-yellow-700/70"] { color: var(--sf-warn-ink); }
+/* ── 颜色映射结束 ── */
+
+/* ── 生成段之后的例外（同优先级，写在后面覆盖） ── */
+/* 备份提醒频率那张卡：上游的玫红只是装饰，不是「危险」——底、边、数字、滑轨都回到中性 + 主色 */
+.settings-f [class~="from-rose-50"] { background-color: var(--sf-sunken); }
+.settings-f [class~="from-rose-50"][class~="border-rose-100"] { border-color: var(--sf-border); }
+.settings-f [class~="from-rose-50"] [class~="text-rose-500"] { color: var(--sf-p-ink); }
+.settings-f [class~="from-rose-50"] [class~="bg-rose-100"] { background-color: var(--sf-surface); }
+
+/* ── 圆角：弹窗 16、大卡 12、按钮输入 10、小件 8 ── */
+.settings-f [class~="rounded-[2.5rem]"] { border-radius: var(--sf-r-sheet); }
+.settings-f [class~="rounded-3xl"], .settings-f [class~="rounded-2xl"], .settings-f [class~="rounded-[1.75rem]"] { border-radius: var(--sf-r-card); }
+.settings-f [class~="rounded-xl"] { border-radius: var(--sf-r-input); }
+.settings-f [class~="rounded-lg"] { border-radius: var(--sf-r-small); }
+.settings-f [class~="rounded-t-3xl"] { border-top-left-radius: var(--sf-r-card); border-top-right-radius: var(--sf-r-card); }
+
+/* ── 表单：凹槽输入，focus 只换 1px 朱砂边，不发光 ── */
+.settings-f input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]),
+.settings-f textarea,
+.settings-f select {
+    background-color: var(--sf-sunken);
+    border: 1px solid transparent;
+    border-radius: var(--sf-r-input);
+    color: var(--sf-text);
+}
+.settings-f input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]):focus,
+.settings-f textarea:focus,
+.settings-f select:focus { border-color: var(--sf-accent); box-shadow: none; outline: none; }
+.settings-f input[type="checkbox"], .settings-f input[type="radio"], .settings-f input[type="range"] { accent-color: var(--sf-p-main); }
+/* [EM-END: settings-skin-f] */

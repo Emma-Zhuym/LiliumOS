@@ -80,6 +80,7 @@ import { MULTI_SECTION_PAGES, SETTINGS_PAGE_TITLES, relativeAgo, type SettingsPa
 import { staleBackupDays } from '../utils/autoCloudBackup';
 import { loadInstantConfig } from '../utils/instantPushClient';
 import { APP_VERSION } from '../utils/buildInfo';
+import { SETTINGS_F_CLASS, SETTINGS_F_VARS } from '../components/settings/settingsF'; // [EM: settings-skin-f]
 // [EM-END: settings-ios-list]
 
 const MOTION_ENABLED_KEY = 'liliumos_motion_enabled';
@@ -2211,7 +2212,7 @@ const Settings: React.FC = () => {
   // [EM-END: settings-ios-list]
 
   return (
-    <div className="h-full w-full flex flex-col font-light relative isolate" style={{ background: F.appBg }}> {/* [EM: settings-ios-list] */}
+    <div className={`h-full w-full flex flex-col relative isolate ${SETTINGS_F_CLASS}`} style={{ ...SETTINGS_F_VARS, background: F.appBg }}> {/* [EM: settings-ios-list] [EM: settings-skin-f] 子页里的上游样式由 settingsF.css 统一换成 F */}
 
       {/* GLOBAL PROGRESS OVERLAY */}
       {sysOperation.status === 'processing' && (
