@@ -148,19 +148,20 @@ button { font: inherit; color: inherit; }
 /* ---------- screen 2: the folded card + letter ---------- */
 .card {
   all: unset; box-sizing: border-box; cursor: pointer; position: relative; display: grid; margin: 10px 2px;
-  grid-template-columns: auto 1fr; column-gap: 12px; row-gap: 6px; padding: 16px 16px 14px;
+  grid-template-columns: max-content 1fr; column-gap: 16px; row-gap: 12px; padding: 16px 16px 14px;
   background: var(--paper); color: var(--ink);
 }
 .card::before {
   content: ""; position: absolute; inset: 0; border: 1.3px solid var(--ink); border-radius: 4px 7px 5px 8px;
   filter: url(#wob); pointer-events: none;
 }
-.card .cdl { grid-row: 1 / span 3; width: 22px; height: 32px; margin-top: 2px; }
-.card .meta { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.card .side { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding-right: 16px; border-right: 1px solid var(--ink-line); }
+.card .cdl { width: 22px; height: 32px; margin-bottom: 6px; }
+.card .side .title { max-width: 6em; line-height: 1.3; }
 .label { font-size: 11px; letter-spacing: .14em; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
 .card .title { font-family: var(--serif); font-weight: 700; font-size: 19px; color: var(--ink); }
-.card .sum { font-family: var(--serif); font-size: 14px; line-height: 1.75; color: var(--ink); }
-.card .by { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--ink-soft); }
+.card .sum { align-self: center; font-family: var(--serif); font-size: 14px; line-height: 1.75; color: var(--ink); }
+.card .by { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--ink-soft); }
 .card .by span:last-child { font-family: var(--hand); font-size: 17px; color: var(--ink); }
 
 .sheet {
@@ -303,9 +304,12 @@ button { font: inherit; color: inherit; }
             <div class="sys"><svg class="ink" width="15" height="20" aria-hidden="true"><use href="#c-lit"/></svg>蜡烛先留着<span class="t">约在 23:00</span></div>
             <div class="stamp">23:06</div>
             <button class="card" id="open-letter" type="button" aria-haspopup="dialog">
-              <svg class="ink cdl" viewBox="0 0 24 32" aria-hidden="true"><use href="#c-out"/></svg>
-              <span class="meta"><span class="label">第 07 夜</span><span class="label">23:06–00:42</span></span>
-              <span class="title">原地打转</span>
+              <span class="side">
+                <svg class="ink cdl" viewBox="0 0 24 32" aria-hidden="true"><use href="#c-out"/></svg>
+                <span class="label">第 07 夜</span>
+                <span class="title">原地打转</span>
+                <span class="label">23:06–00:42</span>
+              </span>
               <span class="sum">她在想要不要离开这座城市。我说了项目收尾那天心里空掉的事，第一次跟人说。</span>
               <span class="by"><span>十二段 · 翻开</span><span>既白</span></span>
             </button>
