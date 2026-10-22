@@ -377,7 +377,19 @@ export const checkGates = (db, { character, snapshot, now = new Date() }) => {
  * - message_cooldown：离上一条主动消息太近（空档里缩到 30 分钟）。欠着阿萌的回复时不算：
  *   冷却是为了别刷屏，阿萌在那之后又发了话，回她不叫刷屏。
  */
+/** 烛下（深谈）：快照里 since 是最后一段话的时刻，超过这么久就当忘了关，不再拦着心跳 */
+export const DEEP_TALK_STALE_MS = 3 * 60 * 60 * 1000;
+
+export const inDeepTalk = (snapshot, now = new Date()) => {
+    const talk = snapshot?.payload?.deepTalk;
+    if (!talk?.open) return false;
+    const since = Date.parse(talk.since);
+    return Number.isFinite(since) && now.getTime() - since < DEEP_TALK_STALE_MS;
+};
+
 export const speakBlock = (db, { character, snapshot, now = new Date(), owed = false }) => {
+    // 两个人正点着蜡烛认真聊：这一跳不开口，生活照过
+    if (inDeepTalk(snapshot, now)) return 'deep_talk';
     const timezone = snapshot?.payload?.timezone || getSetting(db, 'timezone') || 'America/Chicago';
     const lastInteraction = lastRealInteractionAt(character, snapshot);
     if (lastInteraction && now.getTime() - lastInteraction.getTime() < ACTIVE_CHAT_WINDOW_MS) {

@@ -11,6 +11,16 @@ import { useOS } from '../context/OSContext';
 // [EM: agent-backend-presence] 在场信号 + 近况快照，后端离线时全程静默
 import { scheduleSnapshotUpload, signalAgentPresence } from '../utils/emAgentBackend';
 import { buildCharacterSnapshot } from '../utils/emAgentSnapshot';
+// [EM-START: deep-talk]
+import { flushSnapshotUpload } from '../utils/emAgentBackend';
+import { resolveCharacterApiConfig } from '../utils/characterApi';
+import { runCallMemoryPalacePostFlow } from '../utils/memoryPalace/callPostFlow';
+import { isDeepTalkIdle } from '../utils/deepTalk';
+import { endDeepTalk, loadNightSegments, saveDeepTalkSegment, startDeepTalkInvite } from '../utils/deepTalkActions';
+import DeepTalkPaper from '../components/deepTalk/DeepTalkPaper';
+import { DeepTalkOverlays } from '../components/deepTalk/DeepTalkLetter';
+import { DEEP_TALK_RELIGHT_EVENT, useActiveDeepTalk } from '../components/deepTalk/useDeepTalk';
+// [EM-END: deep-talk]
 import { DB } from '../utils/db';
 import { isVisibleChatMessage } from '../utils/chatMessageVisibility';
 import { createChatHistoryWindow, expandChatHistoryWindow, type ChatHistoryWindowRange } from '../utils/chatHistoryWindow';
@@ -999,6 +1009,102 @@ const Chat: React.FC = () => {
         }
     }, [activeCharacterId]);
 
+    // [EM-START: deep-talk] 烛下：点蜡烛邀请、纸上说一段、蜡烛灭了收卡（契约见 docs/spec-deep-talk.md）
+    const deepTalkNight = useActiveDeepTalk(char?.id);
+    const [deepTalkEnding, setDeepTalkEnding] = useState(false);
+    const deepTalkNames = useMemo(() => ({ userName: userProfile?.name || '我', charName: char?.name || '' }), [userProfile?.name, char?.name]);
+    // 开始 / 结束时立刻告诉 mini（心跳靠快照里的 deepTalk 判断要不要闭嘴），不等 30 秒防抖
+    const flushDeepTalkSnapshot = useCallback(async () => {
+        const current = charRef.current;
+        if (!current) return;
+        try {
+            await flushSnapshotUpload(await buildCharacterSnapshot(current, await DB.getMessagesByCharId(current.id), { userName: userProfile?.name }));
+        } catch { /* 后端不在线是常态 */ }
+    }, [userProfile?.name]);
+    const triggerWithLatest = useCallback(async () => {
+        const current = charRef.current;
+        if (!current) return;
+        const recent = (await DB.getRecentMessagesByCharId(current.id, 200))
+            .filter(m => isVisibleChatMessage(m, !!current.hideSystemLogs, false) || m.metadata?.source === 'deep_talk');
+        triggerAI(recent);
+    }, [triggerAI]);
+    const handleDeepTalkInvite = useCallback(async () => {
+        if (!char) return;
+        if (isTyping) { addToast('请等当前回复结束后再试', 'info'); return; }
+        try {
+            autoReply.cancel(); // [EM: deep-talk] 手动请求接管，别让倒计时抢先生成
+            setShowPanel('none');
+            const { night, relit } = await startDeepTalkInvite(char, deepTalkNames);
+            await reloadMessages(visibleCountRef.current);
+            if (night.status === 'open') { void flushDeepTalkSnapshot(); return; }
+            if (!relit) await triggerWithLatest();
+        } catch (e: any) { addToast(e?.message || '蜡烛没点着，再试一次', 'error'); }
+    }, [char, isTyping, addToast, deepTalkNames, reloadMessages, flushDeepTalkSnapshot, triggerWithLatest]);
+    const handleDeepTalkSend = useCallback(async (text: string) => {
+        if (!char || !deepTalkNight || deepTalkNight.status !== 'open') return;
+        autoReply.cancel(); // [EM: deep-talk]
+        await saveDeepTalkSegment(char.id, deepTalkNight.id, 'user', text);
+        signalAgentPresence(char.id);
+        await triggerWithLatest();
+    }, [char, deepTalkNight, triggerWithLatest]);
+    const handleDeepTalkEnd = useCallback(async (reason: 'end' | 'burnt_out' = 'end') => {
+        const current = charRef.current;
+        if (!current || !deepTalkNight || deepTalkNight.status !== 'open' || deepTalkEnding) return;
+        setDeepTalkEnding(true);
+        try {
+            const closed = await endDeepTalk({
+                char: current,
+                night: deepTalkNight,
+                names: deepTalkNames,
+                api: resolveCharacterApiConfig(current, apiConfig, apiPresets).apiConfig,
+                reason,
+            });
+            await reloadMessages(visibleCountRef.current);
+            void flushDeepTalkSnapshot();
+            // 这一夜的话马上进记忆宫殿的缓冲区，不用等下次聊天
+            if (closed.status === 'closed') {
+                void runCallMemoryPalacePostFlow({
+                    char: current,
+                    getLiveChar: () => charRef.current,
+                    memoryPalaceConfig,
+                    apiConfig,
+                    userName: userProfile?.name,
+                    updateCharacter,
+                }).catch(e => console.warn('[DeepTalk] 记忆整理失败', e));
+            }
+        } catch (e: any) {
+            addToast(e?.message || '收卡失败，过一会儿再点一次结束', 'error');
+        } finally {
+            setDeepTalkEnding(false);
+        }
+    }, [deepTalkNight, deepTalkEnding, deepTalkNames, apiConfig, apiPresets, reloadMessages, flushDeepTalkSnapshot, memoryPalaceConfig, userProfile?.name, updateCharacter, addToast]);
+    // 「蜡烛先留着」那个气泡被点了：重新点上
+    useEffect(() => {
+        const handler = (event: Event) => {
+            if ((event as CustomEvent<{ charId?: string }>).detail?.charId === char?.id) void handleDeepTalkInvite();
+        };
+        window.addEventListener(DEEP_TALK_RELIGHT_EVENT, handler);
+        return () => window.removeEventListener(DEEP_TALK_RELIGHT_EVENT, handler);
+    }, [char?.id, handleDeepTalkInvite]);
+    // 开着放了 3 小时没动：下次打开聊天自动收卡（蜡烛燃尽了），心跳也恢复
+    const deepTalkIdleCheckedRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (!char || !deepTalkNight || deepTalkNight.status !== 'open' || deepTalkIdleCheckedRef.current === deepTalkNight.id) return;
+        deepTalkIdleCheckedRef.current = deepTalkNight.id;
+        void loadNightSegments(char.id, deepTalkNight.id).then(segments => {
+            const last = segments.length ? segments[segments.length - 1].timestamp : null;
+            if (isDeepTalkIdle(deepTalkNight, last, Date.now())) void handleDeepTalkEnd('burnt_out');
+        });
+    }, [char, deepTalkNight, handleDeepTalkEnd]);
+    // 刚变纸（TA 答应了 / 重新点上）：告诉 mini 别插话
+    const deepTalkOpenedRef = useRef<string | null>(null);
+    useEffect(() => {
+        if (deepTalkNight?.status !== 'open' || deepTalkOpenedRef.current === deepTalkNight.id) return;
+        deepTalkOpenedRef.current = deepTalkNight.id;
+        void flushDeepTalkSnapshot();
+    }, [deepTalkNight, flushDeepTalkSnapshot]);
+    // [EM-END: deep-talk]
+
     useEffect(() => {
         if (activeCharacterId) {
             // Update ref BEFORE any async work so stale reloadMessages calls
@@ -1889,6 +1995,7 @@ const Chat: React.FC = () => {
                 break;
             }
             case 'notion-diary-quick': void handleNotionDiaryQuick(); break; // [EM: notion-diary-quick-case]
+            case 'deep-talk': void handleDeepTalkInvite(); break; // [EM: deep-talk]
         }
     };
 
@@ -3534,6 +3641,12 @@ const Chat: React.FC = () => {
                      window.setTimeout(() => void handleJumpToMessageInChat(message.id), 0);
                  }} /></div>}
              {/* [EM-END: standalone-chat-settings] */}
+             {/* [EM-START: deep-talk] 深谈开着时整个聊天区变成纸；卡片翻开的信笺 / 所有夜晚 */}
+             {deepTalkNight?.status === 'open' && <DeepTalkPaper char={char} userName={deepTalkNames.userName} night={deepTalkNight}
+                 isTyping={isTyping} ending={deepTalkEnding} onBack={() => setMessageSubView('contacts')}
+                 onSend={handleDeepTalkSend} onEnd={() => void handleDeepTalkEnd('end')} />}
+             <DeepTalkOverlays char={char} userName={deepTalkNames.userName} />
+             {/* [EM-END: deep-talk] */}
              {/* 聊天细节微调（外观 App 可视化设置生成）：排在用户自定义 CSS 之前——
                  同为 !important 时后写的胜，手写美化代码永远可覆盖可视化设置。 */}
              {chatFineTuneCss && <style>{chatFineTuneCss}</style>}

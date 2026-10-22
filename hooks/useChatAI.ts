@@ -66,6 +66,9 @@ import { resolveCharacterApiConfig } from '../utils/characterApi';
 import { announceInstantChatRoute, getInstantChatPending, resolveInstantChatReadiness, sendInstantChatTurn, stageInstantChatExpiredNotices } from '../utils/amsgInstantChat';
 import { beginLocalReply, isReplyStopError, stopReply } from '../utils/emReplyStop'; // [EM: reply-stop]
 import { isAgentChatReady, sendAgentChatTurn, tokenUsageFromCloudMetadata } from '../utils/emAgentChat'; // [EM: agent-instant-chat]
+import { cleanDeepTalkReply, parseDeepTalkAnswer, type DeepTalkNight } from '../utils/deepTalk'; // [EM: deep-talk]
+import { DeepTalkDB } from '../utils/deepTalkDb'; // [EM: deep-talk]
+import { applyDeepTalkAnswer, saveDeepTalkSegment } from '../utils/deepTalkActions'; // [EM: deep-talk]
 // worker 模块的常量叶子（零运行时依赖，前端引它不带进 worker 环境）：
 // 云端 fire 的总时长上限，安全网超时从它推导，worker 调预算时前端自动跟上。
 import { INSTANT_TOTAL_TIMEOUT_MS } from '../worker/amsg/src/instantChat';
@@ -928,7 +931,14 @@ export const useChatAI = ({
             // 从这里到真正分流之间隔着好几个 await（构建 payload、取 amsg2 任务现状…），
             // 期间用户在设置页存一次盘就能把它翻面；各读各的话会出现「按上云剥掉了时效段
             // 的 prompt，最后却交给了 IP 或落回本地」——两个钟的问题原样回来。
-            const instantPushConfigured = isInstantConfigReady();
+            // [EM-START: deep-talk] 烛下：邀请那一轮和开着的深谈都在本机生成（要读标记、要一人一段，mini / amsg 那边拿不到）
+            const deepTalkNight: DeepTalkNight | null = await DeepTalkDB.getActive(char.id).catch(() => null);
+            const deepTalkTurn = deepTalkNight
+                ? { mode: (deepTalkNight.status === 'open' ? 'open' : deepTalkNight.status === 'invited' ? 'invite' : 'later') as 'open' | 'invite' | 'later', night: deepTalkNight }
+                : null;
+            const deepTalkLocal = !!deepTalkTurn && deepTalkTurn.mode !== 'later';
+            // [EM-END: deep-talk]
+            const instantPushConfigured = isInstantConfigReady() && !deepTalkLocal; // [EM: deep-talk]
             const luckinChatOn = !!luckinChatRef?.current?.active;
             const financeAwareness = await getFinanceAwareness(char.id).catch(() => ({ hasLedger: false, pulse: null }));
             const financeTopicTriggered = shouldEnableFinanceTools(currentMsgs);
@@ -952,7 +962,8 @@ export const useChatAI = ({
             // 若仍走 Instant Chat / Instant Push，模型看到的工具列表里会真的没有定位工具。
             const locationLocalRequired = isLocationChatToolEnabled()
                 && shouldPreferLocalLocationTool(currentMsgs);
-            const instantChatVeto: string | null = luckinChatOn ? 'luckin-chat'
+            const instantChatVeto: string | null = deepTalkLocal ? 'deep-talk' // [EM: deep-talk]
+                : luckinChatOn ? 'luckin-chat'
                 : mcdMiniOpen ? 'mcd'
                     : luckinMiniOpen ? 'luckin'
                         : intifaceReady ? 'intiface'
@@ -981,7 +992,7 @@ export const useChatAI = ({
             // 摘录本地先读好、放进 volatileState，不需要工具循环，所以不改这一轮的路线。
             // 点单流程里、或她自己正聊着某个工具话题时不闪。
             await rollChatCue(char, {
-                skip: Boolean(luckinChatOn || mcdMiniOpen || luckinMiniOpen || financeTopicTriggered || healthToolTurn || mcpToolTurn || locationLocalRequired),
+                skip: Boolean(deepTalkLocal /* [EM: deep-talk] */ || luckinChatOn || mcdMiniOpen || luckinMiniOpen || financeTopicTriggered || healthToolTurn || mcpToolTurn || locationLocalRequired),
                 route: agentChatRoute ? 'mini' : instantChatRoute ? 'cloud' : instantPushConfigured ? 'push' : 'local',
                 userName: userProfile.name,
             });
@@ -1119,6 +1130,7 @@ export const useChatAI = ({
                 shoppingDelivery,
                 timelyByWorker: instantChatRoute,
                 mcpChatActiveOverride: mcpToolTurn,
+                deepTalk: deepTalkTurn, // [EM: deep-talk]
             }));
             const systemPrompt = payload.systemPrompt;
             const cleanedApiMessages = payload.cleanedApiMessages;
@@ -2380,7 +2392,16 @@ export const useChatAI = ({
                 commentParentIdCache: commentParentIdCacheRef.current,
             };
             postProcessingStarted = true; // [EM: reply-stop]
-            await applyAssistantPostProcessing(rawAiContent, {
+            // [EM-START: deep-talk] 开着的深谈：整段存成一条，不拆气泡、不跑表情 / 引用；邀请那一轮先剥标记
+            const deepTalkAnswer = deepTalkTurn?.mode === 'invite' ? parseDeepTalkAnswer(rawAiContent) : null;
+            if (deepTalkTurn?.mode === 'open') {
+                const segment = cleanDeepTalkReply(rawAiContent, char.name);
+                if (segment && !replyRun.signal.aborted) await saveDeepTalkSegment(char.id, deepTalkTurn.night.id, 'assistant', segment);
+                updateTokenUsage(data, historyMsgCount, 'deep-talk');
+                setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
+            } else
+            // [EM-END: deep-talk]
+            await applyAssistantPostProcessing(deepTalkAnswer ? deepTalkAnswer.cleaned : rawAiContent, { // [EM: deep-talk]
                 signal: replyRun.signal, // [EM: reply-stop]
                 char,
                 userProfile,
@@ -2416,6 +2437,12 @@ export const useChatAI = ({
                 skipSecondPassLLM: false,
                 directives: [],
             });
+            // [EM-START: deep-talk] TA 的话落库之后再按标记改这一夜：答应就变纸，约了时间就留着蜡烛
+            if (deepTalkAnswer && deepTalkTurn && !replyRun.signal.aborted) {
+                await applyDeepTalkAnswer(char, deepTalkTurn.night, deepTalkAnswer.answer, { userName: userProfile.name, charName: char.name });
+                setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
+            }
+            // [EM-END: deep-talk]
             setStreamingBubbles([]);
             setStreamingThinking('');
 

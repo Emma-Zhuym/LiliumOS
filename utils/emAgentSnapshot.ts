@@ -21,6 +21,7 @@ import { resolveContactGroup } from './contactGroups';
 import { normName } from './relationshipChat';
 import { loadUserMomentsForSnapshot, type SnapshotUserMoment } from './emMomentsContext'; // [EM: moments-heartbeat]
 import { buildFinanceHeartbeatContext, type FinanceHeartbeatContext } from './financeChatTools';
+import { loadDeepTalkForSnapshot } from './deepTalkDb'; // [EM: deep-talk]
 
 export const SNAPSHOT_SCHEMA_VERSION = 1;
 
@@ -113,6 +114,8 @@ export interface CharacterSnapshot {
         finance?: FinanceHeartbeatContext;
         boundaries?: SnapshotBoundary[];
         openThreads?: never[];
+        /** [EM: deep-talk] 烛下正开着：心跳这一跳不开口（since 是最后一段话的时刻，超过 3 小时后端就不认） */
+        deepTalk?: { open: true; since: string };
     };
 }
 
@@ -274,6 +277,9 @@ export const buildCharacterSnapshot = async (
     const userMoments = await loadUserMomentsForSnapshot(char.id, options.userName || '阿萌', at.getTime()).catch(() => []);
     // 只随心跳快照带最近 7 天、最多 5 笔；读不出来不影响心跳其余内容。
     const finance = await buildFinanceHeartbeatContext(at.getTime()).catch(() => null);
+    // [EM: deep-talk] 深谈开着就告诉心跳别插话；最后一段话的时刻从消息里找
+    const lastDeepTalkAt = messages.reduce((t, m) => (m.metadata?.source === 'deep_talk' ? Math.max(t, m.timestamp || 0) : t), 0);
+    const deepTalk = await loadDeepTalkForSnapshot(char.id, lastDeepTalkAt || null, at.getTime());
 
     const recent = mergeConsecutiveBubbles(messages
         .filter(message => message.type !== 'system')
@@ -332,6 +338,7 @@ export const buildCharacterSnapshot = async (
                 return monthlySummaries.length ? { monthlySummaries } : {};
             })(),
             ...(options.boundaries?.length ? { boundaries: options.boundaries } : {}),
+            ...(deepTalk ? { deepTalk } : {}), // [EM: deep-talk]
         },
     };
 };

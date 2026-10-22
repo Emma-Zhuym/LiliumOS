@@ -39,6 +39,9 @@ import { injectWorldbookDepthEntries, resolveWorldbookDepthEntries } from './wor
 import { normalizeTranslationLangLabel } from './translationLang';
 import { cleanApiMessages, flattenImageContentParts } from './promptMessageCleanup';
 import { materializeVisionDescriptions } from './visionApi';
+import { buildInviteTurnBlock, buildLaterReminderLine, buildOpenTurnBlock, formatClock, type DeepTalkNight } from './deepTalk'; // [EM: deep-talk]
+import { loadDeepTalkMaterials } from './deepTalkActions'; // [EM: deep-talk]
+import { resolveCharTimeZone } from './timezone'; // [EM: deep-talk]
 
 export { cleanApiMessages, flattenImageContentParts } from './promptMessageCleanup';
 
@@ -119,6 +122,11 @@ export interface BuildChatPayloadInput {
      * 私网 Home Assistant 让无关闲聊也进入工具模式、禁用 thinking。
      */
     mcpChatActiveOverride?: boolean;
+    /**
+     * [EM: deep-talk] 烛下（深谈）这一轮在哪一步：邀请那一轮要带标记、开着时换成一人一段、
+     * 约好还没到点时提一句。只有聊天主路径传。
+     */
+    deepTalk?: { mode: 'invite' | 'open' | 'later'; night: DeepTalkNight } | null;
 }
 
 export interface BuildChatPayloadResult {
@@ -347,7 +355,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     }
 
     // ── 3.6 EM: busy 状态注入简短回复提示 ──────────────────
-    if (input.charAvailability === 'busy') {
+    if (input.charAvailability === 'busy' && input.deepTalk?.mode !== 'open') { // [EM: deep-talk] 深谈时 TA 已经坐下来了
         systemPrompt += `\n\n[严格执行] 你现在正在忙（开会/工作/上课/排练等），只能在间隙偷偷看一眼手机。必须遵守以下规则：
 - 回复最多2-3行（2-3个换行），不能更长
 - 语气匆忙、随意，像真的在偷看手机
@@ -464,6 +472,19 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
             systemPrompt += block;
         }
     }
+
+    // [EM-START: deep-talk] 烛下：邀请那一轮要标记；开着时一人一段，压过上面的短消息格式
+    if (input.deepTalk) {
+        const names = { userName: userProfile?.name || '用户', charName: char.name };
+        if (input.deepTalk.mode === 'open') {
+            volatileTail += buildOpenTurnBlock(names, await loadDeepTalkMaterials(char.id).catch(() => null));
+        } else if (input.deepTalk.mode === 'invite') {
+            volatileTail += buildInviteTurnBlock(names);
+        } else if (input.deepTalk.night.laterAt) {
+            volatileTail += buildLaterReminderLine(names, formatClock(input.deepTalk.night.laterAt, resolveCharTimeZone(char)));
+        }
+    }
+    // [EM-END: deep-talk]
 
     // ── 10. recency 钢印归位 + 组装 fullMessages ─────────
     // 「关于对方的表达」+「回到你自己」必须是易变尾段的最后内容：修复旧版把双语/HTML/
