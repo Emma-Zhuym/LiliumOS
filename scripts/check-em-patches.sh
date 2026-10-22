@@ -379,6 +379,14 @@ check "设置根节点挂 F 皮" apps/Settings.tsx "className={\`h-full w-full f
 check "F 皮变量来自 clayTokens" components/settings/settingsF.ts "export const SETTINGS_F_VARS"
 check "F 皮颜色映射已生成" components/settings/settingsF.css ".settings-f .peer:checked ~"
 
+echo "── 设置子页里直接铺开配置 ──"
+check "设置：内嵌配置的挂点" apps/Settings.tsx "<div ref={setInlineSlot}"
+check "设置：实时感知进页先读 Notion 栏位" apps/Settings.tsx "if (settingsPage === 'realtime') openRealtimeModal();"
+check "设置：离开 MCP 页把改动传上去" apps/Settings.tsx "if (settingsPage !== 'mcp') flushMcpToolConfigSync();"
+check "设置：实时感知内嵌" apps/Settings.tsx "<SettingsSheet inline={onPage('realtime')}"
+check "设置：MCP 内嵌" apps/Settings.tsx "<SettingsSheet inline={onPage('mcp')}"
+check "主动消息 2.0 内嵌" components/settings/ActiveMsgGlobalSettingsModal.tsx "inline={inline} // [EM: settings-inline-config]"
+
 echo ""
 if [ $FAIL -gt 0 ]; then
     echo "🔴 $FAIL 项缺失（$PASS 项通过）——EM 功能被冲掉了，对照 .claude/CLAUDE.md 补回来"

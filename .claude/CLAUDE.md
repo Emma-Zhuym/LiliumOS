@@ -436,6 +436,7 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - 图标格是灰底 32px（公约 C 的例外，见 `APP_CONVENTIONS.md` P16）；设置认领的主色是 `HUE.blue`
 - 设置 → Mac mini 只管配对（见第 37 节分工）
 - **子页换 F 皮（2026-10-22）不改上游 JSX**：设置根节点挂 `settings-f` + `SETTINGS_F_VARS`（`components/settings/settingsF.ts`，取值全来自 clayTokens），`settingsF.css` 把上游 Tailwind 的颜色 / 圆角 / 阴影 / 10px 小字映射成 F：装饰色（violet / sky / indigo…）一律收成设置主色 `HUE.blue`，绿 / 琥珀 / 红走状态色，渐变拍平，开关打开一律主色
+- **配置直接铺在子页里（2026-10-22 阿萌：点进去还要再点进去）**：实时感知、MCP、主动消息 2.0 的弹窗换成 `components/settings/SettingsSheet.tsx`（参数同 os/Modal，多一个 `inline`）：在自己的子页里 portal 进滚动区的挂点（`SettingsInlineSlotContext`），别处照旧弹窗。进实时感知页要调 `openRealtimeModal()`（读 Notion 栏位），离开 MCP 页要 `flushMcpToolConfigSync()`（原来关弹窗时做的事），都在 Settings 的 `[EM: settings-inline-config]` effect 里；三页摘要卡上的「配置」按钮去掉了
 - 颜色那一大段由 `node scripts/gen-settings-skin.mjs` 扫设置页和 `components/settings/*` 生成，**上游设置页加了新颜色类就重跑它**；只认真正的颜色名，`border-b`、`text-xs` 这种不能当颜色
 - 内联 style 不受这层皮管：生图页上游写的是 `HUE.rose` 内联（一页一色，不算违规）；Intiface 标题的 🎮、几处 💡 / 🔗 / 🧪 是写在上游文字里的 emoji，要去掉得改上游 JSX
 

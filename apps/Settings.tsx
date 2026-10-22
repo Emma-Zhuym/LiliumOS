@@ -81,6 +81,7 @@ import { staleBackupDays } from '../utils/autoCloudBackup';
 import { loadInstantConfig } from '../utils/instantPushClient';
 import { APP_VERSION } from '../utils/buildInfo';
 import { SETTINGS_F_CLASS, SETTINGS_F_VARS } from '../components/settings/settingsF'; // [EM: settings-skin-f]
+import SettingsSheet, { SettingsInlineSlotContext } from '../components/settings/SettingsSheet'; // [EM: settings-inline-config]
 // [EM-END: settings-ios-list]
 
 const MOTION_ENABLED_KEY = 'liliumos_motion_enabled';
@@ -2186,6 +2187,14 @@ const Settings: React.FC = () => {
   // [EM-START: settings-ios-list] 苹果式分组列表：首页一列短行、右边写状态，点进子页
   const [settingsPage, setSettingsPage] = useState<SettingsPageId | null>(null);
   const onPage = (id: SettingsPageId) => settingsPage === id;
+  // [EM: settings-inline-config] 实时感知 / MCP / 主动消息的配置直接铺在子页里：留给它们的节点 + 进出页时补上弹窗开合要做的事
+  const [inlineSlot, setInlineSlot] = useState<HTMLDivElement | null>(null);
+  useEffect(() => {
+      if (settingsPage === 'realtime') openRealtimeModal(); // 跟点「配置」一样先把 Notion 栏位读出来
+      else setShowRealtimeModal(false);
+      if (settingsPage !== 'mcp') flushMcpToolConfigSync(); // 离开 MCP 页 = 原来关弹窗：攒着的改动当场传上去
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settingsPage]);
   const instantPushOn = (() => { try { return loadInstantConfig().enabled === true; } catch { return false; } })();
   const settingsHomeValues: SettingsHomeValues = (() => {
       const now = Date.now();
@@ -2212,6 +2221,7 @@ const Settings: React.FC = () => {
   // [EM-END: settings-ios-list]
 
   return (
+    <SettingsInlineSlotContext.Provider value={inlineSlot}> {/* [EM: settings-inline-config] */}
     <div className={`h-full w-full flex flex-col relative isolate ${SETTINGS_F_CLASS}`} style={{ ...SETTINGS_F_VARS, background: F.appBg }}> {/* [EM: settings-ios-list] [EM: settings-skin-f] 子页里的上游样式由 settingsF.css 统一换成 F */}
 
       {/* GLOBAL PROGRESS OVERLAY */}
@@ -3495,11 +3505,7 @@ const Settings: React.FC = () => {
                     </svg>
                 </div>
             }
-            actions={
-                <button onClick={openRealtimeModal} /* [EM: notion-extra-init] */ className="text-[10px] bg-violet-100 text-violet-600 px-3 py-1.5 rounded-full font-bold shadow-sm active:scale-95 transition-transform">
-                    配置
-                </button>
-            }
+            // [EM: settings-inline-config] 配置直接铺在这一页下面，不再要「配置」按钮（原来是 openRealtimeModal，带 [EM: notion-extra-init]，现在进页时调）
         >
             <p className="text-xs text-slate-500 mb-3 leading-relaxed">
                 让AI角色感知真实世界：天气、新闻热点、当前时间。角色可以根据天气关心你、聊聊最近的热点话题。
@@ -3571,9 +3577,7 @@ const Settings: React.FC = () => {
                         aria-label="MCP 是什么？"
                         className="w-7 h-7 rounded-full border border-slate-200 bg-white text-[12px] font-bold text-slate-400 active:scale-90 transition-all"
                     >?</button>
-                    <button onClick={() => { trackEvent('打开MCP工具服务器配置'); setShowMcpModal(true); }} className="text-[10px] bg-violet-100 text-violet-600 px-3 py-1.5 rounded-full font-bold shadow-sm active:scale-95 transition-transform">
-                        配置
-                    </button>
+                    {/* [EM: settings-inline-config] 服务器列表直接铺在这一页下面，不再要「配置」按钮 */}
                 </>
             }
         >
@@ -3982,12 +3986,7 @@ const Settings: React.FC = () => {
                     </div>
                     <h2 className="text-sm font-semibold text-slate-600 tracking-wider">主动消息 2.0</h2>
                 </div>
-                <button
-                    onClick={() => setShowAmsg2Modal(true)}
-                    className="text-[10px] bg-violet-100 text-violet-600 px-3 py-1.5 rounded-full font-bold shadow-sm active:scale-95 transition-transform"
-                >
-                    配置
-                </button>
+                {/* [EM: settings-inline-config] 配置直接铺在这一页下面，不再要「配置」按钮 */}
             </div>
             <p className="text-xs text-slate-500 leading-relaxed">
                 角色到点自动给你发消息，App 关着也能收。需要你自己部署一个 Cloudflare Worker（自带 D1 数据库 + 定时触发），在配置里填地址即可。聊天上云（即时对话）与定时主动消息都由它承担。
@@ -4066,6 +4065,7 @@ const Settings: React.FC = () => {
             · 社区迁移说明 ·
         </button>
         </>)} {/* [EM: settings-ios-list] */}
+        {settingsPage && <div ref={setInlineSlot} className="flex flex-col" style={{ gap: 16 }} />} {/* [EM: settings-inline-config] 内嵌配置挂在这里 */}
       </SettingsSectionTitleContext.Provider> {/* [EM: settings-ios-list] */}
       </div>
 
@@ -4665,7 +4665,7 @@ const Settings: React.FC = () => {
       </Modal>
 
       {/* 实时感知配置 Modal */}
-      <Modal
+      <SettingsSheet inline={onPage('realtime')} // [EM: settings-inline-config]
           isOpen={showRealtimeModal}
           title="实时感知配置"
           onClose={() => setShowRealtimeModal(false)}
@@ -5164,10 +5164,10 @@ const Settings: React.FC = () => {
                   </div>
               )}
           </div>
-      </Modal>
+      </SettingsSheet>
 
       {/* MCP 工具服务器配置 Modal（高级玩法, 从实时感知里独立出来） */}
-      <Modal isOpen={showMcpModal} title="MCP 工具服务器" onClose={() => { setShowMcpModal(false); flushMcpToolConfigSync(); }}>
+      <SettingsSheet inline={onPage('mcp')} isOpen={showMcpModal} title="MCP 工具服务器" onClose={() => { setShowMcpModal(false); flushMcpToolConfigSync(); }}> {/* [EM: settings-inline-config] */}
           <div className="space-y-4">
               <McpServersCard addToast={addToast} onMcpConfigChanged={() => {
                   // MCP 配置变更只需重传 tool_config：提示词块与 tools 数组由 worker 在 fire 时
@@ -5178,7 +5178,7 @@ const Settings: React.FC = () => {
                   scheduleMcpToolConfigSync(() => syncAmsgToolConfig(realtimeConfig));
               }} />
           </div>
-      </Modal>
+      </SettingsSheet>
 
       {/* MCP 帮助 Modal —— 面向完全不懂 MCP 的用户, 讲清"是什么/为什么要自备服务器/三条路" */}
       <Modal isOpen={showMcpHelp} title="MCP 是什么？" onClose={() => setShowMcpHelp(false)}>
@@ -5265,7 +5265,8 @@ const Settings: React.FC = () => {
         onClose={() => { setShowVapidModal(false); setVapidReadyTick((n) => n + 1); }}
       />
       <ActiveMsgGlobalSettingsModal
-        isOpen={showAmsg2Modal}
+        isOpen={showAmsg2Modal || onPage('amsg')} // [EM: settings-inline-config]
+        inline={onPage('amsg')} // [EM: settings-inline-config]
         onClose={() => setShowAmsg2Modal(false)}
         addToast={addToast}
         realtimeConfig={realtimeConfig}
@@ -5277,6 +5278,7 @@ const Settings: React.FC = () => {
       )}
 
     </div>
+    </SettingsInlineSlotContext.Provider>
   );
 };
 

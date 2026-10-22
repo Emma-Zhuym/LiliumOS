@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import Modal from '../os/Modal';
+import SettingsSheet from './SettingsSheet'; // [EM: settings-inline-config] 设置的「主动消息 2.0」子页里直接铺开，别处照旧弹窗
 import AmsgCronControl from './AmsgCronControl'; // [EM: amsg-cron-control]
 import { ActiveMsg2GlobalConfig, RealtimeConfig } from '../../types';
 import {
@@ -146,6 +146,8 @@ interface ActiveMsgGlobalSettingsModalProps {
   realtimeConfig: RealtimeConfig;
   /** 由 Settings 注入：点「去推送凭据面板」时打开顶层 PushVapidSettingsModal */
   onOpenVapid?: () => void;
+  /** [EM: settings-inline-config] 铺在设置子页里，不弹窗、不要「关闭」 */
+  inline?: boolean;
 }
 
 const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> = ({
@@ -154,6 +156,7 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
   addToast,
   realtimeConfig,
   onOpenVapid,
+  inline, // [EM: settings-inline-config]
 }) => {
   const [config, setConfig] = useState<ActiveMsg2GlobalConfig | null>(null);
   // [EM: amsg-cron-control] Cron actions use saved connection details, never a half-edited form.
@@ -811,11 +814,12 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
   const instantChatBlockedReason = instantChatBlocker ? INSTANT_CHAT_BLOCKER_HINTS[instantChatBlocker] : '';
 
   return (
-    <Modal
+    <SettingsSheet
+      inline={inline} // [EM: settings-inline-config]
       isOpen={isOpen}
       title="主动消息 2.0"
       onClose={onClose}
-      footer={(
+      footer={inline ? undefined : (
         <button
           onClick={onClose}
           className="flex-1 py-3 bg-slate-100 text-slate-500 font-bold rounded-2xl active:scale-95 transition-transform"
@@ -1564,7 +1568,7 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
           ) : null}
         </div>
       </div>
-    </Modal>
+    </SettingsSheet>
   );
 };
 
