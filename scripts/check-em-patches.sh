@@ -279,7 +279,7 @@ check "GitHub Git 数据备份可删除" utils/githubClient.ts "if (isGitBackupH
 
 echo "── B 站链接读字幕（聊天里发链接，角色读到字幕）──"
 check "建卡前经 B 站 MCP 读字幕" apps/Chat.tsx "if (webpage && isBiliShare(sharedUrl, webpage)) webpage = await attachBiliTranscript("
-check "卡片字幕喂给角色" utils/messageFormat.ts "const transcript = transcriptForPrompt(meta); // [EM: bili-transcript]"
+check "卡片字幕喂给角色" utils/messageFormat.ts "opts?.brief ? transcriptBriefForPrompt(meta) : transcriptForPrompt(meta); // [EM: bili-transcript]"
 
 echo "── 角色更活：话兜 / 草稿箱 / 屏幕时间（spec-character-drives 第一阶段）──"
 check "查手机草稿箱组件" apps/CheckPhone.tsx "import DraftsWidget from '../components/checkphone/DraftsWidget'; // [EM: char-drives-pocket]"
