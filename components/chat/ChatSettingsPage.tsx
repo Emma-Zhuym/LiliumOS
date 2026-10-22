@@ -91,6 +91,7 @@ export default function ChatSettingsPage({ character, onClose, onCharacter, onSe
             <Group title="聊天外观">
                 <Row title="背景与聊天装扮" subtitle="背景、气泡、字体与细节微调" onClick={() => setView('appearance')} />
                 <Row title="白框自定义" onClick={() => onAction('chrome-css')} />
+                <Row title="提示音" subtitle="这个角色来消息时的声音" onClick={() => onAction('chrome-sound')} />{/* [EM: toolbar-reorder] 从工具栏第二页搬来，跟白框放一起 */}
                 <Row title="思考与系统消息" subtitle="思考展示、系统日志显示" onClick={() => setView('display')} />
             </Group>
             <Group title="聊天记录"><Row title="管理与清理记录" onClick={() => onGroup('records')} /></Group>

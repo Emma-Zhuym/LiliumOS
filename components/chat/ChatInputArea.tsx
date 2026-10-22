@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
-import { ShareNetwork, Trash, Plus, Smiley, PaperPlaneTilt, Lightning, X, Money, BookOpenText, GearSix, Image, Lock, ArrowsClockwise, ChatCircleDots, CalendarBlank, ForkKnife, Coffee, Code, Brain, PencilSimple, BellSimpleRinging, NotePencil, GameController, Microphone, Waveform, Sparkle, CaretDown, FadersHorizontal, LinkSimple, MagicWand, Alarm, Star, Stop } from '@phosphor-icons/react'; // [EM: icons NotePencil/GameController/Microphone/Waveform]
+import { ShareNetwork, Trash, Plus, Smiley, PaperPlaneTilt, Lightning, X, Money, BookOpenText, GearSix, Image, Lock, ArrowsClockwise, ChatCircleDots, CalendarBlank, ForkKnife, Coffee, Code, Brain, PencilSimple, NotePencil, GameController, Microphone, Waveform, Sparkle, CaretDown, FadersHorizontal, LinkSimple, MagicWand, Alarm, Star, Stop } from '@phosphor-icons/react'; // [EM: icons NotePencil/GameController/Microphone/Waveform]
 import { intifaceClient } from '../../utils/intifaceClient'; // [EM: intiface]
 import PrivateMomentButton from './PrivateMomentButton'; // [EM: char-drives-private]
 import { CharacterProfile, ChatTheme, EmojiCategory, Emoji, ApiPreset } from '../../types';
@@ -1017,14 +1017,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                 <span className="text-xs font-bold">戳一戳</span>
                             </button>
                             
-                            <button onClick={() => onPanelAction('archive')} className={`flex flex-col items-center gap-2 tool-btn ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}>
-                                {acnh ? <AcnhActionTile kind="archive" /> : (
-                                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border ${isDiscordStyle ? 'bg-slate-800 text-indigo-300 border-indigo-400/20' : 'bg-indigo-50 text-indigo-400 border-indigo-100'}`}>
-                                    <BookOpenText className="w-6 h-6" weight="bold" />
-                                </div>)}
-                                <span className="text-xs font-bold">{isSummarizing ? '归档中...' : '记忆归档'}</span>
-                            </button>
-                            
+                            {/* [EM: toolbar-reorder] 2026-10-22 阿萌定：第一页放常用的——烛下、收藏夹、贴贴；记忆归档、日程/情绪、写 Notion 挪到第二页，提示音搬进聊天设置 */}
                             <button onClick={() => chatImageInputRef.current?.click()} className={`flex flex-col items-center gap-2 tool-btn ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}>
                                 {acnh ? <AcnhActionTile kind="image" /> : (
                                 <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border ${isDiscordStyle ? 'bg-slate-800 text-pink-300 border-pink-400/20' : 'bg-pink-50 text-pink-400 border-pink-100'}`}>
@@ -1042,7 +1035,52 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                 <span className="text-xs font-bold">重新生成</span>
                             </button>
 
-                            {/* 情绪按钮已并入日程 — 情绪/意识流与日程强制同步，配置面板在日程 Modal 下方 */}
+                            {/* [EM-START: deep-talk] 烛下：点一支蜡烛，邀请 TA 认真聊一次 */}
+                            <button onClick={() => onPanelAction('deep-talk')} className={`flex flex-col items-center gap-2 tool-btn ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}>
+                              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border ${acnh ? 'bg-white/70 border-[#e6dab4] text-[#8f674a]' : isDiscordStyle ? 'bg-slate-800 text-indigo-300 border-indigo-400/20' : 'bg-indigo-50 text-indigo-500 border-indigo-100'}`}>
+                                <svg viewBox="0 0 24 32" className="w-6 h-7" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <path d="M12 2.6c-2.3 3.1-3.1 4.7-3.1 6.4 0 1.8 1.4 3.2 3.1 3.2s3-1.3 3-3.1c0-1.8-.8-3.3-3-6.5z" />
+                                  <path d="M12 12.4v2.1M8.3 14.9c.1 4.3 0 9.2.2 13.1M15.8 14.7c-.2 4.4-.1 9.4 0 13.3M8.2 15c2.5-.5 5.2-.4 7.7-.3M4.8 28.3c4.7.5 9.8.3 14.4 0" />
+                                </svg>
+                              </div>
+                              <span className="text-xs font-bold">深谈</span>
+                            </button>
+                            {/* [EM-END: deep-talk] */}
+                            <button
+                              onClick={() => onPanelAction('favorites')}
+                              className={`flex flex-col items-center gap-2 tool-btn ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}
+                            >
+                              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border ${acnh ? 'bg-white/70 border-[#e6dab4] text-[#d89b2b]' : isDiscordStyle ? 'bg-slate-800 text-amber-300 border-amber-400/20' : 'bg-amber-50 text-amber-500 border-amber-100'}`}>
+                                  <Star className="w-6 h-6" weight="fill" />
+                              </div>
+                              <span className="text-xs font-bold">收藏夹</span>
+                            </button>
+                            {/* [EM-START: char-drives-private] 贴贴：她自己说开始 / 结束两个人的时间，mini 那边心跳闭嘴 */}
+                            {activeCharacterId && (
+                              <PrivateMomentButton
+                                charId={activeCharacterId}
+                                textClassName={acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}
+                                tileClassName={active => `w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border ${active
+                                  ? (isDiscordStyle ? 'bg-rose-500/20 text-rose-300 border-rose-400/40' : 'bg-rose-100 text-rose-600 border-rose-200')
+                                  : (isDiscordStyle ? 'bg-slate-800 text-rose-300 border-rose-400/20' : 'bg-rose-50 text-rose-500 border-rose-100')}`}
+                                onDone={() => setShowPanel('none')}
+                              />
+                            )}
+                            {/* [EM-END: char-drives-private] */}
+
+
+
+                          </div>
+
+                          {/* [EM-START: chat-settings-toolbar] 常用工具收成两页，设置迁入独立页面 */}
+                          <div className={`p-6 grid grid-cols-4 gap-8 ${actionsPage === 1 ? '' : 'hidden'}`}>
+                            <button onClick={() => onPanelAction('archive')} className={`flex flex-col items-center gap-2 tool-btn ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}>
+                                {acnh ? <AcnhActionTile kind="archive" /> : (
+                                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border ${isDiscordStyle ? 'bg-slate-800 text-indigo-300 border-indigo-400/20' : 'bg-indigo-50 text-indigo-400 border-indigo-100'}`}>
+                                    <BookOpenText className="w-6 h-6" weight="bold" />
+                                </div>)}
+                                <span className="text-xs font-bold">{isSummarizing ? '归档中...' : '记忆归档'}</span>
+                            </button>
 
                             {/* Schedule Button */}
                             <button onClick={() => onPanelAction('schedule')} className={`flex flex-col items-center gap-2 tool-btn ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}>
@@ -1061,31 +1099,6 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                 <span className="text-xs font-bold">写 Notion</span>
                             </button>
                             {/* [EM-END: notion-diary-button] */}
-
-
-                          </div>
-
-                          {/* [EM-START: chat-settings-toolbar] 常用工具收成两页，设置迁入独立页面 */}
-                          <div className={`p-6 grid grid-cols-4 gap-8 ${actionsPage === 1 ? '' : 'hidden'}`}>
-                            <button
-                              onClick={() => onPanelAction('favorites')}
-                              className={`flex flex-col items-center gap-2 tool-btn ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}
-                            >
-                              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border ${acnh ? 'bg-white/70 border-[#e6dab4] text-[#d89b2b]' : isDiscordStyle ? 'bg-slate-800 text-amber-300 border-amber-400/20' : 'bg-amber-50 text-amber-500 border-amber-100'}`}>
-                                  <Star className="w-6 h-6" weight="fill" />
-                              </div>
-                              <span className="text-xs font-bold">收藏夹</span>
-                            </button>
-                            {/* 提示音：打开该角色专属的「白框提示音」弹窗（挨着白框，独立于白框可绑定/解绑） */}
-                            <button
-                              onClick={() => onPanelAction('chrome-sound')}
-                              className={`flex flex-col items-center gap-2 tool-btn ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}
-                            >
-                              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border ${acnh ? 'bg-white/70 border-[#e6dab4] text-[#e0994a]' : isDiscordStyle ? 'bg-slate-800 text-amber-300 border-amber-400/20' : 'bg-amber-50 text-amber-500 border-amber-100'}`}>
-                                  <BellSimpleRinging className="w-6 h-6" weight="bold" />
-                              </div>
-                              <span className="text-xs font-bold">提示音</span>
-                            </button>
                             {/* EM: Intiface 硬件 — 连接/断开按钮 */}
                             {(() => {
                               const isConnected = intifaceClient.connected;
@@ -1119,30 +1132,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                 </button>
                               );
                             })()}
-                            {/* [EM-START: char-drives-private] 贴贴：她自己说开始 / 结束两个人的时间，mini 那边心跳闭嘴 */}
-                            {activeCharacterId && (
-                              <PrivateMomentButton
-                                charId={activeCharacterId}
-                                textClassName={acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}
-                                tileClassName={active => `w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border ${active
-                                  ? (isDiscordStyle ? 'bg-rose-500/20 text-rose-300 border-rose-400/40' : 'bg-rose-100 text-rose-600 border-rose-200')
-                                  : (isDiscordStyle ? 'bg-slate-800 text-rose-300 border-rose-400/20' : 'bg-rose-50 text-rose-500 border-rose-100')}`}
-                                onDone={() => setShowPanel('none')}
-                              />
-                            )}
-                            {/* [EM-END: char-drives-private] */}
-                            {/* [EM-START: deep-talk] 烛下：点一支蜡烛，邀请 TA 认真聊一次 */}
-                            <button onClick={() => onPanelAction('deep-talk')} className={`flex flex-col items-center gap-2 tool-btn ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}>
-                              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border ${acnh ? 'bg-white/70 border-[#e6dab4] text-[#8f674a]' : isDiscordStyle ? 'bg-slate-800 text-indigo-300 border-indigo-400/20' : 'bg-indigo-50 text-indigo-500 border-indigo-100'}`}>
-                                <svg viewBox="0 0 24 32" className="w-6 h-7" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                  <path d="M12 2.6c-2.3 3.1-3.1 4.7-3.1 6.4 0 1.8 1.4 3.2 3.1 3.2s3-1.3 3-3.1c0-1.8-.8-3.3-3-6.5z" />
-                                  <path d="M12 12.4v2.1M8.3 14.9c.1 4.3 0 9.2.2 13.1M15.8 14.7c-.2 4.4-.1 9.4 0 13.3M8.2 15c2.5-.5 5.2-.4 7.7-.3M4.8 28.3c4.7.5 9.8.3 14.4 0" />
-                                </svg>
-                              </div>
-                              <span className="text-xs font-bold">深谈</span>
-                            </button>
-                            {/* [EM-END: deep-talk] */}
-                            {/* 记忆链接与提示音同级：都是聊天工具入口，不单独占一整块。 */}
+                            {/* 记忆链接：聊天工具入口，不单独占一整块。 */}
                             <button
                               onClick={() => onPanelAction('memory-link')}
                               className={`flex flex-col items-center gap-2 active:scale-95 transition-transform ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}

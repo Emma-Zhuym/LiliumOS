@@ -402,6 +402,10 @@ check "介绍编辑弹窗接线" apps/Chat.tsx "<EmojiGroupIntroModal category={
 echo "── 连 mini 失败不点亮 SYSTEM ERROR ──"
 check "mini 请求标成预期失败" utils/emAgentBackend.ts "__sullySuppressNetworkFailureLog: true,"
 
+echo "── 工具栏顺序（2026-10-22）──"
+check "工具栏重排说明" components/chat/ChatInputArea.tsx "[EM: toolbar-reorder]"
+check "提示音进聊天设置" components/chat/ChatSettingsPage.tsx "onAction('chrome-sound')"
+
 echo "── 烛下（聊天里的深谈） ──"
 check "深谈：纯逻辑" utils/deepTalk.ts "parseDeepTalkAnswer"
 check "深谈：独立库" utils/deepTalkDb.ts "LiliumOS_DeepTalk"
