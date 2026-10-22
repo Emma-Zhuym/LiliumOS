@@ -399,6 +399,9 @@ check "群聊表情清单带介绍" utils/groupChat/prompts.ts "groupIntroLine(v
 check "分类操作里的入口" components/chat/ChatModals.tsx "onEditCategoryIntro && selectedCategory"
 check "介绍编辑弹窗接线" apps/Chat.tsx "<EmojiGroupIntroModal category={groupIntroTarget}"
 
+echo "── 连 mini 失败不点亮 SYSTEM ERROR ──"
+check "mini 请求标成预期失败" utils/emAgentBackend.ts "__sullySuppressNetworkFailureLog: true,"
+
 echo ""
 if [ $FAIL -gt 0 ]; then
     echo "🔴 $FAIL 项缺失（$PASS 项通过）——EM 功能被冲掉了，对照 .claude/CLAUDE.md 补回来"

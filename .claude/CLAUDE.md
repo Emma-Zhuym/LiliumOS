@@ -407,6 +407,7 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - 状态里的小红书登录态查一次要开浏览器，`createXhsLoginProbe` 带 10 分钟缓存、不在请求里现等；`GET /characters` 带 `nextHeartbeatAt`
 - 上游文件只有接线：`types.ts` AppID、`constants.tsx` 图标、`PhoneShell.tsx` 路由、`safeAreaApps.ts`（测试里的名单也要加），设置页 `AgentBackendSection` 一个「打开机房」入口
 - **分工（2026-10-21 阿萌定）**：手机关了还在跑的归机房，手机自己的配置归设置。设置 → Mac mini 只剩配对 / 解绑 / 看连不连得上；「连接」页的「这台手机」组放聊天交给 mini（本机开关 `em_agent_chat_enabled_v1`）、推送重新登记、连通测试、立刻收信箱，「这台 mini」组放日历可见性、设备列表（可作废）
+- 连 mini 的请求（`emAgentBackend.ts` 的 `request` 和连通性复检）都带 `__sullySuppressNetworkFailureLog`：超时、连不上不进 SYSTEM ERROR，机房 / 设置自己显示「后台休息中」或黄字（2026-10-22 阿萌定）
 - 「立刻收信箱」只发 `em-agent-pull` 事件，走 OSContext 跟回到前台同一条收信路；**别直接调 `AgentBackend.inbox()` 再 ack**——那样消息不进聊天就被确认收下，等于吞掉（旧设置页按钮就是这样）
 
 ### 38. 外链图片存本机 + mini 图片仓库（2026-10-21）

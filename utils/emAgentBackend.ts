@@ -224,7 +224,8 @@ const probeBackend = async (baseUrl: string): Promise<ReachabilityVerdict> => {
     try { origin = new URL(baseUrl).origin; } catch { return 'skipped'; }
     const now = Date.now();
     if (lastProbe && lastProbe.origin === origin && now - lastProbe.at < PROBE_REUSE_MS) return lastProbe.verdict;
-    const verdict = await probeOriginReachability(baseUrl, fetch, { timeoutMs: 5000 });
+    const quietFetch: typeof fetch = (input, init) => fetch(input, { ...init, __sullySuppressNetworkFailureLog: true } as RequestInit); // [EM: agent-backend-quiet-failures]
+    const verdict = await probeOriginReachability(baseUrl, quietFetch, { timeoutMs: 5000 });
     // 全局冷却挡住了这次探测：没有新结论，别把「不知道」记成结论
     if (verdict !== 'cooldown' && verdict !== 'skipped') lastProbe = { origin, at: now, verdict };
     return verdict;
@@ -254,7 +255,9 @@ const request = async <T>(
             },
             body: init.body ? JSON.stringify(init.body) : undefined,
             signal: controller.signal,
-        });
+            // [EM: agent-backend-quiet-failures] mini 不在 / 超时是常态，机房和设置会显示「后台休息中」，不点亮 SYSTEM ERROR
+            __sullySuppressNetworkFailureLog: true,
+        } as RequestInit);
     } catch (cause) {
         // 后端休眠、Tailscale 没开、地址填错，浏览器给的都是同一句 "Failed to fetch"。
         // 这里统一成一个可识别的 code，上层据此显示「后台休息中」而不是报错。

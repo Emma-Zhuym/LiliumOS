@@ -20,6 +20,16 @@ beforeEach(() => {
 });
 
 describe('连不上 mini 时分清是不在线还是被浏览器拦', () => {
+    it('连 mini 的请求和探测都不点亮 SYSTEM ERROR（界面自己显示休息中）', async () => {
+        const fetchMock = failThen('fail');
+        vi.stubGlobal('fetch', fetchMock);
+        await expect(AgentBackend.status()).rejects.toMatchObject({ code: 'UNREACHABLE' });
+        expect(fetchMock.mock.calls.length).toBeGreaterThan(1);
+        for (const [, init] of fetchMock.mock.calls) {
+            expect((init as { __sullySuppressNetworkFailureLog?: boolean }).__sullySuppressNetworkFailureLog).toBe(true);
+        }
+    });
+
     it('no-cors 碰得到：mini 在线，报 BLOCKED（多半是 CORS）', async () => {
         vi.stubGlobal('fetch', failThen('ok'));
         await expect(AgentBackend.status()).rejects.toMatchObject({ code: 'BLOCKED' });
