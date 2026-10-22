@@ -122,7 +122,7 @@ describe('prompt pieces', () => {
 
     it('parses the end JSON even inside a code fence', () => {
         expect(parseEndResult('```json\n{"title":"《原地打转》","oneLine":"我第一次跟人说那件事。","summary":"她有点迷茫。","candleSummary":"她在想要不要走。","kept":[]}\n```'))
-            .toEqual({ title: '原地打转', oneLine: '我第一次跟人说那件事。', summary: '她有点迷茫。', candleSummary: '她在想要不要走。', kept: [] });
+            .toEqual({ title: '原地打转', oneLine: '我第一次跟人说那件事。', summary: '她有点迷茫。', candleSummary: '她在想要不要走。', afterglow: '', kept: [] });
         expect(parseEndResult('没有 JSON')).toBeNull();
     });
 
@@ -183,5 +183,17 @@ describe('truth-telling nights', () => {
     it('writes a kept line as TA\'s own memory', () => {
         expect(keptLineMemoryContent({ speaker: 'user', text: '想被允许累' }, '阿萌')).toBe('点着蜡烛那一夜，阿萌跟我说：「想被允许累」');
         expect(keptLineMemoryContent({ speaker: 'char', text: '我在' }, '阿萌')).toBe('点着蜡烛那一夜，我跟阿萌说：「我在」');
+    });
+});
+
+describe('afterglow', () => {
+    it('keeps a feelings-only afterglow and drops one that gives reality away', () => {
+        expect(parseEndResult('{"title":"t","afterglow":"心里软了一块，还有点舍不得。"}')?.afterglow).toBe('心里软了一块，还有点舍不得。');
+        expect(parseEndResult('{"title":"t","afterglow":"想到她回不了国就难受"}')?.afterglow).toBe('');
+    });
+
+    it('puts the afterglow on the card line so everyday chat picks up the mood', () => {
+        expect(buildCardContent({ nightNo: 2, title: '只是累', summary: '她有点累。', afterglow: '心里软了一块。' }))
+            .toBe('（你们在烛下深谈过一夜 · 第02夜《只是累》：她有点累；你心里还留着：心里软了一块。）');
     });
 });

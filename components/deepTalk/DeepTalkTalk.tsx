@@ -15,7 +15,7 @@ const ThinkingTag: React.FC<{ palette: DeepTalkPalette; open: boolean; onToggle:
         className="inline-flex items-center active:opacity-40 transition-opacity"
         style={{
             marginLeft: 10, height: 30, padding: '0 2px', gap: 3, background: 'transparent', border: 'none',
-            fontFamily: FONT.body, fontSize: 11, letterSpacing: '.08em', color: palette.inkSoft, verticalAlign: 'top',
+            fontFamily: FONT.hand, fontSize: 15, color: palette.inkSoft, verticalAlign: 'top',
         }}>
         {'<Thinking>'}
         {open ? <CaretDown size={10} weight="bold" /> : <CaretRight size={10} weight="bold" />}
@@ -35,7 +35,7 @@ const Segment: React.FC<{ m: Message; palette: DeepTalkPalette; names: { userNam
             {open && thinking && (
                 <div style={{
                     margin: '2px 0 8px', padding: '6px 0 6px 10px', borderLeft: `1px solid ${palette.line}`,
-                    fontFamily: FONT.body, fontSize: 12.5, lineHeight: '20px', color: palette.inkSoft, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                    fontFamily: FONT.hand, fontSize: 16, lineHeight: '24px', color: palette.inkSoft, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
                 }}>{thinking}</div>
             )}
             {toParagraphs(m.content).map((p, i) => (

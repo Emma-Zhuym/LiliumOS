@@ -212,6 +212,7 @@ export const endDeepTalk = async (input: {
         oneLine: result?.oneLine || '',
         summary: result?.summary || '',
         candleSummary: result?.candleSummary || '',
+        afterglow: result?.afterglow || '',
         kept: [],
         segmentCount: segments.length,
     };

@@ -1062,6 +1062,8 @@ const Chat: React.FC = () => {
             });
             await reloadMessages(visibleCountRef.current);
             void flushDeepTalkSnapshot();
+            // 余温接进下一轮平时聊天的内心状态（深谈中没跑情绪评估，回到聊天时氛围要接得上）
+            if (closed.afterglow) window.dispatchEvent(new CustomEvent('emotion-innerstate-updated', { detail: { charId: current.id, innerState: closed.afterglow } }));
             if (closed.kept?.length) addToast(`${current.name}记下了 ${closed.kept.length} 句话，信笺里能看到`, 'info');
         } catch (e: any) {
             addToast(e?.message || '收卡失败，过一会儿再点一次结束', 'error');

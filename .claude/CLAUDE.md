@@ -450,7 +450,8 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - **说真话的夜（每一夜都是）**：深谈原文不进记忆宫殿（`pipeline.ts` 三处 `!isDeepTalkMessage`）、不进角色 App 手动记忆总结、不进心跳快照、深谈轮次不跑情绪评估；
   收尾留两份摘要——`summary` 只写感受（给平时）、`candleSummary` 照实写（只给以后的烛下）；TA 挑的一两句原话（`kept`，程序校验真说过、不带现实处境）才写成卧室记忆，信笺里可删。
   **以后给深谈加新的「带走」路径（导出、摘要、快照…）都要先想会不会把真话漏回平时**
-- TA 的思考存 `metadata.deepTalkThinking`，纸面 / 信笺名字旁一个 `<Thinking>` 小标签点开看；不用心象卡片样式
+- 收尾时 TA 写一句只写感受的「余温」`afterglow`：当下一轮平时聊天的内心状态，并写进卡片那一行——深谈中不跑情绪评估，靠它接上氛围
+- TA 的思考存 `metadata.deepTalkThinking`，纸面 / 信笺名字旁一个手写体 `<Thinking>` 小标签点开看；不用心象卡片样式
 
 ### 34. 小厨房（现实食品库存）
 - 详细设计与每次改动见 `docs/kitchen-3d.md`；UI 规则见 `APP_CONVENTIONS.md` 的 P14 与 `utils/kitchenPaperTokens.ts`

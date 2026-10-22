@@ -33,6 +33,8 @@ export interface DeepTalkNight {
     summary?: string;
     /** 只给以后的烛下看：这一夜真正聊了什么，现实处境可以写 */
     candleSummary?: string;
+    /** 蜡烛灭了以后 TA 心里留着的感觉（只写感受）：回到平时聊天时接上氛围 */
+    afterglow?: string;
     /** TA 挑出来带回平时的原话（进记忆宫殿）；阿萌可以在信笺里删 */
     kept?: DeepTalkKeptLine[];
     segmentCount?: number;
@@ -164,10 +166,12 @@ export const keepInPromptHistory = (m: Pick<Message, 'metadata'>, openNightId: s
     !isDeepTalkMessage(m) || (!!openNightId && m.metadata.deepTalkId === openNightId);
 
 /** 折叠卡消息的 content：之后的聊天上下文里，这一夜只占这一行 */
-export const buildCardContent = (night: Pick<DeepTalkNight, 'nightNo' | 'title' | 'summary' | 'oneLine'>): string => {
+export const buildCardContent = (night: Pick<DeepTalkNight, 'nightNo' | 'title' | 'summary' | 'oneLine' | 'afterglow'>): string => {
     const title = night.title ? `《${night.title}》` : '';
     const body = (night.summary || night.oneLine || '').trim();
-    return `（你们在烛下深谈过一夜 · 第${padNight(night.nightNo)}夜${title}${body ? `：${body}` : ''}）`;
+    const glow = (night.afterglow || '').trim();
+    const said = glow ? body.replace(/[。.！!]+$/, '') : body;
+    return `（你们在烛下深谈过一夜 · 第${padNight(night.nightNo)}夜${title}${said ? `：${said}` : ''}${glow ? `${said ? '；' : '：'}你心里还留着：${glow}` : ''}）`;
 };
 
 // ── 提示词 ───────────────────────────────────────────────
@@ -246,6 +250,7 @@ export interface DeepTalkEndResult {
     oneLine: string;
     summary: string;
     candleSummary: string;
+    afterglow: string;
     kept: { speaker: 'user' | 'char'; text: string }[];
 }
 
@@ -260,7 +265,7 @@ export const buildEndPrompt = (names: { userName: string; charName: string }, tr
 只挑说感受、说你们俩的话；带现实处境的不要挑（人在哪、回不去、时差、隔着多远都不行）。没有合适的就给空数组。
 
 只输出一个 JSON：
-{"title": "这一夜的名字，不超过 8 个字，你自己起，别用「深谈」「谈心」这类词", "oneLine": "用你的第一人称写一句话，说这一夜你们之间发生了什么（提到${names.userName}用「她」），只写感受，不超过 40 字", "summary": "第三人称写这一夜两个人的心情和说定的事，只写感受，给平时的你看，不超过 120 字", "candleSummary": "第三人称照实写这一夜聊了什么、各自说了什么，只给以后的烛下看，不超过 200 字", "kept": [{"speaker": "char 或 user", "text": "原话，一字不改"}]}
+{"title": "这一夜的名字，不超过 8 个字，你自己起，别用「深谈」「谈心」这类词", "oneLine": "用你的第一人称写一句话，说这一夜你们之间发生了什么（提到${names.userName}用「她」），只写感受，不超过 40 字", "summary": "第三人称写这一夜两个人的心情和说定的事，只写感受，给平时的你看，不超过 120 字", "candleSummary": "第三人称照实写这一夜聊了什么、各自说了什么，只给以后的烛下看，不超过 200 字", "afterglow": "蜡烛灭了以后你此刻心里留着的感觉，第一人称，只写感受，不超过 50 字（回到平时聊天时你会带着它）", "kept": [{"speaker": "char 或 user", "text": "原话，一字不改"}]}
 
 全文：
 ${transcript}`;
@@ -298,6 +303,9 @@ export const parseEndResult = (
     const oneLine = str(obj.oneLine);
     const summary = str(obj.summary);
     const candleSummary = str(obj.candleSummary);
+    // 余温要带回平时：带现实处境就不要了
+    const afterglowRaw = str(obj.afterglow);
+    const afterglow = afterglowRaw && isSafeKeptLine(afterglowRaw) ? afterglowRaw : '';
     if (!title && !oneLine && !summary && !candleSummary) return null;
     const spoken = (speaker: 'user' | 'char') => (segments || [])
         .filter(m => (speaker === 'user' ? m.role === 'user' : m.role !== 'user'))
@@ -317,6 +325,7 @@ export const parseEndResult = (
         oneLine: clip(oneLine, 60),
         summary: clip(summary, 200),
         candleSummary: clip(candleSummary, 300),
+        afterglow: clip(afterglow, 80),
         kept,
     };
 };
