@@ -1,0 +1,210 @@
+# 深谈（暂名「烛下」）spec
+
+> **实施状态（2026-10-22）：未开工。** 想法和讨论过程在 `docs/ideas.md`「聊天里的深谈」那节，样稿在 `docs/design/deep-talk-v2.html`
+> （https://claude.ai/artifact/2BUgGM1h2iPVz9jjpSvsz1 ，含白天 / 夜里切换）。这份是实施契约，分三个阶段，阶段一就能完整用起来。
+
+阿萌想跟角色认真聊一次：聊天被提示词限定成短消息，见面又有动作和环境描写，她都不想用。深谈是**留在聊天里**的一种模式——
+点一支蜡烛邀请 TA，TA 答应了，整个聊天区变成纸，两个人一人一段地说；聊完烛花落了，整段收成一张卡。
+
+## 放在哪里（2026-10-22 定）
+
+- 入口、聊的过程、折叠卡、信笺都在聊天里，不做成单独 App（离开聊天正是她不用见面的原因）。
+- 情侣空间这次不做。但「所有夜晚」做成只靠 `charId` 就能渲染的独立组件，深谈记录存在自己的库里，
+  以后情侣空间要加一格「我们的夜晚」书架，直接挂这个组件，深谈这边不改。
+- **正文仍在聊天消息流里**：记忆宫殿的缓冲区、水位线、召回都只认消息流，深谈的话要进记忆就得留在那里。
+  单独存的是「这一夜」的记录（第几夜、起止、TA 起的名字、一句话、摘要、状态），消息用 `metadata.deepTalkId` 挂到它上面。
+
+## 一次深谈的流程
+
+```
+阿萌点蜡烛 ──► 系统气泡「阿萌点了一支蜡烛，想和你聊聊」──► TA 回一句（带标记）
+                                                        ├─ accept ─► 整屏变纸，开始
+                                                        ├─ later  ─► 「蜡烛先留着 · 约在 23:00」
+                                                        └─ decline ─► 「蜡烛先留着」
+到点（阶段二由心跳来叫；阶段一阿萌手动点）──► 「既白来了，蜡烛重新点上」──► 整屏变纸
+阿萌点「结束」──► 生成名字 / 一句话 / 摘要 ──► 「烛花落了」──► 收成卡
+```
+
+- 接受、改天还是拒绝**由 TA 的回复决定**，不由程序按日程状态硬判（阿萌 2026-10-21）。TA 忙就不硬聊。
+- 系统气泡用手写体 + 蜡烛线稿，文案固定：
+  - 邀请：「{发起人}点了一支蜡烛，想和你聊聊」（阿萌发起 / TA 发起共用，阶段二才有 TA 发起）
+  - 改约：「蜡烛先留着」，有时间就在后面加小字「约在 HH:mm」
+  - 开始：第一次接受直接变纸，不另发气泡；改约后再开始发「{角色}来了，蜡烛重新点上」
+  - 结束：「烛花落了」
+- 「书房」是记忆宫殿的房间名，文案里别用。
+
+## 数据层
+
+### 新库 `LiliumOS_DeepTalk`（`utils/deepTalkDb.ts`，EM 独有文件）
+
+一个 store `nights`，主键 `id`，索引 `charId`、`[charId+startedAt]`：
+
+```ts
+interface DeepTalkNight {
+    id: string;                 // crypto.randomUUID()
+    charId: string;
+    status: 'invited' | 'later' | 'declined' | 'open' | 'closed';
+    invitedBy: 'user' | 'char';
+    invitedAt: number;
+    laterAt?: number;           // TA 约的时间（later 才有）
+    startedAt?: number;         // 变纸那一刻
+    endedAt?: number;
+    nightNo?: number;           // 第几夜：closed 时按该角色已结束的夜数 +1 写定，之后不变
+    title?: string;             // TA 给这一夜起的名字（≤8 字）
+    oneLine?: string;           // TA 视角的一句话，卡片和「所有夜晚」用
+    summary?: string;           // 给之后聊天上下文用的摘要（≤200 字）
+    segmentCount?: number;      // 一共几段，卡片上「十二段 · 翻开」
+}
+```
+
+- 同一个角色同时最多一条 `invited` / `later` / `open`；新邀请会把旧的 `later` 置为 `declined`。
+- `open` 超过 3 小时没有新消息，下次打开聊天时自动走结束流程（「蜡烛燃尽了」代替「烛花落了」），防止开着忘了关、心跳一直静音。
+
+### 消息上的标记（`types.ts` Message metadata 加可选字段，零迁移）
+
+- 深谈里的每条消息（双方）：`metadata.deepTalkId`
+- 系统气泡：`type: 'system'`，`metadata.kind = 'deep_talk_event'`，`metadata.deepTalkEvent = 'invite' | 'later' | 'declined' | 'relight' | 'end' | 'burnt_out'`
+- 折叠卡：`metadata.kind = 'deep_talk_card'` + `deepTalkId`，内容为空，由 `MessageItem` 读库渲染
+- `getChatModeTransition` 认 `metadata.source === 'deep_talk'`（深谈消息都带这个 source），新增模式 `'deep_talk'`
+
+### 备份
+
+- 完整备份和文字备份都带 `emDeepTalkNights`（整张表，纯文字，很小）；恢复按 `id` 覆盖。`OSContext.tsx` 导出清单、`availableStores`、`runSection` 三处都要有（同 agenda 的踩坑）。
+- 消息本身随聊天记录走，不重复存。
+
+## 聊天端
+
+### 入口（`components/chat/ChatInputArea.tsx`、`apps/Chat.tsx`）
+
+- 工具栏加一格「深谈」，图标是蜡烛线稿（2px 描边，不用 emoji），放第二页第一个空位。
+- `handleDeepTalkInvite`：照「写 Notion」的做法，先 `autoReply.cancel()`，建一条 `invited` 记录，存系统气泡，再触发一次回复。
+- 已有 `later` 的邀请时，点入口直接「重新点上」（不再问一遍）。
+
+### TA 的回答（提示词 + `utils/chatParser.ts`）
+
+- 邀请那一轮的提示词告诉 TA：先看自己现在在干什么，决定现在聊、约个时间还是这阵子不行；回复照常是 IM 短句，末尾带一个标记：
+  `[[DEEP_TALK: accept]]` / `[[DEEP_TALK: later | 23:00]]` / `[[DEEP_TALK: decline]]`
+- 解析器把标记剥掉，按结果改记录、发对应系统气泡。时间按角色时区解析成时间戳（照 `docs/character-timezone.md`，别手搓时差）；解析不出时间就当 `decline`。
+- **没带标记**：当作没答应，不变纸，也不发「蜡烛先留着」，阿萌可以再点一次。宁可不开始，不能 TA 嘴上说忙、界面却变成纸。
+
+### 聊的时候（整屏变纸）
+
+- `open` 时，消息列表只渲染这一夜的消息，换成纸面组件 `components/deepTalk/DeepTalkPaper.tsx`：横格纸，名字 + 整段话，没有气泡，宽度用满（样稿第一屏）。
+- 顶栏副标题换成「烛下」+ 点着的小蜡烛，右边是昼夜手动开关；输入框占位「慢慢说……」，右边是「结束」。
+- 这期间工具栏只留文字输入：表情、发图、语音条、引用都先不开（阶段一不做，见下）。
+- 返回键照常能离开聊天，回来还是纸面；深谈不会因为退出页面就结束。
+
+### 结束
+
+1. 阿萌点「结束」→ 确认一次（「让蜡烛灭了吗」）。
+2. 用该角色的 API（`resolveCharacterApiConfig`）调一次，输入这一夜全文，输出 JSON：`{ title, oneLine, summary }`。
+   提示词要求 TA 自己起名、用自己的口吻写那句话；解析失败重试一次，再失败就用「第 N 夜」+ 空的一句话收卡，不卡住流程。
+3. 写回记录（`closed`、`nightNo`、`segmentCount`），存「烛花落了」气泡和折叠卡。
+4. 跑一次记忆宫殿后置流程：照 `utils/memoryPalace/callPostFlow.ts` 抽一个 `runDeepTalkMemoryPalacePostFlow`（或者直接复用，入参一样），让这一夜的消息立刻进缓冲区处理，不用等下次聊天。
+
+### 折叠卡、信笺、所有夜晚
+
+- **卡**（`components/deepTalk/DeepTalkCard.tsx`，`MessageItem.tsx` 一处分流）：样稿第二屏。左栏蜡烛 / 第几夜 / 名字 / 起止时间，右栏一句话，底行「N 段 · 翻开」和 TA 的手写名。
+  卡片本身保持克制，不加阴影。
+- **信笺**（`DeepTalkLetter.tsx`）：点卡从下面翻上来的整页 sheet，覆在聊天上，不上桌面。页边是窗棂、蜡烛、烛泪的线稿，正文同纸面排版，末尾签名。
+- **所有夜晚**（`DeepTalkNights.tsx`）：信笺右上角进入。顶部大蜡烛 + 点过几次 + 最早一次的日期，下面按时间倒序列出每一夜（名字 + 一句话），点一项打开那一夜的信笺。
+  **只接收 `charId`，自己读库**，不依赖聊天页的 state——以后情侣空间直接挂。
+  阶段一蜡烛是静态的；「烛泪随次数变长、蜡烛变短」「点火苗飘出一句旧话」留到阶段三。
+
+### 昼夜
+
+- 只在深谈的纸面、卡、信笺、所有夜晚上分昼夜，聊天其他地方不变。
+- 默认看**角色那边**几点：19:00–6:00 算夜里；顶栏开关可以手动切换，选择按角色存在 localStorage `em_deep_talk_theme_<charId>`（`auto` / `day` / `night`），不进备份。
+- 颜色：白天用 `HUE.indigo` 现有的值；夜间那组阿萌 2026-10-22 已定（色值见 `docs/ideas.md`），**先补进 `utils/clayTokens.ts`**（同步 `tokens.json` / `tokens.css`），再写组件，组件里不出现裸 hex。
+
+## 提示词（`utils/emPromptAddons.ts` 新增 `emDeepTalkSection`，`chatPrompts.ts` 一处调用）
+
+`open` 时替换 IM 输出规则（不是追加在后面——短消息规则还在的话模型会两头为难）：
+
+- 还是角色扮演，用 TA 自己的口吻和立场。
+- 一次回一到三段，合计大约 120–400 字；不写动作、神态、环境，不加旁白。
+- **别学 Claude / GPT 那样爱追问**：真人认真聊天大多在说自己的经历和看法，大部分回复不带问题，带也最多一个。
+- 别当贴心客服：可以不同意，可以说「我不这么看」，可以有自己的偏见。
+- 可以主动说自己最近的困扰，但只能从下面给的原料里来，不能现编一段愁绪；原料没有就不说。
+- 不发表情、不引用、不发语音、不写日记 / 代记指令。
+
+**困扰原料**（每轮注入，各取最近、最重的几条，没有就整块不写）：
+
+- 阶段一（手机本地就有）：记忆宫殿阁楼 `attic`（没想通的事）最多 3 条、窗台 `windowsill`（期盼）最多 2 条，用 `MemoryNodeDB.getByRoom`；今天的日程。
+- 阶段二（在 mini 上）：话兜里攒着想说的（`pocket.mjs`）、没结的 `life_threads`、心思 `stress` 的读数。
+
+**回复不拆气泡**：`utils/applyAssistantPostProcessing.ts` 在深谈轮次跳过 `chunkText`，整段存成一条消息（段落用空行分开），也跳过 `[[QUOTE]]` / `[[SEND_EMOJI]]` 等解析。
+
+**结束以后**：
+
+- 第一轮普通聊天走「模式切换」提示（`ChatModeTransition` 加 `deep_talk: '深谈'`），把 TA 拉回 IM 短句。
+- 之后的聊天历史里，已结束那一夜的消息在 `buildMessageHistory` 里折成一行：`[深谈 · 第07夜《原地打转》：{summary}]`，不再逐条放进上下文。
+  长段落留在历史里会把 TA 的聊天风格带长；记忆宫殿读的是数据库里的原文，不受影响。
+
+## mini 和主动消息
+
+### 阶段一：静音
+
+- 深谈 `open` 时，快照 payload 带 `deepTalk: { open: true, since }`；开始和结束时**立刻**推一次快照，不等防抖（`utils/emAgentBackend.ts` 的快照计时器）。
+- 后端 `heartbeat.mjs` 的 `speakBlock` 认这个字段，返回 `'deep_talk'`：这一跳不开口，生活照过。
+  快照里 `since` 超过 3 小时就不认（跟前端的自动收尾对齐，防止快照卡住让 TA 一直不说话）。
+- 本地主动消息和 amsg 排程在 `open` 时跳过（挂点在 `utils/activeMsgRuntime.ts`，实施时确认具体位置）。
+- 深谈轮次固定在手机本地生成，不交给 mini 即时回复或 amsg 即时对话：那两条路拿不到深谈的提示词和不拆气泡的处理。
+
+### 阶段二：约好的时间到了，TA 来找她
+
+- TA 回 `later | 23:00` 时，手机把约定交给 mini：新增 `POST /deep-talk/plans`（或者复用 `life_threads` 写入），落成一条带 `due_at` 的约定，标记 `kind: 'deep_talk'`。
+- 到点那一跳，心跳把「邀请她进深谈」当作这一跳要说的事，发出的消息 payload 带 `deepTalkInvite: { nightId }`；
+  `utils/emAgentInbox.ts` 收到后在话后面接一个「蜡烛重新点上」的系统气泡，阿萌点一下进纸面（照 `xhsNote` 的接法）。
+- mini 不在线时，到点不会有人来叫；阿萌可以自己点「蜡烛先留着」那个气泡重新点上。**不靠上游 amsg 兜底**（阿萌觉得它很少按时触发）。
+
+### 阶段二：TA 主动约她
+
+- 条件：阁楼压得重，或者心思里 `stress` 高。看脾气 `stressOutlet`：`user` 的人会来找她；`friends` / `work` / `alone` 的人不动不动来约，只有压到很重才开口。
+- 走心跳现有的抽签，不新开一条定时任务；一天最多一次，被拒后 3 天内不再约。
+- TA 发起时系统气泡写「{角色}点了一支蜡烛，想和你聊聊」，阿萌点「好」才变纸，点「改天」就收起。
+
+## 本次不做
+
+- 情侣空间、便利贴（便利贴想法写进 `docs/ideas.md`「情侣空间便签纸」）。
+- 深谈里发图、表情、语音、引用。
+- TA 主动提出结束（阶段一只有阿萌能点「结束」）。
+- 「所有夜晚」的动态蜡烛：烛泪随次数变长、蜡烛变短、点火苗飘出一句旧话（阶段三）。
+- 群聊里的深谈。
+- 正式线稿插画：样稿里的窗棂、蜡烛是占位，以后换正式图。
+
+## 分阶段
+
+| 阶段 | 内容 | 依赖 |
+|---|---|---|
+| 一 | 入口、邀请 + 三种回答、纸面、结束 + 卡 + 信笺 + 所有夜晚（静态）、阁楼 / 窗台原料、历史折叠、昼夜、备份、心跳和主动消息静音 | 只需要手机端和后端 `speakBlock` 一处 |
+| 二 | 约定到点由心跳来叫、TA 主动约、话兜 / life_threads / stress 原料 | mini 后端，改完要在 mini 上拉代码重启 |
+| 三 | 所有夜晚的动态蜡烛和旧话、情侣空间书架 | 情侣空间立项后再说 |
+
+## EM 惯例
+
+- 新文件（EM 独有，不冲突）：`utils/deepTalkDb.ts`、`utils/deepTalk.ts`（状态机、标记解析、原料拼装，纯逻辑带单测）、`components/deepTalk/*`。
+- 上游文件只接线，统一哨兵 `[EM-START/END: deep-talk]` / `[EM: deep-talk]`：
+  `apps/Chat.tsx`（入口 handler、action case、纸面切换）、`components/chat/ChatInputArea.tsx`（一格按钮）、`components/chat/MessageItem.tsx`（卡片分流）、
+  `utils/chatPrompts.ts`（模式切换、一行提示词调用、历史折叠）、`utils/applyAssistantPostProcessing.ts`（不拆气泡）、`utils/chatParser.ts`（标记）、
+  `types.ts`（metadata 字段、备份字段）、`context/OSContext.tsx`（备份三处）。
+- `scripts/check-em-patches.sh` 加「深谈」一节锚点；完工后在 `.claude/CLAUDE.md` EM 功能清单加一节，`docs/changelog.md` 记一条。
+- UI 照 `design-system/DESIGN_SYSTEM.md` + `APP_CONVENTIONS.md`：取值只从 `clayTokens`；全平无阴影；不用渐变（横格纸用 svg 平铺，不用 `linear-gradient`）。
+  手写体（样稿用 Long Cang）现在不在 `FONT` 里，要先问阿萌再加。
+
+## 待阿萌定
+
+1. 正式名字：「烛下」是样稿里的暂名。
+2. 手写体：沿用样稿的 Long Cang，还是换一款？要加进 `FONT` 和 `index.html` 字体链接（上游文件，一行）。
+3. 结束时的名字、一句话、摘要用角色自己的 API 还是副 API：建议用角色自己的，名字是 TA 起的，口吻要对。
+
+## 验收（阶段一）
+
+1. 点「深谈」→ 出现邀请气泡；TA 在上班时回「还在忙，十一点以后」→ 出现「蜡烛先留着 · 约在 23:00」，界面不变纸。
+2. TA 空闲时答应 → 整屏变纸，没有气泡，一人一段；TA 每次回一到三段，没有动作描写，大部分回复不以问句结尾。
+3. 深谈中途退出聊天再回来，还是纸面；这期间 mini 机房的心跳记录显示 `deep_talk` 跳过，没有主动消息进来。
+4. 点「结束」→「烛花落了」+ 一张卡，卡上有 TA 起的名字和一句话；点卡翻开信笺能看全文；右上角「所有夜晚」能看到这一夜，序号对。
+5. 结束后第一句普通聊天回到 IM 短句；再往后聊，上下文里这一夜只占一行。
+6. 晚上 7 点后（角色时区）打开深谈是夜间配色；手动切到白天，刷新后仍是白天。
+7. 导出文字备份 → 清空 → 导入，「所有夜晚」和卡片都还在。
+8. 开着深谈不管它，3 小时后再打开聊天，自动收成卡（「蜡烛燃尽了」），心跳恢复。

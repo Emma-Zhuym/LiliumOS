@@ -42,6 +42,11 @@
 - EM App 数据备份必须持续覆盖 Finance（含周期规则）、Health、Shopping、Map、Moments、Smart Home。
 - 剧情剧场默认独立故事线与独立记忆；只有用户显式开启才镜像进角色记忆。
 
+### P1：聊天里的深谈（暂名「烛下」）
+
+- 阿萌 2026-10-22 定开工。实施契约 `docs/spec-deep-talk.md`，分三阶段：阶段一手机端闭环（邀请 / 纸面 / 卡 / 信笺 / 所有夜晚 / 昼夜 / 心跳静音），阶段二 mini 到点来叫和 TA 主动约，阶段三动态蜡烛和情侣空间书架。
+- 开工前先定 spec 末尾「待阿萌定」三条。
+
 ### P1：Notion 高级管理 App
 
 - 独立 `apps/NotionApp.tsx`，不重写 Settings 的基础配置。
