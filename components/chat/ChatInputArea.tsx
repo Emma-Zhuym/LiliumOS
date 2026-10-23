@@ -1033,7 +1033,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                   <path d="M12 12.4v2.1M8.3 14.9c.1 4.3 0 9.2.2 13.1M15.8 14.7c-.2 4.4-.1 9.4 0 13.3M8.2 15c2.5-.5 5.2-.4 7.7-.3M4.8 28.3c4.7.5 9.8.3 14.4 0" />
                                 </svg>
                               </div>
-                              <span className="text-xs font-bold">深谈</span>
+                              <span className="text-xs font-bold">烛下</span>
                             </button>
                             {/* [EM-END: deep-talk] */}
                             <button
