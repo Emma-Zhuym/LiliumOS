@@ -5,7 +5,7 @@
  */
 import React from 'react';
 import type { Message } from '../../types';
-import { FONT } from '../../utils/clayTokens';
+import { FONT, R } from '../../utils/clayTokens';
 import { DEEP_TALK_CARD_KIND, padNight, type DeepTalkEvent } from '../../utils/deepTalk';
 import { Candle, DAY_PALETTE, WobbleBorder, WobbleDefs } from './DeepTalkInk';
 import { openDeepTalkLetter, requestDeepTalkRelight, useActiveDeepTalk, useNight } from './useDeepTalk';
@@ -44,7 +44,8 @@ const EventPill: React.FC<{ msg: Message }> = ({ msg }) => {
     );
     const style: React.CSSProperties = {
         position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 8, padding: '6px 14px 5px 10px',
-        fontFamily: FONT.hand, fontSize: 17, color: palette.ink, background: 'transparent', border: 'none',
+        // 跟折叠卡同一张纸做底：聊天有背景图时，透明底上的字会看不见（阿萌 2026-10-22 发现）
+        fontFamily: FONT.hand, fontSize: 17, color: palette.ink, background: palette.paper, borderRadius: R.pill, border: 'none',
     };
     return (
         <div className="flex w-full justify-center my-2">
