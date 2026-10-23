@@ -52,15 +52,32 @@ const MarginArt: React.FC<{ palette: DeepTalkPalette }> = ({ palette }) => (
     </svg>
 );
 
-/** TA 挑出来带回平时的那一两句：平时聊天里 TA 能想起原话。阿萌不想让 TA 带回去的可以删 */
-const KeptLines: React.FC<{ night: DeepTalkNight; palette: DeepTalkPalette; names: { userName: string; charName: string } }> = ({ night, palette, names }) => {
+/**
+ * TA 带回平时的东西，全摆出来（阿萌 2026-10-22：TA 回到聊天里记得的比卡片上那句多，她却看不到）：
+ * - 记得的：summary，平时聊天里折叠卡那一行给 TA 看的就是它
+ * - 心里留着的：afterglow，回到聊天第一轮的内心状态
+ * - 原话：TA 挑的一两句（进记忆宫殿），阿萌不想让 TA 带回去的可以删
+ */
+const CarriedBack: React.FC<{ night: DeepTalkNight; palette: DeepTalkPalette; names: { userName: string; charName: string } }> = ({ night, palette, names }) => {
     const { remoteVectorConfig } = useOS();
     const [pending, setPending] = useState<number | null>(null);
     const kept = night.kept || [];
-    if (!kept.length) return null;
+    const summary = (night.summary || '').trim();
+    const afterglow = (night.afterglow || '').trim();
+    if (!kept.length && !summary && !afterglow) return null;
+    const proseStyle: React.CSSProperties = { margin: '0 0 12px', fontFamily: FONT.heading, fontWeight: 400, fontSize: 15, lineHeight: '24px', color: palette.ink };
     return (
         <div style={{ marginTop: LINE, paddingTop: 14, borderTop: `1px solid ${palette.line}` }}>
-            <span style={{ ...labelStyle(palette), display: 'block', marginBottom: 6 }}>{names.charName}带回平时的话</span>
+            <span style={{ ...labelStyle(palette), display: 'block', marginBottom: 8 }}>{names.charName}带回平时的</span>
+            {summary && (<>
+                <span style={{ fontFamily: FONT.hand, fontSize: 15, color: palette.inkSoft }}>记得的</span>
+                <p style={proseStyle}>{summary}</p>
+            </>)}
+            {afterglow && (<>
+                <span style={{ fontFamily: FONT.hand, fontSize: 15, color: palette.inkSoft }}>心里留着的</span>
+                <p style={proseStyle}>{afterglow}</p>
+            </>)}
+            {kept.length > 0 && <span style={{ fontFamily: FONT.hand, fontSize: 15, color: palette.inkSoft }}>原话</span>}
             {kept.map((line, index) => (
                 <div key={`${index}-${line.text}`} style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
                     <p style={{ margin: 0, flex: 1, minWidth: 0, padding: '10px 0', fontFamily: FONT.heading, fontWeight: 400, fontSize: 15, lineHeight: '24px', color: line.speaker === 'user' ? palette.inkMe : palette.ink }}>
@@ -74,7 +91,7 @@ const KeptLines: React.FC<{ night: DeepTalkNight; palette: DeepTalkPalette; name
                 </div>
             ))}
             <p style={{ margin: '4px 0 0', fontSize: 12, lineHeight: '18px', color: palette.inkSoft }}>
-                这一夜的其他话只留在信笺和以后的烛下，平时聊天里{names.charName}只记得这几句。
+                这一夜的原文只留在信笺和以后的烛下；平时聊天里{names.charName}知道的就是上面这些。
             </p>
             <ClayDialog isOpen={pending !== null} title="不让 TA 带回这句" onClose={() => setPending(null)} footer={
                 <div className="flex" style={{ gap: 10 }}>
@@ -131,7 +148,7 @@ export const DeepTalkLetter: React.FC<{
                                 {deepTalkEventText(night.burntOut ? 'burnt_out' : 'end', names)}
                             </DeepTalkEdge>
                         </div>
-                        <KeptLines night={night} palette={palette} names={names} />
+                        <CarriedBack night={night} palette={palette} names={names} />
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, marginTop: LINE }}>
                             <span style={{ ...labelStyle(palette), letterSpacing: '.2em' }}>烛下 · {char.name}记</span>
                             <b style={{ fontFamily: FONT.hand, fontWeight: 400, fontSize: 34, lineHeight: 1 }}>{char.name}</b>
