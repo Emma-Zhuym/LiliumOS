@@ -4,25 +4,20 @@
  * 收进设置最顶上那张卡里。桌面图标拿掉了，apps/UserApp.tsx 仍在、AppID.User 仍能打开。
  */
 
-import React, { useRef, useState } from 'react';
+import React, { useRef } from 'react';
 import { Camera } from '@phosphor-icons/react';
 import { useOS } from '../../context/OSContext';
 import { processImage } from '../../utils/file';
 import { migrateDataUrlToRef } from '../../utils/blobRef';
-import PerCharAvatarPicker from '../user/PerCharAvatarPicker';
+import PerCharAvatarRows from './PerCharAvatarRows'; // [EM: settings-subpages-f]
+import { FieldRow, Group } from './SettingsParts';
 import TokenImg from '../os/TokenImg';
 import { F, FONT, R } from '../../utils/clayTokens';
 import { SETTINGS_HUE, SettingsTextButton } from './SettingsHome';
 
-const fieldStyle = (focused: boolean): React.CSSProperties => ({
-    width: '100%', background: F.surfaceSunken, borderRadius: R.input, outline: 'none',
-    border: `1px solid ${focused ? F.accent : 'transparent'}`, color: F.textPrimary,
-});
-
 export default function ProfileSettingsPage() {
     const { userProfile, updateUserProfile, addToast } = useOS();
     const fileRef = useRef<HTMLInputElement>(null);
-    const [focus, setFocus] = useState<'name' | 'bio' | null>(null);
 
     const changeAvatar = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -55,29 +50,13 @@ export default function ProfileSettingsPage() {
                 <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={changeAvatar} />
             </div>
 
-            <div className="flex flex-col" style={{ gap: 6 }}>
-                <label htmlFor="settings-profile-name" className="px-1" style={{ fontSize: 12, color: F.textTertiary }}>名字</label>
-                <input id="settings-profile-name" value={userProfile.name}
-                    onChange={e => updateUserProfile({ name: e.target.value })}
-                    onFocus={() => setFocus('name')} onBlur={() => setFocus(null)}
-                    placeholder="你的名字"
-                    style={{ ...fieldStyle(focus === 'name'), height: 48, padding: '0 14px', fontSize: 16 }} />
-                <div className="px-1" style={{ fontSize: 12, lineHeight: '18px', color: F.textTertiary }}>所有聊天里默认的「我」。</div>
-            </div>
+            {/* [EM: settings-subpages-f] 名字、关于我也是分组里的填写行；分角色头像换成一行一个角色 */}
+            <Group foot="名字是所有聊天里默认的「我」；关于我会发给角色，让 TA 更了解你。">
+                <FieldRow label="名字" value={userProfile.name} placeholder="你的名字" onDraft={v => updateUserProfile({ name: v })} onCommit={() => {}} />
+                <FieldRow label="关于我 / 设定" value={userProfile.bio} multiline rows={8} placeholder="描述你自己…" onDraft={v => updateUserProfile({ bio: v })} onCommit={() => {}} />
+            </Group>
 
-            <div className="flex flex-col" style={{ gap: 6 }}>
-                <label htmlFor="settings-profile-bio" className="px-1" style={{ fontSize: 12, color: F.textTertiary }}>关于我 / 设定</label>
-                <textarea id="settings-profile-bio" value={userProfile.bio}
-                    onChange={e => updateUserProfile({ bio: e.target.value })}
-                    onFocus={() => setFocus('bio')} onBlur={() => setFocus(null)}
-                    placeholder="描述你自己…"
-                    className="resize-none"
-                    style={{ ...fieldStyle(focus === 'bio'), height: 208, padding: '12px 14px', fontSize: 15, lineHeight: '23px' }} />
-                <div className="px-1" style={{ fontSize: 12, lineHeight: '18px', color: F.textTertiary }}>会发给角色，让 TA 更了解你。</div>
-            </div>
-
-            {/* 分角色聊天头像：上游组件，样子暂时还是旧的 */}
-            <PerCharAvatarPicker />
+            <PerCharAvatarRows />
         </div>
     );
 }

@@ -35,6 +35,7 @@ import {
   liveFailureKind,
 } from '../../utils/pushDiagnosticsView';
 import { bucketRetryCount, trackEvent } from '../../utils/analytics';
+import { Group, Notice, Row as SettingsRow, resultSub } from './SettingsParts'; // [EM: settings-subpages-f]
 
 interface PushSubscriptionPanelProps {
   addToast: (message: string, type?: 'success' | 'error' | 'info') => void;
@@ -43,12 +44,6 @@ interface PushSubscriptionPanelProps {
 /** 连续几次僵尸失败之后，「重置订阅」升级成「深度重置」。 */
 const DEEP_RESET_THRESHOLD = 3;
 
-const Row: React.FC<{ label: string; value: string; bad?: boolean }> = ({ label, value, bad }) => (
-  <div className="flex items-start justify-between gap-3">
-    <span className="text-slate-500 shrink-0">{label}</span>
-    <span className={`text-right font-medium ${bad ? 'text-rose-600' : 'text-slate-700'}`}>{value}</span>
-  </div>
-);
 
 
 const REGISTRATION_TEXT: Record<AmsgPushRegistrationState, { value: string; bad: boolean }> = {
@@ -185,193 +180,89 @@ const PushSubscriptionPanel: React.FC<PushSubscriptionPanelProps> = ({ addToast 
     ? (deepMode ? '深度重置中…' : '重置中…')
     : (deepMode ? '深度重置' : '重置订阅');
 
+  // [EM-START: settings-subpages-f] 换成设置子页的分组列表：链路每一环一行，坏了的那行红字；出事的说明用 Notice
+  const refreshNow = () => {
+    trackEvent('刷新 Web Push 诊断', browser ? {
+      permission: browser.permission,
+      subscription: !browser.endpoint ? 'none' : browser.endpointDead ? 'dead' : 'active',
+      swState: browser.swState === 'activated' ? 'activated' : browser.swState === 'none' ? 'none' : 'other',
+      platform: browser.capacitorNative ? 'capacitor_native' : browser.iosNeedsPwa ? 'ios_needs_pwa' : 'normal',
+      registration,
+      lastFailure: liveFailureKind(browser) ?? 'none',
+      delivery: !delivery || !delivery.probed ? 'unknown'
+        : delivery.gone && deliveryVerdict ? 'gone'
+          : delivery.gone ? 'recovered' : 'clean',
+    } : undefined);
+    void refresh();
+  };
+  // 短的状态写在右边；长的（带括号解释的）写到标题下面，不然右边一截被截断
+  const line = (title: string, value: string, bad?: boolean) => value.length > 10
+    ? <SettingsRow key={title} title={title} dot={bad ? 'bad' : null} sub={bad ? resultSub({ tone: 'bad', text: value }) : value} />
+    : <SettingsRow key={title} title={title} value={value} valueTone={bad ? 'bad' : 'plain'} dot={bad ? 'bad' : null} />;
+  const failure = browser && hasLiveFailure(browser) ? browser.lastSubscribeFailure : null;
+
   return (
-    <div>
-      <p className="text-xs text-slate-500 mb-3 leading-relaxed">
-        主动消息到点靠网页推送送到你手上。这条链路上任意一环断了，表现都是「任务建得成、到点没消息」，
-        界面上不会有任何异常。这里把每一环摊开给你看。
-      </p>
-
-      <div className="bg-slate-50/70 rounded-2xl p-4 border border-slate-100">
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-xs font-semibold text-slate-600">链路状态</p>
-          <button
-            onClick={() => {
-              // 全是浏览器/设备状态的固定枚举，不含端点地址、也不含任何用户配置值
-              trackEvent('刷新 Web Push 诊断', browser ? {
-                permission: browser.permission,
-                subscription: !browser.endpoint ? 'none' : browser.endpointDead ? 'dead' : 'active',
-                swState: browser.swState === 'activated' ? 'activated' : browser.swState === 'none' ? 'none' : 'other',
-                platform: browser.capacitorNative ? 'capacitor_native' : browser.iosNeedsPwa ? 'ios_needs_pwa' : 'normal',
-                registration,
-                // 「接口全在但这台设备就是建不出订阅」的唯一可见出口。取的是共用层那个
-                // 固定枚举，不含报错原文。
-                lastFailure: liveFailureKind(browser) ?? 'none',
-                // 「登记全对但推送被退回」有多普遍。四个取值全是这儿写死的字面量，
-                // 不带状态码原文、不带端点、不带失败原因。
-                delivery: !delivery || !delivery.probed ? 'unknown'
-                  : delivery.gone && deliveryVerdict ? 'gone'
-                    : delivery.gone ? 'recovered' : 'clean',
-              } : undefined);
-              void refresh();
-            }}
-            disabled={refreshing || resetting}
-            className="text-[10px] px-2.5 py-1 rounded-full bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:text-slate-300"
-          >
-            {refreshing ? '读取中…' : '刷新'}
-          </button>
-        </div>
-
+    <>
+      <Group title="推送链路" foot="主动消息到点靠网页推送送到你手上。任何一环断了，表现都是「任务建得成、到点没消息」，界面上看不出来，所以每一环都摊开在这里。">
         {browser ? (
-          <div className="space-y-1.5 text-[11px]">
-            <Row label="浏览器支持" value={describeSupport(browser)} bad={isSupportBad(browser)} />
-            <Row label="通知权限" value={describePermission(browser.permission)} bad={browser.permission !== 'granted'} />
-            <Row label="Service Worker" value={describeServiceWorker(browser)} bad={browser.swState !== 'activated'} />
-            <Row
-              label="浏览器订阅"
-              value={describeSubscription(browser)}
-              bad={!browser.endpoint || browser.endpointDead}
-            />
-            <Row label="推送通道" value={browser.channel} />
-            <Row label="云端登记" value={registrationText.value} bad={registrationText.bad} />
-            {/* 上面每一行答的都是「配好了吗」，这一行答的是「实际推出去了吗」。前面全绿
-                后面照样能红——那正是「任务建得成、到点没消息」最难自己发现的一种坏法。 */}
-            <Row label="上次投递" value={deliveryText.value} bad={deliveryText.bad} />
-
-            {browser.endpoint && (
-              <div className="pt-2 mt-2 border-t border-slate-200">
-                <p className="text-[10px] text-slate-400 mb-1">订阅端点（前 60 字符）</p>
-                <p className={`text-[10px] font-mono break-all leading-relaxed ${browser.endpointDead ? 'text-rose-600' : 'text-slate-500'}`}>
-                  {browser.endpoint.slice(0, 60)}…
-                </p>
-              </div>
-            )}
-
-            {browser.capabilityGap && (
-              <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded-lg text-[10px] text-amber-700 leading-relaxed">
-                {browser.capabilityGap}。
-              </div>
-            )}
-            {/* 失败原文以前只走 toast，一闪而过就没了——而这类失败恰恰最需要照着原文
-                排查。这里把它固定显示出来，直到订阅真的建起来为止。 */}
-            {hasLiveFailure(browser) && browser.lastSubscribeFailure && (() => {
-              const failure = browser.lastSubscribeFailure!;
-              const elapsed = describeElapsed(failure.at);
-              return (
-                <div className="mt-2 p-2 bg-rose-50 border border-rose-200 rounded-lg text-[10px] text-rose-700 leading-relaxed">
-                  <p className="font-semibold mb-1">上次建订阅失败{elapsed && `（${elapsed}）`}</p>
-                  <p>{failure.text}。</p>
-                  {(failure.kind === 'channel-unreachable' || failure.kind === 'no-subscription') && (
-                    <p className="mt-1.5 pt-1.5 border-t border-rose-200">
-                      这一类<b>重试多少次都是一样的结果</b>，问题不在这个站点、也不在权限，
-                      换个浏览器、换个网络或换台设备才有用。
-                    </p>
-                  )}
-                </div>
-              );
-            })()}
-            {browser.endpointDead && (
-              <div className="mt-2 p-2 bg-rose-50 border border-rose-200 rounded-lg text-[10px] text-rose-700 leading-relaxed">
-                订阅地址变成了 <code className="font-mono">permanently-removed.invalid</code>，
-                意思是浏览器把这条订阅吊销了（常见原因：很久没打开、通知权限被改过、站点数据被清过）。
-                这个域名全球都不会解析，推送发过去必然失败。点下面的「重置订阅」重建一条就行。
-              </div>
-            )}
-            {deliveryVerdict?.level === 'bad' && (
-              <div className={`mt-2 p-2 border rounded-lg text-[10px] leading-relaxed ${
-                deliveryVerdict.level === 'bad'
-                  ? 'bg-rose-50 border-rose-200 text-rose-700'
-                  : 'bg-amber-50 border-amber-200 text-amber-700'
-              }`}>
-                <p className="font-semibold mb-1">推送被退回了</p>
-                <p>{deliveryVerdict.what}。</p>
-                {/* 这段解释只在坐实了的时候说：warn 那档是 Worker 问不到，上面几行本来
-                    就红着，再说一句「上面都没问题」只会自相矛盾。 */}
-                {deliveryVerdict.level === 'bad' && (
-                  <p className="mt-1.5 pt-1.5 border-t border-current/20">
-                    上面每一行<b>都没问题</b>，坏的是那条订阅本身——它在推送服务
-                    （Chrome 走 FCM、Firefox 走 Mozilla、iOS 走 Apple）那侧已经作废了，
-                    这件事只有推送服务知道，前面几行谁都查不出来。点下面的「重置订阅」换一条新的。
-                  </p>
-                )}
-              </div>
-            )}
-            {registration === 'other-endpoint' && (
-              <div className="mt-2 p-2 bg-rose-50 border border-rose-200 rounded-lg text-[10px] text-rose-700 leading-relaxed">
-                Worker 上登记的订阅不是这台设备——主动消息到点会推到<b>别处</b>，这台收不到。
-                换过设备、换过浏览器、或者换过 Worker 之后会这样（一个账号只存一份订阅，后登记的顶掉先前的）。
-                点「重置订阅」把它改成这台。
-              </div>
-            )}
-            {/* 通道不通 / 内核不支持的时候不提「点重置订阅」：那一步必挂在建订阅上，
-                登记根本轮不到，上面那个失败框才是这台设备真正的结论。 */}
-            {registration === 'missing' && !isSupportBad(browser) && (
-              <div className="mt-2 p-2 bg-rose-50 border border-rose-200 rounded-lg text-[10px] text-rose-700 leading-relaxed">
-                Worker 上一份订阅都没有，到点没地方推。点「重置订阅」登记一下这台设备。
-              </div>
-            )}
-            {browser.iosNeedsPwa && (
-              <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded-lg text-[10px] text-amber-700 leading-relaxed">
-                检测到 iOS Safari，但现在不是从主屏图标启动的。
-                iOS 的网页推送必须先「添加到主屏幕」、再从主屏图标打开才能用。
-              </div>
-            )}
-            {browser.capacitorNative && (
-              <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded-lg text-[10px] text-amber-700 leading-relaxed">
-                你现在用的是<b>打包好的 App</b>，不是浏览器网页。网页推送这条通道在 App 里不存在，
-                这个面板可以直接忽略——不影响正常使用。
-              </div>
-            )}
-          </div>
-        ) : (
-          <p className="text-[10px] text-slate-400">读取中…</p>
-        )}
-
-        <button
-          disabled={resetting || refreshing || browser?.capacitorNative}
-          onClick={() => void handleReset()}
-          className={`mt-4 w-full py-2 rounded-xl text-xs font-bold border ${
-            resetting || refreshing || browser?.capacitorNative
-              ? 'bg-slate-100 text-slate-400 border-slate-200'
-              : deepMode || browser?.endpointDead || registrationText.bad || deliveryText.bad
-                ? 'bg-rose-500 text-white border-rose-500 hover:bg-rose-600'
-                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-          }`}
-        >
-          {resetLabel}
-        </button>
-        <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
-          「重置订阅」会清掉现在这条、重建一条，再登记到 Worker 上。换了浏览器、换了 Worker、
-          或者订阅被吊销之后点它。
-          {deepMode && <><br/>连着几次都没成，已经切到「深度重置」——它会把 Service Worker 整个装一遍，更彻底。</>}
-        </p>
-
-        {/* 上面那条链路修好了也追不回已经丢掉的消息——那些还在云端账本上躺着，得有人去拿。
-            平时冷启动和回到前台会自动捞一次，这个按钮是给「我确实少收了东西」的时候用的：
-            它连头一趟的账本存量也当补收处理，而自动那条路会把存量整批销掉（分不清哪些是
-            真丢的、哪些是当时收到了只是老版本不会销账，倒出来就是重放）。 */}
-        {workerConfigured && !browser?.capacitorNative && (
           <>
-            <button
-              disabled={catchingUp || resetting || refreshing}
-              onClick={() => void handleCatchUp()}
-              className={`mt-3 w-full py-2 rounded-xl text-xs font-bold border ${
-                catchingUp || resetting || refreshing
-                  ? 'bg-slate-100 text-slate-400 border-slate-200'
-                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-              }`}
-            >
-              {catchingUp ? '正在找…' : '找回没收到的消息'}
-            </button>
-            <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
-              每条消息发出去之前，云端都先记了一行，你这边收到了才销账。所以推送要是在路上丢了
-              （网络不稳、挂着代理、手机压后台），内容还留在云端——点它把最近两天里漏掉的捞回来。
-            </p>
+            {line('浏览器支持', describeSupport(browser), isSupportBad(browser))}
+            {line('通知权限', describePermission(browser.permission), browser.permission !== 'granted')}
+            {line('Service Worker', describeServiceWorker(browser), browser.swState !== 'activated')}
+            {line('浏览器订阅', describeSubscription(browser), !browser.endpoint || browser.endpointDead)}
+            {line('推送通道', browser.channel)}
+            {line('云端登记', registrationText.value, registrationText.bad)}
+            {line('上次投递', deliveryText.value, deliveryText.bad)}
+            {browser.endpoint && <SettingsRow title="订阅端点" sub={<span style={{ fontFamily: 'ui-monospace, Menlo, monospace', wordBreak: 'break-all' }}>{browser.endpoint.slice(0, 60)}…</span>} />}
           </>
+        ) : <SettingsRow title="读取中…" />}
+        <SettingsRow title={refreshing ? '读取中…' : '刷新'} tone="link" disabled={refreshing || resetting} onClick={refreshNow} />
+      </Group>
+
+      {browser?.capabilityGap && <Notice tone="warning">{browser.capabilityGap}。</Notice>}
+      {failure && (
+        <Notice tone="danger" title={`上次建订阅失败${describeElapsed(failure.at) ? `（${describeElapsed(failure.at)}）` : ''}`}>
+          {failure.text}。
+          {(failure.kind === 'channel-unreachable' || failure.kind === 'no-subscription') && (
+            <> 这一类重试多少次都一样，问题不在这个站点也不在权限：换个浏览器、换个网络或换台设备才有用。</>
+          )}
+        </Notice>
+      )}
+      {browser?.endpointDead && (
+        <Notice tone="danger" title="订阅被浏览器吊销了">
+          地址变成了 permanently-removed.invalid（很久没打开、通知权限改过、站点数据清过都会这样），推过去必然失败。点下面「重置订阅」重建一条。
+        </Notice>
+      )}
+      {deliveryVerdict?.level === 'bad' && (
+        <Notice tone="danger" title="推送被退回了">
+          {deliveryVerdict.what}。上面每一行都没问题，坏的是这条订阅本身——它在推送服务（Chrome 走 FCM、Firefox 走 Mozilla、iOS 走 Apple）那边已经作废，只有推送服务知道。点「重置订阅」换一条新的。
+        </Notice>
+      )}
+      {registration === 'other-endpoint' && (
+        <Notice tone="danger" title="云端登记的不是这台设备">
+          到点会推到别处。换过设备、浏览器或 Worker 后会这样（一个账号只存一份订阅，后登记的顶掉先前的）。点「重置订阅」改成这台。
+        </Notice>
+      )}
+      {registration === 'missing' && browser && !isSupportBad(browser) && (
+        <Notice tone="danger">Worker 上一份订阅都没有，到点没地方推。点「重置订阅」登记这台设备。</Notice>
+      )}
+      {browser?.iosNeedsPwa && (
+        <Notice tone="warning">现在不是从主屏图标打开的。iOS 的网页推送要先「添加到主屏幕」，再从主屏图标打开才能用。</Notice>
+      )}
+      {browser?.capacitorNative && (
+        <Notice tone="info">你现在用的是打包好的 App，网页推送这条通道在 App 里不存在，这一页可以忽略，不影响正常使用。</Notice>
+      )}
+
+      <Group foot={<>「重置订阅」清掉现在这条、重建一条，再登记到 Worker 上；换了浏览器、换了 Worker、订阅被吊销之后点它。{deepMode && ' 连着几次都没成，已经切到「深度重置」：会把 Service Worker 整个重装一遍。'}{workerConfigured && !browser?.capacitorNative && ' 「找回没收到的消息」：每条消息发出前云端都先记一行，你这边收到才销账，推送在路上丢了内容还在云端，点它捞回最近两天漏掉的。'}</>}>
+        <SettingsRow title={resetLabel} tone={deepMode || browser?.endpointDead || registrationText.bad || deliveryText.bad ? 'danger' : 'link'}
+          disabled={resetting || refreshing || browser?.capacitorNative} onClick={() => void handleReset()} />
+        {workerConfigured && !browser?.capacitorNative && (
+          <SettingsRow title={catchingUp ? '正在找…' : '找回没收到的消息'} tone="link" disabled={catchingUp || resetting || refreshing} onClick={() => void handleCatchUp()} />
         )}
-      </div>
-    </div>
+      </Group>
+    </>
   );
+  // [EM-END: settings-subpages-f]
 };
 
 export default PushSubscriptionPanel;

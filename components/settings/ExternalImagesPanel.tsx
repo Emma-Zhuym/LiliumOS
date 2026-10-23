@@ -9,7 +9,9 @@ import {
     type ApplySummary, type ExternalImage, type RescueFailure, type RescueOutcome,
 } from '../../utils/emExternalImages';
 import { tryAcquireMaintenanceLock, releaseMaintenanceLock, currentMaintenanceHolder } from '../../utils/maintenanceLock';
-import { F, HUE, R, STATUS } from '../../utils/clayTokens';
+import { F, R } from '../../utils/clayTokens';
+import { SETTINGS_HUE } from './SettingsHome';
+import { Group, Hero, Notice, Page, Row } from './SettingsParts'; // [EM: settings-subpages-f]
 
 type Phase =
     | { kind: 'idle' }
@@ -27,18 +29,14 @@ const countByHost = (images: ExternalImage[]) => {
 const FailureList: React.FC<{ title: string; failures: RescueFailure[]; tone: 'danger' | 'warning' }> = ({ title, failures, tone }) => {
     const [open, setOpen] = useState(false);
     if (!failures.length) return null;
-    const color = STATUS[tone];
-    return <div className="px-3 py-2 text-xs leading-5" style={{ background: color.tint, color: color.ink, borderRadius: R.smallCard }}>
-        <button type="button" className="w-full text-left font-semibold" onClick={() => setOpen(v => !v)}>
-            {title}（{failures.length}）{open ? '收起' : '展开'}
-        </button>
-        {open && <ul className="mt-1 space-y-1">
-            {failures.map(({ image, reason }) => <li key={image.url} className="break-all">
-                <span className="font-semibold">{image.uses.map(use => use.label).join('、')}</span>
-                <span style={{ opacity: 0.8 }}> · {reason}</span>
-            </li>)}
-        </ul>}
-    </div>;
+    // [EM: settings-subpages-f] 一组：标题行显示数量，点开每张一行（用在哪 + 为什么）
+    return <Group>
+        <Row title={title} value={`${failures.length} 张`} valueTone={tone === 'danger' ? 'bad' : 'plain'} dot={tone === 'danger' ? 'bad' : null}
+            onClick={() => setOpen(v => !v)} />
+        {open && failures.map(({ image, reason }) => (
+            <Row key={image.url} title={image.uses.map(use => use.label).join('、')} sub={<span className="break-all">{reason}</span>} />
+        ))}
+    </Group>;
 };
 
 /** 设置 → 备份与恢复：把挂在别人图床上的表情包、头像存进手机，并在 mini 留一份底。 */
@@ -112,64 +110,50 @@ export default function ExternalImagesPanel() {
 
     const total = images?.length ?? 0;
     const running = phase.kind === 'running';
-    const buttonStyle: React.CSSProperties = { height: 44, borderRadius: R.button, background: F.textPrimary, color: F.surface };
-    const secondaryStyle: React.CSSProperties = { height: 40, borderRadius: R.button, background: F.surface, border: `1px solid ${F.borderSoft}`, color: F.textPrimary };
+    const percent = phase.kind === 'running' ? Math.round((phase.done / Math.max(1, phase.total)) * 100) : 0;
 
-    return <div className="mb-3 p-3 space-y-2" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard }}>
-        <div className="text-sm font-semibold" style={{ color: F.textPrimary }}>外链图片存到本机</div>
-        <p className="text-xs leading-5" style={{ color: F.textSecondary }}>
-            贴链接加的表情包、头像，图其实放在别人的图床上，图床一挂就变成问号。存到本机后断网也能看
-            {paired ? '，同时在 Mac mini 上存一份底（每天的自动备份只带文字，不带图）。' : '。连上 Mac mini 后还能让它代为下载、存一份底。'}
-        </p>
+    // [EM-START: settings-subpages-f] 状态卡 + 一行动作 + 结果组，跟其他子页一个样子
+    return <Page testId="settings-external-images-page">
+        <Hero title={images === null ? '正在数…' : total === 0 ? '都存在本机了' : `还有 ${total} 张挂在外面`}
+            sub={images && total > 0 ? countByHost(images).map(([host, n]) => `${host} ${n} 张`).join('，') : '贴链接加的表情包、头像，图其实在别人的图床上，图床一挂就变问号。'}
+            dot={images && total === 0 ? 'ok' : null} />
 
-        {images === null
-            ? <p className="text-xs" style={{ color: F.textTertiary }}>正在数…</p>
-            : <p className="text-xs leading-5" style={{ color: F.textSecondary }}>
-                {total === 0 ? '没有挂在外面的图了。' : <>还有 {total} 张挂在外面：{countByHost(images).map(([host, n]) => `${host} ${n} 张`).join('，')}</>}
-            </p>}
-
-        {phase.kind === 'running' && <div className="space-y-1">
-            <div className="h-1.5 overflow-hidden" style={{ background: F.surfaceSunken, borderRadius: R.pill }}>
-                <div className="h-full" style={{ width: `${Math.round((phase.done / Math.max(1, phase.total)) * 100)}%`, background: HUE.blue.main, borderRadius: R.pill }} />
+        {running && <div className="flex flex-col" style={{ gap: 6 }}>
+            <div style={{ height: 6, overflow: 'hidden', background: F.surfaceSunken, borderRadius: R.pill }}>
+                <div style={{ height: '100%', width: `${percent}%`, background: SETTINGS_HUE.main, borderRadius: R.pill, transition: 'width 200ms' }} />
             </div>
-            <p className="text-xs" style={{ color: F.textTertiary }}>正在下载 {phase.done} / {phase.total}，别关页面</p>
+            <p style={{ margin: 0, fontSize: 12, color: F.textTertiary }}>正在下载 {phase.done} / {phase.total}，别关页面</p>
         </div>}
 
-        {total > 0 && !running && <button type="button" className="w-full text-sm font-semibold clay-press" style={buttonStyle} onClick={() => { void run(); }}>
-            {phase.kind === 'done' ? '再试一次' : `检查并存到本机（${total} 张）`}
-        </button>}
+        {total > 0 && !running && <Group foot={paired ? '存到本机后断网也能看，同时在 Mac mini 上存一份底（每天的自动备份只带文字，不带图）。' : '存到本机后断网也能看。连上 Mac mini 后还能让它代为下载、存一份底。'}>
+            <Row title={phase.kind === 'done' ? '再试一次' : `检查并存到本机（${total} 张）`} tone="link" onClick={() => { void run(); }} />
+        </Group>}
 
-        {phase.kind === 'error' && <div role="alert" className="px-3 py-2 text-xs leading-5" style={{ background: STATUS.danger.tint, color: STATUS.danger.ink, borderRadius: R.smallCard }}>
-            {phase.message}
-        </div>}
+        {phase.kind === 'error' && <Notice tone="danger">{phase.message}</Notice>}
 
         {phase.kind === 'done' && (() => {
             const { outcome, summary } = phase;
             const saved = outcome.replacements.size;
             const failures = [...outcome.dead, ...outcome.unknown];
             const deadEmojis = deadEmojiNames(outcome.dead).length;
-            return <div className="space-y-2">
-                <div role="status" className="px-3 py-2 text-xs leading-5" style={{ background: saved ? STATUS.success.tint : F.surfaceWarm, color: saved ? STATUS.success.ink : F.textSecondary, borderRadius: R.smallCard }}>
-                    <p>{saved
+            return <>
+                <Notice tone={saved ? 'info' : 'warning'}>
+                    {saved
                         ? `存好了 ${saved} 张：表情包 ${summary.emojis} 个、角色头像 ${summary.characterAvatars} 个、我的头像 ${summary.userAvatars} 个，聊天里发过的 ${summary.messages} 条也一起换了。`
-                        : '这次一张都没存下来。'}</p>
-                    {paired && saved > 0 && <p>Mac mini 上存了 {outcome.backedUp} 张{outcome.backupFailed ? `，${outcome.backupFailed} 张没传上（下次再点会补）` : ''}。</p>}
-                </div>
+                        : '这次一张都没存下来。'}
+                    {paired && saved > 0 && ` Mac mini 上存了 ${outcome.backedUp} 张${outcome.backupFailed ? `，${outcome.backupFailed} 张没传上（下次再点会补）` : ''}。`}
+                </Notice>
                 <FailureList title="现在打不开" failures={outcome.dead} tone="danger" />
                 <FailureList title="没判断出来" failures={outcome.unknown} tone="warning" />
-                {outcome.dead.length > 0 && <p className="text-xs leading-5" style={{ color: F.textTertiary }}>
-                    图床可能只是暂时挂了，过几天可以再点一次。确定救不回来的，找到原图后在表情库重新从相册添加。
-                </p>}
-                {failures.length > 0 && <div className="flex gap-2">
-                    <button type="button" className="flex-1 text-xs font-semibold clay-press" style={secondaryStyle} onClick={() => { void copyLinks(failures); }}>复制打不开的链接</button>
-                    {deadEmojis > 0 && <button type="button" className="flex-1 text-xs font-semibold clay-press" style={{ ...secondaryStyle, color: STATUS.danger.ink }} onClick={() => { void removeDeadEmojis(outcome.dead); }}>
-                        删掉打不开的表情包（{deadEmojis}）
-                    </button>}
-                </div>}
-            </div>;
+                {failures.length > 0 && <Group foot={outcome.dead.length > 0 ? '图床可能只是暂时挂了，过几天可以再点一次。确定救不回来的，找到原图后在表情库重新从相册添加。' : undefined}>
+                    <Row title="复制打不开的链接" tone="link" onClick={() => { void copyLinks(failures); }} />
+                    {deadEmojis > 0 && <Row title={`删掉打不开的表情包（${deadEmojis}）`} tone="danger" onClick={() => { void removeDeadEmojis(outcome.dead); }} />}
+                </Group>}
+            </>;
         })()}
 
-        {note && <p className="text-xs" style={{ color: F.textSecondary }}>{note}</p>}
-    </div>;
+        {note && <p style={{ margin: 0, fontSize: 13, color: F.textSecondary }}>{note}</p>}
+    </Page>;
+    // [EM-END: settings-subpages-f]
 }
 // [EM-END: external-images-rescue]

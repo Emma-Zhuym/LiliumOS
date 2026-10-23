@@ -19,6 +19,9 @@ import {
 } from '../../utils/storageStats';
 import { optimizeResourceStorage, type OptimizeProgress, type OptimizeResult } from '../../utils/storageOptimize';
 import { trackEvent } from '../../utils/analytics';
+import { F, R, STATUS } from '../../utils/clayTokens'; // [EM: settings-subpages-f]
+import { SETTINGS_HUE } from './SettingsHome';
+import { Group, Page, Row, resultSub } from './SettingsParts';
 
 /**
  * 算好的结果放模块级缓存：SettingsSection 收起时会把子树整个卸载，
@@ -183,10 +186,6 @@ const StorageUsagePanel: React.FC = () => {
     const percent = usage != null && quota != null && quota > 0
         ? Math.min(100, (usage / quota) * 100)
         : null;
-    const barColor = percent == null ? 'bg-slate-300'
-        : percent >= 90 ? 'bg-gradient-to-r from-rose-400 to-red-500'
-        : percent >= 70 ? 'bg-gradient-to-r from-amber-400 to-orange-500'
-        : 'bg-gradient-to-r from-violet-400 to-purple-500';
 
     // estimate() 的总量还包含 Cache Storage（离线缓存的 JS / 图片）这类我们碰不到的东西，
     // 所以分类合计天然会少一截。差得多的时候单独列一行，省得用户以为数字对不上。
@@ -197,179 +196,80 @@ const StorageUsagePanel: React.FC = () => {
 
     const persisted = overview?.persisted ?? null;
 
+    // [EM-START: settings-subpages-f] 存储空间换成分组列表：状态卡（用了多少 + 进度条）/ 持久化 / 优化 / 都是什么占的
+    const barTone = percent == null ? F.borderStrong : percent >= 90 ? STATUS.danger.main : percent >= 70 ? STATUS.warning.main : SETTINGS_HUE.main;
+    const overviewSub = overview == null
+        ? '正在读取浏览器给出的用量…'
+        : !overview.supported
+            ? '这个浏览器不提供存储用量信息'
+            : quota != null
+                ? `上限 ${formatBytes(quota)}${percent != null ? ` · 已占 ${percent.toFixed(1)}%` : ''} · 浏览器估算`
+                : '浏览器没给出上限 · 浏览器估算';
+    const optimizeText = optimizing
+        ? (optimizeProgress ? `正在处理：${optimizeProgress.label}（${optimizeProgress.done}/${optimizeProgress.total}）…` : '正在扫描…')
+        : optimizeError
+            ? resultSub({ tone: 'bad', text: optimizeError })
+            : optimizeResult ? describeOptimizeResult(optimizeResult) : undefined;
+
     return (
-        <div data-testid="storage-usage-panel" className="mb-5 pb-4 border-b border-slate-100">
-            {/* ── 总量 ── */}
-            <div className="flex items-baseline justify-between gap-2 mb-1.5">
-                <span className="text-xs font-bold text-slate-600">本机数据</span>
-                <span className="text-sm font-bold text-slate-700 tabular-nums">
+        <Page testId="storage-usage-panel">
+            <div className="flex flex-col" style={{ background: SETTINGS_HUE.tint, borderRadius: R.bigCard, padding: 16, gap: 8 }}>
+                <div style={{ fontSize: 13, color: F.textSecondary }}>本机数据</div>
+                <div style={{ fontSize: 28, lineHeight: '34px', fontWeight: 600, color: SETTINGS_HUE.ink, fontVariantNumeric: 'tabular-nums' }}>
                     {overview == null ? '读取中…' : formatBytes(usage)}
-                </span>
-            </div>
-
-            {percent != null && (
-                <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden mb-1.5">
-                    <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${Math.max(1, percent)}%` }} />
                 </div>
-            )}
-
-            <p className="text-[10px] text-slate-400 mb-3">
-                {overview == null
-                    ? '正在读取浏览器给出的用量…'
-                    : !overview.supported
-                        ? '这个浏览器不提供存储用量信息'
-                        : quota != null
-                            ? `上限 ${formatBytes(quota)}${percent != null ? ` · 已占 ${percent.toFixed(1)}%` : ''} · 数字由浏览器估算`
-                            : '浏览器没给出上限 · 数字由浏览器估算'}
-            </p>
-
-            {/* ── 持久化许可 ── */}
-            <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2.5 mb-3">
-                <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                            persisted === true ? 'bg-emerald-500' : persisted === false ? 'bg-amber-500' : 'bg-slate-300'
-                        }`} />
-                        <span className="text-[11px] font-bold text-slate-600">持久化许可</span>
-                        <span className={`text-[11px] font-bold ${
-                            persisted === true ? 'text-emerald-600' : persisted === false ? 'text-amber-600' : 'text-slate-400'
-                        }`}>
-                            {persisted === true ? '已获得' : persisted === false ? '未获得' : '无法查询'}
-                        </span>
+                {percent != null && (
+                    <div style={{ height: 6, borderRadius: R.pill, background: F.surface, overflow: 'hidden' }}>
+                        <div style={{ width: `${Math.max(1, percent)}%`, height: '100%', borderRadius: R.pill, background: barTone, transition: 'width 200ms' }} />
                     </div>
-                    {persisted !== true && overview != null && (
-                        <button
-                            type="button"
-                            onClick={handlePersist}
-                            disabled={persisting}
-                            className="shrink-0 px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-[10px] font-bold text-slate-500 active:scale-95 transition-all disabled:opacity-50"
-                        >
-                            {persisting ? '申请中…' : '再试一次'}
-                        </button>
-                    )}
-                </div>
-                <p className="mt-1.5 text-[10px] text-slate-400 leading-relaxed">
-                    {persisted === true
-                        ? '系统清理存储空间时不会动你的数据。'
-                        : attempt === 'denied'
-                            ? '浏览器这次没批准。把 SullyOS 装到主屏、或者允许通知之后再点一次，通过的概率会明显变高。'
-                            : '存储吃紧时系统可能把你的数据一起清掉。把 SullyOS 装到主屏、或者允许通知，能提高申请成功率。'}
-                </p>
-            </div>
-
-            {/* ── 优化资源存储（一次性迁移，幂等可重跑） ── */}
-            <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2.5 mb-3">
-                <div className="flex items-center justify-between gap-2">
-                    <span className="text-[11px] font-bold text-slate-600">优化资源存储</span>
-                    <button
-                        type="button"
-                        onClick={handleOptimize}
-                        disabled={optimizing}
-                        className="shrink-0 px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-[10px] font-bold text-slate-500 active:scale-95 transition-all disabled:opacity-50"
-                    >
-                        {optimizing ? '优化中…' : '一键优化'}
-                    </button>
-                </div>
-                <p className={`mt-1.5 text-[10px] leading-relaxed ${optimizeError ? 'text-rose-500' : 'text-slate-400'}`}>
-                    {optimizing
-                        ? (optimizeProgress
-                            ? `正在处理：${optimizeProgress.label}（${optimizeProgress.done}/${optimizeProgress.total}）…`
-                            : '正在扫描…')
-                        : optimizeError
-                            ? optimizeError
-                            : optimizeResult
-                                ? describeOptimizeResult(optimizeResult)
-                                : '把老数据里仍以 base64 存的图片一次性转成二进制，把重复存了好几份的同一张图并成一份，再把记忆向量压成紧凑格式。做过一次就干净；导入过旧备份后可以再点。'}
-                </p>
-                {/* 合并动的是库里的引用，内存里的 theme / customIcons 还捏着合并前的令牌。
-                    不刷新的话：界面照常显示，但导出的备份里 metadata 写的仍是旧令牌，
-                    同一张图又变成两份进包——看起来就像「优化根本没生效」。所以优化一跑完就
-                    排好了自动刷新（见 scheduleMergeReload），不指望用户记得点；
-                    这个按钮只是让人不想等的时候立刻走。 */}
-                {!optimizing && optimizeResult && optimizeResult.mergedDuplicates > 0 && (
-                    <button
-                        type="button"
-                        onClick={() => window.location.reload()}
-                        className="mt-2 w-full px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-[10px] font-bold text-slate-500 active:scale-95 transition-all"
-                    >
-                        立即刷新
-                    </button>
                 )}
+                <div style={{ fontSize: 13, lineHeight: '18px', color: F.textSecondary }}>{overviewSub}</div>
             </div>
 
-            {/* ── 细分（折叠） ── */}
-            <button
-                type="button"
-                onClick={handleToggle}
-                className="w-full flex items-center gap-1.5 text-[11px] font-bold text-slate-500 py-1 active:scale-[0.99] transition-all"
-            >
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className={`w-3 h-3 text-slate-300 transition-transform ${expanded ? 'rotate-180' : ''}`}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-                </svg>
-                <span>看看都是些什么占的</span>
-            </button>
+            <Group foot={persisted === true
+                ? '系统清理存储空间时不会动你的数据。'
+                : attempt === 'denied'
+                    ? '浏览器这次没批准。把 LiliumOS 装到主屏、或者允许通知之后再点一次，通过的概率会高很多。'
+                    : '存储吃紧时系统可能把你的数据一起清掉。装到主屏、或者允许通知，能提高申请成功率。'}>
+                <Row title="持久化许可" value={persisted === true ? '已获得' : persisted === false ? '没获得' : '查不到'}
+                    dot={persisted === true ? 'ok' : persisted === false ? 'bad' : null} valueTone={persisted === false ? 'bad' : 'plain'} />
+                {persisted !== true && overview != null && (
+                    <Row title={persisting ? '申请中…' : '再申请一次'} tone="link" disabled={persisting} onClick={() => void handlePersist()} />
+                )}
+            </Group>
 
-            {expanded && (
-                <div className="mt-2">
-                    {computing ? (
-                        <div className="flex items-center gap-2 px-1 py-3">
-                            <span className="w-3 h-3 rounded-full border-2 border-slate-200 border-t-violet-400 animate-spin shrink-0" />
-                            <span className="text-[10px] text-slate-400">
-                                {progress && progress.total > 0
-                                    ? `计算中… 已翻完 ${progress.done}/${progress.total} 张表`
-                                    : '计算中…'}
-                            </span>
-                        </div>
-                    ) : breakdownError ? (
-                        <div className="px-1 py-3">
-                            <p className="text-[10px] text-rose-500 mb-2">读不出各项占用（数据库可能正被其他标签页占用）。</p>
-                            <button type="button" onClick={() => void runBreakdown()} className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-[10px] font-bold text-slate-500 active:scale-95 transition-all">
-                                重试
-                            </button>
-                        </div>
-                    ) : breakdown ? (
-                        <>
-                            <div className="space-y-1.5 mb-2">
-                                {breakdown.categories.map(c => (
-                                    <div key={c.key} className="flex items-baseline justify-between gap-2">
-                                        <span className="text-[11px] text-slate-500 truncate">{c.label}</span>
-                                        <span className="text-[11px] text-slate-600 font-medium tabular-nums shrink-0">
-                                            {c.estimated ? '约 ' : ''}{formatBytes(c.bytes)}
-                                        </span>
-                                    </div>
-                                ))}
-                                {showOtherUsage && (
-                                    <div className="flex items-baseline justify-between gap-2">
-                                        <span className="text-[11px] text-slate-400 truncate">网页缓存等</span>
-                                        <span className="text-[11px] text-slate-400 font-medium tabular-nums shrink-0">约 {formatBytes(otherUsage)}</span>
-                                    </div>
-                                )}
-                                {breakdown.categories.length === 0 && !showOtherUsage && (
-                                    <p className="text-[10px] text-slate-400">还没有存下什么数据。</p>
-                                )}
-                            </div>
+            <Group foot="把老数据里还以 base64 存的图片转成二进制、把重复存了几份的同一张图并成一份、把记忆向量压成紧凑格式。做过一次就干净；导入旧备份后可以再点。">
+                <Row title={optimizing ? '优化中…' : '一键优化'} sub={optimizeText} tone="link" disabled={optimizing} onClick={() => void handleOptimize()} />
+                {/* 合并动的是库里的引用，内存里的 theme / customIcons 还捏着合并前的令牌，不刷新的话导出的备份会把同一张图写两份。
+                    优化一跑完就排好了自动刷新（scheduleMergeReload），这一行只是让人不想等的时候立刻走 */}
+                {!optimizing && optimizeResult && optimizeResult.mergedDuplicates > 0 && (
+                    <Row title="立即刷新" tone="link" onClick={() => window.location.reload()} />
+                )}
+            </Group>
 
-                            <div className="flex items-center justify-between gap-2">
-                                <p className="text-[10px] text-slate-300 leading-relaxed">
-                                    {[
-                                        breakdown.categories.some(c => c.estimated) ? '标「约」的项目是抽样估算' : '',
-                                        // 数据的原始大小比它实际占的地方大——浏览器落盘时会压一道。
-                                        // 不折算的话细分加起来会超过上面的总量，看着像算错了。
-                                        breakdown.calibrated ? '各项已按实际占用折算，比数据本身的大小小一些' : '',
-                                        showOtherUsage ? '「网页缓存等」是离线缓存这类系统占用，删不掉也不用管' : '',
-                                        breakdown.failedStores.length > 0 ? `有 ${breakdown.failedStores.length} 张表没读出来` : '',
-                                    ].filter(Boolean).join('；')}
-                                </p>
-                                <button type="button" onClick={() => void runBreakdown()} className="shrink-0 px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-[10px] font-bold text-slate-500 active:scale-95 transition-all">
-                                    重新计算
-                                </button>
-                            </div>
-                        </>
-                    ) : null}
-                </div>
-            )}
-        </div>
+            <Group title="都是什么占的" foot={breakdown && !computing ? [
+                breakdown.categories.some(c => c.estimated) ? '标「约」的是抽样估算' : '',
+                breakdown.calibrated ? '各项已按实际占用折算，比数据本身小一些' : '',
+                showOtherUsage ? '「网页缓存等」是离线缓存这类系统占用，删不掉也不用管' : '',
+                breakdown.failedStores.length > 0 ? `有 ${breakdown.failedStores.length} 张表没读出来` : '',
+            ].filter(Boolean).join('；') || undefined : undefined}>
+                {!expanded && <Row title="算一下" sub="要翻一遍数据库，几秒钟" tone="link" onClick={handleToggle} />}
+                {expanded && computing && (
+                    <Row title={progress && progress.total > 0 ? `计算中… 已翻完 ${progress.done}/${progress.total} 张表` : '计算中…'} />
+                )}
+                {expanded && !computing && breakdownError && (
+                    <Row title="重试" sub={resultSub({ tone: 'bad', text: '读不出各项占用（数据库可能正被别的标签页占着）' })} tone="link" onClick={() => void runBreakdown()} />
+                )}
+                {expanded && !computing && breakdown && breakdown.categories.map(c => (
+                    <Row key={c.key} title={c.label} value={`${c.estimated ? '约 ' : ''}${formatBytes(c.bytes)}`} />
+                ))}
+                {expanded && !computing && breakdown && showOtherUsage && <Row title="网页缓存等" value={`约 ${formatBytes(otherUsage)}`} />}
+                {expanded && !computing && breakdown && breakdown.categories.length === 0 && !showOtherUsage && <Row title="还没有存下什么数据" />}
+                {expanded && !computing && breakdown && <Row title="重新计算" tone="link" onClick={() => void runBreakdown()} />}
+            </Group>
+        </Page>
     );
+    // [EM-END: settings-subpages-f]
 };
 
 export default StorageUsagePanel;

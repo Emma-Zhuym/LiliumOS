@@ -323,3 +323,16 @@ export const Page: React.FC<{ children: React.ReactNode; testId?: string; label?
     <div className="flex flex-col" style={{ gap: 22 }} data-testid={testId}>{children}</div>
 );
 // [EM-END: settings-subpages-f]
+
+// [EM-START: settings-subpages-f]
+/** 组里的一段提示（出了问题要说清楚的那种）：状态色 tint 底 + ink 字，不加边框阴影。 */
+export const Notice: React.FC<{ tone: 'danger' | 'warning' | 'info'; title?: React.ReactNode; children: React.ReactNode }> = ({ tone, title, children }) => {
+    const pair = tone === 'danger' ? STATUS.danger : tone === 'warning' ? STATUS.warning : STATUS.info;
+    return (
+        <div role="status" style={{ background: pair.tint, color: pair.ink, borderRadius: R.smallCard, padding: '10px 14px', fontSize: 13, lineHeight: '20px' }}>
+            {title && <div style={{ fontWeight: 600, marginBottom: 2 }}>{title}</div>}
+            {children}
+        </div>
+    );
+};
+// [EM-END: settings-subpages-f]

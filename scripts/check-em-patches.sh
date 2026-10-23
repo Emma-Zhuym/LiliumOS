@@ -385,7 +385,8 @@ check "设置：日记附加列只认 char / mood 两条" components/settings/Di
 check "设置：离开 MCP 页把改动传上去" apps/Settings.tsx "if (settingsPage !== 'mcp') flushMcpToolConfigSync();"
 check "设置：感知 / 日记 / 小红书三页" apps/Settings.tsx "{onPage('xhs') && <XhsSettingsPage />}"
 check "设置：备份页" apps/Settings.tsx "            <BackupSettingsPage"
-check "设置：MCP 内嵌" apps/Settings.tsx "<SettingsSheet inline={onPage('mcp')}"
+check "设置：MCP 一页" apps/Settings.tsx "<McpServersPage addToast={addToast}"
+check "设置：MCP 改动传上云" components/settings/McpServersPage.tsx "onMcpConfigChanged?.();"
 check "主动消息 2.0 内嵌" components/settings/ActiveMsgGlobalSettingsModal.tsx "inline={inline} // [EM: settings-inline-config]"
 
 echo "── 网页卡片进私聊历史 ──"
