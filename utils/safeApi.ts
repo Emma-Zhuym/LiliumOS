@@ -222,7 +222,7 @@ class SseAssembler {
     private usage: any = undefined;
     private gotAnyChunk = false;
     // tool_calls 流式分片: OpenAI 约定按 index 分组, id/name 在首片, arguments 逐片拼接。
-    // 不拼的话开了 stream 的工具模式(瑞幸/MCP)会静默丢掉全部工具调用。
+    // 不拼的话开了 stream 的工具模式(MCP 等)会静默丢掉全部工具调用。
     private toolCalls: any[] = [];
     // 思考通道: DeepSeek/Gemini 系走 delta.reasoning_content, OpenRouter 走 delta.reasoning,
     // 部分 Claude 官转(CC 渠道)走 delta.thinking 或分块 content(数组里 type:'thinking')。

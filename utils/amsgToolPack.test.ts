@@ -78,7 +78,6 @@ describe('buildToolConfig / parseToolConfig', () => {
       notionEnabled: true,
       notionApiKey: 'ntn-key',
       notionDatabaseId: 'db1',
-      feishuEnabled: false,
       xhsMcpConfig: { enabled: true, serverUrl: 'https://xhs.example.com/api', cookie: 'ck', platform: 'rednote' },
       // 天气不是工具，但 worker 到点要自己拉一次填进提示词，所以也得上云
       weatherEnabled: true,
@@ -99,7 +98,9 @@ describe('buildToolConfig / parseToolConfig', () => {
     expect(parsed?.weatherCity).toBe('上海');
     expect(parsed?.newsPlatforms).toEqual(['weibo', 'zhihu']);
     // 未配置的可选键不写（省 payload，也避免 undefined 序列化怪态）
-    expect('feishuAppId' in config).toBe(false);
+    expect('notionNotesDatabaseId' in config).toBe(false);
+    // 飞书 2026-10-22 删了：不再上云
+    expect('feishuEnabled' in config).toBe(false);
   });
 
   // [EM: xhs-mini-mcp] mini 上的小红书服务走 Funnel，worker 够得着，令牌要跟着上云
@@ -121,7 +122,6 @@ describe('buildToolConfig / parseToolConfig', () => {
     expect('weatherCity' in config).toBe(false);
     expect('newsPlatforms' in config).toBe(false);
     expect(config.notionEnabled).toBe(false);
-    expect(config.feishuEnabled).toBe(false);
     expect(config.xhsMcpConfig).toBeUndefined();
   });
 

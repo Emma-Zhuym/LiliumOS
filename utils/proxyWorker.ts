@@ -8,7 +8,6 @@
  *   - GitHub 云备份代理（GFW 下走代理）       → /github
  *   - Notion 集成                             → /notion/*
  *   - 飞书多维表格集成                        → /feishu/*
- *   - 麦当劳 / 瑞幸 点单 MCP                   → /mcp/mcd /mcp/luckin
  *   - Cloudflare API 中转（一键部署后端用）    → /cf-api
  *
  * 默认指向作者部署的公共实例。如果作者哪天不再维护、或你想完全自托管，

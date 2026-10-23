@@ -88,12 +88,12 @@ const toolPackValue = JSON.stringify({
 });
 const toolConfigValue = JSON.stringify({
   v: 1, proxyWorkerUrl: '', weatherEnabled: false, newsEnabled: false,
-  notionEnabled: false, feishuEnabled: false,
+  notionEnabled: false,
 });
 
 /** 带一台通用 MCP 服务器的 tool_config（extra 用来改开关 / 服务器可见范围）。 */
 const mcpToolConfigValue = (extra: Record<string, unknown> = {}) => JSON.stringify({
-  v: 1, proxyWorkerUrl: '', newsEnabled: false, notionEnabled: false, feishuEnabled: false,
+  v: 1, proxyWorkerUrl: '', newsEnabled: false, notionEnabled: false,
   mcpServers: [{
     id: 'srv-memory',
     name: '记忆库',

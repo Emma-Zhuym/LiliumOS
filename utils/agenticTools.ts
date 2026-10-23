@@ -24,7 +24,6 @@ import {
     notionReadDiaryContent,
     notionReadNoteContent,
     notionSearchUserNotes,
-    feishuGetDiaryByDate,
 } from './realtimeFetchCore';
 import {
     XhsMcpClient,
@@ -72,11 +71,6 @@ export interface AgenticToolRealtimeConfig {
     notionApiKey?: string;
     notionDatabaseId?: string;
     notionNotesDatabaseId?: string;
-    feishuEnabled: boolean;
-    feishuAppId?: string;
-    feishuAppSecret?: string;
-    feishuBaseId?: string;
-    feishuTableId?: string;
     xhsMcpConfig?: {
         enabled?: boolean;
         serverUrl?: string;
@@ -286,56 +280,6 @@ export async function runReadDiary(
     }
 
     const diaryText = diaryContents.join('\n\n---\n\n');
-    return { ok: true, date: targetDate, diaryText, entryCount: findResult.entries.length };
-}
-
-// ─── FS_READ_DIARY (Feishu) ─────────────────────────────────────────────────
-
-// 没有 empty_content：飞书那边正文跟着条目一起返回，找到条目就一定有内容
-// （Notion 要逐篇再读一次正文，才会出现「条目找到了、一篇都没读回来」）。
-export type FsReadDiaryResult =
-    | { ok: true; date: string; diaryText: string; entryCount: number }
-    | { ok: false; reason: 'not_configured' | 'parse_error' | 'unreachable' | 'not_found'; date?: string; dateInput?: string };
-
-/** 不抛异常：feishuGetDiaryByDate 连网络异常都会 catch 成 success:false（见 realtimeFetchCore）。 */
-export async function runFsReadDiary(
-    args: { date: string },
-    ctx: AgenticToolCtx,
-): Promise<FsReadDiaryResult> {
-    const { char, realtimeConfig } = ctx;
-
-    if (!realtimeConfig?.feishuEnabled || !realtimeConfig?.feishuAppId || !realtimeConfig?.feishuAppSecret || !realtimeConfig?.feishuBaseId || !realtimeConfig?.feishuTableId) {
-        return { ok: false, reason: 'not_configured', dateInput: args.date };
-    }
-
-    const targetDate = parseDiaryDate(args.date);
-    if (!targetDate) {
-        return { ok: false, reason: 'parse_error', dateInput: args.date };
-    }
-
-    const findResult = await feishuGetDiaryByDate(
-        realtimeConfig.feishuAppId,
-        realtimeConfig.feishuAppSecret,
-        realtimeConfig.feishuBaseId,
-        realtimeConfig.feishuTableId,
-        char.name,
-        targetDate,
-    );
-
-    // 同 runReadDiary：飞书 token 拿不到 / 接口报错都是 success:false，跟「那天没写」分开。
-    if (!findResult.success) {
-        return { ok: false, reason: 'unreachable', date: targetDate };
-    }
-    if (findResult.entries.length === 0) {
-        return { ok: false, reason: 'not_found', date: targetDate };
-    }
-
-    ctx.onProgress?.('diary', `找到 ${findResult.entries.length} 篇飞书日记，正在阅读...`);
-
-    // 飞书那边正文是跟着条目一起返回的，不用再逐篇去读。
-    const diaryText = findResult.entries
-        .map(entry => `📒「${entry.title}」(${entry.date})\n${entry.content}`)
-        .join('\n\n---\n\n');
     return { ok: true, date: targetDate, diaryText, entryCount: findResult.entries.length };
 }
 
@@ -797,7 +741,7 @@ export async function runXhsDetail(
     return { ok: true, noteId: args.noteId, detailText, commentsUnavailable };
 }
 
-// ─── 共用日期解析 (READ_DIARY / FS_READ_DIARY 共用) ─────────────────────────
+// ─── 日期解析 (READ_DIARY) ─────────────────────────
 
 export function parseDiaryDate(dateInput: string): string {
     const now = new Date();
@@ -829,7 +773,6 @@ export async function dispatchAgenticTool(
         case 'recall': return runRecall(args, ctx);
         case 'web_search': return runSearch(args, ctx);
         case 'notion_read_diary': return runReadDiary(args, ctx);
-        case 'feishu_read_diary': return runFsReadDiary(args, ctx);
         case 'read_note': return runReadNote(args, ctx);
         case 'xhs_search': return runXhsSearch(args, ctx);
         case 'xhs_browse': return runXhsBrowse(args, ctx);

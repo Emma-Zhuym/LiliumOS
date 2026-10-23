@@ -4,7 +4,7 @@
  * fire_pack 解决「到点拿什么 prompt」，这里解决「到点跑工具要什么数据」：
  *   - tool_pack（每角色，namespace `amsg:char:<id>`）：recall 要读的月度总结、
  *     XHS 角色开关、日记查询要用的角色名。
- *   - tool_config（全局，namespace `amsg:global`）：搜索 / Notion / 飞书凭据、
+ *   - tool_config（全局，namespace `amsg:global`）：搜索 / Notion 凭据、
  *     XHS MCP 配置、代理 worker 地址——即 agenticTools 各工具从 realtimeConfig
  *     里读的那个子集，多一分都不上云。
  *
@@ -47,7 +47,7 @@ export interface AmsgToolPack {
  */
 export interface AmsgToolConfig extends AgenticToolRealtimeConfig {
   v: 1;
-  /** 搜索 / Notion / 飞书都经它转发；worker 端用 setProxyWorkerUrlOverride 注入。 */
+  /** 搜索 / Notion 都经它转发；worker 端用 setProxyWorkerUrlOverride 注入。 */
   proxyWorkerUrl: string;
   /**
    * 实时天气：worker 到点自己去拉一次填进提示词（不是工具，是常驻注入，跟前台一样）。
@@ -142,11 +142,6 @@ export const buildToolConfig = (
     ...(rc?.notionApiKey ? { notionApiKey: rc.notionApiKey } : {}),
     ...(rc?.notionDatabaseId ? { notionDatabaseId: rc.notionDatabaseId } : {}),
     ...(rc?.notionNotesDatabaseId ? { notionNotesDatabaseId: rc.notionNotesDatabaseId } : {}),
-    feishuEnabled: !!rc?.feishuEnabled,
-    ...(rc?.feishuAppId ? { feishuAppId: rc.feishuAppId } : {}),
-    ...(rc?.feishuAppSecret ? { feishuAppSecret: rc.feishuAppSecret } : {}),
-    ...(rc?.feishuBaseId ? { feishuBaseId: rc.feishuBaseId } : {}),
-    ...(rc?.feishuTableId ? { feishuTableId: rc.feishuTableId } : {}),
     // 小红书服务器多半就跑在用户自己电脑上（localhost:xxxx）。worker 从 CF 那头连不上，
     // 这份配置上了云也只是让角色去撞一次必失败的调用，所以够不着的干脆不带。
     ...(xhs?.serverUrl && isWorkerReachableUrl(xhs.serverUrl)

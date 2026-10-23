@@ -65,12 +65,6 @@ interface ChatInputAreaProps {
     canReroll: boolean;
     // Proactive messaging
     isProactiveActive?: boolean;
-    // 麦当劳 MCP
-    mcdConfigured?: boolean;   // 设置里 token 已填且启用
-    mcdActivated?: boolean;    // 当前会话已发"麦请求"
-    // 瑞幸 MCP
-    luckinConfigured?: boolean;
-    luckinActivated?: boolean;
     // HTML 模块模式
     htmlModeEnabled?: boolean;
     // 思考过程展示（会话级）
@@ -109,10 +103,6 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     categories = [], activeCategory = 'default',
     onReroll, canReroll,
     isProactiveActive,
-    mcdConfigured = false,
-    mcdActivated = false,
-    luckinConfigured = false,
-    luckinActivated = false,
     htmlModeEnabled = false,
     showThinkingChain = false,
     inputStyle = 'default',

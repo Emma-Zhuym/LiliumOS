@@ -32,7 +32,7 @@ describe('排程现状块每轮现算', () => {
 
   it('工具循环的后续请求也现算一次（本轮刚排的任务立刻进清单）', () => {
     // 普通续轮和停止工具后的正文收尾都在发送时经过统一入口，不复用首轮快照。
-    expect(src.match(/JSON\.stringify\(prepareReplyBody\(followBody\)\)/g)).toHaveLength(5);
+    expect(src.match(/JSON\.stringify\(prepareReplyBody\(followBody\)\)/g)).toHaveLength(3); // 麦当劳 / 瑞幸两个循环 2026-10-22 删了
     expect(src).toContain('JSON.stringify(prepareReplyBody(wrapBody))');
   });
 
@@ -43,11 +43,10 @@ describe('排程现状块每轮现算', () => {
 });
 
 describe('工具循环的消息起点', () => {
-  // 三个循环（麦当劳 / 瑞幸 / 通用）都可能执行主动消息 2.0 的排程工具——代码注释里
-  // 明写了「排程工具与点单工具会在同一批 tool_calls 里出现」，所以三处得一致。
-  it('三处 loopMessages 都从 baseReqBody.messages 起步', () => {
+  // 客户端工具循环会执行主动消息 2.0 的排程工具（麦当劳 / 瑞幸那两个循环 2026-10-22 删了）。
+  it('工具循环的 loopMessages 从 baseReqBody.messages 起步', () => {
     const starts = src.match(/let loopMessages = \[\.\.\.[A-Za-z.]+\]/g) ?? [];
-    expect(starts.length).toBe(3);
+    expect(starts.length).toBe(1);
     for (const line of starts) {
       expect(line).toContain('baseReqBody.messages');
     }

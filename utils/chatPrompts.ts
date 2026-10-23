@@ -10,14 +10,14 @@ import { formatTransferRecord } from './transferFormat';
 import { computeCurrentListening, getCurrentSlot } from './charMusicSchedule';
 import { getCharLyricSnippet } from './charLyricCache';
 import { MusicCfg, loadMusicCfgStandalone } from '../context/MusicContext';
-import { RealtimeContextManager, NotionManager, FeishuManager, defaultRealtimeConfig } from './realtimeContext';
+import { RealtimeContextManager, NotionManager, defaultRealtimeConfig } from './realtimeContext';
 import { isScheduleFeatureOn } from './scheduleFeature';
 import { VOICE_ACTING_GUIDE } from './minimaxTts';
 import { FISH_VOICE_ACTING_GUIDE } from './fishAudioTts';
 import { getTtsProvider, getVoicePromptOverride } from './ttsProvider';
 import { resolveCharTimeZone, nowInTimeZone } from './timezone';
 // [EM-START: prompt-addons] 个人化提示词全部在 emPromptAddons.ts，merge 时保住这行 import 和下面的调用点
-import { emSendPhotoAddon, emQuoteSection, emNotionDiarySection, emFeishuDiarySection, emUserNotesSection, emXhsSection, emNotionDiaryNudgePrompt, emFavPhotoAddon, emVoiceAwareAddon, emDutySection, emChatModeLine } from './emPromptAddons';
+import { emSendPhotoAddon, emQuoteSection, emNotionDiarySection, emUserNotesSection, emXhsSection, emNotionDiaryNudgePrompt, emFavPhotoAddon, emVoiceAwareAddon, emDutySection, emChatModeLine } from './emPromptAddons';
 // [EM-END: prompt-addons]
 import { buildLifeRecordInjection } from './lifeRecords';
 import { isWorkerReachableUrl } from './amsgToolPack';
@@ -87,7 +87,6 @@ function summarizeGroupMsgContent(m: Message): string {
         case 'xhs_card': return '[小红书笔记]';
         case 'score_card': return '[评分卡]';
         case 'music_card': return '[分享音乐]';
-        case 'mcd_card': return '[麦当劳点餐]';
         case 'html_card': return '[HTML卡片]';
         case 'news_card': return '[新闻卡片]';
         case 'trpg_card': return `[TRPG游戏片段${meta.trpg?.gameTitle ? '：《' + meta.trpg.gameTitle + '》' : ''}]`;
@@ -478,23 +477,6 @@ ${groupLogStr}\n`;
             }
         })();
 
-        // 5. 飞书日记标题
-        const feishuDiaryPromise: Promise<string> = (async () => {
-            try {
-                if (!(config.feishuEnabled && config.feishuAppId && config.feishuAppSecret && config.feishuBaseId && config.feishuTableId)) return '';
-                const r = await FeishuManager.getRecentDiaries(config.feishuAppId, config.feishuAppSecret, config.feishuBaseId, config.feishuTableId, char.name, 8);
-                if (!r.success || r.entries.length === 0) return '';
-                let s = `\n### 📒【你最近写的日记（飞书）】\n`;
-                s += `（这些是你之前写的日记，你记得这些内容。如果想看某篇的详细内容，可以使用 [[FS_READ_DIARY: 日期]] 翻阅）\n`;
-                r.entries.forEach((d, i) => { s += `${i + 1}. [${d.date}] ${d.title}\n`; });
-                s += `\n`;
-                return s;
-            } catch (e) {
-                console.error('Failed to inject feishu diary context:', e);
-                return '';
-            }
-        })();
-
         // 6. 用户 Notion 笔记标题
         const notionNotesPromise: Promise<string> = (async () => {
             try {
@@ -521,13 +503,12 @@ ${groupLogStr}\n`;
                 return '';
             });
 
-        const [realtimeText, schedule, groupContextText, notionDiaryContext, feishuDiaryText, notionNotesText, lifeRecordText] =
+        const [realtimeText, schedule, groupContextText, notionDiaryContext, notionNotesText, lifeRecordText] =
             await Promise.all([
                 timed('realtime', realtimePromise),
                 timed('schedule', schedulePromise),
                 timed('groupCtx', groupContextPromise),
                 timed('notionDiary', notionDiaryPromise),
-                timed('feishuDiary', feishuDiaryPromise),
                 timed('notionNotes', notionNotesPromise),
                 timed('lifeRecord', lifeRecordPromise),
             ]);
@@ -645,7 +626,6 @@ ${groupLogStr}\n`;
             } catch (e) { console.error('Failed to inject temporal context:', e); }
         }
         // [EM-END: calendar-temporal]
-        baseSystemPrompt += feishuDiaryText;
         baseSystemPrompt += notionNotesText;
         baseSystemPrompt += lifeRecordText;
         // [EM-START: em-scribe] EM 版角色代记：[[REC:...]] 指令教学 + 否决反馈（写 Health/Bank，独立于上游 lifeRecords）
@@ -686,7 +666,6 @@ ${uname} 的化身正挂在《彼方》的【${roomName}】${act ? `，状态写
         const searchEnabled = !!(realtimeConfig?.newsEnabled && realtimeConfig?.newsApiKey);
         const notionEnabled = !!(realtimeConfig?.notionEnabled && realtimeConfig?.notionApiKey && realtimeConfig?.notionDatabaseId);
         const notionNotesEnabled = !!(realtimeConfig?.notionEnabled && realtimeConfig?.notionApiKey && realtimeConfig?.notionNotesDatabaseId);
-        const feishuEnabled = !!(realtimeConfig?.feishuEnabled && realtimeConfig?.feishuAppId && realtimeConfig?.feishuAppSecret && realtimeConfig?.feishuBaseId && realtimeConfig?.feishuTableId);
         // Per-character XHS: 必须由角色自己的开关显式打开（UI 默认关闭）。
         // 不再回退到全局 realtimeConfig.xhsEnabled —— 否则配置了 lite/MCP 后，
         // 即使角色开关显示为关，未显式设置过(undefined)的角色仍会收到小红书提示词。
@@ -754,8 +733,7 @@ ${emQuoteSection()}
 ${scheduleMessageTagEnabled ? `   - **定时发送消息**: 如果你想在未来某个时间主动发消息（比如晚安、早安或提醒），请单独起一行输出: \`[schedule_message | YYYY-MM-DD HH:MM:SS | fixed | 消息内容]\`，分行可以多输出很多该类消息。` : ''}
 ${emFavPhotoAddon()}
 ${emVoiceAwareAddon()}
-${notionEnabled ? `   - **翻阅日记(Notion)**: 你的记忆本身是完整可靠的，回忆过去优先靠记忆和 \`[[RECALL]]\`，**不需要**靠翻日记来"想起"事情。只有当你**自己**特别想重温那天日记里写下的心情、措辞或私密小细节时，才翻阅: \`[[READ_DIARY: 日期]]\`。支持格式: \`昨天\`、\`前天\`、\`3天前\`、\`1月15日\`、\`2024-01-15\`。` : ''}${feishuEnabled ? `
-   - **翻阅日记(飞书)**: 同上——回忆优先靠记忆和 \`[[RECALL]]\`，只有你自己想重温那天日记的内容时才用: \`[[FS_READ_DIARY: 日期]]\`。支持格式同上。` : ''}${notionNotesEnabled ? `
+${notionEnabled ? `   - **翻阅日记(Notion)**: 你的记忆本身是完整可靠的，回忆过去优先靠记忆和 \`[[RECALL]]\`，**不需要**靠翻日记来"想起"事情。只有当你**自己**特别想重温那天日记里写下的心情、措辞或私密小细节时，才翻阅: \`[[READ_DIARY: 日期]]\`。支持格式: \`昨天\`、\`前天\`、\`3天前\`、\`1月15日\`、\`2024-01-15\`。` : ''}${notionNotesEnabled ? `
    - **翻阅用户笔记**: 当你想看${userProfile.name}写的某篇笔记的详细内容时，使用: \`[[READ_NOTE: 标题关键词]]\`。系统会搜索匹配的笔记并返回内容给你。` : ''}
 ${searchEnabled ? `7. **🔍 主动搜索能力** (非常重要！):
    你拥有实时搜索互联网的能力！每次对话时，你可以自己决定是否需要搜索。
@@ -772,9 +750,8 @@ ${searchEnabled ? `7. **🔍 主动搜索能力** (非常重要！):
      - 甚至聊着聊着可能"开小差"去搜自己感兴趣的东西
    - **搜索后**: 系统会返回搜索结果给你，你可以自然地分享（"我刚搜了一下发现..."、"诶我看到说..."）` : ''}
 ${notionEnabled ? emNotionDiarySection(userProfile.name) : ''}
-${feishuEnabled ? emFeishuDiarySection(notionEnabled ? '9' : '8') : ''}
-${notionNotesEnabled ? emUserNotesSection(userProfile.name, [notionEnabled, feishuEnabled].filter(Boolean).length + 8) : ''}
-${xhsEnabled ? emXhsSection(userProfile.name, [notionEnabled, feishuEnabled, notionNotesEnabled].filter(Boolean).length + 8) : ''}
+${notionNotesEnabled ? emUserNotesSection(userProfile.name, [notionEnabled].filter(Boolean).length + 8) : ''}
+${xhsEnabled ? emXhsSection(userProfile.name, [notionEnabled, notionNotesEnabled].filter(Boolean).length + 8) : ''}
 
 `;
 
@@ -1195,33 +1172,6 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
                     // 避免 LLM 把它当成"发卡片的正确写法"照抄（会导致它输出字面占位句 + 纯文字正文，
                     // 而不是真正的 [html]...[/html] 块）。配合 htmlPrompt 里的禁止照抄规则一起生效。
                     content = `${timeStr}（系统记录：${sender}先前发送过一张 HTML 卡片，已在界面渲染；卡片文字摘要——${preview || '纯视觉卡片'}。这只是历史占位，请勿复述本行；要再发卡片必须用 [html]...[/html] 包裹真正的 HTML。）`;
-                }
-                else if ((m.type as string) === 'mcd_card') {
-                    const meta: any = m.metadata || {};
-                    const userName = userProfile?.name || '用户';
-                    if (meta.mcdCardKind === 'cart' && Array.isArray(meta.mcdCartItems)) {
-                        const items: any[] = meta.mcdCartItems;
-                        const lines = items.map((c: any) => {
-                            const p = typeof c.price === 'string' ? parseFloat(c.price) : (typeof c.price === 'number' ? c.price : 0);
-                            const priceStr = isFinite(p) && p > 0 ? ` ¥${p.toFixed(2)}` : '';
-                            const codeStr = c.code ? ` (code:${c.code})` : '';
-                            return `  - ${c.name}${priceStr} ×${c.qty}${codeStr}`;
-                        }).join('\n');
-                        const total = items.reduce((s: number, c: any) => {
-                            const p = typeof c.price === 'string' ? parseFloat(c.price) : (typeof c.price === 'number' ? c.price : 0);
-                            return s + (isFinite(p) ? p * c.qty : 0);
-                        }, 0);
-                        const totalStr = total > 0 ? `\n  合计: ¥${total.toFixed(2)}` : '';
-                        content = `${timeStr} [${userName}在菜单上选了下面的商品发给你, 等你回应:]\n${lines}${totalStr}\n(${userName}的意图: 想看看你的意见, 比如热量怎样、要不要换搭配, 或者直接帮 ta 下单。请按你的人设自然回应, 别照搬我的描述。)`;
-                    } else if (meta.mcdCardKind === 'candidate' && meta.mcdCandidate) {
-                        const c: any = meta.mcdCandidate;
-                        const p = typeof c.price === 'string' ? parseFloat(c.price) : (typeof c.price === 'number' ? c.price : 0);
-                        const priceStr = isFinite(p) && p > 0 ? ` ¥${p.toFixed(2)}` : '';
-                        const codeStr = c.code ? ` (code:${c.code})` : '';
-                        content = `${timeStr} [${userName}在菜单上看到了「${c.name}」${priceStr}${codeStr}, 还没决定要不要点, 想先听听你的意见]\n(请按你的人设自然回一两句: 推荐 / 劝阻 / 调侃 / 建议搭配 / 提一下热量 都行。这只是候选, 别直接调下单工具, 等 ta 真说"那就这个"或者一并选完再下手。)`;
-                    } else if (meta.mcdToolName) {
-                        content = `${timeStr} [麦当劳工具结果: ${meta.mcdToolName}]`;
-                    }
                 }
                 else if (m.type === 'emoji') {
                      const stickerName = stickerNameFromUrl(emojis, m.content);

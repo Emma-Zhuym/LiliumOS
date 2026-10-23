@@ -1,12 +1,12 @@
 import { DB } from './db';
-import { NotionManager, FeishuManager } from './realtimeContext';
+import { NotionManager } from './realtimeContext';
 import type { RealtimeConfig } from '../types';
 import { markNotionDiaryWritten } from './notionDiaryCadence';
 
-// 待写日记队列 (写 Notion / 飞书).
+// 待写日记队列 (写 Notion).
 //
-// 为什么需要: 写日记是客户端发起的网络 fetch (NotionManager.createDiaryPage /
-// FeishuManager.createDiaryRecord). instant push 路径下, 如果用户在角色回复到达时把 app
+// 为什么需要: 写日记是客户端发起的网络 fetch (NotionManager.createDiaryPage).
+// instant push 路径下, 如果用户在角色回复到达时把 app
 // 切后台 / 浏览器冻结了, 这个 fetch 会被节流/打断而失败, 而 inbox 是"先 ack 后处理"原子消费,
 // 失败的写入就永久丢了 (用户现象: 角色说"写好了"但 Notion 里没有). 文字 chunk 因为先落库所以
 // 照常显示, 造成假象.
@@ -20,7 +20,7 @@ const STORAGE_KEY = 'os_pending_diary_writes';
 
 export interface PendingDiary {
     id: string;
-    kind: 'notion' | 'feishu';
+    kind: 'notion' | 'feishu'; // 'feishu' 只剩旧队列里的条目，drain 时丢弃
     charId: string;
     charName: string;
     title: string;
@@ -101,24 +101,8 @@ export async function drainPendingDiaries(
                     removePendingDiary(entry.id);
                 }
             } else {
-                if (!realtimeConfig?.feishuEnabled || !realtimeConfig?.feishuAppId || !realtimeConfig?.feishuAppSecret || !realtimeConfig?.feishuBaseId || !realtimeConfig?.feishuTableId) {
-                    continue;
-                }
-                const r = await FeishuManager.createDiaryRecord(
-                    realtimeConfig.feishuAppId,
-                    realtimeConfig.feishuAppSecret,
-                    realtimeConfig.feishuBaseId,
-                    realtimeConfig.feishuTableId,
-                    { title: entry.title, content: entry.content, mood: entry.mood || undefined, characterName: entry.charName },
-                );
-                if (r.success) {
-                    await DB.saveMessage({ charId: entry.charId, role: 'system', type: 'text', content: `📒 ${entry.charName}写了一篇日记「${entry.title}」(飞书)` } as any);
-                    removePendingDiary(entry.id);
-                    onSaved?.(entry.charId);
-                } else {
-                    console.error('[pendingDiary] 飞书拒绝, 丢弃:', r.message);
-                    removePendingDiary(entry.id);
-                }
+                // [EM: remove-feishu] 飞书 2026-10-22 删了：队列里剩下的旧飞书条目直接丢掉
+                removePendingDiary(entry.id);
             }
         } catch (e) {
             // 网络可恢复错误: 留在队列, 回前台再试.

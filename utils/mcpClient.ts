@@ -1,7 +1,7 @@
 /**
  * 通用 MCP 客户端 (Model Context Protocol, Streamable HTTP)
  *
- * 与 mcdMcpClient / luckinMcpClient 的「一家一个客户端」不同，这里是用户
+ * 这里是用户
  * 自配的任意远程 MCP 服务器：设置里填 URL（+ 可选 Bearer Token / 自定义头），发现工具后
  * 以 OpenAI function-calling 格式注入聊天请求，工具循环见 useChatAI。
  *

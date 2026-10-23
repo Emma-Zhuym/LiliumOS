@@ -646,13 +646,6 @@ export interface RealtimeConfig {
   /** 额外可查询数据库（只读）；模型使用 [[READ_TAG: 关键词]]，TAG 须大写英文 */
   notionExtraDatabases?: NotionExtraDatabase[];
 
-  // 飞书配置 (中国区 Notion 替代)
-  feishuEnabled: boolean;
-  feishuAppId: string;      // 飞书应用 App ID
-  feishuAppSecret: string;  // 飞书应用 App Secret
-  feishuBaseId: string;     // 多维表格 App Token
-  feishuTableId: string;    // 数据表 Table ID
-
   // 小红书配置 (MCP / Skills 双模式浏览器自动化)
   xhsEnabled: boolean;
   xhsMcpConfig?: XhsMcpConfig;
@@ -4010,7 +4003,7 @@ export interface GameSession {
     lastPlayedAt: number;
 }
 
-export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card';
+export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card';
 
 export interface Message {
     id: number;
@@ -4318,8 +4311,7 @@ export interface FullBackupData {
     vrPostOffice?: Record<string, string>;     // 邮局本机配置：身份 deviceId / 后端地址（存 localStorage）
     vrSignal?: Record<string, string>;         // 信号坠落处本机记录：句子归属「你·角色」+ 反复用清单（存 localStorage）
     worldHomeLocal?: Record<string, string>;   // 家园本机配置：全局 API + 文风收藏（存 localStorage）
-    luckinLocal?: Record<string, string>;      // 瑞幸：token + 启用状态（存 localStorage）
-    mcdLocal?: Record<string, string>;         // 麦当劳：token + 启用状态（存 localStorage）
+    // [EM: remove-mcd-luckin] 旧备份里的 luckinLocal / mcdLocal（瑞幸、麦当劳 token）2026-10-22 起导入时忽略
     mcpLocal?: Record<string, string>;         // 通用 MCP：用户自配的服务器列表（存 localStorage）
     smartHomeLocal?: Record<string, string>;   // 智能家居：Home Assistant 地址与连接配置（存 localStorage）
     desktopSkinLocal?: Record<string, string>; // 桌面皮肤偏好：电子宠物/手游风的界面配色 + 看板 banner（存 localStorage；看板图令牌导出时解析为 data URL）

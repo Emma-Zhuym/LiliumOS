@@ -52,15 +52,7 @@ import { isImageValue, migrateDataUrlToRef, putImageBlob, useBlobRefUrl } from '
 import { buildReplySnapshotContent } from '../utils/applyAssistantPostProcessing';
 import { resolveLifeRecordCard } from '../utils/lifeRecords';
 import { resolveEmScribeCard } from '../utils/emScribe'; // [EM: em-scribe]
-import { isMcdConfigured } from '../utils/mcdMcpClient';
-import { isMcdActivatedInMessages, MCD_ACTIVATE_TRIGGER, MCD_DEACTIVATE_TRIGGER } from '../utils/mcdToolBridge';
-import { isLuckinConfigured } from '../utils/luckinMcpClient';
-import { isLuckinActivatedInMessages, LUCKIN_ACTIVATE_TRIGGER, LUCKIN_DEACTIVATE_TRIGGER } from '../utils/luckinToolBridge';
 import MessageItem, { ThinkingChainBlock } from '../components/chat/MessageItem';
-import McdMiniApp from '../components/mcd/McdMiniApp';
-import LuckinMiniApp from '../components/luckin/LuckinMiniApp';
-import LuckinLocationModal from '../components/luckin/LuckinLocationModal';
-import LuckinHelpModal from '../components/luckin/LuckinHelpModal';
 import { PRESET_THEMES, DEFAULT_ARCHIVE_PROMPTS } from '../components/chat/ChatConstants';
 import { resolveChatTheme } from '../utils/groupChat/theme';
 import ChatHeader from '../components/chat/ChatHeaderShell';
@@ -454,12 +446,6 @@ const Chat: React.FC = () => {
 
 
 
-    // 小程序快照 ref: MiniApp 状态变化时塞进来, useChatAI 在 build system prompt 时读取并注入
-    const mcdMiniAppRef = useRef<import('../utils/mcdToolBridge').McdMiniAppSnapshot | undefined>(undefined);
-    const luckinMiniAppRef = useRef<import('../utils/luckinToolBridge').LuckinMiniAppSnapshot | undefined>(undefined);
-    // 瑞幸聊天点单模式 (点"瑞一杯"激活: 角色直接调真实工具, 注入定位)
-    const luckinChatRef = useRef<import('../utils/luckinToolBridge').LuckinChatState | undefined>(undefined);
-
     // 生成闭包的回落守卫：triggerAI 的异步闭包在用户切到别的角色后才完成时（Chat 内
     // 切角色不卸载组件），迟到的 setMessages 会把旧角色的消息灌进当前会话视图。
     // 按消息 charId 丢弃不属于当前会话的回落——DB 已落库，且 OSContext 会因
@@ -499,9 +485,6 @@ const Chat: React.FC = () => {
             ? { enabled: true, sourceLang: translateSourceLang, targetLang: translateTargetLang }
             : undefined,
         memoryPalaceConfig,
-        mcdMiniAppRef,
-        luckinMiniAppRef,
-        luckinChatRef,
         updateCharacter,
         charAvailability: charStatusInfo.status,
     });
@@ -1474,32 +1457,6 @@ const Chat: React.FC = () => {
             setFlashMsgId(null);
         }
 
-        // 用户手打"麦请求"三个字 → 等价于点击麦克风按钮 (拉起麦当劳菜单)
-        // 不落库, 跟按钮点击行为完全一致, 避免出现"banner 在但菜单没拉起"的诡异状态
-        if (!customContent && type === 'text' && text === MCD_ACTIVATE_TRIGGER) {
-            setInput(''); localStorage.removeItem(draftKey);
-            if (!isMcdConfigured()) {
-                addToast('请先到设置 → 麦当劳 启用并填入 MCP Token', 'info');
-                return;
-            }
-            setMcdAppOpen(true);
-            trackEvent('打开麦当劳点单小程序');
-            setShowPanel('none');
-            return;
-        }
-
-        // 用户手打"瑞一杯" → 激活角色瑞幸点单模式 (注入提示词+工具+定位, 角色自己点)
-        if (!customContent && type === 'text' && text === LUCKIN_ACTIVATE_TRIGGER) {
-            setInput(''); localStorage.removeItem(draftKey);
-            activateLuckin();
-            return;
-        }
-        if (!customContent && type === 'text' && text === LUCKIN_DEACTIVATE_TRIGGER) {
-            setInput(''); localStorage.removeItem(draftKey);
-            deactivateLuckin();
-            return;
-        }
-
         if (!customContent) { setInput(''); localStorage.removeItem(draftKey); }
         
         const imageChatContext = type === 'image' ? messages.slice(-10).map(m => {
@@ -1923,11 +1880,11 @@ const Chat: React.FC = () => {
         // 选表情、选分类之类的动作不上报。
         if ([
             'transfer', 'archive', 'settings', 'chrome-css', 'chrome-sound', 'fine-tune',
-            'meetup', 'proactive', 'schedule', 'mcd-request', 'luckin-request',
+            'meetup', 'proactive', 'schedule',
             'html-mode-toggle', 'html-mode-settings', 'thinking-settings',
             // 独立小功能：点一下就是用了一次，跟「打开某个面板」同一性质。
             // send-emoji / select-category 这些是「挑哪一个」，不进名单。
-            'poke', 'emoji-import', 'add-category', 'mcd-end', 'luckin-end',
+            'poke', 'emoji-import', 'add-category',
         ].includes(type)) {
             trackEvent('打开聊天功能面板项', { action: type });
         }
@@ -1954,25 +1911,6 @@ const Chat: React.FC = () => {
             case 'active-msg-2': setShowActiveMsg2Modal(true); break;
             case 'emotion': setModalType('schedule'); break; // 情绪已并入日程，打开同一 modal
             case 'schedule': setModalType('schedule'); break;
-            case 'mcd-not-configured':
-                addToast('请先到设置 → 麦当劳 启用并填入 MCP Token', 'info');
-                break;
-            case 'mcd-request':
-                setMcdAppOpen(true);
-                trackEvent('打开麦当劳点单小程序');
-                break;
-            case 'mcd-end':
-                handleSendText(MCD_DEACTIVATE_TRIGGER, 'text', { mcdDeactivate: true });
-                break;
-            case 'luckin-not-configured':
-                addToast('请先到设置 → 瑞幸 启用并填入 MCP Token', 'info');
-                break;
-            case 'luckin-request':
-                activateLuckin();
-                break;
-            case 'luckin-end':
-                deactivateLuckin();
-                break;
             case 'html-mode-toggle': {
                 if (!char) break;
                 const next = !((char as any).htmlModeEnabled);
@@ -2000,230 +1938,6 @@ const Chat: React.FC = () => {
             case 'deep-talk': if (deepTalkNight && (deepTalkNight.status === 'open' || deepTalkNight.status === 'later')) void handleDeepTalkInvite(); else { setShowPanel('none'); setDeepTalkSheetOpen(true); } break;
         }
     };
-
-    // 当前会话麦请求是否激活 (从消息历史推导, 无新存储)
-    const mcdActivated = useMemo(() => isMcdActivatedInMessages(messages), [messages]);
-    const [mcdAppOpen, setMcdAppOpen] = useState(false);
-    // mcdMiniAppRef 声明在文件靠前 (传给 useChatAI), 这里仅占位
-    const mcdConfiguredFlag = useMemo(() => isMcdConfigured(), [showPanel, mcdActivated]);
-
-    // 瑞幸聊天点单模式: 激活态用 React state (临时会话态, 不落库)
-    const [luckinMode, setLuckinMode] = useState(false);
-    const [showLuckinLoc, setShowLuckinLoc] = useState(false); // 瑞一杯定位选择弹窗
-    const [showLuckinHelp, setShowLuckinHelp] = useState(false); // 瑞一杯使用说明
-    const luckinActivated = luckinMode;
-    const [luckinAppOpen, setLuckinAppOpen] = useState(false); // 旧小程序壳, 现已不主动开
-    const luckinConfiguredFlag = useMemo(() => isLuckinConfigured(), [showPanel, luckinActivated]);
-
-    const activateLuckin = useCallback(() => {
-        if (!isLuckinConfigured()) { addToast('请先到设置 → 瑞幸 启用并填入 MCP Token', 'info'); return; }
-        setShowPanel('none');
-        setShowLuckinLoc(true); // 先选定位 (GPS 常抓到机房位置, 让用户选城市)
-    }, [addToast]);
-
-    // 选完定位 → 正式激活角色瑞幸模式, 把坐标注入给角色
-    const onLuckinLocationPick = useCallback((lng: number, lat: number, cityName?: string) => {
-        luckinChatRef.current = { active: true, longitude: lng, latitude: lat, cityName };
-        setLuckinMode(true);
-        setShowLuckinLoc(false);
-        trackEvent('开启瑞一杯聊天点单');
-        addToast(`瑞一杯已开启 ☕ 定位: ${cityName || '已设置'}`, 'info');
-        // 首次启动: 自动弹一次使用说明 (之后收在 banner 的 ? 里)
-        try {
-            if (localStorage.getItem('aetheros.luckin.helpSeen') !== '1') {
-                setShowLuckinHelp(true);
-                localStorage.setItem('aetheros.luckin.helpSeen', '1');
-            }
-        } catch { /* ignore */ }
-    }, [addToast]);
-
-    const deactivateLuckin = useCallback(() => {
-        luckinChatRef.current = { active: false };
-        setLuckinMode(false);
-    }, []);
-
-    // 用户在菜单卡里点"发送给角色"时, 把购物车作为 user 消息插入
-    const handleMcdSendCart = useCallback(async (items: import('../components/chat/McdCard').McdCartItem[]) => {
-        if (!char || !items.length) return;
-        const summary = items.map(i => `${i.name}×${i.qty}`).join('、');
-        const total = items.reduce((s, c) => {
-            const p = typeof c.price === 'string' ? parseFloat(c.price) : (typeof c.price === 'number' ? c.price : 0);
-            return s + (isFinite(p) ? p * c.qty : 0);
-        }, 0);
-        const totalStr = total > 0 ? ` 共¥${total.toFixed(2)}` : '';
-        const content = `想要下单：${summary}${totalStr}`;
-        await DB.saveMessage({
-            charId: char.id,
-            role: 'user',
-            type: 'mcd_card',
-            content,
-            metadata: { mcdCardKind: 'cart', mcdCartItems: items },
-        } as any);
-        await reloadMessages(visibleCountRef.current);
-    }, [char, reloadMessages]);
-
-    // 用户在菜单卡某条单品上点 💭 → 立即把这条扔给角色让 ta 评价 (候选状态, 不进购物车)
-    const handleMcdCandidate = useCallback(async (item: import('../components/chat/McdCard').McdCartItem) => {
-        if (!char || !item) return;
-        const priceStr = typeof item.price === 'number' ? ` ¥${item.price}` : (typeof item.price === 'string' && item.price ? ` ¥${item.price}` : '');
-        const content = `「${item.name}」${priceStr}—— 这个怎么样？`;
-        await DB.saveMessage({
-            charId: char.id,
-            role: 'user',
-            type: 'mcd_card',
-            content,
-            metadata: { mcdCardKind: 'candidate', mcdCandidate: item },
-        } as any);
-        await reloadMessages(visibleCountRef.current);
-    }, [char, reloadMessages]);
-
-    // 小程序内输入 → 直接保存 user 消息 + 立即触发 AI (主聊天 handleSendText 不自动触发,
-    // 那是设计上的"手动 ⚡ 触发"流程, 但小程序里用户预期发完就有回复, 跳过那个步骤)。
-    // 走完整 pipeline: useChatAI 在 build prompt 时会读 mcdMiniAppRef 注入小程序状态。
-    const handleMcdMiniAppSend = useCallback(async (text: string) => {
-        if (!char || !text.trim() || isTyping) return;
-        const trimmed = text.trim();
-        await DB.saveMessage({
-            charId: char.id,
-            role: 'user',
-            type: 'text',
-            content: trimmed,
-            metadata: { fromMcdMiniApp: true },
-        } as any);
-        const recent = await DB.getRecentMessagesByCharId(char.id, 200);
-        setMessages(recent);
-        triggerAI(recent);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [char, isTyping, triggerAI]);
-
-    // 小程序状态实时同步到 ref, 让下次 send 走主 pipeline 时能注入到 system prompt
-    const handleMcdMiniAppStateChange = useCallback((state: import('../utils/mcdToolBridge').McdMiniAppSnapshot) => {
-        mcdMiniAppRef.current = state;
-    }, []);
-
-    // 小程序里"敲定"购物车 → 把购物车转成 cart 卡 (复用现有渲染), 之后 Phase 2
-    // 会在这里挂 calculate-price + create-order。当前先让 char 看到购物车评论。
-    const handleMcdAppConfirm = useCallback(async (
-        cart: import('../components/mcd/McdMiniApp').CartLine[],
-        ctx: import('../components/mcd/McdMiniApp').OrderContext,
-    ) => {
-        if (!char || !cart.length) return;
-        const items: import('../components/chat/McdCard').McdCartItem[] = cart.map(l => ({
-            code: l.code,
-            name: l.name,
-            price: l.price,
-            qty: l.qty,
-        }));
-        const summary = items.map(i => `${i.name}×${i.qty}`).join('、');
-        const total = items.reduce((s, c) => {
-            const p = typeof c.price === 'string' ? parseFloat(c.price) : (typeof c.price === 'number' ? c.price : 0);
-            return s + (isFinite(p) ? p * c.qty : 0);
-        }, 0);
-        const totalStr = total > 0 ? ` 共¥${total.toFixed(2)}` : '';
-        const where = ctx.orderType === 2
-            ? `外送至 ${ctx.addressLabel || ctx.addressId}`
-            : `到店取餐 (${ctx.storeName || ctx.storeCode})`;
-        const content = `${where} · ${summary}${totalStr}`;
-        await DB.saveMessage({
-            charId: char.id,
-            role: 'user',
-            type: 'mcd_card',
-            content,
-            metadata: {
-                mcdCardKind: 'cart',
-                mcdCartItems: items,
-                mcdOrderContext: ctx,
-            },
-        } as any);
-        await reloadMessages(visibleCountRef.current);
-    }, [char, reloadMessages]);
-
-    // ─── 瑞幸 handlers (与麦当劳同构) ───
-    const handleLuckinSendCart = useCallback(async (items: import('../components/chat/LuckinCard').LuckinCartItem[]) => {
-        if (!char || !items.length) return;
-        const summary = items.map(i => `${i.name}×${i.qty}`).join('、');
-        const total = items.reduce((s, c) => {
-            const p = typeof c.price === 'string' ? parseFloat(c.price) : (typeof c.price === 'number' ? c.price : 0);
-            return s + (isFinite(p) ? p * c.qty : 0);
-        }, 0);
-        const totalStr = total > 0 ? ` 共¥${total.toFixed(2)}` : '';
-        const content = `想要下单：${summary}${totalStr}`;
-        await DB.saveMessage({
-            charId: char.id,
-            role: 'user',
-            type: 'luckin_card',
-            content,
-            metadata: { luckinCardKind: 'cart', luckinCartItems: items },
-        } as any);
-        await reloadMessages(visibleCountRef.current);
-    }, [char, reloadMessages]);
-
-    const handleLuckinCandidate = useCallback(async (item: import('../components/chat/LuckinCard').LuckinCartItem) => {
-        if (!char || !item) return;
-        const priceStr = (typeof item.price === 'number' || (typeof item.price === 'string' && item.price)) ? ` ¥${item.price}` : '';
-        const content = `「${item.name}」${priceStr}—— 这个怎么样？`;
-        await DB.saveMessage({
-            charId: char.id,
-            role: 'user',
-            type: 'luckin_card',
-            content,
-            metadata: { luckinCardKind: 'candidate', luckinCandidate: item },
-        } as any);
-        await reloadMessages(visibleCountRef.current);
-    }, [char, reloadMessages]);
-
-    const handleLuckinMiniAppSend = useCallback(async (text: string) => {
-        if (!char || !text.trim() || isTyping) return;
-        const trimmed = text.trim();
-        await DB.saveMessage({
-            charId: char.id,
-            role: 'user',
-            type: 'text',
-            content: trimmed,
-            metadata: { fromLuckinMiniApp: true },
-        } as any);
-        const recent = await DB.getRecentMessagesByCharId(char.id, 200);
-        setMessages(recent);
-        triggerAI(recent);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [char, isTyping, triggerAI]);
-
-    const handleLuckinMiniAppStateChange = useCallback((state: import('../utils/luckinToolBridge').LuckinMiniAppSnapshot) => {
-        luckinMiniAppRef.current = state;
-    }, []);
-
-    const handleLuckinAppConfirm = useCallback(async (
-        cart: import('../components/luckin/LuckinMiniApp').CartLine[],
-        ctx: import('../components/luckin/LuckinMiniApp').OrderContext,
-    ) => {
-        if (!char || !cart.length) return;
-        const items: import('../components/chat/LuckinCard').LuckinCartItem[] = cart.map(l => ({
-            code: l.code,
-            name: l.name,
-            price: l.price,
-            qty: l.qty,
-            spec: l.spec,
-        }));
-        const summary = items.map(i => `${i.name}×${i.qty}`).join('、');
-        const total = items.reduce((s, c) => {
-            const p = typeof c.price === 'string' ? parseFloat(c.price) : (typeof c.price === 'number' ? c.price : 0);
-            return s + (isFinite(p) ? p * c.qty : 0);
-        }, 0);
-        const totalStr = total > 0 ? ` 共¥${total.toFixed(2)}` : '';
-        const content = `到店自提 (${ctx.storeName || ctx.deptId}) · ${summary}${totalStr}`;
-        await DB.saveMessage({
-            charId: char.id,
-            role: 'user',
-            type: 'luckin_card',
-            content,
-            metadata: {
-                luckinCardKind: 'cart',
-                luckinCartItems: items,
-                luckinOrderContext: ctx,
-            },
-        } as any);
-        await reloadMessages(visibleCountRef.current);
-    }, [char, reloadMessages]);
 
     // --- Schedule Handlers ---
     const loadSchedule = async () => {
@@ -3544,7 +3258,7 @@ const Chat: React.FC = () => {
         blocked: isInputFocused || isInputAuxiliaryPanelOpen || !!input.trim() || showPanel !== 'none' || modalType !== 'none'
             || selectionMode || isSummarizing || memoryRepairOpen || favoritesOpen
             || fineTunePanelOpen || showProactiveModal || showThinkingChainModal
-            || mcdAppOpen || luckinAppOpen || showForwardModal || showChatSearch || chatSettingsOpen || charStatusInfo.status === 'offline',
+            || showForwardModal || showChatSearch || chatSettingsOpen || charStatusInfo.status === 'offline',
         generating: isTyping || instantChatPending || isProactiveComposing,
         onGenerate: handleManualTrigger,
     });
@@ -3635,8 +3349,7 @@ const Chat: React.FC = () => {
                  onClose={() => setChatSettingsOpen(false)} onCharacter={openCharacterSettings}
                  onSearch={() => setShowChatSearch(true)}
                  onGroup={group => { setSettingsGroup(group); setModalType('chat-settings'); }}
-                 onAction={handlePanelAction} onError={() => addToast('备注保存失败，请重试', 'error')}
-                 mcdActivated={mcdActivated} mcdConfigured={mcdConfiguredFlag} />}
+                 onAction={handlePanelAction} onError={() => addToast('备注保存失败，请重试', 'error')} />}
              {showChatSearch && <div className="absolute inset-0 z-[90]" style={{ background: F.appBg }}><ChatSearch character={char}
                  onClose={() => setShowChatSearch(false)} onOpenMessage={message => {
                      setShowChatSearch(false); setChatSettingsOpen(false);
@@ -4261,8 +3974,6 @@ const Chat: React.FC = () => {
                             suppressEntranceAnimation={suppressEntranceAnimation}
                             isPending={false}
                             pendingIndicator={osTheme.chatPendingIndicator !== false}
-                            onMcdSendCart={handleMcdSendCart}
-                            onMcdCandidate={handleMcdCandidate}
                             onResolveTransfer={handleResolveTransfer}
                             onResolveLifeRecord={handleResolveLifeRecord}
                             onRegenerateImage={handleRegenerateImage}
@@ -4417,50 +4128,6 @@ const Chat: React.FC = () => {
             </div>
 
             <div className="relative z-40">
-                {mcdActivated && (
-                    <div className="flex items-center justify-between px-4 py-1.5 bg-yellow-50 border-b border-yellow-200 text-xs">
-                        <div className="flex items-center gap-1.5 text-yellow-700 font-bold">
-                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse"/>
-                            🍔 麦请求进行中
-                        </div>
-                        <button
-                          onClick={() => handleSendText(MCD_DEACTIVATE_TRIGGER, 'text', { mcdDeactivate: true })}
-                          className="px-2.5 py-0.5 bg-yellow-200/80 text-yellow-800 rounded-full text-[11px] font-bold active:scale-95"
-                        >
-                          结束
-                        </button>
-                    </div>
-                )}
-                {luckinActivated && (
-                    <div className="flex items-center justify-between px-4 py-1.5 bg-[#0B1F3A]/5 border-b border-[#0B1F3A]/15 text-xs">
-                        <div className="flex items-center gap-1.5 text-[#0B1F3A] font-bold">
-                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#C6A15B] animate-pulse"/>
-                            🦌 瑞一杯进行中
-                            {luckinChatRef.current?.cityName && <span className="font-normal text-[#0B1F3A]/60">· {luckinChatRef.current.cityName}</span>}
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                            <button
-                              onClick={() => setShowLuckinHelp(true)}
-                              title="瑞一杯怎么用"
-                              className="w-5 h-5 flex items-center justify-center bg-[#0B1F3A]/10 text-[#0B1F3A] rounded-full text-[11px] font-bold active:scale-95"
-                            >
-                              ?
-                            </button>
-                            <button
-                              onClick={() => setShowLuckinLoc(true)}
-                              className="px-2.5 py-0.5 bg-[#0B1F3A]/10 text-[#0B1F3A] rounded-full text-[11px] font-bold active:scale-95"
-                            >
-                              📍 改定位
-                            </button>
-                            <button
-                              onClick={deactivateLuckin}
-                              className="px-2.5 py-0.5 bg-[#0B1F3A]/10 text-[#0B1F3A] rounded-full text-[11px] font-bold active:scale-95"
-                            >
-                              结束
-                            </button>
-                        </div>
-                    </div>
-                )}
                 {replyTarget && (
                     <div className="flex items-center justify-between px-4 py-2 bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
                         {/* 引用的是图片 / 表情时这里显示占位符，跟落库的快照同一口径 */}
@@ -4508,10 +4175,6 @@ const Chat: React.FC = () => {
                     onReroll={handleReroll}
                     canReroll={canReroll}
                     isProactiveActive={isProactiveActive}
-                    mcdConfigured={mcdConfiguredFlag}
-                    mcdActivated={mcdActivated}
-                    luckinConfigured={luckinConfiguredFlag}
-                    luckinActivated={luckinActivated}
                     htmlModeEnabled={!!(char as any).htmlModeEnabled}
                     showThinkingChain={!!(char as any).showThinkingChain}
                     inputStyle={osTheme.chatInputStyle}
@@ -4784,7 +4447,6 @@ const Chat: React.FC = () => {
 
             {/* 情绪设置已嵌入日程 Modal（与日程强制同步开/关），不再单独渲染 */}
 
-            {/* 🍔 麦当劳小程序 - MCP 数据流按钮驱动, 协同聊天走主 pipeline (完整人设/记忆/日程) */}
             {memoryRepairOpen && char && (
                 <MemoryRepairPortal
                     char={char}
@@ -4816,45 +4478,6 @@ const Chat: React.FC = () => {
                     }}
                 />
             )}
-
-            <McdMiniApp
-                open={mcdAppOpen}
-                onClose={() => setMcdAppOpen(false)}
-                char={char}
-                userProfile={userProfile}
-                messages={messages}
-                isTyping={isTyping}
-                onSendMessage={handleMcdMiniAppSend}
-                onStateChange={handleMcdMiniAppStateChange}
-                onConfirmOrder={handleMcdAppConfirm}
-            />
-
-            {/* 🦌 瑞幸小程序 - 与麦当劳同构 */}
-            <LuckinMiniApp
-                open={luckinAppOpen}
-                onClose={() => setLuckinAppOpen(false)}
-                char={char}
-                userProfile={userProfile}
-                messages={messages}
-                isTyping={isTyping}
-                onSendMessage={handleLuckinMiniAppSend}
-                onStateChange={handleLuckinMiniAppStateChange}
-                onConfirmOrder={handleLuckinAppConfirm}
-            />
-
-            {/* 🦌 瑞一杯定位选择 */}
-            <LuckinLocationModal
-                open={showLuckinLoc}
-                onClose={() => setShowLuckinLoc(false)}
-                onPick={onLuckinLocationPick}
-            />
-
-            {/* 🦌 瑞一杯使用说明 (首次自动弹 + banner ? 调出) */}
-            <LuckinHelpModal
-                open={showLuckinHelp}
-                onClose={() => setShowLuckinHelp(false)}
-            />
-
 
             {/* Forward Modal */}
             <Modal isOpen={showForwardModal} title="转发聊天记录" onClose={() => setShowForwardModal(false)}>

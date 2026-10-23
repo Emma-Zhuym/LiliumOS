@@ -12,7 +12,7 @@ import type { RecallEntryPoint, RecallTrace } from './memoryPalace/trace';
  * 上下文材料完全一致——区别只在末尾各自追加的"现在你要做什么"指令。
  *
  * 三条路径过去各拼一遍 system prompt + 消息历史，导致主动消息缺音乐共听 /
- * HTML 模式 / 双语模式 / 麦当劳小程序等块；emotion eval 也容易跟主路径分叉。
+ * HTML 模式 / 双语模式等块；emotion eval 也容易跟主路径分叉。
  * 现在统一从这里走，避免再分叉。
  *
  * 顺序严格对齐 useChatAI.ts 的现有实现（line 629–793），保证现有行为字节级
@@ -26,10 +26,6 @@ import { injectMemoryPalace } from './memoryPalace/pipeline';
 import { clearLastRecallBriefs, getLastRecallBriefs, type RecalledMemoryBrief } from './memoryPalace/recallBrief'; // [EM: token-panel-recall]
 import { buildHtmlPrompt } from './htmlPrompt';
 import { buildThinkingChainPrompt } from './thinkingChainPrompt';
-import { buildMcdMiniAppContextBlock } from './mcdToolBridge';
-import type { McdMiniAppSnapshot } from './mcdToolBridge';
-import { buildLuckinMiniAppContextBlock, buildLuckinChatSystemBlock } from './luckinToolBridge';
-import type { LuckinMiniAppSnapshot, LuckinChatState } from './luckinToolBridge';
 import { isMcpChatAvailable } from './mcpClient';
 import { buildMcpSystemBlock, MCP_TAIL_REMINDER } from './mcpToolBridge';
 import type { MusicCfg, Song, LyricLine, MusicPlaybackSnapshot, RecentTrackChange } from '../context/MusicContext';
@@ -94,10 +90,6 @@ export interface BuildChatPayloadInput {
     thinkingChain?: { enabled: boolean; customPrompt?: string };
     /** 可选识图 API：开启后先把图片持久化转写为 [图片：描述]，主模型只接收文字。 */
     visionApiConfig?: VisionApiConfig;
-    mcdMiniSnap?: McdMiniAppSnapshot;
-    luckinMiniSnap?: LuckinMiniAppSnapshot;
-    /** 瑞幸聊天点单模式 (点"瑞一杯"激活, 角色直接调真实工具) */
-    luckinChat?: LuckinChatState;
     /**
      * 把历史里的多模态图片消息（content 数组 + image_url）压平成纯文本占位。
      * 彼方/小小窝等复用聊天历史、但配了独立 API 的场景必须开：目标模型可能不支持
@@ -139,12 +131,9 @@ export interface BuildChatPayloadResult {
     fullMessages: Array<{ role: string; content: any }>;
     /** 易变尾段的位置，供每轮排程块插在它前面；开发合并/跳过时为 -1。 */
     volatileTailIndex: number;
-    /** 调试用：bilingual / mcd 是否实际注入 */
+    /** 调试用：各块是否实际注入 */
     flags: {
         bilingualActive: boolean;
-        mcdActive: boolean;
-        luckinActive: boolean;
-        luckinChatActive: boolean;
         mcpChatActive: boolean;
         htmlActive: boolean;
         thinkingActive: boolean;
@@ -223,7 +212,7 @@ export function deriveRecentTrackSwitchForChar(
  *   2. ChatPrompts.buildSystemPromptParts → { stable, volatileState, recencyTail }
  *   3. stable += 双语指令 / HTML 模式 / 思考链（按角色配置，变化慢）
  *   4. ChatPrompts.buildMessageHistory → apiMessages → 剥离旧双语标签 → cleanedApiMessages
- *   5. volatileTail = volatileState + 麦当劳/瑞幸/瑞一杯实时快照块
+ *   5. volatileTail = volatileState
  *   6. stable += 通用 MCP 工具块（工具清单持久化，变化慢）
  *   7. volatileTail += recencyTail（总纲+「回到你自己」钢印，永远最后）
  *   8. fullMessages = [stable system, ...cleanedApiMessages, volatileTail system]
@@ -239,7 +228,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     const {
         char, userProfile, groups, historyMsgs, contextLimit,
         realtimeConfig, innerState,
-        translationConfig, htmlMode, thinkingChain, mcdMiniSnap, luckinMiniSnap, luckinChat,
+        translationConfig, htmlMode, thinkingChain,
     } = input;
     // 角色可见性必须在统一载荷层再次收口。UI 聊天、1.0 本地主动消息、2.0 推送、
     // 彼方/小小窝等调用方各自维护筛选很容易漏掉一条路径；一旦把全量表情传进来，
@@ -289,9 +278,6 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
             volatileTailIndex: -1,
             flags: {
                 bilingualActive: false,
-                mcdActive: false,
-                luckinActive: false,
-                luckinChatActive: false,
                 mcpChatActive: false,
                 htmlActive: false,
                 thinkingActive: false,
@@ -431,33 +417,6 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         resolveWorldbookDepthEntries(char.mountedWorldbooks || [], cleanedApiMessages, char.name, userProfile.name),
     );
 
-    // ── 9. 麦当劳小程序上下文（购物车/菜单实时快照 → 易变尾段） ──
-    const mcdActive = !!mcdMiniSnap?.open;
-    if (mcdActive) {
-        const block = buildMcdMiniAppContextBlock(mcdMiniSnap, userProfile?.name || '用户');
-        if (block) {
-            volatileTail += block;
-        }
-    }
-
-    // ── 9b. 瑞幸小程序上下文（同上，易变尾段） ──
-    const luckinActive = !!luckinMiniSnap?.open;
-    if (luckinActive) {
-        const block = buildLuckinMiniAppContextBlock(luckinMiniSnap, userProfile?.name || '用户');
-        if (block) {
-            volatileTail += block;
-        }
-    }
-
-    // ── 9c. 瑞幸聊天点单模式 (角色直接调真实工具；含实时定位/会话状态 → 易变尾段) ──
-    const luckinChatActive = !!luckinChat?.active;
-    if (luckinChatActive) {
-        const block = buildLuckinChatSystemBlock(luckinChat, recentMsgsHint, userProfile?.name || '用户');
-        if (block) {
-            volatileTail += block;
-        }
-    }
-
     // ── 9d. 通用 MCP 工具模式 (用户自配的远程 MCP 服务器, 见 docs/mcp-client.md) ──
     // 工具清单来自持久化的发现结果，变化很慢 → 稳定段。
     //
@@ -543,7 +502,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         cleanedApiMessages: messagesWithWorldbookDepth,
         fullMessages: finalMessages,
         volatileTailIndex: finalMessages === fullMessages ? 1 + messagesWithWorldbookDepth.length : -1,
-        flags: { bilingualActive, mcdActive, luckinActive, luckinChatActive, mcpChatActive, htmlActive, thinkingActive, promptBuildSkipped: false },
+        flags: { bilingualActive, mcpChatActive, htmlActive, thinkingActive, promptBuildSkipped: false },
         // [EM-START: context-breakdown-return] merge 后确认这段还在，Token 面板靠它
         // 三段式适配：systemPrompt=stable（双语注入载体），volatileTail 归入"系统附加"由 useChatAI 端算总长
         contextBreakdown: {

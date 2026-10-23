@@ -78,12 +78,6 @@ export const emNotionDiarySection = (userName: string) => `8. **📔 日记系�
    **📖 翻阅日记:** 回复**开头单独一行** \`[[READ_DIARY: 日期]]\`（支持: 昨天/前天/3天前/1月15日/2024-01-15）
    💡 翻日记 ≠ 回忆。回忆用 \`[[RECALL]]\` 或直接凭记忆说。翻日记是你**自己想看**当时写下的字——是小情趣，不是义务。`;
 
-/** 飞书日记本（压缩版）。num 是它在提示词里的编号（'8' 或 '9'） */
-export const emFeishuDiarySection = (num: string) => `${num}. **📒 飞书日记本** — 触发条件和写日记心态同上面 Notion 日记，区别只是命令格式：
-   写日记: \`[[FS_DIARY_START: 标题 | 心情关键词]]\` 正文 \`[[FS_DIARY_END]]\` / 简短: \`[[FS_DIARY: 标题 | 内容]]\`
-   翻阅: 回复开头单独一行 \`[[FS_READ_DIARY: 日期]]\`（支持: 昨天/前天/3天前/1月15日/2024-01-15）
-`;
-
 /** 用户 Notion 笔记（压缩版） */
 export const emUserNotesSection = (userName: string, num: number) => `${num}. **📝 ${userName}的笔记**:
    你能看到${userName}在 Notion 上写的笔记标题。想看详情时输出: \`[[READ_NOTE: 标题关键词]]\`

@@ -13,10 +13,7 @@ import { resolveBubbleCornerRadii, shouldHideBubbleTail } from '../../utils/bubb
 import { isImageValue, useBlobRefUrl } from '../../utils/blobRef';
 import { buildReplySnapshotContent } from '../../utils/applyAssistantPostProcessing';
 import TokenImg from '../os/TokenImg';
-import McdCard from './McdCard';
 import HtmlCard from './HtmlCard';
-import LuckinCard from './LuckinCard';
-import LuckinCheckoutCard from './LuckinCheckoutCard';
 import QixiEventCardView from './QixiEventCard';
 import DeepTalkChatItem from '../deepTalk/DeepTalkChatItem'; // [EM: deep-talk]
 
@@ -1507,12 +1504,6 @@ interface MessageItemProps {
     isPending?: boolean;
     /** 是否开启 dot pulse 指示。关掉则 pending 期间不显示任何视觉 */
     pendingIndicator?: boolean;
-    /** 麦当劳菜单卡里点了"发送给角色"时调用 */
-    onMcdSendCart?: (items: import('./McdCard').McdCartItem[]) => void;
-    onMcdCandidate?: (item: import('./McdCard').McdCartItem) => void;
-    /** 瑞幸菜单卡 (与麦当劳同构) */
-    onLuckinSendCart?: (items: import('./LuckinCard').LuckinCartItem[]) => void;
-    onLuckinCandidate?: (item: import('./LuckinCard').LuckinCartItem) => void;
     /** 用户点「收到的转账」卡 → 接收 / 退回 */
     onResolveTransfer?: (m: Message, action: 'accepted' | 'returned') => void;
     /** 用户点「生活记录」卡 → 确认 / 否决（角色代记的记录） */
@@ -1562,10 +1553,6 @@ avatarShape = 'circle',
     suppressEntranceAnimation = false,
     isPending = false,
     pendingIndicator = true,
-    onMcdSendCart,
-    onMcdCandidate,
-    onLuckinSendCart,
-    onLuckinCandidate,
     onResolveTransfer,
     onResolveLifeRecord,
     onRegenerateImage,
@@ -2514,120 +2501,6 @@ fallback.innerHTML = `<div class="text-center"><div class="mb-1"><img src="https
                     )}
                 </div>
             </div>
-        );
-    }
-
-    if (m.type === 'mcd_card') {
-        const meta = m.metadata || {};
-        const kind = meta.mcdCardKind;
-        // 来自小程序的卡片 (proposal / cart / candidate) → 主聊天里只渲染一张漂亮的"刷卡"占位
-        // 真实可交互内容只在小程序界面里展示, 主聊天里点小程序按钮回到那个界面看。
-        if (kind === 'proposal' || kind === 'cart' || kind === 'candidate' || meta.fromMcdMiniApp) {
-            const label = kind === 'proposal' ? '推荐了几样'
-                : kind === 'cart' ? '想下单的购物车'
-                : kind === 'candidate' ? '问问意见'
-                : '麦当劳卡片';
-            const summary = kind === 'proposal' && Array.isArray(meta.mcdProposal?.items)
-                ? `${meta.mcdProposal.items.length} 件: ${meta.mcdProposal.items.slice(0, 3).map((i: any) => i.name).join(' / ')}${meta.mcdProposal.items.length > 3 ? '…' : ''}`
-                : kind === 'cart' && Array.isArray(meta.mcdCartItems)
-                ? `${meta.mcdCartItems.length} 件: ${meta.mcdCartItems.slice(0, 3).map((i: any) => i.name).join(' / ')}${meta.mcdCartItems.length > 3 ? '…' : ''}`
-                : kind === 'candidate' && meta.mcdCandidate?.name
-                ? `「${meta.mcdCandidate.name}」`
-                : '';
-            return commonLayout(
-                <div className="w-60 rounded-2xl overflow-hidden border border-yellow-200 shadow-sm bg-gradient-to-br from-yellow-50 to-amber-50 select-none">
-                    <div className="flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-yellow-300 to-amber-300">
-                        <span className="text-lg">🍟</span>
-                        <div className="flex-1 min-w-0">
-                            <div className="text-[10px] text-yellow-900/70 leading-none">麦当劳卡片</div>
-                            <div className="text-[11px] font-bold text-yellow-900 leading-tight">{label}</div>
-                        </div>
-                    </div>
-                    <div className="px-3 py-2 text-[10px] text-slate-500 leading-snug min-h-[28px]">
-                        {summary || '在麦当劳小程序里查看完整内容'}
-                    </div>
-                    <div className="px-3 pb-2 text-[9px] text-yellow-700/60 italic">
-                        💳 已记录在麦记录里
-                    </div>
-                </div>
-            );
-        }
-        // 老的 mcd_card (从旧 LLM 工具调用残留 / 无 kind), 保持原有 McdCard 渲染兼容
-        return commonLayout(
-            <McdCard
-                toolName={meta.mcdToolName || m.content || 'mcd_tool'}
-                args={meta.mcdToolArgs}
-                result={meta.mcdToolResult}
-                error={meta.mcdToolError}
-                rawText={meta.mcdToolRawText}
-                kind={kind || 'generic'}
-                onSendCart={onMcdSendCart}
-                onCandidate={onMcdCandidate}
-                cartItems={meta.mcdCartItems}
-                candidateItem={meta.mcdCandidate}
-            />
-        );
-    }
-
-    if (m.type === 'luckin_card') {
-        const meta = m.metadata || {};
-        const kind = meta.luckinCardKind;
-        // 来自小程序的卡片 (proposal / cart / candidate) → 主聊天里只渲染一张"刷卡"占位
-        if (kind === 'proposal' || kind === 'cart' || kind === 'candidate' || meta.fromLuckinMiniApp) {
-            const label = kind === 'proposal' ? '推荐了几样'
-                : kind === 'cart' ? '想下单的购物车'
-                : kind === 'candidate' ? '问问意见'
-                : '瑞幸卡片';
-            const summary = kind === 'proposal' && Array.isArray(meta.luckinProposal?.items)
-                ? `${meta.luckinProposal.items.length} 件: ${meta.luckinProposal.items.slice(0, 3).map((i: any) => i.name).join(' / ')}${meta.luckinProposal.items.length > 3 ? '…' : ''}`
-                : kind === 'cart' && Array.isArray(meta.luckinCartItems)
-                ? `${meta.luckinCartItems.length} 件: ${meta.luckinCartItems.slice(0, 3).map((i: any) => i.name).join(' / ')}${meta.luckinCartItems.length > 3 ? '…' : ''}`
-                : kind === 'candidate' && meta.luckinCandidate?.name
-                ? `「${meta.luckinCandidate.name}」`
-                : '';
-            return commonLayout(
-                <div className="w-60 rounded-2xl overflow-hidden border border-blue-200 shadow-sm bg-gradient-to-br from-blue-50 to-sky-50 select-none">
-                    <div className="flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-blue-600 to-sky-500">
-                        <span className="text-lg">🦌</span>
-                        <div className="flex-1 min-w-0">
-                            <div className="text-[10px] text-white/70 leading-none">瑞幸卡片</div>
-                            <div className="text-[11px] font-bold text-white leading-tight">{label}</div>
-                        </div>
-                    </div>
-                    <div className="px-3 py-2 text-[10px] text-slate-500 leading-snug min-h-[28px]">
-                        {summary || '在瑞幸小程序里查看完整内容'}
-                    </div>
-                    <div className="px-3 pb-2 text-[9px] text-blue-700/60 italic">
-                        💳 已记录在瑞幸记录里
-                    </div>
-                </div>
-            );
-        }
-        // 结账卡 (聊天点单 previewOrder 的终点): 可改数量 + 直接扫码支付
-        if (kind === 'checkout' && meta.luckinToolResult) {
-            return commonLayout(
-                <LuckinCheckoutCard
-                    deptId={meta.luckinToolArgs?.deptId}
-                    args={meta.luckinToolArgs}
-                    preview={meta.luckinToolResult}
-                    loc={meta.luckinLoc}
-                />
-            );
-        }
-        // 工具结果卡 (门店/商品/订单) 或老的 luckin_card → 走 LuckinCard 渲染
-        return commonLayout(
-            <LuckinCard
-                toolName={meta.luckinToolName || m.content || 'luckin_tool'}
-                args={meta.luckinToolArgs}
-                result={meta.luckinToolResult}
-                error={meta.luckinToolError}
-                rawText={meta.luckinToolRawText}
-                kind={kind || 'generic'}
-                onSendCart={onLuckinSendCart}
-                onCandidate={onLuckinCandidate}
-                cartItems={meta.luckinCartItems}
-                candidateItem={meta.luckinCandidate}
-            />
         );
     }
 

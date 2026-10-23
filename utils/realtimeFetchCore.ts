@@ -1,5 +1,5 @@
 /**
- * realtimeFetchCore — 联网搜索 / Notion / 飞书 的纯 fetch 核心（环境无关叶子模块）
+ * realtimeFetchCore — 联网搜索 / Notion 的纯 fetch 核心（环境无关叶子模块）
  *
  * 这里放的是 agenticTools 数据工具会用到的读取类请求实现：只依赖 fetch 和
  * proxyWorker 的地址解析，不碰 IndexedDB / DOM / localStorage，所以前端
@@ -54,13 +54,6 @@ export interface DiaryPreview {
     title: string;
     date: string;
     url: string;
-}
-
-export interface FeishuDiaryPreview {
-    recordId: string;
-    title: string;
-    date: string;
-    content: string;
 }
 
 // ==================== 联网搜索（Brave，经代理 worker） ====================
@@ -432,126 +425,3 @@ export function notionBlocksToText(blocks: any[]): string {
 
     return lines.join('\n');
 }
-
-// ==================== 飞书多维表格（经代理 worker /feishu/*） ====================
-
-// 飞书 token 缓存
-let feishuTokenCache: { token: string; expiresAt: number } | null = null;
-
-/**
- * 获取飞书 tenant_access_token（通过 Worker 代理，带缓存）
- */
-export const feishuGetToken = async (appId: string, appSecret: string): Promise<{ success: boolean; token: string; message: string }> => {
-    // 检查缓存是否有效 (提前5分钟过期)
-    if (feishuTokenCache && feishuTokenCache.expiresAt > Date.now() + 5 * 60 * 1000) {
-        return { success: true, token: feishuTokenCache.token, message: '使用缓存token' };
-    }
-
-    try {
-        const response = await fetch(`${getProxyWorkerUrl()}/feishu/token`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ app_id: appId, app_secret: appSecret })
-        });
-
-        const text = await response.text();
-        if (!response.ok) {
-            try {
-                const errJson = JSON.parse(text);
-                return { success: false, token: '', message: `获取token失败: ${errJson.msg || errJson.error || response.status}` };
-            } catch {
-                return { success: false, token: '', message: `获取token失败: ${response.status}` };
-            }
-        }
-
-        const data = JSON.parse(text);
-        if (data.code !== 0) {
-            return { success: false, token: '', message: `飞书错误: ${data.msg || '未知错误'}` };
-        }
-
-        const token = data.tenant_access_token;
-        const expire = (data.expire || 7200) * 1000; // 转为毫秒
-        feishuTokenCache = { token, expiresAt: Date.now() + expire };
-
-        return { success: true, token, message: 'Token获取成功' };
-    } catch (e: any) {
-        return { success: false, token: '', message: `网络错误: ${e.message}` };
-    }
-};
-
-/**
- * 按日期查找角色的日记
- *
- * 不抛异常。`success: false` = 这次查询没跑通（拿不到 token / 接口报错 / 断网）；
- * 「那天真的没写」是 `success: true` + entries 为空。
- */
-export const feishuGetDiaryByDate = async (
-    appId: string,
-    appSecret: string,
-    baseId: string,
-    tableId: string,
-    characterName: string,
-    date: string  // YYYY-MM-DD
-): Promise<{ success: boolean; entries: FeishuDiaryPreview[]; message: string }> => {
-    try {
-        const tokenResult = await feishuGetToken(appId, appSecret);
-        if (!tokenResult.success) {
-            return { success: false, entries: [], message: tokenResult.message };
-        }
-
-        const dateTimestamp = new Date(date).getTime();
-        const nextDayTimestamp = dateTimestamp + 24 * 60 * 60 * 1000;
-
-        const response = await fetch(`${getProxyWorkerUrl()}/feishu/bitable/${baseId}/${tableId}/records/search`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Feishu-Token': tokenResult.token
-            },
-            body: JSON.stringify({
-                filter: {
-                    conjunction: 'and',
-                    conditions: [
-                        { field_name: '角色', operator: 'is', value: [characterName] },
-                        { field_name: '日期', operator: 'isGreater', value: [dateTimestamp - 1] },
-                        { field_name: '日期', operator: 'isLess', value: [nextDayTimestamp] }
-                    ]
-                },
-                sort: [{ field_name: '日期', desc: true }],
-                page_size: 10
-            })
-        });
-
-        const text = await response.text();
-        if (!response.ok) {
-            return { success: false, entries: [], message: `查询失败: ${response.status}` };
-        }
-
-        const data = JSON.parse(text);
-        if (data.code !== 0) {
-            return { success: false, entries: [], message: `飞书错误: ${data.msg || '查询失败'}` };
-        }
-
-        const items = data.data?.items || [];
-        if (items.length === 0) {
-            return { success: true, entries: [], message: `没有找到 ${date} 的日记` };
-        }
-
-        const entries: FeishuDiaryPreview[] = items.map((item: any) => {
-            const fields = item.fields || {};
-            const rawTitle = (Array.isArray(fields['标题']) ? fields['标题']?.[0]?.text : fields['标题']) || '无标题';
-            const cleanTitle = String(rawTitle).replace(/^\[.*?\]\s*/, '');
-
-            return {
-                recordId: item.record_id,
-                title: cleanTitle,
-                date: date,
-                content: (Array.isArray(fields['内容']) ? fields['内容']?.[0]?.text : fields['内容']) || ''
-            };
-        });
-
-        return { success: true, entries, message: `找到 ${entries.length} 篇日记` };
-    } catch (e: any) {
-        return { success: false, entries: [], message: `查询失败: ${e.message}` };
-    }
-};

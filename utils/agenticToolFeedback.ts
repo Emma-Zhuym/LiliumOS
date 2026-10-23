@@ -60,7 +60,6 @@ const TOOL_LABELS: Record<string, string> = {
   recall: '调取某个月的记忆',
   web_search: '联网搜索',
   notion_read_diary: '翻日记（Notion）',
-  feishu_read_diary: '翻日记（飞书）',
   read_note: '翻对方的笔记',
   xhs_search: '在小红书搜索',
   xhs_browse: '刷小红书首页',

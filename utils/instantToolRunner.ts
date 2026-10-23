@@ -39,7 +39,6 @@ function getToolStatusLabel(toolCalls: InstantPushPendingToolCall['toolCalls']):
   // TOOL_DISPLAY_LABELS）——状态条和气泡底下的事后灰字必须同词，改词表两处一起变。
   const pick = names.find((name) => name.startsWith('xhs_'))
     ?? names.find((name) => name === 'notion_read_diary' || name === 'read_note')
-    ?? names.find((name) => name === 'feishu_read_diary')
     ?? names.find((name) => name === 'web_search')
     ?? names.find((name) => name === 'recall');
   if (!pick) return '调用工具';

@@ -28,7 +28,7 @@ const instantPushSettingsSrc = read('../components/settings/InstantPushSettingsM
 /** 即时对话分支的判定行（分支起点、也是排序基准）。 */
 const INSTANT_CHAT_BRANCH_HEAD = 'if (instantChatRoute)';
 /** Instant Push 分支的判定行（脏配置时它先接手）。 */
-const INSTANT_PUSH_BRANCH_HEAD = 'if (instantPushConfigured && !locationLocalRequired && !healthToolTurn && !payload.flags.luckinChatActive';
+const INSTANT_PUSH_BRANCH_HEAD = 'if (instantPushConfigured && !locationLocalRequired && !healthToolTurn && !payload.flags.mcpChatActive';
 /** 路由判定那一段的起点（一回合只读一次 Instant Push 配置，就是从这行开始）。 */
 const ROUTING_HEAD = 'const instantPushConfigured =';
 
@@ -162,12 +162,12 @@ describe('useChatAI 的分流接缝', () => {
   });
 
   it('开着即时对话却没上云 —— 每一种情形都在路由段留 trace，就这一处', () => {
-    // 两种原因：点单流程否决（瑞幸/麦当劳要客户端交互，这一轮留在本地是对的）、
-    // IP 配置也还在（脏配置，交给 IP，它不接就落回本地）。两个同时成立时报点单那个。
+    // 两种原因：本机否决（烛下 / 硬件 / 健康 / 定位 / 查账 / 私网 MCP 要在这台手机上跑）、
+    // IP 配置也还在（脏配置，交给 IP，它不接就落回本地）。两个同时成立时报本机那个。
     // 哪一种没留痕，都是「开关亮着、消息照常出来」的静默分流，用户查无可查。
     const routing = routingSrc();
-    // 否决的三个来源和 payload.flags 同源，只是算得更早
-    for (const source of ['luckinChatRef?.current?.active', 'mcdMiniOpen', 'luckinMiniOpen']) {
+    // 否决的几个来源（麦当劳 / 瑞幸点单 2026-10-22 删了）
+    for (const source of ['deepTalkLocal', 'intifaceReady', 'healthToolTurn', 'locationLocalRequired', 'financeLocalRequired', 'mcpLocalIntent']) {
       expect(routing).toContain(source);
     }
     expect(routing).toContain('const instantChatVeto');

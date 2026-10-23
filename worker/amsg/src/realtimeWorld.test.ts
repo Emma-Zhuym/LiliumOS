@@ -21,7 +21,6 @@ const cfg = (extra: Partial<AmsgToolConfig> = {}): AmsgToolConfig => ({
     weatherEnabled: false,
     newsEnabled: false,
     notionEnabled: false,
-    feishuEnabled: false,
     ...extra,
 });
 

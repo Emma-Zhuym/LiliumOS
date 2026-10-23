@@ -1,12 +1,12 @@
 /**
- * 通用 MCP → 聊天工具循环 的桥接层（对标 luckinToolBridge 的角色分工）
+ * 通用 MCP → 聊天工具循环 的桥接层
  *
  * 职责：
  * 1. 把所有启用 MCP 服务器的已发现工具聚合成 OpenAI function-calling 格式
  * 2. 生成注入 systemPrompt 的说明块与尾部提醒
  * 3. 中转不认 function calling 时的兼容兜底（降级请求体、前置气泡粗洗）
  * 重名映射和正文假调用解析住在 mcpFireCore（浏览器与 amsg worker 共用）。
- * 工具循环本体在 hooks/useChatAI.ts（对标 luckinChat 循环）。
+ * 工具循环本体在 hooks/useChatAI.ts。
  */
 
 import { getEnabledMcpServers, type McpServerConfig, type McpToolDef } from './mcpClient';
@@ -76,7 +76,7 @@ const buildToolDescription = (server: McpServerConfig, t: McpToolDef, multi: boo
 
 /**
  * MCP 工具模式的 systemPrompt 说明块。
- * 与瑞幸不同：这里的工具是用户自配的、内容未知，所以只讲纪律，不讲业务流程。
+ * 这里的工具是用户自配的、内容未知，所以只讲纪律，不讲业务流程。
  * charId：只列对该角色可见的服务器，与 buildMcpOpenAITools 的过滤保持一致。
  */
 export const buildMcpSystemBlock = (userName: string = '用户', charId?: string): string => {

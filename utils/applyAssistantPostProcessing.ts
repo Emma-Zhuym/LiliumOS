@@ -7,7 +7,7 @@
  *
  * 13 步 (与计划编号对应):
  *  1. normalizeAiContent — 剥 <think>/时间戳/[聊天][通话][约会] 等
- *  2. 二轮 LLM 钩子 — RECALL / SEARCH / DIARY / READ_DIARY / FS_* / READ_NOTE / XHS_*
+ *  2. 二轮 LLM 钩子 — RECALL / SEARCH / DIARY / READ_DIARY / READ_NOTE / XHS_*
  *  3. ChatParser.parseAndExecuteActions — POKE/TRANSFER/MUSIC/ADD_EVENT/schedule
  *  4. thinking chain 抽取 (reasoning_content + <think>)
  *  5. [html]...[/html] → html_card 消息
@@ -29,7 +29,7 @@ import { CharacterProfile, UserProfile, Message, Emoji, EmojiCategory, RealtimeC
 import { DB } from './db';
 import { ChatParser, type FrozenMusicSong } from './chatParser';
 import { resolveCharTimeZone } from './timezone';
-import { NotionManager, FeishuManager, XhsNote } from './realtimeContext';
+import { NotionManager, XhsNote } from './realtimeContext';
 import { enqueuePendingDiary, removePendingDiary } from './pendingDiary';
 import { markNotionDiaryWritten } from './notionDiaryCadence';
 import { parseXhsCount, XhsMcpClient } from './xhsMcpClient';
@@ -41,7 +41,6 @@ import {
     runRecall,
     runSearch,
     runReadDiary,
-    runFsReadDiary,
     runReadNote,
     runXhsSearch,
     runXhsBrowse,
@@ -237,10 +236,9 @@ export type PostProcessDirective =
     // (LIFE → lifeRecords.executeLifeDirectives, NEWS_CARD → 落 news_card 消息)。
     | { type: 'life_record'; body: string }
     | { type: 'news_card'; body: string }
-    // Notion / 飞书 写日记 — worker classifier 提取 title/content/mood, 我们拼回原 tag 给
-    // line 465 (Notion) / 649 (飞书) 既有 handler 跑. title 可空, 客户端兜底.
-    | { type: 'notion_write_diary'; title: string; content: string; mood?: string }
-    | { type: 'feishu_write_diary'; title: string; content: string; mood?: string };
+    // Notion 写日记 — worker classifier 提取 title/content/mood, 我们拼回原 tag 给
+    // 既有 handler 跑. title 可空, 客户端兜底. (飞书 2026-10-22 删了，worker 发来的 feishu_write_diary 走 default 丢弃)
+    | { type: 'notion_write_diary'; title: string; content: string; mood?: string };
 
 /**
  * 把结构化 directive 反向拼回原 tag 字符串. 拼回的目的是让下游 chatParser.parseAndExecuteActions
@@ -312,11 +310,6 @@ function reconstructDirectiveTags(directives: PostProcessDirective[] | undefined
                 // title 为空时给客户端空 header, 它内部 line 498-501 会用 char.name + 日期兜底.
                 const header = d.mood ? `${d.title}|${d.mood}` : d.title;
                 parts.push(`[[DIARY_START: ${header}]]\n${d.content}\n[[DIARY_END]]`);
-                break;
-            }
-            case 'feishu_write_diary': {
-                const header = d.mood ? `${d.title}|${d.mood}` : d.title;
-                parts.push(`[[FS_DIARY_START: ${header}]]\n${d.content}\n[[FS_DIARY_END]]`);
                 break;
             }
             default:
@@ -539,11 +532,11 @@ export async function applyAssistantPostProcessing(
     const apiLogMeta = { appName: '消息', charId: char.id, charName: char.name };
 
     // Phase 1: skipSecondPassLLM=true (instant push 路径) 时, 跳过所有需要回连 LLM 的
-    // 二轮分支 (RECALL / SEARCH / READ_DIARY / FS_READ_DIARY / READ_NOTE / XHS_*)。
+    // 二轮分支 (RECALL / SEARCH / READ_DIARY / READ_NOTE / XHS_*)。
     // 这些 tag 留在原文里, 由后面 Step 6 的 ChatParser.sanitize 兜底剥掉 (chatParser.ts:225
     // 的正则覆盖 ACTION/RECALL/SEARCH/DIARY/READ_DIARY/FS_DIARY/FS_READ_DIARY/...),
     // XHS_* / READ_NOTE 兜底用 Step 12 的 hasDisplayContent + per-chunk sanitize 再清一遍。
-    // 写日记类 (DIARY / FS_DIARY) 不走 LLM, 属于纯副作用 (像 POKE), 客户端可以直接执行。
+    // 写日记类 (DIARY) 不走 LLM, 属于纯副作用 (像 POKE), 客户端可以直接执行。
     // Phase 2 Round 2: directives 非空时, worker 已经把副作用标签结构化传过来 (并从 push body
     // 里剥光了). 我们重建原 tag 字符串塞回 rawAiContent 头部, 让下游 chatParser.parseAndExecuteActions
     // + 后置 XHS_* 内联 handler 用同一份代码执行 — 零重复实现, 跟本地 fetch 路径同一份 source of truth.
@@ -914,7 +907,7 @@ export async function applyAssistantPostProcessing(
 
     // ─── Step 2: 二轮 LLM 钩子 ───
 
-    // 本轮回复里只要含"会触发二轮重生"的指令 (RECALL / SEARCH / READ_DIARY / FS_READ_DIARY /
+    // 本轮回复里只要含"会触发二轮重生"的指令 (RECALL / SEARCH / READ_DIARY /
     // READ_NOTE / XHS_SEARCH|BROWSE|MY_PROFILE|DETAIL), 就先把指令之外的本轮正文 A 落库展示。
     // 纯副作用 (XHS_SHARE/COMMENT/LIKE/FAV/POST、写日记) 不重生、不需要先展示, 故不在此列。
     // 之后各分支正常跑功能 + 二轮; 末尾再展示 B。若分支因未配置等原因没真正发起二轮 (data 不变),
@@ -924,7 +917,6 @@ export async function applyAssistantPostProcessing(
             /\[\[RECALL:\s*\d{4}[-/年]\d{1,2}\]\]/.test(aiContent)
             || /\[\[SEARCH:\s*.+?\]\]/.test(aiContent)
             || /\[\[READ_DIARY:\s*.+?\]\]/.test(aiContent)
-            || /\[\[FS_READ_DIARY:\s*.+?\]\]/.test(aiContent)
             || /\[\[READ_NOTE:\s*.+?\]\]/.test(aiContent)
             || /\[\[XHS_SEARCH:\s*.+?\]\]/.test(aiContent)
             || /\[\[XHS_BROWSE(?::\s*.+?)?\]\]/.test(aiContent)
@@ -1168,7 +1160,7 @@ export async function applyAssistantPostProcessing(
         const msgs = [
             ...fullMessages,
             { role: 'assistant', content: cleaned },
-            { role: 'user', content: `[系统: ${reason}。请你：\n1. 先正常回应用户刚才说的话（用户还在等你回复！）\n2. 可以自然地提一下，比如"日记好像打不开诶"、"嗯...好像没找到"\n3. 继续正常聊天，用多条消息回复\n4. 严禁再输出[[READ_DIARY:...]]或[[FS_READ_DIARY:...]]标记]` }
+            { role: 'user', content: `[系统: ${reason}。请你：\n1. 先正常回应用户刚才说的话（用户还在等你回复！）\n2. 可以自然地提一下，比如"日记好像打不开诶"、"嗯...好像没找到"\n3. 继续正常聊天，用多条消息回复\n4. 严禁再输出[[READ_DIARY:...]]标记]` }
         ];
         try {
             data = await safeFetchJson(`${baseUrl}/chat/completions`, {
@@ -1282,172 +1274,9 @@ export async function applyAssistantPostProcessing(
 
     aiContent = aiContent.replace(/\[\[READ_DIARY:.*?\]\]/g, '').trim();
 
-    // 5.8 Handle Feishu Diary Writing
-    const fsDiaryStartMatch = aiContent.match(/\[\[FS_DIARY_START:\s*(.+?)\]\]\n?([\s\S]*?)\[\[FS_DIARY_END\]\]/);
-    const fsDiaryMatch = fsDiaryStartMatch || aiContent.match(/\[\[FS_DIARY:\s*(.+?)\]\]/s);
-
-    if (fsDiaryMatch && realtimeConfig?.feishuEnabled && realtimeConfig?.feishuAppId && realtimeConfig?.feishuAppSecret && realtimeConfig?.feishuBaseId && realtimeConfig?.feishuTableId) {
-        let fsTitle = '';
-        let fsContent = '';
-        let fsMood = '';
-
-        if (fsDiaryStartMatch) {
-            const header = fsDiaryStartMatch[1].trim();
-            fsContent = fsDiaryStartMatch[2].trim();
-            if (header.includes('|')) {
-                const parts = header.split('|');
-                fsTitle = parts[0].trim();
-                fsMood = parts.slice(1).join('|').trim();
-            } else {
-                fsTitle = header;
-            }
-            console.log('📒 [Feishu] AI写了一篇长日记:', fsTitle, '心情:', fsMood);
-        } else {
-            const diaryRaw = fsDiaryMatch[1].trim();
-            console.log('📒 [Feishu] AI想写日记:', diaryRaw);
-            if (diaryRaw.includes('|')) {
-                const parts = diaryRaw.split('|');
-                fsTitle = parts[0].trim();
-                fsContent = parts.slice(1).join('|').trim();
-            } else {
-                fsContent = diaryRaw;
-            }
-        }
-
-        if (!fsTitle) {
-            const now = new Date();
-            fsTitle = `${char.name}的日记 - ${now.getMonth() + 1}/${now.getDate()}`;
-        }
-
-        // 预写日志 + 可见性判断, 同 Notion.
-        const pendingFsDiaryId = enqueuePendingDiary({ kind: 'feishu', charId: char.id, charName: char.name, title: fsTitle, content: fsContent, mood: fsMood || undefined });
-        const canWriteFsDiaryNow = typeof document === 'undefined' || document.visibilityState === 'visible';
-        if (canWriteFsDiaryNow) {
-            try {
-                const result = await FeishuManager.createDiaryRecord(
-                    realtimeConfig.feishuAppId,
-                    realtimeConfig.feishuAppSecret,
-                    realtimeConfig.feishuBaseId,
-                    realtimeConfig.feishuTableId,
-                    { title: fsTitle, content: fsContent, mood: fsMood || undefined, characterName: char.name }
-                );
-
-                if (result.success) {
-                    removePendingDiary(pendingFsDiaryId);
-                    console.log('📒 [Feishu] 写入成功:', result.recordId);
-                    await persistMessage({
-                        charId: char.id,
-                        role: 'system',
-                        type: 'text',
-                        content: `📒 ${char.name}写了一篇日记「${fsTitle}」(飞书)`
-                    });
-                    addToast(`📒 ${char.name}写了一篇日记! (飞书)`, 'success');
-                } else {
-                    removePendingDiary(pendingFsDiaryId);
-                    console.error('📒 [Feishu] 写入失败:', result.message);
-                    addToast(`飞书日记写入失败: ${result.message}`, 'error');
-                }
-            } catch (e) {
-                // 网络异常: 保留待写队列, 回前台 drainPendingDiaries 补打.
-                console.error('📒 [Feishu] 写入异常, 留待回前台重试:', e);
-            }
-        } else {
-            console.log('📒 [Feishu] 当前后台, 已入队待写, 回前台补打');
-        }
-
-        aiContent = aiContent.replace(fsDiaryMatch[0], '').trim();
-    } else if (fsDiaryMatch) {
-        // 同 Notion：配置在打包之后被关掉时，别让这篇日记无声无息地消失。
-        console.log('📒 [Feishu] 检测到日记意图但未配置飞书');
-        await persistMessage({
-            charId: char.id,
-            role: 'system',
-            type: 'text',
-            content: `📒 ${char.name}想写日记，但日记服务没连上（未配置或已断开），这篇没写成`,
-        });
-        aiContent = aiContent.replace(fsDiaryMatch[0], '').trim();
-    }
-
+    // [EM: remove-feishu] 飞书日记 2026-10-22 删了；旧回复 / 模型偶尔还写的标记照样剥掉，别露给人看
     aiContent = aiContent.replace(/\[\[FS_DIARY:.*?\]\]/gs, '').trim();
     aiContent = aiContent.replace(/\[\[FS_DIARY_START:.*?\]\][\s\S]*?\[\[FS_DIARY_END\]\]/g, '').trim();
-
-    // 5.9 Handle Feishu Read Diary
-    const fsReadDiaryMatch = aiContent.match(/\[\[FS_READ_DIARY:\s*(.+?)\]\]/);
-    if (!skipSecondPassLLM && fsReadDiaryMatch) {
-        const dateInput = fsReadDiaryMatch[1].trim();
-        console.log('📖 [Feishu ReadDiary] AI想翻阅飞书日记:', dateInput);
-
-        if (realtimeConfig?.feishuEnabled && realtimeConfig?.feishuAppId && realtimeConfig?.feishuAppSecret && realtimeConfig?.feishuBaseId && realtimeConfig?.feishuTableId) {
-            const targetDate = parseDiaryDate(dateInput);
-
-            if (targetDate) {
-                try {
-                    setDiaryStatus(`正在翻阅 ${targetDate} 的飞书日记...`);
-
-                    const fsrdr = await runFsReadDiary({ date: dateInput }, agenticCtx);
-
-                    if (fsrdr.ok) {
-                        // 注: "找到 N 篇飞书日记，正在阅读..." 由 runFsReadDiary 内部 onProgress 触发
-                        console.log('📖 [Feishu ReadDiary] 成功读取', fsrdr.entryCount, '篇日记');
-                        setDiaryStatus('正在整理日记回忆...');
-
-                        const cleanedForFsDiary = aiContent.replace(/\[\[FS_READ_DIARY:.*?\]\]/g, '').trim() || '让我翻翻日记...';
-                        const diaryMessages = [
-                            ...fullMessages,
-                            { role: 'assistant', content: cleanedForFsDiary },
-                            { role: 'user', content: `[系统: 你翻开了自己 ${targetDate} 的日记（飞书），以下是你当时写的内容]\n\n${fsrdr.diaryText}\n\n[系统: 你已经看完了日记。现在请你：\n1. 先正常回应用户刚才说的话（这是最重要的！用户还在等你回复）\n2. 自然地把日记中的回忆融入你的回复中，比如"我想起来了那天..."、"看了日记才发现..."等\n3. 可以分享日记中有趣的细节，表达当时的情绪\n4. 用多条消息回复，别只说一句话就结束\n5. 严禁再输出[[FS_READ_DIARY:...]]标记]` }
-                        ];
-
-                        data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                            method: 'POST', headers,
-                            body: JSON.stringify({ model: effectiveApi.model, messages: diaryMessages, temperature: 0.8, max_tokens: 8000, stream: false })
-                        }, 2, 0, { ...apiLogMeta, purpose: '翻阅日记' });
-                        updateTokenUsage(data, historyMsgCount, 'read-diary-feishu');
-                        aiContent = data.choices?.[0]?.message?.content || '';
-                        aiContent = normalizeAiContent(aiContent);
-                        addToast(`📖 ${char.name}翻阅了${targetDate}的飞书日记`, 'info');
-                    } else if (fsrdr.reason === 'unreachable') {
-                        // 同 Notion：没查成不等于那天没写，别把没跑成说成没写。
-                        console.log('📖 [Feishu ReadDiary] 飞书连不上，这次没查成:', targetDate);
-                        setDiaryStatus('飞书日记服务连不上，继续对话...');
-                        await diaryFallbackCall(
-                            `你想翻 ${targetDate} 的飞书日记，但飞书连不上，这次没查成（不知道那天到底写没写）`,
-                            /\[\[FS_READ_DIARY:.*?\]\]/g,
-                        );
-                    } else {
-                        // fsrdr.reason === 'not_found'
-                        setDiaryStatus(`${targetDate} 没有找到飞书日记...`);
-                        const cleanedForFsNoDiary = aiContent.replace(/\[\[FS_READ_DIARY:.*?\]\]/g, '').trim() || '让我翻翻日记...';
-                        const nodiaryMessages = [
-                            ...fullMessages,
-                            { role: 'assistant', content: cleanedForFsNoDiary },
-                            { role: 'user', content: `[系统: 你翻了翻飞书日记本，发现 ${targetDate} 那天没有写日记。请你：\n1. 先正常回应用户刚才说的话（用户还在等你回复！）\n2. 自然地提到没找到那天的日记，比如"嗯...那天好像没写日记"、"翻了翻没找到诶"\n3. 用多条消息回复，保持对话自然\n4. 严禁再输出[[FS_READ_DIARY:...]]标记]` }
-                        ];
-
-                        data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                            method: 'POST', headers,
-                            body: JSON.stringify({ model: effectiveApi.model, messages: nodiaryMessages, temperature: 0.8, max_tokens: 8000, stream: false })
-                        }, 2, 0, { ...apiLogMeta, purpose: '翻阅日记' });
-                        updateTokenUsage(data, historyMsgCount, 'no-diary-feishu');
-                        aiContent = data.choices?.[0]?.message?.content || '';
-                        aiContent = normalizeAiContent(aiContent);
-                    }
-                } catch (e) {
-                    console.error('📖 [Feishu ReadDiary] 读取异常:', e);
-                    setDiaryStatus('飞书日记读取失败，继续对话...');
-                    await diaryFallbackCall('你想翻阅飞书日记但读取出了问题（可能是网络问题）', /\[\[FS_READ_DIARY:.*?\]\]/g);
-                }
-            } else {
-                console.log('📖 [Feishu ReadDiary] 无法解析日期:', dateInput);
-                await diaryFallbackCall(`你想翻阅飞书日记但没能理解要找哪天的（"${dateInput}"）`, /\[\[FS_READ_DIARY:.*?\]\]/g);
-            }
-        } else {
-            console.log('📖 [Feishu ReadDiary] 检测到读日记意图但未配置飞书');
-            await diaryFallbackCall('你想翻阅飞书日记但飞书暂时不可用', /\[\[FS_READ_DIARY:.*?\]\]/g);
-        }
-        setDiaryStatus('');
-    }
-
     aiContent = aiContent.replace(/\[\[FS_READ_DIARY:.*?\]\]/g, '').trim();
 
     // 5.9b Handle Read User Note
@@ -2234,7 +2063,7 @@ export async function applyAssistantPostProcessing(
             .trim();
         if (sanitizedBody) {
             await renderAndPersist(aiContent, pendingThinkingChain);
-        } else if (!leadInRendered && (data !== initialData || recallMatch || searchMatch || readDiaryMatch || fsReadDiaryMatch)) {
+        } else if (!leadInRendered && (data !== initialData || recallMatch || searchMatch || readDiaryMatch)) {
             // 跑过二轮却吐空, 且本轮还没展示过任何内容 → 至少补一句, 避免整轮静默。
             await renderAndPersist('嗯...', pendingThinkingChain);
         } else {

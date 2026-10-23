@@ -73,14 +73,6 @@ const notionConfig = {
     notionNotesDatabaseId: 'notes-db',
 } as any;
 
-const feishuConfig = {
-    feishuEnabled: true,
-    feishuAppId: 'a',
-    feishuAppSecret: 's',
-    feishuBaseId: 'b',
-    feishuTableId: 't',
-} as any;
-
 const xhsConfig = {
     xhsMcpConfig: { enabled: true, serverUrl: 'http://localhost:0' },
 } as any;
@@ -99,21 +91,6 @@ describe('日记 / 笔记：连不上 ≠ 那天没写', () => {
         const prompt = lastSystemPrompt();
         expect(prompt).toContain('没查成');
         // 修复前: 掉进 not_found 分支, 角色被告知「那天没有写日记」
-        expect(prompt).not.toContain('没有写日记');
-    });
-
-    it('FS_READ_DIARY unreachable → 同样只说没查成', async () => {
-        vi.spyOn(agenticTools, 'runFsReadDiary').mockResolvedValue({
-            ok: false, reason: 'unreachable', date: '2026-08-01',
-        } as any);
-
-        await applyAssistantPostProcessing(
-            '[[FS_READ_DIARY: 2026-08-01]]',
-            makeCtx({ id: `c-fsrd-${Date.now()}`, name: '阿一' }, { realtimeConfig: feishuConfig }),
-        );
-
-        const prompt = lastSystemPrompt();
-        expect(prompt).toContain('没查成');
         expect(prompt).not.toContain('没有写日记');
     });
 

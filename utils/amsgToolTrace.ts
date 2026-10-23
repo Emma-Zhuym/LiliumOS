@@ -31,7 +31,6 @@ const TOOL_DISPLAY_LABELS: Record<string, string> = {
   recall: '读取记忆',
   notion_read_diary: '读取 Notion',
   read_note: '读取 Notion',
-  feishu_read_diary: '读取飞书',
   xhs_search: '读取小红书',
   xhs_browse: '读取小红书',
   xhs_my_profile: '读取小红书',

@@ -54,10 +54,9 @@ function Group({ title, children }: { title?: string; children: React.ReactNode 
     </section>;
 }
 
-export default function ChatSettingsPage({ character, onClose, onCharacter, onSearch, onGroup, onAction, onError, mcdActivated, mcdConfigured }: {
+export default function ChatSettingsPage({ character, onClose, onCharacter, onSearch, onGroup, onAction, onError }: {
     character: CharacterProfile; onClose: () => void; onCharacter: () => void; onSearch: () => void;
     onGroup: (group: ChatSettingsGroup) => void; onAction: (action: string) => void; onError: () => void;
-    mcdActivated: boolean; mcdConfigured: boolean;
 }) {
     const { customThemes, updateCharacter, removeCustomTheme } = useOS();
     const [bubbleSearch, setBubbleSearch] = useState('');
@@ -86,7 +85,7 @@ export default function ChatSettingsPage({ character, onClose, onCharacter, onSe
             </Group>
             <Group title="记忆与能力">
                 <Row title="上下文与记忆" subtitle="原文读取范围、语境与归档设置" onClick={() => onGroup('memory')} />
-                <Row title="扩展能力" subtitle="HTML 模式、小红书、麦当劳等" onClick={() => setView('extensions')} />
+                <Row title="扩展能力" subtitle="HTML 模式、小红书、照片风格" onClick={() => setView('extensions')} />
             </Group>
             <Group title="聊天外观">
                 <Row title="背景与聊天装扮" subtitle="背景、气泡、字体与细节微调" onClick={() => setView('appearance')} />
@@ -99,7 +98,7 @@ export default function ChatSettingsPage({ character, onClose, onCharacter, onSe
         {view === 'remark' && <><label htmlFor="contact-remark" className="block text-sm mb-3">备注名</label><input id="contact-remark" value={draft} onChange={e => setDraft(e.target.value)} placeholder={character.name} className="w-full p-4 outline-none" style={{ background: F.surfaceSunken, borderRadius: R.input, boxShadow: S.sunken }} /><p className="text-xs mt-3 leading-relaxed" style={{ color: F.textSecondary }}>只在你的联系人列表和聊天页面显示，不发送给 AI。清空后恢复原名。</p></>}
         {view === 'proactive' && <Group><Row title="主动消息" onClick={() => onAction('proactive')} /><Row title="定时消息" onClick={() => onAction('active-msg-2')} /><Row title="主动消息 2.0" onClick={() => onAction('active-msg-2')} /></Group>}
         {view === 'appearance' && <Group><Row title="聊天背景" onClick={() => onGroup('background')} /><Row title="聊天装扮" onClick={() => onAction('fine-tune')} /><Row title="气泡样式" onClick={() => setView('bubbles')} /></Group>}
-        {view === 'extensions' && <Group><Row title="HTML、小红书与照片风格" onClick={() => onGroup('extensions')} /><Row title={mcdActivated ? '结束麦请求' : '麦当劳'} onClick={() => onAction(mcdActivated ? 'mcd-end' : mcdConfigured ? 'mcd-request' : 'mcd-not-configured')} /></Group>}
+        {view === 'extensions' && <Group><Row title="HTML、小红书与照片风格" onClick={() => onGroup('extensions')} /></Group>}
         {view === 'bubbles' && <>
             <input aria-label="搜索气泡样式" value={bubbleSearch} onChange={e => setBubbleSearch(e.target.value)} placeholder="搜索气泡样式…" className="w-full p-3 mb-4 text-sm outline-none" style={{ background: F.surfaceSunken, borderRadius: R.input, boxShadow: S.sunken }} />
             <p className="text-xs mb-3" style={{ color: F.textTertiary }}>选择后立即应用。新气泡可以到「气泡工坊」制作。</p>

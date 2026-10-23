@@ -16,13 +16,11 @@ vi.mock('./realtimeFetchCore', () => ({
   notionReadDiaryContent: vi.fn(),
   notionReadNoteContent: vi.fn(),
   notionSearchUserNotes: vi.fn(),
-  feishuGetDiaryByDate: vi.fn(),
 }));
 
 import {
   runSearch,
   runReadDiary,
-  runFsReadDiary,
   runReadNote,
   runXhsMyProfile,
   type AgenticToolCtx,
@@ -44,14 +42,6 @@ const notionCtx = ctx({
   notionApiKey: 'key',
   notionDatabaseId: 'db',
   notionNotesDatabaseId: 'notes-db',
-});
-
-const feishuCtx = ctx({
-  feishuEnabled: true,
-  feishuAppId: 'app',
-  feishuAppSecret: 'secret',
-  feishuBaseId: 'base',
-  feishuTableId: 'table',
 });
 
 const xhsCtx = (mcp: Record<string, unknown>): AgenticToolCtx => ({
@@ -134,22 +124,6 @@ describe('runReadDiary（Notion 日记）', () => {
     });
     mocked.notionReadDiaryContent.mockResolvedValue({ success: true, content: '（空白日记）', message: '日记内容为空' });
     expect(await runReadDiary({ date: '2026-08-01' }, notionCtx)).toMatchObject({ ok: true, entryCount: 1 });
-  });
-});
-
-describe('runFsReadDiary（飞书日记）', () => {
-  it('拿不到 token / 接口报错 → unreachable', async () => {
-    mocked.feishuGetDiaryByDate.mockResolvedValue({ success: false, entries: [], message: '获取token失败: 400' });
-    const r = await runFsReadDiary({ date: '2026-08-01' }, feishuCtx);
-    expect(r).toMatchObject({ ok: false, reason: 'unreachable' });
-    expect(feedbackSaysNeverHappened('feishu_read_diary', r)).toBe(true);
-  });
-
-  it('查到了、那天真没写 → not_found', async () => {
-    mocked.feishuGetDiaryByDate.mockResolvedValue({ success: true, entries: [], message: '没有找到' });
-    const r = await runFsReadDiary({ date: '2026-08-01' }, feishuCtx);
-    expect(r).toMatchObject({ ok: false, reason: 'not_found' });
-    expect(feedbackSaysNeverHappened('feishu_read_diary', r)).toBe(false);
   });
 });
 

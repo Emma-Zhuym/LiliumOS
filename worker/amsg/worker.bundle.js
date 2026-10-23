@@ -10273,93 +10273,6 @@ ${text}
   }
   return lines.join("\n");
 }
-var feishuTokenCache = null;
-var feishuGetToken = async (appId, appSecret) => {
-  if (feishuTokenCache && feishuTokenCache.expiresAt > Date.now() + 5 * 60 * 1e3) {
-    return { success: true, token: feishuTokenCache.token, message: "\u4F7F\u7528\u7F13\u5B58token" };
-  }
-  try {
-    const response = await fetch(`${getProxyWorkerUrl()}/feishu/token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ app_id: appId, app_secret: appSecret })
-    });
-    const text = await response.text();
-    if (!response.ok) {
-      try {
-        const errJson = JSON.parse(text);
-        return { success: false, token: "", message: `\u83B7\u53D6token\u5931\u8D25: ${errJson.msg || errJson.error || response.status}` };
-      } catch {
-        return { success: false, token: "", message: `\u83B7\u53D6token\u5931\u8D25: ${response.status}` };
-      }
-    }
-    const data = JSON.parse(text);
-    if (data.code !== 0) {
-      return { success: false, token: "", message: `\u98DE\u4E66\u9519\u8BEF: ${data.msg || "\u672A\u77E5\u9519\u8BEF"}` };
-    }
-    const token = data.tenant_access_token;
-    const expire = (data.expire || 7200) * 1e3;
-    feishuTokenCache = { token, expiresAt: Date.now() + expire };
-    return { success: true, token, message: "Token\u83B7\u53D6\u6210\u529F" };
-  } catch (e) {
-    return { success: false, token: "", message: `\u7F51\u7EDC\u9519\u8BEF: ${e.message}` };
-  }
-};
-var feishuGetDiaryByDate = async (appId, appSecret, baseId, tableId, characterName, date) => {
-  try {
-    const tokenResult = await feishuGetToken(appId, appSecret);
-    if (!tokenResult.success) {
-      return { success: false, entries: [], message: tokenResult.message };
-    }
-    const dateTimestamp = new Date(date).getTime();
-    const nextDayTimestamp = dateTimestamp + 24 * 60 * 60 * 1e3;
-    const response = await fetch(`${getProxyWorkerUrl()}/feishu/bitable/${baseId}/${tableId}/records/search`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Feishu-Token": tokenResult.token
-      },
-      body: JSON.stringify({
-        filter: {
-          conjunction: "and",
-          conditions: [
-            { field_name: "\u89D2\u8272", operator: "is", value: [characterName] },
-            { field_name: "\u65E5\u671F", operator: "isGreater", value: [dateTimestamp - 1] },
-            { field_name: "\u65E5\u671F", operator: "isLess", value: [nextDayTimestamp] }
-          ]
-        },
-        sort: [{ field_name: "\u65E5\u671F", desc: true }],
-        page_size: 10
-      })
-    });
-    const text = await response.text();
-    if (!response.ok) {
-      return { success: false, entries: [], message: `\u67E5\u8BE2\u5931\u8D25: ${response.status}` };
-    }
-    const data = JSON.parse(text);
-    if (data.code !== 0) {
-      return { success: false, entries: [], message: `\u98DE\u4E66\u9519\u8BEF: ${data.msg || "\u67E5\u8BE2\u5931\u8D25"}` };
-    }
-    const items = data.data?.items || [];
-    if (items.length === 0) {
-      return { success: true, entries: [], message: `\u6CA1\u6709\u627E\u5230 ${date} \u7684\u65E5\u8BB0` };
-    }
-    const entries = items.map((item) => {
-      const fields = item.fields || {};
-      const rawTitle = (Array.isArray(fields["\u6807\u9898"]) ? fields["\u6807\u9898"]?.[0]?.text : fields["\u6807\u9898"]) || "\u65E0\u6807\u9898";
-      const cleanTitle = String(rawTitle).replace(/^\[.*?\]\s*/, "");
-      return {
-        recordId: item.record_id,
-        title: cleanTitle,
-        date,
-        content: (Array.isArray(fields["\u5185\u5BB9"]) ? fields["\u5185\u5BB9"]?.[0]?.text : fields["\u5185\u5BB9"]) || ""
-      };
-    });
-    return { success: true, entries, message: `\u627E\u5230 ${entries.length} \u7BC7\u65E5\u8BB0` };
-  } catch (e) {
-    return { success: false, entries: [], message: `\u67E5\u8BE2\u5931\u8D25: ${e.message}` };
-  }
-};
 
 // utils/networkFailureDiagnosis.ts
 var readError = (error) => {
@@ -11433,34 +11346,6 @@ ${readResult.content}`);
   const diaryText = diaryContents.join("\n\n---\n\n");
   return { ok: true, date: targetDate, diaryText, entryCount: findResult.entries.length };
 }
-async function runFsReadDiary(args, ctx) {
-  const { char, realtimeConfig } = ctx;
-  if (!realtimeConfig?.feishuEnabled || !realtimeConfig?.feishuAppId || !realtimeConfig?.feishuAppSecret || !realtimeConfig?.feishuBaseId || !realtimeConfig?.feishuTableId) {
-    return { ok: false, reason: "not_configured", dateInput: args.date };
-  }
-  const targetDate = parseDiaryDate(args.date);
-  if (!targetDate) {
-    return { ok: false, reason: "parse_error", dateInput: args.date };
-  }
-  const findResult = await feishuGetDiaryByDate(
-    realtimeConfig.feishuAppId,
-    realtimeConfig.feishuAppSecret,
-    realtimeConfig.feishuBaseId,
-    realtimeConfig.feishuTableId,
-    char.name,
-    targetDate
-  );
-  if (!findResult.success) {
-    return { ok: false, reason: "unreachable", date: targetDate };
-  }
-  if (findResult.entries.length === 0) {
-    return { ok: false, reason: "not_found", date: targetDate };
-  }
-  ctx.onProgress?.("diary", `\u627E\u5230 ${findResult.entries.length} \u7BC7\u98DE\u4E66\u65E5\u8BB0\uFF0C\u6B63\u5728\u9605\u8BFB...`);
-  const diaryText = findResult.entries.map((entry) => `\u{1F4D2}\u300C${entry.title}\u300D(${entry.date})
-${entry.content}`).join("\n\n---\n\n");
-  return { ok: true, date: targetDate, diaryText, entryCount: findResult.entries.length };
-}
 async function runReadNote(args, ctx) {
   const { realtimeConfig } = ctx;
   if (!realtimeConfig?.notionEnabled || !realtimeConfig?.notionApiKey || !realtimeConfig?.notionNotesDatabaseId) {
@@ -11848,8 +11733,6 @@ async function dispatchAgenticTool(toolName, args, ctx) {
       return runSearch(args, ctx);
     case "notion_read_diary":
       return runReadDiary(args, ctx);
-    case "feishu_read_diary":
-      return runFsReadDiary(args, ctx);
     case "read_note":
       return runReadNote(args, ctx);
     case "xhs_search":
@@ -11882,7 +11765,6 @@ var TOOL_LABELS = {
   recall: "\u8C03\u53D6\u67D0\u4E2A\u6708\u7684\u8BB0\u5FC6",
   web_search: "\u8054\u7F51\u641C\u7D22",
   notion_read_diary: "\u7FFB\u65E5\u8BB0\uFF08Notion\uFF09",
-  feishu_read_diary: "\u7FFB\u65E5\u8BB0\uFF08\u98DE\u4E66\uFF09",
   read_note: "\u7FFB\u5BF9\u65B9\u7684\u7B14\u8BB0",
   xhs_search: "\u5728\u5C0F\u7EA2\u4E66\u641C\u7D22",
   xhs_browse: "\u5237\u5C0F\u7EA2\u4E66\u9996\u9875",

@@ -15,8 +15,6 @@ import {
 } from '../types';
 import { exportPostOfficeLocal, importPostOfficeLocal } from './vrWorld/postOffice';
 import { exportSignalLocal, importSignalLocal } from './vrWorld/signal';
-import { exportLuckinLocal, importLuckinLocal } from './luckinMcpClient';
-import { exportMcdLocal, importMcdLocal } from './mcdMcpClient';
 import { exportMcpLocal, importMcpLocal } from './mcpClient';
 import { exportSmartHomeLocal, importSmartHomeLocal } from './smartHome';
 import { exportAmsg2GlobalConfig, importAmsg2GlobalConfig } from './activeMsgStore';
@@ -3442,8 +3440,6 @@ export const DB = {
           worlds,
           worldEpisodes,
           worldHomeLocal: exportWorldHomeLocal(), // 家园本机配置：全局 API + 文风收藏（存 localStorage）
-          luckinLocal: exportLuckinLocal(),       // 瑞幸 token + 启用状态（存 localStorage）
-          mcdLocal: exportMcdLocal(),             // 麦当劳 token + 启用状态（存 localStorage）
           mcpLocal: exportMcpLocal(),             // 通用 MCP 服务器配置（存 localStorage）
           smartHomeLocal: exportSmartHomeLocal(), // Home Assistant 连接配置（存 localStorage）
           amsg2GlobalConfig: await exportAmsg2GlobalConfig(options), // 主动消息 2.0 全局配置（存独立的 ActiveMsg 库；后端连接默认不带走）
@@ -3615,8 +3611,6 @@ export const DB = {
           data.worlds !== undefined,
           data.worldEpisodes !== undefined,
           (data as any).worldHomeLocal !== undefined,
-          (data as any).luckinLocal !== undefined,
-          (data as any).mcdLocal !== undefined,
           (data as any).smartHomeLocal !== undefined,
           data.pixelHomeAssets !== undefined,
           data.pixelHomeLayouts !== undefined,
@@ -3945,14 +3939,6 @@ export const DB = {
       await runSection('家园本机配置', (data as any).worldHomeLocal !== undefined, async () => {
           importWorldHomeLocal((data as any).worldHomeLocal); // 全局 API + 文风收藏
           (data as any).worldHomeLocal = undefined;
-      }, 1);
-      await runSection('瑞幸配置', (data as any).luckinLocal !== undefined, async () => {
-          importLuckinLocal((data as any).luckinLocal); // token + 启用状态
-          (data as any).luckinLocal = undefined;
-      }, 1);
-      await runSection('麦当劳配置', (data as any).mcdLocal !== undefined, async () => {
-          importMcdLocal((data as any).mcdLocal); // token + 启用状态
-          (data as any).mcdLocal = undefined;
       }, 1);
       await runSection('MCP 服务器配置', (data as any).mcpLocal !== undefined, async () => {
           importMcpLocal((data as any).mcpLocal); // 用户自配的 MCP 服务器列表

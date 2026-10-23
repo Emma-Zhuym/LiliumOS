@@ -91,8 +91,6 @@ import { FINANCE_REVIEW_CHANGED_EVENT, getFinanceReviewCount, type FinanceReview
 import { exportPostOfficeLocal } from '../utils/vrWorld/postOffice';
 import { exportSignalLocal } from '../utils/vrWorld/signal';
 import { exportWorldHomeLocal } from '../utils/worldHome/localBackup';
-import { exportLuckinLocal } from '../utils/luckinMcpClient';
-import { exportMcdLocal } from '../utils/mcdMcpClient';
 import { exportMcpLocal } from '../utils/mcpClient';
 import { exportSmartHomeLocal } from '../utils/smartHome';
 import { exportDesktopSkinLocal } from '../utils/desktopSkinBackup';
@@ -259,11 +257,6 @@ const defaultRealtimeConfig: RealtimeConfig = {
   notionEnabled: false,
   notionApiKey: '',
   notionDatabaseId: '',
-  feishuEnabled: false,
-  feishuAppId: '',
-  feishuAppSecret: '',
-  feishuBaseId: '',
-  feishuTableId: '',
   xhsEnabled: false,
   cacheMinutes: 30
 };
@@ -1456,6 +1449,11 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                 // 小红书 serverUrl 独立持久化，存量若指向已死的历史 worker 域名则迁到当前实例
                 if (parsed?.xhsMcpConfig?.serverUrl) {
                     parsed.xhsMcpConfig.serverUrl = rewriteStaleWorkerUrl(parsed.xhsMcpConfig.serverUrl);
+                }
+                // [EM: remove-feishu] 飞书日记 2026-10-22 删了：旧配置里的飞书凭据不再留在本机
+                if (parsed && Object.keys(parsed).some(k => k.startsWith('feishu'))) {
+                    for (const k of Object.keys(parsed)) if (k.startsWith('feishu')) delete parsed[k];
+                    localStorage.setItem('os_realtime_config', JSON.stringify(parsed));
                 }
                 setRealtimeConfig({ ...defaultRealtimeConfig, ...parsed });
                 // [EM-START: weather-openmeteo] 旧 OpenWeatherMap 配置迁移：
@@ -4258,13 +4256,10 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               })() : undefined,
 
               // 本机 localStorage 配置（导入端 importFullData 已支持恢复，之前导出漏发导致丢失）
-              //  · 瑞幸 / 麦当劳 MCP 的点单 token + 启用状态（用户说的「那个码」）
               //  · 邮局身份、家园全局 API + 文风收藏
               vrPostOffice: (mode === 'text_only' || mode === 'full') ? exportPostOfficeLocal() : undefined,
               vrSignal: (mode === 'text_only' || mode === 'full') ? exportSignalLocal() : undefined, // 信号坠落处：句子归属「你·角色」+ 反复用清单
               worldHomeLocal: (mode === 'text_only' || mode === 'full') ? exportWorldHomeLocal() : undefined,
-              luckinLocal: (mode === 'text_only' || mode === 'full') ? exportLuckinLocal() : undefined,
-              mcdLocal: (mode === 'text_only' || mode === 'full') ? exportMcdLocal() : undefined,
               mcpLocal: (mode === 'text_only' || mode === 'full') ? exportMcpLocal() : undefined,
               smartHomeLocal: (mode === 'text_only' || mode === 'full') ? exportSmartHomeLocal() : undefined,
 
