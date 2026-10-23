@@ -79,7 +79,7 @@ LiliumOS 和 SullyOS 早就各走各的了（git 认的合并基线停在 2026-0
 ### 吸收后必跑自检
 
 ```bash
-bash scripts/check-em-patches.sh   # 当前 316 项锚点检查，红了就是功能被冲掉
+bash scripts/check-em-patches.sh   # 当前 335 项锚点检查，红了就是功能被冲掉
 pnpm vitest run                    # 单元测试
 ```
 
@@ -451,7 +451,8 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - 邀请那一轮和开着的深谈**固定本机生成**（`useChatAI.ts` 的 `deepTalkLocal`：否决 mini / amsg 即时对话和 Instant Push），TA 那段话不进 `applyAssistantPostProcessing`，整段存一条
 - 开着时：快照 `deepTalk` → 心跳 `speakBlock` 返回 `deep_talk`（since 超 3 小时不认）；本地主动消息跳过；amsg 云端排程管不到（阿萌本来也不靠它）。放着 3 小时没动，下次打开聊天自动收卡（「蜡烛燃尽了」）
 - 夜间配色 `CANDLE_NIGHT`、手写体 `FONT.hand` 都在 clayTokens；卡片和系统气泡在聊天里一律白天配色
-- **说真话的夜（每一夜都是）**：深谈原文不进记忆宫殿（`pipeline.ts` 三处 `!isDeepTalkMessage`）、不进角色 App 手动记忆总结、不进心跳快照、深谈轮次不跑情绪评估；
+- **两种（2026-10-22）**：结束时预选、信笺里可改——谈事（`kind: 'matter'`）的原文当普通聊天记（按条数进上下文、进记忆宫殿 / 心跳 / 手动总结），说真话（缺省）的照下面隔离。判断一律走 `isWalledDeepTalkMessage(m, matterNightIds)`，别再直接拿 `isDeepTalkMessage` 当「不进记忆」
+- **说真话的那种**：深谈原文不进记忆宫殿（`pipeline.ts` 三处）、不进角色 App 手动记忆总结、不进心跳快照、深谈轮次不跑情绪评估；
   收尾留两份摘要——`summary` 只写感受（给平时）、`candleSummary` 照实写（只给以后的烛下）；TA 挑的一两句原话（`kept`，程序校验真说过、不带现实处境）才写成卧室记忆，信笺里可删。
   **以后给深谈加新的「带走」路径（导出、摘要、快照…）都要先想会不会把真话漏回平时**
 - 收尾时 TA 写一句只写感受的「余温」`afterglow`：当下一轮平时聊天的内心状态，并写进卡片那一行——深谈中不跑情绪评估，靠它接上氛围

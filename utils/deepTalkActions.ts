@@ -15,6 +15,7 @@ import {
     buildCardContent,
     buildEndPrompt,
     buildTranscript,
+    candleLabel,
     deepTalkEventText,
     formatClock,
     DEEP_TALK_CARD_KIND,
@@ -23,12 +24,13 @@ import {
     isDeepTalkMessage,
     keptLineMemoryContent,
     nextNightNo,
-    padNight,
     parseEndResult,
+    preselectKind,
     resolveLaterTime,
     type DeepTalkAnswer,
     type DeepTalkEvent,
     type DeepTalkKeptLine,
+    type DeepTalkKind,
     type DeepTalkMaterials,
     type DeepTalkNight,
     type PastCandleNight,
@@ -253,15 +255,17 @@ export const endDeepTalk = async (input: {
         endedAt,
         burntOut: reason === 'burnt_out' || undefined,
         nightNo,
-        title: result?.title || `第 ${padNight(nightNo)} 夜`,
+        title: result?.title || candleLabel(nightNo),
         oneLine: result?.oneLine || '',
         summary: result?.summary || '',
         candleSummary: result?.candleSummary || '',
         afterglow: result?.afterglow || '',
         kept: [],
         segmentCount: segments.length,
+        // TA 判断这一次有没有说到她的现实处境，程序预选；她在信笺里能改
+        kind: preselectKind(result),
     };
-    // 原文不进记忆宫殿（说真话的夜），只把 TA 挑的那一两句写进去，平时想得起原话
+    // 挑的那一两句写进记忆宫殿，平时想得起原话（说真话的那次原文不进；谈事的原文另外照常进）
     for (const line of result?.kept || []) {
         // palace 传 null = 这个角色没开记忆宫殿：原话只留在这一夜的记录里
         const memoryId = input.palace === null ? undefined
@@ -277,6 +281,17 @@ export const endDeepTalk = async (input: {
         content: buildCardContent(next),
         metadata: { kind: DEEP_TALK_CARD_KIND, deepTalkId: next.id },
     });
+    return next;
+};
+
+/**
+ * 她在信笺里改「这一次怎么记」。改成谈事以后，原文下一轮就按条数进上下文、等记忆宫殿照常消化；
+ * 改回说真话只能拦住以后——已经被记忆宫殿消化过的那几条记忆不会跟着撤回。
+ */
+export const setDeepTalkKind = async (night: DeepTalkNight, kind: DeepTalkKind): Promise<DeepTalkNight> => {
+    if (night.status !== 'closed' || night.kind === kind) return night;
+    const next: DeepTalkNight = { ...night, kind };
+    await DeepTalkDB.saveNight(next);
     return next;
 };
 

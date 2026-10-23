@@ -9,6 +9,10 @@ import {
     cleanDeepTalkReply,
     DEEP_TALK_IDLE_MS,
     isDeepTalkIdle,
+    isWalledDeepTalkMessage,
+    preselectKind,
+    buildInviteTurnBlock,
+    candleLabel,
     isNightAt,
     keepInPromptHistory,
     nextNightNo,
@@ -108,9 +112,18 @@ describe('history folding', () => {
         expect(keepInPromptHistory({ metadata: undefined }, null)).toBe(true);
     });
 
+    it('keeps talk-things-over nights like ordinary chat', () => {
+        const matter = new Set(['m']);
+        expect(keepInPromptHistory(seg('m'), null, matter)).toBe(true);
+        expect(keepInPromptHistory(seg('t'), null, matter)).toBe(false);
+        expect(isWalledDeepTalkMessage(seg('m'), matter)).toBe(false);
+        expect(isWalledDeepTalkMessage(seg('t'), matter)).toBe(true);
+        expect(isWalledDeepTalkMessage({ metadata: undefined }, matter)).toBe(false);
+    });
+
     it('writes the card line with number, title and summary', () => {
         expect(buildCardContent({ nightNo: 7, title: '原地打转', summary: '聊了要不要离开这座城市。' }))
-            .toBe('（你们在烛下深谈过一夜 · 第07夜《原地打转》：聊了要不要离开这座城市。）');
+            .toBe('（你们在烛下认真聊过一次 · 第07次《原地打转》：聊了要不要离开这座城市。）');
     });
 });
 
@@ -122,7 +135,7 @@ describe('prompt pieces', () => {
 
     it('parses the end JSON even inside a code fence', () => {
         expect(parseEndResult('```json\n{"title":"《原地打转》","oneLine":"我第一次跟人说那件事。","summary":"她有点迷茫。","candleSummary":"她在想要不要走。","kept":[]}\n```'))
-            .toEqual({ title: '原地打转', oneLine: '我第一次跟人说那件事。', summary: '她有点迷茫。', candleSummary: '她在想要不要走。', afterglow: '', kept: [] });
+            .toEqual({ real: null, title: '原地打转', oneLine: '我第一次跟人说那件事。', summary: '她有点迷茫。', candleSummary: '她在想要不要走。', afterglow: '', kept: [] });
         expect(parseEndResult('没有 JSON')).toBeNull();
     });
 
@@ -168,7 +181,7 @@ describe('truth-telling nights', () => {
         const block = buildPastNightsBlock([
             { nightNo: 7, title: '原地打转', candleSummary: '她说在国外回不去。', summary: '她有点孤单。', kept: [{ speaker: 'char', text: '可以只是累' }] },
         ], names);
-        expect(block).toContain('第07夜《原地打转》：她说在国外回不去。');
+        expect(block).toContain('第07次《原地打转》：她说在国外回不去。');
         expect(block).toContain('你说「可以只是累」');
         expect(buildPastNightsBlock([], names)).toBe('');
         expect(buildOpenTurnBlock(names, null, [{ nightNo: 1, title: 'x', candleSummary: '聊了很多' }])).toContain('只在烛下记得');
@@ -181,8 +194,8 @@ describe('truth-telling nights', () => {
     });
 
     it('writes a kept line as TA\'s own memory', () => {
-        expect(keptLineMemoryContent({ speaker: 'user', text: '想被允许累' }, '阿萌')).toBe('点着蜡烛那一夜，阿萌跟我说：「想被允许累」');
-        expect(keptLineMemoryContent({ speaker: 'char', text: '我在' }, '阿萌')).toBe('点着蜡烛那一夜，我跟阿萌说：「我在」');
+        expect(keptLineMemoryContent({ speaker: 'user', text: '想被允许累' }, '阿萌')).toBe('点着蜡烛那次，阿萌跟我说：「想被允许累」');
+        expect(keptLineMemoryContent({ speaker: 'char', text: '我在' }, '阿萌')).toBe('点着蜡烛那次，我跟阿萌说：「我在」');
     });
 });
 
@@ -194,6 +207,31 @@ describe('afterglow', () => {
 
     it('puts the afterglow on the card line so everyday chat picks up the mood', () => {
         expect(buildCardContent({ nightNo: 2, title: '只是累', summary: '她有点累。', afterglow: '心里软了一块。' }))
-            .toBe('（你们在烛下深谈过一夜 · 第02夜《只是累》：她有点累；你心里还留着：心里软了一块。）');
+            .toBe('（你们在烛下认真聊过一次 · 第02次《只是累》：她有点累；你心里还留着：心里软了一块。）');
+    });
+});
+
+describe('two kinds of nights', () => {
+    it('reads real from the end JSON and preselects; unknown stays walled', () => {
+        const parsed = parseEndResult('{"real": false, "title":"搬家","summary":"决定下个月搬去河边那套。"}');
+        expect(parsed?.real).toBe(false);
+        expect(preselectKind(parsed)).toBe('matter');
+        expect(preselectKind(parseEndResult('{"real": true, "title":"远"}'))).toBe('truth');
+        expect(preselectKind(parseEndResult('{"title":"远"}'))).toBe('truth');
+        expect(preselectKind(null)).toBe('truth');
+    });
+});
+
+describe('where they are', () => {
+    it('talks wherever they are, without arguing about the medium', () => {
+        const open = buildOpenTurnBlock({ userName: '阿萌', charName: '既白' });
+        expect(open).toContain('你们此刻在哪儿，就接着在那儿聊');
+        expect(open).not.toContain('也不是见面');
+        expect(buildInviteTurnBlock({ userName: '阿萌', charName: '既白' })).toContain('在哪儿就在哪儿聊');
+        expect(buildInviteTurnBlock({ userName: '阿萌', charName: '既白' }, '20:00')).toContain('到时候你们在哪儿就在哪儿聊');
+    });
+
+    it('counts candles, not nights', () => {
+        expect(candleLabel(3)).toBe('第 03 支蜡烛');
     });
 });

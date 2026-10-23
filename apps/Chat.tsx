@@ -20,7 +20,7 @@ import { proposedAtFromClock } from '../utils/deepTalk'; // [EM: deep-talk-sched
 import DeepTalkPaper from '../components/deepTalk/DeepTalkPaper';
 import DeepTalkInviteSheet from '../components/deepTalk/DeepTalkInviteSheet'; // [EM: deep-talk-schedule]
 import { DeepTalkOverlays } from '../components/deepTalk/DeepTalkLetter';
-import { DEEP_TALK_RELIGHT_EVENT, useActiveDeepTalk } from '../components/deepTalk/useDeepTalk';
+import { DEEP_TALK_RELIGHT_EVENT, openDeepTalkLetter, useActiveDeepTalk } from '../components/deepTalk/useDeepTalk';
 // [EM-END: deep-talk]
 import { DB } from '../utils/db';
 import { isVisibleChatMessage } from '../utils/chatMessageVisibility';
@@ -1070,7 +1070,9 @@ const Chat: React.FC = () => {
             void flushDeepTalkSnapshot();
             // 余温接进下一轮平时聊天的内心状态（深谈中没跑情绪评估，回到聊天时氛围要接得上）
             if (closed.afterglow) window.dispatchEvent(new CustomEvent('emotion-innerstate-updated', { detail: { charId: current.id, innerState: closed.afterglow } }));
-            if (closed.kept?.length) addToast(`${current.name}记下了 ${closed.kept.length} 句话，信笺里能看到`, 'info');
+            // 她自己点的结束：翻开信笺让她看一眼「这一次怎么记」（TA 预选的），不对就当场改
+            if (reason === 'end' && closed.status === 'closed') openDeepTalkLetter(current.id, closed.id);
+            else if (closed.kept?.length) addToast(`${current.name}记下了 ${closed.kept.length} 句话，信笺里能看到`, 'info');
         } catch (e: any) {
             addToast(e?.message || '收卡失败，过一会儿再点一次结束', 'error');
         } finally {

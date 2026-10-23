@@ -131,7 +131,7 @@ export default function DeepTalkPaper({ char, userName, night, isTyping, ending,
                 </div>
             }>
                 <p style={{ margin: 0, fontSize: 15, lineHeight: '23px', color: F.textSecondary }}>
-                    灭了以后，这一夜会收成一张卡，{char.name}会给它起个名字。{segments.length ? '' : '还一句话都没说，这次就不算一夜。'}
+                    灭了以后，这一次会收成一张卡，{char.name}会给它起个名字。{segments.length ? '' : '还一句话都没说，这次就不算数。'}
                 </p>
             </ClayDialog>
         </section>

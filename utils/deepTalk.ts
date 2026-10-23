@@ -40,7 +40,16 @@ export interface DeepTalkNight {
     /** TA 挑出来带回平时的原话（进记忆宫殿）；阿萌可以在信笺里删 */
     kept?: DeepTalkKeptLine[];
     segmentCount?: number;
+    /**
+     * 这一次怎么记（2026-10-22 阿萌：不是每次都带 meta 感，结束时再定）：
+     * - truth：说真话。原文只留在信笺和以后的烛下，平时只带回感受和挑的原话
+     * - matter：谈事。原文当普通聊天记，按条数留在上下文、照常进记忆宫殿
+     * 收尾时 TA 判断有没有说到她现实里的处境，程序据此预选；她在信笺里能改。缺省按 truth。
+     */
+    kind?: DeepTalkKind;
 }
+
+export type DeepTalkKind = 'truth' | 'matter';
 
 export interface DeepTalkKeptLine {
     speaker: 'user' | 'char';
@@ -68,6 +77,17 @@ export const isDeepTalkMessage = (m: Pick<Message, 'metadata'>): boolean =>
     m.metadata?.source === DEEP_TALK_SOURCE && typeof m.metadata?.deepTalkId === 'string';
 
 export const padNight = (n: number | undefined): string => String(Math.max(1, n || 1)).padStart(2, '0');
+
+/** 第几次：白天也会点蜡烛（阿萌 2026-10-22），所以不叫「第几夜」 */
+export const candleLabel = (n: number | undefined): string => `第 ${padNight(n)} 支蜡烛`;
+
+/** 谈事的那几次（已结束、她没改成说真话）：原文跟平时聊天一样记 */
+export const isMatterNight = (night: Pick<DeepTalkNight, 'status' | 'kind'>): boolean =>
+    night.status === 'closed' && night.kind === 'matter';
+
+/** 要隔离的深谈原文：深谈的话里，除了谈事那几次的 */
+export const isWalledDeepTalkMessage = (m: Pick<Message, 'metadata'>, matterNightIds: ReadonlySet<string>): boolean =>
+    isDeepTalkMessage(m) && !matterNightIds.has(m.metadata.deepTalkId);
 
 // ── TA 的回答 ──────────────────────────────────────────────
 
@@ -165,11 +185,15 @@ export const nextNightNo = (nights: Pick<DeepTalkNight, 'status' | 'nightNo'>[])
 // ── 历史折叠 ─────────────────────────────────────────────
 
 /**
- * 给模型的聊天历史里，深谈的话只在「正开着的那一夜」保留原文；
- * 结束了的那夜只剩折叠卡那一行（卡片消息的 content 就是摘要），免得长段落把 TA 平时聊天带长。
+ * 给模型的聊天历史里，深谈的话保留原文的只有：正开着的那一次、谈事的那几次（当普通聊天按条数记）。
+ * 说真话的那几次只剩折叠卡那一行（卡片消息的 content 就是摘要）。
  */
-export const keepInPromptHistory = (m: Pick<Message, 'metadata'>, openNightId: string | null): boolean =>
-    !isDeepTalkMessage(m) || (!!openNightId && m.metadata.deepTalkId === openNightId);
+export const keepInPromptHistory = (
+    m: Pick<Message, 'metadata'>,
+    openNightId: string | null,
+    matterNightIds: ReadonlySet<string> = new Set(),
+): boolean =>
+    !isDeepTalkMessage(m) || (!!openNightId && m.metadata.deepTalkId === openNightId) || matterNightIds.has(m.metadata.deepTalkId);
 
 /** 折叠卡消息的 content：之后的聊天上下文里，这一夜只占这一行 */
 export const buildCardContent = (night: Pick<DeepTalkNight, 'nightNo' | 'title' | 'summary' | 'oneLine' | 'afterglow'>): string => {
@@ -177,7 +201,7 @@ export const buildCardContent = (night: Pick<DeepTalkNight, 'nightNo' | 'title' 
     const body = (night.summary || night.oneLine || '').trim();
     const glow = (night.afterglow || '').trim();
     const said = glow ? body.replace(/[。.！!]+$/, '') : body;
-    return `（你们在烛下深谈过一夜 · 第${padNight(night.nightNo)}夜${title}${said ? `：${said}` : ''}${glow ? `${said ? '；' : '：'}你心里还留着：${glow}` : ''}）`;
+    return `（你们在烛下认真聊过一次 · 第${padNight(night.nightNo)}次${title}${said ? `：${said}` : ''}${glow ? `${said ? '；' : '：'}你心里还留着：${glow}` : ''}）`;
 };
 
 // ── 提示词 ───────────────────────────────────────────────
@@ -210,7 +234,7 @@ export const buildPastNightsBlock = (past: PastCandleNight[] | null | undefined,
     const lines = ['', '你们之前在烛下聊过的（只在烛下记得，平时聊天别提这些细节）：'];
     for (const n of nights) {
         const said = (n.kept || []).map(k => `${k.speaker === 'user' ? names.userName : '你'}说「${clip(k.text, 50)}」`).join('；');
-        lines.push(`- 第${padNight(n.nightNo)}夜《${n.title || ''}》：${clip((n.candleSummary || n.summary || '').trim(), 160)}${said ? `（${said}）` : ''}`);
+        lines.push(`- 第${padNight(n.nightNo)}次《${n.title || ''}》：${clip((n.candleSummary || n.summary || '').trim(), 160)}${said ? `（${said}）` : ''}`);
     }
     return lines.join('\n');
 };
@@ -223,10 +247,10 @@ export const buildOpenTurnBlock = (
 ): string => `
 
 [系统提示｜烛下 · 深谈（最高优先级，这一轮覆盖上面「聊天 App 行为规范」里的格式要求）]
-你和${names.userName}点着一支蜡烛，在认真地深谈。这不是手机上的短消息，也不是见面：没有场景、没有动作，只有两个人一来一回地说话。
+你和${names.userName}点着一支蜡烛，在认真地聊。你们此刻在哪儿，就接着在那儿聊。
 - 你还是${names.charName}，用你自己的口吻、经历和立场说话。
 - 这一次回一到三段，合计大约 120 到 400 字，段落之间空一行。不要拆成一句一句的短消息，也不要写成长篇大论。
-- 不写动作、神态、环境，不加旁白，不用括号描写自己。不写时间戳，不写名字前缀。
+- 只写说出口的话：不写动作、神态、环境，不加旁白，不用括号描写自己。不写时间戳，不写名字前缀。
 - 大部分时候是在说你自己的经历、看法和感受。认真聊天的人很少一直发问：多数回复不带问题，要问也只问一个，而且是你真想知道的。
 - 你可以不同意，可以说「我不这么看」，可以有自己的偏见和固执。不要当体贴的客服，不要把对方的话总结一遍再安慰。
 - 如果你最近也有放不下的事，可以说出来——只能从下面「你心里压着的事」里取，那里没有就不提。
@@ -238,15 +262,15 @@ export const buildOpenTurnBlock = (
 export const buildInviteTurnBlock = (names: { userName: string; charName: string }, proposedClock?: string): string => proposedClock ? `
 
 [系统提示｜烛下 · 邀请]
-${names.userName}刚刚点了一支蜡烛，想约你 ${proposedClock}（按你那边的时间）认真聊一次——不是平时的短消息，是两个人沉下心来说话。想想你那时候在做什么、方不方便：
-- 那个时间可以：答应（到时候你会去找她）。
+${names.userName}刚刚点了一支蜡烛，想约你 ${proposedClock}（按你那边的时间）认真聊一会儿，两个人沉下心来说话。到时候你们在哪儿就在哪儿聊。想想你那时候在做什么、方不方便：
+- 那个时间可以：答应。
 - 那个时间不行，但今天晚些别的时间可以：说清楚改到几点。
 - 这阵子都不行：直说。
 照常用聊天的短消息回一两句（现在还没开始深谈），然后在最后单独一行写一个标记，标记不会显示出来：
 [[DEEP_TALK: accept]] 或 [[DEEP_TALK: later | HH:mm]]（改到的时间，按你那边的时间，24 小时制）或 [[DEEP_TALK: decline]]` : `
 
 [系统提示｜烛下 · 邀请]
-${names.userName}刚刚点了一支蜡烛，想和你认真聊一次——不是平时的短消息，是两个人沉下心来说话。先想想你此刻在做什么、方不方便：
+${names.userName}刚刚点了一支蜡烛，想和你认真聊一会儿，两个人沉下心来说话。你们现在在哪儿就在哪儿聊。先想想你此刻在做什么、方不方便：
 - 现在就能聊：答应。
 - 现在走不开，但今天晚些可以：说清楚大概几点。
 - 这阵子都不行：直说。
@@ -273,6 +297,8 @@ export const proposedAtFromClock = (hhmm: string, now: Date): number | null => {
 // ── 收尾：TA 给这一夜起名字 ───────────────────────────────
 
 export interface DeepTalkEndResult {
+    /** 有没有说到她现实里的处境；认不出来是 null（按说真话处理） */
+    real: boolean | null;
     title: string;
     oneLine: string;
     summary: string;
@@ -282,17 +308,20 @@ export interface DeepTalkEndResult {
 }
 
 export const buildEndPrompt = (names: { userName: string; charName: string }, transcript: string): string =>
-    `下面是你（${names.charName}）和${names.userName}刚刚在烛下深谈的全文。蜡烛灭了，请你用自己的口吻给这一夜留个记号。
+    `下面是你（${names.charName}）和${names.userName}刚刚在烛下深谈的全文。蜡烛灭了，请你用自己的口吻给这一次留个记号。
 
-烛下可以说真话，平时的聊天里却不提这些。所以这一夜要留两份：
-- 平时能看到的（title、oneLine、summary）**只写感受，不写现实里的事实**：「她觉得最近有点孤单」可以，「她最近一直一个人」「她回不了国」「我不在她身边」不行。不写人在哪、离多远、能不能见面。
-- 只有以后的烛下能看到的（candleSummary）可以照实写这一夜真正聊了什么。
+先判断 real：这一次${names.userName}有没有说到她现实里的处境（人在哪里、离家多远、现在回不去、现实生活里一个人扛着的事）。
+只是聊你们俩那边的事（搬家、打算、两个人之间的坎）不算，写 false。
+
+烛下可以说真话，平时的聊天里却不提这些。所以要留两份：
+- 平时能看到的（title、oneLine、summary）**不写她现实处境里的事实**：「她觉得最近有点孤单」可以，「她最近一直一个人」「她回不了国」「我不在她身边」不行。不写人在哪、离多远、能不能见面。你们俩那边说定的事照实写。
+- 只有以后的烛下能看到的（candleSummary）可以照实写这一次真正聊了什么。
 
 再从全文里原样挑一到两句「可以带回平时的话」：说出来以后平时想起也会觉得安慰的话，可以是你说的，也可以是她说的。
 只挑说感受、说你们俩的话；带现实处境的不要挑（人在哪、回不去、时差、隔着多远都不行）。没有合适的就给空数组。
 
 只输出一个 JSON：
-{"title": "这一夜的名字，不超过 8 个字，你自己起，别用「深谈」「谈心」这类词", "oneLine": "用你的第一人称写一句话，说这一夜你们之间发生了什么（提到${names.userName}用「她」），只写感受，不超过 40 字", "summary": "第三人称写这一夜两个人的心情和说定的事，只写感受，给平时的你看，不超过 120 字", "candleSummary": "第三人称照实写这一夜聊了什么、各自说了什么，只给以后的烛下看，不超过 200 字", "afterglow": "蜡烛灭了以后你此刻心里留着的感觉，第一人称，只写感受，不超过 50 字（回到平时聊天时你会带着它）", "kept": [{"speaker": "char 或 user", "text": "原话，一字不改"}]}
+{"real": true 或 false, "title": "这一次的名字，不超过 8 个字，你自己起，别用「深谈」「谈心」这类词", "oneLine": "用你的第一人称写一句话，说这一次你们之间发生了什么（提到${names.userName}用「她」），不超过 40 字", "summary": "第三人称写这一次两个人的心情和说定的事，给平时的你看，不超过 120 字", "candleSummary": "第三人称照实写这一次聊了什么、各自说了什么，只给以后的烛下看，不超过 200 字", "afterglow": "蜡烛灭了以后你此刻心里留着的感觉，第一人称，只写感受，不超过 50 字（回到平时聊天时你会带着它）", "kept": [{"speaker": "char 或 user", "text": "原话，一字不改"}]}
 
 全文：
 ${transcript}`;
@@ -348,6 +377,7 @@ export const parseEndResult = (
         if (kept.length >= 2) break;
     }
     return {
+        real: typeof obj.real === 'boolean' ? obj.real : obj.real === 'false' ? false : obj.real === 'true' ? true : null,
         title: clip(title, 12),
         oneLine: clip(oneLine, 60),
         summary: clip(summary, 200),
@@ -357,11 +387,15 @@ export const parseEndResult = (
     };
 };
 
+/** 收尾预选：明确没说到现实处境才算谈事，其余（含认不出来）一律按说真话，宁可多藏 */
+export const preselectKind = (result: Pick<DeepTalkEndResult, 'real'> | null): DeepTalkKind =>
+    result?.real === false ? 'matter' : 'truth';
+
 /** 带回平时的那句话写进记忆宫殿时的样子（第一人称，TA 的记忆） */
 export const keptLineMemoryContent = (line: Pick<DeepTalkKeptLine, 'speaker' | 'text'>, userName: string): string =>
     line.speaker === 'user'
-        ? `点着蜡烛那一夜，${userName}跟我说：「${line.text}」`
-        : `点着蜡烛那一夜，我跟${userName}说：「${line.text}」`;
+        ? `点着蜡烛那次，${userName}跟我说：「${line.text}」`
+        : `点着蜡烛那次，我跟${userName}说：「${line.text}」`;
 
 export const buildTranscript = (
     segments: Pick<Message, 'role' | 'content'>[],

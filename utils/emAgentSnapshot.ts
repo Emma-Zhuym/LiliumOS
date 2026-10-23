@@ -21,7 +21,8 @@ import { resolveContactGroup } from './contactGroups';
 import { normName } from './relationshipChat';
 import { loadUserMomentsForSnapshot, type SnapshotUserMoment } from './emMomentsContext'; // [EM: moments-heartbeat]
 import { buildFinanceHeartbeatContext, type FinanceHeartbeatContext } from './financeChatTools';
-import { loadDeepTalkForSnapshot } from './deepTalkDb'; // [EM: deep-talk]
+import { loadDeepTalkForSnapshot, loadMatterNightIds } from './deepTalkDb'; // [EM: deep-talk]
+import { isWalledDeepTalkMessage } from './deepTalk'; // [EM: deep-talk]
 
 export const SNAPSHOT_SCHEMA_VERSION = 1;
 
@@ -280,10 +281,11 @@ export const buildCharacterSnapshot = async (
     // [EM: deep-talk] 深谈开着就告诉心跳别插话；最后一段话的时刻从消息里找
     const lastDeepTalkAt = messages.reduce((t, m) => (m.metadata?.source === 'deep_talk' ? Math.max(t, m.timestamp || 0) : t), 0);
     const deepTalk = await loadDeepTalkForSnapshot(char.id, lastDeepTalkAt || null, at.getTime());
+    const matterNightIds = await loadMatterNightIds(char.id);
 
     const recent = mergeConsecutiveBubbles(messages
         .filter(message => message.type !== 'system')
-        .filter(message => message.metadata?.source !== 'deep_talk') // [EM: deep-talk] 烛下说的真话不给心跳看
+        .filter(message => !isWalledDeepTalkMessage(message, matterNightIds)) // [EM: deep-talk] 烛下说的真话不给心跳看；谈事的那几次照常
         // 合并前多取一些：合完才截到 MAX_RECENT_MESSAGES 条
         .slice(-MAX_RECENT_MESSAGES * 8)
         .map(message => ({

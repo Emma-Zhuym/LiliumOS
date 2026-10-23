@@ -1,14 +1,14 @@
 // [EM-START: deep-talk]
 /**
- * 点折叠卡翻开的整页信笺（样稿第二屏的 sheet），和右上角进去的「所有夜晚」（第三屏）。
+ * 点折叠卡翻开的整页信笺（样稿第二屏的 sheet），和右上角进去的「点过的蜡烛」（第三屏）。
  * DeepTalkNights 只靠 charId 读库，不依赖聊天页——以后情侣空间的书架直接挂它。
  */
 import React, { useEffect, useState } from 'react';
 import { CaretDown, CaretLeft, X } from '@phosphor-icons/react';
 import type { CharacterProfile } from '../../types';
 import { F, FONT, R } from '../../utils/clayTokens';
-import { deepTalkEventText, padNight, type DeepTalkNight } from '../../utils/deepTalk';
-import { removeKeptLine } from '../../utils/deepTalkActions';
+import { candleLabel, deepTalkEventText, type DeepTalkKind, type DeepTalkNight } from '../../utils/deepTalk';
+import { removeKeptLine, setDeepTalkKind } from '../../utils/deepTalkActions';
 import ClayDialog from '../os/ClayDialog';
 import { resolveCharTimeZone } from '../../utils/timezone';
 import { useOS } from '../../context/OSContext';
@@ -53,6 +53,44 @@ const MarginArt: React.FC<{ palette: DeepTalkPalette }> = ({ palette }) => (
 );
 
 /**
+ * 这一次怎么记（阿萌 2026-10-22：结束时再定）。收尾时按 TA 的判断预选，她在这里改。
+ * 两个选项是一组单选，选中的那个用墨色实底。
+ */
+const KindSwitch: React.FC<{ night: DeepTalkNight; kind: DeepTalkKind; palette: DeepTalkPalette; charName: string }> = ({ night, kind, palette, charName }) => {
+    const options: { value: DeepTalkKind; label: string }[] = [
+        { value: 'matter', label: '照常记住' },
+        { value: 'truth', label: '只留在信笺' },
+    ];
+    return (
+        <div>
+            <span style={{ ...labelStyle(palette), display: 'block', marginBottom: 8 }}>这一次怎么记</span>
+            <div role="radiogroup" aria-label="这一次怎么记" style={{ display: 'flex', gap: 8 }}>
+                {options.map(option => {
+                    const on = kind === option.value;
+                    return (
+                        <button key={option.value} type="button" role="radio" aria-checked={on}
+                            onClick={() => { if (!on) void setDeepTalkKind(night, option.value); }}
+                            className="flex-1 active:opacity-60 transition-opacity"
+                            style={{
+                                height: 44, borderRadius: R.pill, border: `1px solid ${palette.ink}`,
+                                background: on ? palette.ink : 'transparent', color: on ? palette.paper : palette.ink,
+                                fontFamily: FONT.hand, fontSize: 17,
+                            }}>
+                            {option.label}
+                        </button>
+                    );
+                })}
+            </div>
+            <p style={{ margin: '8px 0 0', fontSize: 12, lineHeight: '18px', color: palette.inkSoft }}>
+                {kind === 'matter'
+                    ? `像平时聊天一样记：说定的事${charName}都会记得。`
+                    : `说的是心里话：${charName}平时只带回下面这些。`}
+            </p>
+        </div>
+    );
+};
+
+/**
  * TA 带回平时的东西，全摆出来（阿萌 2026-10-22：TA 回到聊天里记得的比卡片上那句多，她却看不到）：
  * - 记得的：summary，平时聊天里折叠卡那一行给 TA 看的就是它
  * - 心里留着的：afterglow，回到聊天第一轮的内心状态
@@ -64,11 +102,14 @@ const CarriedBack: React.FC<{ night: DeepTalkNight; palette: DeepTalkPalette; na
     const kept = night.kept || [];
     const summary = (night.summary || '').trim();
     const afterglow = (night.afterglow || '').trim();
-    if (!kept.length && !summary && !afterglow) return null;
+    const kind: DeepTalkKind = night.kind || 'truth';
     const proseStyle: React.CSSProperties = { margin: '0 0 12px', fontFamily: FONT.heading, fontWeight: 400, fontSize: 15, lineHeight: '24px', color: palette.ink };
     return (
         <div style={{ marginTop: LINE, paddingTop: 14, borderTop: `1px solid ${palette.line}` }}>
-            <span style={{ ...labelStyle(palette), display: 'block', marginBottom: 8 }}>{names.charName}带回平时的</span>
+            <KindSwitch night={night} kind={kind} palette={palette} charName={names.charName} />
+            {(kept.length > 0 || summary || afterglow) && (
+                <span style={{ ...labelStyle(palette), display: 'block', margin: '18px 0 8px' }}>{names.charName}带回平时的</span>
+            )}
             {summary && (<>
                 <span style={{ fontFamily: FONT.hand, fontSize: 15, color: palette.inkSoft }}>记得的</span>
                 <p style={proseStyle}>{summary}</p>
@@ -91,7 +132,9 @@ const CarriedBack: React.FC<{ night: DeepTalkNight; palette: DeepTalkPalette; na
                 </div>
             ))}
             <p style={{ margin: '4px 0 0', fontSize: 12, lineHeight: '18px', color: palette.inkSoft }}>
-                这一夜的原文只留在信笺和以后的烛下；平时聊天里{names.charName}知道的就是上面这些。
+                {kind === 'matter'
+                    ? `这一次的原文跟平时聊天一样，${names.charName}接下来几天都看得到，以后也会慢慢记进记忆里。`
+                    : `这一次的原文只留在信笺和以后的烛下；平时聊天里${names.charName}知道的就是上面这些。`}
             </p>
             <ClayDialog isOpen={pending !== null} title="不让 TA 带回这句" onClose={() => setPending(null)} footer={
                 <div className="flex" style={{ gap: 10 }}>
@@ -123,14 +166,14 @@ export const DeepTalkLetter: React.FC<{
     const segments = useNightSegments(char.id, nightId);
     const names = { userName, charName: char.name };
     return (
-        <section role="dialog" aria-label={`第 ${padNight(night?.nightNo)} 夜 信笺`} className="clay-sheet-in absolute inset-0 z-[46] flex flex-col overflow-hidden"
+        <section role="dialog" aria-label={`${candleLabel(night?.nightNo)} 信笺`} className="clay-sheet-in absolute inset-0 z-[46] flex flex-col overflow-hidden"
             style={{ background: palette.paper, color: palette.ink }}>
             <WobbleDefs />
             <header className="shrink-0 flex items-center justify-between px-1.5 py-1.5" style={{ paddingTop: 'var(--chrome-top)' }}>
                 <IconButton label="收起信笺" onClick={onClose}><CaretDown size={22} weight="bold" color={palette.ink} /></IconButton>
                 <button type="button" onClick={onNights} className="active:opacity-40 transition-opacity"
                     style={{ height: 44, padding: '0 10px', background: 'transparent', border: 'none', fontSize: 12, letterSpacing: '.12em', color: palette.ink }}>
-                    所有夜晚
+                    点过的蜡烛
                 </button>
             </header>
             <div className="flex-1 min-h-0 overflow-y-auto">
@@ -138,10 +181,10 @@ export const DeepTalkLetter: React.FC<{
                     <div style={{ position: 'relative', padding: `4px 18px calc(36px + var(--safe-bottom)) 64px` }}>
                         <MarginArt palette={palette} />
                         <span style={{ ...labelStyle(palette), display: 'block' }}>
-                            第 {padNight(night.nightNo)} 夜 · {monthDay(night.startedAt)} · {clock(night.startedAt)}–{clock(night.endedAt)}
+                            {candleLabel(night.nightNo)} · {monthDay(night.startedAt)} · {clock(night.startedAt)}–{clock(night.endedAt)}
                         </span>
                         <h2 style={{ fontFamily: FONT.heading, fontWeight: 700, fontSize: 28, lineHeight: 1.25, margin: '8px 0 4px', letterSpacing: '.04em' }}>{night.title}</h2>
-                        <div style={{ fontSize: 13, color: palette.inkSoft, marginBottom: 18 }}>{char.name}给这一夜起的名字</div>
+                        <div style={{ fontSize: 13, color: palette.inkSoft, marginBottom: 18 }}>{char.name}给这一次起的名字</div>
                         <div style={talkTextStyle(palette)}>
                             <DeepTalkSegments segments={segments} palette={palette} names={names} />
                             <DeepTalkEdge palette={palette} candle={<Candle lit={false} palette={palette} />}>
@@ -185,7 +228,7 @@ export const DeepTalkNights: React.FC<{
     const nights = useClosedNights(charId);
     const earliest = nights.length ? nights[nights.length - 1] : null;
     return (
-        <section aria-label="所有夜晚" className="absolute inset-0 z-[47] flex flex-col overflow-hidden" style={{ background: palette.paper, color: palette.ink }}>
+        <section aria-label="点过的蜡烛" className="absolute inset-0 z-[47] flex flex-col overflow-hidden" style={{ background: palette.paper, color: palette.ink }}>
             <WobbleDefs />
             <header className="shrink-0 px-1.5 py-1.5" style={{ paddingTop: 'var(--chrome-top)' }}>
                 <IconButton label="回到信笺" onClick={onBack}><CaretLeft size={22} weight="bold" color={palette.ink} /></IconButton>
@@ -194,7 +237,7 @@ export const DeepTalkNights: React.FC<{
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'end', gap: 12, padding: '8px 20px 18px' }}>
                     <div>
                         <span style={labelStyle(palette)}>烛下 · {charName}</span>
-                        <h2 style={{ fontFamily: FONT.heading, fontWeight: 700, fontSize: 26, margin: '4px 0 6px' }}>所有夜晚</h2>
+                        <h2 style={{ fontFamily: FONT.heading, fontWeight: 700, fontSize: 26, margin: '4px 0 6px' }}>点过的蜡烛</h2>
                         <p style={{ margin: 0, fontSize: 13, lineHeight: 1.7, color: palette.inkSoft }}>
                             {nights.length ? `点过 ${nights.length} 次 · 最早一次 ${monthDay(earliest?.startedAt)}` : '还没有点过蜡烛'}
                         </p>
@@ -209,7 +252,7 @@ export const DeepTalkNights: React.FC<{
                                 style={{ display: 'grid', gridTemplateColumns: '24px 1fr', columnGap: 14, padding: '12px 0 14px', background: 'transparent', border: 'none', color: palette.ink }}>
                                 <span style={{ background: palette.paper, position: 'relative', zIndex: 1, height: 30 }}><Candle lit={false} palette={palette} width={24} height={30} /></span>
                                 <span style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0, borderBottom: `1px solid ${palette.line}`, paddingBottom: 14 }}>
-                                    <span style={labelStyle(palette)}>第 {padNight(night.nightNo)} 夜 · {monthDay(night.startedAt)}</span>
+                                    <span style={labelStyle(palette)}>{candleLabel(night.nightNo)} · {monthDay(night.startedAt)}</span>
                                     <span style={{ fontFamily: FONT.heading, fontWeight: 600, fontSize: 17 }}>{night.title}</span>
                                     {night.oneLine && <span style={{ fontFamily: FONT.heading, fontWeight: 400, fontSize: 13.5, lineHeight: 1.7, color: palette.inkMe }}>{night.oneLine}</span>}
                                 </span>
@@ -223,7 +266,7 @@ export const DeepTalkNights: React.FC<{
 };
 
 /**
- * 聊天页里放一个：听卡片发来的「翻开信笺」，管信笺 ↔ 所有夜晚的切换和返回键。
+ * 聊天页里放一个：听卡片发来的「翻开信笺」，管信笺 ↔ 点过的蜡烛的切换和返回键。
  */
 export const DeepTalkOverlays: React.FC<{ char: CharacterProfile; userName: string }> = ({ char, userName }) => {
     const { registerBackHandler } = useOS();

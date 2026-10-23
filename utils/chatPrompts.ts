@@ -33,7 +33,7 @@ import { buildPlansChatInjection } from './emAgentPlans'; // [EM: agent-plans]
 import { buildCueInjection } from './emCuePool'; // [EM: char-drives-cue]
 import { buildTemporalInjection } from './emTemporal'; // [EM: calendar-temporal]
 import { DEEP_TALK_EVENT_KIND, keepInPromptHistory } from './deepTalk'; // [EM: deep-talk]
-import { getCachedOpenNightId } from './deepTalkDb'; // [EM: deep-talk]
+import { getCachedMatterNightIds, getCachedOpenNightId } from './deepTalkDb'; // [EM: deep-talk]
 import { formatRelativeAge } from './groupChat/relativeTime';
 import { isBlobRef } from './blobRef';
 
@@ -938,8 +938,8 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
         if (processedExcludeIds && processedExcludeIds.size > 0) {
             effectiveHistory = effectiveHistory.filter(m => !processedExcludeIds.has(m.id));
         }
-        // [EM: deep-talk] 结束了的深谈只留折叠卡那一行，原文不再逐条进上下文
-        effectiveHistory = effectiveHistory.filter(m => keepInPromptHistory(m, getCachedOpenNightId(char.id)));
+        // [EM: deep-talk] 说真话的那几次只留折叠卡那一行；谈事的那几次当普通聊天按条数记
+        effectiveHistory = effectiveHistory.filter(m => keepInPromptHistory(m, getCachedOpenNightId(char.id), getCachedMatterNightIds(char.id)));
         const historySlice = effectiveHistory.slice(-limit);
         const charTz = resolveCharTimeZone(char);
         const timeAwarenessOn = options?.timeAwarenessEnabled ?? (char.timeAwarenessEnabled !== false);

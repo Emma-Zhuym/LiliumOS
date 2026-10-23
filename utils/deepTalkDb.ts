@@ -6,7 +6,7 @@
  * 「所有夜晚」只靠 charId 读这个库，以后情侣空间要挂书架直接用。
  */
 
-import { isActiveStatus, isDeepTalkIdle, type DeepTalkNight } from './deepTalk';
+import { isActiveStatus, isDeepTalkIdle, isMatterNight, type DeepTalkNight } from './deepTalk';
 
 const DB_NAME = 'LiliumOS_DeepTalk';
 const DB_VERSION = 1;
@@ -34,7 +34,11 @@ async function nightsOf(charId: string): Promise<DeepTalkNight[]> {
     const db = await openDB();
     return new Promise((resolve, reject) => {
         const req = db.transaction(STORE_NIGHTS, 'readonly').objectStore(STORE_NIGHTS).index('charId').getAll(charId);
-        req.onsuccess = () => resolve((req.result as DeepTalkNight[]).sort((a, b) => a.invitedAt - b.invitedAt));
+        req.onsuccess = () => {
+            const nights = (req.result as DeepTalkNight[]).sort((a, b) => a.invitedAt - b.invitedAt);
+            rememberMatter(charId, nights);
+            resolve(nights);
+        };
         req.onerror = () => reject(req.error);
     });
 }
@@ -62,6 +66,10 @@ async function putNights(nights: DeepTalkNight[]): Promise<void> {
 // ── 同步缓存 ──
 // 拼提示词（buildMessageHistory 是同步的）要当场知道「哪一夜正开着」，所以每次读写都顺手记一份。
 const activeCache = new Map<string, DeepTalkNight | null>();
+/** 谈事的那几次的 id：它们的原文按普通聊天进上下文 */
+const matterCache = new Map<string, Set<string>>();
+const rememberMatter = (charId: string, nights: DeepTalkNight[]) =>
+    matterCache.set(charId, new Set(nights.filter(isMatterNight).map(n => n.id)));
 
 const announce = (charId: string) => {
     if (typeof window === 'undefined') return;
@@ -77,6 +85,18 @@ export const getCachedActiveNight = (charId: string): DeepTalkNight | null | und
 export const getCachedOpenNightId = (charId: string): string | null => {
     const night = activeCache.get(charId);
     return night && night.status === 'open' ? night.id : null;
+};
+
+/** 缓存里谈事那几次的 id；还没读过就是空的（宁可当说真话藏着） */
+export const getCachedMatterNightIds = (charId: string): ReadonlySet<string> => matterCache.get(charId) || new Set();
+
+/** 记忆宫殿、心跳快照、手动总结用：读不出来（没有 IndexedDB）当一个都没有 */
+export const loadMatterNightIds = async (charId: string): Promise<ReadonlySet<string>> => {
+    try {
+        return new Set((await nightsOf(charId)).filter(isMatterNight).map(n => n.id));
+    } catch {
+        return new Set();
+    }
 };
 
 export const DeepTalkDB = {
@@ -103,6 +123,9 @@ export const DeepTalkDB = {
         await putNights([night]);
         if (isActiveStatus(night.status)) activeCache.set(night.charId, night);
         else if (activeCache.get(night.charId)?.id === night.id) activeCache.set(night.charId, null);
+        const matter = new Set(matterCache.get(night.charId) || []);
+        if (isMatterNight(night)) matter.add(night.id); else matter.delete(night.id);
+        matterCache.set(night.charId, matter);
         announce(night.charId);
     },
 
@@ -116,6 +139,7 @@ export const DeepTalkDB = {
         if (!Array.isArray(nights)) return;
         await putNights(nights.filter(n => n && typeof n.id === 'string' && typeof n.charId === 'string'));
         activeCache.clear();
+        matterCache.clear();
     },
 };
 

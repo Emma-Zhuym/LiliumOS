@@ -6,7 +6,7 @@
 import React from 'react';
 import type { Message } from '../../types';
 import { FONT, R } from '../../utils/clayTokens';
-import { DEEP_TALK_CARD_KIND, padNight, type DeepTalkEvent } from '../../utils/deepTalk';
+import { DEEP_TALK_CARD_KIND, candleLabel, type DeepTalkEvent } from '../../utils/deepTalk';
 import { Candle, DAY_PALETTE, WobbleBorder, WobbleDefs } from './DeepTalkInk';
 import { openDeepTalkLetter, requestDeepTalkRelight, useActiveDeepTalk, useNight } from './useDeepTalk';
 
@@ -65,7 +65,7 @@ const FoldedCard: React.FC<{ msg: Message; charName: string }> = ({ msg, charNam
         <div className="flex w-full justify-center my-3 px-4">
             <WobbleDefs />
             <button type="button" onClick={() => openDeepTalkLetter(msg.charId, night.id)} aria-haspopup="dialog"
-                aria-label={`第 ${padNight(night.nightNo)} 夜《${night.title || ''}》，翻开信笺`}
+                aria-label={`${candleLabel(night.nightNo)}《${night.title || ''}》，翻开信笺`}
                 className="clay-press-card text-left"
                 style={{
                     position: 'relative', width: '100%', maxWidth: 340, display: 'grid', gridTemplateColumns: 'max-content 1fr',
@@ -74,12 +74,12 @@ const FoldedCard: React.FC<{ msg: Message; charName: string }> = ({ msg, charNam
                 <WobbleBorder color={palette.ink} />
                 <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4, paddingRight: 16, borderRight: `1px solid ${palette.line}` }}>
                     <Candle lit={false} palette={palette} width={22} height={32} />
-                    <span style={{ ...label, marginTop: 6 }}>第 {padNight(night.nightNo)} 夜</span>
+                    <span style={{ ...label, marginTop: 6 }}>{candleLabel(night.nightNo)}</span>
                     <span style={{ fontFamily: FONT.heading, fontWeight: 700, fontSize: 19, lineHeight: 1.3, maxWidth: '6em' }}>{night.title}</span>
                     <span style={label}>{clock(night.startedAt)}–{clock(night.endedAt)}</span>
                 </span>
                 <span style={{ alignSelf: 'center', fontFamily: FONT.heading, fontWeight: 400, fontSize: 14, lineHeight: 1.75 }}>
-                    {night.oneLine || `${monthDay(night.startedAt)} 这一夜`}
+                    {night.oneLine || `${monthDay(night.startedAt)} 这一次`}
                 </span>
                 <span style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: palette.inkSoft }}>
                     <span>{night.segmentCount || 0} 段 · 翻开</span>
