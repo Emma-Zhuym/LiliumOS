@@ -161,7 +161,15 @@ export const FieldRow: React.FC<{
     onEnter?: (value: string) => void;
     /** 每敲一个字都要知道的（比如搜索框），给这个；它不触发 onCommit。 */
     onDraft?: (value: string) => void;
-}> = ({ label, value, onCommit, placeholder, secret, mono, multiline, inputMode, trailing, onEnter, onDraft }) => {
+    /**
+     * 停手这么多毫秒后也存一次。旁边有「测试连接」的填写行要给：手机上点按钮不一定先让输入框失焦，
+     * 不给的话测的还是旧值。
+     */
+    autoCommitMs?: number;
+    /** 原生 name（密码管理器、测试按它找） */
+    name?: string;
+    rows?: number;
+}> = ({ label, value, onCommit, placeholder, secret, mono, multiline, inputMode, trailing, onEnter, onDraft, autoCommitMs, name, rows }) => {
     const [draft, setDraft] = useState(value);
     const draftRef = useRef(value);
     const committedRef = useRef(value);
@@ -173,11 +181,21 @@ export const FieldRow: React.FC<{
         committedRef.current = draftRef.current;
         commitRef.current(draftRef.current);
     };
-    useEffect(() => () => { if (draftRef.current !== committedRef.current) commitRef.current(draftRef.current); }, []);
-    const change = (next: string) => { setDraft(next); draftRef.current = next; onDraft?.(next); };
+    const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    useEffect(() => () => {
+        if (timer.current) clearTimeout(timer.current);
+        if (draftRef.current !== committedRef.current) commitRef.current(draftRef.current);
+    }, []);
+    const change = (next: string) => {
+        setDraft(next); draftRef.current = next; onDraft?.(next);
+        if (autoCommitMs) {
+            if (timer.current) clearTimeout(timer.current);
+            timer.current = setTimeout(() => { timer.current = null; commit(); }, autoCommitMs);
+        }
+    };
     const id = useRef(`sf-field-${Math.random().toString(36).slice(2, 9)}`).current;
     const common = {
-        id, value: draft, placeholder, onBlur: commit, spellCheck: false, autoCapitalize: 'off', autoCorrect: 'off',
+        id, name, value: draft, placeholder, onBlur: commit, spellCheck: false, autoCapitalize: 'off', autoCorrect: 'off',
         style: { ...inputStyle, fontFamily: mono ? 'ui-monospace, SFMono-Regular, Menlo, monospace' : undefined, fontSize: mono ? 14 : 15 },
     } as const;
     return (
@@ -185,10 +203,10 @@ export const FieldRow: React.FC<{
             <label htmlFor={id} style={{ fontSize: 12, color: F.textTertiary }}>{label}</label>
             <div className="flex items-center" style={{ gap: 8 }}>
                 {multiline ? (
-                    <textarea {...common} rows={3} onChange={e => change(e.target.value)}
+                    <textarea {...common} rows={rows ?? 3} onChange={e => change(e.target.value)}
                         style={{ ...common.style, height: 'auto', minHeight: 72, padding: '10px 12px', resize: 'vertical', lineHeight: '20px' }} />
                 ) : (
-                    <input {...common} type={secret ? 'password' : 'text'} autoComplete="off" inputMode={inputMode}
+                    <input {...common} type={secret ? 'password' : 'text'} autoComplete={secret ? 'new-password' : 'off'} inputMode={inputMode}
                         onChange={e => change(e.target.value)}
                         onKeyDown={e => { if (e.key === 'Enter') { commit(); onEnter?.(draftRef.current); } }} />
                 )}
@@ -295,8 +313,13 @@ export const resultSub = (result: TestResult): React.ReactNode => result
     ? <span style={{ color: result.tone === 'ok' ? STATUS.success.ink : result.tone === 'bad' ? STATUS.danger.ink : F.textTertiary, whiteSpace: 'pre-line' }}>{result.text}</span>
     : undefined;
 
-/** 子页滚动区里的一整页：组与组之间 22px。 */
-export const Page: React.FC<{ children: React.ReactNode; testId?: string }> = ({ children, testId }) => (
+/** 子页滚动区里的一整页：组与组之间 22px。给 label 时外层是 <section> + 只给读屏的 <h2>（顶栏已写了标题）。 */
+export const Page: React.FC<{ children: React.ReactNode; testId?: string; label?: string }> = ({ children, testId, label }) => label ? (
+    <section className="flex flex-col" style={{ gap: 22 }} data-testid={testId}>
+        <h2 className="sr-only">{label}</h2>
+        {children}
+    </section>
+) : (
     <div className="flex flex-col" style={{ gap: 22 }} data-testid={testId}>{children}</div>
 );
 // [EM-END: settings-subpages-f]

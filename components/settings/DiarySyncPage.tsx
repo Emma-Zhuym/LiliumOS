@@ -111,9 +111,9 @@ const DiarySyncPage: React.FC = () => {
                 <ToggleRow title="写 Notion 日记" sub="聊天里点「写 Notion」，角色会写一篇" checked={on} onChange={next => { commit({ notionEnabled: next }); setResult(null); }} />
                 {on && (
                     <>
-                        <FieldRow label="Integration Token" value={config.notionApiKey || ''} secret mono placeholder="ntn_… 或 secret_…"
+                        <FieldRow label="Integration Token" value={config.notionApiKey || ''} secret mono autoCommitMs={600} placeholder="ntn_… 或 secret_…"
                             onCommit={v => { commit({ notionApiKey: v.trim() }); setResult(null); }} />
-                        <FieldRow label="日记数据库 ID" value={config.notionDatabaseId || ''} mono placeholder="从数据库网址里复制"
+                        <FieldRow label="日记数据库 ID" value={config.notionDatabaseId || ''} mono autoCommitMs={600} placeholder="从数据库网址里复制"
                             onCommit={v => { commit({ notionDatabaseId: v.trim() }); setResult(null); }} />
                     </>
                 )}

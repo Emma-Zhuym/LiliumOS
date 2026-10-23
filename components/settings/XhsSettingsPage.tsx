@@ -169,14 +169,14 @@ const XhsSettingsPage: React.FC = () => {
 
                     {mode === 'local' ? (
                         <Group title="mini 上的服务" foot="跑在 mini 上时地址填 https://（mini 的 Funnel 域名）/xhs/mcp；令牌在 mini 的 xhs-mcp-token 文件里，本机直连可以不填。登录态存在 mini 上，换手机不用重新扫；二维码最好在电脑上打开这页扫。">
-                            <FieldRow label="服务地址" value={localUrl} mono placeholder={DEFAULT_LOCAL_URL}
+                            <FieldRow label="服务地址" value={localUrl} mono autoCommitMs={600} placeholder={DEFAULT_LOCAL_URL}
                                 onCommit={v => { const url = v.trim(); setLocalUrl(url); save({ localUrl: url }); setResult(null); }} />
-                            <FieldRow label="访问令牌" value={saved?.authToken || ''} secret mono placeholder="mini 上 xhs-mcp-token 那串"
+                            <FieldRow label="访问令牌" value={saved?.authToken || ''} secret mono autoCommitMs={600} placeholder="mini 上 xhs-mcp-token 那串"
                                 onCommit={v => { save({ authToken: v }); setResult(null); }} />
                         </Group>
                     ) : (
                         <Group title="云端" foot="cookie 经 HTTPS 发到你的主代理 Worker，只用来给请求签名，服务器不保存、不记录。">
-                            <FieldRow label="小红书 Cookie" value={saved?.cookie || ''} secret mono placeholder="a1=…; web_session=…"
+                            <FieldRow label="小红书 Cookie" value={saved?.cookie || ''} secret mono autoCommitMs={600} placeholder="a1=…; web_session=…"
                                 onCommit={v => { save({ cookie: v, platform: undefined }); setResult(null); }} />
                             <Row title="怎么拿 cookie" value={guideOpen ? '收起' : undefined} onClick={() => { if (!guideOpen) trackEvent('展开获取 cookie 教程'); setGuideOpen(v => !v); }} />
                             {guideOpen && (
