@@ -18,6 +18,8 @@ export interface DeepTalkNight {
     invitedAt: number;
     /** TA 约的时间（later 才有） */
     laterAt?: number;
+    /** 阿萌点蜡烛时自己约的时间（2026-10-22：想起来「晚上八点找他聊」）；TA 答应了就成了 laterAt */
+    proposedAt?: number;
     /** 是不是改约以后重新点上的：纸面开头那句不一样 */
     relit?: boolean;
     startedAt?: number;
@@ -51,7 +53,7 @@ export interface DeepTalkKeptLine {
 export const DEEP_TALK_SOURCE = 'deep_talk';
 export const DEEP_TALK_EVENT_KIND = 'deep_talk_event';
 export const DEEP_TALK_CARD_KIND = 'deep_talk_card';
-export type DeepTalkEvent = 'invite' | 'later' | 'declined' | 'relight' | 'end' | 'burnt_out';
+export type DeepTalkEvent = 'invite' | 'later' | 'declined' | 'relight' | 'due' | 'end' | 'burnt_out';
 
 /** 开着的深谈这么久没有新话，就当是忘了关：自动收卡，心跳也不再认 */
 export const DEEP_TALK_IDLE_MS = 3 * 60 * 60 * 1000;
@@ -119,13 +121,17 @@ export const formatClock = (ts: number, timeZone?: string): string => {
 
 export const deepTalkEventText = (
     event: DeepTalkEvent,
-    names: { userName: string; charName: string; invitedBy?: 'user' | 'char' },
+    names: { userName: string; charName: string; invitedBy?: 'user' | 'char'; proposedClock?: string },
 ): string => {
     switch (event) {
-        case 'invite': return `${names.invitedBy === 'char' ? names.charName : names.userName}点了一支蜡烛，想和你聊聊`;
+        case 'invite': return names.proposedClock
+            ? `${names.invitedBy === 'char' ? names.charName : names.userName}点了一支蜡烛，想在 ${names.proposedClock} 和你聊聊`
+            : `${names.invitedBy === 'char' ? names.charName : names.userName}点了一支蜡烛，想和你聊聊`;
         case 'later': return '蜡烛先留着';
         case 'declined': return '蜡烛先留着';
         case 'relight': return `${names.charName}来了，蜡烛重新点上`;
+        // 约好的时间到了，mini 来叫她：点这个气泡才进纸面
+        case 'due': return `${names.charName}来了，蜡烛点上了`;
         case 'end': return '烛花落了';
         case 'burnt_out': return '蜡烛燃尽了';
     }
@@ -229,7 +235,15 @@ export const buildOpenTurnBlock = (
   你们一起生活的那个世界也是真的，那里的约定照样作数。两件事同时成立：不要用现实去推翻你们世界里的事，也不要用那个世界盖住她现实里的难处。不要为了安慰她去说破那个世界是怎么来的。${buildMaterialsBlock(materials)}${buildPastNightsBlock(past, names)}`;
 
 /** 刚被邀请的那一轮：照常发短消息，末尾带一个程序读的标记 */
-export const buildInviteTurnBlock = (names: { userName: string; charName: string }): string => `
+export const buildInviteTurnBlock = (names: { userName: string; charName: string }, proposedClock?: string): string => proposedClock ? `
+
+[系统提示｜烛下 · 邀请]
+${names.userName}刚刚点了一支蜡烛，想约你 ${proposedClock}（按你那边的时间）认真聊一次——不是平时的短消息，是两个人沉下心来说话。想想你那时候在做什么、方不方便：
+- 那个时间可以：答应（到时候你会去找她）。
+- 那个时间不行，但今天晚些别的时间可以：说清楚改到几点。
+- 这阵子都不行：直说。
+照常用聊天的短消息回一两句（现在还没开始深谈），然后在最后单独一行写一个标记，标记不会显示出来：
+[[DEEP_TALK: accept]] 或 [[DEEP_TALK: later | HH:mm]]（改到的时间，按你那边的时间，24 小时制）或 [[DEEP_TALK: decline]]` : `
 
 [系统提示｜烛下 · 邀请]
 ${names.userName}刚刚点了一支蜡烛，想和你认真聊一次——不是平时的短消息，是两个人沉下心来说话。先想想你此刻在做什么、方不方便：
@@ -241,7 +255,20 @@ ${names.userName}刚刚点了一支蜡烛，想和你认真聊一次——不是
 
 /** 约好了还没到点：普通聊天里让 TA 记得这件事 */
 export const buildLaterReminderLine = (names: { userName: string }, clock: string): string =>
-    `\n\n[烛下：你答应过${names.userName}，${clock} 以后认真聊一次。到时候她会重新点上蜡烛；在那之前照常聊天就好。]`;
+    `\n\n[烛下：你答应过${names.userName}，${clock} 以后认真聊一次。到时候蜡烛会重新点上；在那之前照常聊天就好。]`;
+
+/** 她点蜡烛时选的「几点」→ 时间戳：今天的这个钟点，已经过了就算明天（她自己手机的时间）。 */
+export const proposedAtFromClock = (hhmm: string, now: Date): number | null => {
+    const m = /^(\d{1,2}):(\d{2})$/.exec((hhmm || '').trim());
+    if (!m) return null;
+    const hour = Number(m[1]);
+    const minute = Number(m[2]);
+    if (hour > 23 || minute > 59) return null;
+    const target = new Date(now.getTime());
+    target.setHours(hour, minute, 0, 0);
+    if (target.getTime() <= now.getTime()) target.setDate(target.getDate() + 1);
+    return target.getTime();
+};
 
 // ── 收尾：TA 给这一夜起名字 ───────────────────────────────
 

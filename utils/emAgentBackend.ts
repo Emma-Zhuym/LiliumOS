@@ -408,6 +408,11 @@ export const AgentBackend = {
     privateMoment: (charId: string) => request<{ private: AgentPrivateMoment }>(
         `/drives?charId=${encodeURIComponent(charId)}`,
     ).then(data => data.private), // [EM: char-drives-engine]
+    /** [EM: deep-talk-schedule] 烛下约好的时间交给 mini，到点它来叫；撤掉用 cancelDeepTalk。 */
+    scheduleDeepTalk: (input: { charId: string; nightId: string; dueAt: string; charName: string }) => request<{ plan: { nightId: string; dueAt: string } }>(
+        '/deep-talk/plans', { method: 'POST', body: input },
+    ),
+    cancelDeepTalk: (nightId: string) => request<{ cancelled: number }>('/deep-talk/plans/cancel', { method: 'POST', body: { nightId } }), // [EM: deep-talk-schedule]
     /** 心思系统：她自己按的开始 / 结束两个人的时间。 */
     setPrivateMoment: (charId: string, on: boolean) => request<{ private: AgentPrivateMoment }>(
         '/drives/private', { method: 'POST', body: { charId, on } },
@@ -580,7 +585,7 @@ export const isFreshChatMessage = (message: AgentMessage, now = Date.now()): boo
 export interface InboxDelivery {
     message: AgentMessage;
     /** 'chat' = 进聊天；'stale' = 过期了，只留在起居注；'work' = 「工作」App 的往来；'life' = 私人生活里的小事；'other' = 系统通知等。 */
-    route: 'chat' | 'stale' | 'work' | 'life' | 'moments' | 'reply' | 'reply-error' | 'other';
+    route: 'chat' | 'stale' | 'work' | 'life' | 'moments' | 'deep-talk' | 'reply' | 'reply-error' | 'other'; // [EM: deep-talk-schedule] deep-talk
 }
 
 /** 后端把心跳产出的工作往来装在 job_result 里，靠 payload.type 认（信箱的 kind 是固定几种，见设计 2.6）。 */
@@ -596,12 +601,18 @@ export const MOMENT_REACTION_TYPE = 'moment_reaction';
 export const isMomentReactionMessage = (message: AgentMessage): boolean =>
     message.kind === 'job_result' && message.payload?.type === MOMENT_REACTION_TYPE;
 
+/** [EM: deep-talk-schedule] 烛下约好的时间到了，mini 来叫她（server/agent-backend/deepTalk.mjs）。 */
+export const DEEP_TALK_DUE_TYPE = 'deep_talk_due';
+export const isDeepTalkDueMessage = (message: AgentMessage): boolean =>
+    message.kind === 'job_result' && message.payload?.type === DEEP_TALK_DUE_TYPE;
+
 export const routeInboxMessages = (messages: AgentMessage[], now = Date.now()): InboxDelivery[] =>
     messages.map(message => ({
         message,
         route: isWorkEpisodeMessage(message) ? 'work'
             : isLifeEpisodeMessage(message) ? 'life'
             : isMomentReactionMessage(message) ? 'moments'
+            : isDeepTalkDueMessage(message) ? 'deep-talk' // [EM: deep-talk-schedule]
             : message.kind === 'chat_reply' ? 'reply' // [EM: agent-instant-chat]
             : message.kind === 'chat_error' ? 'reply-error' // [EM: agent-instant-chat]
             : message.kind !== 'chat_message' ? 'other'

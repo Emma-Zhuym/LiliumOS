@@ -34,6 +34,7 @@ import {
     type PastCandleNight,
 } from './deepTalk';
 import { DeepTalkDB, notifyDeepTalkChanged } from './deepTalkDb';
+import { AgentBackend, isAgentPaired } from './emAgentBackend'; // [EM: deep-talk-schedule]
 
 type Names = { userName: string; charName: string };
 /** 记忆宫殿的向量配置：有就当场向量化，没有就先落盘，等消化时补 */
@@ -52,7 +53,7 @@ const saveEvent = (
     // 邀请是阿萌的动作（触发一轮回复），其余是程序写的系统气泡
     role: event === 'invite' && night.invitedBy === 'user' ? 'user' : 'system',
     type: event === 'invite' && night.invitedBy === 'user' ? 'interaction' : 'text',
-    content: `[${deepTalkEventText(event, { ...names, invitedBy: night.invitedBy })}]`,
+    content: `[${deepTalkEventText(event, { ...names, invitedBy: night.invitedBy, proposedClock: typeof extra.proposedClock === 'string' ? extra.proposedClock : undefined })}]`,
     metadata: { kind: DEEP_TALK_EVENT_KIND, deepTalkEvent: event, deepTalkId: night.id, ...extra },
 });
 
@@ -62,10 +63,40 @@ export const loadNightSegments = async (charId: string, nightId: string): Promis
         .filter(m => isDeepTalkMessage(m) && m.metadata.deepTalkId === nightId)
         .sort((a, b) => a.id - b.id);
 
-/** 阿萌点蜡烛：有约好的就直接重新点上，否则发一个新邀请 */
+// [EM-START: deep-talk-schedule] 约好的时间交给 mini：到点它来叫她（server/agent-backend/deepTalk.mjs）
+/** 约好了（later）就让 mini 到点来叫；失败不拦——mini 不在线时她照样能自己点「蜡烛先留着」重新点上。 */
+const handDueToMini = async (char: CharacterProfile, night: DeepTalkNight): Promise<void> => {
+    if (!night.laterAt || !isAgentPaired()) return;
+    try {
+        await AgentBackend.scheduleDeepTalk({ charId: char.id, nightId: night.id, dueAt: new Date(night.laterAt).toISOString(), charName: char.name });
+    } catch { /* mini 不在 / 角色没接到 mini：到点不会有人来叫，她手动点 */ }
+};
+const cancelDueOnMini = (nightId: string) => {
+    if (!isAgentPaired()) return;
+    void AgentBackend.cancelDeepTalk(nightId).catch(() => { /* 没排过或 mini 不在：到点那条消息手机会认出这一夜已经开始了，不会重复 */ });
+};
+
+/**
+ * mini 到点来叫（信箱 deep_talk_due）：这一夜还在「蜡烛先留着」就落一个「{角色}来了，蜡烛点上了」，她点它进纸面。
+ * 她已经自己点上了、拒了、换了一夜，就什么都不做。返回落没落气泡。
+ */
+export const markDeepTalkDue = async (char: CharacterProfile, nightId: string, names: Names): Promise<boolean> => {
+    const active = await DeepTalkDB.getActive(char.id);
+    if (!active || active.id !== nightId || active.status !== 'later') return false;
+    await saveEvent(char.id, active, 'due', names);
+    notifyDeepTalkChanged(char.id);
+    return true;
+};
+// [EM-END: deep-talk-schedule]
+
+/**
+ * 阿萌点蜡烛：有约好的就直接重新点上，否则发一个新邀请。
+ * proposedAt：她自己约的时间（「晚上八点找他聊」）；不带就是想现在聊。
+ */
 export const startDeepTalkInvite = async (
     char: CharacterProfile,
     names: Names,
+    options: { proposedAt?: number } = {},
 ): Promise<{ night: DeepTalkNight; relit: boolean }> => {
     const active = await DeepTalkDB.getActive(char.id);
     if (active?.status === 'open') return { night: active, relit: false };
@@ -80,9 +111,11 @@ export const startDeepTalkInvite = async (
         status: 'invited',
         invitedBy: 'user',
         invitedAt: Date.now(),
+        ...(options.proposedAt ? { proposedAt: options.proposedAt } : {}), // [EM: deep-talk-schedule]
     };
     await DeepTalkDB.saveNight(night);
-    await saveEvent(char.id, night, 'invite', names);
+    // 她约的时间按她自己手机的钟写在气泡上（她选的就是这个）
+    await saveEvent(char.id, night, 'invite', names, options.proposedAt ? { proposedClock: formatClock(options.proposedAt) } : {});
     return { night, relit: false };
 };
 
@@ -91,6 +124,7 @@ export const relightDeepTalk = async (char: CharacterProfile, night: DeepTalkNig
     const next: DeepTalkNight = { ...night, status: 'open', relit: true, startedAt: Date.now() };
     await DeepTalkDB.saveNight(next);
     await saveEvent(char.id, next, 'relight', names);
+    cancelDueOnMini(night.id); // [EM: deep-talk-schedule] 她早一点自己点上了：mini 那条到点提醒撤掉
     return next;
 };
 
@@ -105,6 +139,16 @@ export const applyDeepTalkAnswer = async (
     names: Names,
     now = new Date(),
 ): Promise<DeepTalkNight> => {
+    // [EM-START: deep-talk-schedule] 她约了时间、TA 答应了：不是现在变纸，是约在那个时间
+    if (answer?.kind === 'accept' && night.proposedAt && night.proposedAt > now.getTime()) {
+        const timeZone = resolveCharTimeZone(char);
+        const next: DeepTalkNight = { ...night, status: 'later', laterAt: night.proposedAt };
+        await DeepTalkDB.saveNight(next);
+        await saveEvent(char.id, next, 'later', names, { laterAt: next.laterAt, laterClock: formatClock(night.proposedAt, timeZone) });
+        await handDueToMini(char, next);
+        return next;
+    }
+    // [EM-END: deep-talk-schedule]
     if (answer?.kind === 'accept') {
         const next: DeepTalkNight = { ...night, status: 'open', startedAt: now.getTime() };
         await DeepTalkDB.saveNight(next);
@@ -118,6 +162,7 @@ export const applyDeepTalkAnswer = async (
             await DeepTalkDB.saveNight(next);
             // 气泡上写 TA 那边的钟点，跟 TA 说的话对得上
             await saveEvent(char.id, next, 'later', names, { laterAt, laterClock: formatClock(laterAt, timeZone) });
+            await handDueToMini(char, next); // [EM: deep-talk-schedule] TA 自己改的时间也到点来叫
             return next;
         }
     }

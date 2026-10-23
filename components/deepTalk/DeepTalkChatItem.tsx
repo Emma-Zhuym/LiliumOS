@@ -23,13 +23,14 @@ const monthDay = (ts?: number) => {
     return `${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
 };
 
-const LIT_EVENTS: DeepTalkEvent[] = ['invite', 'later', 'relight'];
+const LIT_EVENTS: DeepTalkEvent[] = ['invite', 'later', 'relight', 'due'];
 
 const EventPill: React.FC<{ msg: Message }> = ({ msg }) => {
     const event = msg.metadata?.deepTalkEvent as DeepTalkEvent;
-    const active = useActiveDeepTalk(event === 'later' ? msg.charId : undefined);
+    const waiting = event === 'later' || event === 'due'; // [EM: deep-talk-schedule] 到点 mini 来叫的那个气泡也能点
+    const active = useActiveDeepTalk(waiting ? msg.charId : undefined);
     // 「蜡烛先留着」那一夜还留着的话，点它就重新点上
-    const canRelight = event === 'later' && active?.status === 'later' && active.id === msg.metadata?.deepTalkId;
+    const canRelight = waiting && active?.status === 'later' && active.id === msg.metadata?.deepTalkId;
     const text = String(msg.content || '').replace(/^\[|\]$/g, '');
     const body = (
         <>

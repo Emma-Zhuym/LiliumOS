@@ -228,6 +228,24 @@ const syncAgentMessagesOnce = async (
             } catch {
                 continue;
             }
+        // [EM-START: deep-talk-schedule] 烛下约好的时间到了：落一个「TA 来了，蜡烛点上了」，她点它进纸面
+        } else if (route === 'deep-talk') {
+            const nightId = String(message.payload?.nightId ?? '');
+            if (message.charId && nightId) {
+                try {
+                    const char = await DB.getCharacter(message.charId);
+                    if (char) {
+                        const { markDeepTalkDue } = await import('./deepTalkActions');
+                        const userName = (await DB.getUserProfile())?.name || '我';
+                        if (await markDeepTalkDue(char, nightId, { userName, charName: char.name })
+                            && !result.charIds.includes(message.charId)) result.charIds.push(message.charId);
+                    }
+                    landed.push(message.messageId);
+                } catch {
+                    continue;
+                }
+            }
+        // [EM-END: deep-talk-schedule]
         } else if (route === 'moments') {
             // [EM: moments-heartbeat] 朋友圈库就在本机，不用调用方接手，直接写
             if (message.charId) {

@@ -206,6 +206,15 @@ interface DeepTalkNight {
 
 ### 阶段二：约好的时间到了，TA 来找她
 
+> **2026-10-22 做了**（阿萌：想起来「晚上八点找他聊」，点蜡烛时就能约）：
+> - 点蜡烛先出一个底部 sheet（`components/deepTalk/DeepTalkInviteSheet.tsx`）：「现在就想聊」或「约在 HH:mm」，默认晚上八点（七点以后默认下一个整点），过了的时间算明天。已经约好 / 正聊着时不出 sheet，照旧直接点上
+> - 约了时间的邀请气泡写「阿萌点了一支蜡烛，想在 20:00 和你聊聊」，提示词问 TA「那个时间行不行」，还是同一套标记：答应 = 约在那个时间（不当场变纸）；`later | HH:mm` = TA 改个时间；拒绝照旧
+> - 一旦约好（她约的 TA 答应了，或 TA 自己说晚点），手机 `POST /deep-talk/plans` 交给 mini；mini（`server/agent-backend/deepTalk.mjs`）排一条准点任务 `deep_talk.due`，**不走心跳**（心跳约一小时醒一次，等不到准点），到点不调模型，只送一条 `deep_talk_due` 并推送「{角色}来了，蜡烛点上了」；安静时段里也照约定来；mini 睡过头三小时就不送了
+> - 手机信箱收到后落一个 `due` 气泡（亮着的蜡烛），点它进纸面；她早一点自己点上了，手机 `POST /deep-talk/plans/cancel` 撤掉 mini 那条，到点那条消息也认得出这一夜已经开始，不会重复
+> - 没配对 mini、或者 mini 不在线：到点不会有人来叫，她照旧点「蜡烛先留着」重新点上
+> - 下面是原来的设想，以上面为准
+
+
 - TA 回 `later | 23:00` 时，手机把约定交给 mini：新增 `POST /deep-talk/plans`（或者复用 `life_threads` 写入），落成一条带 `due_at` 的约定，标记 `kind: 'deep_talk'`。
 - 到点那一跳，心跳把「邀请她进深谈」当作这一跳要说的事，发出的消息 payload 带 `deepTalkInvite: { nightId }`；
   `utils/emAgentInbox.ts` 收到后在话后面接一个「蜡烛重新点上」的系统气泡，阿萌点一下进纸面（照 `xhsNote` 的接法）。

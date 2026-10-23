@@ -165,7 +165,8 @@ export const inQuietWindow = (now, { start, end, timezone }) => {
 };
 
 /** 安静时段（0–7 点）照样要跑的任务：阿萌半夜发消息，回复不能等到早上。 */
-export const QUIET_EXEMPT_KINDS = new Set(['chat_turn']);
+// deep_talk.due：她自己约的时间，哪怕在安静时段里也照约定来叫（deepTalk.mjs）
+export const QUIET_EXEMPT_KINDS = new Set(['chat_turn', 'deep_talk.due']);
 
 /**
  * 跑一条已经领到的任务：续租、调处理器、按结果收尾。runTick 和「立刻跑」共用。

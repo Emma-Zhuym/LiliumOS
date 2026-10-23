@@ -22,6 +22,7 @@ import {
 import { getSnapshot, listSnapshotMeta, putSnapshot } from './snapshots.mjs';
 import { getSetting, setSetting } from './db.mjs';
 import { readAdminSettings, writeAdminSettings } from './adminSettings.mjs';
+import { cancelDeepTalkDue, scheduleDeepTalkDue } from './deepTalk.mjs';
 import {
     createReminder, listTemporalItems, readVisibility, removeTemporalItems, setReminderCompleted,
     upsertTemporalItem, veilForCharacter, VISIBILITY, SOURCES_TIMEOUT_MS,
@@ -124,6 +125,16 @@ export const createRouter = ctx => {
         },
 
         'GET /status': { handle: () => ctx.buildStatus() },
+        // 烛下约好的时间：手机交过来，到点 mini 来叫她（deepTalk.mjs）
+        'POST /deep-talk/plans': {
+            handle: ({ body }) => {
+                const charId = requireDriveChar(body.charId);
+                return { plan: scheduleDeepTalkDue(db, { charId, nightId: body.nightId, dueAt: body.dueAt, charName: body.charName }) };
+            },
+        },
+        'POST /deep-talk/plans/cancel': {
+            handle: ({ body }) => ({ cancelled: cancelDeepTalkDue(db, String(body.nightId || '')) }),
+        },
         // 机房 App 的开关：只认白名单里那几项（adminSettings.mjs）
         'GET /settings': { handle: () => ({ settings: readAdminSettings(db) }) },
         'POST /settings': { handle: ({ body }) => ({ settings: writeAdminSettings(db, body.settings) }) },

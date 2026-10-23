@@ -483,7 +483,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
                 await loadPastCandleNights(char.id, input.deepTalk.night.id).catch(() => null),
             );
         } else if (input.deepTalk.mode === 'invite') {
-            volatileTail += buildInviteTurnBlock(names);
+            volatileTail += buildInviteTurnBlock(names, input.deepTalk.night.proposedAt ? formatClock(input.deepTalk.night.proposedAt, resolveCharTimeZone(char)) : undefined); // [EM: deep-talk-schedule] 她约了几点就问那个时间
         } else if (input.deepTalk.night.laterAt) {
             volatileTail += buildLaterReminderLine(names, formatClock(input.deepTalk.night.laterAt, resolveCharTimeZone(char)));
         }

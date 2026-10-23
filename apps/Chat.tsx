@@ -16,7 +16,9 @@ import { flushSnapshotUpload } from '../utils/emAgentBackend';
 import { resolveCharacterApiConfig } from '../utils/characterApi';
 import { isDeepTalkIdle } from '../utils/deepTalk';
 import { endDeepTalk, loadNightSegments, saveDeepTalkSegment, startDeepTalkInvite } from '../utils/deepTalkActions';
+import { proposedAtFromClock } from '../utils/deepTalk'; // [EM: deep-talk-schedule]
 import DeepTalkPaper from '../components/deepTalk/DeepTalkPaper';
+import DeepTalkInviteSheet from '../components/deepTalk/DeepTalkInviteSheet'; // [EM: deep-talk-schedule]
 import { DeepTalkOverlays } from '../components/deepTalk/DeepTalkLetter';
 import { DEEP_TALK_RELIGHT_EVENT, useActiveDeepTalk } from '../components/deepTalk/useDeepTalk';
 // [EM-END: deep-talk]
@@ -1013,6 +1015,7 @@ const Chat: React.FC = () => {
     // [EM-START: deep-talk] 烛下：点蜡烛邀请、纸上说一段、蜡烛灭了收卡（契约见 docs/spec-deep-talk.md）
     const deepTalkNight = useActiveDeepTalk(char?.id);
     const [deepTalkEnding, setDeepTalkEnding] = useState(false);
+    const [deepTalkSheetOpen, setDeepTalkSheetOpen] = useState(false); // [EM: deep-talk-schedule] 现在聊还是约个时间
     const deepTalkNames = useMemo(() => ({ userName: userProfile?.name || '我', charName: char?.name || '' }), [userProfile?.name, char?.name]);
     // 开始 / 结束时立刻告诉 mini（心跳靠快照里的 deepTalk 判断要不要闭嘴），不等 30 秒防抖
     const flushDeepTalkSnapshot = useCallback(async () => {
@@ -1029,13 +1032,14 @@ const Chat: React.FC = () => {
             .filter(m => isVisibleChatMessage(m, !!current.hideSystemLogs, false) || m.metadata?.source === 'deep_talk');
         triggerAI(recent);
     }, [triggerAI]);
-    const handleDeepTalkInvite = useCallback(async () => {
+    const handleDeepTalkInvite = useCallback(async (proposedAt?: number) => {
         if (!char) return;
         if (isTyping) { addToast('请等当前回复结束后再试', 'info'); return; }
         try {
             autoReply.cancel(); // [EM: deep-talk] 手动请求接管，别让倒计时抢先生成
             setShowPanel('none');
-            const { night, relit } = await startDeepTalkInvite(char, deepTalkNames);
+            setDeepTalkSheetOpen(false); // [EM: deep-talk-schedule]
+            const { night, relit } = await startDeepTalkInvite(char, deepTalkNames, proposedAt ? { proposedAt } : {});
             await reloadMessages(visibleCountRef.current);
             if (night.status === 'open') { void flushDeepTalkSnapshot(); return; }
             if (!relit) await triggerWithLatest();
@@ -1990,7 +1994,8 @@ const Chat: React.FC = () => {
                 break;
             }
             case 'notion-diary-quick': void handleNotionDiaryQuick(); break; // [EM: notion-diary-quick-case]
-            case 'deep-talk': void handleDeepTalkInvite(); break; // [EM: deep-talk]
+            // [EM: deep-talk] [EM: deep-talk-schedule] 已经约好 / 正聊着就直接点上；没有的话先问现在聊还是约个时间
+            case 'deep-talk': if (deepTalkNight && (deepTalkNight.status === 'open' || deepTalkNight.status === 'later')) void handleDeepTalkInvite(); else { setShowPanel('none'); setDeepTalkSheetOpen(true); } break;
         }
     };
 
@@ -3641,6 +3646,9 @@ const Chat: React.FC = () => {
                  isTyping={isTyping} ending={deepTalkEnding} onBack={() => setMessageSubView('contacts')}
                  onSend={handleDeepTalkSend} onEnd={() => void handleDeepTalkEnd('end')} />}
              <DeepTalkOverlays char={char} userName={deepTalkNames.userName} />
+             <DeepTalkInviteSheet open={deepTalkSheetOpen} charName={char.name} onClose={() => setDeepTalkSheetOpen(false)}
+                 onNow={() => void handleDeepTalkInvite()}
+                 onSchedule={clock => { const at = proposedAtFromClock(clock, new Date()); if (at) void handleDeepTalkInvite(at); }} />{/* [EM: deep-talk-schedule] */}
              {/* [EM-END: deep-talk] */}
              {/* 聊天细节微调（外观 App 可视化设置生成）：排在用户自定义 CSS 之前——
                  同为 !important 时后写的胜，手写美化代码永远可覆盖可视化设置。 */}

@@ -18,6 +18,7 @@ import {
 } from './heartbeat.mjs';
 import { getSnapshot } from './snapshots.mjs';
 import { isDriveTrial } from './drives.mjs';
+import { DEEP_TALK_DUE_KIND, createDeepTalkDueHandler } from './deepTalk.mjs';
 import { readAdminSettings } from './adminSettings.mjs';
 import { createXhsLoginProbe } from './xhsFeed.mjs';
 import { createHaWatchdogHandler, createTemporalRefreshHandler, createTestPingHandler, probeHomeAssistant, syncState } from './kinds.mjs';
@@ -130,6 +131,8 @@ export const createContext = async (config = loadConfig()) => {
 
     const handlers = {
         'test.ping': createTestPingHandler({ appleEvents, deliver }),
+        // 烛下约好的时间到了：送一条「TA 来了」（deepTalk.mjs）
+        [DEEP_TALK_DUE_KIND]: createDeepTalkDueHandler({ deliver }),
         'ha.watchdog': createHaWatchdogHandler({ db, config, deliver }),
         // 阿萌的现实时间：每天读一次 Apple 日历 / 提醒，不调模型。
         'temporal.refresh': createTemporalRefreshHandler({ db, appleEvents }),
