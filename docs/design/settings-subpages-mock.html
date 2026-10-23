@@ -1,0 +1,398 @@
+<title>设置子页重做样稿</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600&family=Noto+Serif+SC:wght@600;700&display=swap">
+<style>
+/* Layout: one phone (F skin, light) running four redesigned settings sub-pages; pattern notes beside it, stacked on phones.
+   Values mirror utils/clayTokens.ts; Settings' product colour is HUE.blue. */
+:root {
+  --page: #ECEEEA;
+  --bg: #F8F9F7; --surface: #FFFFFF; --sunken: #EDEFEA;
+  --text: #23262A; --text2: #5D635F; --text3: #959B96;
+  --border: #E3E6E0; --strong: #CBCFC8; --divider: #EBEEE8; --accent: #B4402F;
+  --main: #4982C9; --tint: #E7F0FC; --soft: #C1DCFE; --ink: #2B5386;
+  --ok: #53A768; --ok-ink: #246135; --ok-tint: #E7F3E9;
+  --bad: #CA6862; --bad-ink: #7F3B37; --bad-tint: #FCEBE9;
+  --warn-ink: #7B510D; --warn-tint: #F7EDE2;
+  --serif: "Noto Serif SC", "Songti SC", serif;
+  --sans: "Noto Sans SC", -apple-system, "PingFang SC", sans-serif;
+  --ease: cubic-bezier(.32,.72,0,1);
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--page); color: var(--text); font-family: var(--sans);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 28px 48px;
+}
+button, input { font: inherit; color: inherit; }
+.wrap { max-width: 920px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 390px) minmax(0, 1fr); gap: 36px; align-items: start; }
+@media (max-width: 780px) { .wrap { grid-template-columns: minmax(0, 1fr); } }
+
+/* phone */
+.phone { position: relative; height: 800px; background: var(--bg); border: 1px solid var(--border); border-radius: 18px; overflow: hidden; }
+.page { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--bg); transition: transform 280ms var(--ease); }
+.page.sub { transform: translateX(100%); }
+.page.sub.on { transform: none; }
+.page.home.behind { transform: translateX(-28%); }
+.bar { flex: none; height: 52px; display: grid; grid-template-columns: 44px 1fr 44px; align-items: center; padding: 0 4px; }
+.bar h1 { margin: 0; text-align: center; font-family: var(--serif); font-size: 17px; font-weight: 700; }
+.back { all: unset; width: 44px; height: 44px; display: grid; place-items: center; cursor: pointer; }
+.back svg { width: 22px; height: 22px; fill: none; stroke: var(--text); stroke-width: 24; stroke-linecap: round; stroke-linejoin: round; }
+.scroll { flex: 1; overflow-y: auto; min-height: 0; padding: 4px 16px 40px; display: flex; flex-direction: column; gap: 22px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* groups & rows */
+.group { display: flex; flex-direction: column; gap: 6px; }
+.gtitle { font-size: 12px; color: var(--text3); padding: 0 4px; letter-spacing: .04em; }
+.gfoot { font-size: 12px; line-height: 18px; color: var(--text3); padding: 0 4px; }
+.gfoot.warn { color: var(--bad-ink); }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.row {
+  position: relative; display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 8px 14px; width: 100%;
+  background: transparent; border: 0; text-align: left;
+}
+button.row { cursor: pointer; }
+button.row:active { background: var(--sunken); }
+.card > * + *::before { content: ""; position: absolute; top: 0; left: 14px; right: 0; border-top: 1px solid var(--divider); }
+.card > * { position: relative; }
+.lbl { flex: 1; min-width: 0; font-size: 15px; line-height: 21px; }
+.lbl small { display: block; font-size: 12px; line-height: 17px; color: var(--text3); margin-top: 1px; }
+.val { font-size: 14px; color: var(--text3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.chev { width: 14px; height: 14px; fill: none; stroke: var(--strong); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.link .lbl { color: var(--main); font-weight: 500; }
+.danger .lbl { color: var(--bad-ink); font-weight: 500; }
+.result { font-size: 12px; color: var(--ok-ink); }
+
+/* toggle (APP_CONVENTIONS D) */
+.tg { all: unset; position: relative; width: 48px; height: 28px; border-radius: 999px; background: var(--strong); cursor: pointer; flex: none; transition: background 140ms ease; }
+.tg::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: var(--surface); transition: left 180ms cubic-bezier(.2,.8,.2,1); }
+.tg[aria-checked="true"] { background: var(--main); }
+.tg[aria-checked="true"]::after { left: 23px; }
+
+/* field row: label on top, flat sunken input under it */
+.field { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px 12px; }
+.field label { font-size: 12px; color: var(--text3); }
+.field input { height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid transparent; background: var(--sunken); font-size: 15px; outline: none; min-width: 0; width: 100%; }
+.field input:focus { border-color: var(--accent); }
+.field .inline { display: flex; gap: 8px; align-items: center; }
+.field .inline button { all: unset; cursor: pointer; color: var(--main); font-size: 14px; font-weight: 500; padding: 0 4px; height: 40px; display: grid; place-items: center; flex: none; }
+
+/* segmented (APP_CONVENTIONS B) */
+.seg { position: relative; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; background: var(--sunken); border-radius: 10px; padding: 2px; margin: 10px 14px; }
+.seg .knob { position: absolute; top: 2px; bottom: 2px; left: 2px; border-radius: 8px; background: var(--surface); transition: transform 340ms var(--ease); }
+.seg button { all: unset; position: relative; z-index: 1; text-align: center; height: 32px; line-height: 32px; font-size: 14px; color: var(--text2); cursor: pointer; }
+.seg button[aria-pressed="true"] { color: var(--text); font-weight: 600; }
+.seg.standalone { margin: 0; }
+
+/* chips (multi-select) */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 14px 14px; }
+.chip { all: unset; cursor: pointer; font-size: 13px; padding: 6px 12px; border-radius: 999px; background: var(--tint); color: var(--ink); }
+.chip[aria-pressed="true"] { background: var(--main); color: #FFFFFF; }
+
+/* stepper */
+.step { display: flex; align-items: center; background: var(--sunken); border-radius: 10px; flex: none; }
+.step button { all: unset; cursor: pointer; width: 32px; height: 32px; display: grid; place-items: center; font-size: 18px; color: var(--text); }
+.step span { min-width: 56px; text-align: center; font-size: 14px; font-variant-numeric: tabular-nums; }
+
+/* hero */
+.hero { background: var(--tint); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 4px; }
+.hero b { font-size: 20px; line-height: 28px; font-weight: 600; color: var(--ink); }
+.hero span { font-size: 13px; color: var(--text2); }
+.hero .acts { display: flex; justify-content: flex-end; gap: 8px; }
+.txt { all: unset; cursor: pointer; color: var(--main); font-size: 15px; font-weight: 500; min-height: 44px; display: inline-flex; align-items: center; padding: 0 4px; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); display: inline-block; margin-right: 6px; vertical-align: 1px; }
+.tile { width: 32px; height: 32px; border-radius: 8px; background: var(--sunken); display: grid; place-items: center; flex: none; }
+.tile svg { width: 18px; height: 18px; fill: none; stroke: var(--text); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.home .row { padding-left: 12px; }
+.home .card > * + *::before { left: 56px; }
+
+/* notes */
+.notes { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.notes h2 { font-family: var(--serif); font-size: 22px; margin: 0; }
+.notes h3 { font-family: var(--serif); font-size: 16px; margin: 0 0 6px; }
+.notes p, .notes li { font-size: 14px; line-height: 1.75; color: var(--text2); margin: 0; }
+.notes ul { margin: 0; padding-left: 1.1em; display: flex; flex-direction: column; gap: 4px; }
+.notes b { color: var(--text); font-weight: 600; }
+@media (prefers-reduced-motion: reduce) { .page, .seg .knob, .tg, .tg::after { transition: none; } }
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
+  <symbol id="i-back" viewBox="0 0 256 256"><path d="M160 208 80 128l80-80"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4zM13 7l4 4"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2V5zM4 19a2 2 0 0 1 2-2h13"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="M3 7h18v4H3zM5 11v9h14v-9M10 15h4"/></symbol>
+  <symbol id="i-ext" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
+</svg>
+
+<main class="wrap">
+  <section class="phone" aria-label="设置子页示意">
+    <!-- HOME (only the rows that lead to the four sample pages) -->
+    <div class="page home" id="home">
+      <div class="bar"><span></span><h1>设置</h1><span></span></div>
+      <div class="scroll">
+        <div class="group"><div class="gtitle">角色能感知</div><div class="card">
+          <button class="row" data-go="realtime"><span class="tile"><svg><use href="#i-sun"/></svg></span><span class="lbl">实时感知<small>天气、新闻</small></span><span class="val">天气 · 新闻</span><svg class="chev"><use href="#i-chev"/></svg></button>
+        </div></div>
+        <div class="group"><div class="gtitle">角色能用的工具</div><div class="card">
+          <button class="row" data-go="diary"><span class="tile"><svg><use href="#i-pen"/></svg></span><span class="lbl">日记同步<small>Notion</small></span><span class="val">已连上</span><svg class="chev"><use href="#i-chev"/></svg></button>
+          <button class="row" data-go="xhs"><span class="tile"><svg><use href="#i-book"/></svg></span><span class="lbl">小红书</span><span class="val">已登录</span><svg class="chev"><use href="#i-chev"/></svg></button>
+        </div></div>
+        <div class="group"><div class="gtitle">备份</div><div class="card">
+          <button class="row" data-go="backup"><span class="tile"><svg><use href="#i-box"/></svg></span><span class="lbl">备份与恢复</span><span class="val">3 小时前</span><svg class="chev"><use href="#i-chev"/></svg></button>
+        </div></div>
+        <p class="gfoot">样稿只画了这四页。点一行进去，左上角返回。名字、数字、地址都是示例。</p>
+      </div>
+    </div>
+
+    <!-- 实时感知 -->
+    <div class="page sub" id="p-realtime">
+      <div class="bar"><button class="back" data-back aria-label="返回设置"><svg><use href="#i-back"/></svg></button><h1>实时感知</h1><span></span></div>
+      <div class="scroll">
+        <div class="group">
+          <div class="card">
+            <div class="row"><span class="lbl">天气<small>角色会知道你那边的天气</small></span><button class="tg" role="switch" aria-checked="true" aria-label="天气" data-reveal="weather"></button></div>
+            <div data-when="weather">
+              <div class="seg" data-seg="wmode"><span class="knob"></span><button aria-pressed="true" data-v="auto">自动定位</button><button aria-pressed="false" data-v="city">固定城市</button></div>
+            </div>
+            <button class="row" data-when="weather" data-when2="wmode:city" hidden><span class="lbl">城市</span><span class="val">Birmingham, Alabama</span><svg class="chev"><use href="#i-chev"/></svg></button>
+            <button class="row link" data-when="weather" id="test-weather"><span class="lbl">测试一下<small class="result" id="weather-result" hidden>18°C 多云 · 刚刚</small></span></button>
+          </div>
+          <div class="gfoot">免 key（Open-Meteo）。自动定位第一次会问你要不要给位置。</div>
+        </div>
+
+        <div class="group">
+          <div class="card">
+            <div class="row"><span class="lbl">新闻热点<small>聊天时角色会顺手捕捉热点</small></span><button class="tg" role="switch" aria-checked="true" aria-label="新闻热点" data-reveal="news"></button></div>
+            <div data-when="news">
+              <div class="chips" id="chips"></div>
+            </div>
+          </div>
+          <div class="gfoot">中文多平台热榜，免鉴权。一个都不选时，退回英文的 Hacker News。</div>
+        </div>
+
+        <div class="group">
+          <div class="gtitle">高级</div>
+          <div class="card">
+            <button class="row"><span class="lbl">备用新闻源（Brave）<small>只在热榜拉不到时才用，基本不用配</small></span><span class="val">没填</span><svg class="chev"><use href="#i-chev"/></svg></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 日记同步 -->
+    <div class="page sub" id="p-diary">
+      <div class="bar"><button class="back" data-back aria-label="返回设置"><svg><use href="#i-back"/></svg></button><h1>日记同步</h1><span></span></div>
+      <div class="scroll">
+        <div class="hero"><b><span class="dot"></span>Notion 已连上</b><span>日记写进「LiliumOS 日记」· 刚刚测过</span><div class="acts"><button class="txt">测试连接</button></div></div>
+
+        <div class="group">
+          <div class="gtitle">连接</div>
+          <div class="card">
+            <div class="field"><label for="n-token">Integration Token</label><input id="n-token" type="password" value="ntn_example_token_12345"></div>
+            <div class="field"><label for="n-db">日记数据库 ID</label><input id="n-db" value="1a2b3c4d5e6f7a8b9c0d"></div>
+          </div>
+          <div class="gfoot">Token 在 Notion 开发者页面拿；数据库 ID 从数据库网址里复制。</div>
+        </div>
+
+        <div class="group">
+          <div class="gtitle">日记附加列</div>
+          <div class="card">
+            <div class="row"><span class="lbl">角色名</span><button class="tg" role="switch" aria-checked="true" aria-label="角色名列" data-reveal="col-char"></button></div>
+            <div class="field" data-when="col-char"><label for="c-char">写进哪一列</label><input id="c-char" value="Character"></div>
+            <div class="row"><span class="lbl">心情</span><button class="tg" role="switch" aria-checked="false" aria-label="心情列" data-reveal="col-mood"></button></div>
+            <div class="field" data-when="col-mood" hidden><label for="c-mood">写进哪一列</label><input id="c-mood" placeholder="Mood"></div>
+          </div>
+          <div class="gfoot">写日记时顺手填上，Notion 里就能按角色筛。</div>
+        </div>
+
+        <div class="group">
+          <div class="gtitle">角色能读的库</div>
+          <div class="card">
+            <button class="row"><span class="lbl">我的笔记</span><span class="val">已设置</span><svg class="chev"><use href="#i-chev"/></svg></button>
+            <button class="row"><span class="lbl">读书摘抄<small>标签 book</small></span><svg class="chev"><use href="#i-chev"/></svg></button>
+            <button class="row link"><span class="lbl">添加一个库</span></button>
+          </div>
+          <div class="gfoot">只读：角色按标签翻这些库，不会往里写。</div>
+        </div>
+
+        <div class="group">
+          <div class="card">
+            <a class="row link" href="https://www.notion.so/my-integrations" target="_blank" rel="noopener" style="text-decoration:none"><span class="lbl">去 Notion 开发者页面</span><svg class="chev" style="stroke:var(--main)"><use href="#i-ext"/></svg></a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 小红书 -->
+    <div class="page sub" id="p-xhs">
+      <div class="bar"><button class="back" data-back aria-label="返回设置"><svg><use href="#i-back"/></svg></button><h1>小红书</h1><span></span></div>
+      <div class="scroll">
+        <div class="seg standalone" data-seg="xmode"><span class="knob"></span><button aria-pressed="true" data-v="local">本地（Mac mini）</button><button aria-pressed="false" data-v="lite">Lite（云端）</button></div>
+
+        <div class="hero"><b><span class="dot"></span>已登录 · 小萌</b><span>首页刷得到 · 刚刚测过</span>
+          <div class="acts"><button class="txt" data-only="xmode:local">扫码登录</button><button class="txt">测试连接</button></div></div>
+
+        <div class="group" data-only="xmode:local">
+          <div class="gtitle">mini 上的服务</div>
+          <div class="card">
+            <div class="field"><label for="x-url">服务地址</label><input id="x-url" value="https://mini.example.ts.net/xhs/mcp"></div>
+            <div class="field"><label for="x-token">访问令牌</label><input id="x-token" type="password" value="example-token"></div>
+          </div>
+          <div class="gfoot">令牌在 mini 的 xhs-mcp-token 文件里。登录态存在 mini 上，换手机不用重新扫。</div>
+        </div>
+
+        <div class="group" data-only="xmode:lite" hidden>
+          <div class="gtitle">云端</div>
+          <div class="card">
+            <div class="field"><label for="x-cookie">小红书 Cookie</label><input id="x-cookie" type="password" placeholder="从网页版复制"></div>
+            <button class="row link"><span class="lbl">复制获取 Cookie 的教程</span></button>
+          </div>
+          <div class="gfoot">Cookie 只存在这台手机上，不保存、不记录到服务器。</div>
+        </div>
+
+        <div class="group">
+          <div class="gtitle">账号</div>
+          <div class="card">
+            <div class="row"><span class="lbl">昵称</span><span class="val">小萌</span></div>
+            <div class="row"><span class="lbl">用户 ID</span><span class="val">5f8a…c21e</span></div>
+          </div>
+          <div class="gfoot">角色只能刷首页、看笔记、点赞收藏；发帖和评论已经停用。</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 备份与恢复 -->
+    <div class="page sub" id="p-backup">
+      <div class="bar"><button class="back" data-back aria-label="返回设置"><svg><use href="#i-back"/></svg></button><h1>备份与恢复</h1><span></span></div>
+      <div class="scroll">
+        <div class="hero"><b id="bk-title">上次备份 3 小时前</b><span id="bk-sub">自动 · 纯文字 · 2.4 MB · GitHub</span><div class="acts"><button class="txt" id="bk-now">立即备份</button></div></div>
+
+        <div class="group">
+          <div class="gtitle">云端 · GitHub</div>
+          <div class="card">
+            <button class="row"><span class="lbl">存在哪</span><span class="val">@Emma-Zhuym / sully-backup</span><svg class="chev"><use href="#i-chev"/></svg></button>
+            <button class="row link"><span class="lbl">备份完整的一份<small>含图片和美化素材，比较大</small></span></button>
+            <button class="row"><span class="lbl">从云端恢复</span><span class="val">12 份</span><svg class="chev"><use href="#i-chev"/></svg></button>
+          </div>
+          <div class="gfoot">每天打开 App 时自动备一份纯文字，留最近 7 份；手点的完整备份另留 5 份。</div>
+        </div>
+
+        <div class="group">
+          <div class="gtitle">这台手机上的文件</div>
+          <div class="card">
+            <button class="row link"><span class="lbl">导出完整 ZIP</span></button>
+            <button class="row link"><span class="lbl">只导出文字</span></button>
+            <button class="row link"><span class="lbl">只导出图片与美化素材</span></button>
+            <button class="row"><span class="lbl">从文件恢复</span><span class="val">.zip / .json</span><svg class="chev"><use href="#i-chev"/></svg></button>
+            <div class="row"><span class="lbl">带上主动消息 2.0 的连接<small>换手机恢复时才打开</small></span><button class="tg" role="switch" aria-checked="false" aria-label="带上主动消息连接" data-reveal="amsg-warn"></button></div>
+          </div>
+          <div class="gfoot warn" data-when="amsg-warn" hidden>开着导出的文件别分享给别人：拿到的人能连上你那台 Worker，也能解开里面的聊天记录。</div>
+        </div>
+
+        <div class="group">
+          <div class="gtitle">视频模型（VRM / Live2D）</div>
+          <div class="card">
+            <div class="row"><span class="lbl">本机有</span><span class="val">2 个 · 48 MB</span></div>
+            <button class="row link"><span class="lbl">导出模型包</span></button>
+            <button class="row link"><span class="lbl">导入模型包</span></button>
+          </div>
+          <div class="gfoot">模型太大，不跟普通备份走。恢复时先导普通数据，再导模型包。</div>
+        </div>
+
+        <div class="group">
+          <div class="card">
+            <div class="row"><span class="lbl">备份提醒<small>超过这么久没导出就提醒一次</small></span>
+              <span class="step"><button aria-label="少一天" data-step="-1">−</button><span id="remind">每 7 天</span><button aria-label="多一天" data-step="1">+</button></span></div>
+            <button class="row link"><span class="lbl">清理表情包残留<small>删掉的角色留下的表情分类，先列出来再删</small></span></button>
+          </div>
+        </div>
+
+        <div class="group">
+          <div class="card">
+            <button class="row danger"><span class="lbl">格式化系统（出厂设置）</span></button>
+          </div>
+          <div class="gfoot">清空这台手机上所有角色、聊天和设置。点了会再问你一次。</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <aside class="notes">
+    <h2>设置子页重做样稿</h2>
+    <p>把上游一块一块的大彩色卡片，换成跟设置首页一样的分组列表。点左边的四行进去看，开关、分段、小圆片都能点。</p>
+
+    <div>
+      <h3>几种零件，所有子页通用</h3>
+      <ul>
+        <li><b>开关行</b>：打开后相关的选项才在同一组里冒出来，关着时只有一行。</li>
+        <li><b>填写行</b>：小标签在上，平底输入框在下；Token 一律显示成圆点。</li>
+        <li><b>状态卡</b>：连接类的页面顶上一张淡蓝卡，写连没连上、什么时候测过，右下角「测试连接」。</li>
+        <li><b>分段</b>：二选一（自动定位 / 固定城市、本地 / 云端）用灰底白块滑动。</li>
+        <li><b>小圆片</b>：多选（新闻平台），选中是实心蓝。</li>
+        <li><b>蓝字行</b>：一次性的动作（测试一下、导出、添加），不再画成大按钮。</li>
+        <li><b>灰色小字</b>：说明写在每组下面，不再塞进卡片里。</li>
+        <li><b>高级 / 危险</b>：很少碰的收进「高级」；会删东西的单独一组放最底下，红字。</li>
+      </ul>
+    </div>
+
+    <div>
+      <h3>顺便去掉的</h3>
+      <ul>
+        <li>飞书日记、麦当劳、瑞幸、运动感知（roadmap 里已经定了删）。</li>
+        <li>每块功能各一种颜色的底。整页只剩设置的蓝，绿点和红字只表示状态。</li>
+        <li>emoji 和渐变按钮。</li>
+      </ul>
+    </div>
+  </aside>
+</main>
+
+<script>
+(() => {
+  const home = document.getElementById('home');
+  let current = null;
+  const open = id => { const p = document.getElementById('p-' + id); if (!p) return; p.classList.add('on'); home.classList.add('behind'); current = p; p.querySelector('.scroll').scrollTop = 0; };
+  const close = () => { current?.classList.remove('on'); home.classList.remove('behind'); current = null; };
+  document.querySelectorAll('[data-go]').forEach(b => b.addEventListener('click', () => open(b.dataset.go)));
+  document.querySelectorAll('[data-back]').forEach(b => b.addEventListener('click', close));
+
+  const segVal = {};
+  const refresh = () => {
+    document.querySelectorAll('[data-when]').forEach(el => {
+      const sw = document.querySelector(`[data-reveal="${el.dataset.when}"]`);
+      let show = sw ? sw.getAttribute('aria-checked') === 'true' : true;
+      if (show && el.dataset.when2) { const [k, v] = el.dataset.when2.split(':'); show = segVal[k] === v; }
+      el.hidden = !show;
+    });
+    document.querySelectorAll('[data-only]').forEach(el => { const [k, v] = el.dataset.only.split(':'); el.hidden = segVal[k] !== v; });
+  };
+
+  document.querySelectorAll('.tg').forEach(t => t.addEventListener('click', () => {
+    t.setAttribute('aria-checked', String(t.getAttribute('aria-checked') !== 'true')); refresh();
+  }));
+
+  document.querySelectorAll('.seg').forEach(seg => {
+    const knob = seg.querySelector('.knob'); const btns = [...seg.querySelectorAll('button')];
+    const place = i => { knob.style.width = `calc((100% - 4px) / ${btns.length})`; knob.style.transform = `translateX(${i * 100}%)`; };
+    btns.forEach((b, i) => { if (b.getAttribute('aria-pressed') === 'true') { place(i); segVal[seg.dataset.seg] = b.dataset.v; }
+      b.addEventListener('click', () => { btns.forEach(x => x.setAttribute('aria-pressed', String(x === b))); place(i); segVal[seg.dataset.seg] = b.dataset.v; refresh(); }); });
+  });
+
+  const platforms = ['微博', '知乎', 'B站', '抖音', '百度', '今日头条', '豆瓣', '虎扑', '贴吧', '少数派', '36氪', 'V2EX', 'GitHub', '财联社'];
+  const on = new Set(['微博', '知乎', 'B站', '豆瓣', '少数派']);
+  const chips = document.getElementById('chips');
+  platforms.forEach(name => { const c = document.createElement('button'); c.className = 'chip'; c.textContent = name; c.setAttribute('aria-pressed', String(on.has(name)));
+    c.addEventListener('click', () => c.setAttribute('aria-pressed', String(c.getAttribute('aria-pressed') !== 'true'))); chips.appendChild(c); });
+
+  document.getElementById('test-weather').addEventListener('click', () => { document.getElementById('weather-result').hidden = false; });
+  document.getElementById('bk-now').addEventListener('click', () => { document.getElementById('bk-title').textContent = '上次备份 刚刚'; document.getElementById('bk-sub').textContent = '手动 · 纯文字 · 2.4 MB · GitHub'; });
+  let days = 7; const remind = document.getElementById('remind');
+  document.querySelectorAll('[data-step]').forEach(b => b.addEventListener('click', () => { days = Math.min(30, Math.max(1, days + Number(b.dataset.step))); remind.textContent = `每 ${days} 天`; }));
+
+  refresh();
+})();
+</script>
