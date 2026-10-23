@@ -15,17 +15,11 @@ import { extractModelIds, normalizeModelIds } from '../utils/modelList';
 import { EXPORT_CHUNK_SIZE, sliceRanges } from '../utils/backupExport';
 import { bucketRetryCount, trackEvent } from '../utils/analytics';
 import Modal from '../components/os/Modal';
-import { NotionManager, FeishuManager, RealtimeContextManager } from '../utils/realtimeContext';
-import { searchCities, fetchOpenMeteoCurrent, resolveWeatherCoords, formatLocationLabel, type WeatherLocation } from '../utils/openMeteo'; // [EM: weather-openmeteo]
-import { XhsMcpClient, type XhsLoginQrcode } from '../utils/xhsMcpClient'; // [EM: xhs-mini-mcp] 扫码登录
-import { getMcdToken, setMcdToken as saveMcdToken, isMcdEnabled, setMcdEnabled as saveMcdEnabled, testMcdConnection, resetMcdSession } from '../utils/mcdMcpClient';
-import { getLuckinToken, setLuckinToken as saveLuckinToken, isLuckinEnabled, setLuckinEnabled as saveLuckinEnabled, testLuckinConnection, resetLuckinSession } from '../utils/luckinMcpClient';
 import { getProxyWorkerUrl, setProxyWorkerUrl, DEFAULT_PROXY_WORKER } from '../utils/proxyWorker';
 import { VOICE_ACTING_GUIDE } from '../utils/minimaxTts';
 import { FISH_VOICE_ACTING_GUIDE } from '../utils/fishAudioTts';
 import { DATE_VOICE_GUIDE } from '../utils/datePrompts';
-import { Sun, Newspaper, NotePencil, Notebook, Book, ForkKnife, Coffee, PersonSimpleRun, PlugsConnected, ImageSquare, PencilSimple, X } from '@phosphor-icons/react'; // [EM: PersonSimpleRun]
-import { requestMotionPermission, startMotionListening, stopMotionListening, isMotionListening } from '../utils/deviceMotion'; // [EM: device-motion]
+import { PlugsConnected, ImageSquare, PencilSimple, X } from '@phosphor-icons/react';
 import { loadMcpServers, saveMcpServers, createMcpServer, testMcpConnection, resetMcpSession, getMcpUseNativeTools, setMcpUseNativeTools, type McpServerConfig } from '../utils/mcpClient';
 import { loadPushConfig, savePushConfig, registerScheduleOnWorker, startHeartbeat, stopHeartbeat, isPushConfigAvailable, ensureSubscribed, sendTestPush, getPushDiagnostics, resetSubscription, deepResetSubscription, type PushDiagnostics } from '../utils/proactivePushConfig';
 import { ProactiveChat } from '../utils/proactiveChat';
@@ -38,13 +32,6 @@ import { ActiveMsgClient } from '../utils/activeMsgClient';
 import VersionInfo from '../components/settings/VersionInfo';
 import { LoyalUserRecruitmentController } from '../components/LoyalUserRecruitmentEvent';
 import { isPushVapidReady } from '../utils/pushVapid';
-import type { NotionDiaryExtraProperty, NotionExtraDatabase } from '../types';
-import {
-    dedupeNotionReadNoteRows,
-    migrateLegacyNotionNotesToExtra,
-    normalizeNotionExtraTag,
-    NOTION_USER_NOTES_TAG,
-} from '../utils/notionExtraConfig';
 import ApiCallLogModal from '../components/settings/ApiCallLogModal';
 import StorageUsagePanel from '../components/settings/StorageUsagePanel';
 import ExternalImagesPanel from '../components/settings/ExternalImagesPanel'; // [EM: external-images-rescue]
@@ -59,11 +46,9 @@ import {
 } from '../utils/avatarModelBackup';
 import { normalizeApiBaseUrl, normalizeApiCredential, normalizeApiModel } from '../utils/apiConfigNormalize';
 import { describeImageWithVisionApi, VISION_API_TEST_IMAGE_DATA_URL, visionApiConfigFromPreset } from '../utils/visionApi';
-import { readLiliumOSStorage, writeLiliumOSStorage } from '../utils/liliumosStorage';
 import { buildImageModelsUrl, generateChatImage, resolveImageGenerationConfig } from '../utils/imageGeneration';
 import { F, FONT, HUE, R, S, SP, STATUS, iconButtonBare } from '../utils/clayTokens'; // [EM: settings-ios-list] FONT、iconButtonBare
 import { askRestoreBackendConnection } from '../utils/activeMsgStore';
-import CloudBackupAutoStatus from '../components/settings/CloudBackupAutoStatus'; // [EM: auto-cloud-backup]
 // [EM-START: github-backup-status]
 import { shouldUseGithubProxy } from '../utils/githubClient';
 import CloudBackupRestoreList, { type CloudBackupListState } from '../components/settings/CloudBackupRestoreList';
@@ -76,40 +61,17 @@ import SettingsHome, { type SettingsHomeValues } from '../components/settings/Se
 import McpStatusPanel from '../components/settings/McpStatusPanel';
 import ProfileSettingsPage from '../components/settings/ProfileSettingsPage';
 import { CaretLeft } from '@phosphor-icons/react';
-import { MULTI_SECTION_PAGES, REALTIME_SHEET_PAGES, SETTINGS_PAGE_TITLES, relativeAgo, type SettingsPageId } from '../utils/emSettingsPages';
+import { MULTI_SECTION_PAGES, SETTINGS_PAGE_TITLES, relativeAgo, type SettingsPageId } from '../utils/emSettingsPages';
 import { staleBackupDays } from '../utils/autoCloudBackup';
 import { loadInstantConfig } from '../utils/instantPushClient';
 import { APP_VERSION } from '../utils/buildInfo';
 import { SETTINGS_F_CLASS, SETTINGS_F_VARS } from '../components/settings/settingsF'; // [EM: settings-skin-f]
 import SettingsSheet, { SettingsInlineSlotContext } from '../components/settings/SettingsSheet'; // [EM: settings-inline-config]
+import RealtimeSensePage from '../components/settings/RealtimeSensePage'; // [EM: settings-subpages-f]
+import DiarySyncPage from '../components/settings/DiarySyncPage'; // [EM: settings-subpages-f]
+import XhsSettingsPage from '../components/settings/XhsSettingsPage'; // [EM: settings-subpages-f]
+import BackupSettingsPage from '../components/settings/BackupSettingsPage'; // [EM: settings-subpages-f]
 // [EM-END: settings-ios-list]
-
-const MOTION_ENABLED_KEY = 'liliumos_motion_enabled';
-const LEGACY_MOTION_ENABLED_KEYS = ['sullyem_motion_enabled'];
-
-// hot_news（news.orz.ai）可选热榜平台。key 必须与 API 的 ?platform= 完全一致。
-const HOTNEWS_PLATFORM_OPTIONS: { key: string; label: string }[] = [
-    { key: 'weibo', label: '微博' },
-    { key: 'zhihu', label: '知乎' },
-    { key: 'baidu', label: '百度' },
-    { key: 'bilibili', label: 'B站' },
-    { key: 'douyin', label: '抖音' },
-    { key: 'jinritoutiao', label: '今日头条' },
-    { key: 'tieba', label: '贴吧' },
-    { key: 'hupu', label: '虎扑' },
-    { key: 'douban', label: '豆瓣' },
-    { key: 'tskr', label: '36氪' },
-    { key: 'juejin', label: '掘金' },
-    { key: 'sspai', label: '少数派' },
-    { key: 'vtex', label: 'V2EX' },
-    { key: 'github', label: 'GitHub' },
-    { key: 'hackernews', label: 'Hacker News' },
-    { key: 'sina_finance', label: '新浪财经' },
-    { key: 'eastmoney', label: '东方财富' },
-    { key: 'xueqiu', label: '雪球' },
-    { key: 'cls', label: '财联社' },
-    { key: 'tenxunwang', label: '腾讯网' },
-];
 
 // 「主动消息 Push 加速」面板入口开关。底层逻辑（心跳、订阅、诊断）全部保留，
 // 这里设为 false 只是把设置页里的入口隐藏掉，想恢复改回 true 即可。
@@ -598,7 +560,6 @@ const Settings: React.FC = () => {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showPresetModal, setShowPresetModal] = useState(false);
   const [showApiCallLog, setShowApiCallLog] = useState(false);
-  const [showRealtimeModal, setShowRealtimeModal] = useState(false);
   const [showMcpModal, setShowMcpModal] = useState(false);
   const [showMcpHelp, setShowMcpHelp] = useState(false);
   const [showCloudModal, setShowCloudModal] = useState(false);
@@ -643,96 +604,6 @@ const Settings: React.FC = () => {
   // 入口刻意低调：默认折叠，普通用户不需要碰，开箱即用。
   const [proxyWorkerInput, setProxyWorkerInput] = useState(getProxyWorkerUrl());
   const [showProxyConfig, setShowProxyConfig] = useState(false);
-
-  // 实时感知配置的本地状态
-  const [rtWeatherEnabled, setRtWeatherEnabled] = useState(realtimeConfig.weatherEnabled);
-  // [EM-START: weather-openmeteo] 免 key：模式切换 + 城市搜索选定（存坐标）
-  const [rtWeatherMode, setRtWeatherMode] = useState<'geo' | 'city'>(realtimeConfig.weatherMode || 'geo');
-  const [rtWeatherLocation, setRtWeatherLocation] = useState<WeatherLocation | undefined>(realtimeConfig.weatherLocation);
-  const [rtCityQuery, setRtCityQuery] = useState('');
-  const [rtCityCandidates, setRtCityCandidates] = useState<WeatherLocation[]>([]);
-  const [rtCitySearching, setRtCitySearching] = useState(false);
-  // [EM-END: weather-openmeteo]
-  const [rtNewsEnabled, setRtNewsEnabled] = useState(realtimeConfig.newsEnabled);
-  const [rtNewsApiKey, setRtNewsApiKey] = useState(realtimeConfig.newsApiKey || '');
-  const [rtNewsPlatforms, setRtNewsPlatforms] = useState<string[]>(realtimeConfig.newsPlatforms || ['weibo', 'zhihu', 'baidu', 'bilibili', 'douyin']);
-  const [rtNotionEnabled, setRtNotionEnabled] = useState(realtimeConfig.notionEnabled);
-  const [rtNotionKey, setRtNotionKey] = useState(realtimeConfig.notionApiKey);
-  const [rtNotionDbId, setRtNotionDbId] = useState(realtimeConfig.notionDatabaseId);
-  const [rtNotionNotesDbId, setRtNotionNotesDbId] = useState(realtimeConfig.notionNotesDatabaseId || '');
-  // Emma: Notion diary extra columns
-  const [rtDiaryExtraCharacter, setRtDiaryExtraCharacter] = useState(false);
-  const [rtDiaryExtraCharacterColumn, setRtDiaryExtraCharacterColumn] = useState('');
-  const [rtDiaryExtraMood, setRtDiaryExtraMood] = useState(false);
-  const [rtDiaryExtraMoodColumn, setRtDiaryExtraMoodColumn] = useState('');
-  // Emma: read-only extra databases with TAG system
-  const [rtNotionExtraDbs, setRtNotionExtraDbs] = useState<NotionExtraDatabase[]>(realtimeConfig.notionExtraDatabases || []);
-  const [notionReadOnlyDbsExpanded, setNotionReadOnlyDbsExpanded] = useState(false);
-  const [rtFeishuEnabled, setRtFeishuEnabled] = useState(realtimeConfig.feishuEnabled);
-  const [rtFeishuAppId, setRtFeishuAppId] = useState(realtimeConfig.feishuAppId);
-  const [rtFeishuAppSecret, setRtFeishuAppSecret] = useState(realtimeConfig.feishuAppSecret);
-  const [rtFeishuBaseId, setRtFeishuBaseId] = useState(realtimeConfig.feishuBaseId);
-  const [rtFeishuTableId, setRtFeishuTableId] = useState(realtimeConfig.feishuTableId);
-  const [rtXhsEnabled, setRtXhsEnabled] = useState(realtimeConfig.xhsEnabled);
-  const [rtMotionEnabled, setRtMotionEnabled] = useState(() => {
-    return readLiliumOSStorage(MOTION_ENABLED_KEY, LEGACY_MOTION_ENABLED_KEYS) === '1';
-  });
-  // lite 模式走中心配置的主代理 worker（/api 是 worker/index.js 里的 XHSLite 桥）。
-  // 用户改了「自定义网络代理」，lite 模式自动跟着切到新 worker。
-  const XHS_LITE_URL = `${getProxyWorkerUrl()}/api`;
-  const XHS_RISK_TEXT = '⚠️ 风险：本功能基于网页爬虫技术调用小红书，账号有被风控的概率。建议①用小号；②尽量别让角色主动发帖；③发出的笔记可能被屏蔽。';
-  const XHS_COOKIE_GUIDE = [
-    '【获取小红书 cookie 教程】',
-    '1. 用电脑浏览器(Chrome/Edge)登录实际分配给你的站点：www.xiaohongshu.com 或 www.rednote.com',
-    '2. 按 F12 打开开发者工具，切到「Network/网络」标签',
-    '3. 刷新页面，点列表最上面那条「explore」(document 类型，发给当前网站的主请求)',
-    '4. 右侧切到「Headers/标头」，往下滚到「Request Headers/请求标头」',
-    '5. 找到 cookie: 开头那一行(很长一串)',
-    '6. 复制它后面整段的值：可把 Request Headers 右边的「Raw」开关打开看纯文本更好选，或在值上右键 Copy value，或选中后 Ctrl+C',
-    '7. 确认这串里有 a1= 和 web_session= 两个字段(最关键)，粘到「小红书 Lite」的 cookie 框',
-    'Lite 会自动判断这串 Cookie 属于国内小红书还是全球 RedNote；不用自己补 gid、bRequestId 等会随站点变化的字段。',
-    '注意：别用 Console 的 document.cookie，拿不到 web_session(httpOnly)。cookie 数天~数周会过期，失效重复制即可。',
-  ].join('\n');
-  const _xhsCfgUrl = realtimeConfig.xhsMcpConfig?.serverUrl || '';
-  // local MCP 地址不含 /api；lite bridge 含 /api。按这个判模式（与 xhsMcpClient.detectMode 一致），
-  // 比之前的 `!== XHS_LITE_URL` 更稳——换 worker 域名后老的 lite 配置不会被误判成 local。
-  const _xhsIsLocal = !!_xhsCfgUrl && !_xhsCfgUrl.includes('/api');
-  const [rtXhsMcpEnabled, setRtXhsMcpEnabled] = useState(realtimeConfig.xhsMcpConfig?.enabled || false);
-  const [rtXhsMode, setRtXhsMode] = useState<'lite' | 'local'>(_xhsIsLocal ? 'local' : 'lite');
-  const [rtXhsLocalUrl, setRtXhsLocalUrl] = useState(_xhsIsLocal ? _xhsCfgUrl : 'http://localhost:18060/mcp');
-  const [rtXhsNickname, setRtXhsNickname] = useState(realtimeConfig.xhsMcpConfig?.loggedInNickname || '');
-  const [rtXhsUserId, setRtXhsUserId] = useState(realtimeConfig.xhsMcpConfig?.loggedInUserId || '');
-  const [rtXhsCookie, setRtXhsCookie] = useState(realtimeConfig.xhsMcpConfig?.cookie || '');
-  const [rtXhsPlatform, setRtXhsPlatform] = useState<'xhs' | 'rednote' | undefined>(realtimeConfig.xhsMcpConfig?.platform);
-  const [rtXhsGuideOpen, setRtXhsGuideOpen] = useState(false);
-  // [EM-START: xhs-mini-mcp] mini 上自托管的 xiaohongshu-mcp：Bearer 令牌 + 在这里扫码登录
-  const [rtXhsAuthToken, setRtXhsAuthToken] = useState(realtimeConfig.xhsMcpConfig?.authToken || '');
-  const [rtXhsQr, setRtXhsQr] = useState<{ status: string; image?: string }>({ status: '' });
-  const xhsLocalAuthToken = () => (rtXhsMode === 'local' ? rtXhsAuthToken.trim() || undefined : undefined);
-  const fetchXhsLoginQr = async () => {
-      if (!rtXhsLocalUrl) { setRtXhsQr({ status: '请先填写服务器 URL' }); return; }
-      setRtXhsQr({ status: '正在向服务器要二维码…它要先打开小红书登录页，mini 在国外时一分钟左右很正常（最多等 2 分钟）' });
-      XhsMcpClient.setAuthToken(rtXhsAuthToken);
-      const result = await XhsMcpClient.getQrcode(rtXhsLocalUrl);
-      if (!result.success) { setRtXhsQr({ status: `获取失败：${result.error}` }); return; }
-      const qr = result.data as XhsLoginQrcode;
-      if (qr.loggedIn || !qr.imageDataUrl) { setRtXhsQr({ status: qr.message || '服务器上已经是登录状态' }); return; }
-      setRtXhsQr({ status: `${qr.message}\n扫完点一下「测试连接」确认。`, image: qr.imageDataUrl });
-  };
-  // [EM-END: xhs-mini-mcp]
-  const [rtTestStatus, setRtTestStatus] = useState('');
-
-  // 麦当劳 MCP (token / 启用态都直接存 localStorage, 不进 realtimeConfig)
-  const [mcdToken, setMcdTokenState] = useState(() => getMcdToken());
-  const [mcdEnabled, setMcdEnabledState] = useState(() => isMcdEnabled());
-  const [mcdTestStatus, setMcdTestStatus] = useState('');
-  const [mcdTesting, setMcdTesting] = useState(false);
-
-  // 瑞幸 MCP (与麦当劳同构)
-  const [luckinToken, setLuckinTokenState] = useState(() => getLuckinToken());
-  const [luckinEnabled, setLuckinEnabledState] = useState(() => isLuckinEnabled());
-  const [luckinTestStatus, setLuckinTestStatus] = useState('');
-  const [luckinTesting, setLuckinTesting] = useState(false);
 
   // Proactive Push 加速器（Worker URL / VAPID 公钥写死在 proactivePushConfig.ts 常量里）
   const initialPushCfg = loadPushConfig();
@@ -1917,288 +1788,14 @@ const Settings: React.FC = () => {
       setShowResetConfirm(false);
   };
 
-  // Emma: 打开实时感知弹窗前初始化 Notion extra 字段
-  const openRealtimeModal = () => {
-      const extra = realtimeConfig.notionDiaryExtraProperties || [];
-      const charProp = extra.find(p => (p.valueTemplate || '').includes('${char}'));
-      const moodProp = extra.find(p => (p.valueTemplate || '').includes('${mood}'));
-      setRtDiaryExtraCharacter(!!charProp);
-      setRtDiaryExtraCharacterColumn((charProp?.propertyName || '').trim());
-      setRtDiaryExtraMood(!!moodProp);
-      setRtDiaryExtraMoodColumn((moodProp?.propertyName || '').trim());
-      const { config: merged } = migrateLegacyNotionNotesToExtra(realtimeConfig);
-      const notesId = merged.notionNotesDatabaseId?.trim() || merged.notionExtraDatabases?.find((d) => normalizeNotionExtraTag(d.tag) === NOTION_USER_NOTES_TAG)?.databaseId?.trim() || '';
-      setRtNotionNotesDbId(notesId);
-      setRtNotionExtraDbs(
-          merged.notionExtraDatabases?.filter((d) => normalizeNotionExtraTag(d.tag) !== NOTION_USER_NOTES_TAG).map((d) => ({ ...d })) || []
-      );
-      setNotionReadOnlyDbsExpanded(false);
-      setShowRealtimeModal(true);
-  };
-
-  // 保存实时感知配置
-  const handleSaveRealtimeConfig = () => {
-      const updates = {
-          weatherEnabled: rtWeatherEnabled,
-          weatherMode: rtWeatherMode,           // [EM: weather-openmeteo]
-          weatherLocation: rtWeatherLocation,   // [EM: weather-openmeteo]
-          newsEnabled: rtNewsEnabled,
-          newsApiKey: rtNewsApiKey,
-          newsPlatforms: rtNewsPlatforms,
-          notionEnabled: rtNotionEnabled,
-          notionApiKey: rtNotionKey,
-          notionDatabaseId: rtNotionDbId,
-          notionNotesDatabaseId: rtNotionNotesDbId || undefined,
-          // Emma: diary extra columns
-          notionDiaryExtraProperties: (() => {
-              const arr: NotionDiaryExtraProperty[] = [];
-              if (rtDiaryExtraCharacter) arr.push({ propertyName: rtDiaryExtraCharacterColumn.trim() || 'Character', notionType: 'rich_text', valueTemplate: '${char}' });
-              if (rtDiaryExtraMood) arr.push({ propertyName: rtDiaryExtraMoodColumn.trim() || 'Mood', notionType: 'rich_text', valueTemplate: '${mood}' });
-              return arr.length ? arr : undefined;
-          })(),
-          // Emma: read-only extra databases
-          notionExtraDatabases: (() => {
-              const notesId = rtNotionNotesDbId.trim();
-              const notesEntry: NotionExtraDatabase[] = notesId ? [{ id: NOTION_USER_NOTES_TAG, name: '用户笔记', tag: NOTION_USER_NOTES_TAG, databaseId: notesId }] : [];
-              const otherDbs = rtNotionExtraDbs.filter(d => normalizeNotionExtraTag(d.tag) !== NOTION_USER_NOTES_TAG && d.tag && d.databaseId);
-              const merged = dedupeNotionReadNoteRows([...notesEntry, ...otherDbs]);
-              return merged.length ? merged : undefined;
-          })(),
-          feishuEnabled: rtFeishuEnabled,
-          feishuAppId: rtFeishuAppId,
-          feishuAppSecret: rtFeishuAppSecret,
-          feishuBaseId: rtFeishuBaseId,
-          feishuTableId: rtFeishuTableId,
-          xhsEnabled: rtXhsEnabled,
-          xhsMcpConfig: {
-              enabled: rtXhsMcpEnabled,
-              serverUrl: rtXhsMode === 'lite' ? XHS_LITE_URL : rtXhsLocalUrl,
-              cookie: rtXhsMode === 'lite' ? (rtXhsCookie.trim() || undefined) : undefined,
-              authToken: xhsLocalAuthToken(), // [EM: xhs-mini-mcp]
-              platform: rtXhsMode === 'lite' ? rtXhsPlatform : undefined,
-              loggedInNickname: rtXhsNickname || undefined,
-              loggedInUserId: rtXhsUserId || undefined,
-              userXsecToken: realtimeConfig.xhsMcpConfig?.userXsecToken,
-          }
-      };
-      updateRealtimeConfig(updates);
-      RealtimeContextManager.clearCache();
-      const nextRealtimeConfig = { ...realtimeConfig, ...updates };
-      // 云端凭据 + 按配置裁剪过的提示词一起刷，否则角色到点会照着旧提示词调已关掉的工具。
-      syncAmsgToolConfigAndPrompts(nextRealtimeConfig, { characters, userProfile, groups });
-      addToast('实时感知配置已保存', 'success');
-      setShowRealtimeModal(false);
-  };
-
-  // [EM-START: weather-openmeteo] 测试天气（Open-Meteo 免 key，按当前模式取坐标）
-  const testWeatherApi = async () => {
-      if (rtWeatherMode === 'city' && !rtWeatherLocation) {
-          setRtTestStatus('请先搜索并选择一个城市');
-          return;
-      }
-      setRtTestStatus(rtWeatherMode === 'geo' ? '正在定位并查询天气...' : '正在查询天气...');
-      const coords = await resolveWeatherCoords(rtWeatherMode, rtWeatherLocation);
-      if (!coords) {
-          setRtTestStatus('定位失败（可能拒绝了权限），可改用固定城市模式');
-          return;
-      }
-      const current = await fetchOpenMeteoCurrent(coords.latitude, coords.longitude);
-      if (current) {
-          setRtTestStatus(`连接成功！${coords.displayName}: ${current.description}, ${current.temp}°C（体感 ${current.feelsLike}°C）`);
-      } else {
-          setRtTestStatus('天气查询失败，请检查网络后重试');
-      }
-  };
-
-  // 城市搜索（Open-Meteo Geocoding，候选带国家/州名，重名点选一次根治）
-  const handleCitySearch = async () => {
-      const q = rtCityQuery.trim();
-      if (!q) return;
-      setRtCitySearching(true);
-      const results = await searchCities(q);
-      setRtCityCandidates(results);
-      setRtCitySearching(false);
-      if (results.length === 0) {
-          setRtTestStatus('没有找到匹配的城市，试试英文名或换个关键词');
-      }
-  };
-  // [EM-END: weather-openmeteo]
-
-  // 测试Notion连接
-  const testNotionApi = async () => {
-      if (!rtNotionKey || !rtNotionDbId) {
-          setRtTestStatus('请填写 Notion API Key 和 Database ID');
-          return;
-      }
-      setRtTestStatus('正在测试 Notion 连接...');
-      try {
-          const result = await NotionManager.testConnection(rtNotionKey, rtNotionDbId);
-          trackEvent('测试 Notion 连接', { result: result.success ? 'ok' : 'failed' });
-          setRtTestStatus(result.message);
-      } catch (e: any) {
-          trackEvent('测试 Notion 连接', { result: 'network-error' });
-          setRtTestStatus(`网络错误: ${e.message}`);
-      }
-  };
-
-  // 测试飞书连接
-  const testFeishuApi = async () => {
-      if (!rtFeishuAppId || !rtFeishuAppSecret || !rtFeishuBaseId || !rtFeishuTableId) {
-          setRtTestStatus('请填写飞书 App ID、App Secret、多维表格 ID 和数据表 ID');
-          return;
-      }
-      setRtTestStatus('正在测试飞书连接...');
-      try {
-          const result = await FeishuManager.testConnection(rtFeishuAppId, rtFeishuAppSecret, rtFeishuBaseId, rtFeishuTableId);
-          trackEvent('测试飞书连接', { result: result.success ? 'ok' : 'failed' });
-          setRtTestStatus(result.message);
-      } catch (e: any) {
-          trackEvent('测试飞书连接', { result: 'network-error' });
-          setRtTestStatus(`网络错误: ${e.message}`);
-      }
-  };
-
-  // 测试小红书 Bridge 连接
-  const testXhsMcp = async () => {
-      const urlToUse = rtXhsMode === 'lite' ? XHS_LITE_URL : rtXhsLocalUrl;
-      const cookieToUse = rtXhsMode === 'lite' ? (rtXhsCookie.trim() || undefined) : undefined;
-      if (!urlToUse) {
-          setRtTestStatus('请填写服务器 URL');
-          return;
-      }
-      if (rtXhsMode === 'lite' && !cookieToUse) {
-          setRtTestStatus('请先粘贴小红书 cookie');
-          return;
-      }
-      setRtTestStatus('正在连接...');
-      XhsMcpClient.setAuthToken(xhsLocalAuthToken()); // [EM: xhs-mini-mcp]
-      try {
-          const result = await XhsMcpClient.testConnection(
-              urlToUse,
-              cookieToUse,
-          );
-          if (result.connected) {
-              // 昵称 / 用户 ID / xsecToken 一律不带
-              trackEvent('测试小红书桥接连接', { mode: rtXhsMode === 'lite' ? 'lite' : 'local', result: 'connected' });
-              const toolCount = result.tools?.length || 0;
-              const tokenInfo = result.xsecToken ? ' | xsecToken 已获取' : '';
-              const platformInfo = result.platform ? ` | 平台: ${result.platform === 'rednote' ? 'RedNote' : '小红书'}` : '';
-              const loginInfo = result.loggedIn
-                  ? `${platformInfo} | ${result.nickname ? `账号: ${result.nickname}` : '已登录'}${result.userId ? ` (ID: ${result.userId})` : ''}${tokenInfo}`
-                  : ' | 未登录，请检查 cookie 或登录小红书';
-              setRtTestStatus(`连接成功! ${toolCount} 个功能可用${loginInfo}`);
-              // 自动填充：只在用户未手动填写时覆盖
-              if (result.nickname && !rtXhsNickname) setRtXhsNickname(result.nickname);
-              if (result.userId && !rtXhsUserId) setRtXhsUserId(result.userId);
-              setRtXhsPlatform(result.platform);
-              const xhsUpdates = {
-                  xhsMcpConfig: {
-                      enabled: rtXhsMcpEnabled,
-                      serverUrl: urlToUse,
-                      cookie: cookieToUse,
-                      authToken: xhsLocalAuthToken(), // [EM: xhs-mini-mcp]
-                      platform: result.platform,
-                      loggedInNickname: rtXhsNickname || result.nickname,
-                      loggedInUserId: rtXhsUserId || result.userId,
-                      userXsecToken: result.xsecToken,
-                  }
-              };
-              updateRealtimeConfig(xhsUpdates);
-              const nextConfig = { ...realtimeConfig, ...xhsUpdates };
-              syncAmsgToolConfigAndPrompts(nextConfig, { characters, userProfile, groups });
-          } else {
-              trackEvent('测试小红书桥接连接', { mode: rtXhsMode === 'lite' ? 'lite' : 'local', result: 'failed' });
-              setRtTestStatus(`连接失败: ${result.error}`);
-          }
-      } catch (e: any) {
-          trackEvent('测试小红书桥接连接', { mode: rtXhsMode === 'lite' ? 'lite' : 'local', result: 'network-error' });
-          setRtTestStatus(`网络错误: ${e.message}`);
-      }
-  };
-
-  // 麦当劳 MCP: 改 token / 启用态都即时落 localStorage; "测试连接"调 initialize+tools/list
-  const handleMcdTokenChange = (v: string) => {
-      setMcdTokenState(v);
-      saveMcdToken(v);
-      resetMcdSession();
-      setMcdTestStatus('');
-  };
-  const handleMcdEnabledChange = (v: boolean) => {
-      setMcdEnabledState(v);
-      saveMcdEnabled(v);
-      if (!v) resetMcdSession();
-  };
-  const testMcdApi = async () => {
-      if (!mcdToken.trim()) { setMcdTestStatus('请先填写 MCP Token'); return; }
-      setMcdTesting(true);
-      setMcdTestStatus('正在连接麦当劳 MCP...');
-      try {
-          const r = await testMcdConnection();
-          if (r.ok) {
-              trackEvent('测试点单 MCP 连接', { provider: 'mcdonalds', result: 'ok' });
-              const names = (r.tools || []).map(t => t.name).slice(0, 6).join(', ');
-              setMcdTestStatus(`✅ ${r.message}${names ? `\n工具: ${names}${(r.tools || []).length > 6 ? ' ...' : ''}` : ''}`);
-          } else {
-              trackEvent('测试点单 MCP 连接', { provider: 'mcdonalds', result: 'failed' });
-              setMcdTestStatus(`❌ ${r.message}`);
-          }
-      } catch (e: any) {
-          trackEvent('测试点单 MCP 连接', { provider: 'mcdonalds', result: 'exception' });
-          setMcdTestStatus(`❌ ${e?.message || String(e)}`);
-      } finally {
-          setMcdTesting(false);
-      }
-  };
-
-  // 瑞幸 MCP (与麦当劳同构)
-  const handleLuckinTokenChange = (v: string) => {
-      setLuckinTokenState(v);
-      saveLuckinToken(v);
-      resetLuckinSession();
-      setLuckinTestStatus('');
-  };
-  const handleLuckinEnabledChange = (v: boolean) => {
-      setLuckinEnabledState(v);
-      saveLuckinEnabled(v);
-      if (!v) resetLuckinSession();
-  };
-  const testLuckinApi = async () => {
-      if (!luckinToken.trim()) { setLuckinTestStatus('请先填写 MCP Token'); return; }
-      setLuckinTesting(true);
-      setLuckinTestStatus('正在连接瑞幸 MCP...');
-      try {
-          const r = await testLuckinConnection();
-          if (r.ok) {
-              trackEvent('测试点单 MCP 连接', { provider: 'luckin', result: 'ok' });
-              const names = (r.tools || []).map(t => t.name).slice(0, 6).join(', ');
-              setLuckinTestStatus(`✅ ${r.message}${names ? `\n工具: ${names}${(r.tools || []).length > 6 ? ' ...' : ''}` : ''}`);
-          } else {
-              trackEvent('测试点单 MCP 连接', { provider: 'luckin', result: 'failed' });
-              setLuckinTestStatus(`❌ ${r.message}`);
-          }
-      } catch (e: any) {
-          trackEvent('测试点单 MCP 连接', { provider: 'luckin', result: 'exception' });
-          setLuckinTestStatus(`❌ ${e?.message || String(e)}`);
-      } finally {
-          setLuckinTesting(false);
-      }
-  };
+  // [EM: settings-subpages-f] 实时感知 / 日记同步 / 小红书的读写搬进 components/settings/{RealtimeSensePage,DiarySyncPage,XhsSettingsPage}.tsx；麦当劳、瑞幸 2026-10-22 删了
 
   // [EM-START: settings-ios-list] 苹果式分组列表：首页一列短行、右边写状态，点进子页
   const [settingsPage, setSettingsPage] = useState<SettingsPageId | null>(null);
   const onPage = (id: SettingsPageId) => settingsPage === id;
-  // [EM-START: settings-split-senses] 实时感知那张配置单拆给三页：感知（天气、新闻、运动）/ 日记同步 / 小红书。
-  // 不在这三页上（从别处当弹窗打开）时全显示，跟原来一样。
-  const rtSheetShows = (section: 'sense' | 'diary' | 'xhs') => {
-      if (!settingsPage || !REALTIME_SHEET_PAGES.has(settingsPage)) return true;
-      return (section === 'sense' && settingsPage === 'realtime') || (section === 'diary' && settingsPage === 'diary-sync') || (section === 'xhs' && settingsPage === 'xhs');
-  };
-  // [EM-END: settings-split-senses]
   // [EM: settings-inline-config] 实时感知 / MCP / 主动消息的配置直接铺在子页里：留给它们的节点 + 进出页时补上弹窗开合要做的事
   const [inlineSlot, setInlineSlot] = useState<HTMLDivElement | null>(null);
   useEffect(() => {
-      if (settingsPage && REALTIME_SHEET_PAGES.has(settingsPage)) openRealtimeModal(); // 跟点「配置」一样先把 Notion 栏位读出来 [EM: settings-split-senses] 三页共用这张配置
-      else setShowRealtimeModal(false);
       if (settingsPage !== 'mcp') flushMcpToolConfigSync(); // 离开 MCP 页 = 原来关弹窗：攒着的改动当场传上去
       // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settingsPage]);
@@ -2207,8 +1804,8 @@ const Settings: React.FC = () => {
       const now = Date.now();
       const imageGen = resolveImageGenerationConfig(apiConfig.imageGeneration);
       // [EM: settings-split-senses] 感知只算天气、新闻、运动；日记同步、小红书各算各的
-      const realtimeOn = [realtimeConfig.weatherEnabled && '天气', realtimeConfig.newsEnabled && '新闻', rtMotionEnabled && '运动'].filter(Boolean) as string[];
-      const diaryOn = [realtimeConfig.notionEnabled && 'Notion', realtimeConfig.feishuEnabled && '飞书'].filter(Boolean) as string[];
+      const realtimeOn = [realtimeConfig.weatherEnabled && '天气', realtimeConfig.newsEnabled && '新闻'].filter(Boolean) as string[];
+      const diaryOn = [realtimeConfig.notionEnabled && 'Notion'].filter(Boolean) as string[];
       return {
           mainApi: apiPresets.find(p => p.id === activePresetId)?.name || String(apiConfig.model || '') || '未设置',
           vision: apiConfig.visionApi?.enabled ? (apiConfig.visionApi.model || '已接入') : '未接入',
@@ -2216,7 +1813,7 @@ const Settings: React.FC = () => {
           voice: apiConfig.minimaxApiKey || apiConfig.fishAudioApiKey ? '已设置' : '未设置',
           realtime: realtimeOn.length ? realtimeOn.join(' · ') : '都关着',
           diary: diaryOn.length ? diaryOn.join(' · ') : '没开', // [EM: settings-split-senses]
-          xhs: realtimeConfig.xhsEnabled ? (rtXhsMode === 'local' ? 'mini 上那台' : '云端 Lite') : '没开', // [EM: settings-split-senses]
+          xhs: realtimeConfig.xhsEnabled ? ((realtimeConfig.xhsMcpConfig?.serverUrl || '').includes('/api') ? '云端 Lite' : 'mini 上那台') : '没开', // [EM: settings-split-senses]
           proxy: getProxyWorkerUrl() === DEFAULT_PROXY_WORKER ? '默认' : '自定义',
           backup: cloudBackupConfig.lastBackupTime ? relativeAgo(cloudBackupConfig.lastBackupTime, now) : (cloudBackupConfig.enabled ? '还没成功过' : '没开云端'),
           amsg: '',
@@ -2272,336 +1869,39 @@ const Settings: React.FC = () => {
       {/* [EM-END: settings-ios-list] */}
         
         {onPage('appearance') && <AppearanceEmergency />} {/* [EM: settings-ios-list] */}
-        {onPage('backup') && (<> {/* [EM: settings-ios-list] */}
-        {/* 数据备份区域 */}
-        <SettingsSection
-            title="备份与恢复 (ZIP)"
-            icon={
-                <div className="p-2 bg-blue-100 rounded-xl text-blue-600">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" /></svg>
-                </div>
-            }
-        >
-            {/* [EM: settings-ios-list] 存储空间、外链图片各自成了一页，挪到滚动区开头 */}
-
-            <label
-                className="mb-3 flex items-start gap-2 p-3 cursor-pointer"
-                style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard }}
-            >
-                <input
-                    type="checkbox"
-                    checked={exportBackendConnection}
-                    onChange={(e) => setExportBackendConnection(e.target.checked)}
-                    className="mt-0.5 shrink-0"
-                />
-                <span className="text-[11px] leading-relaxed" style={{ color: F.textSecondary }}>
-                    <span className="font-bold" style={{ color: F.textPrimary }}>包含主动消息 2.0 的后端连接</span>
-                    <span className="block" style={{ color: F.textTertiary }}>
-                        换设备恢复时勾上，Worker 地址和密钥会一起带走。
-                        <span className="font-bold" style={{ color: STATUS.danger.main }}>勾着导出的备份不要分享给别人</span>
-                        ——拿到文件的人能连上你那台 Worker，也能解开里面的聊天记录。云端备份是你自己的仓库，始终带着。
-                    </span>
-                </span>
-            </label>
-
-            <div className="mb-3">
-                <button onClick={() => handleExport('full')} className="w-full py-4 bg-gradient-to-r from-violet-500 to-purple-600 border border-violet-300 rounded-xl text-xs font-bold text-white shadow-sm active:scale-95 transition-all flex flex-col items-center gap-2 relative overflow-hidden mb-3">
-                    <div className="absolute top-0 right-0 px-1.5 py-0.5 bg-white/20 text-[9px] text-white rounded-bl-lg font-bold">完整</div>
-                    <div className="p-2 bg-white/20 rounded-full"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 0 1-2.247 2.118H6.622a2.25 2.25 0 0 1-2.247-2.118L3.75 7.5m8.25 3v6.75m0 0-3-3m3 3 3-3M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125Z" /></svg></div>
-                    <span>整合导出 (文字+媒体)</span>
-                </button>
-            </div>
-
-            <p className="text-[10px] text-slate-400 px-1 mb-3 text-center">以下为分步导出，适合低配设备分次备份</p>
-
-            <div className="grid grid-cols-2 gap-3 mb-3">
-                <button onClick={() => handleExport('text_only')} className="py-4 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 shadow-sm active:scale-95 transition-all flex flex-col items-center gap-2 relative overflow-hidden">
-                    <div className="p-2 bg-blue-50 rounded-full text-blue-500"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg></div>
-                    <span>纯文字备份</span>
-                </button>
-                 <button onClick={() => handleExport('media_only')} className="py-4 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 shadow-sm active:scale-95 transition-all flex flex-col items-center gap-2">
-                    <div className="p-2 bg-pink-50 rounded-full text-pink-500"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" /></svg></div>
-                    <span>媒体与美化素材</span>
-                </button>
-            </div>
-
-            <div className="grid grid-cols-1 gap-3 mb-4">
-                 <div onClick={() => importInputRef.current?.click()} className="py-4 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 shadow-sm active:scale-95 transition-all flex flex-col items-center gap-2 cursor-pointer hover:bg-emerald-50 hover:border-emerald-200">
-                    <div className="p-2 bg-emerald-100 rounded-full text-emerald-600"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg></div>
-                    <span>导入备份 (.zip / .json)</span>
-                </div>
-                <input type="file" ref={importInputRef} className="hidden" accept=".json,.zip" onChange={handleImport} />
-            </div>
-
-            <p className="text-[10px] text-slate-400 px-1 mb-4 leading-relaxed">
-                • <b>整合导出</b>: 一次性导出文字与图片媒体；VRM / Live2D 模型请使用下方独立备份。<br/>
-                • <b>纯文字备份</b>: 包含所有聊天记录、角色设定、剧情数据。所有图片会被移除（减小体积）。<br/>
-                • <b>媒体与美化素材</b>: 导出相册、表情包、聊天图片、头像、主题气泡、壁纸、图标等图片资源和外观配置。<br/>
-                • 兼容旧版 JSON 备份文件的导入。
-            </p>
-
-            <div data-testid="avatar-model-backup-section" className="mb-5 border-y border-violet-100 py-4">
-                <div className="mb-2 flex items-center justify-between gap-3">
-                    <div>
-                        <h3 className="text-xs font-bold text-slate-700">视频模型 · 单独备份</h3>
-                        <p className="mt-0.5 text-[10px] text-slate-400">VRM / Live2D 不再混进普通数据包</p>
-                    </div>
-                    <span className="shrink-0 rounded-full bg-violet-50 px-2.5 py-1 text-[10px] font-bold text-violet-600">
-                        {avatarModelInventory
-                            ? `${avatarModelInventory.availableCount} 个 · ${formatBackupBytes(avatarModelInventory.totalBytes)}`
-                            : '正在扫描…'}
-                    </span>
-                </div>
-
-                {avatarModelInventory && avatarModelInventory.models.length > 0 && (
-                    <div className="mb-3 divide-y divide-slate-100 border-y border-slate-100">
-                        {avatarModelInventory.models.map(model => (
-                            <div key={model.characterId} className="flex items-center justify-between gap-3 py-2">
-                                <div className="min-w-0">
-                                    <p className="truncate text-[11px] font-semibold text-slate-600">{model.characterName}</p>
-                                    <p className="truncate text-[9px] uppercase tracking-wide text-slate-400">{model.format} · {model.fileName}</p>
-                                </div>
-                                <span className={`shrink-0 text-[10px] font-medium ${model.available ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                    {model.available ? formatBackupBytes(model.byteLength) : '文件缺失'}
-                                </span>
-                            </div>
-                        ))}
-                    </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-2">
-                    <button
-                        type="button"
-                        onClick={handleAvatarModelExport}
-                        disabled={avatarModelBackupBusy || !avatarModelInventory?.availableCount}
-                        className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-violet-600 px-3 text-xs font-bold text-white transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="h-4 w-4"><path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V3.75m0 0 4.5 4.5M12 3.75l-4.5 4.5M3.75 15v4.125c0 .621.504 1.125 1.125 1.125h14.25c.621 0 1.125-.504 1.125-1.125V15" /></svg>
-                        导出模型包
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => avatarModelBackupInputRef.current?.click()}
-                        disabled={avatarModelBackupBusy}
-                        className="flex min-h-12 items-center justify-center gap-2 rounded-xl border border-violet-200 bg-white px-3 text-xs font-bold text-violet-600 transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="h-4 w-4"><path strokeLinecap="round" strokeLinejoin="round" d="M12 7.5v12m0 0 4.5-4.5M12 19.5 7.5 15M3.75 9V4.875c0-.621.504-1.125 1.125-1.125h14.25c.621 0 1.125.504 1.125 1.125V9" /></svg>
-                        顺序导入
-                    </button>
-                    <input
-                        ref={avatarModelBackupInputRef}
-                        type="file"
-                        accept=".zip,application/zip"
-                        multiple
-                        className="hidden"
-                        onChange={handleAvatarModelImport}
-                    />
-                </div>
-
-                {avatarModelBackupProgress && (
-                    <div className="mt-3" aria-live="polite">
-                        <div className="mb-1.5 flex items-center justify-between gap-3 text-[10px] text-violet-600">
-                            <span className="truncate">{avatarModelBackupProgress.label}</span>
-                            <span className="shrink-0 font-bold">
-                                {Math.min(100, Math.round((avatarModelBackupProgress.done / Math.max(1, avatarModelBackupProgress.total)) * 100))}%
-                            </span>
-                        </div>
-                        <div className="h-1.5 overflow-hidden rounded-full bg-violet-100">
-                            <div
-                                className="h-full rounded-full bg-violet-500 transition-[width] duration-200"
-                                style={{ width: `${Math.min(100, Math.round((avatarModelBackupProgress.done / Math.max(1, avatarModelBackupProgress.total)) * 100))}%` }}
-                            />
-                        </div>
-                    </div>
-                )}
-
-                <p className="mt-3 text-[10px] leading-relaxed text-slate-400">
-                    一个 ZIP 可以包含多个角色模型。恢复时请先导入上方普通数据，再导入模型包；系统会逐个读取、逐个写入。一次选择多个模型包时，也会按选择顺序处理。
-                </p>
-                {avatarModelInventory && avatarModelInventory.missingCount > 0 && (
-                    <p className="mt-2 text-[10px] leading-relaxed text-rose-500">
-                        有 {avatarModelInventory.missingCount} 个角色只剩模型索引，本地二进制已经丢失，无法导出。
-                    </p>
-                )}
-            </div>
-            {/* 备份提醒频率：糯米机数据只在本机，隔 N 天没导出会弹一次提醒 */}
-            <div className="mb-4 p-3.5 bg-gradient-to-br from-rose-50 to-orange-50 border border-rose-100 rounded-xl">
-                <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-bold text-slate-600">备份提醒频率</span>
-                    <span className="text-xs font-bold text-rose-500">每 {backupReminderDays} 天</span>
-                </div>
-                <input
-                    type="range"
-                    min={BACKUP_REMINDER_MIN_DAYS}
-                    max={BACKUP_REMINDER_MAX_DAYS}
-                    step={1}
-                    value={backupReminderDays}
-                    onChange={e => {
-                        const v = parseInt(e.target.value, 10);
-                        setBackupReminderDays(v);
-                        setBackupReminderIntervalDays(v);
-                    }}
-                    className="w-full h-2 bg-rose-100 rounded-full appearance-none accent-rose-500"
-                />
-                <div className="flex justify-between text-[9px] text-slate-400 mt-1 px-0.5">
-                    <span>{BACKUP_REMINDER_MIN_DAYS} 天</span>
-                    <span>{BACKUP_REMINDER_MAX_DAYS} 天</span>
-                </div>
-                <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
-                    超过这个天数没有导出，就会弹窗提醒一次。
-                    {backupDaysAgo == null
-                        ? ' 你还没有导出过备份，记得留一份哦。'
-                        : ` 上次备份是在 ${backupDaysAgo} 天前。`}
-                </p>
-            </div>
-
-            <button onClick={handleCleanupResidue} disabled={isCleaningResidue} className="w-full py-3 mb-2 bg-amber-50 border border-amber-100 text-amber-600 rounded-xl text-xs font-bold flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-50">
-                {isCleaningResidue ? '正在扫描…' : '一键清理表情包残留'}
-            </button>
-            <p className="text-[10px] text-slate-400 px-1 mb-4 leading-relaxed">
-                清理已删除角色遗留的「幽灵表情包」：专属分类的角色没了之后，单聊表情面板看不到它、群聊面板却还冒出来。先扫描列出结果，确认后才会删除。
-            </p>
-
-            <button onClick={() => setShowResetConfirm(true)} className="w-full py-3 bg-red-50 border border-red-100 text-red-500 rounded-xl text-xs font-bold flex items-center justify-center gap-2">
-                格式化系统 (出厂设置)
-            </button>
-        </SettingsSection>
-        </>)} {/* [EM: settings-ios-list] */}
-
-        {onPage('backup') && (<> {/* [EM: settings-ios-list] */}
-        {/* 云端备份区域 */}
-        <SettingsSection
-            title="云端备份"
-            sectionProps={{ style: { order: -1 } }} // [EM: settings-ios-list] 备份页里云端在前
-            icon={
-                <div className="p-2 bg-sky-100 rounded-xl text-sky-600">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15a4.5 4.5 0 004.5 4.5H18a3.75 3.75 0 001.332-7.257 3 3 0 00-3.758-3.848 5.25 5.25 0 00-10.233 2.33A4.502 4.502 0 002.25 15z" /></svg>
-                </div>
-            }
-        >
-            {!cloudBackupConfig.enabled ? (
-                <div className="space-y-3 py-2">
-                    <p className="text-[11px] text-slate-400 leading-relaxed text-center">
-                        把备份上传到你自己的云端，换设备、丢手机都不怕。<br/>
-                        <b>GitHub</b> 支持分片上传，默认直接连接；需要时可手动选择中转。
-                    </p>
-                    <div className="grid grid-cols-2 gap-2">
-                        <button
-                            onClick={() => { trackEvent('连接云端备份服务商', { provider: 'github' }); setShowGithubModal(true); }}
-                            className="relative flex flex-col items-center gap-1.5 px-2 py-3 text-xs font-semibold"
-                            style={{ background: F.surface, color: F.textPrimary, borderRadius: R.button, boxShadow: S.raisedSoft, border: `1px solid ${F.borderSoft}` }}
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5"><path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.203 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0022 12.017C22 6.484 17.522 2 12 2z" /></svg>
-                            <span>GitHub</span>
-                            <span className="text-xs font-normal" style={{ color: F.textTertiary }}>32 MB 分片</span>
-                        </button>
-                        <button
-                            onClick={() => { trackEvent('连接云端备份服务商', { provider: 'webdav' }); setShowCloudModal(true); }}
-                            className="flex flex-col items-center gap-1.5 px-2 py-3 text-xs font-semibold"
-                            style={{ background: F.surface, color: F.textPrimary, borderRadius: R.button, boxShadow: S.raisedSoft, border: `1px solid ${F.borderSoft}` }}
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5"><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15a4.5 4.5 0 004.5 4.5H18a3.75 3.75 0 001.332-7.257 3 3 0 00-3.758-3.848 5.25 5.25 0 00-10.233 2.33A4.502 4.502 0 002.25 15z" /></svg>
-                            <span>WebDAV</span>
-                            <span className="text-xs font-normal" style={{ color: F.textTertiary }}>网盘 / NAS</span>
-                        </button>
-                    </div>
-                </div>
-            ) : (
-                <div className="space-y-3">
-                    <div className={`flex items-center justify-between rounded-xl px-3 py-2 ${cloudBackupConfig.provider === 'github' ? 'bg-slate-100' : 'bg-sky-50'}`}>
-                        <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-                            <span className="text-[11px] text-slate-600 font-medium">
-                                已连接 · {cloudBackupConfig.provider === 'github'
-                                    ? `GitHub${cloudBackupConfig.githubOwner ? ` (@${cloudBackupConfig.githubOwner})` : ''}`
-                                    : 'WebDAV'}
-                            </span>
-                        </div>
-                        <button
-                            onClick={() => cloudBackupConfig.provider === 'github' ? setShowGithubModal(true) : setShowCloudModal(true)}
-                            className={`text-[10px] font-medium ${cloudBackupConfig.provider === 'github' ? 'text-slate-600' : 'text-sky-500'}`}
-                        >
-                            修改配置
-                        </button>
-                    </div>
-
-                    {/* Quick link to the GitHub releases page so the user knows
-                        where their backups physically live and can browse /
-                        delete them on github.com directly if they want. */}
-                    {cloudBackupConfig.provider === 'github' && cloudBackupConfig.githubOwner && (
-                        <a
-                            href={`https://github.com/${cloudBackupConfig.githubOwner}/${cloudBackupConfig.githubRepo || 'sully-backup'}/releases`}
-                            target="_blank" rel="noopener noreferrer"
-                            className="block text-center text-[10px] text-slate-500 hover:text-slate-800 underline-offset-2 hover:underline transition-colors"
-                        >
-                            🔗 在 GitHub 上查看备份 (github.com/{cloudBackupConfig.githubOwner}/{cloudBackupConfig.githubRepo || 'sully-backup'}/releases) ↗
-                        </a>
-                    )}
-
-                    {/* Switch-provider hint — shown to existing users so the
-                        new GitHub option is discoverable from the connected
-                        state, not only on the first-time setup screen. If the
-                        other provider was previously configured, the click is
-                        a one-shot flip; old credentials and backups stay put. */}
-                    {cloudBackupConfig.provider !== 'github' ? (
-                        <>
-                            <button
-                                onClick={switchToGithub}
-                                className="w-full py-2 bg-gradient-to-r from-slate-800 to-slate-900 text-white rounded-xl text-[11px] font-bold shadow-sm active:scale-95 transition-all flex items-center justify-center gap-2"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-3.5 h-3.5"><path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.203 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.02 10.02 0 0022 12.017C22 6.484 17.522 2 12 2z" /></svg>
-                                <span>{cloudBackupConfig.githubToken ? '切换到 GitHub' : '试试 GitHub 分片备份'}</span>
-                            </button>
-                            <p className="text-[10px] text-slate-400 text-center">
-                                你 WebDAV 上的旧备份不会被动，可随时切回。
-                            </p>
-                        </>
-                    ) : (
-                        <button
-                            onClick={switchToWebDAV}
-                            className="w-full py-1.5 text-[10px] text-slate-400 hover:text-sky-500 transition-colors"
-                        >
-                            {cloudBackupConfig.webdavUrl ? '切换回 WebDAV →' : '改用 WebDAV 备份 →'}
-                        </button>
-                    )}
-                    {/* [EM-START: auto-cloud-backup] 上次成功时间 + 自动备份状态 + 超 3 天提醒 */}
-                    <CloudBackupAutoStatus config={cloudBackupConfig} />
-                    {/* [EM-END: auto-cloud-backup] */}
-
-                    <div className="grid grid-cols-2 gap-2">
-                        <button
-                            onClick={() => handleCloudBackup('text_only')}
-                            className="py-3 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 shadow-sm active:scale-95 transition-all flex flex-col items-center gap-1"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 text-sky-500"><path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" /></svg>
-                            <span>备份到云端</span>
-                            <span className="text-[9px] text-slate-400">(纯文字)</span>
-                        </button>
-                        <button
-                            onClick={() => handleCloudBackup('full')}
-                            className="py-3 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 shadow-sm active:scale-95 transition-all flex flex-col items-center gap-1"
-                        >
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 text-violet-500"><path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" /></svg>
-                            <span>备份到云端</span>
-                            <span className="text-[9px] text-slate-400">(完整)</span>
-                        </button>
-                    </div>
-
-                    <button
-                        onClick={handleOpenCloudRestore}
-                        className="w-full py-3 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 shadow-sm active:scale-95 transition-all flex items-center justify-center gap-2"
-                    >
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4 text-emerald-500"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9.75v6.75m0 0l-3-3m3 3l3-3m-8.25 6a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" /></svg>
-                        从云端恢复
-                    </button>
-                </div>
-            )}
-
-            <p className="text-[10px] text-slate-400 px-1 mt-3 leading-relaxed">
-                备份保存在你自己的账号下；若使用中转，凭据和备份会经过配置的中转服务。
-            </p>
-        </SettingsSection>
-        </>)} {/* [EM: settings-ios-list] */}
+        {/* [EM-START: settings-subpages-f] 备份页换成分组列表（样稿 docs/design/settings-subpages-mock.html）；动作和弹窗还在本文件 */}
+        {onPage('backup') && (
+            <BackupSettingsPage
+                cloud={cloudBackupConfig}
+                onCloudBackup={mode => void handleCloudBackup(mode)}
+                onOpenCloudRestore={() => void handleOpenCloudRestore()}
+                onEditGithub={() => { trackEvent('连接云端备份服务商', { provider: 'github' }); setShowGithubModal(true); }}
+                onEditWebdav={() => { trackEvent('连接云端备份服务商', { provider: 'webdav' }); setShowCloudModal(true); }}
+                onSwitchToGithub={switchToGithub}
+                onSwitchToWebdav={switchToWebDAV}
+                onExport={mode => void handleExport(mode)}
+                onPickImportFile={() => importInputRef.current?.click()}
+                exportBackendConnection={exportBackendConnection}
+                setExportBackendConnection={setExportBackendConnection}
+                models={avatarModelInventory}
+                modelBusy={avatarModelBackupBusy}
+                modelProgress={avatarModelBackupProgress}
+                onExportModels={() => void handleAvatarModelExport()}
+                onPickModelFiles={() => avatarModelBackupInputRef.current?.click()}
+                reminderDays={backupReminderDays}
+                reminderMin={BACKUP_REMINDER_MIN_DAYS}
+                reminderMax={BACKUP_REMINDER_MAX_DAYS}
+                onReminderDays={days => { setBackupReminderDays(days); setBackupReminderIntervalDays(days); }}
+                daysSinceExport={backupDaysAgo}
+                cleaningResidue={isCleaningResidue}
+                onCleanupResidue={() => void handleCleanupResidue()}
+                onReset={() => setShowResetConfirm(true)}
+                formatBytes={formatBackupBytes}
+            />
+        )}
+        <input type="file" ref={importInputRef} className="hidden" accept=".json,.zip" onChange={handleImport} />
+        <input ref={avatarModelBackupInputRef} type="file" accept=".zip,application/zip" multiple className="hidden" onChange={handleAvatarModelImport} />
+        {/* [EM-END: settings-subpages-f] */}
 
         {onPage('api-main') && (<> {/* [EM: settings-ios-list] */}
         {/* AI 连接设置区域 */}
@@ -3502,59 +2802,11 @@ const Settings: React.FC = () => {
         </SettingsSection>
         </>)} {/* [EM: settings-ios-list] */}
 
-        {onPage('realtime') && (<> {/* [EM: settings-ios-list] */}
-        {/* 实时感知配置区域 */}
-        <SettingsSection
-            title="实时感知"
-            icon={
-                <div className="p-2 bg-violet-100/50 rounded-xl text-violet-600">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 0 1-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 0 1 7.843 4.582M12 3a8.997 8.997 0 0 0-7.843 4.582m15.686 0A11.953 11.953 0 0 1 12 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0 1 21 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0 1 12 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 0 1 3 12c0-1.605.42-3.113 1.157-4.418" />
-                    </svg>
-                </div>
-            }
-            // [EM: settings-inline-config] 配置直接铺在这一页下面，不再要「配置」按钮（原来是 openRealtimeModal，带 [EM: notion-extra-init]，现在进页时调）
-        >
-            <p className="text-xs text-slate-500 mb-3 leading-relaxed">
-                让AI角色感知真实世界：天气、新闻热点、当前时间。角色可以根据天气关心你、聊聊最近的热点话题。日记同步和小红书在「角色能用的工具」里。{/* [EM: settings-split-senses] */}
-            </p>
-
-            <div className="grid grid-cols-3 gap-2 text-center"> {/* [EM: settings-split-senses] 只剩感知三项；Notion / 飞书 / 小红书各自一页 */}
-                <div className={`py-3 rounded-xl text-xs font-bold ${rtWeatherEnabled ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-50 text-slate-400'}`}>
-                    <div className="text-lg mb-1">{rtWeatherEnabled ? <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/2600.png" className="w-5 h-5 inline" alt="" /> : <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f32b.png" className="w-5 h-5 inline" alt="" />}</div>
-                    天气
-                </div>
-                <div className={`py-3 rounded-xl text-xs font-bold ${rtNewsEnabled ? 'bg-blue-50 text-blue-600' : 'bg-slate-50 text-slate-400'}`}>
-                    <div className="text-lg mb-1">{rtNewsEnabled ? <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f4f0.png" className="w-5 h-5 inline" alt="" /> : <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f4c4.png" className="w-5 h-5 inline" alt="" />}</div>
-                    新闻
-                </div>
-                <button
-                    onClick={async () => {
-                        if (rtMotionEnabled) {
-                            stopMotionListening();
-                            writeLiliumOSStorage(MOTION_ENABLED_KEY, '0', LEGACY_MOTION_ENABLED_KEYS);
-                            setRtMotionEnabled(false);
-                            addToast('运动感知已关闭', 'success');
-                        } else {
-                            const granted = await requestMotionPermission();
-                            if (!granted) {
-                                addToast('运动传感器权限被拒绝', 'error');
-                                return;
-                            }
-                            startMotionListening();
-                            writeLiliumOSStorage(MOTION_ENABLED_KEY, '1', LEGACY_MOTION_ENABLED_KEYS);
-                            setRtMotionEnabled(true);
-                            addToast('运动感知已开启', 'success');
-                        }
-                    }}
-                    className={`py-3 rounded-xl text-xs font-bold ${rtMotionEnabled ? 'bg-purple-50 text-purple-600' : 'bg-slate-50 text-slate-400'}`}
-                >
-                    <div className="text-lg mb-1"><PersonSimpleRun size={20} className="inline" /></div>
-                    运动
-                </button>
-            </div>
-        </SettingsSection>
-        </>)} {/* [EM: settings-ios-list] */}
+        {/* [EM-START: settings-subpages-f] 感知 / 日记同步 / 小红书三页是 EM 自己的组件，改了就存，不再有「保存配置」 */}
+        {onPage('realtime') && <RealtimeSensePage />}
+        {onPage('diary-sync') && <DiarySyncPage />}
+        {onPage('xhs') && <XhsSettingsPage />}
+        {/* [EM-END: settings-subpages-f] */}
 
         {onPage('mcp') && (<> {/* [EM: settings-ios-list] */}
         {/* MCP 工具服务器（高级玩法）—— 通用外接工具，独立于实时感知 */}
@@ -4659,516 +3911,6 @@ const Settings: React.FC = () => {
               {downloadUrl && <a href={downloadUrl} download={downloadFileName} className="text-primary text-sm underline block py-2">点击手动下载 .zip</a>}
           </div>
       </Modal>
-
-      {/* 实时感知配置 Modal */}
-      <SettingsSheet inline={onPage('realtime') || onPage('diary-sync') || onPage('xhs')} // [EM: settings-inline-config] [EM: settings-split-senses]
-          isOpen={showRealtimeModal}
-          title={settingsPage && REALTIME_SHEET_PAGES.has(settingsPage) && settingsPage !== 'realtime' ? SETTINGS_PAGE_TITLES[settingsPage] : '实时感知配置'}
-          onClose={() => setShowRealtimeModal(false)}
-          footer={<button onClick={handleSaveRealtimeConfig} className="w-full py-3 bg-violet-500 text-white font-bold rounded-2xl shadow-lg">保存配置</button>}
-      >
-          <div className="space-y-5 max-h-[60vh] overflow-y-auto no-scrollbar">
-              {rtSheetShows('sense') && (<> {/* [EM: settings-split-senses] 天气、新闻是感知 */}
-              {/* 天气配置 */}
-              <div className="bg-emerald-50/50 p-4 rounded-2xl space-y-3">
-                  <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                          <Sun size={20} weight="fill" />
-                          <span className="text-sm font-bold text-emerald-700">天气感知</span>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                          <input type="checkbox" checked={rtWeatherEnabled} onChange={e => setRtWeatherEnabled(e.target.checked)} className="sr-only peer" />
-                          <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
-                      </label>
-                  </div>
-                  {/* [EM-START: weather-openmeteo] 免 key：自动定位 / 固定城市（搜索选定存坐标） */}
-                  {rtWeatherEnabled && (
-                      <div className="space-y-2">
-                          <div className="flex bg-white/60 rounded-xl p-1 gap-1">
-                              <button onClick={() => setRtWeatherMode('geo')} className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-colors ${rtWeatherMode === 'geo' ? 'bg-emerald-500 text-white' : 'text-slate-400'}`}>自动定位</button>
-                              <button onClick={() => setRtWeatherMode('city')} className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-colors ${rtWeatherMode === 'city' ? 'bg-emerald-500 text-white' : 'text-slate-400'}`}>固定城市</button>
-                          </div>
-                          {rtWeatherMode === 'geo' ? (
-                              <p className="text-[11px] text-slate-400 px-1">跟随你的位置自动取天气，首次会请求定位权限（免 API key）</p>
-                          ) : (
-                              <div className="space-y-2">
-                                  {rtWeatherLocation ? (
-                                      <div className="flex items-center justify-between bg-white/80 border border-emerald-200 rounded-xl px-3 py-2">
-                                          <span className="text-sm text-emerald-700 font-bold truncate">{formatLocationLabel(rtWeatherLocation)}</span>
-                                          <button onClick={() => { setRtWeatherLocation(undefined); setRtCityCandidates([]); }} className="text-xs text-slate-400 font-bold shrink-0 ml-2">重选</button>
-                                      </div>
-                                  ) : (
-                                      <>
-                                          <p className="text-[11px] text-amber-500 px-1">天气已升级为免 key 服务，请搜索并选择城市（或改用自动定位）</p>
-                                          <div className="flex gap-2">
-                                              <input type="text" value={rtCityQuery} onChange={e => setRtCityQuery(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleCitySearch(); }} className="flex-1 bg-white/80 border border-emerald-200 rounded-xl px-3 py-2 text-sm" placeholder="城市名，如 Birmingham / 北京" />
-                                              <button onClick={handleCitySearch} disabled={rtCitySearching} className="px-4 py-2 bg-emerald-100 text-emerald-600 text-xs font-bold rounded-xl active:scale-95 transition-transform shrink-0">{rtCitySearching ? '搜索中' : '搜索'}</button>
-                                          </div>
-                                          {rtCityCandidates.length > 0 && (
-                                              <div className="bg-white/80 border border-emerald-200 rounded-xl divide-y divide-emerald-50 max-h-44 overflow-y-auto">
-                                                  {rtCityCandidates.map((c, i) => (
-                                                      <button key={i} onClick={() => { setRtWeatherLocation(c); setRtCityCandidates([]); setRtCityQuery(''); }} className="w-full text-left px-3 py-2 text-sm text-slate-600 active:bg-emerald-50">
-                                                          {formatLocationLabel(c)}
-                                                      </button>
-                                                  ))}
-                                              </div>
-                                          )}
-                                      </>
-                                  )}
-                              </div>
-                          )}
-                          <button onClick={testWeatherApi} className="w-full py-2 bg-emerald-100 text-emerald-600 text-xs font-bold rounded-xl active:scale-95 transition-transform">测试天气</button>
-                      </div>
-                  )}
-                  {/* [EM-END: weather-openmeteo] */}
-              </div>
-
-              {/* 新闻配置 */}
-              <div className="bg-blue-50/50 p-4 rounded-2xl space-y-3">
-                  <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                          <Newspaper size={20} weight="fill" />
-                          <span className="text-sm font-bold text-blue-700">新闻热点</span>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                          <input type="checkbox" checked={rtNewsEnabled} onChange={e => setRtNewsEnabled(e.target.checked)} className="sr-only peer" />
-                          <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
-                      </label>
-                  </div>
-                  {rtNewsEnabled && (
-                      <div className="space-y-2">
-                          <p className="text-xs text-blue-600/70">默认主源：中文多平台热榜（免鉴权，聊天时角色会自动捕捉热点）。选择要关注的平台：</p>
-                          <div className="flex flex-wrap gap-1.5">
-                              {HOTNEWS_PLATFORM_OPTIONS.map(p => {
-                                  const active = rtNewsPlatforms.includes(p.key);
-                                  return (
-                                      <button
-                                          key={p.key}
-                                          type="button"
-                                          onClick={() => setRtNewsPlatforms(prev => prev.includes(p.key) ? prev.filter(k => k !== p.key) : [...prev, p.key])}
-                                          className={`text-[11px] px-2.5 py-1 rounded-full font-bold transition-colors active:scale-95 ${active ? 'bg-blue-500 text-white shadow-sm' : 'bg-white/80 text-slate-500 border border-blue-200'}`}
-                                      >
-                                          {p.label}
-                                      </button>
-                                  );
-                              })}
-                          </div>
-                          {rtNewsPlatforms.length === 0 && (
-                              <p className="text-[10px] text-rose-500/80">未选任何平台时会回落到 Brave / Hacker News。</p>
-                          )}
-                          <details className="border-t border-blue-200/50 pt-2 mt-1 group">
-                              <summary className="text-[10px] font-bold text-slate-400 uppercase cursor-pointer select-none list-none flex items-center gap-1.5">
-                                  <span className="transition-transform group-open:rotate-90">›</span>
-                                  Brave Search（回落源 · <span className="text-rose-400">不建议配置</span>）
-                              </summary>
-                              <div className="mt-2 space-y-1.5">
-                                  <p className="text-[10px] text-slate-400/90 leading-relaxed">
-                                      上面的中文热榜在国内场景比 Brave 好用一万倍，<b className="text-slate-500">基本不需要配这个</b>。
-                                      它只是热榜彻底拉不到时的英文回落，配了反而可能盖掉中文热点。除非你清楚自己在做什么，否则留空即可。
-                                  </p>
-                                  <input type="password" value={rtNewsApiKey} onChange={e => setRtNewsApiKey(e.target.value)} className="w-full bg-white/60 border border-slate-200 rounded-xl px-3 py-2 text-sm font-mono text-slate-500" placeholder="（不建议）brave.com/search/api" />
-                                  <p className="text-[10px] text-slate-400/70">仅当中文热榜拉取失败时才启用；都不可用时再兜底 Hacker News（英文）。</p>
-                              </div>
-                          </details>
-                      </div>
-                  )}
-              </div>
-              </>)} {/* [EM: settings-split-senses] */}
-
-              {rtSheetShows('diary') && (<> {/* [EM: settings-split-senses] Notion / 飞书日记单独一页（工具） */}
-              {/* Notion 配置 */}
-              <div className="bg-orange-50/50 p-4 rounded-2xl space-y-3">
-                  <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                          <NotePencil size={20} weight="fill" />
-                          <span className="text-sm font-bold text-orange-700">Notion 日记</span>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                          <input type="checkbox" checked={rtNotionEnabled} onChange={e => setRtNotionEnabled(e.target.checked)} className="sr-only peer" />
-                          <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
-                      </label>
-                  </div>
-                  {rtNotionEnabled && (
-                      <div className="space-y-2">
-                          <div>
-                              <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Notion Integration Token</label>
-                              <input type="password" value={rtNotionKey} onChange={e => setRtNotionKey(e.target.value)} className="w-full bg-white/80 border border-orange-200 rounded-xl px-3 py-2 text-sm font-mono" placeholder="ntn_... 或 secret_..." />
-                          </div>
-                          <div>
-                              <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">Database ID</label>
-                              <input type="text" value={rtNotionDbId} onChange={e => setRtNotionDbId(e.target.value)} className="w-full bg-white/80 border border-orange-200 rounded-xl px-3 py-2 text-sm font-mono" placeholder="从数据库URL复制" />
-                          </div>
-                          <button onClick={testNotionApi} className="w-full py-2 bg-orange-100 text-orange-600 text-xs font-bold rounded-xl active:scale-95 transition-transform">测试Notion连接</button>
-                          <div className="border-t border-orange-200/50 pt-2 mt-2">
-                              <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">笔记数据库 ID（可选）</label>
-                              <input type="text" value={rtNotionNotesDbId} onChange={e => setRtNotionNotesDbId(e.target.value)} className="w-full bg-white/80 border border-orange-200 rounded-xl px-3 py-2 text-sm font-mono" placeholder="用户日常笔记的数据库ID" />
-                              <p className="text-[10px] text-orange-500/60 leading-relaxed mt-1">
-                                  填写后角色可以偶尔看到你的笔记标题，温馨地提起你写的内容。留空则不启用。
-                              </p>
-                          </div>
-                          <p className="text-[10px] text-orange-500/70 leading-relaxed">
-                              1. 在 <a href="https://www.notion.so/my-integrations" target="_blank" className="underline">Notion开发者</a> 创建Integration（新版 Token 以 ntn_ 开头，老版以 secret_ 开头，都能用）<br/>
-                              2. 创建一个日记数据库，添加"Name"(标题)和"Date"(日期)属性<br/>
-                              3. 在数据库右上角菜单中 Connect 你的 Integration
-                          </p>
-                          {/* Emma: 日记附加列 */}
-                          <div className="border-t border-orange-200/50 pt-2 mt-2 space-y-2">
-                              <label className="text-[10px] font-bold text-slate-400 uppercase block">日记附加列（可选）</label>
-                              <div className="flex items-center gap-2">
-                                  <label className="relative inline-flex items-center cursor-pointer">
-                                      <input type="checkbox" checked={rtDiaryExtraCharacter} onChange={e => setRtDiaryExtraCharacter(e.target.checked)} className="sr-only peer" />
-                                      <div className="w-8 h-4 bg-gray-200 peer-focus:ring-2 peer-focus:ring-orange-300 rounded-full peer peer-checked:bg-orange-400 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:after:translate-x-4"></div>
-                                  </label>
-                                  <span className="text-xs text-slate-600">附加角色名列</span>
-                                  {rtDiaryExtraCharacter && (
-                                      <input type="text" value={rtDiaryExtraCharacterColumn} onChange={e => setRtDiaryExtraCharacterColumn(e.target.value)}
-                                          className="flex-1 bg-white/80 border border-orange-200 rounded-lg px-2 py-1 text-xs font-mono" placeholder="列名，如 Character" />
-                                  )}
-                              </div>
-                              <div className="flex items-center gap-2">
-                                  <label className="relative inline-flex items-center cursor-pointer">
-                                      <input type="checkbox" checked={rtDiaryExtraMood} onChange={e => setRtDiaryExtraMood(e.target.checked)} className="sr-only peer" />
-                                      <div className="w-8 h-4 bg-gray-200 peer-focus:ring-2 peer-focus:ring-orange-300 rounded-full peer peer-checked:bg-orange-400 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:after:translate-x-4"></div>
-                                  </label>
-                                  <span className="text-xs text-slate-600">附加心情列</span>
-                                  {rtDiaryExtraMood && (
-                                      <input type="text" value={rtDiaryExtraMoodColumn} onChange={e => setRtDiaryExtraMoodColumn(e.target.value)}
-                                          className="flex-1 bg-white/80 border border-orange-200 rounded-lg px-2 py-1 text-xs font-mono" placeholder="列名，如 Mood" />
-                                  )}
-                              </div>
-                          </div>
-                          {/* Emma: 只读数据库 TAG 系统 */}
-                          <div className="border-t border-orange-200/50 pt-2 mt-2 space-y-2">
-                              <div className="flex items-center justify-between">
-                                  <label className="text-[10px] font-bold text-slate-400 uppercase">其它只读库</label>
-                                  <button type="button" onClick={() => setNotionReadOnlyDbsExpanded(v => !v)}
-                                      className="text-[10px] text-orange-500 flex items-center gap-1" aria-expanded={notionReadOnlyDbsExpanded}>
-                                      <span>({rtNotionExtraDbs.filter(d => normalizeNotionExtraTag(d.tag) !== NOTION_USER_NOTES_TAG).length})</span>
-                                      <span>{notionReadOnlyDbsExpanded ? '收起' : '展开'}</span>
-                                  </button>
-                              </div>
-                              {notionReadOnlyDbsExpanded && (
-                                  <div className="space-y-2">
-                                      {rtNotionExtraDbs.filter(d => normalizeNotionExtraTag(d.tag) !== NOTION_USER_NOTES_TAG).map((db, i) => (
-                                          <div key={i} className="flex gap-1 items-start">
-                                              <div className="flex-1 space-y-1">
-                                                  <input type="text" value={db.name} onChange={e => setRtNotionExtraDbs(prev => prev.map((d, j) => j === i ? { ...d, name: e.target.value } : d))}
-                                                      className="w-full bg-white/80 border border-orange-200 rounded-lg px-2 py-1 text-xs" placeholder="展示名" />
-                                                  <div className="flex gap-1">
-                                                      <input type="text" value={db.tag} onChange={e => setRtNotionExtraDbs(prev => prev.map((d, j) => j === i ? { ...d, tag: e.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '') } : d))}
-                                                          className="w-24 bg-white/80 border border-orange-200 rounded-lg px-2 py-1 text-xs font-mono" placeholder="TAG" />
-                                                      <input type="text" value={db.databaseId} onChange={e => setRtNotionExtraDbs(prev => prev.map((d, j) => j === i ? { ...d, databaseId: e.target.value } : d))}
-                                                          className="flex-1 bg-white/80 border border-orange-200 rounded-lg px-2 py-1 text-xs font-mono" placeholder="Database ID" />
-                                                  </div>
-                                              </div>
-                                              <button type="button" onClick={() => setRtNotionExtraDbs(prev => prev.filter((_, j) => j !== i))}
-                                                  className="text-orange-400 text-xs mt-1 px-1">✕</button>
-                                          </div>
-                                      ))}
-                                      <button type="button" onClick={() => setRtNotionExtraDbs(prev => [...prev, { id: crypto.randomUUID(), name: '', tag: '', databaseId: '' }])}
-                                          className="w-full py-1.5 border border-dashed border-orange-300 text-orange-500 text-xs rounded-xl">
-                                          + 添加数据库
-                                      </button>
-                                  </div>
-                              )}
-                          </div>
-                      </div>
-                  )}
-              </div>
-
-              {/* 飞书配置 (中国区替代) */}
-              <div className="bg-indigo-50/50 p-4 rounded-2xl space-y-3">
-                  <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                          <Notebook size={20} weight="fill" />
-                          <span className="text-sm font-bold text-indigo-700">飞书日记</span>
-                          <span className="text-[9px] bg-indigo-100 text-indigo-500 px-1.5 py-0.5 rounded-full">中国区</span>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                          <input type="checkbox" checked={rtFeishuEnabled} onChange={e => setRtFeishuEnabled(e.target.checked)} className="sr-only peer" />
-                          <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-500"></div>
-                      </label>
-                  </div>
-                  <p className="text-[10px] text-indigo-500/70 leading-relaxed">
-                      Notion 的中国区替代方案，无需翻墙。使用飞书多维表格存储日记。
-                  </p>
-                  {rtFeishuEnabled && (
-                      <div className="space-y-2">
-                          <div>
-                              <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">飞书 App ID</label>
-                              <input type="text" value={rtFeishuAppId} onChange={e => setRtFeishuAppId(e.target.value)} className="w-full bg-white/80 border border-indigo-200 rounded-xl px-3 py-2 text-sm font-mono" placeholder="cli_xxxxxxxx" />
-                          </div>
-                          <div>
-                              <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">飞书 App Secret</label>
-                              <input type="password" value={rtFeishuAppSecret} onChange={e => setRtFeishuAppSecret(e.target.value)} className="w-full bg-white/80 border border-indigo-200 rounded-xl px-3 py-2 text-sm font-mono" placeholder="xxxxxxxxxxxxxxxx" />
-                          </div>
-                          <div>
-                              <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">多维表格 App Token</label>
-                              <input type="text" value={rtFeishuBaseId} onChange={e => setRtFeishuBaseId(e.target.value)} className="w-full bg-white/80 border border-indigo-200 rounded-xl px-3 py-2 text-sm font-mono" placeholder="从多维表格URL中获取" />
-                          </div>
-                          <div>
-                              <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">数据表 Table ID</label>
-                              <input type="text" value={rtFeishuTableId} onChange={e => setRtFeishuTableId(e.target.value)} className="w-full bg-white/80 border border-indigo-200 rounded-xl px-3 py-2 text-sm font-mono" placeholder="tblxxxxxxxx" />
-                          </div>
-                          <button onClick={testFeishuApi} className="w-full py-2 bg-indigo-100 text-indigo-600 text-xs font-bold rounded-xl active:scale-95 transition-transform">测试读取连接</button>
-                          <p className="text-[10px] text-indigo-500/70 leading-relaxed">
-                              测试不会新增记录，只验证凭据、读取权限和 Table ID；读取成功但写入提示 Forbidden，说明还缺新增记录权限。<br/>
-                              1. 在 <a href="https://open.feishu.cn/app" target="_blank" className="underline">飞书开放平台</a> 创建企业自建应用，获取 App ID 和 Secret<br/>
-                              2. 开通「查看、评论、编辑和管理多维表格」权限，发布新版本并完成管理员审批<br/>
-                              3. 在目标多维表格的「添加文档应用」中加入该应用，并授予可编辑权限<br/>
-                              4. 添加字段: 标题(文本)、内容(文本)、日期(日期)、心情(文本)、角色(文本)<br/>
-                              5. 从多维表格 URL 中获取 App Token 和 Table ID
-                          </p>
-                      </div>
-                  )}
-              </div>
-              </>)} {/* [EM: settings-split-senses] */}
-
-              {rtSheetShows('xhs') && (<> {/* [EM: settings-split-senses] 小红书单独一页（工具） */}
-              {/* 小红书自动化 */}
-              <div className="bg-red-50/50 p-4 rounded-2xl space-y-3">
-                  <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                          <Book size={20} weight="fill" />
-                          <span className="text-sm font-bold text-red-700">小红书 · 本地</span>
-                          <span className="text-[9px] bg-red-100 text-red-500 px-1.5 py-0.5 rounded-full">MCP</span>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                          <input type="checkbox" checked={rtXhsMcpEnabled && rtXhsMode === 'local'} onChange={e => { if (e.target.checked) { setRtXhsMcpEnabled(true); setRtXhsEnabled(true); setRtXhsMode('local'); } else { setRtXhsMcpEnabled(false); setRtXhsEnabled(false); } }} className="sr-only peer" />
-                          <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-500"></div>
-                      </label>
-                  </div>
-                  <p className="text-[10px] text-red-500/70 leading-relaxed">
-                      本地后端：需在电脑上运行 xiaohongshu-mcp。想免电脑请使用下面的「小红书 Lite」。
-                  </p>
-                  {rtXhsMcpEnabled && rtXhsMode === 'local' && (
-                      <div className="space-y-2">
-                          <div>
-                              <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">服务器 URL</label>
-                              <input value={rtXhsLocalUrl} onChange={e => setRtXhsLocalUrl(e.target.value)} className="w-full bg-white/80 border border-red-200 rounded-xl px-3 py-2 text-[11px] font-mono" placeholder="http://localhost:18060/mcp" />
-                          </div>
-                          {/* [EM-START: xhs-mini-mcp] */}
-                          <div>
-                              <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">访问令牌（可选）</label>
-                              <input type="password" autoComplete="off" value={rtXhsAuthToken} onChange={e => setRtXhsAuthToken(e.target.value)} className="w-full bg-white/80 border border-red-200 rounded-xl px-3 py-2 text-[11px] font-mono" placeholder="mini 上 xhs-mcp-token 文件里那串；本机直连可留空" />
-                          </div>
-                          {/* [EM-END: xhs-mini-mcp] */}
-                          <button onClick={testXhsMcp} className="w-full py-2 bg-red-100 text-red-600 text-xs font-bold rounded-xl active:scale-95 transition-transform">测试连接</button>
-                          {/* [EM-START: xhs-mini-mcp] 登录在服务器那个浏览器里：拿二维码用手机小红书扫 */}
-                          <button type="button" onClick={fetchXhsLoginQr} className="w-full py-2 bg-white/80 border border-red-200 text-red-600 text-xs font-bold rounded-xl active:scale-95 transition-transform">扫码登录</button>
-                          {rtXhsQr.status && (
-                              <div className="bg-white/80 border border-red-100 rounded-xl p-3 space-y-2">
-                                  <p className="text-[10px] text-slate-600 whitespace-pre-wrap leading-relaxed">{rtXhsQr.status}</p>
-                                  {rtXhsQr.image && <img src={rtXhsQr.image} alt="小红书登录二维码" className="w-40 h-40 mx-auto" />}
-                              </div>
-                          )}
-                          {/* [EM-END: xhs-mini-mcp] */}
-                          <div className="grid grid-cols-2 gap-2">
-                              <div>
-                                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">小红书昵称</label>
-                                  <input value={rtXhsNickname} onChange={e => setRtXhsNickname(e.target.value)} className="w-full bg-white/80 border border-red-200 rounded-xl px-3 py-2 text-[11px]" placeholder="手动填写" />
-                              </div>
-                              <div>
-                                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">用户 ID</label>
-                                  <input value={rtXhsUserId} onChange={e => setRtXhsUserId(e.target.value)} className="w-full bg-white/80 border border-red-200 rounded-xl px-3 py-2 text-[11px] font-mono" placeholder="可选，用于查看主页" />
-                              </div>
-                          </div>
-                          <p className="text-[10px] text-red-500/70 leading-relaxed">
-                              下载并运行 xiaohongshu-mcp，URL 填 http://localhost:18060/mcp（代理则 18061/mcp）。
-                              {/* [EM: xhs-mini-mcp] */} 跑在 Mac mini 上时，URL 填 https://（mini 的 Funnel 域名）/xhs/mcp，再填访问令牌；二维码最好在电脑上打开这页扫。
-                          </p>
-                      </div>
-                  )}
-              </div>
-
-              {/* 小红书 Lite (云端) */}
-              <div className="bg-rose-50/60 p-4 rounded-2xl space-y-3">
-                  <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                          <Book size={20} weight="fill" />
-                          <span className="text-sm font-bold text-rose-700">小红书 Lite</span>
-                          <span className="text-[9px] bg-rose-100 text-rose-500 px-1.5 py-0.5 rounded-full">云端 · 推荐</span>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                          <input type="checkbox" checked={rtXhsMcpEnabled && rtXhsMode === 'lite'} onChange={e => { if (e.target.checked) { if (!window.confirm(XHS_RISK_TEXT + '\n\n确定要开启吗？')) return; setRtXhsMcpEnabled(true); setRtXhsEnabled(true); setRtXhsMode('lite'); } else { setRtXhsMcpEnabled(false); setRtXhsEnabled(false); } }} className="sr-only peer" />
-                          <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-rose-500"></div>
-                      </label>
-                  </div>
-                  <p className="text-[10px] text-rose-500/70 leading-relaxed">
-                      免电脑、免扫码：粘贴一次小红书 / RedNote cookie，即可搜索、浏览、看详情及互动；国内小红书还支持发帖(带图)。地址已内置，无需填写。
-                  </p>
-                  <p className="text-[10px] text-amber-700 leading-relaxed bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">{XHS_RISK_TEXT}</p>
-                  {rtXhsMcpEnabled && rtXhsMode === 'lite' && (
-                      <div className="space-y-2">
-                          <div>
-                              <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">小红书 Cookie</label>
-                              <textarea value={rtXhsCookie} onChange={e => { setRtXhsCookie(e.target.value); setRtXhsPlatform(undefined); }} rows={2} className="w-full bg-white/80 border border-rose-200 rounded-xl px-3 py-2 text-[10px] font-mono resize-y" placeholder="a1=...; web_session=...; （从浏览器登录后复制完整 cookie）" />
-                          </div>
-                          <button onClick={testXhsMcp} className="w-full py-2 bg-rose-100 text-rose-600 text-xs font-bold rounded-xl active:scale-95 transition-transform">测试连接</button>
-                          <div className="grid grid-cols-2 gap-2">
-                              <div>
-                                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">小红书昵称</label>
-                                  <input value={rtXhsNickname} onChange={e => setRtXhsNickname(e.target.value)} className="w-full bg-white/80 border border-rose-200 rounded-xl px-3 py-2 text-[11px]" placeholder="测试连接后自动获取" />
-                              </div>
-                              <div>
-                                  <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">用户 ID</label>
-                                  <input value={rtXhsUserId} onChange={e => setRtXhsUserId(e.target.value)} className="w-full bg-white/80 border border-rose-200 rounded-xl px-3 py-2 text-[11px] font-mono" placeholder="自动获取" />
-                              </div>
-                          </div>
-                          <div>
-                              <button type="button" onClick={() => { if (!rtXhsGuideOpen) trackEvent('展开获取 cookie 教程'); setRtXhsGuideOpen(v => !v); }} className="text-[11px] font-bold text-rose-600 underline">📖 点击获取 cookie 教程 {rtXhsGuideOpen ? '▲' : '▼'}</button>
-                              {rtXhsGuideOpen && (
-                                  <div className="mt-1 bg-white/70 rounded-lg p-2 space-y-1.5">
-                                      <pre className="text-[10px] text-slate-600 whitespace-pre-wrap font-sans leading-relaxed">{XHS_COOKIE_GUIDE}</pre>
-                                      <button type="button" onClick={async () => { try { await navigator.clipboard.writeText(XHS_COOKIE_GUIDE); trackEvent('复制 cookie 教程文本', { result: 'copied' }); addToast('教程已复制，可粘贴去问别的 AI', 'success'); } catch { trackEvent('复制 cookie 教程文本', { result: 'clipboard-failed' }); addToast('复制失败，请长按手动选择', 'error'); } }} className="w-full py-1.5 bg-rose-100 text-rose-600 text-[11px] font-bold rounded-lg active:scale-95 transition-transform">复制教程</button>
-                                  </div>
-                              )}
-                          </div>
-                          <p className="text-[10px] text-slate-400 leading-relaxed bg-slate-100/60 rounded-lg px-2 py-1.5">
-                              🔒 隐私：cookie 经 HTTPS 加密发到云端 Worker 仅用于请求签名，服务器<b>不保存、不记录</b>，运营方看不到。正常使用是安全的；但凡经第三方云服务都存在理论风险，介意可自行评估。
-                          </p>
-                      </div>
-                  )}
-              </div>
-
-              {/* 麦当劳 MCP */}
-              <div className="bg-yellow-50/60 p-4 rounded-2xl space-y-3">
-                  <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                          <ForkKnife size={20} weight="fill" className="text-yellow-600" />
-                          <span className="text-sm font-bold text-yellow-700">麦当劳</span>
-                          <span className="text-[9px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full">官方 MCP</span>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                          <input type="checkbox" checked={mcdEnabled} onChange={e => handleMcdEnabledChange(e.target.checked)} className="sr-only peer" />
-                          <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-500"></div>
-                      </label>
-                  </div>
-                  <p className="text-[10px] text-yellow-700/70 leading-relaxed">
-                      启用后，在聊天里点 + 号 → 第二页 → 麦当劳，发送"麦请求"激活，角色就能为你查菜单、查门店、点麦乐送/到店取餐/团餐、积分兑券、查活动。
-                  </p>
-                  {mcdEnabled && (
-                      <div className="space-y-2">
-                          <div>
-                              <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">MCP Token (个人)</label>
-                              <input type="password" value={mcdToken} onChange={e => handleMcdTokenChange(e.target.value)} className="w-full bg-white/80 border border-yellow-200 rounded-xl px-3 py-2 text-sm font-mono" placeholder="去 open.mcd.cn/mcp 申请" />
-                          </div>
-                          <button onClick={testMcdApi} disabled={mcdTesting} className="w-full py-2 bg-yellow-100 text-yellow-700 text-xs font-bold rounded-xl active:scale-95 transition-transform disabled:opacity-60">
-                              {mcdTesting ? '测试中…' : '测试连接'}
-                          </button>
-                          {mcdTestStatus && (
-                              <div className={`p-2 rounded-lg text-[11px] whitespace-pre-line leading-relaxed ${mcdTestStatus.startsWith('✅') ? 'bg-emerald-50 text-emerald-700' : mcdTestStatus.startsWith('❌') ? 'bg-red-50 text-red-600' : 'bg-slate-50 text-slate-600'}`}>
-                                  {mcdTestStatus}
-                              </div>
-                          )}
-                          <p className="text-[10px] text-yellow-700/70 leading-relaxed">
-                              1. 访问 <a href="https://open.mcd.cn/mcp" target="_blank" className="underline">open.mcd.cn/mcp</a> 用麦当劳账号登录申请 Token<br/>
-                              2. 粘贴到上面的输入框（仅存本地，<b>不会上传服务器</b>）<br/>
-                              3. 下单类操作涉及真实支付，角色会先复述清单等你确认再下单<br/>
-                              4. 仅中国大陆 (不含港澳台)
-                          </p>
-                      </div>
-                  )}
-              </div>
-
-              {/* 瑞幸 MCP */}
-              <div className="bg-blue-50/60 p-4 rounded-2xl space-y-3">
-                  <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                          <Coffee size={20} weight="fill" className="text-blue-600" />
-                          <span className="text-sm font-bold text-blue-700">瑞幸咖啡</span>
-                          <span className="text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">官方 MCP</span>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                          <input type="checkbox" checked={luckinEnabled} onChange={e => handleLuckinEnabledChange(e.target.checked)} className="sr-only peer" />
-                          <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
-                      </label>
-                  </div>
-                  <p className="text-[10px] text-blue-700/70 leading-relaxed">
-                      启用后，在聊天里点 + 号 → 第二页 → 瑞一杯，发送"瑞一杯"激活，角色就能为你查门店、搜咖啡、选规格、下单到店自提、查取餐码。
-                  </p>
-                  {luckinEnabled && (
-                      <div className="space-y-2">
-                          <div>
-                              <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">MCP Token (个人)</label>
-                              <input type="password" value={luckinToken} onChange={e => handleLuckinTokenChange(e.target.value)} className="w-full bg-white/80 border border-blue-200 rounded-xl px-3 py-2 text-sm font-mono" placeholder="去 open.lkcoffee.com 登录后复制" />
-                          </div>
-                          <button onClick={testLuckinApi} disabled={luckinTesting} className="w-full py-2 bg-blue-100 text-blue-700 text-xs font-bold rounded-xl active:scale-95 transition-transform disabled:opacity-60">
-                              {luckinTesting ? '测试中…' : '测试连接'}
-                          </button>
-                          {luckinTestStatus && (
-                              <div className={`p-2 rounded-lg text-[11px] whitespace-pre-line leading-relaxed ${luckinTestStatus.startsWith('✅') ? 'bg-emerald-50 text-emerald-700' : luckinTestStatus.startsWith('❌') ? 'bg-red-50 text-red-600' : 'bg-slate-50 text-slate-600'}`}>
-                                  {luckinTestStatus}
-                              </div>
-                          )}
-                          <p className="text-[10px] text-blue-700/70 leading-relaxed">
-                              1. 访问 <a href="https://open.lkcoffee.com" target="_blank" className="underline">open.lkcoffee.com</a> 用瑞幸账号登录，复制 Token（有效期约 1 个月）<br/>
-                              2. 粘贴到上面的输入框（仅存本地，<b>不会上传服务器</b>）<br/>
-                              3. 下单类操作涉及真实支付，角色会先复述清单等你确认再下单<br/>
-                              4. 上游需经 Worker 代理 (/mcp/luckin)，请确保已部署最新 worker
-                          </p>
-                      </div>
-                  )}
-              </div>
-              </>)} {/* [EM: settings-split-senses] */}
-
-              {rtSheetShows('sense') && (<> {/* [EM: settings-split-senses] 运动也是感知 */}
-              {/* 运动感知 */}
-              <div className="bg-purple-50/50 p-4 rounded-2xl space-y-3">
-                  <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                          <PersonSimpleRun size={20} weight="fill" className="text-purple-600" />
-                          <span className="text-sm font-bold text-purple-700">运动感知</span>
-                          <span className="text-[9px] bg-purple-100 text-purple-500 px-1.5 py-0.5 rounded-full">加速度计</span>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                          <input type="checkbox" checked={rtMotionEnabled} onChange={async e => {
-                              if (e.target.checked) {
-                                  const granted = await requestMotionPermission();
-                                  if (!granted) { addToast('运动传感器权限被拒绝', 'error'); return; }
-                                  startMotionListening();
-                                  writeLiliumOSStorage(MOTION_ENABLED_KEY, '1', LEGACY_MOTION_ENABLED_KEYS);
-                                  setRtMotionEnabled(true);
-                                  addToast('运动感知已开启', 'success');
-                              } else {
-                                  stopMotionListening();
-                                  writeLiliumOSStorage(MOTION_ENABLED_KEY, '0', LEGACY_MOTION_ENABLED_KEYS);
-                                  setRtMotionEnabled(false);
-                                  addToast('运动感知已关闭', 'success');
-                              }
-                          }} className="sr-only peer" />
-                          <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-purple-500"></div>
-                      </label>
-                  </div>
-                  <p className="text-[10px] text-purple-500/70 leading-relaxed">
-                      通过手机加速度计检测你是静止、走路、跑步还是在甩手机。开启后角色聊天时能感知你的运动状态。
-                  </p>
-                  {rtMotionEnabled && (
-                      <div className="space-y-2">
-                          <div className="bg-white/60 rounded-xl p-3 space-y-1.5">
-                              <p className="text-[10px] text-slate-500 leading-relaxed">
-                                  <b>静止</b> — 加速度 &lt; 0.8 · 可能坐着或躺着<br/>
-                                  <b>走路</b> — 加速度 0.8 ~ 3.5<br/>
-                                  <b>跑步</b> — 加速度 3.5 ~ 8<br/>
-                                  <b>剧烈晃动</b> — 加速度 &gt; 8 · 手机在被甩
-                              </p>
-                          </div>
-                          <p className="text-[10px] text-purple-500/60 leading-relaxed">
-                              iOS PWA 首次开启需要授权运动传感器权限。数据仅在本地处理，不会上传。
-                          </p>
-                      </div>
-                  )}
-              </div>
-              </>)} {/* [EM: settings-split-senses] */}
-
-              {/* 测试状态 */}
-              {rtTestStatus && (
-                  <div className={`p-3 rounded-xl text-xs font-medium text-center ${rtTestStatus.includes('成功') ? 'bg-emerald-100 text-emerald-700' : rtTestStatus.includes('失败') || rtTestStatus.includes('错误') ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-600'}`}>
-                      {rtTestStatus}
-                  </div>
-              )}
-          </div>
-      </SettingsSheet>
 
       {/* MCP 工具服务器配置 Modal（高级玩法, 从实时感知里独立出来） */}
       <SettingsSheet inline={onPage('mcp')} isOpen={showMcpModal} title="MCP 工具服务器" onClose={() => { setShowMcpModal(false); flushMcpToolConfigSync(); }}> {/* [EM: settings-inline-config] */}

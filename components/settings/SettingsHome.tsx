@@ -207,11 +207,11 @@ const SettingsHome: React.FC<{
 
             {/* 2026-10-22 结构梳理：按「给角色什么」分——感知是 TA 被动知道的（写进提示词），工具是 TA 能主动去做的 */}
             <SettingsGroup title="角色能感知" foot="写进提示词，TA 只是知道">
-                <SettingsRow first icon={CloudSun} title="实时感知" sub="天气、新闻、运动" value={values.realtime} onClick={() => onOpen('realtime')} />
+                <SettingsRow first icon={CloudSun} title="实时感知" sub="天气、新闻" value={values.realtime} onClick={() => onOpen('realtime')} />
             </SettingsGroup>
 
             <SettingsGroup title="角色能用的工具" foot="TA 聊着聊着能自己去用">
-                <SettingsRow first icon={NotePencil} title="日记同步" sub="Notion、飞书" value={values.diary} onClick={() => onOpen('diary-sync')} />
+                <SettingsRow first icon={NotePencil} title="日记同步" sub="Notion" value={values.diary} onClick={() => onOpen('diary-sync')} />
                 <SettingsRow icon={BookOpenText} title="小红书" value={values.xhs} onClick={() => onOpen('xhs')} />
                 <SettingsRow icon={PlugsConnected} title="MCP 工具" sub="日历提醒、开灯、B 站、自定义" value={mcp.text} valueTone={mcp.bad ? 'bad' : 'plain'} dot={mcp.dot ? (mcp.bad ? 'bad' : 'ok') : null} onClick={() => onOpen('mcp')} />
                 <SettingsRow icon={Globe} title="网页抓取" onClick={() => onOpen('web-fetch')} />

@@ -39,7 +39,6 @@ import {
     type NewsItem,
 } from './realtimeWorldCore';
 import { getLocalDateKey } from './localDate';
-import { getMotionContextLine } from './deviceMotion';
 // [EM-START: weather-openmeteo]
 import { fetchOpenMeteoCurrent, resolveWeatherCoords, type WeatherLocation } from './openMeteo';
 export type { WeatherLocation };
@@ -458,10 +457,7 @@ export const RealtimeContextManager = {
         const newsPool = config.newsEnabled ? await RealtimeContextManager.fetchNews(config) : [];
         const picks = pickRandomNews(newsPool, REALTIME_NEWS_PICK_COUNT);
 
-        let fullContext = renderRealtimeWorldBlock({ timeLine, specialDates, weather, news: picks });
-        // [EM: device-motion] 运动状态来自本机传感器，worker 无法代取。
-        const motionLine = getMotionContextLine();
-        if (motionLine) fullContext += `\n${motionLine}`;
+        const fullContext = renderRealtimeWorldBlock({ timeLine, specialDates, weather, news: picks });
 
         // ── F12 探针：本轮真正注入 prompt 的热点 + 文本量（评估 token 用）──
         try {
