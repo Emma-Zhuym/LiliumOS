@@ -212,6 +212,53 @@ describe('markAmsgStateDirty 同步门', () => {
     expect(ActiveMsgClient.syncCharFirePacks).toHaveBeenCalledTimes(2);
   });
 
+  // 回归守卫（2026-10-26）：worker 一直超 CPU 时，聊天里不停打脏，每次打脏 1.5s 后
+  // 都把退避 timer 清掉当场重传，日志每几秒就多一条同样的失败。
+  it('退避期间再怎么打脏也不另发请求，到点那次带上最新快照', async () => {
+    (ActiveMsgClient.syncCharFirePacks as any).mockRejectedValueOnce(new Error('cpu limit'));
+    const id = nextCharId();
+    markAmsgStateDirty(snapshotOf(charWithAiTask(id)));
+    await vi.advanceTimersByTimeAsync(FLUSH_DEBOUNCE_MS);
+    expect(ActiveMsgClient.syncCharFirePacks).toHaveBeenCalledTimes(1);
+
+    const fresh = charWithAiTask(id);
+    fresh.name = '新快照';
+    for (let i = 0; i < 9; i += 1) {
+      markAmsgStateDirty(snapshotOf(i === 8 ? fresh : charWithAiTask(id)));
+      await vi.advanceTimersByTimeAsync(3_000);
+    }
+    expect(ActiveMsgClient.syncCharFirePacks).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(ActiveMsgClient.syncCharFirePacks).toHaveBeenCalledTimes(2);
+    expect((ActiveMsgClient.syncCharFirePacks as any).mock.calls[1][0][0].char.name).toBe('新快照');
+  });
+
+  it('退避重传成功后，打脏恢复正常的 1.5s 冲刷', async () => {
+    (ActiveMsgClient.syncCharFirePacks as any).mockRejectedValueOnce(new Error('cpu limit'));
+    markAmsgStateDirty(snapshotOf(charWithAiTask(nextCharId())));
+    await vi.advanceTimersByTimeAsync(FLUSH_DEBOUNCE_MS);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(ActiveMsgClient.syncCharFirePacks).toHaveBeenCalledTimes(2);
+
+    markAmsgStateDirty(snapshotOf(charWithAiTask(nextCharId())));
+    await vi.advanceTimersByTimeAsync(FLUSH_DEBOUNCE_MS);
+    expect(ActiveMsgClient.syncCharFirePacks).toHaveBeenCalledTimes(3);
+  });
+
+  it('退避期间切后台照样立刻冲刷一次（iOS 只给几秒）', async () => {
+    (ActiveMsgClient.syncCharFirePacks as any).mockRejectedValueOnce(new Error('cpu limit'));
+    markAmsgStateDirty(snapshotOf(charWithAiTask(nextCharId())));
+    await vi.advanceTimersByTimeAsync(FLUSH_DEBOUNCE_MS);
+
+    await flushAmsgState('hidden');
+    expect(ActiveMsgClient.syncCharFirePacks).toHaveBeenCalledTimes(2);
+    // 那次成功了：退避作废，之后的打脏照常 1.5s 冲刷
+    markAmsgStateDirty(snapshotOf(charWithAiTask(nextCharId())));
+    await vi.advanceTimersByTimeAsync(FLUSH_DEBOUNCE_MS);
+    expect(ActiveMsgClient.syncCharFirePacks).toHaveBeenCalledTimes(3);
+  });
+
   it('重排期间又聊了一轮 → 传新快照，别被回队的旧快照盖回去', async () => {
     (ActiveMsgClient.syncCharFirePacks as any).mockRejectedValueOnce(new Error('worker down'));
     const id = nextCharId();

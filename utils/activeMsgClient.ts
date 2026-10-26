@@ -639,6 +639,36 @@ const formatHistoryLine =(role: string, content: any, char: CharacterProfile, us
   return `【${speaker}】\n${text.trim()}`;
 };
 
+/**
+ * fire_pack 里【最近对话上下文】最多带这么多字。
+ *
+ * 上下文范围本身没有上限（全自动记忆 = 记忆宫殿上次归档之后的全部消息，手动默认 500 条），
+ * 整段照搬的话包会跟着聊天一直长。worker 收包时解密、校验、重新加密落库都跟体积成正比，
+ * 2026-10-26 一包 390KB 的上传把 worker 撑过了免费计划每次 10ms 的 CPU 上限，每次都被
+ * Cloudflare 掐掉。主动消息只需要知道最近在聊什么，留最新的这一截就够；平时聊天不受影响。
+ */
+export const FIRE_PACK_TRANSCRIPT_MAX_CHARS = 24_000;
+
+const FIRE_PACK_TRANSCRIPT_SEPARATOR = '\n\n';
+const FIRE_PACK_TRANSCRIPT_OMITTED = '（更早的聊天记录太长，这里省略了）';
+
+/** 从最新一行往前收，收到字数上限为止；最新那一行再长也留着。 */
+export const capFirePackTranscript = (
+  lines: string[],
+  maxChars: number = FIRE_PACK_TRANSCRIPT_MAX_CHARS,
+): string => {
+  const kept: string[] = [];
+  let total = 0;
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const cost = lines[i].length + (kept.length > 0 ? FIRE_PACK_TRANSCRIPT_SEPARATOR.length : 0);
+    if (kept.length > 0 && total + cost > maxChars) break;
+    kept.unshift(lines[i]);
+    total += cost;
+  }
+  if (kept.length < lines.length) kept.unshift(FIRE_PACK_TRANSCRIPT_OMITTED);
+  return kept.join(FIRE_PACK_TRANSCRIPT_SEPARATOR);
+};
+
 const buildTimeGapHint = async (charId: string) => {
   const recentMessages = await DB.getRecentMessagesByCharId(charId, 200);
   return {
@@ -776,15 +806,14 @@ export const buildFirePack = async (
     // 具体拿掉哪些块、到点由谁补，见 ChatPrompts.PromptBuildOptions 上的表。
     { forFirePack: true },
   );
-  const recentTranscript = templateStub ? '' : ChatPrompts.buildMessageHistory(
+  const recentTranscript = templateStub ? '' : capFirePackTranscript(ChatPrompts.buildMessageHistory(
     recentMessages,
     Math.max(1, recentMessages.length),
     char,
     userProfile,
     emojis,
   ).apiMessages
-    .map((message) => formatHistoryLine(message.role, message.content, char, userProfile))
-    .join('\n\n');
+    .map((message) => formatHistoryLine(message.role, message.content, char, userProfile)));
 
   // 记忆库里有哪些月份查得到 —— 提示词一直在教角色用 [[RECALL: 年-月]]，却没说过
   // 哪些月份有东西。不报菜单的话它多半不查，直接凭空编一段「回忆」出来。

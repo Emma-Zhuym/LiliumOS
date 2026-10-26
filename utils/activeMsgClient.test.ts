@@ -39,7 +39,7 @@ vi.mock('./keepAlive', () => ({
 }));
 
 import {
-  ActiveMsgClient, buildFirePack, clearNamespaceValuesOrThrow, compareRemotePushSubscription,
+  ActiveMsgClient, buildFirePack, capFirePackTranscript, clearNamespaceValuesOrThrow, compareRemotePushSubscription,
   describeInstantChatFailure, dropStaleSubscription, maybeGzipRequestBody, putClientStateOrThrow,
   readAmsgFailKind, requestNotificationPermissionFromGesture, toRemoteAvatarUrl,
 } from './activeMsgClient';
@@ -1166,6 +1166,41 @@ describe('buildFirePack 的时区参照系与模板（①）', () => {
 
     const out = await pack(baseChar());
     expect(out.template).toContain('早上好呀');
+  });
+
+  // 回归守卫（2026-10-26）：上下文范围没有上限，整段照搬的话包跟着聊天一直长，
+  // 一包 390KB 把 worker 撑过了每次 10ms 的 CPU 上限，上传次次被掐。
+  it('对话上下文超过字数上限时只留最新的一截', async () => {
+    const lines = Array.from({ length: 400 }, (_, i) => ({
+      role: i % 2 ? 'assistant' : 'user',
+      content: `第${i}条 ${'字'.repeat(200)}`,
+    }));
+    vi.spyOn(ChatPrompts, 'buildMessageHistory').mockReturnValue({ apiMessages: lines } as any);
+
+    const out = await pack(baseChar());
+    expect(out.template).toContain('第399条');
+    expect(out.template).not.toContain('第0条 ');
+    expect(out.template).toContain('更早的聊天记录太长，这里省略了');
+  });
+});
+
+describe('capFirePackTranscript', () => {
+  it('没超上限原样拼接，不加省略说明', () => {
+    expect(capFirePackTranscript(['a', 'b'], 100)).toBe('a\n\nb');
+  });
+
+  it('从最新一行往前收，旧的那截换成一句省略说明', () => {
+    expect(capFirePackTranscript(['aaaa', 'bbbb', 'cccc'], 10))
+      .toBe('（更早的聊天记录太长，这里省略了）\n\nbbbb\n\ncccc');
+  });
+
+  it('最新那一行再长也留着', () => {
+    const last = 'x'.repeat(50);
+    expect(capFirePackTranscript(['old', last], 10)).toBe(`（更早的聊天记录太长，这里省略了）\n\n${last}`);
+  });
+
+  it('空对话返回空串', () => {
+    expect(capFirePackTranscript([], 10)).toBe('');
   });
 });
 

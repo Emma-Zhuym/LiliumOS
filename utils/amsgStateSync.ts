@@ -67,6 +67,12 @@ export interface AmsgSyncSnapshot {
 // charId → 最新快照。同角色多轮聊天只留最后一份，flush 永远用最新状态拼模板。
 const dirty = new Map<string, AmsgSyncSnapshot>();
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
+/**
+ * retryTimer 这会儿排的是不是「上次失败后的退避重传」（它也被即时对话回看占用）。
+ * 退避期间打的脏只进队列、不另发请求：快照到点跟着那次重传一起走。2026-10-26 worker
+ * 一直超 CPU 时，聊天里每 1.5s 一次的打脏把退避整个绕开，每几秒就重发一次同一个失败的包。
+ */
+let backoffPending = false;
 let flushing = false;
 let lifecycleBound = false;
 let retryCount = 0;
@@ -85,7 +91,7 @@ let flushDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let reflushRequested = false;
 
 const queueFlush = () => {
-  if (flushDebounceTimer != null) return;
+  if (flushDebounceTimer != null || backoffPending) return;
   flushDebounceTimer = setTimeout(() => {
     flushDebounceTimer = null;
     void flushAmsgState('dirty');
@@ -203,6 +209,7 @@ export const flushAmsgState = async (reason: string): Promise<void> => {
   // 队列空 = 没有欠着的快照，之前那串失败也就翻篇了，退避计数跟着归零。
   if (dirty.size === 0) { retryCount = 0; return; }
   if (retryTimer != null) { clearTimeout(retryTimer); retryTimer = null; }
+  backoffPending = false;
   // 欠着即时对话回复（含 POST 还在飞、202 未回）的角色这次挂起不传：那一轮的 fire_pack
   // 是 POST /instant-chat 带上去的、多一段 chat（worker 到点全靠它拿这轮的对话），
   // 常规重建的包没有 chat 段，现在覆盖上去的话 worker 到点只会硬失败（fire_pack 里
@@ -246,7 +253,13 @@ export const flushAmsgState = async (reason: string): Promise<void> => {
       retryCount += 1;
       console.warn(`${HEADER} flush(${reason}) 失败，${Math.round(delay / 1000)}s 后重试（第 ${retryCount}/${MAX_RETRIES} 次）`, error);
       if (retryTimer != null) clearTimeout(retryTimer);
-      retryTimer = setTimeout(() => { void flushAmsgState('retry'); }, delay);
+      backoffPending = true;
+      retryTimer = setTimeout(() => {
+        // 先撤掉退避标记：到点时队列可能已被别的冲刷（切后台）清空而提前 return，标记留着的话打脏就再也不发了。
+        backoffPending = false;
+        retryTimer = null;
+        void flushAmsgState('retry');
+      }, delay);
     } else {
       // 重排到头了（多半是离线）。快照留在队列里：下次打脏标记 / 切后台都会再试，
       // 在那之前云端仍是上一份，角色到点会带旧上下文——所以这条要吼出来。
