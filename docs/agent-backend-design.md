@@ -713,7 +713,7 @@ CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at TEX
 >
 > 假如推送一直没送到（手机关机、没网），Elias 三天前那句「突然想到你」会在你某次打开 App 时原样冒出来，像是刚说的一样——很怪。所以给心跳发的消息加个保质期。
 
-- `chat_message` 且 `payload.source = 'heartbeat'` 的条目带 `staleAfter = createdAt + 6 小时`。
+- `chat_message` 且 `payload.source = 'heartbeat'` 的条目带 `staleAfter = createdAt + 3 天`（2026-10-25 由 6 小时放宽；前端按 createdAt 自判）。
 - 超过 `staleAfter` 仍未 ack：**不投递到聊天**，改写成一条 `activity_log`（「那会儿想跟你说点什么，不过时间过去了」），让它出现在动态里而不是假装刚发生。
 - 阿萌主动排的任务结果（`job_result`）不受此限：它们本来就是「办完了告诉我」，晚到也有效。
 - 与信箱保留期（已 ack 7 天 / 全部 28 天）是两回事：保留期管什么时候删，保质期管还要不要当成「刚说的话」送出去。

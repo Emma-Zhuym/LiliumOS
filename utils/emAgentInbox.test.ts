@@ -86,9 +86,17 @@ describe('后端信箱落地到聊天', () => {
         }));
     });
 
-    it('过了保质期的不进聊天——那会儿的话不该假装是刚说的', async () => {
-        inbox.mockResolvedValueOnce([msg('hb:2', { payload: { staleAfter: '2026-09-23T06:00:00.000Z' } })]);
-        const result = await syncAgentMessagesIntoChat(NOW);
+    it('隔夜才打开：过了旧的 6 小时保质期也照样进聊天（通知已经弹过）', async () => {
+        inbox.mockResolvedValueOnce([msg('hb:overnight')]);
+        const result = await syncAgentMessagesIntoChat(Date.parse('2026-09-23T23:30:00.000Z'));
+        expect(result.delivered).toBe(1);
+        expect(result.stale).toBe(0);
+        expect(saveMessage).toHaveBeenCalledWith(expect.objectContaining({ timestamp: Date.parse('2026-09-23T11:00:00.000Z') }));
+    });
+
+    it('放了好几天的不进聊天——那会儿的话不该假装是刚说的', async () => {
+        inbox.mockResolvedValueOnce([msg('hb:2')]);
+        const result = await syncAgentMessagesIntoChat(Date.parse('2026-09-28T11:00:00.000Z'));
         expect(result.delivered).toBe(0);
         expect(result.stale).toBe(1);
         expect(saveMessage).not.toHaveBeenCalled();

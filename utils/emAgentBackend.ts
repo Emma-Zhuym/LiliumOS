@@ -569,16 +569,18 @@ export const syncAgentInbox = async (): Promise<AgentMessage[]> => {
 };
 
 /**
- * 这条心跳消息还能不能当「刚说的话」送进聊天（设计 4.3.1）。
+ * 心跳消息在信箱里最多等多久还往聊天送。
  *
- * 推送没送到时它会在信箱里等着。等太久就不该再原样冒出来——三天前那句「突然想到你」
- * 在你某次打开 App 时显示成刚发的，很怪。过期的只留在起居注里。
+ * 原来是 6 小时（后端 `staleAfter`），2026-10-25 栽了：凌晨一点多陆时的心跳推了通知，早上打开 App
+ * 已经过了 6 小时，被当成过期丢掉——通知看到了、聊天里却永远没有。通知既然弹过，话就必须在聊天里。
+ * 落地时用的是后端写下的原始时刻，不会假装成刚说的，所以放宽到 3 天，只挡真正久远的。
+ * 这里不再读 payload 里的 `staleAfter`：信箱里已有的旧消息带的还是 6 小时。
  */
+export const INBOX_CHAT_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
+
 export const isFreshChatMessage = (message: AgentMessage, now = Date.now()): boolean => {
-    const staleAfter = message.payload?.staleAfter;
-    if (typeof staleAfter !== 'string') return true;
-    const parsed = Date.parse(staleAfter);
-    return !Number.isFinite(parsed) || parsed > now;
+    const createdAt = Date.parse(String(message.payload?.createdAt ?? message.createdAt));
+    return !Number.isFinite(createdAt) || now - createdAt < INBOX_CHAT_MAX_AGE_MS;
 };
 
 /** 收到的一条后台消息该怎么处理。 */

@@ -49,9 +49,11 @@ export const FIRST_BEAT_DELAY_MS = 3 * 60 * 1000;
  * 心跳消息的保质期（设计 4.3.1）。
  *
  * 推送没送到时（手机关机、没网），这条会躺在信箱里等下次打开 App。超过这个时间还没取走，
- * 就不该再当成「刚说的话」送进聊天——三天前那句「突然想到你」原样冒出来很怪。
+ * 就不该再当成「刚说的话」送进聊天。
+ * 原来是 6 小时：凌晨的消息早上才打开 App 就被丢了（通知弹过、聊天里没有），现在放宽到 3 天，
+ * 前端 `isFreshChatMessage` 自己按 createdAt 判，不再读这个字段。
  */
-export const MESSAGE_STALE_AFTER_MS = 6 * 60 * 60 * 1000;
+export const MESSAGE_STALE_AFTER_MS = 3 * 24 * 60 * 60 * 1000;
 
 const MINUTE = 60_000;
 
