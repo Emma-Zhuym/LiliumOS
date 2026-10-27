@@ -109,7 +109,7 @@ section{position:relative;margin-top:84px}
 const INK=[62,76,122];
 const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
 let version='A';
-const hints={A:'A · 只有字随滚动被墨填满',B:'B · 填墨，再加上远近几层走得快慢不同',C:'C · 再加上每节标题两行左右错开'};
+const hints={A:'A · 只有字随滚动被墨填满',B:'B · 填墨，再加上远近几层走得快慢不同',C:'C · 再加上每节标题两行从两边汇合'};
 document.querySelectorAll('.seg button').forEach(b=>b.addEventListener('click',()=>{
   version=b.dataset.v;
   document.querySelectorAll('.seg button').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));
@@ -177,9 +177,10 @@ function tick(){
   });
   const split=version==='C'&&!reduce;
   document.querySelectorAll('.head').forEach(h=>{
-    const r=h.getBoundingClientRect();const p=(vh/2-r.top)/vh;
-    h.querySelector('.l1').style.transform=split?`translate3d(${(p*-70).toFixed(1)}px,0,0)`:'none';
-    h.querySelector('.l2').style.transform=split?`translate3d(${(p*70).toFixed(1)}px,0,0)`:'none';
+    /* 标题进屏时两行分在两边，滑到屏幕上三分之一处汇合，之后不再分开 */
+    const r=h.getBoundingClientRect();const p=Math.min(1,Math.max(0,(r.top-vh*.32)/(vh*.6)));const e=p*p*(3-2*p);
+    h.querySelector('.l1').style.transform=split?`translate3d(${(e*-90).toFixed(1)}px,0,0)`:'none';
+    h.querySelector('.l2').style.transform=split?`translate3d(${(e*90).toFixed(1)}px,0,0)`:'none';
   });
 }
 let raf=0;addEventListener('scroll',()=>{if(!raf)raf=requestAnimationFrame(()=>{raf=0;tick();});},{passive:true});
