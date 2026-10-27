@@ -7,6 +7,10 @@
 
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { putCredential } from './credentials.mjs';
 
 import { openDb, setSetting } from './db.mjs';
 import { toCharacter, upsertCharacter } from './characters.mjs';
@@ -2432,4 +2436,25 @@ test('没做的事不许说做了：没抽到外卖 / 朋友圈，activity 里�
     assert.equal(stripUnbackedClaims('发了条朋友圈', { kind: 'moment' }), '发了条朋友圈');
     assert.equal(stripUnbackedClaims('在办公室批预算', null), '在办公室批预算');
     assert.equal(stripUnbackedClaims('顺手订了午餐简餐', null), '顺手订了午餐简餐', '整句都删光就留原样，免得空着');
+});
+
+test('心跳报错带上 API 渠道：只记「域名 · 模型」，不含 Key 和路径', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'hb-channel-'));
+    putCredential({ secretsDir: dir }, { ref: 'char-x', baseUrl: 'https://api.example.com/v1/chat', model: 'claude-x', apiKey: 'sk-secret' });
+    const { channelOf } = await import('./heartbeat.mjs');
+    const channel = channelOf({ secretsDir: dir }, { runtime: 'api', credRef: 'char-x' });
+    assert.equal(channel, 'api.example.com · claude-x');
+    assert.ok(!channel.includes('sk-secret') && !channel.includes('/v1'));
+    assert.equal(channelOf({ secretsDir: dir }, { runtime: 'api', credRef: 'nope' }), null);
+    assert.equal(channelOf({ secretsDir: dir }, { runtime: 'codex', credRef: 'char-x' }), null);
+});
+
+test('心跳：模型失败的那条记录带渠道', async () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    seedSnapshot(db);
+    const runner = { run: async () => ({ ok: false, error: 'HTTP 502' }) };
+    await assert.rejects(() => runHandler(db, { runner, job: jobFor(character.heartbeatGeneration), scheduled: [] }), /502/);
+    // 测试配置没有 secretsDir / 凭据 → 渠道为空，字段本身存在且不会让记录写失败
+    assert.equal(listModelRuns(db)[0].channel, null);
 });

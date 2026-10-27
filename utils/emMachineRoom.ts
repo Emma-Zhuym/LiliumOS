@@ -67,7 +67,7 @@ export const matchesFilter = (run: AgentModelRun, filter: RunKind | 'all') => {
 /** 一跳写成一行人话：做了什么，没做就写为什么。 */
 export const runSummary = (run: AgentModelRun): string => {
     const kind = runKind(run);
-    if (kind === 'error') return run.error ? `出错了：${run.error}` : '出错了';
+    if (kind === 'error') return run.error ? `出错了：${run.error}${run.channel ? `（渠道：${run.channel}）` : ''}` : '出错了'; // [EM: heartbeat-error-channel]
     if (kind === 'skipped') return run.skipGate ? `没醒：${GATE_LABELS[run.skipGate] ?? run.skipGate}` : '没醒';
     const deeds = describeRunDeeds(run);
     return run.activity || deeds.join(' · ') || '想了想，没说话';

@@ -100,3 +100,10 @@ describe('机房：连不上的原因', () => {
         expect(describeReachFailure({ code: 'HTTP_ERROR', status: 500 }).kind).toBe('server');
     });
 });
+
+describe('机房：心跳报错带渠道', () => {
+    it('出错摘要在原因后面写 API 渠道；没有渠道就照旧', () => {
+        expect(runSummary(run({ outcome: 'error', ok: false, error: 'HTTP 502', channel: 'api.example.com · claude-x' }))).toBe('出错了：HTTP 502（渠道：api.example.com · claude-x）');
+        expect(runSummary(run({ outcome: 'error', ok: false, error: 'HTTP 502' }))).toBe('出错了：HTTP 502');
+    });
+});

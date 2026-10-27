@@ -11,6 +11,7 @@
 import { createHash } from 'node:crypto';
 
 import { getSetting } from './db.mjs';
+import { readCredential } from './credentials.mjs';
 import { getCharacter, toCharacter } from './characters.mjs';
 import { getSnapshot } from './snapshots.mjs';
 import {
@@ -409,6 +410,21 @@ export const speakBlock = (db, { character, snapshot, now = new Date(), owed = f
     return null;
 };
 
+/** 这个角色的心跳走哪条 API：「域名 · 模型」。不含 Key 和路径；没配凭据 / 不是 api 返回 null。 */
+export const channelOf = (config, character) => {
+    if (character?.runtime !== 'api' || !character.credRef) return null;
+    // 只是附注：读不到就算了，绝不能在报错路径上再抛一个，盖掉真正的错误原因
+    try {
+        const cred = readCredential(config, character.credRef);
+        if (!cred?.baseUrl) return null;
+        let host = '';
+        try { host = new URL(String(cred.baseUrl)).host; } catch { host = String(cred.baseUrl); }
+        return cred.model ? `${host} · ${cred.model}` : host;
+    } catch {
+        return null;
+    }
+};
+
 export const recordModelRun = (db, {
     jobUuid = null,
     charId,
@@ -430,19 +446,20 @@ export const recordModelRun = (db, {
     urge = null,
     episode = null,
     reachReason = null,
+    channel = null,
 }) => {
     db.prepare(
         `INSERT INTO model_runs (job_uuid, char_id, runtime, started_at, duration_ms, ok, outcome,
                                  shadow, reason, proposed_text, proposed_tool, proposed_args_summary,
-                                 skip_gate, error, activity, raw_output, intent, urge, episode, reach_reason)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                                 skip_gate, error, activity, raw_output, intent, urge, episode, reach_reason, channel)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).run(
         jobUuid, charId, runtime, startedAt, durationMs, ok ? 1 : 0, outcome,
         shadow ? 1 : 0, truncate(reason, 500), truncate(proposedText, 2000), proposedTool,
         truncate(proposedArgsSummary, 500), skipGate, truncate(error, 500),
         truncate(activity, 200), truncate(rawOutput, 2000), intent, urge,
         episode ? truncate(JSON.stringify(episode), 4000) : null,
-        reachReason,
+        reachReason, truncate(channel, 200),
     );
 };
 
@@ -511,6 +528,7 @@ export const listModelRuns = (db, { charId = null, limit = 50 } = {}) => {
         intent: row.intent,
         urge: row.urge,
         reachReason: row.reach_reason ?? null,
+        channel: row.channel ?? null,
         episode: (() => { try { return row.episode ? JSON.parse(row.episode) : null; } catch { return null; } })(),
     }));
 };
@@ -1957,6 +1975,7 @@ export const createHeartbeatHandler = ({
                 : result.error,
             shadow,
             intent,
+            channel: channelOf(config, character),
             rawOutput: shouldCaptureRaw(db) ? result.raw ?? null : null,
         });
         // 心跳 max_attempts=1：这里抛出去就是本次 failed，由已经排好的下一跳接续。
@@ -2036,6 +2055,7 @@ export const createHeartbeatHandler = ({
         shadow,
         // 抽中了开口、模型却退回 noop 的次数值得盯：多了说明提示词还是在劝它闭嘴。
         intent,
+        channel: channelOf(config, character),
         // 开了口就不再欠着；没开口的「等会儿」留给下一跳兑现。上一跳欠下的，这一跳不能开口时继续欠着。
         urge: output.action === 'message' ? 'none' : (hush && carried ? 'later' : output.urge),
         // 这一跳为什么没开口（审计用）；outcome 不是 skipped，界面不会当成「被拦下」显示。

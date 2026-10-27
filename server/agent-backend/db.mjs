@@ -289,6 +289,10 @@ export const MIGRATIONS = [
     );
     CREATE INDEX idx_drive_ledger_char ON drive_ledger (char_id, at);
     `,
+    // 13：这一跳走的哪条 API 渠道（「域名 · 模型」，不含 Key 和路径）。报错时手机上要看是哪条线路出的事。
+    `
+    ALTER TABLE model_runs ADD COLUMN channel TEXT;
+    `,
 ];
 
 export const DEFAULT_SETTINGS = {

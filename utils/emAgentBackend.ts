@@ -111,6 +111,8 @@ export interface AgentModelRun {
     proposedText: string | null;
     skipGate: string | null;
     error: string | null;
+    /** 这一跳走的 API 渠道，「域名 · 模型」；旧记录和非 api 大脑是 null。 */
+    channel?: string | null;
     /** 只有打开后端的排查开关、且这次解析失败时才有；平时是 null。 */
     rawOutput?: string | null;
     /** 这一跳有没有「过会儿找 ta」的念头；有的话下一跳会兑现。 */
