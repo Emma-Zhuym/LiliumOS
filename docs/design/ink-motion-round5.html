@@ -1,0 +1,190 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>墨线动效样稿</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,400;1,500&family=Courier+Prime&family=Noto+Serif+SC:wght@400;600&display=swap">
+<style>
+/* 一张冷白布纹纸托在灰蓝衬底上；手机竖屏一栏，三个版本只差滚动时的动法 */
+:root{
+  --mount:#D8DBE2; --paper:#ECEEEB; --ink:#3E4C7A; --text:#23273A; --faint:rgba(62,76,122,.32); --rule:rgba(62,76,122,.28);
+  --serif:'Noto Serif SC','Songti SC',serif; --italic:'Cormorant Garamond','Times New Roman',serif; --type:'Courier Prime','Courier New',monospace;
+  color-scheme:light;
+}
+html{background:var(--mount)}
+body{background:var(--mount);color:var(--text);font-family:var(--serif);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0 32px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--mount)}
+.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--mount);padding-block:10px;display:flex;flex-direction:column;align-items:center;gap:6px}
+.seg{display:flex;border:0.5px solid var(--rule);border-radius:999px;padding:2px;background:var(--paper)}
+.seg button{font-family:var(--type);font-size:12px;letter-spacing:.14em;color:var(--ink);background:none;border:0;border-radius:999px;padding:7px 12px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.seg button:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.hint{font-family:var(--type);font-size:11px;letter-spacing:.12em;color:var(--ink);opacity:.75;text-align:center}
+.sheet{position:relative;max-width:420px;margin:0 auto;background-color:var(--paper);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cfilter id='c' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9 .25' numOctaves='2' seed='5' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .3 0 0 0 0 .33 0 0 0 0 .36 0 0 0 .5 -.17'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23c)'/%3E%3C/svg%3E");overflow:hidden;padding:28px 22px 56px}
+.layer{position:absolute;pointer-events:none;will-change:transform}
+.lab{font-family:var(--type);font-size:11px;letter-spacing:.26em;color:var(--ink)}
+.hero{position:relative;min-height:440px;display:flex;flex-direction:column}
+.hero canvas{display:block;width:100%;height:300px;margin-top:8px}
+.big{font-weight:600;font-size:40px;line-height:1.15;color:var(--text);margin:auto 0 0}
+.it{font-family:var(--italic);font-style:italic;color:var(--ink)}
+.big .it{display:block;font-size:30px;font-weight:400;margin-top:2px}
+section{position:relative;margin-top:84px}
+.head{overflow:visible;margin-bottom:22px}
+.head .l1{display:block;font-weight:600;font-size:30px;color:var(--text);will-change:transform}
+.head .l2{display:block;font-family:var(--italic);font-style:italic;font-size:28px;color:var(--ink);padding-left:2.2em;will-change:transform}
+.count{display:flex;align-items:baseline;gap:10px}
+.count b{font-family:var(--italic);font-style:italic;font-weight:500;font-size:88px;line-height:1;color:var(--ink)}
+.p{font-size:16px;line-height:1.9;color:var(--text)}
+.voice{font-weight:400;font-size:19px;line-height:1.9;color:var(--ink)}
+.row{display:grid;grid-template-columns:auto 1fr;gap:4px 16px;align-items:baseline;padding-block:14px;border-top:0.5px solid var(--rule)}
+.row:last-child{border-bottom:0.5px solid var(--rule)}
+.row .lab{opacity:.85}
+.card{position:relative;background:var(--mount);padding:12px 10px;margin-top:6px}
+.card .in{background:var(--paper);padding:16px;display:grid;grid-template-columns:96px 1fr;gap:14px;align-items:center}
+.card canvas{width:96px;height:120px;display:block}
+.end{margin-top:96px;text-align:center}
+.ch{transition:none}
+@media (prefers-reduced-motion: reduce){.layer,.head .l1,.head .l2{transform:none!important}}
+</style>
+
+<div class="bar">
+  <div class="seg" role="group" aria-label="动效版本">
+    <button type="button" id="vA" data-v="A" aria-pressed="true">A 填墨</button>
+    <button type="button" id="vB" data-v="B" aria-pressed="false">B ＋视差</button>
+    <button type="button" id="vC" data-v="C" aria-pressed="false">C ＋错开</button>
+  </div>
+  <div class="hint" id="hint">A · 只有字随滚动被墨填满</div>
+</div>
+
+<main class="sheet" id="sheet">
+  <canvas class="layer" id="frostFar" aria-hidden="true"></canvas>
+  <canvas class="layer" id="frostNear" aria-hidden="true"></canvas>
+
+  <div class="hero">
+    <div class="lab">NO. 06 · OUR SPACE</div>
+    <canvas id="lotus" aria-hidden="true" data-speed=".55"></canvas>
+    <h1 class="big">收着的<span class="it">kept, quietly.</span></h1>
+  </div>
+
+  <section>
+    <h2 class="head"><span class="l1">日子</span><span class="l2">the days</span></h2>
+    <div class="count"><b>12</b><span class="p ink">天以后</span></div>
+    <p class="p ink">是第一次见面的两周年。那天也下过雨，伞是他的，鞋湿的是你。</p>
+    <div class="lab" style="margin-top:10px">11.08 · SAT</div>
+  </section>
+
+  <section>
+    <h2 class="head"><span class="l1">他说的</span><span class="l2">his words</span></h2>
+    <p class="voice ink">我在。今天早点睡，明天陪你去买菜。</p>
+    <div class="lab" style="margin-top:12px">10.27 · 22:41</div>
+  </section>
+
+  <section>
+    <h2 class="head"><span class="l1">那些夜</span><span class="l2">by candlelight</span></h2>
+    <div class="row"><span class="lab">10.22</span><span class="p ink">关于搬家的那一夜</span></div>
+    <div class="row"><span class="lab">10.18</span><span class="p ink">说到小时候养的猫</span></div>
+    <div class="row"><span class="lab">10.12</span><span class="p ink">下雨的周日，没有出门</span></div>
+  </section>
+
+  <section>
+    <h2 class="head"><span class="l1">收进来的</span><span class="l2">pressed &amp; kept</span></h2>
+    <div class="card" data-speed="0.92">
+      <div class="in">
+        <canvas id="sprig" aria-hidden="true"></canvas>
+        <div>
+          <div class="lab">NO. 03 · 10.20</div>
+          <p class="p ink" style="margin:6px 0 0">他从公园捡回来的一片叶子，夹在了这里。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="end">
+    <div class="lab">· 到这里 ·</div>
+    <p class="it" style="font-size:20px;margin:8px 0 0">and the rest, tomorrow.</p>
+  </div>
+</main>
+
+<script>
+(function(){
+const INK=[62,76,122];
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+let version='A';
+const hints={A:'A · 只有字随滚动被墨填满',B:'B · 填墨，再加上远近几层走得快慢不同',C:'C · 再加上每节标题两行左右错开'};
+document.querySelectorAll('.seg button').forEach(b=>b.addEventListener('click',()=>{
+  version=b.dataset.v;
+  document.querySelectorAll('.seg button').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));
+  document.getElementById('hint').textContent=hints[version];
+  tick();
+}));
+
+/* 字逐个拆开，滚到哪写到哪 */
+const inks=[...document.querySelectorAll('.ink')].map(el=>{
+  const chars=[...el.textContent];el.textContent='';
+  const spans=chars.map(c=>{const s=document.createElement('span');s.className='ch';s.textContent=c;el.appendChild(s);return s;});
+  return {el,spans,col:getComputedStyle(el).color};
+});
+
+/* 点刻：莲花、小叶、远近两层霜点 */
+let sd=11;const rnd=()=>(sd=(sd*16807)%2147483647)/2147483647;const g=()=>(rnd()+rnd()+rnd())/3-.5;
+function prep(cv,w,h){const d=devicePixelRatio||1;cv.width=w*d;cv.height=h*d;cv.style.width=w+'px';cv.style.height=h+'px';const c=cv.getContext('2d');c.setTransform(d,0,0,d,0,0);return c;}
+function lotus(cv){
+  const w=cv.parentElement.clientWidth,h=300,c=prep(cv,w,h);sd=11;
+  const cx=w/2,cy=h*.62,s=Math.min(w/420,1)*.78;
+  const dot=(x,y,a)=>{c.fillStyle=`rgba(${INK},${a})`;c.fillRect(x,y,1,1);};
+  [[-90,120,30],[-72,118,30],[-108,118,30],[-55,128,32],[-125,128,32],[-38,150,30],[-142,150,30],[-18,175,26],[-162,175,26],[-4,190,22],[-176,190,22],[-82,95,26],[-98,95,26]].forEach(([a,L,W])=>{
+    a=a*Math.PI/180;L*=s;W*=s;const ca=Math.cos(a),sa=Math.sin(a);
+    const P=(t,q)=>[cx+ca*t*L-sa*q,cy+sa*t*L*.82+ca*q*.82];
+    const hw=t=>W*Math.pow(Math.sin(Math.PI*t),.75)*(1-.35*t);
+    for(let i=0;i<900;i++){const t=rnd(),sd2=rnd()<.5?-1:1,p=P(t,hw(t)*sd2+g()*1.4*s);dot(p[0],p[1],.75+rnd()*.25);}
+    for(let i=0;i<520;i++){const t=Math.pow(rnd(),1.8),sd2=rnd()<.5?-1:1,p=P(t,hw(t)*sd2*Math.pow(rnd(),.6));dot(p[0],p[1],.35+rnd()*.4);}
+  });
+  for(let i=0;i<1800;i++){const a=rnd()*6.283,r=Math.pow(rnd(),1.6)*24*s;dot(cx+Math.cos(a)*r,cy-16*s+Math.sin(a)*r*.75,.6+rnd()*.4);}
+  for(let i=0;i<1300;i++){const a=rnd()*6.283,r=(1-Math.pow(rnd(),.5))*200*s+18*s;dot(cx+Math.cos(a)*r*1.1,cy+16*s+Math.sin(a)*r*.22,.12+rnd()*.18);}
+  c.setLineDash([5,4]);c.lineWidth=1;
+  [[44,.85],[96,.55],[150,.3]].forEach(([rx,a])=>{c.strokeStyle=`rgba(${INK},${a})`;c.beginPath();c.ellipse(cx,cy+40*s,rx*s*1.2,rx*s*.3,0,0,6.283);c.stroke();});
+}
+function sprig(cv){
+  const c=prep(cv,96,120);sd=5;c.strokeStyle=`rgb(${INK})`;c.lineWidth=.8;c.lineCap='round';
+  const P=['M48 116C50 90 47 70 52 44','M52 44C42 36 38 24 44 12C50 20 54 30 52 44Z','M52 44C60 34 70 30 78 32C72 40 62 44 52 44Z','M50 80C38 74 30 76 22 84C32 88 42 86 50 80Z','M49 96C58 88 68 88 76 92C68 98 58 100 49 96Z'];
+  P.forEach(d=>{const p=new Path2D(d);c.stroke(p);if(!d.endsWith('Z'))return;
+    for(let i=0;i<500;i++){const x=10+rnd()*76,y=6+rnd()*104;if(!c.isPointInPath(p,x,y))continue;const base=y>88?[49,96]:y>70?[50,80]:[52,44];const dd=Math.hypot(x-base[0],y-base[1]);if(rnd()>Math.pow(Math.max(0,1-dd/32),2.2))continue;c.fillStyle=`rgba(${INK},${.55+rnd()*.4})`;c.fillRect(x,y,.9,.9);}});
+}
+function frost(cv,n,alpha,seed){
+  const sh=document.getElementById('sheet');const w=sh.clientWidth,h=sh.scrollHeight*1.25;const c=prep(cv,w,h);sd=seed;
+  for(let k=0;k<n;k++){const x=rnd()*w,y=rnd()*h,R=10+rnd()*26;
+    for(let i=0;i<70;i++){const a=rnd()*6.283,r=Math.pow(rnd(),.7)*R;c.fillStyle=`rgba(${INK},${alpha*(1-r/R)})`;c.fillRect(x+Math.cos(a)*r,y+Math.sin(a)*r,1,1);}}
+}
+
+const near=document.getElementById('frostNear'),far=document.getElementById('frostFar');
+function build(){lotus(document.getElementById('lotus'));sprig(document.getElementById('sprig'));frost(far,26,.22,3);frost(near,12,.45,9);far.style.top=near.style.top='0';far.style.left=near.style.left='0';tick();}
+
+function tick(){
+  const vh=innerHeight;
+  inks.forEach(({el,spans})=>{
+    const r=el.getBoundingClientRect();
+    const p=reduce?1:Math.min(1,Math.max(0,(vh*.88-r.top)/(vh*.42)));
+    const n=spans.length;
+    spans.forEach((s,i)=>{const local=Math.min(1,Math.max(0,p*(n+6)/n*1.0-(i/n)));s.style.opacity=(.32+.68*local).toFixed(3);});
+  });
+  const sy=scrollY;
+  const par=version!=='A'&&!reduce;
+  far.style.transform=par?`translate3d(0,${(sy*.55).toFixed(1)}px,0)`:'none';
+  near.style.transform=par?`translate3d(0,${(sy*-.18).toFixed(1)}px,0)`:'none';
+  far.style.opacity=near.style.opacity=par?'1':'0';
+  document.querySelectorAll('[data-speed]').forEach(el=>{
+    const r=el.getBoundingClientRect(),mid=r.top+r.height/2-vh/2;const k=parseFloat(el.dataset.speed);
+    el.style.transform=par?`translate3d(0,${(-mid*(k-1)).toFixed(1)}px,0)`:'none';
+  });
+  const split=version==='C'&&!reduce;
+  document.querySelectorAll('.head').forEach(h=>{
+    const r=h.getBoundingClientRect();const p=(vh/2-r.top)/vh;
+    h.querySelector('.l1').style.transform=split?`translate3d(${(p*-70).toFixed(1)}px,0,0)`:'none';
+    h.querySelector('.l2').style.transform=split?`translate3d(${(p*70).toFixed(1)}px,0,0)`:'none';
+  });
+}
+let raf=0;addEventListener('scroll',()=>{if(!raf)raf=requestAnimationFrame(()=>{raf=0;tick();});},{passive:true});
+addEventListener('resize',build);
+(document.fonts?document.fonts.ready:Promise.resolve()).then(build);
+build();
+})();
+</script>
