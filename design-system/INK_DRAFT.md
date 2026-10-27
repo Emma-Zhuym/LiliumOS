@@ -155,6 +155,21 @@ v3 之后两张变体（2026-10-27）：去对称那张霜自然了，但 GPT �
 
 **初冬夜里定稿**（2026-10-27，阿萌：还蛮好看）：`docs/design/ink/winter-window-v4-night.webp`，在 v4 同一个对话里让 GPT 照原构图改成夜景。光是对的：亮的只有靠近杯子的霜、远处两三盏窗灯、一弯月亮、杯沿，草坡和天是暗的；纯黑底，贴纸样稿里直接 screen 叠到深靛纸上，不调色（窗灯那点暖橘留着当点睛）。样稿夜里换了自己的字（23:40 · 晚安）
 
+**拆层试验 · 初冬（2026-10-27）**：开屏要按时段换天色、按城市换窗外（见 `docs/ideas.md` 开屏那条），所以把 v4 拆成三层：窗（GPT）、景（GPT）、天（代码）。
+两张都在 v4 白天那个对话里接着要，这样窗的位置跟 v4 一模一样，窗格坐标直接从 v4 量；景只露在窗格里，位置可以在代码里挪。
+
+窗层（把玻璃里的东西清空）：
+
+```
+Edit this image: remove everything seen through the glass — no landscape, no tree, no houses, no fence, no sun, no sky, no chimney smoke. The glass panes become pure empty white. Keep the frost on the glass exactly as it is, and keep the window frame, the raised blinds, the windowsill, the glass of water and its steam exactly the same, in the same positions.
+```
+
+景层（只要窗外，不要窗）：
+
+```
+Now a separate image in the same style: ONLY the outdoor landscape that was seen through this window, as one continuous scene with no window, no frame, no blinds, no frost, no glass of water. Same viewpoint and same early-winter dawn: the frost-whitened meadow sloping away, the bare tree with hoarfrost, the low line of distant rooftops, one chimney with a thin thread of smoke, the field and fence in the foreground. Leave the whole sky pure empty white: no sun, no moon, no clouds, no birds. Tall portrait image, 2:3, landscape filling the lower two thirds.
+```
+
 ## 已定
 
 - 主墨是蓝，不是棕（2026-10-23 样稿比较）
