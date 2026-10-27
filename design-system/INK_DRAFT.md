@@ -72,8 +72,10 @@ like faded navy fountain-pen ink (close to #3E4C7A), on a pure white background.
 Thin, even, confident outlines. Shading is done ONLY with stipple dots, denser toward
 the base and in shadows, sparse elsewhere. Feels like an antique copperplate engraving
 or an old tattoo flash sheet. No fill colors, no grey wash, no gradients, no paper
-texture, no frame or border, no text, no signature. Generous white space. Square image.
+texture, no frame or border, no text, no signature. Generous white space.
 ```
+
+（画幅不放进固定段，每张图在「画什么」里自己写：方图 / 竖 2:3。）
 
 纯白底是为了贴到布纹纸上用正片叠底（白色消失、只剩墨线）。出来的图如果墨色发紫 / 发黑，先别重出，小帕在代码里统一调色。
 
@@ -114,6 +116,31 @@ one thin bare branch with a fine rim of hoarfrost. On the sill: one simple
 straight-sided glass of hot water, a single thin wisp of steam drawn in stipple.
 IMPORTANT: frost, NOT snow — no falling snowflakes, no snow piled anywhere,
 no six-pointed snowflake shapes, no icicles.
+```
+
+v2 没出，阿萌改了方向（2026-10-27）：窗外要有景，不然太空；窗户要竖长的 2 列 × 3 行。景和霜怎么分开：**霜近、景远**——霜贴在玻璃上，线清楚、只在每格下角；景在窗外远处，用稀疏的淡点刻，个头小、对比低。
+
+**初冬 · 窗与杯 v3**：
+
+```
+SUBJECT: Tall portrait image, 2:3. An early-winter dawn seen from indoors through a
+tall window with SIX panes: two columns by three rows. The whole window is shown
+complete in the center with a white margin on all sides; nothing touches the image
+edges. The frame is drawn with clean double outlines and only a few sparse grain
+lines, mostly left white. The glass is pure white paper — no sky tint, no wash.
+OUTSIDE (far away, seen through the glass, drawn small with faint, sparse stipple
+and low contrast): a frost-whitened meadow sloping gently away, one bare tree in the
+middle distance with a fine rim of hoarfrost on its branches, a low line of distant
+rooftops with one chimney giving a thin thread of smoke, and a pale low winter sun
+just above the horizon drawn as a simple thin circle. Quiet, still, clear sky.
+FROST (close, on the inside of the glass, crisp fine lines): flat, feathery, swirling
+fern-like crystals radiating inward from the bottom corners of each pane, lying flat
+on the glass like pressed frost flowers — not upright, not like little pine trees.
+The frost covers only the lower corners; most of each pane stays clear so the
+landscape shows through. On the sill: one simple straight-sided glass of hot water
+with a single thin wisp of steam in stipple.
+IMPORTANT: frost, NOT snow — no falling snowflakes, no snow piled anywhere, no
+six-pointed snowflake shapes, no icicles.
 ```
 
 ## 已定
