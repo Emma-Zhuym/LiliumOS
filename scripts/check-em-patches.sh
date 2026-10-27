@@ -388,6 +388,7 @@ check "设置：备份页" apps/Settings.tsx "            <BackupSettingsPage"
 check "设置：MCP 一页" apps/Settings.tsx "<McpServersPage addToast={addToast}"
 check "设置：MCP 改动传上云" components/settings/McpServersPage.tsx "onMcpConfigChanged?.();"
 check "主动消息 2.0 内嵌" components/settings/ActiveMsgGlobalSettingsModal.tsx "inline={inline} // [EM: settings-inline-config]"
+check "主动消息 2.0 上传体积" components/settings/ActiveMsgGlobalSettingsModal.tsx "<AmsgUploadSizeGroup />{/* [EM: amsg-upload-size] */}"
 
 echo "── 网页卡片进私聊历史 ──"
 check "网页 / B 站卡片正文和字幕进历史" utils/chatPrompts.ts "[EM: webpage-card-history]"

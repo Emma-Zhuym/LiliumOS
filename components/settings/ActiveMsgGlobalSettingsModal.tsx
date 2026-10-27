@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import SettingsSheet from './SettingsSheet'; // [EM: settings-inline-config] 设置的「主动消息 2.0」子页里直接铺开，别处照旧弹窗
+import AmsgUploadSizeGroup from './AmsgUploadSizeGroup'; // [EM: amsg-upload-size]
 import AmsgCronControl from './AmsgCronControl'; // [EM: amsg-cron-control]
 import { ActiveMsg2GlobalConfig, RealtimeConfig } from '../../types';
 import {
@@ -1523,6 +1524,8 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
           <p>这是你自己的 Worker、你自己的库，项目不会额外接一个中心服务器。但只要数据进库，能碰到这台 Worker / 数据库的人（也就是你自己）就能看到这些内容。</p>
           <p>如果你不接受把私密提示词、API Key 放进自己部署的服务，就不要开 2.0。</p>
         </div>
+
+        <AmsgUploadSizeGroup />{/* [EM: amsg-upload-size] */}
 
         <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
           <button

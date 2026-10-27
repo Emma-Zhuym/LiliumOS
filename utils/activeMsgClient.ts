@@ -105,6 +105,15 @@ import { copyWorkerBundleToClipboard } from './instantPushClient';
 import { collectMcpFireServers, getMcpUseNativeTools } from './mcpClient';
 import { safeResponseJson } from './safeApi';
 import { ActiveMsgStore } from './activeMsgStore';
+import {
+  forgetToolPackUploads,
+  hashStateValue,
+  isToolPackUploaded,
+  recordAmsgUploadStats,
+  rememberToolPackUploaded,
+  utf8Bytes,
+  type AmsgCharUploadSize,
+} from './amsgUploadStats';
 import { KeepAlive } from './keepAlive';
 import {
   bytesToB64u,
@@ -728,6 +737,8 @@ export const buildFirePack = async (
      * 即时 fire 自己要读它们（sceneSong、锚点、任务清单块）。
      */
     templateStub?: boolean;
+    /** 打包时顺手量一下几块大头多大（给「最近一次上传多大」用，见 amsgUploadStats）。 */
+    sizes?: { systemPromptChars?: number; transcriptChars?: number; transcriptCapped?: boolean };
   },
 ): Promise<AmsgFirePack> => {
   const templateStub = opts?.templateStub === true;
@@ -814,6 +825,11 @@ export const buildFirePack = async (
     emojis,
   ).apiMessages
     .map((message) => formatHistoryLine(message.role, message.content, char, userProfile)));
+  if (opts?.sizes) {
+    opts.sizes.systemPromptChars = systemPrompt.length;
+    opts.sizes.transcriptChars = recentTranscript.length;
+    opts.sizes.transcriptCapped = recentTranscript.startsWith(FIRE_PACK_TRANSCRIPT_OMITTED);
+  }
 
   // 记忆库里有哪些月份查得到 —— 提示词一直在教角色用 [[RECALL: 年-月]]，却没说过
   // 哪些月份有东西。不报菜单的话它多半不查，直接凭空编一段「回忆」出来。
@@ -2927,17 +2943,50 @@ export const ActiveMsgClient = {
     // 表情包全库与角色无关，整批读一次就够——放在循环里的话 N 个角色要跑 2N 次全表
     // getAll（表情记录带图片数据），拿回来的还是同一份。
     const emojiLibrary = await readEmojiLibrary();
-    const entries = [];
+    const entries: Array<{ namespace: string; key: string; value: string; updatedAt: number }> = [];
+    // tool_pack 没变就不传（见 amsgUploadStats）。指纹按 worker + 用户分开记，换台 worker 照传。
+    const sigScope = `${globalConfig.workerUrl.trim()}|${globalConfig.userId}`;
+    const toolPackSigs: Array<{ namespace: string; charId: string; sig: string }> = [];
+    const sizes: AmsgCharUploadSize[] = [];
     // 逐个串行：并发跑会同时开 N 个 IDB 事务，正是 instant push 那次超时的连接风暴成因。
     for (const item of items) {
+      const packSizes: NonNullable<Parameters<typeof buildFirePack>[5]>['sizes'] = {};
       const firePack = await buildFirePack(
-        item.char, item.userProfile, item.groups, item.realtimeConfig, emojiLibrary,
+        item.char, item.userProfile, item.groups, item.realtimeConfig, emojiLibrary, { sizes: packSizes },
       );
+      const namespace = amsgStateNamespace(item.char.id);
       // 大值由 amsg-server 2.6.0-next.4+ 在 worker 存储层透明分块，整条直传，
       // 内容一个字不裁；老 worker 拒超限条目 → 设置页 capabilities 探测亮牌。
-      entries.push(...(await buildCharStateEntries(item.char, firePack, now)));
+      const fireValue = await packStateValue(JSON.stringify(firePack));
+      entries.push({ namespace, key: AMSG_FIRE_PACK_KEY, value: fireValue, updatedAt: now });
+      const toolJson = JSON.stringify(buildToolPack(item.char));
+      const toolSig = hashStateValue(toolJson);
+      let toolPackBytes: number | null = null;
+      if (!isToolPackUploaded(sigScope, item.char.id, toolSig)) {
+        const toolValue = await packStateValue(toolJson);
+        entries.push({ namespace, key: AMSG_TOOL_PACK_KEY, value: toolValue, updatedAt: now });
+        toolPackSigs.push({ namespace, charId: item.char.id, sig: toolSig });
+        toolPackBytes = utf8Bytes(toolValue);
+      }
+      sizes.push({
+        name: item.char.name,
+        templateChars: firePack.template.length,
+        systemPromptChars: packSizes.systemPromptChars ?? 0,
+        transcriptChars: packSizes.transcriptChars ?? 0,
+        transcriptCapped: !!packSizes.transcriptCapped,
+        firePackBytes: utf8Bytes(fireValue),
+        toolPackBytes,
+      });
     }
-    const response = await client.putClientState(entries);
+    const totalBytes = utf8Bytes(JSON.stringify({ entries }));
+    let response: Awaited<ReturnType<typeof client.putClientState>>;
+    try {
+      response = await client.putClientState(entries);
+    } catch (error) {
+      recordAmsgUploadStats({ at: Date.now(), ok: false, totalBytes, chars: sizes });
+      throw error;
+    }
+    recordAmsgUploadStats({ at: Date.now(), ok: !!response?.success, totalBytes, chars: sizes });
     if (!response?.success) {
       throw new Error(response?.error?.message || '上传云端状态失败。');
     }
@@ -2967,6 +3016,11 @@ export const ActiveMsgClient = {
         skipped.map((s) => `${s.namespace}/${s.key}`),
       );
       await alignStateClockWithRemote(client, [...new Set(skipped.map((s) => s.namespace))]);
+    }
+    // 被拒的那份 tool_pack 不记指纹，下次照传；被条件写拦下的说明云端已有更新的，记上无妨。
+    for (const { namespace, charId, sig } of toolPackSigs) {
+      if (rejected?.some((r) => r.namespace === namespace && r.key === AMSG_TOOL_PACK_KEY)) continue;
+      rememberToolPackUploaded(sigScope, charId, sig);
     }
     // 同步已经落定，顺路把这几个角色的存量空壳清一遍（每角色一次，失败只 warn）。
     await sweepSidechannelShells(client, items.map((item) => item.char.id));
@@ -3495,6 +3549,8 @@ export const ActiveMsgClient = {
   async clearCharClientState(charId: string): Promise<string[]> {
     const config = await ensureWorkerReady();
     const client = await initializeClient(config);
+    // 云端那份没了，tool_pack 的「已传」指纹跟着作废，不然下次同步会以为不用传。
+    forgetToolPackUploads(charId);
     return clearNamespaceValuesOrThrow(client, amsgStateNamespace(charId));
   },
 
@@ -3502,8 +3558,8 @@ export const ActiveMsgClient = {
    * 清空该用户在 worker D1 里的全部 client_state，清完立刻把全局工具凭据补回去。
    * 设置页「清空云端数据」把它当其中一步用（见 amsgStateSync 的 wipeAmsgCloudData）。
    *
-   * 为什么补传这一步是必须的：云端有三份数据，角色上下文与角色工具数据每轮聊完都会
-   * 重新同步（见 syncCharFirePacks），只有全局的 tool_config 是「改的时候才传」——
+   * 为什么补传这一步是必须的：云端有三份数据，角色上下文与角色工具数据聊完都会
+   * 重新同步（见 syncCharFirePacks；工具数据靠上面作废指纹才会重传），只有全局的 tool_config 是「改的时候才传」——
    * 它没有别的补写时机。而 worker 到点三份缺一就硬失败（见 worker/amsg/src/index.ts
    * 的 fireStateError），于是清空之后已排程的 AI 任务会一直失败，聊多少轮天都不会好。
    *
@@ -3517,6 +3573,8 @@ export const ActiveMsgClient = {
     realtimeConfig: RealtimeConfig | undefined,
   ): Promise<{ deleted: number; toolConfigRestored: boolean }> {
     const config = await ensureWorkerReady();
+    // tool_pack 只在变了的时候传（见 amsgUploadStats），清空后指纹必须作废，下次聊天才会补回去。
+    forgetToolPackUploads();
     // 清云端状态可能连用户密钥一起换代：握手缓存作废，之后的第一次调用重新 init。
     invalidateClientCache();
     const client = createClient(config);
