@@ -1,7 +1,7 @@
 // [EM-START: machine-room]
 /**
  * 机房「此刻」：mini 在不在（hero 卡，底色恒定 mint tint）+ 每个接上 mini 的角色一行，点进详情。
- * 没接上的角色不列（2026-10-27：接不接、心跳怎么设都在「设置 → Mac mini」）。
+ * 没接上的角色收在最下面一行小字里，点名字进详情能一键接上。
  */
 
 import React, { useMemo } from 'react';
@@ -24,6 +24,7 @@ const NowView: React.FC<{ data: AgentMiniData; onOpenChar: (id: string) => void;
     }, [data.runs]);
     const backendOf = (id: string) => data.characters.find(item => item.charId === id);
     const connected = characters.filter(char => Boolean(backendOf(char.id)?.credRef));
+    const unconnected = characters.filter(char => !backendOf(char.id)?.credRef);
 
     const shadow = settings?.heartbeatShadow ?? status?.heartbeat?.shadow ?? true;
     const trial = settings?.drivesTrial ?? status?.heartbeat?.drivesTrial;
@@ -69,7 +70,7 @@ const NowView: React.FC<{ data: AgentMiniData; onOpenChar: (id: string) => void;
             <SectionTitle right={connected.length ? `${connected.length} 个` : undefined}>角色</SectionTitle>
             {connected.length === 0 && data.reachable !== null && (
                 <Empty icon={<Users size={18} weight="bold" color={F.textTertiary} />}>
-                    还没有角色接到 mini。在「设置 → Mac mini → 角色心跳」里接上。
+                    还没有角色接到 mini。点下面的名字进去接上。
                 </Empty>
             )}
             {connected.map((char, index) => {
@@ -94,6 +95,16 @@ const NowView: React.FC<{ data: AgentMiniData; onOpenChar: (id: string) => void;
                     </Card>
                 );
             })}
+            {unconnected.length > 0 && (
+                <p style={{ fontSize: 12, color: F.textTertiary, padding: '0 4px', lineHeight: 1.8 }}>
+                    还没接上：{unconnected.map((char, index) => (
+                        <React.Fragment key={char.id}>
+                            {index > 0 && '、'}
+                            <button type="button" onClick={() => onOpenChar(char.id)} className="active:opacity-60" style={{ color: P.ink, fontSize: 12, fontWeight: 600, background: 'transparent', border: 'none', padding: 0 }}>{char.name}</button>
+                        </React.Fragment>
+                    ))}
+                </p>
+            )}
         </>
     );
 };

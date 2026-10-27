@@ -1,7 +1,8 @@
 // [EM-START: machine-room-split]
 /**
- * 设置 → Mac mini 里「配对之后」的那一大块：mini 那边的服务、开关、每个角色的心跳、
- * 这台手机（聊天交给 mini、推送、测试、收信箱）、这台 mini（日历可见性、设备）、心跳记录。
+ * 设置 → Mac mini 里「配对之后」的那一大块：mini 那边的服务、开关、心跳记录、
+ * 这台手机（聊天交给 mini、推送、测试、收信箱）、这台 mini（日历可见性、设备）。
+ * 每个角色的心跳（接上、开关、频率、API）留在机房的角色详情里——那是看 TA 的地方顺手调的。
  *
  * 2026-10-27 从机房「连接」「记录」两页搬来（roadmap 结构梳理第 4 步：机器的事归设置，机房只看 TA）。
  * 关掉「只试跑」= 角色会真的给你发消息，先确认；其余开关点了就改，失败拨回去。
@@ -17,13 +18,17 @@ import { clockText, linkRows, runKind } from '../../utils/emMachineRoom';
 import type { AgentMiniData } from '../../hooks/useAgentMiniData';
 import ClayDialog from '../os/ClayDialog';
 import AgentTemporalPanel from './AgentTemporalPanel';
-import AgentCharacterHeartbeat, { heartbeatRowValue, selectStyle } from './AgentCharacterHeartbeat';
 import AgentRunsSheet from './AgentRunsSheet';
 import { SETTINGS_HUE as P } from './SettingsHome';
 import { Group, Row, ToggleRow } from './SettingsParts';
 
+const timeInput: React.CSSProperties = {
+    background: F.surfaceSunken, border: '1px solid transparent', borderRadius: R.input, padding: '4px 6px',
+    fontSize: 14, color: F.textPrimary, outline: 'none',
+};
+
 const AgentMiniControls: React.FC<{ data: AgentMiniData }> = ({ data }) => {
-    const { addToast, characters } = useOS();
+    const { addToast } = useOS();
     const [settings, setSettings] = useState<AgentAdminSettings | null>(data.settings);
     const [saving, setSaving] = useState(false);
     const [confirmLive, setConfirmLive] = useState(false);
@@ -31,7 +36,6 @@ const AgentMiniControls: React.FC<{ data: AgentMiniData }> = ({ data }) => {
     const [devices, setDevices] = useState<AgentDevice[] | null>(null);
     const [devicesOpen, setDevicesOpen] = useState(false);
     const [runsOpen, setRunsOpen] = useState(false);
-    const [heartbeatCharId, setHeartbeatCharId] = useState<string | null>(null);
     const [agentChat, setAgentChat] = useState(isAgentChatEnabled);
     const [busy, setBusy] = useState(false);
     const myDeviceId = loadAgentConfig().deviceId;
@@ -75,8 +79,6 @@ const AgentMiniControls: React.FC<{ data: AgentMiniData }> = ({ data }) => {
     const myDevice = devices?.find(device => device.id === myDeviceId);
     const pushText = !myDevice ? '—' : myDevice.pushStatus === 'active' ? '已登记' : myDevice.pushStatus === 'gone' ? '失效了，重新登记一次' : '还没登记';
     const errorCount = data.runs.filter(run => runKind(run) === 'error').length;
-    const heartbeatChar = characters.find(char => char.id === heartbeatCharId) ?? null;
-    const timeInput: React.CSSProperties = { ...selectStyle, padding: '4px 6px' };
 
     return (
         <>
@@ -111,14 +113,6 @@ const AgentMiniControls: React.FC<{ data: AgentMiniData }> = ({ data }) => {
                             onChange={next => void save({ captureRawOnError: next }, next ? '开了，查完记得关' : '关掉了')} />
                     </>
                 )}
-            </Group>
-
-            <Group title="角色心跳" foot="接上 mini 的角色才会自己醒、过日子、来找你。脾气在神经链接里改。">
-                {characters.map(char => {
-                    const backend = data.characters.find(item => item.charId === char.id);
-                    return <Row key={char.id} title={char.name} value={data.reachable === false && !backend ? '—' : heartbeatRowValue(backend)}
-                        onClick={() => setHeartbeatCharId(char.id)} />;
-                })}
             </Group>
 
             <Group title="排查" foot="出错的原文、没醒的原因、试跑没发出去的那句都在记录里。">
@@ -158,7 +152,6 @@ const AgentMiniControls: React.FC<{ data: AgentMiniData }> = ({ data }) => {
 
             <AgentTemporalPanel open={temporalOpen} onClose={() => setTemporalOpen(false)} />
             <AgentRunsSheet open={runsOpen} runs={data.runs} onClose={() => setRunsOpen(false)} />
-            <AgentCharacterHeartbeat char={heartbeatChar} data={data} onClose={() => setHeartbeatCharId(null)} />
             <ClayDialog isOpen={devicesOpen} title="配对的设备" onClose={() => setDevicesOpen(false)}>
                 <Group foot={devices?.length === 0 ? '还没有配对过的设备。' : undefined}>
                     {(devices || []).map(device => (

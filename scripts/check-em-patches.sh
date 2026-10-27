@@ -377,7 +377,7 @@ check "设置页：mini 子页只管配对" components/settings/AgentBackendSect
 check "Mac mini 设置：推送登记 / 连通测试 / 收信箱" components/settings/AgentMiniControls.tsx "window.dispatchEvent(new Event('em-agent-pull'))"
 check "Mac mini 设置：作废设备" components/settings/AgentMiniControls.tsx "AgentBackend.revokeDevice(device.id)"
 check "Mac mini 设置：开关和服务" components/settings/AgentBackendSection.tsx "{!revoked && <AgentMiniControls data={data} />}"
-check "Mac mini 设置：角色心跳" components/settings/AgentCharacterHeartbeat.tsx "connectCharacterToAgent(char"
+check "机房：角色心跳设置" components/machineRoom/CharacterView.tsx "connectCharacterToAgent(char"
 check "神经链接：脾气" apps/Character.tsx "<TemperamentSection char={formData} onChange={next => handleChange('emDriveTemperament', next)} />"
 check "设置：从别的 App 直达某一页" apps/Settings.tsx "useState<SettingsPageId | null>(() => settingsLaunch.peek())"
 check "桌面不再放档案" constants.tsx "// { id: AppID.User, name: '档案', icon: 'User', color: 'blue' }, // [EM: settings-ios-list]"
