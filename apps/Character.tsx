@@ -37,6 +37,7 @@ import { sortCharacterGroups, GROUP_FILTER_UNGROUPED } from '../components/chara
 import { groupApiPresets } from '../utils/apiPresetGroups'; // [EM: api-preset-group]
 import { isWalledDeepTalkMessage } from '../utils/deepTalk'; // [EM: deep-talk]
 import { loadMatterNightIds } from '../utils/deepTalkDb'; // [EM: deep-talk]
+import TemperamentSection from '../components/character/TemperamentSection'; // [EM: machine-room-split]
 import {
     EXTERNAL_MEMORY_MAX_CHARS,
     extractExternalMemoryText,
@@ -1579,6 +1580,9 @@ ${isInitialGeneration ? `
                                </div>
                            )}
                            {/* [EM-END: character-daily-rhythm-draft] */}
+
+                           {/* [EM: machine-room-split] 脾气（Mac mini 心思系统用），2026-10-27 从机房搬来 */}
+                           {formData.id && <TemperamentSection char={formData} onChange={next => handleChange('emDriveTemperament', next)} />}
 
                            {/* 时间感知 & 时区：三个独立开关，可任意组合（聊天时间感知 / 自定义时区 / 线下时间感知） */}
                            <div className="bg-white rounded-3xl p-4 shadow-sm border border-slate-100 space-y-4">

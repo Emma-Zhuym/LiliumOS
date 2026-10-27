@@ -1,38 +1,26 @@
 // [EM-START: agent-backend-panel]
 /**
- * 设置 → Mac mini：只管「这台手机连哪台 mini」——配对、看连不连得上、解绑。
+ * 设置 → Mac mini：mini 这台机器的家——配对 / 解绑、连不上时说清楚原因，
+ * 配对后是服务、开关、角色心跳、心跳记录、这台手机和这台 mini（AgentMiniControls）。
  *
- * 2026-10-21 起心跳、脾气、日历可见性、聊天交给 mini、推送登记、连通测试、收信箱、设备列表
- * 全在机房 App（规矩：手机关了还在跑的归机房，手机自己的配置归设置）。这里只留一扇「打开机房」的门。
- * 后端连不上一律安静显示「休息中」——mini 每天 4–7 点休眠是正常状态，不是故障。
+ * 2026-10-27 倒回 10-21 的分工（roadmap 结构梳理第 4 步）：机器的事都回到这里，
+ * 机房只看 TA 们在干嘛，脾气在神经链接。连不上一律安静写原因——mini 每天 4–7 点休眠是正常状态，不是故障。
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { useOS } from '../../context/OSContext';
 import { AppID } from '../../types';
 import ClayDialog from '../os/ClayDialog';
 import { F, R, STATUS } from '../../utils/clayTokens';
 import {
     AgentBackend,
-    AgentBackendError,
     clearAgentConfig,
     isAgentPaired,
     loadAgentConfig,
-    type AgentStatus,
 } from '../../utils/emAgentBackend';
+import { useAgentMiniData } from '../../hooks/useAgentMiniData'; // [EM: machine-room-split]
+import AgentMiniControls from './AgentMiniControls'; // [EM: machine-room-split]
 import { SETTINGS_HUE, SettingsGroup, SettingsHero, SettingsRow, SettingsTextButton } from './SettingsHome';
-
-type Tone = 'idle' | 'loading' | 'online' | 'sleeping' | 'revoked' | 'blocked' | 'unknown';
-
-const TONE_TEXT: Record<Tone, { title: string; sub: string }> = {
-    idle: { title: '还没配对', sub: '在 Mac mini 上运行 cli.mjs pair 拿 6 位配对码，再点下面的「配对这台手机」。' },
-    loading: { title: '正在问 mini…', sub: '' },
-    online: { title: 'mini 在线', sub: '心跳、脾气、开关都在机房里。' },
-    sleeping: { title: 'mini 在休息', sub: '连不上，多半是每天 4–7 点的休眠或者在重启，属于正常情况。' },
-    revoked: { title: '钥匙失效了', sub: '这台手机在 mini 上被作废了。解除本机绑定，再重新配对一次。' },
-    blocked: { title: '被浏览器拦了', sub: '' },
-    unknown: { title: '状态未知', sub: '' },
-};
 
 const fieldStyle: React.CSSProperties = {
     width: '100%', height: 48, padding: '0 14px', fontSize: 15, color: F.textPrimary,
@@ -42,43 +30,14 @@ const fieldStyle: React.CSSProperties = {
 export default function AgentBackendSection(_props: { defaultOpen?: boolean } = {}) { // [EM: settings-ios-list] 子页里不再折叠，defaultOpen 留着兼容旧调用
     const { addToast, openApp } = useOS();
     const [config, setConfig] = useState(loadAgentConfig);
-    const [status, setStatus] = useState<AgentStatus | null>(null);
-    const [reachable, setReachable] = useState<boolean | null>(null);
-    const [blocked, setBlocked] = useState<string | null>(null); // [EM: agent-backend-cors-probe] mini 在线但请求被浏览器拦了
-    const [revoked, setRevoked] = useState(false);
-    const [loading, setLoading] = useState(false);
+    const data = useAgentMiniData(); // [EM: machine-room-split] 跟机房同一份：状态、开关、角色、流水
     const [pairing, setPairing] = useState(false);
     const [confirmUnpair, setConfirmUnpair] = useState(false);
     const [busy, setBusy] = useState(false);
     const [form, setForm] = useState({ baseUrl: '', code: '', deviceName: '' });
-    const version = useRef(0);
 
     const paired = isAgentPaired(config);
-
-    const refresh = useCallback(async () => {
-        if (!isAgentPaired()) return;
-        const mine = ++version.current;
-        setLoading(true);
-        try {
-            const next = await AgentBackend.status();
-            if (mine !== version.current) return;
-            setStatus(next);
-            setReachable(true);
-            setRevoked(false);
-            setBlocked(null);
-        } catch (error) {
-            if (mine !== version.current) return;
-            // 连不上和「后端报错」是两回事：前者是休眠，后者才值得提醒。
-            setReachable(!(error instanceof AgentBackendError && (error.code === 'UNREACHABLE' || error.code === 'TIMEOUT')));
-            // 钥匙在后端被作废后本机还留着，看起来像「状态未知」——说清楚是钥匙失效，重新配对才是出路。
-            setRevoked(error instanceof AgentBackendError && error.status === 401);
-            setBlocked(error instanceof AgentBackendError && error.code === 'BLOCKED' ? error.message : null); // [EM: agent-backend-cors-probe]
-        } finally {
-            if (mine === version.current) setLoading(false);
-        }
-    }, []);
-
-    useEffect(() => { if (paired) void refresh(); }, [paired, refresh]);
+    const { refresh, loading, status, revoked } = data;
 
     const handlePair = async () => {
         setBusy(true);
@@ -98,10 +57,6 @@ export default function AgentBackendSection(_props: { defaultOpen?: boolean } = 
     const handleUnpair = () => {
         clearAgentConfig();
         setConfig(loadAgentConfig());
-        setStatus(null);
-        setReachable(null);
-        setRevoked(false);
-        setBlocked(null);
         setConfirmUnpair(false);
         addToast('已解除本机绑定', 'info');
     };
@@ -111,25 +66,30 @@ export default function AgentBackendSection(_props: { defaultOpen?: boolean } = 
         setPairing(true);
     };
 
-    // 「读取中」必须和「状态未知」分开：都画成警告的话，每次刷新都像出了故障。
-    const tone: Tone = !paired ? 'idle'
-        : loading && !status ? 'loading'
-            : revoked ? 'revoked'
-                : blocked ? 'blocked'
-                    : reachable === false ? 'sleeping'
-                        : status ? 'online' : 'unknown';
-    const head = TONE_TEXT[tone];
-    const heroSub = tone === 'blocked' ? blocked : head.sub;
+    // 「读取中」必须和「连不上」分开：都画成警告的话，每次刷新都像出了故障。
+    // 连不上时说清楚是哪一种（钥匙失效 / 没网 / 被拦 / mini 在休息），跟机房同一套措辞（describeReachFailure）。
+    const shadow = data.settings?.heartbeatShadow ?? status?.heartbeat?.shadow ?? true;
+    const trial = data.settings?.drivesTrial ?? status?.heartbeat?.drivesTrial;
+    const head: { title: string; sub?: string } = !paired
+        ? { title: '还没配对', sub: '在 Mac mini 上运行 cli.mjs pair 拿 6 位配对码，再点下面的「配对这台手机」。' }
+        : revoked ? { title: '钥匙失效了', sub: '这台手机在 mini 上被作废了。解除本机绑定，再重新配对一次。' }
+            : data.reachable === false ? { title: data.failure?.title ?? 'mini 在休息', sub: data.failure?.sub ?? '连不上，多半是每天 4–7 点的休眠或者在重启，属于正常情况。' }
+                : status ? {
+                    title: 'mini 在线',
+                    sub: [shadow ? '心跳只试跑，不真发' : '心跳真发中', trial === true ? '心思试运行中' : trial === false ? '心思已生效' : null, status.quiet?.active ? '安静时段' : null].filter(Boolean).join(' · '),
+                }
+                    : { title: '正在问 mini…' };
 
     return (
         <div className="flex flex-col" style={{ gap: 22 }}>
-            <SettingsHero title={head.title} sub={heroSub || undefined}
+            <SettingsHero title={head.title} sub={head.sub || undefined}
                 action={paired && !revoked
-                    ? <SettingsTextButton onClick={() => openApp(AppID.MachineRoom)}>打开机房</SettingsTextButton>
+                    ? <SettingsTextButton onClick={() => openApp(AppID.MachineRoom)}>看看 TA 们在干嘛</SettingsTextButton>
                     : undefined} />
 
             {paired ? (
                 <>
+                    {!revoked && <AgentMiniControls data={data} />}
                     <SettingsGroup title="这台手机连着">
                         <SettingsRow first chevron={false} title="地址" value={config.baseUrl.replace(/^https?:\/\//, '')} />
                         {status?.version && <SettingsRow chevron={false} title="后端版本" value={status.version} />}

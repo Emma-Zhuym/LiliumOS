@@ -1,7 +1,7 @@
 // [EM-START: machine-room]
 /**
- * 机房「此刻」：mini 在不在（hero 卡，底色恒定 mint tint）+ 每个角色一行。
- * 点角色进详情。没接到 mini 的角色也列出来，进去能一键接上。
+ * 机房「此刻」：mini 在不在（hero 卡，底色恒定 mint tint）+ 每个接上 mini 的角色一行，点进详情。
+ * 没接上的角色不列（2026-10-27：接不接、心跳怎么设都在「设置 → Mac mini」）。
  */
 
 import React, { useMemo } from 'react';
@@ -11,18 +11,19 @@ import { useOS } from '../../context/OSContext';
 import { F, R } from '../../utils/clayTokens';
 import { characterLine, linkRows, nextBeatText } from '../../utils/emMachineRoom';
 import TokenImg from '../os/TokenImg';
-import type { MachineRoomData } from '../../apps/MachineRoomApp';
-import { Badge, Card, Dot, P, SectionTitle } from './ui';
+import type { AgentMiniData } from '../../hooks/useAgentMiniData';
+import { Card, Dot, Empty, P, PillButton, SectionTitle } from './ui';
 
-const NowView: React.FC<{ data: MachineRoomData; onOpenChar: (id: string) => void }> = ({ data, onOpenChar }) => {
+const NowView: React.FC<{ data: AgentMiniData; onOpenChar: (id: string) => void; onOpenSettings: () => void }> = ({ data, onOpenChar, onOpenSettings }) => {
     const { characters } = useOS();
     const { status, reachable, settings, failure } = data;
     const latestByChar = useMemo(() => {
-        const map = new Map<string, MachineRoomData['runs'][number]>();
+        const map = new Map<string, AgentMiniData['runs'][number]>();
         for (const run of data.runs) if (!map.has(run.charId)) map.set(run.charId, run);
         return map;
     }, [data.runs]);
     const backendOf = (id: string) => data.characters.find(item => item.charId === id);
+    const connected = characters.filter(char => Boolean(backendOf(char.id)?.credRef));
 
     const shadow = settings?.heartbeatShadow ?? status?.heartbeat?.shadow ?? true;
     const trial = settings?.drivesTrial ?? status?.heartbeat?.drivesTrial;
@@ -57,16 +58,23 @@ const NowView: React.FC<{ data: MachineRoomData; onOpenChar: (id: string) => voi
                 )}
                 {reachable && troubled.length > 0 && (
                     <p style={{ fontSize: 12, color: P.ink, marginTop: 8 }}>
-                        要看一下：{troubled.map(row => `${row.label}${row.detail ? `（${row.detail}）` : ''}`).join('、')}，详情在「连接」。
+                        要看一下：{troubled.map(row => `${row.label}${row.detail ? `（${row.detail}）` : ''}`).join('、')}。
                     </p>
                 )}
+                <div className="flex justify-end" style={{ marginTop: 10 }}>
+                    <PillButton onClick={onOpenSettings}>后台设置</PillButton>
+                </div>
             </Card>
 
-            <SectionTitle right={`${characters.length} 个`}>角色</SectionTitle>
-            {characters.map((char, index) => {
+            <SectionTitle right={connected.length ? `${connected.length} 个` : undefined}>角色</SectionTitle>
+            {connected.length === 0 && data.reachable !== null && (
+                <Empty icon={<Users size={18} weight="bold" color={F.textTertiary} />}>
+                    还没有角色接到 mini。在「设置 → Mac mini → 角色心跳」里接上。
+                </Empty>
+            )}
+            {connected.map((char, index) => {
                 const backend = backendOf(char.id);
                 const next = backend?.heartbeatEnabled && !backend.heartbeatPaused ? nextBeatText(backend.nextHeartbeatAt) : '';
-                const connected = Boolean(backend?.credRef);
                 return (
                     <Card key={char.id} onClick={() => onOpenChar(char.id)} style={{ '--i': index } as React.CSSProperties}>
                         <div className="flex items-center" style={{ gap: 12 }}>
@@ -76,7 +84,6 @@ const NowView: React.FC<{ data: MachineRoomData; onOpenChar: (id: string) => voi
                             <div className="flex-1 min-w-0">
                                 <div className="flex items-center" style={{ gap: 6 }}>
                                     <span className="truncate" style={{ fontSize: 15, fontWeight: 600, color: F.textPrimary }}>{char.name}</span>
-                                    {!connected && <Badge>没接上</Badge>}
                                 </div>
                                 <p className="truncate" style={{ fontSize: 12, color: F.textTertiary, marginTop: 2 }}>
                                     {characterLine(backend, latestByChar.get(char.id))}

@@ -79,7 +79,7 @@ LiliumOS 和 SullyOS 早就各走各的了（git 认的合并基线停在 2026-0
 ### 吸收后必跑自检
 
 ```bash
-bash scripts/check-em-patches.sh   # 当前 342 项锚点检查，红了就是功能被冲掉
+bash scripts/check-em-patches.sh   # 当前 346 项锚点检查，红了就是功能被冲掉
 pnpm vitest run                    # 单元测试
 ```
 
@@ -402,12 +402,12 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - mini 后端 `POST /chat/turns/cancel`（`server/agent-backend/chatTurns.mjs`）：还没开跑的取消，正在跑的掐掉模型请求、跑完不推不进信箱。改后端要在 mini 上拉代码重启
 
 ### 37. 机房 App（Mac mini 后端的家，2026-10-20）
-- `apps/MachineRoomApp.tsx` + `components/machineRoom/*`：此刻（mini 在不在、各角色刚才干嘛、下一跳几点）/ 记录（心跳流水筛选）/ 连接（服务状态 + 开关）；角色详情里有心跳、心里、脾气、攒着想说的、最近几跳。主色 mint，纯逻辑在 `utils/emMachineRoom.ts`
-- 接入和脾气读写在 `utils/emAgentConnect.ts`（`connectCharacterToAgent`）、`hooks/useTemperament.ts`；设置里原来的心跳面板和脾气编辑 2026-10-21 已删，别再在别处写一份
+- **2026-10-27 拆开（结构梳理第 4 步，哨兵 `machine-room-split`）**：机房只看 TA——`apps/MachineRoomApp.tsx` 一屏（mini 在不在 + 接上 mini 的角色各一行），角色详情只有心里、攒着想说的、最近几跳；两个人的时间只写到几点（开关是聊天工具栏「贴贴」）。机器那半回到设置 → Mac mini（`components/settings/AgentMiniControls.tsx`：服务、开关、角色心跳单子 `AgentCharacterHeartbeat.tsx`、心跳记录 `AgentRunsSheet.tsx`、这台手机、这台 mini）；脾气在神经链接设定页（`components/character/TemperamentSection.tsx`，那页是 formData 自动存，所以经 `handleChange` 交回、`useTemperament` 的 `persist` 参数）。两边共用 `hooks/useAgentMiniData.ts`。机房「后台设置」用 `settingsLaunch`（`utils/emSettingsPages.ts`）直达 Mac mini 页。以后改「窗台」就在机房这一屏上长
+- 主色 mint，纯逻辑在 `utils/emMachineRoom.ts`；接入和脾气读写在 `utils/emAgentConnect.ts`（`connectCharacterToAgent`）、`hooks/useTemperament.ts`，别再在别处写一份
 - 开关走后端 `GET/POST /settings`（`server/agent-backend/adminSettings.mjs`）：**只认白名单**（只试跑、心思试运行、存原文、安静时段），一项不对整批不改；关掉「只试跑」要确认。新开关加进白名单之前想清楚该不该从手机改
 - 状态里的小红书登录态查一次要开浏览器，`createXhsLoginProbe` 带 10 分钟缓存、不在请求里现等；`GET /characters` 带 `nextHeartbeatAt`
-- 上游文件只有接线：`types.ts` AppID、`constants.tsx` 图标、`PhoneShell.tsx` 路由、`safeAreaApps.ts`（测试里的名单也要加），设置页 `AgentBackendSection` 一个「打开机房」入口
-- **分工（2026-10-21 阿萌定）**：手机关了还在跑的归机房，手机自己的配置归设置。设置 → Mac mini 只剩配对 / 解绑 / 看连不连得上；「连接」页的「这台手机」组放聊天交给 mini（本机开关 `em_agent_chat_enabled_v1`）、推送重新登记、连通测试、立刻收信箱，「这台 mini」组放日历可见性、设备列表（可作废）
+- 上游文件只有接线：`types.ts` AppID、`constants.tsx` 图标、`PhoneShell.tsx` 路由、`safeAreaApps.ts`（测试里的名单也要加），设置页 `AgentBackendSection` 一个「看看 TA 们在干嘛」入口；`apps/Settings.tsx` 一行 `settingsLaunch.peek()` + 一行 consume，`apps/Character.tsx` 一行脾气卡
+- **分工（2026-10-27 阿萌定，倒回 10-21 之前）**：机器的事归设置 → Mac mini，机房只看 TA 是什么样、在干嘛，脾气归神经链接。聊天交给 mini 仍是本机开关 `em_agent_chat_enabled_v1`
 - 连 mini 的请求（`emAgentBackend.ts` 的 `request` 和连通性复检）都带 `__sullySuppressNetworkFailureLog`：超时、连不上不进 SYSTEM ERROR，机房 / 设置自己显示「后台休息中」或黄字（2026-10-22 阿萌定）
 - 「立刻收信箱」只发 `em-agent-pull` 事件，走 OSContext 跟回到前台同一条收信路；**别直接调 `AgentBackend.inbox()` 再 ack**——那样消息不进聊天就被确认收下，等于吞掉（旧设置页按钮就是这样）
 

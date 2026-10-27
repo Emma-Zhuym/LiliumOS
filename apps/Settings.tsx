@@ -57,7 +57,7 @@ import { groupApiPresets, listPresetGroups } from '../utils/apiPresetGroups'; //
 import SettingsHome, { type SettingsHomeValues } from '../components/settings/SettingsHome';
 import ProfileSettingsPage from '../components/settings/ProfileSettingsPage';
 import { CaretLeft } from '@phosphor-icons/react';
-import { MULTI_SECTION_PAGES, SETTINGS_PAGE_TITLES, relativeAgo, type SettingsPageId } from '../utils/emSettingsPages';
+import { MULTI_SECTION_PAGES, SETTINGS_PAGE_TITLES, relativeAgo, settingsLaunch, type SettingsPageId } from '../utils/emSettingsPages';
 import { staleBackupDays } from '../utils/autoCloudBackup';
 import { loadInstantConfig } from '../utils/instantPushClient';
 import { APP_VERSION } from '../utils/buildInfo';
@@ -1527,7 +1527,8 @@ const Settings: React.FC = () => {
   // [EM: settings-subpages-f] 实时感知 / 日记同步 / 小红书的读写搬进 components/settings/{RealtimeSensePage,DiarySyncPage,XhsSettingsPage}.tsx；麦当劳、瑞幸 2026-10-22 删了
 
   // [EM-START: settings-ios-list] 苹果式分组列表：首页一列短行、右边写状态，点进子页
-  const [settingsPage, setSettingsPage] = useState<SettingsPageId | null>(null);
+  const [settingsPage, setSettingsPage] = useState<SettingsPageId | null>(() => settingsLaunch.peek()); // [EM: machine-room-split] 机房可以直接打开 Mac mini 那一页
+  useEffect(() => { settingsLaunch.consume(); }, []); // [EM: machine-room-split]
   const onPage = (id: SettingsPageId) => settingsPage === id;
   // [EM: settings-inline-config] 实时感知 / MCP / 主动消息的配置直接铺在子页里：留给它们的节点 + 进出页时补上弹窗开合要做的事
   const [inlineSlot, setInlineSlot] = useState<HTMLDivElement | null>(null);

@@ -15,6 +15,22 @@ export type SettingsPageId =
     | 'mini' | 'amsg' | 'push'
     | 'appearance' | 'about';
 
+/**
+ * 从别的 App 直接打开设置的某一页（机房「后台设置」→ Mac mini）。照 characterLaunch：
+ * 先 request 再 openApp(Settings)；设置挂载时用 peek 定初始页、effect 里再 consume
+ * （开发模式 StrictMode 会把 useState 的初始化跑两遍，直接 consume 第二遍就拿不到了）。
+ */
+let pendingSettingsPage: SettingsPageId | null = null;
+export const settingsLaunch = {
+    request(page: SettingsPageId): void { pendingSettingsPage = page; },
+    peek(): SettingsPageId | null { return pendingSettingsPage; },
+    consume(): SettingsPageId | null {
+        const page = pendingSettingsPage;
+        pendingSettingsPage = null;
+        return page;
+    },
+};
+
 export const SETTINGS_PAGE_TITLES: Record<SettingsPageId, string> = {
     profile: '个人档案',
     'api-main': '主 API',

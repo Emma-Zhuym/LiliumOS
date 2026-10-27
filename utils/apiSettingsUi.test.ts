@@ -85,3 +85,16 @@ it('deleting a role-bound preset keeps main config and lets the role resolver fa
 it('legacy preset keeps saved stream/temperature rather than committing unsaved advanced draft', async () => { delete st.presets[0].config.stream; delete st.presets[0].config.temperature; st.initial.stream = true; st.initial.temperature = 1.25; await render(); await open('API 配置'); await act(async () => Array.from(section('API 配置').querySelectorAll<HTMLButtonElement>('button')).find(x => x.textContent?.includes('高级（不建议修改）'))!.click()); const range = () => section('API 配置').querySelector<HTMLInputElement>('input[type=range]')!; await edit(range(), '0.25'); await clickPreset('A'); expect(st.latest.api.temperature).toBe(1.25); expect(st.latest.api.stream).toBe(true); expect(range().value).toBe('1.25'); });
 it('editing the active preset takes pending advanced values but non-active preset keeps its own', async () => { await render(); await open('API 配置'); await act(async () => Array.from(section('API 配置').querySelectorAll<HTMLButtonElement>('button')).find(x => x.textContent?.includes('高级（不建议修改）'))!.click()); await edit(section('API 配置').querySelector<HTMLInputElement>('input[type=range]')!, '1.35'); await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="编辑预设 B"]')!.click()); expect(document.querySelector<HTMLInputElement>('#edit-preset-temperature')!.value).toBe('0.5'); await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="关闭编辑预设"]')!.click()); await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="编辑预设 A"]')!.click()); expect(document.querySelector<HTMLInputElement>('#edit-preset-temperature')!.value).toBe('1.35'); await act(async () => textButton('保存预设').click()); expect(st.latest.api.temperature).toBe(1.35); expect(st.latest.presets[0].config.temperature).toBe(1.35); });
 it('partial background refresh reports the limit while keeping the selected local preset', async () => { st.refresh.mockResolvedValue({ status: 'partial', updated: 1, failed: 2 }); await render(); await open('API 配置'); await clickPreset('B'); expect(st.latest.api.apiKey).toBe('test-b'); expect(st.toast).toHaveBeenCalledWith(expect.stringContaining('2 条已排程'), 'error'); });
+// [EM: machine-room-split] 机房「后台设置」直达 Mac mini 那一页，只生效一次
+it('settingsLaunch opens the requested page once, then settings opens on home again', async () => {
+    const { settingsLaunch } = await import('./emSettingsPages');
+    settingsLaunch.request('mini');
+    await render();
+    expect(document.querySelector('button[aria-label="返回设置"]')).not.toBeNull();
+    expect(document.body.textContent).toContain('配对这台手机');
+    expect(settingsLaunch.peek()).toBeNull();
+    act(() => root.unmount());
+    root = createRoot(container);
+    await render();
+    expect(document.querySelector('button[aria-label="返回设置"]')).toBeNull();
+});
