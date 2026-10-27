@@ -96,6 +96,26 @@ quiet. IMPORTANT: this is frost, NOT snow — no falling snowflakes, no snow pil
 the sill or branches, no six-pointed snowflake shapes, no icicles, no snowman.
 ```
 
+v1 结果（2026-10-27）：霜没画成雪，点刻、热气、杯子都好；问题是 ① 窗户顶满画面、上边被裁，木纹排线铺满，太重太满 ② 玻璃里有一层淡蓝到米色的底色，正片叠底会把纸染色 ③ 窗下沿的霜一簇簇立着，像一排小松树 / 窗外的树林，霜和景分不清。
+
+**初冬 · 窗与杯 v2**（只改这三处）：
+
+```
+SUBJECT: An early-winter dawn seen from indoors. A plain four-pane window, closed,
+drawn straight-on and shown COMPLETE and small in the center, with wide empty white
+margin on all sides; nothing touches the image edges. The frame is drawn with clean
+double outlines and only a few sparse grain lines, mostly left white. The glass is
+left pure white paper — no sky tint, no wash, no color in the panes. FROST on the
+inside of the glass: flat, feathery, swirling fern-like crystals that radiate inward
+from the bottom corners of each pane, like frost flowers pressed onto glass, lying
+flat on the surface — not upright, not like little pine trees, not like a forest
+or treeline. The upper half of each pane is clear. Through the top-left pane only:
+one thin bare branch with a fine rim of hoarfrost. On the sill: one simple
+straight-sided glass of hot water, a single thin wisp of steam drawn in stipple.
+IMPORTANT: frost, NOT snow — no falling snowflakes, no snow piled anywhere,
+no six-pointed snowflake shapes, no icicles.
+```
+
 ## 已定
 
 - 主墨是蓝，不是棕（2026-10-23 样稿比较）
