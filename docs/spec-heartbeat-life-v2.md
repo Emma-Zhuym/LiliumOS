@@ -165,6 +165,7 @@ lines.push(
   **不会**让头像变 busy——这是已知的、阿萌接受的不一致：
   角色在起居注和聊天里说自己出门了，状态灯还按日程走。
   要改得另拉一条链路（后端临时状态覆盖当前 slot），**不在本次范围内**。
+  （2026-10-27 已补：social 真出门时写 `outing` 分钟数，手机 `utils/emOuting.ts` 记下回来的时刻，`charStatus.ts` 在那之前显示忙碌。）
 - **不新建 App**。社交落进查手机现有的界面。
 - **不动 `messageChance` / `decideIntent` / `decideEpisode` 的概率**。
   这一轮只动 `pickLifeKind` 那一层。

@@ -17,7 +17,7 @@ import {
     ACTIVE_CHAT_WINDOW_MS, DEEP_TALK_STALE_MS, buildPrompt, checkGates, speakBlock, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
     BREAK_COOLDOWN_MIN, currentSlot, decideIntent, formatGap, inBreakWindow, upcomingBreakStarts, jitterRatio, lastRealInteractionAt, listModelRuns, messageChance,
     nextRunAt, recordModelRun, shouldCaptureRaw, decideEpisode, episodeChance, isWorkSlot, lifeChance, pickLifeKind, veilSurprise,
-    MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, heartbeatSchemaFor, stripUnbackedClaims, withPlanTime, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule, unansweredProactive, lastUserSpokeAt, unansweredFactor, reachOutTimeRule, timeProgressRule, shouldSuppressStaleBedtimeMessage, recentOwnMessages, fillMomentComments, DUTY_RULE, PHOTO_HOW, previewWithoutPhotoTags,
+    MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, heartbeatSchemaFor, stripUnbackedClaims, withPlanTime, withOuting, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule, unansweredProactive, lastUserSpokeAt, unansweredFactor, reachOutTimeRule, timeProgressRule, shouldSuppressStaleBedtimeMessage, recentOwnMessages, fillMomentComments, DUTY_RULE, PHOTO_HOW, previewWithoutPhotoTags,
 } from './heartbeat.mjs';
 import { chatCompletionsUrl, createApiRunner, extractContentText, parseEpisode, parseHeartbeatOutput, parseLife } from './runner.mjs';
 import { applyThread, closePassedPlans, closeStaleThreads, isPlanDue, isPlanThread, listOpenThreads, listPlans } from './lifeThreads.mjs';
@@ -1287,6 +1287,26 @@ test('提示词：social 写明当场发生、可以不出门；chat 和 social 
     assert.ok(social.includes('plan'));
     assert.ok(buildPrompt(character, snapshot, AT, 'live', { life: 'chat' }).includes('「周六下午」'));
     assert.ok(!buildPrompt(character, snapshot, AT, 'live', { life: 'delivery' }).includes('plan 里写'));
+});
+
+test('临时出门：social 带 outing 才留，夹在 20–240 分钟；别的种类和写坏的丢掉', () => {
+    const social = { kind: 'social', with: '林越', detail: '临时出去喝杯咖啡' };
+    assert.equal(withOuting({ ...social, outing: 90 }).outing, 90);
+    assert.equal(withOuting({ ...social, outing: 5 }).outing, 20);
+    assert.equal(withOuting({ ...social, outing: 600 }).outing, 240);
+    assert.equal(withOuting({ ...social, outing: '不知道' }).outing, undefined);
+    assert.equal(withOuting({ ...social, outing: '不知道' }).detail, '临时出去喝杯咖啡');
+    assert.equal(withOuting({ kind: 'delivery', with: '店', outing: 60 }).outing, undefined);
+    assert.equal(withOuting(social), social);
+    assert.equal(withOuting(null), null);
+    // 解析层放行 social 的 outing，别的种类不收
+    assert.equal(parseLife({ ...social, outing: 90 }).outing, 90);
+    assert.equal(parseLife({ kind: 'chat', with: '林越', lines: [{ who: '我', text: '在吗' }], outing: 90 }).outing, undefined);
+    // 提示词和 schema 都教了
+    const character = seedCharacter(freshDb());
+    const snapshot = { payload: { timezone: 'America/Chicago', circle: [] } };
+    assert.ok(buildPrompt(character, snapshot, AT, 'live', { life: 'social' }).includes('outing'));
+    assert.equal(heartbeatSchemaFor({ life: 'social' }).properties.life.properties.outing.maximum, 240);
 });
 
 test('plan 解析：认得出的带上 dueAt，认不出的整条 plan 丢掉，life 其余照常', () => {

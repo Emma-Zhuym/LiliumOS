@@ -11,6 +11,7 @@
 
 import { CharacterProfile, DailySchedule, ScheduleSlot } from '../types';
 import { getScheduleWallClock, getSleepWindowState } from './scheduleTime';
+import { getActiveOuting, outingActivity } from './emOuting'; // [EM: heartbeat-outing]
 
 export type CharAvailability = 'online' | 'busy' | 'offline';
 
@@ -90,6 +91,18 @@ export function computeCharStatus(
             nextStatus: 'online',
         };
     }
+
+    // [EM-START: heartbeat-outing] 心跳里 TA 临时出门了：回来之前盖过日程，显示忙碌
+    const outing = char?.id ? getActiveOuting(char.id, (now ?? new Date()).getTime()) : null;
+    if (outing) {
+        return {
+            status: 'busy',
+            currentActivity: outingActivity(outing),
+            currentEmoji: '🚶',
+            msUntilChange: Math.max(outing.until - (now ?? new Date()).getTime(), 1000),
+        };
+    }
+    // [EM-END: heartbeat-outing]
 
     // 没有日程 → 默认 online
     if (!schedule || !schedule.slots || schedule.slots.length === 0) {

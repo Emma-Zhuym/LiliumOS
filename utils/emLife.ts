@@ -33,6 +33,8 @@ export interface LifeEpisode {
     comments?: { who: string; relation?: string; text: string }[];
     likes?: number;
     hide?: string[];
+    /** social：真出门了大概在外面多少分钟（后端夹在 20–240）。状态灯见 emOuting.ts */
+    outing?: number;
     /** chat / social：顺口约的以后的事。dueAt 由后端按时区解析好；约定本身由后端记着，这里只随记录带过来 */
     plan?: { what: string; at: string; dueAt?: string };
     /** xhs：mini 上真实刷到的首页，和其中多看了两眼的几条（note 是 TA 为什么停下来看）。落地见 emLifeXhs.ts */

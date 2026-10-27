@@ -121,6 +121,8 @@ const parseLifeFields = raw => {
             ...(relation ? { relation } : {}),
             ...(LIFE_GROUPS.has(raw.group) ? { group: raw.group } : {}),
             ...(plan ? { plan } : {}),
+            // 真出门了大概多久（分钟）；夹范围在心跳的 withOuting
+            ...(raw.kind === 'social' && raw.outing != null ? { outing: raw.outing } : {}),
         };
     }
     if (raw.kind === 'moment') {

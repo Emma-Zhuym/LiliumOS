@@ -795,6 +795,20 @@ export const withPlanTime = (life, now, timezone) => {
 };
 
 /**
+ * social 真出门了：模型写大概在外面多少分钟，手机拿它让状态灯在这段时间显示忙碌。
+ * 只认 social；超出 20–240 分钟就夹到边上，不是数就丢掉。
+ */
+export const OUTING_MIN = 20;
+export const OUTING_MAX = 240;
+export const withOuting = life => {
+    if (!life || life.outing == null) return life;
+    const { outing, ...rest } = life;
+    const minutes = Math.round(Number(outing));
+    if (life.kind !== 'social' || !Number.isFinite(minutes) || minutes <= 0) return rest;
+    return { ...rest, outing: Math.min(OUTING_MAX, Math.max(OUTING_MIN, minutes)) };
+};
+
+/**
  * 惊喜礼物：起居注和试跑记录里不能写出买了什么。
  *
  * 「查手机 → 起居注」是阿萌在翻，`activity` 和 `reason` 原样写进去，惊喜当场就穿帮了。
@@ -923,6 +937,8 @@ export const HEARTBEAT_SCHEMA = {
                 tellLater: { type: 'string', maxLength: 120 },
                 // 那句能放多久：soon = 一两个小时内说才有意义；today = 今天之内；days = 过两天说也不奇怪。
                 tellLaterFresh: { type: 'string', enum: ['soon', 'today', 'days'] },
+                // social：真出门了就写大概在外面多少分钟（手机状态灯在这段时间显示忙碌）；不用出门的省略。
+                outing: { type: 'integer', minimum: 20, maximum: 240 },
                 // chat / social：顺口约了以后的事。时间写自然语言，由程序解析成绝对时刻（planTime.mjs）。
                 plan: {
                     type: 'object',
@@ -1334,6 +1350,7 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
                 + '新人再写 relation 和 group）；'
                 + 'detail 写你们做了什么——可以是临时出门（少见，得跟你此刻的时段和人设对得上），'
                 + '也可以是不用出门的（比如临时约好一起上线打游戏、开着语音各干各的）。'
+                + '真出门了就写 outing：大概要在外面多少分钟（20–240）；不用出门的省略。'
                 + '当场就发生的事写现在时，别写成计划。lines 写约人或者当时说的那几句（最多 6 句，who 写说话人的名字，你自己写「我」）。'
                 + (partnerBrief ? `\n${partnerBrief}\n` : '')
                 + PLAN_HOW,
@@ -1957,11 +1974,11 @@ export const createHeartbeatHandler = ({
     const rawLife = lifeKind ? withXhsFeed(modelOutput.life ?? null, feed) : null;
     // 跟同一个人把最近聊过的又聊了一遍（「下周二喝酒」约了八次）：这一跳就当没写生活小事
     const repeatChat = Boolean(rawLife) && isRepeatChat(rawLife, partners.length ? partners : recentPartners(db, character.charId, startedAt));
-    const lifeChecked = withEta(withPlanTime(
+    const lifeChecked = withEta(withOuting(withPlanTime(
         rawLife && !repeatChat && !((rawLife.kind === 'chat' || rawLife.kind === 'social') && userName && rawLife.with === userName) ? rawLife : null,
         startedAt,
         timezone,
-    ), etas);
+    )), etas);
     // 点开看过的那条也带上：前端小红书 App 另记一条「查看详情」，跟手动刷新时一样
     const lifeDraft = lifeChecked?.kind === 'xhs' && opened
         ? {

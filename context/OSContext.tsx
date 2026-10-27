@@ -107,6 +107,7 @@ import { ensureAgentPushRegistered } from '../utils/emAgentBackend'; // [EM: age
 import { refreshTemporalCache } from '../utils/emTemporal'; // [EM: calendar-temporal]
 import { applyWorkEpisode } from '../utils/emWork'; // [EM: work-app]
 import { applyLifeEpisode } from '../utils/emLife'; // [EM: agent-life]
+import { noteOutingFromLife } from '../utils/emOuting'; // [EM: heartbeat-outing]
 import { xhsActivitiesFromLife, xhsChatNote } from '../utils/emLifeXhs'; // [EM: heartbeat-xhs]
 import { ShoppingDB } from '../utils/shoppingDb'; // [EM: shopping-family]
 import { giftOrderFromLife } from '../utils/shoppingFamily'; // [EM: shopping-family]
@@ -2012,6 +2013,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                       const next = applyLifeEpisode(cur.phoneState, event, { userName: userProfileRef.current?.name });
                       return next ? { phoneState: next } : {};
                   });
+                  noteOutingFromLife(charId, event); // [EM: heartbeat-outing] 临时出门让状态灯显示忙碌
                   // [EM-START: shopping-family] TA 给阿萌买的东西同时进投喂站；落库失败就抛出，不 ack，下次再收
                   if (event.life.kind === 'gift') {
                       const char = charactersRef.current.find(c => c.id === charId);

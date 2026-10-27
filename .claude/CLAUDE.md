@@ -79,7 +79,7 @@ LiliumOS 和 SullyOS 早就各走各的了（git 认的合并基线停在 2026-0
 ### 吸收后必跑自检
 
 ```bash
-bash scripts/check-em-patches.sh   # 当前 335 项锚点检查，红了就是功能被冲掉
+bash scripts/check-em-patches.sh   # 当前 342 项锚点检查，红了就是功能被冲掉
 pnpm vitest run                    # 单元测试
 ```
 
@@ -386,6 +386,7 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - `chatRequestPayload.ts` — busy 时注入简短回复提示
 - `ScheduleCard.tsx` — 编辑时可手动覆盖状态
 - 三层判断优先级：手动覆盖 > LLM 生成 > 关键词 fallback
+- **心跳临时出门盖过日程**（2026-10-27，哨兵 `heartbeat-outing`）：心跳 social 真出门时写 `outing`（分钟，后端 `withOuting` 夹在 20–240，`runner.mjs` 解析层要放行），OSContext 收信时 `noteOutingFromLife` 记进本机 localStorage，`computeCharStatus` 在回来前返回 busy「和谁出门了」；睡眠仍优先。只存本机、不进备份
 
 ### 35. 多选收藏成一段对话（2026-10-15）
 - 聊天多选底栏「收藏」：`apps/Chat.tsx` / `components/chat/ChatInputArea.tsx`（哨兵 `multi-select-favorite`）→ `utils/contentFavorites.ts` 的 `saveConversationContentFavorite`

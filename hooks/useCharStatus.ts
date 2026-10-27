@@ -11,6 +11,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { CharacterProfile, DailySchedule } from '../types';
 import { computeCharStatus, CharAvailability } from '../utils/charStatus';
+import { OUTING_CHANGED_EVENT } from '../utils/emOuting'; // [EM: heartbeat-outing]
 
 interface UseCharStatusReturn {
     status: CharAvailability;
@@ -61,7 +62,12 @@ export function useCharStatus(schedule: DailySchedule | null, char?: CharacterPr
             }
         };
         document.addEventListener('visibilitychange', handleVisibility);
-        return () => document.removeEventListener('visibilitychange', handleVisibility);
+        // [EM: heartbeat-outing] 收信时记下 TA 出门了，聊天开着也立刻换灯
+        window.addEventListener(OUTING_CHANGED_EVENT, updateStatus);
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibility);
+            window.removeEventListener(OUTING_CHANGED_EVENT, updateStatus);
+        };
     }, [updateStatus]);
 
     return { status, activity, emoji };
