@@ -71,6 +71,7 @@ import { AMSG2_TOOLS, AMSG2_TOOL_NAMES, createAmsg2ToolSession, executeAmsg2Tool
 import { shouldSendThinkingParams } from '../utils/thinkingGate';
 import { buildFinanceChatSystemBlock, executeFinanceChatTool, FINANCE_CHAT_TOOLS, FINANCE_CHAT_TOOL_NAMES, getFinanceAwareness, shouldEnableFinanceTools } from '../utils/financeChatTools';
 import { rollChatCue } from '../utils/emCueProviders'; // [EM: char-drives-cue]
+import { describeCueRoll, getLastCueRoll, loadCueState } from '../utils/emCuePool'; // [EM: char-drives-cue]
 import { noteCueToolUse } from '../utils/emCuePool'; // [EM: char-drives-cue]
 import {
     buildHealthChatSystemBlock,
@@ -109,6 +110,8 @@ export interface ContextComposition {
     contextLimit: number;
     /** [EM: token-panel-recall] 本轮记忆宫殿实际注入的记忆简报（空数组 = 本轮未触发召回） */
     recalledMemories: RecalledMemoryBrief[];
+    /** [EM: char-drives-cue] 这一轮契机池掷的结果（手机上看抽没抽中） */
+    cueTurn?: { headline: string; detail?: string; recent: string };
 }
 // [EM-END: context-composition-type]
 
@@ -1118,6 +1121,7 @@ export const useChatAI = ({
                 historyImageTurns: cleanedApiMessages.reduce((n: number, m: any) => n + (Array.isArray(m.content) && m.content.some((p: any) => p?.type === 'image_url') ? 1 : 0), 0),
                 contextLimit: limit,
                 recalledMemories: bd?.recalledMemories ?? [], // [EM: token-panel-recall]
+                cueTurn: describeCueRoll(getLastCueRoll(char.id), loadCueState(char.id)), // [EM: char-drives-cue]
             });
             // [EM-END: context-composition-set]
 

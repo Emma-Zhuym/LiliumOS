@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
-    buildCueInjection, CUE_KEY_COOLDOWN_MS, CUE_MIN_GAP_MS, CUE_SOURCE_COOLDOWN_MS, CUE_SOURCE_WEIGHTS, formatCueInjection,
+    buildCueInjection, CUE_KEY_COOLDOWN_MS, describeCueRoll, CUE_MIN_GAP_MS, CUE_SOURCE_COOLDOWN_MS, CUE_SOURCE_WEIGHTS, formatCueInjection,
     getPendingCue, loadCueState, noteCueToolUse, pickCue, recordCuePicked, setPendingCue, shouldRollCue, type Cue,
 } from './emCuePool';
 
@@ -81,5 +81,35 @@ describe('契机池按心思加权', () => {
         expect(caring.own_life).toBeCloseTo(CUE_SOURCE_WEIGHTS.own_life);
         expect(driveCueChance([])).toBe(CHAT_CUE_CHANCE);
         expect(driveCueChance([{ drive: 'miss', level: 'high' }, { drive: 'stress', level: 'mid' }, { drive: 'x', level: 'mid' }])).toBe(CUE_CHANCE_MAX);
+    });
+});
+
+describe('⚡ 面板的本轮念头', () => {
+    const NOW = Date.UTC(2026, 9, 27, 12);
+    const empty = { lastAt: 0, bySource: {}, byKey: {}, log: [] };
+
+    it('抽中时写来源和摘录', () => {
+        const d = describeCueRoll({ at: NOW, outcome: 'picked', cue: { source: 'kitchen', text: '冰箱里的牛奶快过期了' } }, empty, NOW);
+        expect(d.headline).toBe('这一轮闪过（冰箱）');
+        expect(d.detail).toBe('冰箱里的牛奶快过期了');
+        expect(d.recent).toBe('近 7 天一次也没闪过');
+    });
+
+    it('没抽中写原因，近 7 天按 log 数', () => {
+        const state = {
+            ...empty,
+            log: [
+                { at: NOW - 8 * 24 * 3600_000, source: 'finance' as const, key: 'a', route: 'local' },
+                { at: NOW - 2 * 3600_000, source: 'calendar' as const, key: 'b', route: 'mini' },
+            ],
+        };
+        const d = describeCueRoll({ at: NOW, outcome: 'missed' }, state, NOW);
+        expect(d.headline).toContain('掷了没中');
+        expect(d.detail).toBeUndefined();
+        expect(d.recent).toBe('近 7 天闪过 1 次 · 上次 2 小时前（日历）');
+    });
+
+    it('还没掷过', () => {
+        expect(describeCueRoll(null, empty, NOW).headline).toContain('还没记录');
     });
 });

@@ -224,4 +224,63 @@ export const noteCueToolUse = (charId: string, group: 'finance', now = Date.now(
     all[charId] = state;
     writeAll(all);
 };
+
+// ── 这一轮掷的结果（给 ⚡ 面板看）────────────────────────────────
+// 2026-10-27 阿萌：只有控制台能看到抽没抽中，手机上看不到，所以体验不到也分不清是没抽中还是没起作用。
+// 只存内存：面板看的是「刚刚那一轮」，刷新后没了也无妨；近几天的次数读 log。
+
+export type CueRollOutcome = 'picked' | 'skipped' | 'gap' | 'missed' | 'empty' | 'error';
+
+export interface CueRollRecord {
+    at: number;
+    outcome: CueRollOutcome;
+    cue?: Pick<Cue, 'source' | 'text'>;
+}
+
+const lastRolls = new Map<string, CueRollRecord>();
+
+export const noteCueRoll = (charId: string, record: CueRollRecord) => { lastRolls.set(charId, record); };
+export const getLastCueRoll = (charId: string): CueRollRecord | null => lastRolls.get(charId) ?? null;
+
+export const CUE_SOURCE_LABELS: Record<CueSource, string> = {
+    finance: '账本',
+    kitchen: '冰箱',
+    calendar: '日历',
+    own_life: 'TA 自己的事',
+};
+
+const CUE_MISS_REASONS: Record<Exclude<CueRollOutcome, 'picked'>, string> = {
+    skipped: '这一轮在聊工具话题或深谈，不岔开',
+    gap: '离上一次念头不到 30 分钟',
+    missed: '掷了没中（约每 10 轮一次）',
+    empty: '掷中了，但没有能用的素材（都在冷却或没数据）',
+    error: '读素材出错了，这一轮不带',
+};
+
+const agoText = (ms: number): string => {
+    const min = Math.max(0, Math.round(ms / 60000));
+    if (min < 60) return `${min} 分钟前`;
+    const hours = Math.round(min / 60);
+    return hours < 24 ? `${hours} 小时前` : `${Math.round(hours / 24)} 天前`;
+};
+
+/** ⚡ 面板「本轮念头」那两行：这一轮怎么样 + 近 7 天闪过几次。 */
+export const describeCueRoll = (
+    roll: CueRollRecord | null,
+    state: CueCharState,
+    now = Date.now(),
+): { headline: string; detail?: string; recent: string } => {
+    const headline = !roll
+        ? '还没记录（发一条消息后才有）'
+        : roll.outcome === 'picked'
+            ? `这一轮闪过（${CUE_SOURCE_LABELS[roll.cue?.source ?? 'own_life']}）`
+            : `这一轮没闪：${CUE_MISS_REASONS[roll.outcome]}`;
+    const detail = roll?.outcome === 'picked' ? roll.cue?.text : undefined;
+    const week = state.log.filter(entry => now - entry.at < 7 * 24 * 60 * 60 * 1000);
+    const last = week[week.length - 1];
+    const recent = last
+        ? `近 7 天闪过 ${week.length} 次 · 上次 ${agoText(now - last.at)}（${CUE_SOURCE_LABELS[last.source] ?? last.source}）`
+        : '近 7 天一次也没闪过';
+    return { headline, detail, recent };
+};
 // [EM-END: char-drives-cue]

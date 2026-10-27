@@ -13,7 +13,7 @@
 
 import type { CharacterProfile, PhoneEvidence } from '../types';
 import {
-    clipCueText, driveCueChance, driveWeightedWeights, loadCueState, pickCue, recordCuePicked, setPendingCue, shouldRollCue, type Cue,
+    clipCueText, CUE_MIN_GAP_MS, driveCueChance, driveWeightedWeights, loadCueState, noteCueRoll, pickCue, recordCuePicked, setPendingCue, shouldRollCue, type Cue,
 } from './emCuePool';
 import { fetchDriveSummary, readDriveSummaryCache } from './emDriveSummary';
 import type { FinanceHeartbeatContext } from './financeChatTools';
@@ -188,19 +188,30 @@ export const rollChatCue = async (
     } = {},
 ): Promise<Cue | null> => {
     setPendingCue(char.id, null);
-    if (skip) return null;
+    if (skip) {
+        noteCueRoll(char.id, { at: now, outcome: 'skipped' });
+        return null;
+    }
     try {
         const state = loadCueState(char.id);
         // 掷不掷先看本机缓存的心思（不等网络）；掷中了再去 mini 拉新的给来源加权
-        if (!shouldRollCue(state, now, rng, driveCueChance(readDriveSummaryCache(char.id)))) return null;
+        if (!shouldRollCue(state, now, rng, driveCueChance(readDriveSummaryCache(char.id)))) {
+            noteCueRoll(char.id, { at: now, outcome: now - state.lastAt < CUE_MIN_GAP_MS ? 'gap' : 'missed' });
+            return null;
+        }
         const [candidates, drives] = await Promise.all([gatherCueCandidates(char, userName, now), fetchDriveSummary(char.id)]);
         const cue = pickCue(candidates, state, now, rng, driveWeightedWeights(drives));
-        if (!cue) return null;
+        if (!cue) {
+            noteCueRoll(char.id, { at: now, outcome: 'empty' });
+            return null;
+        }
         recordCuePicked(char.id, cue, route, now);
         setPendingCue(char.id, cue);
+        noteCueRoll(char.id, { at: now, outcome: 'picked', cue: { source: cue.source, text: cue.text } });
         console.log(`💭 [Cue] ${char.id} ← ${cue.source}：${cue.text}`);
         return cue;
     } catch (error) {
+        noteCueRoll(char.id, { at: now, outcome: 'error' });
         console.warn('💭 [Cue] 抽念头失败，这一轮不带', error);
         return null;
     }

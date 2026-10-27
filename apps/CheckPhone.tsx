@@ -2240,9 +2240,6 @@ ${olderText}
     const contactsSub = contactCount ? `${contactCount} 位联系人` : 'tap to scan';
     const aiSub = aiSessions.length ? `${aiSessions.length} 段对话 · TA 的小手机` : 'tap to peek';
 
-    // pseudo weather (decorative, deterministic per char)
-    const seed = charName.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
-    const temp = 16 + (seed % 14);
     // [EM-START: char-drives-screen-time] 屏幕时间按 TA 今天真实的记录算（原来是记录条数 × 11 + 名字哈希）
     const screenTime = summarizeScreenTime(records, { timeZone: resolveCharTimeZone(targetChar) });
     const screenMin = screenTime.totalMin;

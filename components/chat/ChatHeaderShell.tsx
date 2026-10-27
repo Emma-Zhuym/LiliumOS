@@ -577,6 +577,18 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
                                     <div className="text-[10px] text-slate-400 font-sans">本轮未触发记忆召回</div>
                                 )}
                                 {/* [EM-END: token-panel-recall] */}
+                                {/* [EM-START: char-drives-cue] 本轮念头：契机池这一轮抽没抽中，手机上也看得到 */}
+                                {contextComposition.cueTurn && (
+                                    <>
+                                        <div className="border-t border-slate-100 pt-2 mt-2 text-slate-500 font-sans text-[10px]">💭 本轮念头</div>
+                                        <div className="text-[10px] text-slate-500 font-sans leading-snug">{contextComposition.cueTurn.headline}</div>
+                                        {contextComposition.cueTurn.detail && (
+                                            <div className="text-[10px] text-slate-400 font-sans leading-snug">{contextComposition.cueTurn.detail}</div>
+                                        )}
+                                        <div className="text-[10px] text-slate-400 font-sans">{contextComposition.cueTurn.recent}</div>
+                                    </>
+                                )}
+                                {/* [EM-END: char-drives-cue] */}
                             </>
                         ) : (
                             <div className="text-[10px] text-amber-600 font-sans pt-1">暂无字符级构成（需走主聊天 triggerAI 一轮后才会更新）</div>
