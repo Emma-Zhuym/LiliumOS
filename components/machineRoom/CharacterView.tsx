@@ -17,6 +17,7 @@ import { statusPhrase } from '../../utils/emDriveStatus';
 import { HEARTBEAT_API_AUTO, HEARTBEAT_API_CHAT } from '../../utils/emHeartbeatApi';
 import { clockText, nextBeatText, runKind, runSummary, type RunKind } from '../../utils/emMachineRoom';
 import type { AgentMiniData } from '../../hooks/useAgentMiniData';
+import ClayDialog from '../os/ClayDialog';
 import { Badge, Card, Empty, P, PillButton, Row, SectionTitle, Toggle, selectStyle } from './ui';
 
 const EVERY_MIN_OPTIONS = [30, 45, 60, 90, 120, 180, 240];
@@ -54,6 +55,7 @@ const CharacterView: React.FC<{ char: CharacterProfile; data: AgentMiniData }> =
     const backend = data.characters.find(item => item.charId === char.id);
     const connected = Boolean(backend?.credRef);
     const [busy, setBusy] = useState(false);
+    const [tuning, setTuning] = useState(false);
     const [drives, setDrives] = useState<{ drive: string; level: 'mid' | 'high' }[] | null>(null);
     const [privateMoment, setPrivateMoment] = useState<AgentPrivateMoment | null>(null);
     const [pocket, setPocket] = useState<AgentPocketItem[] | null>(null);
@@ -97,7 +99,10 @@ const CharacterView: React.FC<{ char: CharacterProfile; data: AgentMiniData }> =
 
     const heartbeat = (
         <>
-            <SectionTitle>心跳</SectionTitle>
+            <SectionTitle right={connected ? (
+                <button type="button" onClick={() => setTuning(true)} className="active:opacity-60 transition-opacity"
+                    style={{ fontSize: 13, fontWeight: 600, color: P.ink, padding: '12px 4px', margin: '-12px -4px' }}>频率与同步</button>
+            ) : undefined}>心跳</SectionTitle>
             {!connected ? (
                 <Card>
                     <p style={{ fontSize: 13, color: F.textSecondary, lineHeight: 1.6 }}>还没接到 mini。接上会把 TA 登记过去、同步心跳用的 API、传一份近况，顺手读一下脾气（脾气在神经链接里能改）。</p>
@@ -105,16 +110,11 @@ const CharacterView: React.FC<{ char: CharacterProfile; data: AgentMiniData }> =
                 </Card>
             ) : (
                 <Card style={{ padding: '2px 16px' }}>
-                    <Row first title="心跳" sub={backend?.heartbeatPaused ? '暂停中' : backend?.heartbeatEnabled ? `下一跳 ${nextBeatText(backend.nextHeartbeatAt) || '还没排上'}` : '关着：TA 不会自己醒'}
+                    <Row first title="心跳" sub={backend?.heartbeatPaused ? '暂停中' : backend?.heartbeatEnabled
+                        ? `每 ${backend.heartbeatEveryMin ?? 60} 分钟 · 下一跳 ${nextBeatText(backend.nextHeartbeatAt) || '还没排上'}`
+                        : '关着：TA 不会自己醒'}
                         right={<Toggle label="心跳" checked={Boolean(backend?.heartbeatEnabled)} disabled={busy}
                             onChange={() => void upsert({ heartbeatEnabled: !backend?.heartbeatEnabled }, backend?.heartbeatEnabled ? '心跳关了' : '心跳开了')} />} />
-                    <Row title="多久醒一次" sub="平均值，每一跳会在前后浮动"
-                        right={<select aria-label="心跳间隔" value={backend?.heartbeatEveryMin} disabled={busy} style={selectStyle}
-                            onChange={event => void upsert({ heartbeatEveryMin: Number(event.target.value) }, `平均每 ${event.target.value} 分钟醒一次`)}>
-                            {[...new Set([...EVERY_MIN_OPTIONS, backend?.heartbeatEveryMin ?? 60])].sort((a, b) => a - b).map(minutes => (
-                                <option key={minutes} value={minutes}>{minutes} 分钟</option>
-                            ))}
-                        </select>} />
                     <Row title="用哪套 API" sub={model ? `mini 上现在用：${model}` : undefined}
                         right={<select aria-label="心跳用的 API" value={char.heartbeatApiPresetId ?? HEARTBEAT_API_AUTO} disabled={busy} style={{ ...selectStyle, maxWidth: 140 }}
                             onChange={event => { updateCharacter(char.id, { heartbeatApiPresetId: event.target.value || undefined }); void connect(event.target.value); }}>
@@ -122,9 +122,21 @@ const CharacterView: React.FC<{ char: CharacterProfile; data: AgentMiniData }> =
                             <option value={HEARTBEAT_API_CHAT}>跟聊天 API</option>
                             {apiPresets.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
                         </select>} />
-                    <Row title="重新同步" sub="换了 Key、改了人设之后点一下" right={<PillButton disabled={busy} onClick={() => void connect()}>同步</PillButton>} />
                 </Card>
             )}
+            {/* 不常动的两样收进这里：频率一般设一次，同步是换 Key / 改人设后才点 */}
+            <ClayDialog isOpen={tuning} title="频率与同步" onClose={() => setTuning(false)}>
+                <Card style={{ padding: '2px 16px' }}>
+                    <Row first title="多久醒一次" sub="平均值，每一跳会在前后浮动"
+                        right={<select aria-label="心跳间隔" value={backend?.heartbeatEveryMin} disabled={busy} style={selectStyle}
+                            onChange={event => void upsert({ heartbeatEveryMin: Number(event.target.value) }, `平均每 ${event.target.value} 分钟醒一次`)}>
+                            {[...new Set([...EVERY_MIN_OPTIONS, backend?.heartbeatEveryMin ?? 60])].sort((a, b) => a - b).map(minutes => (
+                                <option key={minutes} value={minutes}>{minutes} 分钟</option>
+                            ))}
+                        </select>} />
+                    <Row title="重新同步" sub="换了 Key、改了人设之后点一下" right={<PillButton disabled={busy} onClick={() => void connect()}>{busy ? '同步中…' : '同步'}</PillButton>} />
+                </Card>
+            </ClayDialog>
         </>
     );
 
