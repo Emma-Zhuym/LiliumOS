@@ -177,10 +177,10 @@ function tick(){
   });
   const split=version==='C'&&!reduce;
   document.querySelectorAll('.head').forEach(h=>{
-    /* 标题进屏时两行分在两边，滑到屏幕上三分之一处汇合，之后不再分开 */
+    /* 标题进屏时中文偏右、英文偏左，滑到屏幕上三分之一处各归其位，之后不再分开；两行都不出纸边 */
     const r=h.getBoundingClientRect();const p=Math.min(1,Math.max(0,(r.top-vh*.32)/(vh*.6)));const e=p*p*(3-2*p);
-    h.querySelector('.l1').style.transform=split?`translate3d(${(e*-90).toFixed(1)}px,0,0)`:'none';
-    h.querySelector('.l2').style.transform=split?`translate3d(${(e*90).toFixed(1)}px,0,0)`:'none';
+    h.querySelector('.l1').style.transform=split?`translate3d(${(e*80).toFixed(1)}px,0,0)`:'none';
+    h.querySelector('.l2').style.transform=split?`translate3d(${(e*-56).toFixed(1)}px,0,0)`:'none';
   });
 }
 let raf=0;addEventListener('scroll',()=>{if(!raf)raf=requestAnimationFrame(()=>{raf=0;tick();});},{passive:true});
