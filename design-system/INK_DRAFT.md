@@ -143,6 +143,8 @@ IMPORTANT: frost, NOT snow — no falling snowflakes, no snow piled anywhere, no
 six-pointed snowflake shapes, no icicles.
 ```
 
+v3 结果（2026-10-27，阿萌：感觉不错，定稿候选）：图存在 `docs/design/ink/winter-window-v3.webp`。霜成了贴在玻璃上的羽毛状、只长下角，跟窗外远景分得开；玻璃是白的；远景淡、小，草坡、挂霜的树、屋顶和炊烟、细线太阳都在；杯子和热气在左下窗台。小毛病先不改：霜两两对称有点像蕾丝花边；太阳圈带了一点金色（正好可以当黄铜点睛）。下一步看它贴到布纹纸上（正片叠底 + 统一调成灰靛）是什么样
+
 ## 已定
 
 - 主墨是蓝，不是棕（2026-10-23 样稿比较）
