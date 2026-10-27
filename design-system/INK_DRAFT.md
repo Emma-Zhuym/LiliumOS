@@ -59,6 +59,43 @@ github.com/knacl47/between-us，代码 MIT，插画不能拿（© 作者 / Canva
 - **阿萌的反应**：动效很丝滑，但整体太炸、克莱因蓝亮得刺眼；喜欢的是作者另一份莲花（灰蓝点刻 + 雨丝 + 虚线涟漪，夜里换金点）
 - **同一作者的「HIS · LETTERS」封面她也喜欢**（素材疑似 Pinterest，不能用）：左半冷白布纹纸、右半灰靛蓝纸，中间一张毛边撕纸剪影压在接缝上，上面是老式纹身样张那种线稿（两只燕子 + 百合 + 卷草）；右上斜体衬线一句小诗，底下字距拉开的大写小标签。值得记的：这个蓝是**掺了灰的靛蓝**，跟她讨厌的克莱因蓝差在饱和度；毛边撕纸是「手做的」，不算碎裂；线稿风格可以叫 GPT 按「老式纹身样张线稿」画我们自己的
 
+## 出图说明书（给 GPT 生图用，2026-10-27）
+
+分工：线和点堆出来的（霜花、热气、窗框、杯子、水波、叶影、雨丝）用代码画；人、动物、纸飞机、复杂的花交给 GPT。
+阿萌不用写 prompt：小帕写，阿萌贴进 ChatGPT 出图、发回来、说感觉（太粗 / 太满 / 像儿童画 / 人好僵），小帕把感觉翻成 prompt 的改法。
+
+每张图 = **固定风格段** + **这张画什么**。固定段一个字别改，换图只换后半：
+
+```
+STYLE (keep exactly): Fine pen-and-ink line art in ONE color only: a muted grey-indigo,
+like faded navy fountain-pen ink (close to #3E4C7A), on a pure white background.
+Thin, even, confident outlines. Shading is done ONLY with stipple dots, denser toward
+the base and in shadows, sparse elsewhere. Feels like an antique copperplate engraving
+or an old tattoo flash sheet. No fill colors, no grey wash, no gradients, no paper
+texture, no frame or border, no text, no signature. Generous white space. Square image.
+```
+
+纯白底是为了贴到布纹纸上用正片叠底（白色消失、只剩墨线）。出来的图如果墨色发紫 / 发黑，先别重出，小帕在代码里统一调色。
+
+**霜 ≠ 雪**（初冬那一季的硬规矩）：
+- 霜是**长**出来的：从玻璃边角往里爬的蕨叶状冰晶（羽毛、分叉、针状），长在窗玻璃**里面**那一面；窗外的枝条挂一层细细的白霜（雾凇的感觉），枝条本身还看得见
+- 不许出现：天上飘的雪花、窗台 / 枝头堆起的雪、圆鼓鼓的雪团、六角形雪花图标、雪人、冰柱
+- 天是清晨晴的，霜在太阳出来前最盛——画面安静、干冷，不是下雪天的软和闷
+
+**初冬 · 窗与杯 v1**（跟代码画的 B 稿对比用）：
+
+```
+SUBJECT: An early-winter dawn seen from indoors. A plain wooden four-pane window,
+closed, drawn straight-on. Feathery fern-like FROST crystals creep inward from the
+lower corners and edges of each glass pane, growing on the inside of the glass, with
+fine branching needles; the upper middle of each pane stays clear. Through the clear
+glass: two or three bare tree branches coated in thin white hoarfrost, the twigs still
+visible. Sky empty and still. On the windowsill: one simple straight-sided glass of
+hot water with a thin wisp of steam rising and curling. The room side feels warm and
+quiet. IMPORTANT: this is frost, NOT snow — no falling snowflakes, no snow piled on
+the sill or branches, no six-pointed snowflake shapes, no icicles, no snowman.
+```
+
 ## 已定
 
 - 主墨是蓝，不是棕（2026-10-23 样稿比较）
