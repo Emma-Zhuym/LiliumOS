@@ -69,7 +69,7 @@ export default function AgentBackendSection(_props: { defaultOpen?: boolean } = 
         } catch (error) {
             if (mine !== version.current) return;
             // 连不上和「后端报错」是两回事：前者是休眠，后者才值得提醒。
-            setReachable(!(error instanceof AgentBackendError && error.code === 'UNREACHABLE'));
+            setReachable(!(error instanceof AgentBackendError && (error.code === 'UNREACHABLE' || error.code === 'TIMEOUT')));
             // 钥匙在后端被作废后本机还留着，看起来像「状态未知」——说清楚是钥匙失效，重新配对才是出路。
             setRevoked(error instanceof AgentBackendError && error.status === 401);
             setBlocked(error instanceof AgentBackendError && error.code === 'BLOCKED' ? error.message : null); // [EM: agent-backend-cors-probe]

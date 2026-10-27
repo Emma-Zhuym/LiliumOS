@@ -83,6 +83,33 @@ export const characterLine = (backend: AgentCharacter | undefined, latest: Agent
 };
 
 /** 连接页那几行。tone：ok 绿、warn 琥珀、off 灰。 */
+// [EM-START: machine-room-reach-reason]
+export type ReachFailureKind = 'revoked' | 'timeout' | 'blocked' | 'network-blocked' | 'offline' | 'down' | 'server';
+export interface ReachFailure { kind: ReachFailureKind; title: string; sub: string }
+
+/**
+ * 机房连不上 mini 时说清楚是哪一种（以前一律「mini 在休息」，阿萌分不出是钥匙、网络还是真休眠）。
+ * internetOk：对照探测（本站碰得到吗），只对「碰不到 mini」的两类有用。
+ */
+export const describeReachFailure = (
+    error: { code?: string; status?: number } | null | undefined,
+    internetOk: boolean | null = null,
+): ReachFailure => {
+    const code = error?.code;
+    if (error?.status === 401) return { kind: 'revoked', title: '钥匙失效了', sub: '这台手机在 mini 上被作废了，要去「设置 → Mac mini」解绑后重新配对。' };
+    if (code === 'BLOCKED') return { kind: 'blocked', title: 'mini 在线，请求被拦了', sub: '多半是跨域（后端没放行这个网页地址）或浏览器扩展拦截。' };
+    if (code === 'UNREACHABLE' || code === 'TIMEOUT') {
+        if (internetOk === false) return { kind: 'offline', title: '这台手机没网', sub: '先连上网络再试。' };
+        if (internetOk === true) {
+            return { kind: 'network-blocked', title: '当前网络够不到 mini', sub: '你能上网，但这张网碰不到 mini 的地址（可能是这张网拦了它，或者解析不了它的域名）。换 LTE 能连上就是网络的问题，mini 本身没事。' };
+        }
+        if (code === 'TIMEOUT') return { kind: 'timeout', title: 'mini 没响应', sub: '请求发出去了但 15 秒没回音，可能 mini 正忙或网络很慢，点右上角刷新再试。' };
+        return { kind: 'down', title: 'mini 在休息', sub: '连不上，多半是每天 4–7 点的休眠，或者在重启。' };
+    }
+    return { kind: 'server', title: 'mini 回了个错', sub: '连得上，但后端报错了，详情看「连接」或 mini 日志。' };
+};
+// [EM-END: machine-room-reach-reason]
+
 export interface LinkRow { key: string; label: string; tone: 'ok' | 'warn' | 'off'; detail: string }
 
 const XHS_DETAIL: Record<string, string> = {

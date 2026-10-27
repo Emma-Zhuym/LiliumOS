@@ -19,9 +19,10 @@ import { useOS } from '../context/OSContext';
 import { AppID } from '../types';
 import { F, FONT, MOTION, R, S } from '../utils/clayTokens';
 import {
-    AgentBackend, AgentBackendError, isAgentPaired,
+    AgentBackend, AgentBackendError, isAgentPaired, probeInternet,
     type AgentAdminSettings, type AgentCharacter, type AgentModelRun, type AgentStatus,
 } from '../utils/emAgentBackend';
+import { describeReachFailure, type ReachFailure } from '../utils/emMachineRoom'; // [EM: machine-room-reach-reason]
 import { Card, Empty, P, PillButton } from '../components/machineRoom/ui';
 import NowView from '../components/machineRoom/NowView';
 import RunsView from '../components/machineRoom/RunsView';
@@ -44,6 +45,8 @@ export interface MachineRoomData {
     /** null = 还没问过；false = 连不上（多半在休眠） */
     reachable: boolean | null;
     revoked: boolean;
+    /** 连不上时的具体原因；连得上时为 null */
+    failure: ReachFailure | null;
     loading: boolean;
     refresh: () => Promise<void>;
 }
@@ -64,6 +67,7 @@ const useMachineRoomData = (): MachineRoomData => {
     const [credModels, setCredModels] = useState<Record<string, string>>({});
     const [reachable, setReachable] = useState<boolean | null>(null);
     const [revoked, setRevoked] = useState(false);
+    const [failure, setFailure] = useState<ReachFailure | null>(null);
     const [loading, setLoading] = useState(false);
     const version = useRef(0);
 
@@ -89,10 +93,17 @@ const useMachineRoomData = (): MachineRoomData => {
             setSettings(nextSettings);
             setReachable(true);
             setRevoked(false);
+            setFailure(null);
         } catch (error) {
             if (mine !== version.current) return;
+            const agentError = error instanceof AgentBackendError ? error : null;
+            // 碰不到 mini 时再对照一下本站通不通，分出「没网」「这张网拦了 mini」「mini 真休息」
+            const lost = agentError?.code === 'UNREACHABLE' || agentError?.code === 'TIMEOUT';
+            const internetOk = lost ? await probeInternet() : null;
+            if (mine !== version.current) return;
             setReachable(false);
-            setRevoked(error instanceof AgentBackendError && error.status === 401);
+            setRevoked(agentError?.status === 401);
+            setFailure(describeReachFailure(agentError, internetOk));
         } finally {
             if (mine === version.current) setLoading(false);
         }
@@ -106,7 +117,7 @@ const useMachineRoomData = (): MachineRoomData => {
         return () => document.removeEventListener('visibilitychange', onVisible);
     }, [refresh]);
 
-    return { status, characters, runs, settings, credModels, reachable, revoked, loading, refresh };
+    return { status, characters, runs, settings, credModels, reachable, revoked, failure, loading, refresh };
 };
 
 const MachineRoomApp: React.FC = () => {

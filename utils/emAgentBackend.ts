@@ -231,6 +231,22 @@ const probeBackend = async (baseUrl: string): Promise<ReachabilityVerdict> => {
     return verdict;
 };
 
+// [EM-START: machine-room-reach-reason]
+/**
+ * 对照探测：请求 mini 失败后，碰一下本站自己的地址（no-cors，只看通不通）。
+ * 本站碰得到而 mini 碰不到 = 你能上网，是这张网够不到 mini 的域名（2026-10-27 校园 Wi-Fi 下连不上、换 LTE 就好，原因未查明）。
+ */
+export const probeInternet = async (): Promise<boolean> => {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 4000);
+    try {
+        await fetch(`${location.origin}/?probe=${Date.now()}`, { method: 'HEAD', mode: 'no-cors', cache: 'no-store', signal: controller.signal, __sullySuppressNetworkFailureLog: true } as RequestInit);
+        return true;
+    } catch { return false; } finally { clearTimeout(timer); }
+};
+// [EM-END: machine-room-reach-reason]
+
 /** 测试用 */
 export const resetBackendProbeForTest = () => { lastProbe = null; };
 
@@ -271,7 +287,7 @@ const request = async <T>(
             );
         }
         // [EM-END: agent-backend-cors-probe]
-        throw new AgentBackendError(`连不上 Mac mini 后端（${reason}）`, 'UNREACHABLE', 0);
+        throw new AgentBackendError(`连不上 Mac mini 后端（${reason}）`, aborted ? 'TIMEOUT' : 'UNREACHABLE', 0); // [EM: machine-room-reach-reason] 超时单独一个 code
     } finally {
         clearTimeout(timer);
     }

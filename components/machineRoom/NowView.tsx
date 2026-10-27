@@ -16,7 +16,7 @@ import { Badge, Card, Dot, P, SectionTitle } from './ui';
 
 const NowView: React.FC<{ data: MachineRoomData; onOpenChar: (id: string) => void }> = ({ data, onOpenChar }) => {
     const { characters } = useOS();
-    const { status, reachable, settings } = data;
+    const { status, reachable, settings, failure } = data;
     const latestByChar = useMemo(() => {
         const map = new Map<string, MachineRoomData['runs'][number]>();
         for (const run of data.runs) if (!map.has(run.charId)) map.set(run.charId, run);
@@ -29,9 +29,9 @@ const NowView: React.FC<{ data: MachineRoomData; onOpenChar: (id: string) => voi
     const rows = linkRows(status);
     const troubled = rows.filter(row => row.tone === 'warn');
 
-    const heroTitle = reachable === null ? '正在问 mini…' : reachable ? 'Mac mini 在线' : 'mini 在休息';
+    const heroTitle = reachable === null ? '正在问 mini…' : reachable ? 'Mac mini 在线' : (failure?.title ?? 'mini 在休息'); // [EM: machine-room-reach-reason]
     const heroSub = reachable === false
-        ? '连不上，多半是每天 4–7 点的休眠，或者在重启。下面是上一次拿到的样子。'
+        ? `${failure?.sub ?? '连不上，多半是每天 4–7 点的休眠，或者在重启。'}下面是上一次拿到的样子。` // [EM: machine-room-reach-reason]
         : [
             shadow ? '心跳只试跑，不真发' : '心跳真发中',
             trial === true ? '心思试运行中' : trial === false ? '心思已生效' : null,

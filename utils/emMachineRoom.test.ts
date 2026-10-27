@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { AgentCharacter, AgentModelRun, AgentStatus } from './emAgentBackend';
-import { characterLine, clockText, linkRows, matchesFilter, nextBeatText, runKind, runSummary } from './emMachineRoom';
+import { characterLine, clockText, describeReachFailure, linkRows, matchesFilter, nextBeatText, runKind, runSummary } from './emMachineRoom';
 
 const NOW = new Date(2026, 9, 20, 18, 50);
 const at = (h: number, m: number, dayOffset = 0) => new Date(2026, 9, 20 + dayOffset, h, m).toISOString();
@@ -75,5 +75,28 @@ describe('机房：连接那几行', () => {
             ['homeAssistant', 'off', '没连'],
         ]);
         expect(linkRows(null).some(row => row.key === 'xhs')).toBe(false);
+    });
+});
+
+describe('机房：连不上的原因', () => {
+    it('401 = 钥匙失效', () => {
+        expect(describeReachFailure({ code: 'HTTP_ERROR', status: 401 }).kind).toBe('revoked');
+    });
+    it('被浏览器拦 = blocked', () => {
+        expect(describeReachFailure({ code: 'BLOCKED', status: 0 }).kind).toBe('blocked');
+    });
+    it('本站通、mini 不通 = 这张网拦了（学校 Wi-Fi）', () => {
+        expect(describeReachFailure({ code: 'UNREACHABLE', status: 0 }, true).kind).toBe('network-blocked');
+        expect(describeReachFailure({ code: 'TIMEOUT', status: 0 }, true).kind).toBe('network-blocked');
+    });
+    it('本站也不通 = 手机没网', () => {
+        expect(describeReachFailure({ code: 'UNREACHABLE', status: 0 }, false).kind).toBe('offline');
+    });
+    it('对照探测没结论时：超时说没响应，连不上才说休息', () => {
+        expect(describeReachFailure({ code: 'TIMEOUT', status: 0 }).kind).toBe('timeout');
+        expect(describeReachFailure({ code: 'UNREACHABLE', status: 0 }).kind).toBe('down');
+    });
+    it('其他 HTTP 错误 = 后端报错', () => {
+        expect(describeReachFailure({ code: 'HTTP_ERROR', status: 500 }).kind).toBe('server');
     });
 });
