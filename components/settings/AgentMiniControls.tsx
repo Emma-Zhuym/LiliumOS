@@ -1,7 +1,7 @@
 // [EM-START: machine-room-split]
 /**
- * 设置 → Mac mini 里「配对之后」的那一大块：mini 那边的服务、开关、心跳记录、
- * 这台手机（聊天交给 mini、推送、测试、收信箱）、这台 mini（日历可见性、设备）。
+ * 设置 → Mac mini 里「配对之后」的那一大块：这台手机（聊天交给 mini、推送、测试、收信箱，最常点所以放最前）、
+ * mini 那边的服务、开关、心跳记录、这台 mini（日历可见性、设备）。
  * 每个角色的心跳（接上、开关、频率、API）留在机房的角色详情里——那是看 TA 的地方顺手调的。
  *
  * 2026-10-27 从机房「连接」「记录」两页搬来（roadmap 结构梳理第 4 步：机器的事归设置，机房只看 TA）。
@@ -82,6 +82,30 @@ const AgentMiniControls: React.FC<{ data: AgentMiniData }> = ({ data }) => {
 
     return (
         <>
+            {/* 推送登记最常点，放最前面（阿萌 2026-10-27） */}
+            <Group title="这台手机">
+                <Row title="推送" sub="回到前台时会自动补登记" value={pushText} valueTone={myDevice?.pushStatus === 'gone' ? 'bad' : 'plain'} />
+                <Row title="重新登记推送" tone="link" disabled={busy}
+                    onClick={() => void act(async () => {
+                        const result = await AgentBackend.registerPush();
+                        void loadDevices();
+                        if (!result.ok) throw new Error(result.reason || '推送登记没完成');
+                        return '这台手机的推送登记好了';
+                    })} />
+                <Row title="连通测试" sub="让 mini 发一条测试通知，看推送通不通" tone="link" disabled={busy}
+                    onClick={() => void act(async () => { await AgentBackend.testPing(); return '排上了，稍等一下看通知'; })} />
+                <Row title="立刻收一次信箱" sub="平时回到前台会自动收；推送没到、又想马上看时点一下" tone="link" disabled={busy}
+                    onClick={() => void act(async () => {
+                        // 走跟回到前台同一条收信路（OSContext 的 em-agent-pull），消息会进聊天，不会被吞掉
+                        window.dispatchEvent(new Event('em-agent-pull'));
+                        return '去收了，有新消息会进聊天';
+                    })} />
+                {/* [EM: agent-instant-chat] 本机开关（存 localStorage） */}
+                <ToggleRow title="聊天交给 Mac mini 回复" checked={agentChat}
+                    sub="点生成后就能锁屏或划掉 App，回复推送回来；mini 不在时这一轮照旧在手机上生成"
+                    onChange={next => { setAgentChatEnabled(next); setAgentChat(next); }} />
+            </Group>
+
             <Group title="服务" foot={rows.some(row => row.key === 'xhs' && row.tone === 'warn') ? '小红书扫码在「设置 → 小红书」里。' : undefined}>
                 {rows.map(row => (
                     <Row key={row.key} title={row.label}
@@ -118,29 +142,6 @@ const AgentMiniControls: React.FC<{ data: AgentMiniData }> = ({ data }) => {
             <Group title="排查" foot="出错的原文、没醒的原因、试跑没发出去的那句都在记录里。">
                 <Row title="心跳记录" value={data.runs.length ? `${data.runs.length} 条${errorCount ? ` · ${errorCount} 条出错` : ''}` : '—'}
                     valueTone={errorCount ? 'bad' : 'plain'} onClick={() => setRunsOpen(true)} />
-            </Group>
-
-            <Group title="这台手机">
-                {/* [EM: agent-instant-chat] 本机开关（存 localStorage） */}
-                <ToggleRow title="聊天交给 Mac mini 回复" checked={agentChat}
-                    sub="点生成后就能锁屏或划掉 App，回复推送回来；mini 不在时这一轮照旧在手机上生成"
-                    onChange={next => { setAgentChatEnabled(next); setAgentChat(next); }} />
-                <Row title="推送" sub="回到前台时会自动补登记" value={pushText} valueTone={myDevice?.pushStatus === 'gone' ? 'bad' : 'plain'} />
-                <Row title="重新登记推送" tone="link" disabled={busy}
-                    onClick={() => void act(async () => {
-                        const result = await AgentBackend.registerPush();
-                        void loadDevices();
-                        if (!result.ok) throw new Error(result.reason || '推送登记没完成');
-                        return '这台手机的推送登记好了';
-                    })} />
-                <Row title="连通测试" sub="让 mini 发一条测试通知，看推送通不通" tone="link" disabled={busy}
-                    onClick={() => void act(async () => { await AgentBackend.testPing(); return '排上了，稍等一下看通知'; })} />
-                <Row title="立刻收一次信箱" sub="平时回到前台会自动收；推送没到、又想马上看时点一下" tone="link" disabled={busy}
-                    onClick={() => void act(async () => {
-                        // 走跟回到前台同一条收信路（OSContext 的 em-agent-pull），消息会进聊天，不会被吞掉
-                        window.dispatchEvent(new Event('em-agent-pull'));
-                        return '去收了，有新消息会进聊天';
-                    })} />
             </Group>
 
             <Group title="这台 mini">
