@@ -4,12 +4,11 @@
 <title>初冬贴纸样稿</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@1,400;1,500&family=Courier+Prime&family=Noto+Serif+SC:wght@400;600&display=swap">
 <style>
-/* 初冬定稿贴到布纹纸上：GPT 线稿去色后映射成墨色，白天正片叠底、夜里滤色，白底都消失 */
+/* 初冬定稿贴到布纹纸上：白天那张去色映射成灰靛后正片叠底（白底消失）；夜里单独一张黑底金线，直接滤色（黑底消失），不反色 */
 :root{
   --mount:#D8DBE2; --paper:#ECEEEB; --ink:#3E4C7A; --text:#23273A; --brass:#A8864F;
   --rule:rgba(62,76,122,.55); --dash:rgba(62,76,122,.5);
   --grain:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cfilter id='c' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9 .25' numOctaves='2' seed='5' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .3 0 0 0 0 .33 0 0 0 0 .36 0 0 0 .5 -.17'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23c)'/%3E%3C/svg%3E");
-  --art-filter:url(#dayInk); --art-blend:multiply;
   --serif:'Noto Serif SC','Songti SC',serif; --italic:'Cormorant Garamond','Times New Roman',serif; --type:'Courier Prime','Courier New',monospace;
   color-scheme:light;
 }
@@ -18,15 +17,18 @@
     --mount:#2A3249; --paper:#1E2436; --ink:#C8A66A; --text:#E4E1D8; --brass:#C8A66A;
     --rule:rgba(200,166,106,.5); --dash:rgba(200,166,106,.45);
     --grain:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cfilter id='c' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9 .25' numOctaves='2' seed='5' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .8 0 0 0 0 .8 0 0 0 0 .85 0 0 0 .35 -.14'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23c)'/%3E%3C/svg%3E");
-    --art-filter:url(#nightGold); --art-blend:screen; color-scheme:dark;
+    color-scheme:dark;
   }
+  :root:not([data-theme="light"]) .d{display:none} :root:not([data-theme="light"]) .n{display:block}
 }
 :root[data-theme="dark"]{
   --mount:#2A3249; --paper:#1E2436; --ink:#C8A66A; --text:#E4E1D8; --brass:#C8A66A;
   --rule:rgba(200,166,106,.5); --dash:rgba(200,166,106,.45);
   --grain:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cfilter id='c' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9 .25' numOctaves='2' seed='5' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .8 0 0 0 0 .8 0 0 0 0 .85 0 0 0 .35 -.14'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23c)'/%3E%3C/svg%3E");
-  --art-filter:url(#nightGold); --art-blend:screen; color-scheme:dark;
+  color-scheme:dark;
 }
+:root[data-theme="dark"] .d{display:none} :root[data-theme="dark"] .n{display:block}
+:root[data-theme="light"] .d{display:block} :root[data-theme="light"] .n{display:none}
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--mount)}
 body{color:var(--text);font-family:var(--serif);padding:0 max(16px,env(safe-area-inset-right,0px)) 32px max(16px,env(safe-area-inset-left,0px))}
@@ -41,7 +43,11 @@ body{color:var(--text);font-family:var(--serif);padding:0 max(16px,env(safe-area
 .top h1{margin:0;text-align:center;font-weight:600;font-size:17px;color:var(--text)}
 .lab{font-family:var(--type);font-size:11px;letter-spacing:.26em;color:var(--ink)}
 .art{position:relative;margin:14px -6px 0}
-.art img{display:block;width:100%;height:auto;filter:var(--art-filter);mix-blend-mode:var(--art-blend)}
+.n{display:none}
+.art img{width:100%;height:auto}
+.art img.d{filter:url(#dayInk);mix-blend-mode:multiply}
+.art img.n{mix-blend-mode:screen}
+.art img.d{display:block} .art img.n{display:none}
 .sun{position:absolute;left:66.5%;top:47.8%;width:4.2%;aspect-ratio:1;border:1px solid var(--brass);border-radius:50%;transform:translate(-50%,-50%)}
 .head{margin:30px 0 18px}
 .head .l1{display:block;font-weight:600;font-size:30px;color:var(--text)}
@@ -67,15 +73,6 @@ section{margin-top:84px}
       <feFuncR type="table" tableValues="0.243 1"/><feFuncG type="table" tableValues="0.298 1"/><feFuncB type="table" tableValues="0.478 1"/>
     </feComponentTransfer>
   </filter>
-  <filter id="nightGold" color-interpolation-filters="sRGB">
-    <feColorMatrix type="saturate" values="0"/>
-    <feComponentTransfer>
-      <feFuncR type="linear" slope="1.3" intercept="-0.22"/><feFuncG type="linear" slope="1.3" intercept="-0.22"/><feFuncB type="linear" slope="1.3" intercept="-0.22"/>
-    </feComponentTransfer>
-    <feComponentTransfer>
-      <feFuncR type="table" tableValues="0.784 0"/><feFuncG type="table" tableValues="0.651 0"/><feFuncB type="table" tableValues="0.416 0"/>
-    </feComponentTransfer>
-  </filter>
 </svg>
 
 <div class="bar">
@@ -91,16 +88,23 @@ section{margin-top:84px}
     <h1>我们</h1>
     <span></span>
   </div>
-  <div class="lab">EARLY WINTER · 07:12</div>
+  <div class="lab d">EARLY WINTER · 07:12</div>
+  <div class="lab n">EARLY WINTER · 23:40</div>
   <div class="art">
-    <img src="ink/winter-window-v4.webp" alt="初冬清晨，结霜的窗，百叶拉起一半，窗台上一杯冒热气的水" width="1024" height="1536">
-    <span class="sun" aria-hidden="true"></span>
+    <img class="d" src="ink/winter-window-v4.webp" alt="初冬清晨，结霜的窗，百叶拉起一半，窗台上一杯冒热气的水" width="1024" height="1536">
+    <img class="n" src="ink/winter-window-v4-night.webp" alt="初冬深夜，同一扇窗，霜映着屋里的灯光，窗外一弯月亮" width="1024" height="1536">
+    <span class="sun d" aria-hidden="true"></span>
   </div>
-  <div class="head">
+  <div class="head d">
     <span class="l1">早上好</span>
     <span class="l2">frost on the glass</span>
   </div>
-  <p class="voice">外面下霜了。水给你倒好了，还是温的。</p>
+  <p class="voice d">外面下霜了。水给你倒好了，还是温的。</p>
+  <div class="head n">
+    <span class="l1">晚安</span>
+    <span class="l2">a lamp still on</span>
+  </div>
+  <p class="voice n">霜又结上了。水还温着，喝一口再睡。</p>
 
   <section>
     <div class="head">
