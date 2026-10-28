@@ -32,7 +32,8 @@ const PANE_MASK = `url("data:image/svg+xml,${encodeURIComponent(
   `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${ART_W} ${ART_H}' preserveAspectRatio='none'><g fill='#000'>${PANES.map(([x, y, w, h]) => `<rect x='${x}' y='${y}' width='${w}' height='${h}'/>`).join('')}</g></svg>`,
 )}")`;
 
-// 字跟百叶 / 灯同时起（0.3s），在百叶收上去的那一刻（约 1.6s）打完；字少就慢点、字多（有未读）就快点，一个字 25–60ms
+// 字跟百叶 / 灯同时起（0.3s），前三行（LILIUM / 时间 / 日期）在百叶收上去的那一刻（约 1.6s）打完，一个字 25–60ms；
+// 未读那行同样的速度接着往下敲，不为它把前面敲快
 const TYPE_START_MS = 300;
 const TYPE_END_MS = 1600;
 const TYPE_STEP_MAX_MS = 60;
@@ -151,8 +152,12 @@ const InkWindowLock: React.FC<InkWindowLockProps> = ({ unreadCount, unreadName, 
     return out;
   }, [now, unreadCount, unreadName]);
   const totalChars = lines.reduce((n, l) => n + [...l.text].length, 0);
+  const headChars = lines.slice(0, 3).reduce((n, l) => n + [...l.text].length, 0);
+  // 未读数常常比锁屏晚到一步：敲字时每一下都读最新的总数，晚到的那行也接着敲出来，不会在最后一下子跳出来
   const totalRef = useRef(totalChars);
   totalRef.current = totalChars;
+  const headRef = useRef(headChars);
+  headRef.current = headChars;
 
   // 两张图都到了再开演（最多等 1.5 秒），不然百叶拉起来后面是空的
   useEffect(() => {
@@ -171,16 +176,23 @@ const InkWindowLock: React.FC<InkWindowLockProps> = ({ unreadCount, unreadName, 
     setStage('play');
     const timers: ReturnType<typeof setTimeout>[] = [];
     const later = (fn: () => void, ms: number) => timers.push(setTimeout(fn, ms));
-    const count = totalRef.current;
-    const step = Math.max(TYPE_STEP_MIN_MS, Math.min(TYPE_STEP_MAX_MS, (TYPE_END_MS - TYPE_START_MS) / Math.max(count, 1)));
-    for (let i = 0; i < count; i++) {
-      later(() => { setTyped(i + 1); setCaret({ at: i, off: false }); }, TYPE_START_MS + i * step);
-    }
-    const end = TYPE_START_MS + count * step;
-    later(() => setCaret((c) => (c ? { ...c, off: true } : c)), end);
-    later(() => setCaret((c) => (c ? { ...c, off: false } : c)), end + 150);
-    later(() => { setCaret(null); setTyped(Number.POSITIVE_INFINITY); }, end + 300);
-    later(() => setStage('done'), Math.max(DONE_MS, end + 300));
+    const startedAt = Date.now();
+    const step = Math.max(TYPE_STEP_MIN_MS, Math.min(TYPE_STEP_MAX_MS, (TYPE_END_MS - TYPE_START_MS) / Math.max(headRef.current, 1)));
+    let at = 0;
+    const finish = () => {
+      later(() => setCaret((c) => (c ? { ...c, off: true } : c)), 0);
+      later(() => setCaret((c) => (c ? { ...c, off: false } : c)), 150);
+      later(() => { setCaret(null); setTyped(Number.POSITIVE_INFINITY); }, 300);
+      later(() => setStage('done'), Math.max(300, DONE_MS - (Date.now() - startedAt)));
+    };
+    const tick = () => {
+      if (at >= totalRef.current) { finish(); return; }
+      const i = at++;
+      setTyped(i + 1);
+      setCaret({ at: i, off: false });
+      later(tick, step);
+    };
+    later(tick, TYPE_START_MS);
     return () => timers.forEach(clearTimeout);
   }, [still, imagesReady]);
 
