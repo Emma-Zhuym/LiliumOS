@@ -181,6 +181,12 @@ Now a separate image in the same style: ONLY the outdoor landscape that was seen
 - **天用淡彩（阿萌 2026-10-27 定）**：线稿照旧一种墨，只有天上罩一层很淡的水彩——白天灰蓝、日出日落地平线焦糖、太阳淡黄铜；横刷、深浅不匀，过地平线往下淡出，不切硬边。这是墨线里**唯一允许大面积上色的地方**，颜色只从她家里那几样沉下去的色里取
 - **窗外默认是后院（阿萌 2026-10-27 定）**：长椅、喂鸟器、挂霜的苹果树、篱笆外邻居家的烟囱。街角、湖边不扔，收进**图纸库**（`docs/design/ink/` 里的景层，以后按城市 / 心情换着用）。后院下面两格的花草离霜近、有点挤，真上开屏前看要不要让 GPT 把近处的花草减一点
 
+**夜里的后院**（在出后院那张的同一个对话里要，构图照原图）。天照样留空——夜里的天（深靛、月亮、星点）也归代码画；光只从三处来：邻居家的窗、我们自己窗里漏出去的灯、天上的一点月光：
+
+```
+Make a night version of this exact image, same composition: same apple tree, bench, bird feeder, fence, neighbour's house, pots and patio. New style for this version: fine engraved line art in ONE color, muted antique gold (close to #C8A66A), on a PURE BLACK background, like a scratchboard engraving: the gold lines and stipple dots show LIGHT, not shadow. Late night, still and frosty. Leave the whole sky pure black and empty: no moon, no stars, no clouds. Light comes from only three places: (1) one or two softly lit windows in the neighbour's house, glowing warm; (2) a soft patch of lamplight falling from our own window onto the frosted patio and the nearest plants at the bottom of the picture, fading as it reaches the lawn; (3) faint cold moonlight catching only the top edges: the frost along the fence top, the tips of the apple branches, the back of the bench. Everything else stays dark. No snow, no snowflakes, no gradients, no grey, no text.
+```
+
 ## 已定
 
 - 主墨是蓝，不是棕（2026-10-23 样稿比较）
