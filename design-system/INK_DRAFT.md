@@ -170,6 +170,14 @@ Edit this image: remove everything seen through the glass — no landscape, no t
 Now a separate image in the same style: ONLY the outdoor landscape that was seen through this window, as one continuous scene with no window, no frame, no blinds, no frost, no glass of water. Same viewpoint and same early-winter dawn: the frost-whitened meadow sloping away, the bare tree with hoarfrost, the low line of distant rooftops, one chimney with a thin thread of smoke, the field and fence in the foreground. Leave the whole sky pure empty white: no sun, no moon, no clouds, no birds. Tall portrait image, 2:3, landscape filling the lower two thirds.
 ```
 
+拆层结果（2026-10-27）：窗层白天 / 夜里都清干净了（`docs/design/ink/winter-layer-window-{day,night}.webp`，白天要 1024 全尺寸，第一次发来的 640 宽是压缩过的）。
+阿萌嫌原来的草坡「荒郊野岭」、自家窗外是厂房不想画，于是景换成「想住的地方」，出了三张：街角 / 后院 / 湖边（`winter-view-{street,garden,lake}.webp`）。
+合成样稿 `docs/design/ink-layers-winter.html`（https://claude.ai/artifact/UGVV7oUycQm9XWGXSR4wp1 ）：
+- 窗格用 SVG 遮罩（六个矩形，按 1024×1536 量），天和景只在格子里露；景、窗都去色映射灰靛后正片叠底
+- **景要比窗淡**（透明度约 0.55），不然窗外的树枝和玻璃上的霜一样黑，前后分不开
+- 天是代码画的点刻：清晨、傍晚点密、白天几乎空；日出日落前后在地平线撒黄铜点；太阳按冬天 7:10–17:10 走一道低弧，只画在每张景自己的地平线以上
+- 只做了白天；夜里的景还要另画
+
 ## 已定
 
 - 主墨是蓝，不是棕（2026-10-23 样稿比较）

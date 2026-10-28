@@ -1,0 +1,105 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>初冬拆层样稿</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Courier+Prime&display=swap">
+<style>
+/* 三层：天（代码按时间画点刻）→ 景（GPT，按地方换）→ 窗（GPT，按季节换）。天和景只从窗格里露出来；先只做白天 */
+:root{
+  --mount:#D8DBE2; --paper:#ECEEEB; --ink:#3E4C7A; --rule:rgba(62,76,122,.55);
+  --grain:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cfilter id='c' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9 .25' numOctaves='2' seed='5' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .3 0 0 0 0 .33 0 0 0 0 .36 0 0 0 .5 -.17'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23c)'/%3E%3C/svg%3E");
+  --type:'Courier Prime','Courier New',monospace;
+  /* 窗格位置按 1024×1536 的窗层量的，六格 */
+  --panes:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1536' preserveAspectRatio='none'%3E%3Cg fill='%23000'%3E%3Crect x='146' y='294' width='356' height='226'/%3E%3Crect x='520' y='294' width='362' height='226'/%3E%3Crect x='146' y='538' width='356' height='376'/%3E%3Crect x='520' y='538' width='362' height='376'/%3E%3Crect x='146' y='934' width='356' height='378'/%3E%3Crect x='520' y='934' width='362' height='378'/%3E%3C/g%3E%3C/svg%3E");
+  color-scheme:light;
+}
+/* 这一版只有白天的图，夜间模式下也照白天的纸显示 */
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){color-scheme:light}}
+:root[data-theme="dark"]{color-scheme:light}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--mount)}
+body{font-family:var(--type);color:var(--ink);padding:0 max(16px,env(safe-area-inset-right,0px)) 32px max(16px,env(safe-area-inset-left,0px))}
+.ctl{max-width:390px;margin:0 auto;padding:12px 0;display:flex;flex-direction:column;align-items:center;gap:10px}
+.seg{display:flex;border:0.5px solid var(--rule);border-radius:999px;padding:2px;background:var(--paper)}
+.seg button{font-family:var(--type);font-size:12px;letter-spacing:.14em;color:var(--ink);background:none;border:0;border-radius:999px;padding:7px 14px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.time{display:flex;align-items:center;gap:10px;width:100%;font-size:12px;letter-spacing:.14em}
+.time input{flex:1;accent-color:var(--ink)}
+.time output{min-width:9.5em;text-align:right}
+.sheet{max-width:390px;margin:0 auto;background-color:var(--paper);background-image:var(--grain);padding:28px 0 36px;display:flex;justify-content:center}
+.art{position:relative;width:82%;aspect-ratio:2/3;background-color:var(--paper);background-image:var(--grain)}
+.out{position:absolute;inset:0;background-color:var(--paper);background-image:var(--grain);-webkit-mask:var(--panes) 0 0/100% 100% no-repeat;mask:var(--panes) 0 0/100% 100% no-repeat}
+.out canvas,.out img,.win{position:absolute;inset:0;width:100%;height:100%}
+/* 景退远一点：比窗和霜淡，前后才分得开 */
+.out img{object-fit:cover;filter:url(#dayInk);mix-blend-mode:multiply;opacity:.55;transform-origin:50% 100%}
+.win{filter:url(#dayInk);mix-blend-mode:multiply}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <filter id="dayInk" color-interpolation-filters="sRGB">
+    <feColorMatrix type="saturate" values="0"/>
+    <feComponentTransfer><feFuncR type="linear" slope="1.3" intercept="-0.22"/><feFuncG type="linear" slope="1.3" intercept="-0.22"/><feFuncB type="linear" slope="1.3" intercept="-0.22"/></feComponentTransfer>
+    <feComponentTransfer><feFuncR type="table" tableValues="0.243 1"/><feFuncG type="table" tableValues="0.298 1"/><feFuncB type="table" tableValues="0.478 1"/></feComponentTransfer>
+  </filter>
+</svg>
+
+<div class="ctl">
+  <div class="seg" role="group" aria-label="窗外">
+    <button type="button" data-v="street" aria-pressed="true">A 街角</button>
+    <button type="button" data-v="garden" aria-pressed="false">B 后院</button>
+    <button type="button" data-v="lake" aria-pressed="false">C 湖边</button>
+  </div>
+  <label class="time">时间 <input type="range" id="t" min="360" max="1140" step="10" aria-label="时间"><output id="tOut"></output></label>
+</div>
+
+<main class="sheet">
+  <div class="art" id="art">
+    <div class="out">
+      <canvas id="sky" aria-hidden="true"></canvas>
+      <img id="view" alt="窗外的景" width="1024" height="1536">
+    </div>
+    <img class="win" src="ink/winter-layer-window-day.webp" alt="结霜的窗" width="1024" height="1536">
+  </div>
+</main>
+
+<script>
+/* 每张景自己的地平线（天只画在它上面）和缩放（把要看的部分挪进窗格） */
+const VIEWS={
+  street:{src:'ink/winter-view-street.webp',horizon:.44,scale:1},
+  garden:{src:'ink/winter-view-garden.webp',horizon:.42,scale:1},
+  lake:{src:'ink/winter-view-lake.webp',horizon:.29,scale:1}
+};
+const INK=[62,76,122],BRASS=[168,134,79];
+const art=document.getElementById('art'),sky=document.getElementById('sky'),view=document.getElementById('view'),range=document.getElementById('t'),out=document.getElementById('tOut');
+let cur='street';
+function rng(s){return()=>{s=(s*16807)%2147483647;return(s-1)/2147483646}}
+const clamp=(x,a,b)=>Math.min(b,Math.max(a,x));
+/* 天色：暗度 d（清晨、傍晚高，白天几乎空着），暖度 w（日出日落前后在地平线撒黄铜点） */
+function phase(h){
+  const d=h<8.5?clamp((8.5-h)/2.5,0,1)*.9+.08:h>15.5?clamp((h-15.5)/3.5,0,1)*.9+.08:.08;
+  const w=Math.exp(-((h-7.4)**2)/.7)+Math.exp(-((h-17.2)**2)/.7);
+  return{d,w};
+}
+function name(h){return h<8?'清晨':h<11?'上午':h<14?'中午':h<16.5?'下午':h<18.5?'傍晚':'入夜'}
+function draw(){
+  const m=parseInt(range.value,10),h=m/60;
+  out.value=`${String(Math.floor(h)).padStart(2,'0')}:${String(m%60).padStart(2,'0')} · ${name(h)}`;
+  const r=art.getBoundingClientRect(),dpr=devicePixelRatio||1,W=r.width,H=r.height;
+  sky.width=W*dpr;sky.height=H*dpr;const c=sky.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,W,H);
+  const hy=H*VIEWS[cur].horizon,{d,w}=phase(h),rand=rng(7);
+  const dot=(x,y,col,a)=>{c.fillStyle=`rgba(${col},${a})`;c.beginPath();c.arc(x,y,.5,0,7);c.fill()};
+  for(let i=0,n=W*hy*.05*d;i<n;i++){const y=hy*Math.pow(rand(),1.5);dot(rand()*W,y,INK,.25+rand()*.35)}
+  for(let i=0,n=W*hy*.04*w;i<n;i++){const y=hy-Math.pow(rand(),2.2)*hy*.55;dot(rand()*W,y,BRASS,.25+rand()*.45)}
+  /* 冬天的太阳：7:10 出、17:10 落，走得低 */
+  const e=Math.sin(Math.PI*(h-7.17)/10);
+  if(e>-.05){const x=W*(.18+.64*clamp((h-7.17)/10,0,1)),y=hy-e*hy*.62,R=W*.022;
+    c.save();c.beginPath();c.rect(0,0,W,hy);c.clip();c.strokeStyle=`rgb(${BRASS})`;c.lineWidth=1;c.beginPath();c.arc(x,y,R,0,7);c.stroke();c.restore()}
+}
+function setView(v){cur=v;view.src=VIEWS[v].src;view.style.transform=`scale(${VIEWS[v].scale})`;
+  document.querySelectorAll('.seg button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.v===v)));draw()}
+document.querySelectorAll('.seg button').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.v)));
+range.addEventListener('input',draw);addEventListener('resize',draw);
+const now=new Date(),nm=now.getHours()*60+now.getMinutes();range.value=nm>=360&&nm<=1140?nm-nm%10:450;
+setView('street');
+</script>
