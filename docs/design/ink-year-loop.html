@@ -4,7 +4,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Courier+Prime&display=swap">
 <!--
   一年在窗前：墨线窗锁屏的六季串成一段 10.8 秒的循环（EM，阿萌 2026-10-28 要的分享版）。
-  整圈是一天的延时：太阳从早走到晚，傍晚屋里的灯从窗台左边亮起、转成黑底金线，月亮从新月长到满月再缺回去走过夜空，天亮接回开头。
+  整圈是一天的延时：太阳从早走到晚，傍晚白天慢慢沉成黑底金线，月亮从新月长到满月再缺回去走过夜空，天亮接回开头。
   六季在这一天里跟着轮一圈（深冬天亮 → 春上午 → 初夏下午 → 盛夏傍晚 → 秋前半夜 → 初冬后半夜），换季是同一时辰的两张图交叉 0.5 秒。
   图层叠法照 components/os/InkWindowLock.tsx；天色照 utils/inkSky.ts + inkSkyPaint.ts 移植；取值来自 utils/inkTokens.ts。
   本地看：仓库根目录起 prototype 服务，开 /docs/design/ink-year-loop.html（图从 assets/ink/seasons 读）。
@@ -125,7 +125,6 @@ input[type=range]::-moz-range-thumb{width:7px;height:13px;background:var(--ink);
   };
   const easeOut = bezier(.22, .8, .2, 1);
   const pull = bezier(.55, 0, .25, 1);
-  const lamp = bezier(.3, .6, .3, 1);
 
   // ── 天（照 utils/inkSky.ts + inkSkyPaint.ts 移植） ──
   const STOPS = [
@@ -262,7 +261,7 @@ input[type=range]::-moz-range-thumb{width:7px;height:13px;background:var(--ink);
   const FADE = 0.5 / 1.8 / 2;         // 换季交叉 0.5 秒（以「一季」为单位的半宽）
   // 钟点（6 → 次日 6，写成 6–30）：前一半是白天 6–19，后一半是夜里 19–30
   const hourAt = (u) => (u < 0.5 ? 6 + 26 * u : 19 + 22 * (u - 0.5));
-  const H = { duskStart: 17.8, dayGone: 19.2, lampStart: 18.4, lampEnd: 19.6, dawnStart: 29, dawnEnd: 31 };
+  const H = { duskStart: 17.6, duskEnd: 19.8, dawnStart: 29, dawnEnd: 31 };
   // 月亮：19 点从左边地平线升起时是一弯新月，半夜最高时满月，6 点落下时又缺成一弯
   const moonPhaseAt = (h) => 0.03 + 0.94 * clamp((h - 19) / 11, 0, 1);
 
@@ -274,16 +273,13 @@ input[type=range]::-moz-range-thumb{width:7px;height:13px;background:var(--ink);
       return { L: [{ k, night: true, op: 1 }, { k, night: false, op: p }], n: 1 - p };
     }
     if (h < H.duskStart) return { L: [{ k, night: false, op: 1 }], n: 0 };
-    // 傍晚：白天沉下去（下面垫着夜纸），屋里的灯从窗台左边那件小东西亮开
-    const dayOp = 1 - pull(clamp((h - H.duskStart) / (H.dayGone - H.duskStart), 0, 1));
-    const lit = lamp(clamp((h - H.lampStart) / (H.lampEnd - H.lampStart), 0, 1));
-    const L = [];
-    if (dayOp > 0) L.push({ k, night: false, op: dayOp });
-    if (lit > 0) L.push({ k, night: true, op: 1, lamp: lit < 1 ? lit * 150 : null });
-    return { L, n: 1 - dayOp };
+    if (h >= H.duskEnd) return { L: [{ k, night: true, op: 1 }], n: 1 };
+    // 傍晚：跟天亮对称，白天慢慢沉进夜里那一张（不用圆形遮罩擦开，连着一天看会突兀）
+    const p = pull((h - H.duskStart) / (H.duskEnd - H.duskStart));
+    return { L: [{ k, night: true, op: 1 }, { k, night: false, op: 1 - p }], n: p };
   }
 
-  // 给定时刻 → 哪几叠露着、各自多透、灯照到哪、整页有多「夜」。
+  // 给定时刻 → 哪几叠露着、各自多透、整页有多「夜」。
   // 叠层下面垫的是夜纸，所以「日图 a 透明」合出来正好是页面在 n = 1 - a 时的纸色，画框边缘不露
   function frameAt(t) {
     t = ((t % TOTAL) + TOTAL) % TOTAL;
@@ -360,12 +356,6 @@ input[type=range]::-moz-range-thumb{width:7px;height:13px;background:var(--ink);
       s.visibility = 'visible';
       s.opacity = ly.op.toFixed(4);
       s.zIndex = String(z + 1);
-      if (ly.lamp != null) {
-        const g = `radial-gradient(circle at 24% 84%,#000 ${(ly.lamp - 18).toFixed(2)}%,transparent ${ly.lamp.toFixed(2)}%)`;
-        s.webkitMaskImage = g; s.maskImage = g;
-      } else if (s.maskImage || s.webkitMaskImage) {
-        s.webkitMaskImage = ''; s.maskImage = '';
-      }
     });
     for (const key of shown) if (!now.has(key)) { const s = stacks.get(key).el.style; s.visibility = 'hidden'; s.opacity = '0'; }
     shown = now;
