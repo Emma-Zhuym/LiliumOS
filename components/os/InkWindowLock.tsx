@@ -1,11 +1,12 @@
 /**
  * 墨线窗锁屏（EM 独有，外观 → 锁屏壁纸里的开关打开时才用，theme.lockStyle === 'inkWindow'）。
  *
- * 「四季的光」的初冬：一扇结霜的窗，窗外是后院。三层叠起来：
+ * 「四季的光」：同一个后院、同一扇窗过一年，按月份换六季（utils/inkSeasons.ts）。三层叠起来：
  *   天 = canvas 按设备时间画的淡彩（utils/inkSky.ts + inkSkyPaint.ts）
- *   景 = 后院线稿（白天灰靛 / 夜里黑底金线）
- *   窗 = 霜、百叶、窗台上的蜡烛（跟其他季节同一扇能推开的窗，关着）
- * 白天百叶从窗上拉起来；夜里屋里的光从窗台那支蜡烛那儿亮开。字用打字机敲出 LILIUM / 时间 / 日期（/ 未读）。
+ *   景 = 后院线稿（白天灰靛 / 夜里黑底金线），草地上一件当季的大东西
+ *   窗 = 百叶、窗台上一件当季的小东西；春 / 初夏 / 秋窗推开着，初冬结霜
+ * 景只从那扇窗的玻璃和推开的空当里露出来（每季一张玻璃遮罩）。
+ * 白天百叶从窗上拉起来；夜里屋里的光从窗台那儿亮开。字用打字机敲出 LILIUM / 时间 / 日期（/ 未读）。
  * 参考实现 docs/design/ink-splash-winter.html，取值全部来自 utils/inkTokens.ts。
  *
  * 钟跟设备时间（锁屏属于「用户自己的时间」，见 docs/character-timezone.md）。点一下就解锁，不用等动画。
@@ -14,23 +15,14 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { INK, INK_DAY_FILTER, INK_FONT, INK_GRAIN, INK_MOTION, INK_NIGHT, INK_PAPER } from '../../utils/inkTokens';
 import { hourOf, isInkNight } from '../../utils/inkSky';
 import { paintInkSky } from '../../utils/inkSkyPaint';
-import windowDay from '../../assets/ink/earlywinter-layer-window-day.webp';
-import windowNight from '../../assets/ink/earlywinter-layer-window-night.webp';
-import gardenDay from '../../assets/ink/winter-view-garden.webp';
-import gardenNight from '../../assets/ink/winter-view-garden-night.webp';
+import { inkSeasonOf } from '../../utils/inkSeasons';
 
-// 窗格位置按 1024×1536 的窗层量；天和景只从这六格里露出来。
-// 关着的窗（初冬 / 盛夏对齐后）都是这套：百叶底 300、横档 513–544 / 913–940、中梃 495–528
+// 六季的图（1024×1536）和玻璃遮罩：assets/ink/seasons/<季>-{garden,window}-{day,night}.webp、<季>-glass.png
+const SEASON_ART = import.meta.glob('../../assets/ink/seasons/*.{webp,png}', { eager: true, import: 'default' }) as Record<string, string>;
+const seasonArt = (name: string) => SEASON_ART[`../../assets/ink/seasons/${name}`];
+
 const ART_W = 1024, ART_H = 1536;
-const PANES: Array<[number, number, number, number]> = [
-  [151, 301, 344, 212], [529, 301, 344, 212],
-  [151, 545, 344, 368], [529, 545, 344, 368],
-  [151, 941, 344, 364], [529, 941, 344, 364],
-];
 const HORIZON = 0.42;
-const PANE_MASK = `url("data:image/svg+xml,${encodeURIComponent(
-  `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${ART_W} ${ART_H}' preserveAspectRatio='none'><g fill='#000'>${PANES.map(([x, y, w, h]) => `<rect x='${x}' y='${y}' width='${w}' height='${h}'/>`).join('')}</g></svg>`,
-)}")`;
 
 // 字跟百叶 / 灯同时起（0.3s），前三行（LILIUM / 时间 / 日期）在百叶收上去的那一刻（约 1.6s）打完，一个字 25–60ms；
 // 未读那行同样的速度接着往下敲，不为它把前面敲快
@@ -56,22 +48,23 @@ const CSS = `
   background-color:var(--paper);background-image:var(--grain)}
 .ink-lock-scene{position:absolute;inset:0;background-color:var(--paper);background-image:var(--grain)}
 .ink-lock-out{position:absolute;inset:0;background-color:var(--paper);background-image:var(--grain);
-  -webkit-mask:${PANE_MASK} 0 0/100% 100% no-repeat;mask:${PANE_MASK} 0 0/100% 100% no-repeat}
+  -webkit-mask-image:var(--glass);mask-image:var(--glass);-webkit-mask-size:100% 100%;mask-size:100% 100%;
+  -webkit-mask-repeat:no-repeat;mask-repeat:no-repeat}
 .ink-lock-out canvas,.ink-lock-out img,.ink-lock-win{position:absolute;inset:0;width:100%;height:100%;display:block}
 /* 白天去色映射成灰靛再正片叠底；景比窗淡（约 0.55），霜和窗外才分得出前后。夜里黑底金线直接滤色 */
-.ink-lock-out img{object-fit:cover;filter:url(#ink-lock-day-ink);mix-blend-mode:multiply;opacity:.55}
+.ink-lock-out img{object-fit:cover;filter:url(#ink-lock-day-ink);mix-blend-mode:multiply;opacity:.55;translate:0 var(--garden-dy)}
 .ink-lock-win{filter:url(#ink-lock-day-ink);mix-blend-mode:multiply}
 .is-night .ink-lock-out img,.is-night .ink-lock-win{filter:none;mix-blend-mode:screen}
 .is-night .ink-lock-out img{opacity:.85}
 /* 放下的百叶：只在白天，盖住窗格，拉起时从下往上收；纸色不透明才能把图挡住 */
-.ink-lock-blind{position:absolute;left:7.3%;width:85.3%;top:18.9%;height:66%;background-color:var(--paper);
+.ink-lock-blind{position:absolute;left:var(--blind-l);width:var(--blind-w);top:var(--blind-t);height:calc(var(--blind-b) - var(--blind-t));background-color:var(--paper);
   background-image:repeating-linear-gradient(to bottom,transparent 0 calc(var(--pitch) - 1px),var(--slat) calc(var(--pitch) - 1px) var(--pitch)),var(--grain);
   clip-path:inset(0 0 0% 0)}
 .ink-lock-blind::before,.ink-lock-blind::after{content:"";position:absolute;top:0;bottom:0;width:0.75px;background:var(--slat)}
 .ink-lock-blind::before{left:7%}.ink-lock-blind::after{right:7%}
-.ink-lock-rail{position:absolute;left:7.3%;width:85.3%;top:84.9%;height:0;border-top:1px solid var(--ink)}
+.ink-lock-rail{position:absolute;left:var(--blind-l);width:var(--blind-w);top:var(--blind-b);height:0;border-top:1px solid var(--ink)}
 .is-night .ink-lock-blind,.is-night .ink-lock-rail,.ink-lock.done .ink-lock-blind,.ink-lock.done .ink-lock-rail,.ink-lock.still .ink-lock-blind,.ink-lock.still .ink-lock-rail{display:none}
-/* 夜里屋里的光从窗台那支蜡烛那儿铺开：径向遮罩把整幅图慢慢揭开 */
+/* 夜里屋里的光从窗台左边那件小东西那儿铺开（六季都摆在那一带）：径向遮罩把整幅图慢慢揭开 */
 .is-night .ink-lock-scene{-webkit-mask-image:radial-gradient(circle at 24% 84%,#000 calc(var(--ink-lamp) - 18%),transparent var(--ink-lamp));
   mask-image:radial-gradient(circle at 24% 84%,#000 calc(var(--ink-lamp) - 18%),transparent var(--ink-lamp));--ink-lamp:0%}
 .is-night.play .ink-lock-scene{animation:ink-lock-lamp 1.8s ${INK_MOTION.lamp} .2s both}
@@ -95,7 +88,7 @@ const CSS = `
 .ink-lock-caret.off{visibility:hidden}
 @keyframes ink-lock-settle{from{opacity:0;translate:0 6px}to{opacity:1;translate:0 0}}
 @keyframes ink-lock-lift{from{clip-path:inset(0 0 0% 0)}to{clip-path:inset(0 0 100% 0)}}
-@keyframes ink-lock-rail{from{top:84.9%}to{top:18.9%;opacity:0}}
+@keyframes ink-lock-rail{from{top:var(--blind-b)}to{top:var(--blind-t);opacity:0}}
 @keyframes ink-lock-lamp{from{--ink-lamp:0%}to{--ink-lamp:150%}}
 `;
 
@@ -130,6 +123,8 @@ const InkWindowLock: React.FC<InkWindowLockProps> = ({ unreadCount, unreadName, 
   const now = useMinuteClock();
   const hour = hourOf(now);
   const night = isInkNight(hour);
+  const season = inkSeasonOf(now);
+  const tod = night ? 'night' : 'day';
   const [still] = useState(prefersReducedMotion);
   const [stage, setStage] = useState<'wait' | 'play' | 'done'>(still ? 'done' : 'wait');
   const [typed, setTyped] = useState(still ? Number.POSITIVE_INFINITY : 0);
@@ -236,7 +231,15 @@ const InkWindowLock: React.FC<InkWindowLockProps> = ({ unreadCount, unreadName, 
       aria-label={`锁屏 ${timeLabel}${unreadCount > 0 ? `，${unreadCount} 条新消息` : ''}，点一下解锁`}
       onClick={onUnlock}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onUnlock(); } }}
-      style={{ ['--pitch' as string]: `${((size?.h ?? 0) * 0.034).toFixed(2)}px` } as React.CSSProperties}
+      style={{
+        ['--pitch' as string]: `${((size?.h ?? 0) * 0.034).toFixed(2)}px`,
+        ['--glass' as string]: `url("${seasonArt(`${season.id}-glass.png`)}")`,
+        ['--garden-dy' as string]: `${season.gardenShift}%`,
+        ['--blind-l' as string]: `${season.blind.left}%`,
+        ['--blind-w' as string]: `${season.blind.width}%`,
+        ['--blind-t' as string]: `${season.blind.top}%`,
+        ['--blind-b' as string]: `${season.blind.bottom}%`,
+      } as React.CSSProperties}
     >
       <style>{CSS}</style>
       <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden="true">
@@ -260,9 +263,9 @@ const InkWindowLock: React.FC<InkWindowLockProps> = ({ unreadCount, unreadName, 
           <div className="ink-lock-out">
             <canvas ref={skyRef} />
             {/* 昼夜换图时换一个新元素：沿用旧元素的话，新图解码前旧图会先套上另一套滤镜闪一下 */}
-            <img key={night ? 'n' : 'd'} src={night ? gardenNight : gardenDay} alt="" width={ART_W} height={ART_H} onLoad={onImageLoad} draggable={false} />
+            <img key={`${season.id}-${tod}`} src={seasonArt(`${season.id}-garden-${tod}.webp`)} alt="" width={ART_W} height={ART_H} onLoad={onImageLoad} draggable={false} />
           </div>
-          <img key={night ? 'n' : 'd'} className="ink-lock-win" src={night ? windowNight : windowDay} alt="" width={ART_W} height={ART_H} onLoad={onImageLoad} draggable={false} />
+          <img key={`${season.id}-${tod}`} className="ink-lock-win" src={seasonArt(`${season.id}-window-${tod}.webp`)} alt="" width={ART_W} height={ART_H} onLoad={onImageLoad} draggable={false} />
         </div>
         <div className="ink-lock-blind" />
         <div className="ink-lock-rail" />

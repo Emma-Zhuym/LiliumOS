@@ -79,7 +79,7 @@ LiliumOS 和 SullyOS 早就各走各的了（git 认的合并基线停在 2026-0
 ### 吸收后必跑自检
 
 ```bash
-bash scripts/check-em-patches.sh   # 当前 357 项锚点检查，红了就是功能被冲掉
+bash scripts/check-em-patches.sh   # 当前 358 项锚点检查，红了就是功能被冲掉
 pnpm vitest run                    # 单元测试
 ```
 
@@ -462,12 +462,13 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 ### 42. 锁屏「墨线窗」（2026-10-27）
 - 锁屏的**可选样式**：`theme.lockStyle === 'inkWindow'`（`types.ts` 行尾 `[EM: ink-window-lock]`），外观 → 锁屏壁纸里一个开关；缺省 / `'wallpaper'` 一切照旧用 `theme.lockWallpaper`，**不能把原锁屏壁纸锁死**（阿萌明确要求）。字段在 theme 里，随完整备份和外观预设走
 - `components/PhoneShell.tsx` 的 `isLocked` 分支只多一段 `[EM-START: ink-window-lock]`：开着且不是 companion 锁屏框时渲染 `components/os/InkWindowLock.tsx`；companion 皮肤照旧 `CompanionLockChrome`
-- 三层：天（canvas，`utils/inkSkyPaint.ts` 画、`utils/inkSky.ts` 算：时段表插值、冬天太阳 7:10–17:10、月相按朔望月从 2000-01-06 18:14 UTC 算、19–6 点算夜）→ 景（后院）→ 窗（霜 + 百叶 + 窗台上的蜡烛）。2026-10-27 窗换成六季共用的那扇能推开的窗（关着），窗格坐标 `PANES` 跟着改了；旧的 v4 窗只留在 `docs/design/ink/winter-layer-window-*`。钟跟设备时间（锁屏是「用户自己的时间」）
+- 三层：天（canvas，`utils/inkSkyPaint.ts` 画、`utils/inkSky.ts` 算：时段表插值、冬天太阳 7:10–17:10、月相按朔望月从 2000-01-06 18:14 UTC 算、19–6 点算夜）→ 景（后院）→ 窗（百叶 + 窗台上一件当季的小东西）。钟跟设备时间（锁屏是「用户自己的时间」）
+- **六季（2026-10-28）**：按设备月份两个月换一季（`utils/inkSeasons.ts`：1–2 深冬、3–4 春、5–6 初夏、7–8 盛夏、9–10 秋、11–12 初冬）。每季一套 `assets/ink/seasons/<季>-{garden,window}-{day,night}.webp` + `<季>-glass.png`：院子草地上画着一件大东西（雪人 / 晾床单 / 野餐垫 / 遮阳伞躺椅 / 落叶堆和耙子 / 木柴和提灯，GPT 直接画进院子，单独一层试过像贴纸），春 / 初夏 / 秋的窗推开着，初冬结霜。景只从玻璃遮罩里露出来：遮罩由 `scripts/ink-glass-mask.py` 按窗图生成（关着且对齐初冬的窗用 `--panes` 六格，其余 `--cut` 自动找玻璃和推开的空当），换窗图要重跑。百叶范围、深冬院子上挪 90px（不挪雪人脸被横档挡）都在 `INK_SEASONS` 里按像素量
 - 图在 `assets/ink/`，由组件 import，构建进 `assets/` 带 hash，`em-sw-precache-list` 自动列进离线预缓存（放 `public/` 的话 SW 不按缓存优先拦，也不在清单里）。样稿原图在 `docs/design/ink/`
 - 墨线的取值只从 `utils/inkTokens.ts` 来（纸 / 墨 / 夜色 / 字 / 线 / 动效 / 天色时段表）；参考实现 `docs/design/ink-splash-winter.html`，定值过程 `design-system/INK_DRAFT.md`
 - 踩过的坑：带动画 / 遮罩的层自成一组，组里要铺纸，不然叠底露白、滤色露黑；打字机光标脚本挪一块 `<i>`，别用每字 CSS 动画（iPhone Safari 留方块）；景比窗淡（白天 0.55）；昼夜换图要换新 img 元素（`key`），不然新图解码前旧图套着另一套滤镜闪一下
 - **会自己锁回去**（2026-10-27）：OSContext 多了 `lock()`（`[EM: ink-window-lock]`）；`hooks/useInkAutoRelock.ts` 记切后台的时刻，回前台时按 `utils/inkAutoRelock.ts` 判断，开着墨线窗且离开 ≥ 15 分钟就锁上（阿萌定 15 分钟，不做成可调）。普通锁屏壁纸不受影响。桌面时钟双击锁屏：`components/os/InkClockLockTap.tsx` 包在 `Launcher.tsx` 的两处 `<DesktopClock />` 外面（固定时钟页 + 自由网格里的时钟小组件），也只在墨线窗开着时生效，编辑桌面时不管；要 `touch-action: manipulation`，不然 iPhone 把双击当放大
-- 本次没做：别的季节、换城市的窗外、跟天气走、开机动画
+- 本次没做：太阳出落还是冬天那套、换城市的窗外、跟天气走（雨痕样稿在 `docs/design/ink-splash-winter.html`）、开机动画
 
 ### 34. 小厨房（现实食品库存）
 - 详细设计与每次改动见 `docs/kitchen-3d.md`；UI 规则见 `APP_CONVENTIONS.md` 的 P14 与 `utils/kitchenPaperTokens.ts`
