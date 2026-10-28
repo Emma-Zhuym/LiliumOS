@@ -188,6 +188,9 @@ Now a separate image in the same style: ONLY the outdoor landscape that was seen
 Make a night version of this exact image, same composition: same apple tree, bench, bird feeder, fence, neighbour's house, pots and patio. New style for this version: fine engraved line art in ONE color, muted antique gold (close to #C8A66A), on a PURE BLACK background, like a scratchboard engraving: the gold lines and stipple dots show LIGHT, not shadow. Late night, still and frosty. Leave the whole sky pure black and empty: no moon, no stars, no clouds. Light comes from only three places: (1) one or two softly lit windows in the neighbour's house, glowing warm; (2) a soft patch of lamplight falling from our own window onto the frosted patio and the nearest plants at the bottom of the picture, fading as it reaches the lawn; (3) faint cold moonlight catching only the top edges: the frost along the fence top, the tips of the apple branches, the back of the bench. Everything else stays dark. No snow, no snowflakes, no gradients, no grey, no text.
 ```
 
+夜里结果（2026-10-27）：后院夜景（`winter-view-garden-night.webp`）光是对的——邻居家两扇暖窗、我们窗里漏出去的灯落在石板上、枝梢和长椅靠背一点月光；叠上夜里的窗层，屋里那盏灯真的照到了窗外。街角 / 湖边的夜景（`winter-view-{street,lake}-night.png`）是整片均匀发亮、颗粒糊的那种，像反色加阈值，地上没有光的来处，路灯也没亮；叠在霜后面一团亮，收进图纸库前要在各自的对话里照后院那段 prompt 重出。
+样稿时间拉到 0–24 点：19 点到 6 点换夜里那套（黑底金线滤色叠深靛纸）；夜空代码画：贴地平线一层深靛微光、70 颗零星金色星点、一弯月亮按 19 点到 6 点走一道弧
+
 ## 已定
 
 - 主墨是蓝，不是棕（2026-10-23 样稿比较）
