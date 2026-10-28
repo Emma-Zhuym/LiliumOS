@@ -3,8 +3,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Courier+Prime&display=swap">
 <!--
-  一年在窗前：墨线窗锁屏的六季串成一段约 10.8 秒的循环（EM，阿萌 2026-10-28 要的分享版）。
-  每季 1.8 秒：天亮 → 白天 → 傍晚屋里的灯从窗台左边亮起、转成黑底金线 → 夜里 → 在暗里换成下一季。
+  一年在窗前：墨线窗锁屏的六季串成一段 10.8 秒的循环（EM，阿萌 2026-10-28 要的分享版）。
+  整圈是一天的延时：太阳从早走到晚，傍晚屋里的灯从窗台左边亮起、转成黑底金线，月亮从新月长到满月再缺回去走过夜空，天亮接回开头。
+  六季在这一天里跟着轮一圈（深冬天亮 → 春上午 → 初夏下午 → 盛夏傍晚 → 秋前半夜 → 初冬后半夜），换季是同一时辰的两张图交叉 0.5 秒。
   图层叠法照 components/os/InkWindowLock.tsx；天色照 utils/inkSky.ts + inkSkyPaint.ts 移植；取值来自 utils/inkTokens.ts。
   本地看：仓库根目录起 prototype 服务，开 /docs/design/ink-year-loop.html（图从 assets/ink/seasons 读）。
 -->
@@ -85,7 +86,7 @@ input[type=range]::-moz-range-thumb{width:7px;height:13px;background:var(--ink);
 </svg>
 
 <main class="stage">
-  <div class="art" id="art" role="img" aria-label="同一扇窗、同一个后院过一年：六季轮换，每季从白天到夜里">
+  <div class="art" id="art" role="img" aria-label="同一扇窗、同一个后院过一年：一天里太阳和月亮各走一遍，六季跟着轮一圈">
     <div class="loading" id="loading">0 / 30</div>
   </div>
   <div class="month" id="month" aria-live="off"></div>
@@ -224,7 +225,7 @@ input[type=range]::-moz-range-thumb{width:7px;height:13px;background:var(--ink);
       c.beginPath(); c.arc(x, y, 0.4 + rand() * 0.5, 0, Math.PI * 2); c.fill();
     }
     const arc = moonArcAt(hour);
-    const mx = W * arc.x, my = hy - arc.lift * hy, R = W * 0.024;
+    const mx = W * arc.x, my = hy - arc.lift * hy, R = W * 0.032; // 比锁屏（0.024）大一点，月相才看得出在变
     const k = Math.cos(2 * Math.PI * phase);
     const litRight = phase < 0.5, term = Math.abs(k), bulge = k <= 0;
     const dpr = c.getTransform().a || 1;
@@ -246,58 +247,63 @@ input[type=range]::-moz-range-thumb{width:7px;height:13px;background:var(--ink);
     c.restore();
   }
 
-  // ── 六季（utils/inkSeasons.ts 的顺序）；每夜的月亮比上一夜往前走一点 ──
+  // ── 一天的延时：太阳走一遍、月亮走一遍；六季在这一天里轮一圈，月亮一边走一边从新月长满再缺回去 ──
+  // 每季居中的时刻：深冬在天亮、春在上午、初夏在下午、盛夏在傍晚、秋在前半夜、初冬在后半夜
   const SEASONS = [
-    { id: 'deepwinter', label: 'JAN \u00B7 FEB', phase: 0.10 },
-    { id: 'spring', label: 'MAR \u00B7 APR', phase: 0.22 },
-    { id: 'earlysummer', label: 'MAY \u00B7 JUN', phase: 0.34 },
-    { id: 'midsummer', label: 'JUL \u00B7 AUG', phase: 0.48 },
-    { id: 'autumn', label: 'SEP \u00B7 OCT', phase: 0.62 },
-    { id: 'earlywinter', label: 'NOV \u00B7 DEC', phase: 0.76 },
+    { id: 'deepwinter', label: 'JAN \u00B7 FEB' },
+    { id: 'spring', label: 'MAR \u00B7 APR' },
+    { id: 'earlysummer', label: 'MAY \u00B7 JUN' },
+    { id: 'midsummer', label: 'JUL \u00B7 AUG' },
+    { id: 'autumn', label: 'SEP \u00B7 OCT' },
+    { id: 'earlywinter', label: 'NOV \u00B7 DEC' },
   ];
-  const NIGHT_HOUR = 21.5;
   const BASE = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) ? '../../assets/ink/seasons/' : 'ink/';
-  const SEG = 1.8, TOTAL = SEG * SEASONS.length; // 10.8 秒一圈
+  const TOTAL = 10.8;                 // 一圈的秒数
+  const FADE = 0.5 / 1.8 / 2;         // 换季交叉 0.5 秒（以「一季」为单位的半宽）
+  // 钟点（6 → 次日 6，写成 6–30）：前一半是白天 6–19，后一半是夜里 19–30
+  const hourAt = (u) => (u < 0.5 ? 6 + 26 * u : 19 + 22 * (u - 0.5));
+  const H = { duskStart: 17.8, dayGone: 19.2, lampStart: 18.4, lampEnd: 19.6, dawnStart: 29, dawnEnd: 31 };
+  // 月亮：19 点从左边地平线升起时是一弯新月，半夜最高时满月，6 点落下时又缺成一弯
+  const moonPhaseAt = (h) => 0.03 + 0.94 * clamp((h - 19) / 11, 0, 1);
 
-  // 一季里的时刻（秒）：天亮 → 白天 → 傍晚（白天沉下去、灯亮起来）→ 夜里 → 灯收回窗台，在暗里换下一季
-  const T = { dawnEnd: 0.32, duskStart: 0.78, dayGone: 1.06, lampStart: 0.88, lampEnd: 1.30, lampOff: 1.52, label: 0.26 };
-  // 白天那一叠的天跟着走：清晨粉紫 → 白天 → 傍晚橙
-  function dayHour(s) {
-    if (s < T.dawnEnd) return 6.5 + (8.0 - 6.5) * (s / T.dawnEnd);
-    if (s < T.duskStart) return 8.0 + (15.8 - 8.0) * ((s - T.dawnEnd) / (T.duskStart - T.dawnEnd));
-    return 15.8 + (18.4 - 15.8) * clamp((s - T.duskStart) / (T.dayGone - T.duskStart), 0, 1);
+  // 这一刻某一季的昼夜叠层（从下往上）+ 夜的程度
+  function todLayers(k, h) {
+    if (h < H.dawnEnd - 24) h += 24; // 6–7 点是天亮的后半段，接着前一圈 29–30 点算，循环接缝不跳
+    if (h >= H.dawnStart) {
+      const p = easeOut(clamp((h - H.dawnStart) / (H.dawnEnd - H.dawnStart), 0, 1));
+      return { L: [{ k, night: true, op: 1 }, { k, night: false, op: p }], n: 1 - p };
+    }
+    if (h < H.duskStart) return { L: [{ k, night: false, op: 1 }], n: 0 };
+    // 傍晚：白天沉下去（下面垫着夜纸），屋里的灯从窗台左边那件小东西亮开
+    const dayOp = 1 - pull(clamp((h - H.duskStart) / (H.dayGone - H.duskStart), 0, 1));
+    const lit = lamp(clamp((h - H.lampStart) / (H.lampEnd - H.lampStart), 0, 1));
+    const L = [];
+    if (dayOp > 0) L.push({ k, night: false, op: dayOp });
+    if (lit > 0) L.push({ k, night: true, op: 1, lamp: lit < 1 ? lit * 150 : null });
+    return { L, n: 1 - dayOp };
   }
 
   // 给定时刻 → 哪几叠露着、各自多透、灯照到哪、整页有多「夜」。
   // 叠层下面垫的是夜纸，所以「日图 a 透明」合出来正好是页面在 n = 1 - a 时的纸色，画框边缘不露
   function frameAt(t) {
     t = ((t % TOTAL) + TOTAL) % TOTAL;
-    const k = Math.min(SEASONS.length - 1, Math.floor(t / SEG)), s = t - k * SEG;
-    const L = []; // 从下往上
-    let n;
-    if (s < T.dawnEnd) {
-      const p = easeOut(s / T.dawnEnd);
-      L.push({ k, night: false, op: p });
-      n = 1 - p;
-    } else if (s < T.duskStart) {
-      L.push({ k, night: false, op: 1 });
-      n = 0;
-    } else if (s < T.lampOff) {
-      const dayOp = 1 - pull(clamp((s - T.duskStart) / (T.dayGone - T.duskStart), 0, 1));
-      const lit = lamp(clamp((s - T.lampStart) / (T.lampEnd - T.lampStart), 0, 1));
-      if (dayOp > 0) L.push({ k, night: false, op: dayOp });
-      if (lit > 0) L.push({ k, night: true, op: 1, lamp: lit < 1 ? lit * 150 : null });
-      n = 1 - dayOp;
+    const u = t / TOTAL, h = hourAt(u);
+    const q = u * SEASONS.length, frac = q - Math.floor(q);
+    const from = Math.floor(q) % SEASONS.length, to = (from + 1) % SEASONS.length;
+    const d = frac - 0.5;
+    let base, label, labelOp = 1;
+    if (Math.abs(d) < FADE) {
+      // 换季：下一季的同一个时辰叠上来（换季都落在纯白天或纯夜里，不跟黄昏、清晨撞）
+      const w = pull((d + FADE) / (2 * FADE));
+      const a = todLayers(from, h), b = todLayers(to, h);
+      base = { L: [...a.L, ...b.L.map((ly) => ({ ...ly, op: ly.op * w }))], n: a.n };
+      label = d < 0 ? from : to;
+      labelOp = easeOut(Math.abs(d) / FADE);
     } else {
-      // 夜深了，屋里的光收回窗台那件小东西上，熄掉
-      const left = 1 - pull((s - T.lampOff) / (SEG - T.lampOff));
-      if (left > 0) L.push({ k, night: true, op: 1, lamp: left * 150 });
-      n = 1;
+      label = d < 0 ? from : to;
+      base = todLayers(label, h);
     }
-    let labelOp = 1;
-    if (s < T.label) labelOp = easeOut(s / T.label);
-    else if (s > SEG - T.label) labelOp = 1 - easeOut((s - (SEG - T.label)) / T.label);
-    return { t, k, s, layers: L, n, label: k, labelOp };
+    return { t, h, layers: base.L, n: base.n, label, labelOp };
   }
 
   // ── 搭叠层 ──
@@ -329,17 +335,13 @@ input[type=range]::-moz-range-thumb{width:7px;height:13px;background:var(--ink);
       st.painted = null;
     }
   }
-  function paint(st, hour) {
+  // 天跟着钟点走：白天那一叠画太阳和天色，夜里那一叠画星星和正在走、正在变的月亮
+  function paint(st, h) {
     if (!size) return;
-    if (st.night) {
-      if (st.painted !== null) return;
-      paintNight(st.ctx, size.w, size.h, NIGHT_HOUR, SEASONS[st.k].phase);
-      st.painted = NIGHT_HOUR;
-    } else {
-      if (st.painted !== null && Math.abs(st.painted - hour) < 0.03) return;
-      paintDay(st.ctx, size.w, size.h, hour);
-      st.painted = hour;
-    }
+    if (st.painted !== null && Math.abs(st.painted - h) < 0.015) return;
+    if (st.night) paintNight(st.ctx, size.w, size.h, h % 24, moonPhaseAt(h));
+    else paintDay(st.ctx, size.w, size.h, h % 24);
+    st.painted = h;
   }
 
   // ── 每帧把状态落到页面上 ──
@@ -353,7 +355,7 @@ input[type=range]::-moz-range-thumb{width:7px;height:13px;background:var(--ink);
     f.layers.forEach((ly, z) => {
       const key = `${ly.k}-${ly.night}`, st = stacks.get(key);
       now.add(key);
-      paint(st, dayHour(f.s));
+      paint(st, f.h);
       const s = st.el.style;
       s.visibility = 'visible';
       s.opacity = ly.op.toFixed(4);
@@ -383,7 +385,7 @@ input[type=range]::-moz-range-thumb{width:7px;height:13px;background:var(--ink);
   const playBtn = document.getElementById('play');
   const bar = document.getElementById('bar');
   const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-  let playing = false, tNow = reduce ? 0.5 : 0, last = 0, raf = 0;
+  let playing = false, tNow = reduce ? 0.2 * TOTAL : 0, last = 0, raf = 0;
   function loop(ts) {
     if (playing) { if (last) tNow += (ts - last) / 1000; last = ts; }
     render(tNow);
@@ -428,7 +430,7 @@ input[type=range]::-moz-range-thumb{width:7px;height:13px;background:var(--ink);
     loading.remove();
     measure();
     // 先把每一叠画一遍，第一次露出来时不用临时画天
-    for (const st of stacks.values()) paint(st, 8);
+    for (const st of stacks.values()) paint(st, st.night ? 23 : 12);
     new ResizeObserver(() => { measure(); render(tNow); }).observe(art);
     render(tNow);
     setPlaying(!reduce);
