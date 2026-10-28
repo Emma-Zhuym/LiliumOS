@@ -61,23 +61,19 @@ button:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
 .play .rail{animation:rail 1.3s cubic-bezier(.55,0,.25,1) .3s both}
 :root[data-theme="dark"] .scene{-webkit-mask-image:radial-gradient(circle at 24% 84%,#000 calc(var(--r) - 18%),transparent var(--r));mask-image:radial-gradient(circle at 24% 84%,#000 calc(var(--r) - 18%),transparent var(--r));--r:150%}
 :root[data-theme="dark"] .play .scene{animation:lamp 1.8s cubic-bezier(.3,.6,.3,1) .2s both}
+/* 打字机：脚本一格一格把字点亮，光标是唯一的一块，挂在刚敲完的那个字后面跟着走，最后闪两下收掉。
+   不用 CSS 动画收尾——iPhone 的 Safari 会把每个字后面的光标停在亮的那一帧，敲完留下一排方块 */
 .tx span{display:inline-block;white-space:pre;position:relative;opacity:0}
-.play .tx span{animation:typeIn .01s steps(1) forwards;animation-delay:calc(1.15s + var(--i) * 65ms)}
-.done .tx span{opacity:1}
-/* 光标：每个字后面挂一个，只在「刚敲完、下一个还没来」那一下亮，最后一个字后面闪两下再收。
-   只能 forwards 不能 both——both 会让还没轮到的光标提前亮成一排方块 */
-.tx span::after{content:"";position:absolute;left:100%;top:.05em;width:.55em;height:1em;background:var(--ink);opacity:0}
-.play .tx span::after{animation:cur 65ms steps(1) forwards;animation-delay:calc(1.15s + var(--i) * 65ms)}
-.play .date span:last-child::after{animation:caret 1.3s steps(1) forwards;animation-delay:calc(1.15s + var(--i) * 65ms)}
+.tx span.on{opacity:1}
+/* 光标用 <i>，不是 span，免得被上面「字先藏起来」那条一起藏掉 */
+.caret{position:absolute;left:100%;top:.05em;width:.55em;height:1em;background:var(--ink)}
+.caret.off{visibility:hidden}
 @keyframes settle{from{opacity:0;translate:0 6px}to{opacity:1;translate:0 0}}
 @keyframes lift{from{clip-path:inset(0 0 0% 0)}to{clip-path:inset(0 0 100% 0)}}
 @keyframes rail{from{top:84.9%}to{top:18.9%;opacity:0}}
 @keyframes lamp{from{--r:0%}to{--r:150%}}
-@keyframes typeIn{from{opacity:0}to{opacity:1}}
-@keyframes cur{0%{opacity:1}100%{opacity:0}}
-@keyframes caret{0%,30%,60%{opacity:1}15%,45%,75%,100%{opacity:0}}
 .done .blind,.done .rail{display:none}
-@media (prefers-reduced-motion: reduce){.play *,.play *::after{animation:none!important}.blind,.rail{display:none}.tx span{opacity:1}}
+@media (prefers-reduced-motion: reduce){.play *{animation:none!important}.blind,.rail{display:none}}
 </style>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -163,8 +159,14 @@ function render(){const night=root.dataset.theme==='dark',set=night?IMG.night:IM
   sky.width=W*dpr;sky.height=H*dpr;c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,W,H);
   (night?drawNight:drawDay)(c,W,H,H*HORIZON,skyHour(),rng(7));
   screen.style.setProperty('--pitch',(H*0.034).toFixed(2)+'px')}
-let t;
-function play(){clearTimeout(t);screen.classList.remove('play','done');void screen.offsetWidth;screen.classList.add('play');t=setTimeout(()=>screen.classList.add('done'),3400)}
+let timers=[];const caret=document.createElement('i');caret.className='caret';caret.setAttribute('aria-hidden','true');
+const later=(fn,ms)=>timers.push(setTimeout(fn,ms));
+/* 1.15s 起每 65ms 敲一个字；敲完光标闪两下（亮 / 灭各 200ms）再收 */
+function typeOut(){const spans=[...screen.querySelectorAll('.tx span')];spans.forEach(sp=>sp.classList.remove('on'));caret.remove();caret.classList.remove('off');
+  if(matchMedia('(prefers-reduced-motion: reduce)').matches){spans.forEach(sp=>sp.classList.add('on'));return}
+  spans.forEach((sp,i)=>later(()=>{sp.classList.add('on');sp.appendChild(caret)},1150+i*65));
+  const end=1150+spans.length*65;[0,200,400,600].forEach((d,k)=>later(()=>caret.classList.toggle('off',k%2===0),end+d));later(()=>caret.remove(),end+800)}
+function play(){timers.forEach(clearTimeout);timers=[];screen.classList.remove('play','done');void screen.offsetWidth;screen.classList.add('play');typeOut();later(()=>screen.classList.add('done'),3400)}
 function sync(){document.querySelectorAll('[data-t]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.t===root.dataset.theme)))}
 /* 三行拆成一个字一个 span，序号接着数：LILIUM → 时间 → 日期依次敲出来 */
 function split(){let i=0;['.lab','#clock','#date'].forEach(sel=>{const el=document.querySelector(sel);const txt=el.textContent;el.textContent='';
