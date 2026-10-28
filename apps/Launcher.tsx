@@ -22,6 +22,7 @@ import { useLocalDateKey } from '../hooks/useLocalDateKey';
 import { resolveCharTimeZone } from '../utils/timezone';
 import { DESKTOP_COLUMNS, DESKTOP_ROWS, DESKTOP_WIDGET_IDS, defaultDesktopLayout, desktopItemSize, desktopPageCount, moveDesktopItem, normalizeDesktopLayout, swapDockApp, swapHomeDesktopItem, type DesktopLayout } from '../utils/launcherDesktopLayout';
 import { useContactRemark } from '../utils/contactRemarks'; // [EM: desktop-contact-remark]
+import InkClockLockTap from '../components/os/InkClockLockTap'; // [EM: ink-window-lock]
 import { F, R, S, SP } from '../utils/clayTokens';
 
 const CompanionHome = React.lazy(() => import('../components/os/CompanionHome'));
@@ -1246,7 +1247,7 @@ const Launcher: React.FC = () => {
                     acnh={acnh} paper={paper} /></div> : idx === 1 ? <div className="w-full flex-none flex flex-col my-auto" style={{ '--launcher-cell': 'calc((100cqw - 30px) / 4)', height: FREE_PAGE_HEIGHT } as React.CSSProperties}>
                     <div className="w-full flex-none flex items-center"
                       style={{ height: FREE_TWO_CELL_HEIGHT, transform: 'translateY(calc(-0.28 * var(--launcher-cell)))' }}>
-                      <DesktopClock />
+                      <InkClockLockTap disabled={layoutEditing}><DesktopClock /></InkClockLockTap>{/* [EM: ink-window-lock] */}
                     </div>
                     <CharacterWidget char={widgetChar} unreadCount={widgetUnread} lastMessage={lastMessage}
                       onClick={() => { if (!layoutEditing) openApp(AppID.Chat); }} contentColor={contentColor} paper={paper} fixedRow />
@@ -1272,7 +1273,7 @@ const Launcher: React.FC = () => {
                         style={{ gridColumn: `${position.col + 1} / span ${size.cols}`, gridRow: `${position.row + 1} / span ${size.rows}` }}>
                         {item?.kind === 'app' ? <AppIcon app={item.app} onClick={() => { if (!layoutEditing) openApp(item.app.id); }} size="md" />
                           : item?.kind === 'folder' ? <LauncherFolderIcon folder={item.folder} onOpen={() => { if (!layoutEditing) setOpenFolderId(item.folder.id); }} />
-                          : id === DESKTOP_WIDGET_IDS.clock ? <DesktopClock />
+                          : id === DESKTOP_WIDGET_IDS.clock ? <InkClockLockTap disabled={layoutEditing}><DesktopClock /></InkClockLockTap> // [EM: ink-window-lock]
                           : id === DESKTOP_WIDGET_IDS.character ? <CharacterWidget char={widgetChar} unreadCount={widgetUnread} lastMessage={lastMessage}
                               onClick={() => { if (!layoutEditing) openApp(AppID.Chat); }} contentColor={contentColor} paper={paper} />
                           : id === DESKTOP_WIDGET_IDS.schedule ? scheduleChar && <div className="w-full px-[5px]" style={{ height: `calc(${FREE_TWO_CELL_HEIGHT} - ${SP[1]}px)`, marginTop: SP[1] }}><ScheduleHomeWidget schedule={scheduleData} character={scheduleChar} contentColor={contentColor}

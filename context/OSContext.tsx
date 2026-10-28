@@ -113,6 +113,7 @@ import { ShoppingDB } from '../utils/shoppingDb'; // [EM: shopping-family]
 import { giftOrderFromLife } from '../utils/shoppingFamily'; // [EM: shopping-family]
 import { pruneCloudBackups } from '../utils/autoCloudBackup'; // [EM: auto-cloud-backup]
 import { useAutoCloudBackup } from '../hooks/useAutoCloudBackup'; // [EM: auto-cloud-backup]
+import { useInkAutoRelock } from '../hooks/useInkAutoRelock'; // [EM: ink-window-lock]
 
 interface ProactiveQueueEntry {
   charId: string;
@@ -332,6 +333,7 @@ interface OSContextType {
   updateApiConfig: (updates: Partial<APIConfig>) => void;
   isLocked: boolean;
   unlock: () => void;
+  lock: () => void; // [EM: ink-window-lock]
   isDataLoaded: boolean;
   
   characters: CharacterProfile[];
@@ -5559,6 +5561,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   };
   const consumeDateAutoStart = () => setDateAutoStartCharId(null);
   const unlock = () => setIsLocked(false);
+  const lock = () => setIsLocked(true); // [EM: ink-window-lock]
 
   const suspendCall = (info: { charId: string; charName: string; charAvatar?: string; startedAt: number; bubbles?: any[]; sessionId?: string; elapsedSeconds?: number; voiceLang?: string; pendingAvatarTouches?: AvatarTouchRecord[] }) => {
     setSuspendedCall(info);
@@ -5602,6 +5605,10 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   });
   // [EM-END: auto-cloud-backup]
 
+  // [EM-START: ink-window-lock] 墨线窗锁屏：切后台超过 15 分钟，回来时再锁上
+  useInkAutoRelock({ enabled: theme.lockStyle === 'inkWindow', isLocked, lock });
+  // [EM-END: ink-window-lock]
+
   const value: OSContextType = {
     activeApp,
     openApp,
@@ -5613,6 +5620,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     updateApiConfig,
     isLocked,
     unlock,
+    lock, // [EM: ink-window-lock]
     isDataLoaded,
     characters,
     activeCharacterId,

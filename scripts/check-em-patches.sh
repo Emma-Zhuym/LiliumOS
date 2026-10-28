@@ -465,6 +465,10 @@ check "锁屏样式字段" types.ts "lockStyle?: 'wallpaper' | 'inkWindow'; // [
 check "PhoneShell 引入墨线窗" components/PhoneShell.tsx "import InkWindowLock from './os/InkWindowLock'; // [EM: ink-window-lock]"
 check "PhoneShell 锁屏分支" components/PhoneShell.tsx "if (theme.lockStyle === 'inkWindow' && !companionLockFrame) {"
 check "外观页墨线窗开关" apps/Appearance.tsx "updateTheme({ lockStyle: inkOn ? 'wallpaper' : 'inkWindow' })"
+check "墨线窗自动锁回去" utils/inkAutoRelock.ts "export const INK_RELOCK_AFTER_MS = 15 * 60 * 1000;"
+check "OSContext 锁上动作" context/OSContext.tsx "const lock = () => setIsLocked(true); // [EM: ink-window-lock]"
+check "OSContext 挂自动锁" context/OSContext.tsx "useInkAutoRelock({ enabled: theme.lockStyle === 'inkWindow', isLocked, lock });"
+check "桌面时钟双击锁屏" apps/Launcher.tsx "<InkClockLockTap disabled={layoutEditing}><DesktopClock /></InkClockLockTap>"
 
 echo ""
 if [ $FAIL -gt 0 ]; then

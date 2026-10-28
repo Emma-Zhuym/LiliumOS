@@ -79,7 +79,7 @@ LiliumOS 和 SullyOS 早就各走各的了（git 认的合并基线停在 2026-0
 ### 吸收后必跑自检
 
 ```bash
-bash scripts/check-em-patches.sh   # 当前 353 项锚点检查，红了就是功能被冲掉
+bash scripts/check-em-patches.sh   # 当前 357 项锚点检查，红了就是功能被冲掉
 pnpm vitest run                    # 单元测试
 ```
 
@@ -466,6 +466,7 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - 图在 `assets/ink/`，由组件 import，构建进 `assets/` 带 hash，`em-sw-precache-list` 自动列进离线预缓存（放 `public/` 的话 SW 不按缓存优先拦，也不在清单里）。样稿原图在 `docs/design/ink/`
 - 墨线的取值只从 `utils/inkTokens.ts` 来（纸 / 墨 / 夜色 / 字 / 线 / 动效 / 天色时段表）；参考实现 `docs/design/ink-splash-winter.html`，定值过程 `design-system/INK_DRAFT.md`
 - 踩过的坑：带动画 / 遮罩的层自成一组，组里要铺纸，不然叠底露白、滤色露黑；打字机光标脚本挪一块 `<i>`，别用每字 CSS 动画（iPhone Safari 留方块）；景比窗淡（白天 0.55）；昼夜换图要换新 img 元素（`key`），不然新图解码前旧图套着另一套滤镜闪一下
+- **会自己锁回去**（2026-10-27）：OSContext 多了 `lock()`（`[EM: ink-window-lock]`）；`hooks/useInkAutoRelock.ts` 记切后台的时刻，回前台时按 `utils/inkAutoRelock.ts` 判断，开着墨线窗且离开 ≥ 15 分钟就锁上（阿萌定 15 分钟，不做成可调）。普通锁屏壁纸不受影响。桌面时钟双击锁屏：`components/os/InkClockLockTap.tsx` 包在 `Launcher.tsx` 的两处 `<DesktopClock />` 外面（固定时钟页 + 自由网格里的时钟小组件），也只在墨线窗开着时生效，编辑桌面时不管；要 `touch-action: manipulation`，不然 iPhone 把双击当放大
 - 本次没做：别的季节、换城市的窗外、跟天气走、开机动画
 
 ### 34. 小厨房（现实食品库存）
