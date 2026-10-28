@@ -147,14 +147,14 @@ function draw(){
       for(let k=0;k<20;k++){const a=k/20*Math.PI*2,r1=R*1.35,r2=R*(k%2?1.75:2.15);c.lineWidth=.6;c.beginPath();c.moveTo(sx+Math.cos(a)*r1,sy+Math.sin(a)*r1);c.lineTo(sx+Math.cos(a)*r2,sy+Math.sin(a)*r2);c.stroke()}}
   }
   if(mode==='wash'){
-    /* 手工上色的老版画：一层很淡的水彩罩在天上。天色按时段走：天亮前蓝紫 → 日出粉紫、桃色 → 白天灰蓝 → 下午金 → 日落橙 → 余晖玫瑰 → 入夜蓝调。
+    /* 手工上色的老版画：一层很淡的水彩罩在天上。天色按时段走：天亮前蓝紫 → 日出粉紫、桃色 → 白天灰蓝（地平线一点淡黄）→ 下午金 → 日落橙 → 余晖玫瑰 → 入夜蓝调。
        饱和度都压在中等、明度偏低（阿萌家里那种颜色）；横着一笔笔刷，深浅不匀才像水彩 */
     const S=[
       [6.0,[70,80,130],.38,[120,110,160],.30],
       [6.8,[110,105,155],.32,[190,140,165],.42],
       [7.5,[150,150,190],.22,[205,160,150],.30],
-      [9.0,[150,163,190],.18,[175,180,195],.12],
-      [14.5,[150,163,190],.18,[175,180,195],.12],
+      [9.0,[150,163,190],.20,[220,200,150],.22],[12.0,[158,168,190],.18,[226,208,160],.24],
+      [14.5,[155,165,190],.20,[222,198,145],.24],
       [16.0,[150,160,185],.20,[210,160,105],.34],
       [17.1,[120,120,165],.30,[215,130,85],.48],
       [17.8,[80,90,145],.38,[185,120,130],.38],
@@ -167,6 +167,9 @@ function draw(){
     for(let y=0;y<end;y+=2){const t=Math.min(1,y/hy),fade=y<hy?1:1-(y-hy)/(end-hy),u=Math.pow(t,1.4);
       const col=mix(top,hor,u).map(Math.round),a=(aT+(aH-aT)*u)*fade;
       for(let x=0;x<W;){const len=30+rand()*120;c.fillStyle=`rgba(${col},${(a*(.8+rand()*.4)).toFixed(3)})`;c.fillRect(x,y,len+1,2.2);x+=len}}
+    /* 太阳升高以后天会显得惨白，所以白天给太阳周围刷一圈淡黄暖光，离太阳越远越淡 */
+    if(e>.12){const Rh=W*.38;for(let y=Math.max(0,sy-Rh);y<Math.min(hy+H*.08,sy+Rh);y+=2){const dy=y-sy,hw=Math.sqrt(Rh*Rh-dy*dy);
+      for(let x=sx-hw;x<sx+hw;){const len=20+rand()*60,d=Math.hypot(x+len/2-sx,dy)/Rh;if(d<1){c.fillStyle=`rgba(232,208,142,${(Math.min(1,(e-.12)*2.5)*.45*(1-d)*(1-d)*(.8+rand()*.4)).toFixed(3)})`;c.fillRect(x,y,len+1,2.2)}x+=len}}}
     /* 太阳贴近地平线时偏橙，升高了是淡黄铜 */
     if(sun){const low=clamp(1-e*2.2,0,1),sc=mix([214,184,122],[222,140,88],low).map(Math.round);
       c.fillStyle=`rgba(${sc},.62)`;c.beginPath();c.arc(sx,sy,R,0,7);c.fill();c.strokeStyle=`rgb(${BRASS})`;c.lineWidth=.8;c.stroke()}

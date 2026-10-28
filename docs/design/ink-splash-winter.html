@@ -125,9 +125,9 @@ const clamp=(x,a,b)=>Math.min(b,Math.max(a,x)),mix=(a,b,t)=>a.map((v,n)=>v+(b[n]
 function brush(c,W,H,hy,rand,colorAt){const end=hy+H*.16;
   for(let y=0;y<end;y+=2){const t=Math.min(1,y/hy),fade=y<hy?1:1-(y-hy)/(end-hy),[col,a]=colorAt(t);
     for(let x=0;x<W;){const len=30+rand()*120;c.fillStyle=`rgba(${col.map(Math.round)},${(a*fade*(.8+rand()*.4)).toFixed(3)})`;c.fillRect(x,y,len+1,2.2);x+=len}}}
-/* 白天的天色按时段走：天亮前蓝紫 → 日出粉紫、桃色 → 白天灰蓝 → 下午金 → 日落橙 → 余晖玫瑰 → 入夜蓝调（同拆层样稿的 S 表） */
+/* 白天的天色按时段走：天亮前蓝紫 → 日出粉紫、桃色 → 白天灰蓝（地平线一点淡黄）→ 下午金 → 日落橙 → 余晖玫瑰 → 入夜蓝调（同拆层样稿的 S 表） */
 const S=[[6.0,[70,80,130],.38,[120,110,160],.30],[6.8,[110,105,155],.32,[190,140,165],.42],[7.5,[150,150,190],.22,[205,160,150],.30],
-  [9.0,[150,163,190],.18,[175,180,195],.12],[14.5,[150,163,190],.18,[175,180,195],.12],[16.0,[150,160,185],.20,[210,160,105],.34],
+  [9.0,[150,163,190],.20,[220,200,150],.22],[12.0,[158,168,190],.18,[226,208,160],.24],[14.5,[155,165,190],.20,[222,198,145],.24],[16.0,[150,160,185],.20,[210,160,105],.34],
   [17.1,[120,120,165],.30,[215,130,85],.48],[17.8,[80,90,145],.38,[185,120,130],.38],[19.0,[55,65,115],.45,[85,95,150],.38]];
 function drawDay(c,W,H,hy,hh,rand){
   let k=0;while(k<S.length-2&&hh>S[k+1][0])k++;
@@ -136,6 +136,9 @@ function drawDay(c,W,H,hy,hh,rand){
   /* 冬天的太阳：7:10 出、17:10 落，走得低；贴近地平线偏橙，升高了是淡黄铜 */
   const e=Math.sin(Math.PI*(hh-7.17)/10);if(e<=-.05)return;
   const sx=W*(.18+.64*clamp((hh-7.17)/10,0,1)),sy=hy-e*hy*.45,R=W*.022,sc=mix([214,184,122],[222,140,88],clamp(1-e*2.2,0,1)).map(Math.round);
+  /* 太阳升高以后天会显得惨白，所以白天给太阳周围刷一圈淡黄暖光，离太阳越远越淡 */
+  if(e>.12){const Rh=W*.38;for(let y=Math.max(0,sy-Rh);y<Math.min(hy+H*.08,sy+Rh);y+=2){const dy=y-sy,hw=Math.sqrt(Rh*Rh-dy*dy);
+    for(let x=sx-hw;x<sx+hw;){const len=20+rand()*60,d=Math.hypot(x+len/2-sx,dy)/Rh;if(d<1){c.fillStyle=`rgba(232,208,142,${(Math.min(1,(e-.12)*2.5)*.45*(1-d)*(1-d)*(.8+rand()*.4)).toFixed(3)})`;c.fillRect(x,y,len+1,2.2)}x+=len}}}
   c.save();c.beginPath();c.rect(0,0,W,hy);c.clip();c.fillStyle=`rgba(${sc},.62)`;c.beginPath();c.arc(sx,sy,R,0,7);c.fill();c.strokeStyle=`rgb(${BRASS})`;c.lineWidth=.8;c.stroke();c.restore();
 }
 /* 夜空：深靛纸上贴地平线一层微光、零星金色星点；月亮 19 点到 6 点走一道弧，月相照真实日子（朔望月 29.53 天） */
