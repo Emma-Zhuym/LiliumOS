@@ -4,7 +4,7 @@
 <title>初冬开屏样稿</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Courier+Prime&family=Noto+Serif+SC:wght@600&display=swap">
 <style>
-/* 开屏：白天百叶从窗上拉起来、太阳升一点；夜里屋里的灯从杯子那儿亮开。两张图本身不动，动的都是盖在上面的代码层 */
+/* 开屏：后院的分层窗（天＝代码按真实时间画的淡彩 / 景＝后院 / 窗＝初冬的霜）。白天百叶从窗上拉起来；夜里屋里的灯从杯子那儿亮开，月亮照真实月相。字用打字机敲出时间 */
 @property --r{syntax:'<percentage>';inherits:false;initial-value:0%}
 :root{
   --mount:#D8DBE2; --paper:#ECEEEB; --ink:#3E4C7A; --text:#23273A; --brass:#A8864F; --slat:rgba(62,76,122,.55);
@@ -32,55 +32,52 @@ button:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
 .screen{position:relative;width:min(100%,390px,calc((100vh - 80px)*390/844));aspect-ratio:390/844;margin:0 auto;background-color:var(--paper);background-image:var(--grain);overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center}
 /* 图层在自己的纸上叠：.art 有淡入动画会自成一组，叠底只能跟组里的底色混，所以组里也铺一层纸 */
 .art{position:relative;width:78%;aspect-ratio:2/3;background-color:var(--paper);background-image:var(--grain)}
-.art img{position:absolute;inset:0;width:100%;height:100%}
-.day,.night{display:none}
-:root:not([data-theme="dark"]) .day{display:block}
-:root[data-theme="dark"] .night{display:block}
-.art .day img{filter:url(#dayInk);mix-blend-mode:multiply}
-.art .night img{mix-blend-mode:screen}
-.sun{position:absolute;left:66.5%;top:47.8%;width:4.2%;aspect-ratio:1;border:1px solid var(--brass);border-radius:50%;translate:-50% -50%}
+/* 夜里 .scene 带亮灯的遮罩、自成一组，滤色只能跟组里的底色混，所以这里也铺纸，不然黑底会露出来 */
+.scene{position:absolute;inset:0;background-color:var(--paper);background-image:var(--grain)}
+/* 天和景只从六个窗格里露出来，窗格位置按 1024×1536 的窗层量 */
+.out{position:absolute;inset:0;background-color:var(--paper);background-image:var(--grain);
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1536' preserveAspectRatio='none'%3E%3Cg fill='%23000'%3E%3Crect x='146' y='294' width='356' height='226'/%3E%3Crect x='520' y='294' width='362' height='226'/%3E%3Crect x='146' y='538' width='356' height='376'/%3E%3Crect x='520' y='538' width='362' height='376'/%3E%3Crect x='146' y='934' width='356' height='378'/%3E%3Crect x='520' y='934' width='362' height='378'/%3E%3C/g%3E%3C/svg%3E") 0 0/100% 100% no-repeat;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1536' preserveAspectRatio='none'%3E%3Cg fill='%23000'%3E%3Crect x='146' y='294' width='356' height='226'/%3E%3Crect x='520' y='294' width='362' height='226'/%3E%3Crect x='146' y='538' width='356' height='376'/%3E%3Crect x='520' y='538' width='362' height='376'/%3E%3Crect x='146' y='934' width='356' height='378'/%3E%3Crect x='520' y='934' width='362' height='378'/%3E%3C/g%3E%3C/svg%3E") 0 0/100% 100% no-repeat}
+.out canvas,.out img,.win{position:absolute;inset:0;width:100%;height:100%}
+/* 白天去色映射成灰靛正片叠底，景比窗淡才分得出前后；夜里黑底金线直接滤色 */
+.out img{object-fit:cover;filter:url(#dayInk);mix-blend-mode:multiply;opacity:.55}
+.win{filter:url(#dayInk);mix-blend-mode:multiply}
+:root[data-theme="dark"] .out img,:root[data-theme="dark"] .win{filter:none;mix-blend-mode:screen}
+:root[data-theme="dark"] .out img{opacity:.85}
 /* 放下的百叶：只在白天，盖住窗格，拉起时从下往上收；纸色不透明才能把图挡住 */
 .blind{position:absolute;left:7.3%;width:85.3%;top:18.9%;height:66%;background-color:var(--paper);background-image:repeating-linear-gradient(to bottom,transparent 0 calc(var(--pitch) - 1px),var(--slat) calc(var(--pitch) - 1px) var(--pitch)),var(--grain);clip-path:inset(0 0 0% 0)}
 .blind::before,.blind::after{content:"";position:absolute;top:0;bottom:0;width:0.75px;background:var(--slat)}
 .blind::before{left:7%} .blind::after{right:7%}
 .rail{position:absolute;left:7.3%;width:85.3%;top:84.9%;height:0;border-top:1px solid var(--ink)}
+:root[data-theme="dark"] .blind,:root[data-theme="dark"] .rail{display:none}
 .lab{font-family:var(--type);font-size:12px;letter-spacing:.32em;color:var(--ink);margin-top:26px;padding-left:.32em}
 /* 开屏要能一眼看到时间：时间放大成主角，系统名和日期是上下两行小字 */
 .clock{font-family:var(--type);font-size:34px;line-height:1;letter-spacing:.06em;color:var(--text);margin-top:12px;padding-left:.06em}
 .date{font-family:var(--type);font-size:12px;letter-spacing:.2em;color:var(--ink);opacity:.75;margin-top:12px;padding-left:.2em}
 
-/* 时间线：白天 0.3s 起拉百叶 1.3s（先慢后快再慢，像手拉绳子），太阳 0.9s 起升 1s；夜里灯光 0.2s 起铺开 1.8s；字 1.4s 起落定 */
+/* 时间线：白天 0.3s 起拉百叶 1.3s（先慢后快再慢，像手拉绳子）；夜里灯光 0.2s 起铺开 1.8s；字 1.15s 起一格格敲 */
 .play .art{animation:settle .7s var(--ease-out) both}
 .play .blind{animation:lift 1.3s cubic-bezier(.55,0,.25,1) .3s both}
 .play .rail{animation:rail 1.3s cubic-bezier(.55,0,.25,1) .3s both}
-.play .sun{animation:rise 1s var(--ease-out) .9s both}
-.play .night img{animation:lamp 1.8s cubic-bezier(.3,.6,.3,1) .2s both}
-.tx span{display:inline-block;white-space:pre;position:relative}
-/* 字的三种出场，都在窗动完之后（约 1.2s 起）：
-   填墨＝一个字一个字从很淡被墨洇满、往下落一点点；打字＝打字机一格一格敲出来，光标跟着字走；汇合＝几行一左一右滑进来对齐（跟墨线标题的交错同一招） */
-.w-ink.play .tx span{animation:inkIn .55s var(--ease-out) both;animation-delay:calc(1.2s + var(--i) * 55ms)}
-.w-type.play .tx span{animation:typeIn .01s steps(1) both;animation-delay:calc(1.15s + var(--i) * 65ms)}
+:root[data-theme="dark"] .scene{-webkit-mask-image:radial-gradient(circle at 24% 84%,#000 calc(var(--r) - 18%),transparent var(--r));mask-image:radial-gradient(circle at 24% 84%,#000 calc(var(--r) - 18%),transparent var(--r));--r:150%}
+:root[data-theme="dark"] .play .scene{animation:lamp 1.8s cubic-bezier(.3,.6,.3,1) .2s both}
+.tx span{display:inline-block;white-space:pre;position:relative;opacity:0}
+.play .tx span{animation:typeIn .01s steps(1) forwards;animation-delay:calc(1.15s + var(--i) * 65ms)}
+.done .tx span{opacity:1}
 /* 光标：每个字后面挂一个，只在「刚敲完、下一个还没来」那一下亮，最后一个字后面闪两下再收。
    只能 forwards 不能 both——both 会让还没轮到的光标提前亮成一排方块 */
-.w-type .tx span::after{content:"";position:absolute;left:100%;top:.05em;width:.55em;height:1em;background:var(--ink);opacity:0}
-.w-type.play .tx span::after{animation:cur 65ms steps(1) forwards;animation-delay:calc(1.15s + var(--i) * 65ms)}
-.w-type.play .date span:last-child::after{animation:caret 1.3s steps(1) forwards;animation-delay:calc(1.15s + var(--i) * 65ms)}
-.w-meet.play .lab,.w-meet.play .date{animation:meetR 1.1s var(--ease-out) 1.05s both}
-.w-meet.play .clock{animation:meetL 1.1s var(--ease-out) 1.05s both}
+.tx span::after{content:"";position:absolute;left:100%;top:.05em;width:.55em;height:1em;background:var(--ink);opacity:0}
+.play .tx span::after{animation:cur 65ms steps(1) forwards;animation-delay:calc(1.15s + var(--i) * 65ms)}
+.play .date span:last-child::after{animation:caret 1.3s steps(1) forwards;animation-delay:calc(1.15s + var(--i) * 65ms)}
 @keyframes settle{from{opacity:0;translate:0 6px}to{opacity:1;translate:0 0}}
 @keyframes lift{from{clip-path:inset(0 0 0% 0)}to{clip-path:inset(0 0 100% 0)}}
 @keyframes rail{from{top:84.9%}to{top:18.9%;opacity:0}}
-@keyframes rise{from{opacity:0;translate:-50% 30%}to{opacity:1;translate:-50% -50%}}
 @keyframes lamp{from{--r:0%}to{--r:150%}}
-.night img{-webkit-mask-image:radial-gradient(circle at 24% 84%,#000 calc(var(--r) - 18%),transparent var(--r));mask-image:radial-gradient(circle at 24% 84%,#000 calc(var(--r) - 18%),transparent var(--r));--r:150%}
-@keyframes inkIn{from{opacity:.08;translate:0 -3px}to{opacity:1;translate:0 0}}
 @keyframes typeIn{from{opacity:0}to{opacity:1}}
 @keyframes cur{0%{opacity:1}100%{opacity:0}}
 @keyframes caret{0%,30%,60%{opacity:1}15%,45%,75%,100%{opacity:0}}
-@keyframes meetR{from{opacity:0;translate:46px 0}to{opacity:1;translate:0 0}}
-@keyframes meetL{from{opacity:0;translate:-46px 0}to{opacity:1;translate:0 0}}
 .done .blind,.done .rail{display:none}
-@media (prefers-reduced-motion: reduce){.play *{animation:none!important}.blind,.rail{display:none}}
+@media (prefers-reduced-motion: reduce){.play *,.play *::after{animation:none!important}.blind,.rail{display:none}.tx span{opacity:1}}
 </style>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -96,25 +93,20 @@ button:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
     <button type="button" data-t="light" aria-pressed="true">白天</button>
     <button type="button" data-t="dark" aria-pressed="false">夜里</button>
   </div>
-  <div class="seg" role="group" aria-label="字的出场">
-    <button type="button" data-w="ink" aria-pressed="false">填墨</button>
-    <button type="button" data-w="type" aria-pressed="true">打字</button>
-    <button type="button" data-w="meet" aria-pressed="false">汇合</button>
-  </div>
   <button type="button" class="again" id="again">再放一次</button>
 </div>
 
-<div class="screen w-type" id="screen" role="img" aria-label="开屏：初冬结霜的窗">
+<div class="screen" id="screen" role="img" aria-label="开屏：初冬结霜的窗，窗外是后院">
   <div class="art">
-    <div class="day">
-      <img src="ink/winter-window-v4.webp" alt="" width="1024" height="1536">
-      <span class="sun"></span>
-      <div class="blind"></div>
-      <div class="rail"></div>
+    <div class="scene">
+      <div class="out">
+        <canvas id="sky" aria-hidden="true"></canvas>
+        <img id="view" alt="" width="1024" height="1536">
+      </div>
+      <img class="win" id="win" alt="" width="1024" height="1536">
     </div>
-    <div class="night">
-      <img src="ink/winter-window-v4-night.webp" alt="" width="1024" height="1536">
-    </div>
+    <div class="blind"></div>
+    <div class="rail"></div>
   </div>
   <div class="lab tx">LILIUM</div>
   <div class="clock tx" id="clock"></div>
@@ -122,25 +114,64 @@ button:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
 </div>
 
 <script>
-const root=document.documentElement,screen=document.getElementById('screen');
-const now=new Date(),h=now.getHours();
-if(h<6||h>=18)root.dataset.theme='dark';else root.dataset.theme='light';
+const root=document.documentElement,screen=document.getElementById('screen'),art=screen.querySelector('.art');
+const sky=document.getElementById('sky'),view=document.getElementById('view'),win=document.getElementById('win');
+const now=new Date(),h=now.getHours(),nowH=h+now.getMinutes()/60,isNight=x=>x<6||x>=19;
+const IMG={day:{view:'ink/winter-view-garden.webp',win:'ink/winter-layer-window-day.webp'},night:{view:'ink/winter-view-garden-night.webp',win:'ink/winter-layer-window-night.webp'}};
+const HORIZON=.42,BRASS=[168,134,79];
+root.dataset.theme=isNight(nowH)?'dark':'light';
 const wk=['SUN','MON','TUE','WED','THU','FRI','SAT'][now.getDay()];
 document.getElementById('clock').textContent=`${String(h).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
 document.getElementById('date').textContent=`${String(now.getMonth()+1).padStart(2,'0')} · ${String(now.getDate()).padStart(2,'0')}  ${wk}`;
-function pitch(){const art=screen.querySelector('.art');screen.style.setProperty('--pitch',(art.getBoundingClientRect().height*0.034).toFixed(2)+'px')}
-let t;
-function play(){clearTimeout(t);screen.classList.remove('play','done');void screen.offsetWidth;screen.classList.add('play');t=setTimeout(()=>screen.classList.add('done'),3200)}
-function sync(){document.querySelectorAll('[data-t]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.t===root.dataset.theme)))}
-/* 把两行拆成一个字一个 span，序号接着数：第二行的字排在第一行后面出场 */
-function split(){let i=0;['.lab','#clock','#date'].forEach(sel=>{const el=document.querySelector(sel);const txt=el.dataset.txt??(el.dataset.txt=el.textContent);el.textContent='';
-  for(const ch of txt){const sp=document.createElement('span');sp.textContent=ch;sp.style.setProperty('--i',i++);el.appendChild(sp)}});
+function rng(s){return()=>{s=(s*16807)%2147483647;return(s-1)/2147483646}}
+const clamp=(x,a,b)=>Math.min(b,Math.max(a,x)),mix=(a,b,t)=>a.map((v,n)=>v+(b[n]-v)*t);
+/* 横着一笔笔刷的水彩：每行若干段，浓淡随机一点；过了地平线再往下淡出一段，不切一刀 */
+function brush(c,W,H,hy,rand,colorAt){const end=hy+H*.16;
+  for(let y=0;y<end;y+=2){const t=Math.min(1,y/hy),fade=y<hy?1:1-(y-hy)/(end-hy),[col,a]=colorAt(t);
+    for(let x=0;x<W;){const len=30+rand()*120;c.fillStyle=`rgba(${col.map(Math.round)},${(a*fade*(.8+rand()*.4)).toFixed(3)})`;c.fillRect(x,y,len+1,2.2);x+=len}}}
+/* 白天的天色按时段走：天亮前蓝紫 → 日出粉紫、桃色 → 白天灰蓝 → 下午金 → 日落橙 → 余晖玫瑰 → 入夜蓝调（同拆层样稿的 S 表） */
+const S=[[6.0,[70,80,130],.38,[120,110,160],.30],[6.8,[110,105,155],.32,[190,140,165],.42],[7.5,[150,150,190],.22,[205,160,150],.30],
+  [9.0,[150,163,190],.18,[175,180,195],.12],[14.5,[150,163,190],.18,[175,180,195],.12],[16.0,[150,160,185],.20,[210,160,105],.34],
+  [17.1,[120,120,165],.30,[215,130,85],.48],[17.8,[80,90,145],.38,[185,120,130],.38],[19.0,[55,65,115],.45,[85,95,150],.38]];
+function drawDay(c,W,H,hy,hh,rand){
+  let k=0;while(k<S.length-2&&hh>S[k+1][0])k++;
+  const A=S[k],B=S[k+1],f=clamp((hh-A[0])/(B[0]-A[0]),0,1),top=mix(A[1],B[1],f),hor=mix(A[3],B[3],f),aT=A[2]+(B[2]-A[2])*f,aH=A[4]+(B[4]-A[4])*f;
+  brush(c,W,H,hy,rand,t=>{const u=Math.pow(t,1.4);return[mix(top,hor,u),aT+(aH-aT)*u]});
+  /* 冬天的太阳：7:10 出、17:10 落，走得低；贴近地平线偏橙，升高了是淡黄铜 */
+  const e=Math.sin(Math.PI*(hh-7.17)/10);if(e<=-.05)return;
+  const sx=W*(.18+.64*clamp((hh-7.17)/10,0,1)),sy=hy-e*hy*.45,R=W*.022,sc=mix([214,184,122],[222,140,88],clamp(1-e*2.2,0,1)).map(Math.round);
+  c.save();c.beginPath();c.rect(0,0,W,hy);c.clip();c.fillStyle=`rgba(${sc},.62)`;c.beginPath();c.arc(sx,sy,R,0,7);c.fill();c.strokeStyle=`rgb(${BRASS})`;c.lineWidth=.8;c.stroke();c.restore();
 }
-document.querySelectorAll('[data-w]').forEach(b=>b.addEventListener('click',()=>{screen.classList.remove('w-ink','w-type','w-meet');screen.classList.add('w-'+b.dataset.w);
-  document.querySelectorAll('[data-w]').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));play()}));
-document.querySelectorAll('[data-t]').forEach(b=>b.addEventListener('click',()=>{root.dataset.theme=b.dataset.t;sync();play()}));
+/* 夜空：深靛纸上贴地平线一层微光、零星金色星点；月亮 19 点到 6 点走一道弧，月相照真实日子（朔望月 29.53 天） */
+function drawNight(c,W,H,hy,hh,rand){
+  brush(c,W,H,hy,rand,t=>[[52,62,100],.04+.3*t*t]);
+  c.save();c.beginPath();c.rect(0,0,W,hy);c.clip();
+  for(let i=0;i<70;i++){const x=rand()*W,y=Math.pow(rand(),1.3)*hy*.92;c.fillStyle=`rgba(200,166,106,${(.25+rand()*.55).toFixed(2)})`;c.beginPath();c.arc(x,y,.4+rand()*.5,0,7);c.fill()}
+  const f=(hh>=19?hh-19:hh+5)/11,mx=W*(.2+.6*f),my=hy-Math.sin(Math.PI*f)*hy*.5,R=W*.024;
+  const p=(((Date.now()-Date.UTC(2000,0,6,18,14))/864e5/29.530588853)%1+1)%1,k=Math.cos(2*Math.PI*p),right=p<.5;
+  const m=document.createElement('canvas'),Z=Math.ceil(R*2+4),mc=m.getContext('2d'),o=Z/2;m.width=m.height=Z;
+  mc.fillStyle='rgb(206,174,112)';mc.beginPath();mc.arc(o,o,R,right?-Math.PI/2:Math.PI/2,right?Math.PI/2:Math.PI*1.5);mc.fill();
+  mc.globalCompositeOperation=k>0?'destination-out':'source-over';mc.beginPath();mc.ellipse(o,o,Math.abs(k)*R,R,0,0,7);mc.fill();
+  c.strokeStyle='rgba(200,166,106,.22)';c.lineWidth=.6;c.beginPath();c.arc(mx,my,R,0,7);c.stroke();
+  c.globalAlpha=.92;c.drawImage(m,mx-o,my-o);c.globalAlpha=1;c.restore();
+}
+/* 样稿里切白天 / 夜里时，现在若不是那个时段，就借一个好看的时刻：白天借 7:40（粉紫的清晨），夜里借 22:00 */
+function skyHour(){const night=root.dataset.theme==='dark';return night===isNight(nowH)?nowH:(night?22:7.67)}
+function render(){const night=root.dataset.theme==='dark',set=night?IMG.night:IMG.day;
+  if(view.getAttribute('src')!==set.view)view.setAttribute('src',set.view);if(win.getAttribute('src')!==set.win)win.setAttribute('src',set.win);
+  const r=art.getBoundingClientRect(),dpr=devicePixelRatio||1,W=r.width,H=r.height,c=sky.getContext('2d');
+  sky.width=W*dpr;sky.height=H*dpr;c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,W,H);
+  (night?drawNight:drawDay)(c,W,H,H*HORIZON,skyHour(),rng(7));
+  screen.style.setProperty('--pitch',(H*0.034).toFixed(2)+'px')}
+let t;
+function play(){clearTimeout(t);screen.classList.remove('play','done');void screen.offsetWidth;screen.classList.add('play');t=setTimeout(()=>screen.classList.add('done'),3400)}
+function sync(){document.querySelectorAll('[data-t]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.t===root.dataset.theme)))}
+/* 三行拆成一个字一个 span，序号接着数：LILIUM → 时间 → 日期依次敲出来 */
+function split(){let i=0;['.lab','#clock','#date'].forEach(sel=>{const el=document.querySelector(sel);const txt=el.textContent;el.textContent='';
+  for(const ch of txt){const sp=document.createElement('span');sp.textContent=ch;sp.style.setProperty('--i',i++);el.appendChild(sp)}})}
+function ready(){return Promise.all([view,win].map(i=>i.complete&&i.naturalWidth?1:new Promise(r=>{i.onload=i.onerror=r})))}
+document.querySelectorAll('[data-t]').forEach(b=>b.addEventListener('click',()=>{root.dataset.theme=b.dataset.t;sync();render();ready().then(play)}));
 document.getElementById('again').addEventListener('click',play);
-addEventListener('resize',pitch);
-sync();split();pitch();
-Promise.all([...document.images].map(i=>i.complete?1:new Promise(r=>i.onload=i.onerror=r))).then(()=>{pitch();play()});
+addEventListener('resize',render);
+sync();split();render();ready().then(play);
 </script>
