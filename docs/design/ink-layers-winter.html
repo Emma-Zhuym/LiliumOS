@@ -119,15 +119,29 @@ function draw(){
       for(let k=0;k<20;k++){const a=k/20*Math.PI*2,r1=R*1.35,r2=R*(k%2?1.75:2.15);c.lineWidth=.6;c.beginPath();c.moveTo(sx+Math.cos(a)*r1,sy+Math.sin(a)*r1);c.lineTo(sx+Math.cos(a)*r2,sy+Math.sin(a)*r2);c.stroke()}}
   }
   if(mode==='wash'){
-    /* 手工上色的老版画：一层很淡的水彩罩在天上，颜色取阿萌家里那几样沉下去的颜色；横着一笔笔刷，深浅不匀才像水彩 */
-    const blue=[150,163,190],caramel=[196,150,104],dusk=[96,106,140];
-    /* 水彩不在地平线上切一刀：往下再刷一段、越来越淡，屋顶和树梢被轻轻染到 */
+    /* 手工上色的老版画：一层很淡的水彩罩在天上。天色按时段走：天亮前蓝紫 → 日出粉紫、桃色 → 白天灰蓝 → 下午金 → 日落橙 → 余晖玫瑰 → 入夜蓝调。
+       饱和度都压在中等、明度偏低（阿萌家里那种颜色）；横着一笔笔刷，深浅不匀才像水彩 */
+    const S=[
+      [6.0,[70,80,130],.38,[120,110,160],.30],
+      [6.8,[110,105,155],.32,[190,140,165],.42],
+      [7.5,[150,150,190],.22,[205,160,150],.30],
+      [9.0,[150,163,190],.18,[175,180,195],.12],
+      [14.5,[150,163,190],.18,[175,180,195],.12],
+      [16.0,[150,160,185],.20,[210,160,105],.34],
+      [17.1,[120,120,165],.30,[215,130,85],.48],
+      [17.8,[80,90,145],.38,[185,120,130],.38],
+      [19.0,[55,65,115],.45,[85,95,150],.38]];
+    let k=0;while(k<S.length-2&&h>S[k+1][0])k++;
+    const A=S[k],B=S[k+1],f=clamp((h-A[0])/(B[0]-A[0]),0,1),mix=(a,b,t)=>a.map((v,n)=>v+(b[n]-v)*t);
+    const top=mix(A[1],B[1],f),hor=mix(A[3],B[3],f),aT=A[2]+(B[2]-A[2])*f,aH=A[4]+(B[4]-A[4])*f;
+    /* 不在地平线上切一刀：往下再刷一段、越来越淡，屋顶和树梢被轻轻染到 */
     const end=hy+H*.16;
-    for(let y=0;y<end;y+=2){const t=Math.min(1,y/hy),fade=y<hy?1:1-(y-hy)/(end-hy);const warm=w*Math.pow(t,1.6);const dk=d*(1-t)*.8;
-      const col=blue.map((v,k)=>Math.round(v*(1-warm-dk*.5)+caramel[k]*warm+dusk[k]*dk*.5));
-      const a=(.16+warm*.22+dk*.18)*fade;
+    for(let y=0;y<end;y+=2){const t=Math.min(1,y/hy),fade=y<hy?1:1-(y-hy)/(end-hy),u=Math.pow(t,1.4);
+      const col=mix(top,hor,u).map(Math.round),a=(aT+(aH-aT)*u)*fade;
       for(let x=0;x<W;){const len=30+rand()*120;c.fillStyle=`rgba(${col},${(a*(.8+rand()*.4)).toFixed(3)})`;c.fillRect(x,y,len+1,2.2);x+=len}}
-    if(sun){c.fillStyle='rgba(214,180,118,.55)';c.beginPath();c.arc(sx,sy,R,0,7);c.fill();c.strokeStyle=`rgb(${BRASS})`;c.lineWidth=.8;c.stroke()}
+    /* 太阳贴近地平线时偏橙，升高了是淡黄铜 */
+    if(sun){const low=clamp(1-e*2.2,0,1),sc=mix([214,184,122],[222,140,88],low).map(Math.round);
+      c.fillStyle=`rgba(${sc},.62)`;c.beginPath();c.arc(sx,sy,R,0,7);c.fill();c.strokeStyle=`rgb(${BRASS})`;c.lineWidth=.8;c.stroke()}
   }
   c.restore();
 }
