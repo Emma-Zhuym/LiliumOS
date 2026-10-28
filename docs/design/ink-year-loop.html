@@ -5,7 +5,7 @@
 <!--
   一年在窗前：墨线窗锁屏的六季串成一段 10.8 秒的循环（EM，阿萌 2026-10-28 要的分享版）。
   整圈是一天的延时：太阳从早走到晚，傍晚白天慢慢沉成黑底金线，月亮从新月长到满月再缺回去走过夜空，天亮接回开头。
-  六季在这一天里跟着轮一圈（深冬天亮 → 春上午 → 初夏下午 → 盛夏傍晚 → 秋前半夜 → 初冬后半夜），换季是同一时辰的两张图交叉 0.5 秒。
+  六季一样长、跟着这一天轮一圈：深冬 / 春 / 初夏是白天，盛夏 / 秋 / 初冬是夜里；天黑、天亮那一下顺便换季（交叉 0.9 秒），其余换季是同一时辰两张图交叉 0.5 秒。
   图层叠法照 components/os/InkWindowLock.tsx；天色照 utils/inkSky.ts + inkSkyPaint.ts 移植；取值来自 utils/inkTokens.ts。
   本地看：仓库根目录起 prototype 服务，开 /docs/design/ink-year-loop.html（图从 assets/ink/seasons 读）。
 -->
@@ -247,7 +247,8 @@ input[type=range]::-moz-range-thumb{width:7px;height:13px;background:var(--ink);
   }
 
   // ── 一天的延时：太阳走一遍、月亮走一遍；六季在这一天里轮一圈，月亮一边走一边从新月长满再缺回去 ──
-  // 每季居中的时刻：深冬在天亮、春在上午、初夏在下午、盛夏在傍晚、秋在前半夜、初冬在后半夜
+  // 六季一样长，换季跟昼夜对齐：深冬、春、初夏是白天（太阳从升到落），盛夏、秋、初冬是夜里（月亮从升到落）。
+  // 天黑那一下初夏换盛夏、天亮那一下初冬换深冬，不让哪一季被昼夜劈成两半
   const SEASONS = [
     { id: 'deepwinter', label: 'JAN \u00B7 FEB' },
     { id: 'spring', label: 'MAR \u00B7 APR' },
@@ -258,48 +259,47 @@ input[type=range]::-moz-range-thumb{width:7px;height:13px;background:var(--ink);
   ];
   const BASE = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) ? '../../assets/ink/seasons/' : 'ink/';
   const TOTAL = 10.8;                 // 一圈的秒数
-  const FADE = 0.5 / 1.8 / 2;         // 换季交叉 0.5 秒（以「一季」为单位的半宽）
+  const SEASON_FADE = 0.25 / TOTAL;   // 同一时辰换季：交叉 0.5 秒（半宽，以一圈为单位）
+  const TWILIGHT = 0.45 / TOTAL;      // 天黑 / 天亮：交叉 0.9 秒
   // 钟点（6 → 次日 6，写成 6–30）：前一半是白天 6–19，后一半是夜里 19–30
   const hourAt = (u) => (u < 0.5 ? 6 + 26 * u : 19 + 22 * (u - 0.5));
-  const H = { duskStart: 17.6, duskEnd: 19.8, dawnStart: 29, dawnEnd: 31 };
-  // 月亮：19 点从左边地平线升起时是一弯新月，半夜最高时满月，6 点落下时又缺成一弯
-  const moonPhaseAt = (h) => 0.03 + 0.94 * clamp((h - 19) / 11, 0, 1);
+  // 月亮：19 点从左边地平线升起时是一弯新月，半夜最高时满月（正好在秋），6 点落下时又缺成一弯
+  const moonPhaseAt = (h) => 0.03 + 0.94 * clamp(((h < 19 ? h + 24 : h) - 19) / 11, 0, 1); // 天亮那一下（6–7 点）还是快落下的那一弯
 
-  // 这一刻某一季的昼夜叠层（从下往上）+ 夜的程度
-  function todLayers(k, h) {
-    if (h < H.dawnEnd - 24) h += 24; // 6–7 点是天亮的后半段，接着前一圈 29–30 点算，循环接缝不跳
-    if (h >= H.dawnStart) {
-      const p = easeOut(clamp((h - H.dawnStart) / (H.dawnEnd - H.dawnStart), 0, 1));
-      return { L: [{ k, night: true, op: 1 }, { k, night: false, op: p }], n: 1 - p };
-    }
-    if (h < H.duskStart) return { L: [{ k, night: false, op: 1 }], n: 0 };
-    if (h >= H.duskEnd) return { L: [{ k, night: true, op: 1 }], n: 1 };
-    // 傍晚：跟天亮对称，白天慢慢沉进夜里那一张（不用圆形遮罩擦开，连着一天看会突兀）
-    const p = pull((h - H.duskStart) / (H.duskEnd - H.duskStart));
-    return { L: [{ k, night: true, op: 1 }, { k, night: false, op: 1 - p }], n: p };
-  }
-
-  // 给定时刻 → 哪几叠露着、各自多透、整页有多「夜」。
+  // 给定时刻 → 哪几叠露着（从下往上）、各自多透、整页有多「夜」。
   // 叠层下面垫的是夜纸，所以「日图 a 透明」合出来正好是页面在 n = 1 - a 时的纸色，画框边缘不露
   function frameAt(t) {
     t = ((t % TOTAL) + TOTAL) % TOTAL;
-    const u = t / TOTAL, h = hourAt(u);
-    const q = u * SEASONS.length, frac = q - Math.floor(q);
-    const from = Math.floor(q) % SEASONS.length, to = (from + 1) % SEASONS.length;
-    const d = frac - 0.5;
-    let base, label, labelOp = 1;
-    if (Math.abs(d) < FADE) {
-      // 换季：下一季的同一个时辰叠上来（换季都落在纯白天或纯夜里，不跟黄昏、清晨撞）
-      const w = pull((d + FADE) / (2 * FADE));
-      const a = todLayers(from, h), b = todLayers(to, h);
-      base = { L: [...a.L, ...b.L.map((ly) => ({ ...ly, op: ly.op * w }))], n: a.n };
-      label = d < 0 ? from : to;
-      labelOp = easeOut(Math.abs(d) / FADE);
+    const u = t / TOTAL, h = hourAt(u), N = SEASONS.length;
+    const k = Math.floor(u * N) % N;
+    const night = u >= 0.5;
+    // 离最近的换季点多远：天黑（u = 0.5）和天亮（u = 0 / 1）那两个换季点交叉得长一点
+    const near = Math.round(u * N), dist = u - near / N;
+    const twilight = near % (N / 2) === 0;
+    const half = twilight ? TWILIGHT : SEASON_FADE;
+    let L, n;
+    if (Math.abs(dist) < half) {
+      const from = (near - 1 + N) % N, to = near % N;
+      const w = pull((dist + half) / (2 * half));
+      if (twilight) {
+        // 天黑：初夏的白天沉进盛夏的夜里；天亮：初冬的夜里亮成深冬的白天。日图在上，夜图垫底
+        const dusk = near === N / 2;
+        const dayK = dusk ? from : to, nightK = dusk ? to : from;
+        const dayOp = dusk ? 1 - w : w;
+        L = [{ k: nightK, night: true, op: 1 }, { k: dayK, night: false, op: dayOp }];
+        n = 1 - dayOp;
+      } else {
+        L = [{ k: from, night, op: 1 }, { k: to, night, op: w }];
+        n = night ? 1 : 0;
+      }
     } else {
-      label = d < 0 ? from : to;
-      base = todLayers(label, h);
+      L = [{ k, night, op: 1 }];
+      n = night ? 1 : 0;
     }
-    return { t, h, layers: base.L, n: base.n, label, labelOp };
+    // 月份那行在每个换季点淡出再淡入
+    const label = dist < 0 ? (near - 1 + N) % N : near % N;
+    const labelOp = Math.abs(dist) < half ? easeOut(Math.abs(dist) / half) : 1;
+    return { t, h, layers: L, n, label, labelOp };
   }
 
   // ── 搭叠层 ──
