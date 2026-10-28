@@ -93,7 +93,7 @@ function phase(h){
 function name(h){return h<5?'深夜':h<6?'凌晨':h<8?'清晨':h<11?'上午':h<14?'中午':h<16.5?'下午':h<18.5?'傍晚':h<19?'入夜':h<22?'夜里':'深夜'}
 const isNight=h=>h<6||h>=19,win=document.querySelector('.win');
 function setSrc(el,src){if(el.getAttribute('src')!==src)el.setAttribute('src',src)}
-/* 夜空：深靛纸上一层贴地平线的微光，零星金色星点，一弯月亮按 19 点到 6 点走一道弧 */
+/* 夜空：深靛纸上一层贴地平线的微光，零星金色星点，月亮按 19 点到 6 点走一道弧、月相跟真实日子 */
 function drawNight(c,W,H,hy,h,rand){
   const end=hy+H*.16,glow=[52,62,100];
   for(let y=0;y<end;y+=2){const t=Math.min(1,y/hy),fade=y<hy?1:1-(y-hy)/(end-hy),a=(.04+.3*Math.pow(t,2))*fade;
@@ -101,7 +101,15 @@ function drawNight(c,W,H,hy,h,rand){
   c.save();c.beginPath();c.rect(0,0,W,hy);c.clip();
   for(let i=0;i<70;i++){const x=rand()*W,y=Math.pow(rand(),1.3)*hy*.92;c.fillStyle=`rgba(200,166,106,${(.25+rand()*.55).toFixed(2)})`;c.beginPath();c.arc(x,y,.4+rand()*.5,0,7);c.fill()}
   const f=(h>=19?h-19:h+5)/11,mx=W*(.2+.6*f),my=hy-Math.sin(Math.PI*f)*hy*.5,R=W*.024;
-  c.fillStyle='rgba(206,174,112,.9)';c.beginPath();c.arc(mx,my,R,0,7);c.arc(mx+R*.48,my-R*.16,R*.9,0,7,true);c.fill('evenodd');
+  /* 月相照真实日子算（朔望月 29.53 天，从 2000-01-06 的新月数起）：先在小画布上画亮的半边，
+     再用一个椭圆按相位补成凸月或挖成娥眉月，最后贴回来——直接在夜空上挖洞会把底下的水彩一起挖掉 */
+  const p=(((Date.now()-Date.UTC(2000,0,6,18,14))/864e5/29.530588853)%1+1)%1;
+  const m=document.createElement('canvas'),S=Math.ceil(R*2+4),mc=m.getContext('2d'),o=S/2;m.width=m.height=S;
+  const k=Math.cos(2*Math.PI*p),right=p<.5;
+  mc.fillStyle='rgb(206,174,112)';mc.beginPath();mc.arc(o,o,R,right?-Math.PI/2:Math.PI/2,right?Math.PI/2:Math.PI*1.5);mc.fill();
+  mc.globalCompositeOperation=k>0?'destination-out':'source-over';mc.beginPath();mc.ellipse(o,o,Math.abs(k)*R,R,0,0,7);mc.fill();
+  c.strokeStyle='rgba(200,166,106,.22)';c.lineWidth=.6;c.beginPath();c.arc(mx,my,R,0,7);c.stroke();
+  c.globalAlpha=.92;c.drawImage(m,mx-o,my-o);c.globalAlpha=1;
   c.restore();
 }
 function draw(){
