@@ -10,11 +10,12 @@ Two modes:
                    big, enclosed (not touching the image edge) and not taller than
                    3/4 of the image are glass or opening; thin white strips (frame
                    bars) vanish under a 7px erosion. Everything above Y (the blinds
-                   and the frame head) is dropped.
+                   and the frame head) is dropped. Put Y just under the blinds box
+                   (296 for the open windows), or a strip of bare paper shows.
 
 Writes a 512x768 PNG whose alpha is the mask (CSS mask-image reads alpha).
 Needs Pillow, numpy, scipy. Usage:
-  python ink-glass-mask.py WINDOW_DAY.webp OUT.png --cut 320
+  python ink-glass-mask.py WINDOW_DAY.webp OUT.png --cut 296
   python ink-glass-mask.py WINDOW_DAY.webp OUT.png --panes
 Check the result by eye: frost drawn on the glass splits panes, so a frosted
 closed window should use --panes.
