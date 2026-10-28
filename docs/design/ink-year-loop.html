@@ -1,0 +1,437 @@
+<title>一年在窗前</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Courier+Prime&display=swap">
+<!--
+  一年在窗前：墨线窗锁屏的六季串成一段约 10.8 秒的循环（EM，阿萌 2026-10-28 要的分享版）。
+  每季 1.8 秒：天亮 → 白天 → 傍晚屋里的灯从窗台左边亮起、转成黑底金线 → 夜里 → 在暗里换成下一季。
+  图层叠法照 components/os/InkWindowLock.tsx；天色照 utils/inkSky.ts + inkSkyPaint.ts 移植；取值来自 utils/inkTokens.ts。
+  本地看：仓库根目录起 prototype 服务，开 /docs/design/ink-year-loop.html（图从 assets/ink/seasons 读）。
+-->
+<style>
+/* 一张纸、一扇窗，整页颜色跟着画里的昼夜走（单一世界，不跟系统深浅色） */
+:root{
+  /* 开场在暗里（第一季的天亮从夜纸上起来）；脚本每帧在白天值 INK_PAPER.paper #ECEEEB / INK.ink #3E4C7A / INK.text #23273A 之间插 */
+  --paper:#1E2436;      /* INK_NIGHT.paper */
+  --ink:#C8A66A;        /* INK_NIGHT.gold */
+  --text:#E4E1D8;       /* INK_NIGHT.text */
+  --n:1;                /* 夜的程度 0–1 */
+  --type:"Courier Prime","Courier New",monospace;
+  --ease-out:cubic-bezier(.22,.8,.2,1);
+}
+html,body{height:100%}
+body{background:var(--paper);color:var(--text);font-family:var(--type);overflow:hidden;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));box-sizing:border-box}
+/* 布纹：白天深纤维、夜里浅纤维，两层按夜的程度交叉 */
+body::before,body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:0}
+body::before{background-image:var(--grain-day);opacity:calc(1 - var(--n))}
+body::after{background-image:var(--grain-night);opacity:var(--n)}
+
+.stage{position:relative;z-index:1;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding-block:16px;box-sizing:border-box}
+.art{position:relative;width:min(100%,calc((100vh - 150px) * 2 / 3),520px);aspect-ratio:2/3;max-width:100%;flex:none;
+  background-color:#1E2436;background-image:var(--grain-night)}
+@supports (height:1dvh){.art{width:min(100%,calc((100dvh - 150px) * 2 / 3),520px)}}
+
+/* 一季的一个时段 = 一叠：纸 + 天 + 院子（只从玻璃里露）+ 窗。每叠自成一组、铺满纸，叠与叠之间才能干净地交叉淡化 */
+.st{position:absolute;inset:0;isolation:isolate;opacity:0;visibility:hidden;
+  background-color:#ECEEEB;background-image:var(--grain-day)}
+.st.night{background-color:#1E2436;background-image:var(--grain-night)}
+.st .out{position:absolute;inset:0;background:inherit;
+  -webkit-mask-image:var(--glass);mask-image:var(--glass);-webkit-mask-size:100% 100%;mask-size:100% 100%;
+  -webkit-mask-repeat:no-repeat;mask-repeat:no-repeat}
+.st canvas,.st img{position:absolute;inset:0;width:100%;height:100%;display:block}
+/* 白天去色映射灰靛再正片叠底，景比窗淡；夜里黑底金线直接滤色 */
+.st .out img{object-fit:cover;filter:url(#ink-day);mix-blend-mode:multiply;opacity:.55}
+.st .win{filter:url(#ink-day);mix-blend-mode:multiply}
+.st.night .out img,.st.night .win{filter:none;mix-blend-mode:screen}
+.st.night .out img{opacity:.85}
+
+.month{font-size:12px;letter-spacing:.32em;padding-left:.32em;color:var(--ink);height:14px;line-height:14px;font-variant-numeric:tabular-nums}
+
+.bar{display:flex;align-items:center;gap:14px;width:min(100%,520px);transition:opacity .6s var(--ease-out)}
+.bar.idle{opacity:.12}
+.bar button{appearance:none;border:0;background:none;color:var(--ink);font:inherit;font-size:11px;letter-spacing:.18em;
+  min-width:64px;min-height:44px;padding:0;text-align:left;cursor:pointer}
+.bar button:focus-visible,.bar input:focus-visible{outline:1px solid var(--ink);outline-offset:4px}
+.track{position:relative;flex:1;min-width:0;height:44px;display:flex;align-items:center}
+.ticks{position:absolute;left:0;right:0;top:50%;height:7px;margin-top:-3px;pointer-events:none;
+  background-image:repeating-linear-gradient(to right,var(--ink) 0 1px,transparent 1px calc(100% / 6));opacity:.45}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;margin:0;background:none;height:44px;cursor:pointer}
+input[type=range]::-webkit-slider-runnable-track{height:1px;background:var(--ink)}
+input[type=range]::-moz-range-track{height:1px;background:var(--ink)}
+/* 拖动的那一块就是打字机的光标 */
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:7px;height:13px;margin-top:-6px;background:var(--ink);border:0;border-radius:0}
+input[type=range]::-moz-range-thumb{width:7px;height:13px;background:var(--ink);border:0;border-radius:0}
+.clock{font-size:11px;letter-spacing:.08em;color:var(--ink);opacity:.75;min-width:4.2em;text-align:right;font-variant-numeric:tabular-nums}
+
+.loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;letter-spacing:.24em;color:var(--ink)}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <!-- INK_DAY_FILTER：去色 → 拉对比 → 黑映射到灰靛 #3E4C7A、白仍是白 -->
+  <filter id="ink-day" color-interpolation-filters="sRGB">
+    <feColorMatrix type="saturate" values="0"/>
+    <feComponentTransfer>
+      <feFuncR type="linear" slope="1.3" intercept="-0.22"/>
+      <feFuncG type="linear" slope="1.3" intercept="-0.22"/>
+      <feFuncB type="linear" slope="1.3" intercept="-0.22"/>
+    </feComponentTransfer>
+    <feComponentTransfer>
+      <feFuncR type="table" tableValues="0.243 1"/>
+      <feFuncG type="table" tableValues="0.298 1"/>
+      <feFuncB type="table" tableValues="0.478 1"/>
+    </feComponentTransfer>
+  </filter>
+</svg>
+
+<main class="stage">
+  <div class="art" id="art" role="img" aria-label="同一扇窗、同一个后院过一年：六季轮换，每季从白天到夜里">
+    <div class="loading" id="loading">0 / 30</div>
+  </div>
+  <div class="month" id="month" aria-live="off"></div>
+  <div class="bar" id="bar">
+    <button id="play" type="button" aria-label="暂停">PAUSE</button>
+    <div class="track">
+      <div class="ticks"></div>
+      <input id="scrub" type="range" min="0" max="10800" step="10" value="0" aria-label="时间">
+    </div>
+    <span class="clock" id="clock">0.0s</span>
+  </div>
+</main>
+
+<script>
+(() => {
+  // ── 取值（照 utils/inkTokens.ts） ──
+  const PAPER = [0xEC, 0xEE, 0xEB], PAPER_N = [0x1E, 0x24, 0x36];
+  const INK = [0x3E, 0x4C, 0x7A], GOLD = [0xC8, 0xA6, 0x6A];
+  const TEXT = [0x23, 0x27, 0x3A], TEXT_N = [0xE4, 0xE1, 0xD8];
+  const grainSvg = (r, g, b, a) =>
+    `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cfilter id='c' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9 .25' numOctaves='2' seed='5' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 ${r} 0 0 0 0 ${g} 0 0 0 0 ${b} 0 0 0 ${a}'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23c)'/%3E%3C/svg%3E")`;
+  const root = document.documentElement;
+  root.style.setProperty('--grain-day', grainSvg('.3', '.33', '.36', '.5 -.17'));
+  root.style.setProperty('--grain-night', grainSvg('.8', '.8', '.85', '.35 -.14'));
+
+  // INK_MOTION 的三条曲线
+  const bezier = (x1, y1, x2, y2) => {
+    const f = (a, b, u) => 3 * (1 - u) * (1 - u) * u * a + 3 * (1 - u) * u * u * b + u * u * u;
+    return (t) => {
+      if (t <= 0) return 0;
+      if (t >= 1) return 1;
+      let lo = 0, hi = 1, u = t;
+      for (let i = 0; i < 22; i++) { u = (lo + hi) / 2; if (f(x1, x2, u) < t) lo = u; else hi = u; }
+      return f(y1, y2, u);
+    };
+  };
+  const easeOut = bezier(.22, .8, .2, 1);
+  const pull = bezier(.55, 0, .25, 1);
+  const lamp = bezier(.3, .6, .3, 1);
+
+  // ── 天（照 utils/inkSky.ts + inkSkyPaint.ts 移植） ──
+  const STOPS = [
+    [6.0, [70, 80, 130], .38, [120, 110, 160], .30],
+    [6.8, [110, 105, 155], .32, [190, 140, 165], .42],
+    [7.5, [150, 150, 190], .22, [205, 160, 150], .30],
+    [9.0, [150, 163, 190], .20, [220, 200, 150], .22],
+    [12.0, [158, 168, 190], .18, [226, 208, 160], .24],
+    [14.5, [155, 165, 190], .20, [222, 198, 145], .24],
+    [16.0, [150, 160, 185], .20, [210, 160, 105], .34],
+    [17.1, [120, 120, 165], .30, [215, 130, 85], .48],
+    [17.8, [80, 90, 145], .38, [185, 120, 130], .38],
+    [19.0, [55, 65, 115], .45, [85, 95, 150], .38],
+  ];
+  const SKY = {
+    sunrise: 7 + 10 / 60, dayLength: 10,
+    sunHigh: [214, 184, 122], sunLow: [222, 140, 88], sunGlow: [232, 208, 142], brass: [168, 134, 79],
+    nightStart: 19, nightEnd: 6, nightHaze: [52, 62, 100], star: [200, 166, 106], moon: [206, 174, 112], starCount: 70,
+  };
+  const HORIZON = 0.42;
+  const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+  const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+  const rgba = (c, a) => `rgba(${c.map(Math.round).join(',')},${a.toFixed(3)})`;
+  const rgb = (c) => `rgb(${c.map(Math.round).join(',')})`;
+  const seeded = (seed) => { let s = seed; return () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; }; };
+
+  function skyTintAt(hour) {
+    let k = 0;
+    while (k < STOPS.length - 2 && hour > STOPS[k + 1][0]) k++;
+    const A = STOPS[k], B = STOPS[k + 1];
+    const f = clamp((hour - A[0]) / (B[0] - A[0]), 0, 1);
+    return { top: mix(A[1], B[1], f), topAlpha: A[2] + (B[2] - A[2]) * f, horizon: mix(A[3], B[3], f), horizonAlpha: A[4] + (B[4] - A[4]) * f };
+  }
+  function sunAt(hour) {
+    const t = (hour - SKY.sunrise) / SKY.dayLength;
+    const elevation = Math.sin(Math.PI * t);
+    return { elevation, x: 0.18 + 0.64 * clamp(t, 0, 1), color: mix(SKY.sunHigh, SKY.sunLow, clamp(1 - elevation * 2.2, 0, 1)) };
+  }
+  function moonArcAt(hour) {
+    const span = 24 - SKY.nightStart + SKY.nightEnd;
+    const f = clamp((hour >= SKY.nightStart ? hour - SKY.nightStart : hour + 24 - SKY.nightStart) / span, 0, 1);
+    return { x: 0.2 + 0.6 * f, lift: Math.sin(Math.PI * f) * 0.5 };
+  }
+  function brush(c, W, H, hy, rand, colorAt) {
+    const end = hy + H * 0.16;
+    for (let y = 0; y < end; y += 2) {
+      const t = Math.min(1, y / hy);
+      const fade = y < hy ? 1 : 1 - (y - hy) / (end - hy);
+      const [col, a] = colorAt(t);
+      for (let x = 0; x < W;) {
+        const len = 30 + rand() * 120;
+        c.fillStyle = rgba(col, a * fade * (0.8 + rand() * 0.4));
+        c.fillRect(x, y, len + 1, 2.2);
+        x += len;
+      }
+    }
+  }
+  function paintDay(c, W, H, hour) {
+    const rand = seeded(7), hy = H * HORIZON;
+    c.clearRect(0, 0, W, H);
+    const sky = skyTintAt(hour);
+    brush(c, W, H, hy, rand, (t) => {
+      const u = Math.pow(t, 1.4);
+      return [mix(sky.top, sky.horizon, u), sky.topAlpha + (sky.horizonAlpha - sky.topAlpha) * u];
+    });
+    const sun = sunAt(hour);
+    if (sun.elevation <= -0.05) return;
+    const sx = W * sun.x, sy = hy - sun.elevation * hy * 0.45, R = W * 0.022;
+    if (sun.elevation > 0.12) {
+      const Rh = W * 0.38, strength = Math.min(1, (sun.elevation - 0.12) * 2.5) * 0.45;
+      for (let y = Math.max(0, sy - Rh); y < Math.min(hy + H * 0.08, sy + Rh); y += 2) {
+        const dy = y - sy, hw = Math.sqrt(Rh * Rh - dy * dy);
+        for (let x = sx - hw; x < sx + hw;) {
+          const len = 20 + rand() * 60;
+          const d = Math.hypot(x + len / 2 - sx, dy) / Rh;
+          if (d < 1) { c.fillStyle = rgba(SKY.sunGlow, strength * (1 - d) * (1 - d) * (0.8 + rand() * 0.4)); c.fillRect(x, y, len + 1, 2.2); }
+          x += len;
+        }
+      }
+    }
+    c.save();
+    c.beginPath(); c.rect(0, 0, W, hy); c.clip();
+    c.fillStyle = rgba(sun.color, 0.62);
+    c.beginPath(); c.arc(sx, sy, R, 0, Math.PI * 2); c.fill();
+    c.strokeStyle = rgba(SKY.brass, 1); c.lineWidth = 0.8; c.stroke();
+    c.restore();
+  }
+  function paintNight(c, W, H, hour, phase) {
+    const rand = seeded(7), hy = H * HORIZON;
+    c.clearRect(0, 0, W, H);
+    brush(c, W, H, hy, rand, (t) => [SKY.nightHaze, 0.04 + 0.3 * t * t]);
+    c.save();
+    c.beginPath(); c.rect(0, 0, W, hy); c.clip();
+    for (let i = 0; i < SKY.starCount; i++) {
+      const x = rand() * W, y = Math.pow(rand(), 1.3) * hy * 0.92;
+      c.fillStyle = rgba(SKY.star, 0.25 + rand() * 0.55);
+      c.beginPath(); c.arc(x, y, 0.4 + rand() * 0.5, 0, Math.PI * 2); c.fill();
+    }
+    const arc = moonArcAt(hour);
+    const mx = W * arc.x, my = hy - arc.lift * hy, R = W * 0.024;
+    const k = Math.cos(2 * Math.PI * phase);
+    const litRight = phase < 0.5, term = Math.abs(k), bulge = k <= 0;
+    const dpr = c.getTransform().a || 1;
+    const m = document.createElement('canvas');
+    const Z = Math.ceil((R * 2 + 4) * dpr), o = Z / 2, r = R * dpr;
+    m.width = m.height = Z;
+    const mc = m.getContext('2d');
+    mc.fillStyle = rgba(SKY.moon, 1);
+    mc.beginPath();
+    mc.arc(o, o, r, litRight ? -Math.PI / 2 : Math.PI / 2, litRight ? Math.PI / 2 : Math.PI * 1.5);
+    mc.fill();
+    mc.globalCompositeOperation = bulge ? 'source-over' : 'destination-out';
+    mc.beginPath(); mc.ellipse(o, o, term * r, r, 0, 0, Math.PI * 2); mc.fill();
+    c.strokeStyle = rgba(SKY.star, 0.22); c.lineWidth = 0.6;
+    c.beginPath(); c.arc(mx, my, R, 0, Math.PI * 2); c.stroke();
+    c.globalAlpha = 0.92;
+    c.drawImage(m, mx - Z / dpr / 2, my - Z / dpr / 2, Z / dpr, Z / dpr);
+    c.globalAlpha = 1;
+    c.restore();
+  }
+
+  // ── 六季（utils/inkSeasons.ts 的顺序）；每夜的月亮比上一夜往前走一点 ──
+  const SEASONS = [
+    { id: 'deepwinter', label: 'JAN \u00B7 FEB', phase: 0.10 },
+    { id: 'spring', label: 'MAR \u00B7 APR', phase: 0.22 },
+    { id: 'earlysummer', label: 'MAY \u00B7 JUN', phase: 0.34 },
+    { id: 'midsummer', label: 'JUL \u00B7 AUG', phase: 0.48 },
+    { id: 'autumn', label: 'SEP \u00B7 OCT', phase: 0.62 },
+    { id: 'earlywinter', label: 'NOV \u00B7 DEC', phase: 0.76 },
+  ];
+  const NIGHT_HOUR = 21.5;
+  const BASE = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) ? '../../assets/ink/seasons/' : 'ink/';
+  const SEG = 1.8, TOTAL = SEG * SEASONS.length; // 10.8 秒一圈
+
+  // 一季里的时刻（秒）：天亮 → 白天 → 傍晚（白天沉下去、灯亮起来）→ 夜里 → 灯收回窗台，在暗里换下一季
+  const T = { dawnEnd: 0.32, duskStart: 0.78, dayGone: 1.06, lampStart: 0.88, lampEnd: 1.30, lampOff: 1.52, label: 0.26 };
+  // 白天那一叠的天跟着走：清晨粉紫 → 白天 → 傍晚橙
+  function dayHour(s) {
+    if (s < T.dawnEnd) return 6.5 + (8.0 - 6.5) * (s / T.dawnEnd);
+    if (s < T.duskStart) return 8.0 + (15.8 - 8.0) * ((s - T.dawnEnd) / (T.duskStart - T.dawnEnd));
+    return 15.8 + (18.4 - 15.8) * clamp((s - T.duskStart) / (T.dayGone - T.duskStart), 0, 1);
+  }
+
+  // 给定时刻 → 哪几叠露着、各自多透、灯照到哪、整页有多「夜」。
+  // 叠层下面垫的是夜纸，所以「日图 a 透明」合出来正好是页面在 n = 1 - a 时的纸色，画框边缘不露
+  function frameAt(t) {
+    t = ((t % TOTAL) + TOTAL) % TOTAL;
+    const k = Math.min(SEASONS.length - 1, Math.floor(t / SEG)), s = t - k * SEG;
+    const L = []; // 从下往上
+    let n;
+    if (s < T.dawnEnd) {
+      const p = easeOut(s / T.dawnEnd);
+      L.push({ k, night: false, op: p });
+      n = 1 - p;
+    } else if (s < T.duskStart) {
+      L.push({ k, night: false, op: 1 });
+      n = 0;
+    } else if (s < T.lampOff) {
+      const dayOp = 1 - pull(clamp((s - T.duskStart) / (T.dayGone - T.duskStart), 0, 1));
+      const lit = lamp(clamp((s - T.lampStart) / (T.lampEnd - T.lampStart), 0, 1));
+      if (dayOp > 0) L.push({ k, night: false, op: dayOp });
+      if (lit > 0) L.push({ k, night: true, op: 1, lamp: lit < 1 ? lit * 150 : null });
+      n = 1 - dayOp;
+    } else {
+      // 夜深了，屋里的光收回窗台那件小东西上，熄掉
+      const left = 1 - pull((s - T.lampOff) / (SEG - T.lampOff));
+      if (left > 0) L.push({ k, night: true, op: 1, lamp: left * 150 });
+      n = 1;
+    }
+    let labelOp = 1;
+    if (s < T.label) labelOp = easeOut(s / T.label);
+    else if (s > SEG - T.label) labelOp = 1 - easeOut((s - (SEG - T.label)) / T.label);
+    return { t, k, s, layers: L, n, label: k, labelOp };
+  }
+
+  // ── 搭叠层 ──
+  const art = document.getElementById('art');
+  const stacks = new Map(); // `${k}-${night}` → { el, canvas, ctx }
+  SEASONS.forEach((season, k) => {
+    for (const night of [false, true]) {
+      const tod = night ? 'night' : 'day';
+      const el = document.createElement('div');
+      el.className = 'st' + (night ? ' night' : '');
+      el.innerHTML = `<div class="out" style="--glass:url('${BASE}${season.id}-glass.png')"><canvas></canvas>` +
+        `<img alt="" draggable="false" src="${BASE}${season.id}-garden-${tod}.webp"></div>` +
+        `<img class="win" alt="" draggable="false" src="${BASE}${season.id}-window-${tod}.webp">`;
+      art.appendChild(el);
+      const canvas = el.querySelector('canvas');
+      stacks.set(`${k}-${night}`, { el, canvas, ctx: canvas.getContext('2d'), k, night, painted: null });
+    }
+  });
+
+  let size = null;
+  function measure() {
+    const r = art.getBoundingClientRect();
+    if (!r.width) return;
+    size = { w: r.width, h: r.height, dpr: Math.min(2, window.devicePixelRatio || 1) };
+    for (const st of stacks.values()) {
+      st.canvas.width = Math.round(size.w * size.dpr);
+      st.canvas.height = Math.round(size.h * size.dpr);
+      st.ctx.setTransform(size.dpr, 0, 0, size.dpr, 0, 0);
+      st.painted = null;
+    }
+  }
+  function paint(st, hour) {
+    if (!size) return;
+    if (st.night) {
+      if (st.painted !== null) return;
+      paintNight(st.ctx, size.w, size.h, NIGHT_HOUR, SEASONS[st.k].phase);
+      st.painted = NIGHT_HOUR;
+    } else {
+      if (st.painted !== null && Math.abs(st.painted - hour) < 0.03) return;
+      paintDay(st.ctx, size.w, size.h, hour);
+      st.painted = hour;
+    }
+  }
+
+  // ── 每帧把状态落到页面上 ──
+  const monthEl = document.getElementById('month');
+  const clockEl = document.getElementById('clock');
+  const scrub = document.getElementById('scrub');
+  let shown = new Set(), lastLabel = -1;
+  function render(t) {
+    const f = frameAt(t);
+    const now = new Set();
+    f.layers.forEach((ly, z) => {
+      const key = `${ly.k}-${ly.night}`, st = stacks.get(key);
+      now.add(key);
+      paint(st, dayHour(f.s));
+      const s = st.el.style;
+      s.visibility = 'visible';
+      s.opacity = ly.op.toFixed(4);
+      s.zIndex = String(z + 1);
+      if (ly.lamp != null) {
+        const g = `radial-gradient(circle at 24% 84%,#000 ${(ly.lamp - 18).toFixed(2)}%,transparent ${ly.lamp.toFixed(2)}%)`;
+        s.webkitMaskImage = g; s.maskImage = g;
+      } else if (s.maskImage || s.webkitMaskImage) {
+        s.webkitMaskImage = ''; s.maskImage = '';
+      }
+    });
+    for (const key of shown) if (!now.has(key)) { const s = stacks.get(key).el.style; s.visibility = 'hidden'; s.opacity = '0'; }
+    shown = now;
+
+    const n = f.n;
+    root.style.setProperty('--n', n.toFixed(4));
+    root.style.setProperty('--paper', rgb(mix(PAPER, PAPER_N, n)));
+    root.style.setProperty('--ink', rgb(mix(INK, GOLD, n)));
+    root.style.setProperty('--text', rgb(mix(TEXT, TEXT_N, n)));
+    if (f.label !== lastLabel) { monthEl.textContent = SEASONS[f.label].label; lastLabel = f.label; }
+    monthEl.style.opacity = (0.8 * f.labelOp).toFixed(3);
+    scrub.value = String(Math.round(f.t * 1000));
+    clockEl.textContent = f.t.toFixed(1) + 's';
+  }
+
+  // ── 播放 / 暂停 / 拖动 ──
+  const playBtn = document.getElementById('play');
+  const bar = document.getElementById('bar');
+  const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  let playing = false, tNow = reduce ? 0.5 : 0, last = 0, raf = 0;
+  function loop(ts) {
+    if (playing) { if (last) tNow += (ts - last) / 1000; last = ts; }
+    render(tNow);
+    raf = playing ? requestAnimationFrame(loop) : 0;
+  }
+  function setPlaying(on) {
+    playing = on; last = 0;
+    playBtn.textContent = on ? 'PAUSE' : 'PLAY';
+    playBtn.setAttribute('aria-label', on ? '暂停' : '播放');
+    if (on && !raf) raf = requestAnimationFrame(loop);
+    if (!on) { cancelAnimationFrame(raf); raf = 0; render(tNow); }
+    wake();
+  }
+  playBtn.addEventListener('click', () => setPlaying(!playing));
+  scrub.addEventListener('input', () => { if (playing) setPlaying(false); tNow = Number(scrub.value) / 1000; render(tNow); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === ' ' && e.target === document.body) { e.preventDefault(); setPlaying(!playing); }
+  });
+
+  // 播着的时候控件慢慢退到一边，动一下鼠标或点一下就回来
+  let idleTimer = 0;
+  function wake() {
+    bar.classList.remove('idle');
+    clearTimeout(idleTimer);
+    if (playing) idleTimer = setTimeout(() => bar.classList.add('idle'), 2500);
+  }
+  ['pointermove', 'pointerdown', 'keydown'].forEach((ev) => document.addEventListener(ev, wake, { passive: true }));
+
+  // ── 30 张图全部解码完再开播，第一圈不闪 ──
+  const loading = document.getElementById('loading');
+  const urls = [];
+  for (const s of SEASONS) {
+    urls.push(`${BASE}${s.id}-glass.png`);
+    for (const tod of ['day', 'night']) urls.push(`${BASE}${s.id}-garden-${tod}.webp`, `${BASE}${s.id}-window-${tod}.webp`);
+  }
+  let done = 0;
+  const imgs = [...art.querySelectorAll('img')];
+  Promise.all([
+    ...urls.map((u) => { const im = new Image(); im.src = u; return im.decode().catch(() => {}).finally(() => { loading.textContent = `${++done} / ${urls.length}`; }); }),
+    ...imgs.map((im) => im.decode().catch(() => {})),
+  ]).then(() => {
+    loading.remove();
+    measure();
+    // 先把每一叠画一遍，第一次露出来时不用临时画天
+    for (const st of stacks.values()) paint(st, 8);
+    new ResizeObserver(() => { measure(); render(tNow); }).observe(art);
+    render(tNow);
+    setPlaying(!reduce);
+  });
+})();
+</script>
