@@ -4,8 +4,8 @@
  * 「四季的光」的初冬：一扇结霜的窗，窗外是后院。三层叠起来：
  *   天 = canvas 按设备时间画的淡彩（utils/inkSky.ts + inkSkyPaint.ts）
  *   景 = 后院线稿（白天灰靛 / 夜里黑底金线）
- *   窗 = 霜、百叶、窗台上的热水
- * 白天百叶从窗上拉起来；夜里屋里的灯从杯子那儿亮开。字用打字机敲出 LILIUM / 时间 / 日期（/ 未读）。
+ *   窗 = 霜、百叶、窗台上的蜡烛（跟其他季节同一扇能推开的窗，关着）
+ * 白天百叶从窗上拉起来；夜里屋里的光从窗台那支蜡烛那儿亮开。字用打字机敲出 LILIUM / 时间 / 日期（/ 未读）。
  * 参考实现 docs/design/ink-splash-winter.html，取值全部来自 utils/inkTokens.ts。
  *
  * 钟跟设备时间（锁屏属于「用户自己的时间」，见 docs/character-timezone.md）。点一下就解锁，不用等动画。
@@ -14,17 +14,18 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { INK, INK_DAY_FILTER, INK_FONT, INK_GRAIN, INK_MOTION, INK_NIGHT, INK_PAPER } from '../../utils/inkTokens';
 import { hourOf, isInkNight } from '../../utils/inkSky';
 import { paintInkSky } from '../../utils/inkSkyPaint';
-import windowDay from '../../assets/ink/winter-layer-window-day.webp';
-import windowNight from '../../assets/ink/winter-layer-window-night.webp';
+import windowDay from '../../assets/ink/earlywinter-layer-window-day.webp';
+import windowNight from '../../assets/ink/earlywinter-layer-window-night.webp';
 import gardenDay from '../../assets/ink/winter-view-garden.webp';
 import gardenNight from '../../assets/ink/winter-view-garden-night.webp';
 
-// 窗格位置按 1024×1536 的窗层量；天和景只从这六格里露出来
+// 窗格位置按 1024×1536 的窗层量；天和景只从这六格里露出来。
+// 关着的窗（初冬 / 盛夏对齐后）都是这套：百叶底 300、横档 513–544 / 913–940、中梃 495–528
 const ART_W = 1024, ART_H = 1536;
 const PANES: Array<[number, number, number, number]> = [
-  [146, 294, 356, 226], [520, 294, 362, 226],
-  [146, 538, 356, 376], [520, 538, 362, 376],
-  [146, 934, 356, 378], [520, 934, 362, 378],
+  [151, 301, 344, 212], [529, 301, 344, 212],
+  [151, 545, 344, 368], [529, 545, 344, 368],
+  [151, 941, 344, 364], [529, 941, 344, 364],
 ];
 const HORIZON = 0.42;
 const PANE_MASK = `url("data:image/svg+xml,${encodeURIComponent(
@@ -66,7 +67,7 @@ const CSS = `
 .ink-lock-blind::before{left:7%}.ink-lock-blind::after{right:7%}
 .ink-lock-rail{position:absolute;left:7.3%;width:85.3%;top:84.9%;height:0;border-top:1px solid var(--ink)}
 .is-night .ink-lock-blind,.is-night .ink-lock-rail,.ink-lock.done .ink-lock-blind,.ink-lock.done .ink-lock-rail,.ink-lock.still .ink-lock-blind,.ink-lock.still .ink-lock-rail{display:none}
-/* 夜里屋里的灯从杯子那儿铺开：径向遮罩把整幅图慢慢揭开 */
+/* 夜里屋里的光从窗台那支蜡烛那儿铺开：径向遮罩把整幅图慢慢揭开 */
 .is-night .ink-lock-scene{-webkit-mask-image:radial-gradient(circle at 24% 84%,#000 calc(var(--ink-lamp) - 18%),transparent var(--ink-lamp));
   mask-image:radial-gradient(circle at 24% 84%,#000 calc(var(--ink-lamp) - 18%),transparent var(--ink-lamp));--ink-lamp:0%}
 .is-night.play .ink-lock-scene{animation:ink-lock-lamp 1.8s ${INK_MOTION.lamp} .2s both}

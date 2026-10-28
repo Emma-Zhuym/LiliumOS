@@ -57,7 +57,7 @@ export const INK_MOTION = {
   easeOut: 'cubic-bezier(.22,.8,.2,1)',
   /** 拉百叶：先慢后快再慢，像手拉绳子 */
   pull: 'cubic-bezier(.55,0,.25,1)',
-  /** 灯光从杯子那儿铺开 */
+  /** 光从窗台上的蜡烛那儿铺开 */
   lamp: 'cubic-bezier(.3,.6,.3,1)',
 } as const;
 

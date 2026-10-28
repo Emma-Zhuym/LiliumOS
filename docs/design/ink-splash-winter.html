@@ -34,10 +34,10 @@ button:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
 .art{position:relative;width:78%;aspect-ratio:2/3;background-color:var(--paper);background-image:var(--grain)}
 /* 夜里 .scene 带亮灯的遮罩、自成一组，滤色只能跟组里的底色混，所以这里也铺纸，不然黑底会露出来 */
 .scene{position:absolute;inset:0;background-color:var(--paper);background-image:var(--grain)}
-/* 天和景只从六个窗格里露出来，窗格位置按 1024×1536 的窗层量 */
+/* 天和景只从六个窗格里露出来，窗格位置按 1024×1536 的窗层量（2026-10-27 换成六季共用的那扇窗，窗台上是蜡烛） */
 .out{position:absolute;inset:0;background-color:var(--paper);background-image:var(--grain);
-  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1536' preserveAspectRatio='none'%3E%3Cg fill='%23000'%3E%3Crect x='146' y='294' width='356' height='226'/%3E%3Crect x='520' y='294' width='362' height='226'/%3E%3Crect x='146' y='538' width='356' height='376'/%3E%3Crect x='520' y='538' width='362' height='376'/%3E%3Crect x='146' y='934' width='356' height='378'/%3E%3Crect x='520' y='934' width='362' height='378'/%3E%3C/g%3E%3C/svg%3E") 0 0/100% 100% no-repeat;
-  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1536' preserveAspectRatio='none'%3E%3Cg fill='%23000'%3E%3Crect x='146' y='294' width='356' height='226'/%3E%3Crect x='520' y='294' width='362' height='226'/%3E%3Crect x='146' y='538' width='356' height='376'/%3E%3Crect x='520' y='538' width='362' height='376'/%3E%3Crect x='146' y='934' width='356' height='378'/%3E%3Crect x='520' y='934' width='362' height='378'/%3E%3C/g%3E%3C/svg%3E") 0 0/100% 100% no-repeat}
+  -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1536' preserveAspectRatio='none'%3E%3Cg fill='%23000'%3E%3Crect x='151' y='301' width='344' height='212'/%3E%3Crect x='529' y='301' width='344' height='212'/%3E%3Crect x='151' y='545' width='344' height='368'/%3E%3Crect x='529' y='545' width='344' height='368'/%3E%3Crect x='151' y='941' width='344' height='364'/%3E%3Crect x='529' y='941' width='344' height='364'/%3E%3C/g%3E%3C/svg%3E") 0 0/100% 100% no-repeat;
+  mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1536' preserveAspectRatio='none'%3E%3Cg fill='%23000'%3E%3Crect x='151' y='301' width='344' height='212'/%3E%3Crect x='529' y='301' width='344' height='212'/%3E%3Crect x='151' y='545' width='344' height='368'/%3E%3Crect x='529' y='545' width='344' height='368'/%3E%3Crect x='151' y='941' width='344' height='364'/%3E%3Crect x='529' y='941' width='344' height='364'/%3E%3C/g%3E%3C/svg%3E") 0 0/100% 100% no-repeat}
 .out canvas,.out img,.win,.rain{position:absolute;inset:0;width:100%;height:100%}
 /* 白天去色映射成灰靛正片叠底，景比窗淡才分得出前后；夜里黑底金线直接滤色 */
 .out img{object-fit:cover;filter:url(#dayInk);mix-blend-mode:multiply;opacity:.55}
@@ -119,7 +119,7 @@ button:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
 const root=document.documentElement,screen=document.getElementById('screen'),art=screen.querySelector('.art');
 const sky=document.getElementById('sky'),view=document.getElementById('view'),win=document.getElementById('win');
 const now=new Date(),h=now.getHours(),nowH=h+now.getMinutes()/60,isNight=x=>x<6||x>=19;
-const IMG={day:{view:'ink/winter-view-garden.webp',win:'ink/winter-layer-window-day.webp'},night:{view:'ink/winter-view-garden-night.webp',win:'ink/winter-layer-window-night.webp'}};
+const IMG={day:{view:'ink/winter-view-garden.webp',win:'ink/earlywinter-layer-window-day.webp'},night:{view:'ink/winter-view-garden-night.webp',win:'ink/earlywinter-layer-window-night.webp'}};
 const HORIZON=.42,BRASS=[168,134,79];
 root.dataset.theme=isNight(nowH)?'dark':'light';
 const wk=['SUN','MON','TUE','WED','THU','FRI','SAT'][now.getDay()];
@@ -176,7 +176,7 @@ function drawNight(c,W,H,hy,hh,rand){
    白天是墨线（珠子里铺一点纸色，像透过水珠看到的东西变淡了）；夜里是金线，离窗台那杯水（屋里的灯）越近越亮 */
 let raining=true,rainState=null,rainRaf=0;
 const rainCv=document.getElementById('rain');
-const PANES=[[146,294,356,226],[520,294,362,226],[146,538,356,376],[520,538,362,376],[146,934,356,378],[520,934,362,378]];
+const PANES=[[151,301,344,212],[529,301,344,212],[151,545,344,368],[529,545,344,368],[151,941,344,364],[529,941,344,364]];
 const lampLight=(night,x,y,W,H)=>night?clamp(1.15-Math.hypot(x/W-.24,(y/H-.84)*1.5)*1.1,.5,1):1;
 /* 白天的水珠要收着画：阿萌看了说白天那版「有点吓人」——白亮的大珠子挂在深色长线底下，像一串串吊着的虫子。
    夜里金线刚好，所以只把白天调轻：珠子小两成、墨淡一半、里面只透一点纸色，水痕更细更淡、往上淡没 */
