@@ -1,0 +1,118 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>百叶放下一片</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Courier+Prime&family=Noto+Serif+SC:wght@600&display=swap">
+<style>
+/* 对比样稿：新画的窗（盛夏）百叶整副收在窗框顶上，初冬旧稿是压住了窗格上沿的。
+   试试不重画图、用代码把百叶往下放一片：先把窗图上那一条剪掉（露出纸），再用线画一片跟上面一样的板子，拉绳照旧从前面垂下来 */
+:root{
+  --mount:#D8DBE2; --paper:#ECEEEB; --ink:#3E4C7A; --text:#23273A; --slat:rgba(62,76,122,.55);
+  --grain:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cfilter id='c' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9 .25' numOctaves='2' seed='5' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .3 0 0 0 0 .33 0 0 0 0 .36 0 0 0 .5 -.17'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23c)'/%3E%3C/svg%3E");
+  --type:'Courier Prime','Courier New',monospace; --serif:'Noto Serif SC','Songti SC',serif;
+  color-scheme:light;
+}
+:root[data-theme="dark"]{--mount:#2A3249;--paper:#1E2436;--ink:#C8A66A;--text:#E4E1D8;--slat:rgba(200,166,106,.5);
+  --grain:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cfilter id='c' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9 .25' numOctaves='2' seed='5' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .8 0 0 0 0 .8 0 0 0 0 .85 0 0 0 .35 -.14'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23c)'/%3E%3C/svg%3E");color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--mount);min-height:100%}
+body{font-family:var(--serif);color:var(--text);padding:0 max(16px,env(safe-area-inset-right,0px)) 24px max(16px,env(safe-area-inset-left,0px))}
+.bar{display:flex;justify-content:center;gap:10px;padding:12px 0;flex-wrap:wrap}
+.seg{display:flex;border:0.5px solid var(--slat);border-radius:999px;padding:2px;background:var(--paper)}
+.seg button{font-family:var(--serif);font-size:13px;color:var(--ink);background:none;border:0;border-radius:999px;padding:7px 13px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+button:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.sheet{max-width:420px;margin:0 auto;background-color:var(--paper);background-image:var(--grain);padding:28px 22px 32px}
+.art{position:relative;width:100%;aspect-ratio:2/3}
+.art img,.art svg{position:absolute;inset:0;width:100%;height:100%}
+.art img{filter:url(#dayInk);mix-blend-mode:multiply}
+:root[data-theme="dark"] .art img{filter:none;mix-blend-mode:screen}
+/* 放下那一片的地方先从窗图上剪掉，露出底下的纸（纸纹接得上），再在上面画线 */
+.art.lowered img.cut{-webkit-mask:var(--cut) 0 0/100% 100% no-repeat;mask:var(--cut) 0 0/100% 100% no-repeat}
+.art svg{display:none;mix-blend-mode:multiply}
+:root[data-theme="dark"] .art svg{mix-blend-mode:screen}
+.art.lowered svg{display:block}
+.note{font-size:13px;line-height:1.8;color:var(--ink);margin:18px 0 0}
+.lab{font-family:var(--type);font-size:11px;letter-spacing:.26em;color:var(--ink);margin-bottom:12px}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <filter id="dayInk" color-interpolation-filters="sRGB">
+    <feColorMatrix type="saturate" values="0"/>
+    <feComponentTransfer><feFuncR type="linear" slope="1.3" intercept="-0.22"/><feFuncG type="linear" slope="1.3" intercept="-0.22"/><feFuncB type="linear" slope="1.3" intercept="-0.22"/></feComponentTransfer>
+    <feComponentTransfer><feFuncR type="table" tableValues="0.243 1"/><feFuncG type="table" tableValues="0.298 1"/><feFuncB type="table" tableValues="0.478 1"/></feComponentTransfer>
+  </filter>
+</svg>
+
+<div class="bar">
+  <div class="seg" role="group" aria-label="昼夜">
+    <button type="button" data-t="light" aria-pressed="true">白天</button>
+    <button type="button" data-t="dark" aria-pressed="false">夜里</button>
+  </div>
+  <div class="seg" role="group" aria-label="百叶">
+    <button type="button" data-v="raw" aria-pressed="false">原图</button>
+    <button type="button" data-v="one" aria-pressed="true">放下一片</button>
+    <button type="button" data-v="old" aria-pressed="false">初冬旧稿</button>
+  </div>
+</div>
+
+<main class="sheet">
+  <div class="lab" id="lab">MIDSUMMER · 放下一片</div>
+  <div class="art" id="art">
+    <img id="win" alt="盛夏的窗，百叶拉起" width="1024" height="1536">
+    <svg id="slat" viewBox="0 0 1024 1536" preserveAspectRatio="none" aria-hidden="true"></svg>
+  </div>
+  <p class="note" id="note"></p>
+</main>
+
+<script>
+const root=document.documentElement,art=document.getElementById('art'),win=document.getElementById('win'),slat=document.getElementById('slat');
+const IMG={mid:{light:'ink/midsummer-layer-window-day.webp',dark:'ink/midsummer-layer-window-night.webp'},old:{light:'ink/winter-layer-window-day.webp',dark:'ink/winter-layer-window-night.webp'}};
+/* 量出来的（按 1024×1536）：百叶每片约 47 高，板子左端从 85 斜到 80、右端从 936 斜到 943（上窄下宽），左下角是圆角；
+   每片下沿一道深线，下一片顶上被它投一道细排线的影子；最下面还有一根细细的底杆（288 → 293）。拉绳在 x≈135 / 166 / 856 / 887。
+   放下一片＝把原来的底杆剪掉（289 起），接一片同样的板子，再把底杆画在新的下面：板子底线 335、底杆底线 340 */
+const Y0=289,SB=335,RB=340,L0=85,L1=80,R0=936,R1=943,CORDS=[135,166,856,887];
+const cut=`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1024 1536' preserveAspectRatio='none'><path fill-rule='evenodd' d='M0 0H1024V1536H0Z M${L0-2} ${Y0}H${R0+2}L${R1+2} ${RB+2}H${L1-2}Z'/></svg>`;
+art.style.setProperty('--cut',`url("data:image/svg+xml,${encodeURIComponent(cut)}")`);
+win.classList.add('cut');
+function rng(s){return()=>{s=(s*16807)%2147483647;return(s-1)/2147483646}}
+/* 画那一片：白天白底墨线（叠底）、夜里黑底金线（滤色），跟 GPT 的图一个路子 */
+function drawSlat(){const night=root.dataset.theme==='dark',rand=rng(3);
+  /* 白天的线直接用墨色（GPT 的黑线过了滤镜就是这个色）；整片轻轻糊一点，GPT 的线边缘是软的 */
+  const line=night?'rgb(214,178,112)':'rgb(62,76,122)';
+  let s=`<defs><filter id='soft' x='-2%' y='-20%' width='104%' height='140%'><feGaussianBlur stdDeviation='.6'/></filter></defs><g filter='url(#soft)'><g stroke='${line}' fill='none' stroke-linecap='round'>`;
+  /* 顶上那道影子：上一片投下来的细竖排线，越往下越短越淡 */
+  /* 一簇一簇的，不是一把尺子：大约一半的位置空着，有的地方密、有的地方没有 */
+  for(let x=L0+6;x<R0-6;x+=1.6+rand()*2.4){if(Math.sin(x*.045)+Math.sin(x*.013+1.7)+rand()*1.2<.6)continue;const len=2+Math.pow(rand(),2.4)*(night?12:9);
+    s+=`<path d='M${x.toFixed(1)} ${Y0+.5}v${len.toFixed(1)}' stroke-width='.7' opacity='${(.12+rand()*.28).toFixed(2)}'/>`}
+  /* 两端：斜边往下，左下右下是圆角，接到板子底线 */
+  s+=`<path d='M${L0-.5} ${Y0}L${L1+.6} ${SB-5}Q${L1} ${SB} ${L1+5} ${SB}H${R1-5}Q${R1} ${SB} ${R1-.6} ${SB-5}L${R0+.5} ${Y0}' stroke-width='2.6'/>`;
+  /* 底杆：一根细条，两端短竖线收口 */
+  s+=`<path d='M${L1+1} ${SB}V${RB}H${R1-1}V${SB}' stroke-width='1.8'/>`;
+  s+=`</g>`;
+  /* 夜里 GPT 的板面被灯照着，满是金色细点和一小段一小段的木纹，越往下越密；白天板面是空的，不画 */
+  if(night){s+=`<g fill='${line}'>`;
+    for(let i=0;i<2800;i++){const t=Math.pow(rand(),.5),y=Y0+3+t*(SB-Y0-6),w=(L0-L1)*(y-Y0)/(SB-Y0),x=L0-w+4+rand()*(R0-L0+2*w-8);
+      s+=`<circle cx='${x.toFixed(1)}' cy='${y.toFixed(1)}' r='${(.45+rand()*.45).toFixed(2)}' opacity='${(.35+rand()*.5).toFixed(2)}'/>`}
+    s+=`</g><g stroke='${line}' fill='none' stroke-width='.9' stroke-linecap='round'>`;
+    for(let i=0;i<260;i++){const t=Math.pow(rand(),.5),y=Y0+5+t*(SB-Y0-10),x=L0+8+rand()*(R0-L0-30),w=4+rand()*9,b=(rand()<.5?-1:1)*(2+rand()*3);
+      s+=`<path d='M${x.toFixed(1)} ${y.toFixed(1)}q${(w/2).toFixed(1)} ${b.toFixed(1)} ${w.toFixed(1)} ${(b*.4).toFixed(1)}' opacity='${(.4+rand()*.45).toFixed(2)}'/>`}
+    s+=`</g>`}
+  /* 拉绳在板子前面，接着往下垂 */
+  s+=`<g stroke='${line}' stroke-width='2.2'>${CORDS.map(x=>`<path d='M${x} ${Y0-2}V${RB+5}'/>`).join('')}</g>`;
+  slat.innerHTML=s+'</g>'}
+const NOTE={raw:'原图：新画的五张都是这样，百叶整副收在窗框顶上，窗格上面那道窗框露着。',
+  one:'放下一片：图没动，代码在下面接了一片板子，盖住窗框顶、压进窗格上沿一点，拉绳照旧垂下来。看看接缝那里像不像一笔画的。',
+  old:'初冬旧稿（参考）：原来那扇窗没有可以推开的窗扇，百叶直接坐在窗格上。'};
+let view='one';
+function render(){const night=root.dataset.theme==='dark',set=view==='old'?IMG.old:IMG.mid,src=set[night?'dark':'light'];
+  if(win.getAttribute('src')!==src)win.setAttribute('src',src);
+  art.classList.toggle('lowered',view==='one');drawSlat();
+  document.getElementById('lab').textContent=(view==='old'?'EARLY WINTER':'MIDSUMMER')+' · '+{raw:'原图',one:'放下一片',old:'旧稿'}[view];
+  document.getElementById('note').textContent=NOTE[view];
+  document.querySelectorAll('[data-t]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.t===(night?'dark':'light'))));
+  document.querySelectorAll('[data-v]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.v===view)))}
+document.querySelectorAll('[data-t]').forEach(b=>b.addEventListener('click',()=>{root.dataset.theme=b.dataset.t;render()}));
+document.querySelectorAll('[data-v]').forEach(b=>b.addEventListener('click',()=>{view=b.dataset.v;render()}));
+root.dataset.theme='light';render();
+</script>
