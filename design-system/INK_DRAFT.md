@@ -224,3 +224,5 @@ Make a night version of this exact image, same composition: same apple tree, ben
 
 **初夏 · 窗层（2026-10-27）**：`docs/design/ink/earlysummer-layer-window-{day,night}.webp`（1024×1536）。跟春天是同一扇推开的窗、同样的风线，窗台上换成一杯高脚冰饮（冰块、柠檬片、薄荷叶）。窗扇位置跟春天一致，所以春天量好的景遮罩初夏可以直接共用。（ideas 里原来写初夏「窗推开一条缝」，实际画成跟春天一样整扇推开，就按这样）
 
+**秋 · 窗层（2026-10-27）**：`docs/design/ink/autumn-layer-window-{day,night}.webp`（1024×1536）。同一扇推开的窗、同样的风线，窗台上是一杯热红酒（肉桂棒、冒热气）和一片吹进来的枫叶。春、初夏、秋三张开着的窗共用一套窗扇位置
+
