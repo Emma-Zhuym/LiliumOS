@@ -6,6 +6,7 @@
   一年在窗前：墨线窗锁屏的六季串成一段 10.8 秒的循环（EM，阿萌 2026-10-28 要的分享版）。
   整圈是一天的延时：太阳从早走到晚，傍晚白天慢慢沉成黑底金线，月亮从新月长到满月再缺回去走过夜空，天亮接回开头。
   六季一样长、跟着这一天轮一圈：深冬 / 春 / 初夏是白天，盛夏 / 秋 / 初冬是夜里；天黑、天亮那一下顺便换季（交叉 0.9 秒），其余换季是同一时辰两张图交叉 0.5 秒。
+  窗下是锁屏那三行字（LILIUM / 整点 / 月份），每圈天亮时敲出来、最后退格删光。
   图层叠法照 components/os/InkWindowLock.tsx；天色照 utils/inkSky.ts + inkSkyPaint.ts 移植；取值来自 utils/inkTokens.ts。
   本地看：仓库根目录起 prototype 服务，开 /docs/design/ink-year-loop.html（图从 assets/ink/seasons 读）。
 -->
@@ -20,7 +21,7 @@
   --type:"Courier Prime","Courier New",monospace;
   --ease-out:cubic-bezier(.22,.8,.2,1);
 }
-html,body{height:100%}
+html,body{height:100%;margin:0}
 body{background:var(--paper);color:var(--text);font-family:var(--type);overflow:hidden;
   padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));box-sizing:border-box}
 /* 布纹：白天深纤维、夜里浅纤维，两层按夜的程度交叉 */
@@ -29,9 +30,9 @@ body::before{background-image:var(--grain-day);opacity:calc(1 - var(--n))}
 body::after{background-image:var(--grain-night);opacity:var(--n)}
 
 .stage{position:relative;z-index:1;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding-block:16px;box-sizing:border-box}
-.art{position:relative;width:min(100%,calc((100vh - 150px) * 2 / 3),520px);aspect-ratio:2/3;max-width:100%;flex:none;
+.art{position:relative;width:min(100%,calc((100vh - 250px) * 2 / 3),520px);aspect-ratio:2/3;max-width:100%;flex:none;
   background-color:#1E2436;background-image:var(--grain-night)}
-@supports (height:1dvh){.art{width:min(100%,calc((100dvh - 150px) * 2 / 3),520px)}}
+@supports (height:1dvh){.art{width:min(100%,calc((100dvh - 250px) * 2 / 3),520px)}}
 
 /* 一季的一个时段 = 一叠：纸 + 天 + 院子（只从玻璃里露）+ 窗。每叠自成一组、铺满纸，叠与叠之间才能干净地交叉淡化 */
 .st{position:absolute;inset:0;isolation:isolate;opacity:0;visibility:hidden;
@@ -48,6 +49,15 @@ body::after{background-image:var(--grain-night);opacity:var(--n)}
 .st.night .out img{opacity:.85}
 
 .month{font-size:12px;letter-spacing:.32em;padding-left:.32em;color:var(--ink);height:14px;line-height:14px;font-variant-numeric:tabular-nums}
+/* 锁屏那三行（照 InkWindowLock）：系统名 / 时间 / 月份。字先占好位置再一格格点亮，画不会被挤得跳 */
+.lock{display:flex;flex-direction:column;align-items:center;margin-top:8px}
+.lock .lab{font-size:12px;letter-spacing:.32em;padding-left:.32em;color:var(--ink);line-height:14px}
+.lock .time{font-size:34px;line-height:1;letter-spacing:.06em;padding-left:.06em;color:var(--text);margin-top:12px;font-variant-numeric:tabular-nums}
+.lock .month{margin-top:12px;letter-spacing:.2em;padding-left:.2em}
+.lock span{display:inline-block;white-space:pre;position:relative;opacity:0}
+.lock span.on{opacity:1}
+/* 光标只有一块，挂在刚敲完 / 正要删的字后面 */
+.lock i{position:absolute;left:100%;top:.05em;width:.55em;height:1em;background:var(--ink)}
 
 .bar{display:flex;align-items:center;gap:14px;width:min(100%,520px);transition:opacity .6s var(--ease-out)}
 .bar.idle{opacity:.12}
@@ -89,7 +99,11 @@ input[type=range]::-moz-range-thumb{width:7px;height:13px;background:var(--ink);
   <div class="art" id="art" role="img" aria-label="同一扇窗、同一个后院过一年：一天里太阳和月亮各走一遍，六季跟着轮一圈">
     <div class="loading" id="loading">0 / 30</div>
   </div>
-  <div class="month" id="month" aria-live="off"></div>
+  <div class="lock" aria-hidden="true">
+    <div class="lab" id="lab"></div>
+    <div class="time" id="time"></div>
+    <div class="month" id="month"></div>
+  </div>
   <div class="bar" id="bar">
     <button id="play" type="button" aria-label="暂停">PAUSE</button>
     <div class="track">
@@ -266,6 +280,25 @@ input[type=range]::-moz-range-thumb{width:7px;height:13px;background:var(--ink);
   // 月亮：19 点从左边地平线升起时是一弯新月，半夜最高时满月（正好在秋），6 点落下时又缺成一弯
   const moonPhaseAt = (h) => 0.03 + 0.94 * clamp(((h < 19 ? h + 24 : h) - 19) / 11, 0, 1); // 天亮那一下（6–7 点）还是快落下的那一弯
 
+  // 打字机（照 InkWindowLock）：天亮后 0.3s 起敲，一个字 25–60ms、1.6s 前敲完，光标闪一下收掉；
+  // 一圈最后 0.75s 退格删光，接缝那一下屏上没字，循环接得上
+  const TYPE_START = 0.3, TYPE_END = 1.6, ERASE = 0.75, ERASE_STEP = 0.03;
+  function typeAt(t, total) {
+    if (t >= TOTAL - ERASE) {
+      const count = Math.max(0, total - Math.floor((t - (TOTAL - ERASE)) / ERASE_STEP));
+      return { count, caret: count - 1, off: false };
+    }
+    if (t < TYPE_START) return { count: 0, caret: -1 };
+    const step = clamp((TYPE_END - TYPE_START) / total, 0.025, 0.06);
+    const i = Math.floor((t - TYPE_START) / step);
+    if (i < total) return { count: i + 1, caret: i, off: false };
+    const after = t - (TYPE_START + total * step);
+    if (after < 0.15) return { count: total, caret: total - 1, off: true };
+    if (after < 0.3) return { count: total, caret: total - 1, off: false };
+    return { count: total, caret: -1 };
+  }
+  const pad = (x) => String(x).padStart(2, '0');
+
   // 给定时刻 → 哪几叠露着（从下往上）、各自多透、整页有多「夜」。
   // 叠层下面垫的是夜纸，所以「日图 a 透明」合出来正好是页面在 n = 1 - a 时的纸色，画框边缘不露
   function frameAt(t) {
@@ -342,6 +375,13 @@ input[type=range]::-moz-range-thumb{width:7px;height:13px;background:var(--ink);
 
   // ── 每帧把状态落到页面上 ──
   const monthEl = document.getElementById('month');
+  const lineEls = [document.getElementById('lab'), document.getElementById('time'), monthEl];
+  const caretEl = document.createElement('i');
+  function setLine(el, text) {
+    if (el.dataset.t === text) return;
+    el.dataset.t = text;
+    el.replaceChildren(...[...text].map((ch) => { const sp = document.createElement('span'); sp.textContent = ch; return sp; }));
+  }
   const clockEl = document.getElementById('clock');
   const scrub = document.getElementById('scrub');
   let shown = new Set(), lastLabel = -1;
@@ -365,8 +405,16 @@ input[type=range]::-moz-range-thumb{width:7px;height:13px;background:var(--ink);
     root.style.setProperty('--paper', rgb(mix(PAPER, PAPER_N, n)));
     root.style.setProperty('--ink', rgb(mix(INK, GOLD, n)));
     root.style.setProperty('--text', rgb(mix(TEXT, TEXT_N, n)));
-    if (f.label !== lastLabel) { monthEl.textContent = SEASONS[f.label].label; lastLabel = f.label; }
-    monthEl.style.opacity = (0.8 * f.labelOp).toFixed(3);
+    // 时间按整点走（一秒两三个钟头，分钟跳不过来）
+    setLine(lineEls[0], 'LILIUM');
+    setLine(lineEls[1], `${pad(Math.floor(f.h) % 24)}:00`);
+    if (f.label !== lastLabel) { setLine(monthEl, SEASONS[f.label].label); lastLabel = f.label; }
+    monthEl.style.opacity = (0.75 * f.labelOp).toFixed(3);
+    const spans = lineEls.flatMap((el) => [...el.children]);
+    const ty = typeAt(f.t, spans.length);
+    spans.forEach((sp, i) => sp.classList.toggle('on', i < ty.count));
+    if (ty.caret >= 0) { spans[ty.caret].appendChild(caretEl); caretEl.style.visibility = ty.off ? 'hidden' : ''; }
+    else caretEl.remove();
     scrub.value = String(Math.round(f.t * 1000));
     clockEl.textContent = f.t.toFixed(1) + 's';
   }

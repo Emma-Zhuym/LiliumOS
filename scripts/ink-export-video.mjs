@@ -9,7 +9,7 @@
  *
  * 用法（仓库根目录）：
  *   node scripts/ink-export-video.mjs [--page docs/design/ink-year-loop.html] [--out ~/Movies/一年在窗前.mp4]
- *                                     [--fps 30] [--start 0.6] [--loops 1] [--size 1080x1920]
+ *                                     [--fps 30] [--start 0] [--loops 1] [--size 1080x1920]
  * 页面要提供 window.inkReady / window.inkTotal / window.inkSeek(sec)（见 docs/design/ink-year-loop.html 末尾）。
  */
 import { createServer } from 'node:http';
@@ -27,7 +27,7 @@ const expand = (p) => p.replace(/^~(?=$|\/)/, homedir());
 const PAGE = args.page ?? 'docs/design/ink-year-loop.html';
 const OUT = path.resolve(expand(args.out ?? '~/Movies/一年在窗前.mp4'));
 const FPS = Number(args.fps ?? 30);
-const START = Number(args.start ?? 0.6); // 从深冬的早上开始，封面那一帧好看
+const START = Number(args.start ?? 0); // 从接缝起：开头是锁屏敲字，结尾退格删光，循环播放接得上
 const LOOPS = Number(args.loops ?? 1);
 const [W, H] = (args.size ?? '1080x1920').split('x').map(Number);
 const SCALE = 2; // 页面按一半尺寸排版、两倍像素截图，线条更细
