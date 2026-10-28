@@ -226,3 +226,5 @@ Make a night version of this exact image, same composition: same apple tree, ben
 
 **秋 · 窗层（2026-10-27）**：`docs/design/ink/autumn-layer-window-{day,night}.webp`（1024×1536）。同一扇推开的窗、同样的风线，窗台上是一杯热红酒（肉桂棒、冒热气）和一片吹进来的枫叶。春、初夏、秋三张开着的窗共用一套窗扇位置
 
+**盛夏 · 窗层（2026-10-27）**：`docs/design/ink/midsummer-layer-window-{day,night}.webp`（1024×1536）。窗关着、玻璃干净，窗台上一只玻璃碗装两块西瓜、搭一把小叉子。窗格比例跟三张开着的窗一样（是那两扇窗关上的样子：上格高、横档在约 600 / 920 处），**跟初冬窗层的六格不一样**（初冬横档在约 520 / 925），所以景遮罩要按这张单独量，不能套初冬的
+
