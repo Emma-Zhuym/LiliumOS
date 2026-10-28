@@ -30,9 +30,4 @@ describe('INK_SEASONS', () => {
       expect(s.blind.top).toBeLessThan(s.blind.bottom);
     }
   });
-
-  it('只有深冬把院子往上挪', () => {
-    expect(INK_SEASONS.deepwinter.gardenShift).toBeLessThan(0);
-    expect(Object.values(INK_SEASONS).filter((s) => s.gardenShift !== 0)).toHaveLength(1);
-  });
 });

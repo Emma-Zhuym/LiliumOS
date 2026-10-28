@@ -52,7 +52,7 @@ const CSS = `
   -webkit-mask-repeat:no-repeat;mask-repeat:no-repeat}
 .ink-lock-out canvas,.ink-lock-out img,.ink-lock-win{position:absolute;inset:0;width:100%;height:100%;display:block}
 /* 白天去色映射成灰靛再正片叠底；景比窗淡（约 0.55），霜和窗外才分得出前后。夜里黑底金线直接滤色 */
-.ink-lock-out img{object-fit:cover;filter:url(#ink-lock-day-ink);mix-blend-mode:multiply;opacity:.55;translate:0 var(--garden-dy)}
+.ink-lock-out img{object-fit:cover;filter:url(#ink-lock-day-ink);mix-blend-mode:multiply;opacity:.55}
 .ink-lock-win{filter:url(#ink-lock-day-ink);mix-blend-mode:multiply}
 .is-night .ink-lock-out img,.is-night .ink-lock-win{filter:none;mix-blend-mode:screen}
 .is-night .ink-lock-out img{opacity:.85}
@@ -234,7 +234,6 @@ const InkWindowLock: React.FC<InkWindowLockProps> = ({ unreadCount, unreadName, 
       style={{
         ['--pitch' as string]: `${((size?.h ?? 0) * 0.034).toFixed(2)}px`,
         ['--glass' as string]: `url("${seasonArt(`${season.id}-glass.png`)}")`,
-        ['--garden-dy' as string]: `${season.gardenShift}%`,
         ['--blind-l' as string]: `${season.blind.left}%`,
         ['--blind-w' as string]: `${season.blind.width}%`,
         ['--blind-t' as string]: `${season.blind.top}%`,
