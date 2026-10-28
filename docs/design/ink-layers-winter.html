@@ -46,8 +46,8 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--ink);outline-of
 
 <div class="ctl">
   <div class="seg" role="group" aria-label="窗外">
-    <button type="button" data-v="street" aria-pressed="true">A 街角</button>
-    <button type="button" data-v="garden" aria-pressed="false">B 后院</button>
+    <button type="button" data-v="street" aria-pressed="false">A 街角</button>
+    <button type="button" data-v="garden" aria-pressed="true">B 后院</button>
     <button type="button" data-v="lake" aria-pressed="false">C 湖边</button>
   </div>
   <div class="seg" role="group" aria-label="天的画法">
@@ -77,7 +77,7 @@ const VIEWS={
 };
 const INK=[62,76,122],BRASS=[168,134,79];
 const art=document.getElementById('art'),sky=document.getElementById('sky'),view=document.getElementById('view'),range=document.getElementById('t'),out=document.getElementById('tOut');
-let cur='street',mode='wash';
+let cur='garden',mode='wash';
 function rng(s){return()=>{s=(s*16807)%2147483647;return(s-1)/2147483646}}
 const clamp=(x,a,b)=>Math.min(b,Math.max(a,x));
 /* 天色：暗度 d（清晨、傍晚高，白天几乎空着），暖度 w（日出日落前后在地平线撒黄铜点） */
@@ -137,5 +137,5 @@ document.querySelectorAll('[data-v]').forEach(b=>b.addEventListener('click',()=>
 document.querySelectorAll('[data-m]').forEach(b=>b.addEventListener('click',()=>{mode=b.dataset.m;document.querySelectorAll('[data-m]').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));draw()}));
 range.addEventListener('input',draw);addEventListener('resize',draw);
 const now=new Date(),nm=now.getHours()*60+now.getMinutes();range.value=nm>=360&&nm<=1140?nm-nm%10:450;
-setView('street');
+setView('garden');
 </script>
