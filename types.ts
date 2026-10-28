@@ -113,6 +113,8 @@ export interface OSTheme {
   wallpaper: string;
   /** 独立锁屏壁纸；未设置时跟随桌面 wallpaper。 */
   lockWallpaper?: string;
+  /** 锁屏样式：缺省 / 'wallpaper' 照旧用锁屏壁纸；'inkWindow' = 墨线初冬窗（components/os/InkWindowLock）。 */
+  lockStyle?: 'wallpaper' | 'inkWindow'; // [EM: ink-window-lock]
   darkMode: boolean;
   contentColor?: string;
   /** 冷启动时是否播放整机开机过场。默认开启（undefined 视为 true）。 */

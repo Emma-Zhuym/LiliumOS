@@ -1380,6 +1380,31 @@ const Appearance: React.FC = () => {
                         </span>
                     </div>
                     <p className="text-[10px] text-slate-400 mb-4">单独设置锁屏画面，不会修改桌面壁纸。</p>
+                    {/* [EM-START: ink-window-lock] 锁屏样式开关：开着用墨线窗，关着一切照旧用下面的锁屏壁纸 */}
+                    {(() => {
+                        const inkOn = theme.lockStyle === 'inkWindow';
+                        return (
+                            <div className="flex items-center gap-3 py-3 mb-4 border-y border-slate-100">
+                                <div className="min-w-0 flex-1">
+                                    <div className="text-xs font-bold text-slate-700">墨线窗</div>
+                                    <div className="mt-0.5 text-[10px] leading-relaxed text-slate-400">
+                                        初冬结霜的窗，窗外是后院；天色跟着真实时间走，夜里屋里亮灯。关掉照旧用下面的锁屏壁纸{theme.skin === 'companion' ? '（陪伴皮肤用自己的锁屏，这里开了也不换）' : ''}。
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    role="switch"
+                                    aria-checked={inkOn}
+                                    aria-label="墨线窗锁屏"
+                                    onClick={() => updateTheme({ lockStyle: inkOn ? 'wallpaper' : 'inkWindow' })}
+                                    className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${inkOn ? 'bg-primary' : 'bg-slate-300'}`}
+                                >
+                                    <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${inkOn ? 'translate-x-5' : 'translate-x-0'}`} style={{ left: 2 }} />
+                                </button>
+                            </div>
+                        );
+                    })()}
+                    {/* [EM-END: ink-window-lock] */}
                     <LongPressArea
                         className="aspect-[9/16] w-1/2 mx-auto bg-slate-100 rounded-2xl overflow-hidden relative shadow-inner mb-4 group cursor-pointer"
                         onClick={() => lockWallpaperInputRef.current?.click()}

@@ -79,7 +79,7 @@ LiliumOS 和 SullyOS 早就各走各的了（git 认的合并基线停在 2026-0
 ### 吸收后必跑自检
 
 ```bash
-bash scripts/check-em-patches.sh   # 当前 346 项锚点检查，红了就是功能被冲掉
+bash scripts/check-em-patches.sh   # 当前 353 项锚点检查，红了就是功能被冲掉
 pnpm vitest run                    # 单元测试
 ```
 
@@ -458,6 +458,15 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
   **以后给深谈加新的「带走」路径（导出、摘要、快照…）都要先想会不会把真话漏回平时**
 - 收尾时 TA 写一句只写感受的「余温」`afterglow`：当下一轮平时聊天的内心状态，并写进卡片那一行——深谈中不跑情绪评估，靠它接上氛围
 - TA 的思考存 `metadata.deepTalkThinking`，纸面 / 信笺名字旁一个手写体 `<Thinking>` 小标签点开看；不用心象卡片样式
+
+### 42. 锁屏「墨线窗」（2026-10-27）
+- 锁屏的**可选样式**：`theme.lockStyle === 'inkWindow'`（`types.ts` 行尾 `[EM: ink-window-lock]`），外观 → 锁屏壁纸里一个开关；缺省 / `'wallpaper'` 一切照旧用 `theme.lockWallpaper`，**不能把原锁屏壁纸锁死**（阿萌明确要求）。字段在 theme 里，随完整备份和外观预设走
+- `components/PhoneShell.tsx` 的 `isLocked` 分支只多一段 `[EM-START: ink-window-lock]`：开着且不是 companion 锁屏框时渲染 `components/os/InkWindowLock.tsx`；companion 皮肤照旧 `CompanionLockChrome`
+- 三层：天（canvas，`utils/inkSkyPaint.ts` 画、`utils/inkSky.ts` 算：时段表插值、冬天太阳 7:10–17:10、月相按朔望月从 2000-01-06 18:14 UTC 算、19–6 点算夜）→ 景（后院）→ 窗（霜 + 百叶 + 热水）。钟跟设备时间（锁屏是「用户自己的时间」）
+- 图在 `assets/ink/`，由组件 import，构建进 `assets/` 带 hash，`em-sw-precache-list` 自动列进离线预缓存（放 `public/` 的话 SW 不按缓存优先拦，也不在清单里）。样稿原图在 `docs/design/ink/`
+- 墨线的取值只从 `utils/inkTokens.ts` 来（纸 / 墨 / 夜色 / 字 / 线 / 动效 / 天色时段表）；参考实现 `docs/design/ink-splash-winter.html`，定值过程 `design-system/INK_DRAFT.md`
+- 踩过的坑：带动画 / 遮罩的层自成一组，组里要铺纸，不然叠底露白、滤色露黑；打字机光标脚本挪一块 `<i>`，别用每字 CSS 动画（iPhone Safari 留方块）；景比窗淡（白天 0.55）；昼夜换图要换新 img 元素（`key`），不然新图解码前旧图套着另一套滤镜闪一下
+- 本次没做：别的季节、换城市的窗外、跟天气走、开机动画
 
 ### 34. 小厨房（现实食品库存）
 - 详细设计与每次改动见 `docs/kitchen-3d.md`；UI 规则见 `APP_CONVENTIONS.md` 的 P14 与 `utils/kitchenPaperTokens.ts`

@@ -210,6 +210,8 @@ Make a night version of this exact image, same composition: same apple tree, ben
 - **第六轮 · 分隔（2026-10-27）**：节与节之间不画分隔，靠两行标题和大段留白（样稿约 84px）分开，阿萌觉得动效样稿那样就够。一节里面的列表行（如「那些夜」的日期 + 标题）照样稿用到边的细线隔开
 - **第六轮 · 返回钮（2026-10-27）**：打字机文字 `← BACK`（Courier Prime 11px、字距约 0.18em、灰靛），点按范围仍是 44×44，顶栏居中标题用宋体 600。跟 F 的裸 icon 返回钮不同，这是墨线自己的规矩。细线箭头、细线圈箭头没选
 
+**已落成代码（2026-10-27）**：`utils/inkTokens.ts`（取值）、`utils/inkSky.ts`（天色 / 太阳 / 月相），第一个用上的是锁屏墨线窗 `components/os/InkWindowLock.tsx`。
+
 **六轮全部磨完（2026-10-27）。** 下一步不急：真要做情侣空间（或把窗台、朋友圈搬过来）时，先把上面这些值落成 `utils/inkTokens.ts`（照 `clayTokens.ts` 的样子：纸 / 墨 / 夜色 / 字 / 线 / 动效 / 零件），再写 `APP_CONVENTIONS.md` 里墨线的那一节。动效的参考实现在 `docs/design/ink-motion-round5.html`
 - **动效只许「长出来、散开、落下、沉下去」，不许「坏掉」**：碎裂、爆炸、溅墨、裂纹、碎块掉落一律不要。BETWEEN US 开屏这套加上亮蓝，阿萌是生理不适（2026-10-27）；她喜欢的莲花是雨丝落下、涟漪散开、点慢慢聚成花
 - 情侣空间的意象：四季的光（见 `docs/ideas.md`）

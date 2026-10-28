@@ -8,6 +8,7 @@ import { IMPORT_IN_PROGRESS_KEY, useOS } from '../context/OSContext';
 import StatusBar from './os/StatusBar';
 import Launcher from '../apps/Launcher';
 import CompanionLockChrome from './os/CompanionLockChrome';
+import InkWindowLock from './os/InkWindowLock'; // [EM: ink-window-lock]
 import { loadCompanionFrameStyle } from './os/companionFrameStyles';
 
 // 按需懒加载各 App —— 切到对应 App 时才下载/解析其代码块，首屏只加载 Launcher 与外壳，
@@ -734,6 +735,23 @@ const PhoneShell: React.FC = () => {
     const unreadCharId = Object.keys(unreadMessages)[0];
     const unreadChar = unreadCharId ? characters.find(c => c.id === unreadCharId) : null;
     const lockCharacter = characters.find(c => c.id === activeCharacterId) || characters[0] || null;
+
+    // [EM-START: ink-window-lock] 外观里开了墨线窗就换它；companion 皮肤照旧用自己的锁屏
+    if (theme.lockStyle === 'inkWindow' && !companionLockFrame) {
+      return (
+        <InkWindowLock
+          unreadCount={unreadCount}
+          unreadName={unreadChar?.name}
+          onUnlock={() => {
+            if ('Notification' in window && Notification.permission === 'default') {
+              Notification.requestPermission();
+            }
+            unlock();
+          }}
+        />
+      );
+    }
+    // [EM-END: ink-window-lock]
 
     return (
       <div 

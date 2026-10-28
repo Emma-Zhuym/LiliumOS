@@ -457,6 +457,15 @@ check "深谈：不写情绪底色" hooks/useChatAI.ts "&& deepTalkTurn?.mode !=
 check "深谈：TA 挑的原话进记忆" utils/deepTalkActions.ts "saveKeptLineToPalace"
 check "深谈：思考小标签" components/deepTalk/DeepTalkTalk.tsx "<Thinking>"
 
+echo "── 墨线窗锁屏（可选样式，关着照旧用锁屏壁纸）──"
+check "墨线取值" utils/inkTokens.ts "export const INK_SKY_STOPS"
+check "墨线天色逻辑" utils/inkSky.ts "export function moonPhase"
+check "墨线窗锁屏组件" components/os/InkWindowLock.tsx "const InkWindowLock"
+check "锁屏样式字段" types.ts "lockStyle?: 'wallpaper' | 'inkWindow'; // [EM: ink-window-lock]"
+check "PhoneShell 引入墨线窗" components/PhoneShell.tsx "import InkWindowLock from './os/InkWindowLock'; // [EM: ink-window-lock]"
+check "PhoneShell 锁屏分支" components/PhoneShell.tsx "if (theme.lockStyle === 'inkWindow' && !companionLockFrame) {"
+check "外观页墨线窗开关" apps/Appearance.tsx "updateTheme({ lockStyle: inkOn ? 'wallpaper' : 'inkWindow' })"
+
 echo ""
 if [ $FAIL -gt 0 ]; then
     echo "🔴 $FAIL 项缺失（$PASS 项通过）——EM 功能被冲掉了，对照 .claude/CLAUDE.md 补回来"
