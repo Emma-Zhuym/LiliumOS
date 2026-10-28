@@ -424,6 +424,15 @@ input[type=range]::-moz-range-thumb{width:7px;height:13px;background:var(--ink);
     new ResizeObserver(() => { measure(); render(tNow); }).observe(art);
     render(tNow);
     setPlaying(!reduce);
+    // 导出视频用（scripts/ink-export-video.mjs）：停下来跳到第几秒，等两帧画完再截
+    window.inkSeek = (sec) => new Promise((done) => {
+      if (playing) setPlaying(false);
+      tNow = sec;
+      render(tNow);
+      requestAnimationFrame(() => requestAnimationFrame(done));
+    });
+    window.inkTotal = TOTAL;
+    window.inkReady = true;
   });
 })();
 </script>

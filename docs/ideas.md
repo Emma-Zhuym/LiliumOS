@@ -366,6 +366,7 @@ Ombre-Brain、Haven-Ombre、Serein、Latent-memory 都是 Python 自部署服务
   六季一样长（各 1.8 秒），换季跟昼夜对齐：深冬 / 春 / 初夏是完整的白天，盛夏 / 秋 / 初冬是完整的夜里（满月正好在秋），天黑、天亮那一下顺便换季（交叉 0.9 秒），其余换季是同一时辰两张图交叉 0.5 秒。起初按季节居中排，深冬和盛夏被天亮、天黑劈成两半，阿萌嫌突兀，才改成对齐。带播放 / 暂停和可拖的时间条方便截图。
   https://claude.ai/artifact/Rke6wGah6u8K6J9M9gvrnw ，源文件 `docs/design/ink-year-loop.html`（本地起 prototype 服务看，图直接读 `assets/ink/seasons/`）。锁屏代码没动；月亮比锁屏大三分之一（0.032 宽），不然月相看不出在变。
   踩过的：入夜时日图半透明，下面要垫夜纸（不是页面底色），不然画框边上露一块亮纸
+  导出视频：`node scripts/ink-export-video.mjs`（逐帧调页面的 `window.inkSeek` 截图再用 ffmpeg 合成，1080×1920、30 帧，默认存到 `~/Movies/一年在窗前.mp4`；要先装 ffmpeg 和 `~/.cache/lilium-video` 里的 Playwright，命令写在脚本开头）。以后别的墨线动画页只要也提供 `inkReady / inkTotal / inkSeek` 就能用同一个脚本导出
 
 ---
 
