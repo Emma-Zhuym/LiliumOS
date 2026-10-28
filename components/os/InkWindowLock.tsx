@@ -32,9 +32,12 @@ const PANE_MASK = `url("data:image/svg+xml,${encodeURIComponent(
   `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 ${ART_W} ${ART_H}' preserveAspectRatio='none'><g fill='#000'>${PANES.map(([x, y, w, h]) => `<rect x='${x}' y='${y}' width='${w}' height='${h}'/>`).join('')}</g></svg>`,
 )}")`;
 
-const TYPE_START_MS = 1150;
-const TYPE_STEP_MS = 65;
-const DONE_MS = 3400;
+// 字跟百叶 / 灯同时起（0.3s），在百叶收上去的那一刻（约 1.6s）打完；字少就慢点、字多（有未读）就快点，一个字 25–60ms
+const TYPE_START_MS = 300;
+const TYPE_END_MS = 1600;
+const TYPE_STEP_MAX_MS = 60;
+const TYPE_STEP_MIN_MS = 25;
+const DONE_MS = 2000;
 const IMAGE_WAIT_MS = 1500;
 const WEEKDAYS = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -162,20 +165,22 @@ const InkWindowLock: React.FC<InkWindowLockProps> = ({ unreadCount, unreadName, 
     if (loadedRef.current >= 2) setImagesReady(true);
   };
 
-  // 时间线：图层 0.7s 落定、白天 0.3s 起拉百叶 / 夜里 0.2s 起亮灯；字 1.15s 起每 65ms 敲一个，敲完光标闪两下收掉
+  // 时间线：图层 0.7s 落定、白天 0.3s 起拉百叶 / 夜里 0.2s 起亮灯；字也 0.3s 起敲，跟百叶一起收尾，光标闪一下收掉
   useEffect(() => {
     if (still || !imagesReady) return;
     setStage('play');
     const timers: ReturnType<typeof setTimeout>[] = [];
     const later = (fn: () => void, ms: number) => timers.push(setTimeout(fn, ms));
     const count = totalRef.current;
+    const step = Math.max(TYPE_STEP_MIN_MS, Math.min(TYPE_STEP_MAX_MS, (TYPE_END_MS - TYPE_START_MS) / Math.max(count, 1)));
     for (let i = 0; i < count; i++) {
-      later(() => { setTyped(i + 1); setCaret({ at: i, off: false }); }, TYPE_START_MS + i * TYPE_STEP_MS);
+      later(() => { setTyped(i + 1); setCaret({ at: i, off: false }); }, TYPE_START_MS + i * step);
     }
-    const end = TYPE_START_MS + count * TYPE_STEP_MS;
-    [0, 200, 400, 600].forEach((d, k) => later(() => setCaret((c) => (c ? { ...c, off: k % 2 === 0 } : c)), end + d));
-    later(() => { setCaret(null); setTyped(Number.POSITIVE_INFINITY); }, end + 800);
-    later(() => setStage('done'), Math.max(DONE_MS, end + 800));
+    const end = TYPE_START_MS + count * step;
+    later(() => setCaret((c) => (c ? { ...c, off: true } : c)), end);
+    later(() => setCaret((c) => (c ? { ...c, off: false } : c)), end + 150);
+    later(() => { setCaret(null); setTyped(Number.POSITIVE_INFINITY); }, end + 300);
+    later(() => setStage('done'), Math.max(DONE_MS, end + 300));
     return () => timers.forEach(clearTimeout);
   }, [still, imagesReady]);
 
