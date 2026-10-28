@@ -50,6 +50,11 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--ink);outline-of
     <button type="button" data-v="garden" aria-pressed="false">B 后院</button>
     <button type="button" data-v="lake" aria-pressed="false">C 湖边</button>
   </div>
+  <div class="seg" role="group" aria-label="天的画法">
+    <button type="button" data-m="dots" aria-pressed="false">点刻</button>
+    <button type="button" data-m="lines" aria-pressed="true">排线</button>
+    <button type="button" data-m="wash" aria-pressed="false">淡彩</button>
+  </div>
   <label class="time">时间 <input type="range" id="t" min="360" max="1140" step="10" aria-label="时间"><output id="tOut"></output></label>
 </div>
 
@@ -72,7 +77,7 @@ const VIEWS={
 };
 const INK=[62,76,122],BRASS=[168,134,79];
 const art=document.getElementById('art'),sky=document.getElementById('sky'),view=document.getElementById('view'),range=document.getElementById('t'),out=document.getElementById('tOut');
-let cur='street';
+let cur='street',mode='lines';
 function rng(s){return()=>{s=(s*16807)%2147483647;return(s-1)/2147483646}}
 const clamp=(x,a,b)=>Math.min(b,Math.max(a,x));
 /* 天色：暗度 d（清晨、傍晚高，白天几乎空着），暖度 w（日出日落前后在地平线撒黄铜点） */
@@ -88,17 +93,48 @@ function draw(){
   const r=art.getBoundingClientRect(),dpr=devicePixelRatio||1,W=r.width,H=r.height;
   sky.width=W*dpr;sky.height=H*dpr;const c=sky.getContext('2d');c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,W,H);
   const hy=H*VIEWS[cur].horizon,{d,w}=phase(h),rand=rng(7);
-  const dot=(x,y,col,a)=>{c.fillStyle=`rgba(${col},${a})`;c.beginPath();c.arc(x,y,.5,0,7);c.fill()};
-  for(let i=0,n=W*hy*.05*d;i<n;i++){const y=hy*Math.pow(rand(),1.5);dot(rand()*W,y,INK,.25+rand()*.35)}
-  for(let i=0,n=W*hy*.04*w;i<n;i++){const y=hy-Math.pow(rand(),2.2)*hy*.55;dot(rand()*W,y,BRASS,.25+rand()*.45)}
   /* 冬天的太阳：7:10 出、17:10 落，走得低 */
-  const e=Math.sin(Math.PI*(h-7.17)/10);
-  if(e>-.05){const x=W*(.18+.64*clamp((h-7.17)/10,0,1)),y=hy-e*hy*.62,R=W*.022;
-    c.save();c.beginPath();c.rect(0,0,W,hy);c.clip();c.strokeStyle=`rgb(${BRASS})`;c.lineWidth=1;c.beginPath();c.arc(x,y,R,0,7);c.stroke();c.restore()}
+  const e=Math.sin(Math.PI*(h-7.17)/10),sx=W*(.18+.64*clamp((h-7.17)/10,0,1)),sy=hy-e*hy*.45,R=W*.022,sun=e>-.05;
+  c.save();c.beginPath();c.rect(0,0,W,mode==='wash'?H:hy);c.clip();
+  if(mode==='dots'){
+    const dot=(x,y,col,a)=>{c.fillStyle=`rgba(${col},${a})`;c.beginPath();c.arc(x,y,.5,0,7);c.fill()};
+    for(let i=0,n=W*hy*.05*d;i<n;i++){const y=hy*Math.pow(rand(),1.5);dot(rand()*W,y,INK,.25+rand()*.35)}
+    for(let i=0,n=W*hy*.04*w;i<n;i++){const y=hy-Math.pow(rand(),2.2)*hy*.55;dot(rand()*W,y,BRASS,.25+rand()*.45)}
+    if(sun){c.strokeStyle=`rgb(${BRASS})`;c.lineWidth=1;c.beginPath();c.arc(sx,sy,R,0,7);c.stroke()}
+  }
+  if(mode==='lines'){
+    /* 铜版画画天的老办法：横排线，越往上越密；排线在太阳周围让出一圈白，光就出来了；日出日落时贴地平线那几道换黄铜 */
+    const halo=R*2.6;let y=1;
+    while(y<hy){
+      const t=y/hy,gap=(2.4+t*7)/(.55+d*.9);
+      const warm=w*Math.max(0,(t-.55)/.45);
+      c.strokeStyle=warm>.25?`rgba(${BRASS},${.35+warm*.4})`:`rgba(${INK},${.22+d*.35})`;c.lineWidth=.55;
+      let x=rand()*6;
+      while(x<W){const len=24+rand()*90;let x2=Math.min(W,x+len);
+        if(sun&&Math.abs(y-sy)<halo){const dx=Math.sqrt(halo*halo-(y-sy)**2);const a=sx-dx,b=sx+dx;
+          if(x<b&&x2>a){if(x<a){c.beginPath();c.moveTo(x,y);c.lineTo(a,y);c.stroke()}x=b;continue}}
+        c.beginPath();c.moveTo(x,y+(rand()-.5)*.4);c.lineTo(x2,y+(rand()-.5)*.4);c.stroke();x=x2+2+rand()*5}
+      y+=gap}
+    if(sun){c.strokeStyle=`rgb(${BRASS})`;c.lineWidth=.9;c.beginPath();c.arc(sx,sy,R,0,7);c.stroke();
+      for(let k=0;k<20;k++){const a=k/20*Math.PI*2,r1=R*1.35,r2=R*(k%2?1.75:2.15);c.lineWidth=.6;c.beginPath();c.moveTo(sx+Math.cos(a)*r1,sy+Math.sin(a)*r1);c.lineTo(sx+Math.cos(a)*r2,sy+Math.sin(a)*r2);c.stroke()}}
+  }
+  if(mode==='wash'){
+    /* 手工上色的老版画：一层很淡的水彩罩在天上，颜色取阿萌家里那几样沉下去的颜色；横着一笔笔刷，深浅不匀才像水彩 */
+    const blue=[150,163,190],caramel=[196,150,104],dusk=[96,106,140];
+    /* 水彩不在地平线上切一刀：往下再刷一段、越来越淡，屋顶和树梢被轻轻染到 */
+    const end=hy+H*.16;
+    for(let y=0;y<end;y+=2){const t=Math.min(1,y/hy),fade=y<hy?1:1-(y-hy)/(end-hy);const warm=w*Math.pow(t,1.6);const dk=d*(1-t)*.8;
+      const col=blue.map((v,k)=>Math.round(v*(1-warm-dk*.5)+caramel[k]*warm+dusk[k]*dk*.5));
+      const a=(.16+warm*.22+dk*.18)*fade;
+      for(let x=0;x<W;){const len=30+rand()*120;c.fillStyle=`rgba(${col},${(a*(.8+rand()*.4)).toFixed(3)})`;c.fillRect(x,y,len+1,2.2);x+=len}}
+    if(sun){c.fillStyle='rgba(214,180,118,.55)';c.beginPath();c.arc(sx,sy,R,0,7);c.fill();c.strokeStyle=`rgb(${BRASS})`;c.lineWidth=.8;c.stroke()}
+  }
+  c.restore();
 }
 function setView(v){cur=v;view.src=VIEWS[v].src;view.style.transform=`scale(${VIEWS[v].scale})`;
-  document.querySelectorAll('.seg button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.v===v)));draw()}
-document.querySelectorAll('.seg button').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.v)));
+  document.querySelectorAll('[data-v]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.v===v)));draw()}
+document.querySelectorAll('[data-v]').forEach(b=>b.addEventListener('click',()=>setView(b.dataset.v)));
+document.querySelectorAll('[data-m]').forEach(b=>b.addEventListener('click',()=>{mode=b.dataset.m;document.querySelectorAll('[data-m]').forEach(x=>x.setAttribute('aria-pressed',String(x===b)));draw()}));
 range.addEventListener('input',draw);addEventListener('resize',draw);
 const now=new Date(),nm=now.getHours()*60+now.getMinutes();range.value=nm>=360&&nm<=1140?nm-nm%10:450;
 setView('street');
