@@ -468,6 +468,7 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - 墨线的取值只从 `utils/inkTokens.ts` 来（纸 / 墨 / 夜色 / 字 / 线 / 动效 / 天色时段表）；参考实现 `docs/design/ink-splash-winter.html`，定值过程 `design-system/INK_DRAFT.md`
 - 踩过的坑：带动画 / 遮罩的层自成一组，组里要铺纸，不然叠底露白、滤色露黑；打字机光标脚本挪一块 `<i>`，别用每字 CSS 动画（iPhone Safari 留方块）；景比窗淡（白天 0.55）；昼夜换图要换新 img 元素（`key`），不然新图解码前旧图套着另一套滤镜闪一下
 - **会自己锁回去**（2026-10-27）：OSContext 多了 `lock()`（`[EM: ink-window-lock]`）；`hooks/useInkAutoRelock.ts` 记切后台的时刻，回前台时按 `utils/inkAutoRelock.ts` 判断，开着墨线窗且离开 ≥ 15 分钟就锁上（阿萌定 15 分钟，不做成可调）。普通锁屏壁纸不受影响。桌面时钟双击锁屏：`components/os/InkClockLockTap.tsx` 包在 `Launcher.tsx` 的两处 `<DesktopClock />` 外面（固定时钟页 + 自由网格里的时钟小组件），也只在墨线窗开着时生效，编辑桌面时不管；要 `touch-action: manipulation`，不然 iPhone 把双击当放大
+- **衬底**（2026-10-29）：`.ink-lock` 底色是衬底色，`::before` 铺一张方角纸（`INK_MOUNT`：三边 24px、下边 40px、淡影子）；纸只盖外圈，窗和字仍按整屏算尺寸（阿萌要「窗不缩」）。根节点 `isolation:isolate` 是为了让 `z-index:-1` 的纸留在根节点里面，别删
 - 本次没做：太阳出落还是冬天那套、换城市的窗外、跟天气走（雨痕样稿在 `docs/design/ink-splash-winter.html`）、开机动画
 
 ### 43. 贴贴事后记录（2026-10-28）

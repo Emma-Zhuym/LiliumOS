@@ -12,7 +12,7 @@
  * 钟跟设备时间（锁屏属于「用户自己的时间」，见 docs/character-timezone.md）。点一下就解锁，不用等动画。
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { INK, INK_DAY_FILTER, INK_FONT, INK_GRAIN, INK_MOTION, INK_NIGHT, INK_PAPER } from '../../utils/inkTokens';
+import { INK, INK_DAY_FILTER, INK_FONT, INK_GRAIN, INK_MOTION, INK_MOUNT, INK_NIGHT, INK_PAPER } from '../../utils/inkTokens';
 import { hourOf, isInkNight } from '../../utils/inkSky';
 import { paintInkSky } from '../../utils/inkSkyPaint';
 import { inkSeasonOf } from '../../utils/inkSeasons';
@@ -38,10 +38,15 @@ const pad = (n: number) => String(n).padStart(2, '0');
 const CSS = `
 @property --ink-lamp{syntax:'<percentage>';inherits:false;initial-value:150%}
 .ink-lock{--paper:${INK_PAPER.paper};--grain:${INK_GRAIN.day};--ink:${INK.ink};--text:${INK.text};--slat:${INK.faint};
-  position:relative;width:100%;height:100%;overflow:hidden;container-type:size;cursor:pointer;user-select:none;-webkit-user-select:none;
-  background-color:var(--paper);background-image:var(--grain);color:var(--text);
+  --mount:${INK_PAPER.mount};--sheet-shadow:${INK_MOUNT.shadowDay};
+  position:relative;width:100%;height:100%;overflow:hidden;container-type:size;isolation:isolate;cursor:pointer;user-select:none;-webkit-user-select:none;
+  background-color:var(--mount);color:var(--text);
   display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:${INK_FONT.serif}}
-.ink-lock.is-night{--paper:${INK_NIGHT.paper};--grain:${INK_GRAIN.night};--ink:${INK_NIGHT.gold};--text:${INK_NIGHT.text}}
+.ink-lock.is-night{--paper:${INK_NIGHT.paper};--grain:${INK_GRAIN.night};--ink:${INK_NIGHT.gold};--text:${INK_NIGHT.text};
+  --mount:${INK_NIGHT.mount};--sheet-shadow:${INK_MOUNT.shadowNight}}
+/* 纸托在衬底上：方角纸片只盖住外圈，窗和字照整屏排，不跟着纸缩 */
+.ink-lock::before{content:"";position:absolute;inset:${INK_MOUNT.inset};z-index:-1;pointer-events:none;
+  background-color:var(--paper);background-image:var(--grain);box-shadow:var(--sheet-shadow)}
 .ink-lock:focus-visible{outline:2px solid var(--ink);outline-offset:-4px}
 /* 带动画 / 遮罩的层会自成一组，叠底 / 滤色只能跟组里的底色混，所以每一层都铺一层纸，不然露白底或黑框 */
 .ink-lock-art{position:relative;width:min(78cqw,calc((100cqh - 230px) * 2 / 3));aspect-ratio:2/3;opacity:0;

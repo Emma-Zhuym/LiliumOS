@@ -28,6 +28,14 @@ export const INK_NIGHT = {
   text:  '#E4E1D8',
 } as const;
 
+// ── 衬底（2026-10-29 阿萌定，锁屏）：方角纸片搁在衬板上，三边 24px、下边 40px，底下一层很淡的影子。
+//    纸只盖住外圈，纸上的东西照整屏排（窗不跟着缩）；手机屏圆角会削掉离边 18px 以内的纸角 ──
+export const INK_MOUNT = {
+  inset: '24px 24px 40px',
+  shadowDay: '0 .5px 1px rgba(35,39,58,.14), 0 3px 9px rgba(35,39,58,.09)',
+  shadowNight: '0 .5px 1px rgba(8,10,18,.5), 0 4px 12px rgba(8,10,18,.38)',
+} as const;
+
 /** 布纹：横向拉长的分形噪声，白天深色纤维、夜里浅色纤维。直接当 background-image 用 */
 const grainSvg = (r: string, g: string, b: string, alpha: string) =>
   `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260'%3E%3Cfilter id='c' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9 .25' numOctaves='2' seed='5' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 ${r} 0 0 0 0 ${g} 0 0 0 0 ${b} 0 0 0 ${alpha}'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23c)'/%3E%3C/svg%3E")`;
