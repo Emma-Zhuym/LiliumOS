@@ -28,10 +28,11 @@ export const INK_NIGHT = {
   text:  '#E4E1D8',
 } as const;
 
-// ── 衬底（2026-10-29 阿萌定，锁屏）：方角纸片搁在衬板上，三边 24px、下边 40px，底下一层很淡的影子。
+// ── 衬底（2026-10-29 阿萌定，锁屏）：方角纸片搁在衬板上，左右 24px，底下一层很淡的影子。
+//    上边让过状态栏 / 灵动岛、下边让过 Home 横条，这两样落在衬板上而不是压着纸边；没有安全区时退回 24 / 40。
 //    纸只盖住外圈，纸上的东西照整屏排（窗不跟着缩）；手机屏圆角会削掉离边 18px 以内的纸角 ──
 export const INK_MOUNT = {
-  inset: '24px 24px 40px',
+  inset: 'max(24px, calc(var(--safe-top, 0px) + 6px)) 24px max(40px, calc(var(--safe-bottom, 0px) + 16px))',
   shadowDay: '0 .5px 1px rgba(35,39,58,.14), 0 3px 9px rgba(35,39,58,.09)',
   shadowNight: '0 .5px 1px rgba(8,10,18,.5), 0 4px 12px rgba(8,10,18,.38)',
 } as const;
