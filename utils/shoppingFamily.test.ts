@@ -11,6 +11,8 @@ import {
     orderCardLines,
     isHiddenFromChar,
     isHiddenFromUser,
+    isArrivalNoticeStale,
+    orderItemsForChar,
     isShopRecord,
     normalizeFamilyLinks,
     orderPriceText,
@@ -110,6 +112,26 @@ describe('buildFamilyShoppingContext · 我给我买', () => {
         const text = buildFamilyShoppingContext([old, net], products, 'c1', ['c1'], NOW)!;
         expect(text).not.toContain('招牌热奶茶');
         expect(text).toContain('网购（小熊玩偶×1）应该已经到了');
+    });
+});
+
+describe('送达提醒 · 给 TA 看的内容和什么时候收起', () => {
+    it('心跳礼物带上 detail，TA 才知道自己买了什么', () => {
+        const o = order({ isGiftFromChar: true, lines: [], custom: { title: '无印良品', detail: '一条灰色羊绒围巾，她说冷' } });
+        expect(orderItemsForChar(o, products)).toBe('无印良品（一条灰色羊绒围巾，她说冷）');
+        expect(orderItemsForChar(order({ lines: [], custom: { title: '奶茶' } }), products)).toBe('奶茶');
+    });
+
+    it('TA 在送达之后开过口就收起，之前说的话不算', () => {
+        const o = order({ status: 'done', awaitingReply: true, awaitingSince: NOW - 30 * MIN });
+        expect(isArrivalNoticeStale(o, NOW, NOW - 40 * MIN)).toBe(false);
+        expect(isArrivalNoticeStale(o, NOW, NOW - 10 * MIN)).toBe(true);
+        expect(isArrivalNoticeStale(o, NOW)).toBe(false);
+    });
+
+    it('放了 6 小时没人接也收起；旧数据没有 awaitingSince 按送达时刻算', () => {
+        expect(isArrivalNoticeStale(order({ awaitingReply: true, awaitingSince: NOW - 7 * 60 * MIN }), NOW)).toBe(true);
+        expect(isArrivalNoticeStale(order({ awaitingReply: true, etaTimestamp: NOW - 26 * 60 * MIN }), NOW)).toBe(true);
     });
 });
 

@@ -7,7 +7,7 @@
 
 import { ShoppingDB, type ShopOrder } from './shoppingDb';
 import { sweepDeliveries } from './shoppingDeliverySweep';
-import { buildFamilyShoppingContext, FAMILY_LINKS_KEY, isHiddenFromChar, normalizeFamilyLinks, orderItemsText } from './shoppingFamily'; // [EM: shopping-family]
+import { buildFamilyShoppingContext, FAMILY_LINKS_KEY, isArrivalNoticeStale, isHiddenFromChar, normalizeFamilyLinks, orderItemsForChar } from './shoppingFamily'; // [EM: shopping-family]
 
 function isEtaDateReached(etaTimestamp: number): boolean {
   const eta = new Date(etaTimestamp);
@@ -17,7 +17,11 @@ function isEtaDateReached(etaTimestamp: number): boolean {
     || (today.getFullYear() === eta.getFullYear() && today.getMonth() === eta.getMonth() && today.getDate() >= eta.getDate());
 }
 
-export async function buildShoppingDeliveryContext(charId: string): Promise<string | null> {
+/**
+ * lastCharReplyAt：这个角色最近一条自己说的话的时间。回复走 mini / amsg / 心跳时
+ * 不经过 captureReply，靠它判断送达提醒 TA 已经接过了（否则会挂一两天）。
+ */
+export async function buildShoppingDeliveryContext(charId: string, lastCharReplyAt?: number): Promise<string | null> {
   try {
     // 到点自动收货+发卡片（先于读订单，保证下面读到的状态是最新的）
     await sweepDeliveries();
@@ -36,7 +40,7 @@ export async function buildShoppingDeliveryContext(charId: string): Promise<stri
       if (!o.receiverCharId || o.receiverCharId !== charId) continue;
       if (o.selfOrder) continue; // [EM: shopping-family] 自己给自己买的不是投喂
 
-      const items = orderItemsText(o, products); // [EM: shopping-family] 填单 / 心跳订单不在商品目录里
+      const items = orderItemsForChar(o, products); // [EM: shopping-family] 填单 / 心跳订单不在商品目录里，礼物带上买了什么
 
       if (!items) continue;
       // [EM-START: shopping-family] 惊喜礼物：送到前收礼一方不知道内容，送达那轮正常揭晓
@@ -50,6 +54,10 @@ export async function buildShoppingDeliveryContext(charId: string): Promise<stri
 
       // 已确认收货但角色还没回应 → 强提醒
       if (o.status === 'done' && o.awaitingReply) {
+        if (isArrivalNoticeStale(o, now, lastCharReplyAt)) {
+          await ShoppingDB.saveOrder({ ...o, awaitingReply: false });
+          continue;
+        }
         if (isGift) {
           giftDelivered.push(`你买的${o.type === 'food' ? '外卖' : '快递'}（${items}）已送达给用户${noteClause}`);
         } else if (o.type === 'food') {
@@ -65,7 +73,7 @@ export async function buildShoppingDeliveryContext(charId: string): Promise<stri
       if (isGift) {
         if (o.etaTimestamp <= now) {
           giftDelivered.push(`你买的${o.type === 'food' ? '外卖' : '快递'}（${items}）刚送到用户手上了${noteClause}`);
-          await ShoppingDB.saveOrder({ ...o, status: 'done', awaitingReply: true });
+          await ShoppingDB.saveOrder({ ...o, status: 'done', awaitingReply: true, awaitingSince: now });
         } else {
           const remainMin = Math.ceil((o.etaTimestamp - now) / 60000);
           if (o.type === 'food') {
@@ -78,7 +86,7 @@ export async function buildShoppingDeliveryContext(charId: string): Promise<stri
       } else if (o.type === 'food') {
         if (o.etaTimestamp <= now) {
           justDelivered.push(`外卖（${items}）刚刚送到了${noteClause}`);
-          await ShoppingDB.saveOrder({ ...o, status: 'done', awaitingReply: true });
+          await ShoppingDB.saveOrder({ ...o, status: 'done', awaitingReply: true, awaitingSince: now });
         } else {
           const remainMin = Math.ceil((o.etaTimestamp - now) / 60000);
           if (now - o.placedAt < 5 * 60 * 1000) {

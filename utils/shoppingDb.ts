@@ -39,6 +39,8 @@ export interface ShopOrder {
   lines: OrderLine[];
   isGiftFromChar?: boolean;
   awaitingReply?: boolean;
+  /** 标上 awaitingReply 的时刻：TA 在这之后说过话，或者放了 6 小时，送达提醒就收起 */
+  awaitingSince?: number;
   charReply?: string;
   // [EM-START: shopping-family]
   /** 'user' = 我给自己买；'char' = 家属关联角色在心跳里给自己买（只读映射，不入库）。 */
@@ -155,7 +157,7 @@ export const ShoppingDB = {
     const orders = await getAll<ShopOrder>(STORE_ORDERS);
     for (const o of orders) {
       if (o.awaitingReply && o.receiverCharId === charId) {
-        await put(STORE_ORDERS, { ...o, awaitingReply: false, charReply: reply });
+        await put(STORE_ORDERS, { ...o, awaitingReply: false, awaitingSince: undefined, charReply: reply });
       }
     }
   },

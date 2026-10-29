@@ -894,7 +894,8 @@ export const useChatAI = ({
             // EM: 每次发消息前实时读今日健康摘要，确保下午锻炼后立刻生效
             const freshHealthSummary = await buildTodayHealthSummary().catch(() => null);
             // EM: 购物送达感知 — ETA 到了就注入角色 prompt
-            const shoppingDelivery = await buildShoppingDeliveryContext(char.id).catch(() => null);
+            const lastCharReplyAt = contextMsgs.reduce((at, m) => (m.role === 'assistant' && m.timestamp > at ? m.timestamp : at), 0); // [EM: shopping-arrival-stale]
+            const shoppingDelivery = await buildShoppingDeliveryContext(char.id, lastCharReplyAt || undefined).catch(() => null);
 
             // ─── 即时对话的路由在构建 payload 之前就定下来 ───
             // 走云端的那份 prompt 不烤前端时效段（时钟/节日/天气/热搜/MCP 说明由 worker

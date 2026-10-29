@@ -126,6 +126,21 @@ export const orderItemsText = (order: ShopOrder, products: ShopProduct[]) =>
         ? order.custom.title
         : productLines(order, products).map(({ line, product }) => `${product.name}×${line.qty}`).join('、');
 
+/** 给 TA 看的订单内容：心跳礼物的 with 只是店名 / 商品名，买了什么、为什么挑写在 detail，一起给。 */
+export const orderItemsForChar = (order: ShopOrder, products: ShopProduct[]) => {
+    const items = orderItemsText(order, products);
+    const detail = order.custom?.detail?.trim();
+    return items && detail ? `${items}（${detail}）` : items;
+};
+
+/** 送到了、等 TA 回应的那句提醒放多久：TA 在送达之后开过口，或者过了 6 小时，就收起来。 */
+export const ARRIVAL_NOTICE_TTL_MS = 6 * 60 * 60 * 1000;
+export const isArrivalNoticeStale = (order: ShopOrder, now: number, lastCharReplyAt?: number) => {
+    const since = order.awaitingSince ?? order.etaTimestamp ?? order.placedAt;
+    if (now - since > ARRIVAL_NOTICE_TTL_MS) return true;
+    return !!lastCharReplyAt && lastCharReplyAt > since;
+};
+
 /** 订单金额文字：目录商品按单价合计，心跳订单原样用它写的价格。 */
 export const orderPriceText = (order: ShopOrder, products: ShopProduct[]) => {
     if (order.custom) return order.custom.price ?? '';

@@ -1372,10 +1372,10 @@ const ShoppingApp: React.FC = () => {
                 const items = orderLines.map(l => l.name);
                 const total = orderLines.reduce((s, l) => s + l.price * l.qty, 0);
                 const typeLabel = o.type === 'food' ? '外卖' : '快递';
-                await ShoppingDB.saveOrder({ ...o, status: 'done', awaitingReply: true });
+                await ShoppingDB.saveOrder({ ...o, status: 'done', awaitingReply: true, awaitingSince: Date.now() });
                 if (o.receiverCharId) {
                   const kind = o.isGiftFromChar ? 'gift_delivered' : 'delivery_arrived';
-                  await DB.saveMessage({ charId: o.receiverCharId, role: 'user', type: 'interaction', content: `📦`, metadata: { kind, typeLabel, items, receiver: o.receiver, isGiftFromChar: !!o.isGiftFromChar, orderLines, total, orderType: o.type, note: o.note } });
+                  await DB.saveMessage({ charId: o.receiverCharId, role: 'user', type: 'interaction', content: `📦`, metadata: { kind, typeLabel, items, receiver: o.receiver, isGiftFromChar: !!o.isGiftFromChar, orderLines, total, orderType: o.type, note: o.note, detail: o.custom?.detail } });
                 }
                 await refresh();
                 flash('已确认收货 ✓');

@@ -25,7 +25,7 @@ export async function sweepDeliveries(): Promise<void> {
       if (o.status !== 'active' || !o.etaTimestamp || o.etaTimestamp > now) continue;
 
       // 先翻状态再发卡片：两个调用点并发时，第二个进来看到 status 已变就跳过
-      await ShoppingDB.saveOrder({ ...o, status: 'done', awaitingReply: true });
+      await ShoppingDB.saveOrder({ ...o, status: 'done', awaitingReply: true, awaitingSince: now });
 
       if (!o.receiverCharId) continue;
 
@@ -49,6 +49,7 @@ export async function sweepDeliveries(): Promise<void> {
           total,
           orderType: o.type,
           note: o.note,
+          detail: o.custom?.detail, // 心跳礼物「买了什么、为什么挑」在这里，不带 TA 就只知道店名
         },
         timestamp: o.etaTimestamp, // 卡片盖"送达那一刻"的时间，聊天记录时间线正确
       } as any);
