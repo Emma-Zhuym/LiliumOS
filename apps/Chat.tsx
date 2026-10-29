@@ -22,6 +22,13 @@ import DeepTalkInviteSheet from '../components/deepTalk/DeepTalkInviteSheet'; //
 import { DeepTalkOverlays } from '../components/deepTalk/DeepTalkLetter';
 import { DEEP_TALK_RELIGHT_EVENT, openDeepTalkLetter, useActiveDeepTalk } from '../components/deepTalk/useDeepTalk';
 // [EM-END: deep-talk]
+// [EM-START: tietie-record]
+import { expiredTietieSession, clearTietieSession, readTietieSession } from '../utils/tietie';
+import { writeTietieRecord } from '../utils/tietieActions';
+import { TietieDB } from '../utils/tietieDb';
+import { TietieOverlays } from '../components/tietie/TietieDiary';
+import { TIETIE_ENDED_EVENT, TIETIE_RETRY_EVENT } from '../components/tietie/useTietie';
+// [EM-END: tietie-record]
 import { DB } from '../utils/db';
 import { isVisibleChatMessage } from '../utils/chatMessageVisibility';
 import { createChatHistoryWindow, expandChatHistoryWindow, type ChatHistoryWindowRange } from '../utils/chatHistoryWindow';
@@ -1088,6 +1095,57 @@ const Chat: React.FC = () => {
         void flushDeepTalkSnapshot();
     }, [deepTalkNight, flushDeepTalkSnapshot]);
     // [EM-END: deep-talk]
+
+    // [EM-START: tietie-record] 贴贴结束：TA 用自己的 API 写这一次（契约见 docs/spec-tietie-record.md）
+    const handleTietieWrite = useCallback(async (startedAt: number, endedAt: number, endedBy: 'manual' | 'timeout') => {
+        const current = charRef.current;
+        if (!current || !userProfile) return;
+        addToast(`${current.name}在写这一次……`, 'info');
+        try {
+            const record = await writeTietieRecord({
+                char: current,
+                user: userProfile,
+                api: resolveCharacterApiConfig(current, apiConfig, apiPresets).apiConfig,
+                // 记忆写成一条卧室记忆；没开记忆宫殿就不写
+                palace: current.memoryPalaceEnabled ? { embedding: memoryPalaceConfig?.embedding, remote: remoteVectorConfig } : null,
+                startedAt,
+                endedAt,
+                endedBy,
+            });
+            if (charRef.current?.id === current.id) await reloadMessages(visibleCountRef.current);
+            if (record?.status === 'failed') addToast(`${current.name}没写出来，卡片上可以再写一次`, 'error');
+        } catch (e: any) {
+            addToast(e?.message || '事后记录没写成', 'error');
+        }
+    }, [userProfile, apiConfig, apiPresets, memoryPalaceConfig, remoteVectorConfig, reloadMessages, addToast]);
+    useEffect(() => {
+        const onEnded = (event: Event) => {
+            const detail = (event as CustomEvent<{ charId?: string; startedAt?: number; endedAt?: number }>).detail;
+            if (detail?.charId && detail.charId === charRef.current?.id && detail.startedAt && detail.endedAt) {
+                void handleTietieWrite(detail.startedAt, detail.endedAt, 'manual');
+            }
+        };
+        const onRetry = (event: Event) => {
+            const detail = (event as CustomEvent<{ charId?: string; recordId?: string }>).detail;
+            if (!detail?.recordId || detail.charId !== charRef.current?.id) return;
+            void TietieDB.get(detail.recordId).then(r => { if (r) void handleTietieWrite(r.startedAt, r.endedAt, r.endedBy); });
+        };
+        window.addEventListener(TIETIE_ENDED_EVENT, onEnded);
+        window.addEventListener(TIETIE_RETRY_EVENT, onRetry);
+        return () => {
+            window.removeEventListener(TIETIE_ENDED_EVENT, onEnded);
+            window.removeEventListener(TIETIE_RETRY_EVENT, onRetry);
+        };
+    }, [handleTietieWrite]);
+    // 忘了点结束、2 小时到了：打开这个角色的聊天时补写
+    useEffect(() => {
+        if (!char?.id || !userProfile) return;
+        const expired = expiredTietieSession(readTietieSession(char.id));
+        if (!expired) return;
+        clearTietieSession(char.id);
+        void handleTietieWrite(expired.startedAt, expired.until, 'timeout');
+    }, [char?.id, userProfile, handleTietieWrite]);
+    // [EM-END: tietie-record]
 
     useEffect(() => {
         if (activeCharacterId) {
@@ -3361,6 +3419,7 @@ const Chat: React.FC = () => {
                  isTyping={isTyping} ending={deepTalkEnding} onBack={() => setMessageSubView('contacts')}
                  onSend={handleDeepTalkSend} onEnd={() => void handleDeepTalkEnd('end')} />}
              <DeepTalkOverlays char={char} userName={deepTalkNames.userName} />
+             <TietieOverlays char={char} />{/* [EM: tietie-record] */}
              <DeepTalkInviteSheet open={deepTalkSheetOpen} charName={char.name} onClose={() => setDeepTalkSheetOpen(false)}
                  onNow={() => void handleDeepTalkInvite()}
                  onSchedule={clock => { const at = proposedAtFromClock(clock, new Date()); if (at) void handleDeepTalkInvite(at); }} />{/* [EM: deep-talk-schedule] */}

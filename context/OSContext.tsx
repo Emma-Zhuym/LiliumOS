@@ -4368,6 +4368,18 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   }
               })(),
               // [EM-END: deep-talk]
+              // [EM-START: tietie-record] 贴贴事后记录（日记、记忆原文；卡片随聊天消息走）
+              ...await (async () => {
+                  if (mode !== 'text_only' && mode !== 'full') return {};
+                  try {
+                      const { TietieDB } = await import('../utils/tietieDb');
+                      return { emTietieRecords: await TietieDB.exportAll() };
+                  } catch (error) {
+                      console.warn('EM TietieDB backup failed:', error);
+                      return {};
+                  }
+              })(),
+              // [EM-END: tietie-record]
 
               // [EM-START: map-backup-export] LiliumOS 地图系统（legacy IndexedDB: SullyEM_Map）
               ...await (async () => {
@@ -5392,6 +5404,14 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               } catch (e) { console.warn('EM DeepTalkDB restore failed:', e); }
           }
           // [EM-END: deep-talk]
+          // [EM-START: tietie-record]
+          if (data.emTietieRecords !== undefined) {
+              try {
+                  const { TietieDB } = await import('../utils/tietieDb');
+                  await TietieDB.importAll(data.emTietieRecords);
+              } catch (e) { console.warn('EM TietieDB restore failed:', e); }
+          }
+          // [EM-END: tietie-record]
 
           // [EM-START: map-backup-restore] LiliumOS 地图系统（legacy IndexedDB: SullyEM_Map）
           if (data.emMapWorlds !== undefined) {

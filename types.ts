@@ -4445,6 +4445,7 @@ export interface FullBackupData {
     emShoppingSettings?: { key: string; value: unknown }[];
     emMoments?: import('./utils/momentsDb').MomentsBackup; // [EM: moments] 朋友圈（文字备份不带图）
     emDeepTalkNights?: import('./utils/deepTalk').DeepTalkNight[]; // [EM: deep-talk] 烛下每一夜的记录
+    emTietieRecords?: import('./utils/tietie').TietieRecord[]; // [EM: tietie-record] 贴贴事后记录
     emMapWorlds?: any[];
     emKitchenFoods?: any[]; // [EM: kitchen-app]
     emKitchenLots?: any[]; // [EM: kitchen-app]

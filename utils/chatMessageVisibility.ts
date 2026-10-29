@@ -14,7 +14,8 @@ export const isVisibleChatMessage = (message: Message, hideSystemLogs = false, h
     // [EM: chat-hide-activity-cards] 保留主动分享的浏览器卡片。
     && (!hideActivityCards || !ACTIVITY_CARD_TYPES.has(message.type) || (message.type === 'social_card' && message.metadata?.post?.source === 'browser_extension'))
     && !(hideSystemLogs && message.role === 'system' && message.type !== 'score_card'
-        && !String(message.metadata?.kind || '').startsWith('deep_talk_')) // [EM: deep-talk] 蜡烛气泡和折叠卡不算系统日志
+        && !String(message.metadata?.kind || '').startsWith('deep_talk_') // [EM: deep-talk] 蜡烛气泡和折叠卡不算系统日志
+        && message.metadata?.kind !== 'tietie_card') // [EM: tietie-record] 贴贴事后记录卡也不算
 );
 
 /** 点击后进入私聊的桌面消息卡，与聊天页共用来源过滤，不展示系统日志。 */

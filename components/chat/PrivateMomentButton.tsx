@@ -15,6 +15,10 @@ import { Heart } from '@phosphor-icons/react';
 
 import { useOS } from '../../context/OSContext';
 import { AgentBackend, isAgentPaired, type AgentPrivateMoment } from '../../utils/emAgentBackend';
+// [EM-START: tietie-record] 结束时 TA 写事后记录：本机记下这一次从几点开始（docs/spec-tietie-record.md）
+import { beginTietieSession, clearTietieSession, readTietieSession, sessionStartFor, TIETIE_WINDOW_MS } from '../../utils/tietie';
+import { announceTietieEnded } from '../tietie/useTietie';
+// [EM-END: tietie-record]
 
 const cacheKey = (charId: string) => `em_private_moment_v1:${charId}`;
 
@@ -72,6 +76,16 @@ const PrivateMomentButton: React.FC<Props> = ({ charId, textClassName, tileClass
             const next = await AgentBackend.setPrivateMoment(charId, !active);
             setState(next);
             writeCached(charId, next);
+            // [EM-START: tietie-record]
+            const now = Date.now();
+            if (next.active) {
+                beginTietieSession(charId, next.until ? Date.parse(next.until) : now + TIETIE_WINDOW_MS, now);
+            } else {
+                const session = readTietieSession(charId);
+                clearTietieSession(charId);
+                announceTietieEnded(charId, sessionStartFor(session, now), now);
+            }
+            // [EM-END: tietie-record]
             addToast(next.active
                 ? '两个人的时间开始了：2 小时内 TA 不会主动来打扰，结束时再点一下'
                 : '两个人的时间结束了', 'success');

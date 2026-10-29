@@ -471,6 +471,16 @@ check "OSContext 挂自动锁" context/OSContext.tsx "useInkAutoRelock({ enabled
 check "墨线窗六季" utils/inkSeasons.ts "export function inkSeasonOf(date: Date): InkSeasonFrame {"
 check "桌面时钟双击锁屏" apps/Launcher.tsx "<InkClockLockTap disabled={layoutEditing}><DesktopClock /></InkClockLockTap>"
 
+echo "── 贴贴事后记录 ──"
+check "贴贴结束发事件" components/chat/PrivateMomentButton.tsx "announceTietieEnded(charId, sessionStartFor(session, now), now);"
+check "聊天页写记录" apps/Chat.tsx "void handleTietieWrite(detail.startedAt, detail.endedAt, 'manual');"
+check "聊天页挂日记" apps/Chat.tsx "<TietieOverlays char={char} />"
+check "消息列表认卡片" components/chat/MessageItem.tsx "if (m.metadata?.kind === 'tietie_card') return <TietieChatItem msg={m} charName={charName} />;"
+check "卡片不算系统日志" utils/chatMessageVisibility.ts "message.metadata?.kind !== 'tietie_card') // [EM: tietie-record]"
+check "备份导出" context/OSContext.tsx "return { emTietieRecords: await TietieDB.exportAll() };"
+check "备份恢复" context/OSContext.tsx "await TietieDB.importAll(data.emTietieRecords);"
+check "备份字段" types.ts "emTietieRecords?: import('./utils/tietie').TietieRecord[];"
+
 echo ""
 if [ $FAIL -gt 0 ]; then
     echo "🔴 $FAIL 项缺失（$PASS 项通过）——EM 功能被冲掉了，对照 .claude/CLAUDE.md 补回来"

@@ -16,6 +16,7 @@ import TokenImg from '../os/TokenImg';
 import HtmlCard from './HtmlCard';
 import QixiEventCardView from './QixiEventCard';
 import DeepTalkChatItem from '../deepTalk/DeepTalkChatItem'; // [EM: deep-talk]
+import TietieChatItem from '../tietie/TietieChatItem'; // [EM: tietie-record]
 
 // 思考链卡片支持的 12 种风格预设 — 同时被 MessageItem 与 ThinkingChainSettingsModal 复用
 export type ThinkingChainStyleId = 'echo' | 'whisper' | 'minimal' | 'ink' | 'neon' | 'terminal' | 'stellar' | 'tama' | 'pixel' | 'muji' | 'ins' | 'custom';
@@ -1737,6 +1738,7 @@ avatarShape = 'circle',
 
     // [EM: deep-talk] 烛下的蜡烛气泡（含阿萌那条邀请）和折叠卡
     if (String(m.metadata?.kind || '').startsWith('deep_talk_')) return <DeepTalkChatItem msg={m} charName={charName} />;
+    if (m.metadata?.kind === 'tietie_card') return <TietieChatItem msg={m} charName={charName} />; // [EM: tietie-record] 贴贴事后记录卡
 
     // --- SYSTEM MESSAGE RENDERING ---
     if (isSystem) {

@@ -470,6 +470,13 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - **会自己锁回去**（2026-10-27）：OSContext 多了 `lock()`（`[EM: ink-window-lock]`）；`hooks/useInkAutoRelock.ts` 记切后台的时刻，回前台时按 `utils/inkAutoRelock.ts` 判断，开着墨线窗且离开 ≥ 15 分钟就锁上（阿萌定 15 分钟，不做成可调）。普通锁屏壁纸不受影响。桌面时钟双击锁屏：`components/os/InkClockLockTap.tsx` 包在 `Launcher.tsx` 的两处 `<DesktopClock />` 外面（固定时钟页 + 自由网格里的时钟小组件），也只在墨线窗开着时生效，编辑桌面时不管；要 `touch-action: manipulation`，不然 iPhone 把双击当放大
 - 本次没做：太阳出落还是冬天那套、换城市的窗外、跟天气走（雨痕样稿在 `docs/design/ink-splash-winter.html`）、开机动画
 
+### 43. 贴贴事后记录（2026-10-28）
+- 契约 `docs/spec-tietie-record.md`，UI 模式 `APP_CONVENTIONS.md` P17b。纯逻辑 `utils/tietie.ts`，落库 / 请求 `utils/tietieActions.ts`，独立库 `utils/tietieDb.ts`（`LiliumOS_Tietie`，备份 `emTietieRecords`），界面 `components/tietie/*`
+- 开始时刻只记在本机（`em_tietie_session_v1:<charId>`）：`PrivateMomentButton` 开始时记、结束时发 `em-tietie-ended`；聊天页接住写，忘了点结束的打开聊天时补写
+- 一次调用出日记 + `memory` + `after`：`memory` 写成一条卧室记忆（标签「贴贴」），卡片消息 content 是给后续上下文的那一行（含 memory），日记全文不进上下文；删记忆时卡片那一行一起去掉细节
+- 健康 App 只读 `TietieDB` 打记号，不写 healthDb、不进健康摘要
+- 上游文件接线：`Chat.tsx`、`MessageItem.tsx`、`chatMessageVisibility.ts`、`OSContext.tsx`、`types.ts`（`check-em-patches.sh`「贴贴事后记录」一节）
+
 ### 34. 小厨房（现实食品库存）
 - 详细设计与每次改动见 `docs/kitchen-3d.md`；UI 规则见 `APP_CONVENTIONS.md` 的 P14 与 `utils/kitchenPaperTokens.ts`
 - `utils/kitchenDb.ts` 是唯一能改库存的地方（独立库 `LiliumOS_Kitchen`）：每次改数量记一笔事件、带 operationId 去重；**一起发生的一批（拍一张小票、做一道菜）一个事务写完、同一个 `batchId`，「撤销最近操作」整批撤回**，做菜撤销连「做过几次」一起退

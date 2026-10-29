@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useOS } from '../context/OSContext';
-import { CaretLeft, CaretRight, Plus, X, Drop, PencilSimple, Trash, ArrowClockwise, Camera, Gear, Barbell, MoonStars, ForkKnife, Bandaids, CalendarBlank, ChartLineUp } from '@phosphor-icons/react';
+import { CaretLeft, CaretRight, Plus, X, Drop, PencilSimple, Trash, ArrowClockwise, Camera, Gear, Barbell, MoonStars, ForkKnife, Bandaids, CalendarBlank, ChartLineUp, Heart } from '@phosphor-icons/react';
 import {
   HealthEvent, WorkoutHealthEvent, PeriodHealthEvent, SymptomHealthEvent,
   SleepHealthEvent, DietHealthEvent, WeightHealthEvent,
@@ -8,6 +8,10 @@ import {
   saveHealthEvent, deleteHealthEvent, getAllHealthEvents, buildEventMap,
 } from '../utils/healthDb';
 import { calcCycleStatus } from '../utils/cycleCalc';
+// [EM-START: tietie-record] 贴贴事后记录在日历上打个记号：只是记号，不进健康摘要、不影响经期推算
+import { TietieDB, TIETIE_CHANGED_EVENT } from '../utils/tietieDb';
+import { formatTietieDuration, tietieDayKey, tietieMinutes, type TietieRecord } from '../utils/tietie';
+// [EM-END: tietie-record]
 import { F, FONT, OVERLAY, S, R, HUE, STATUS, MOTION } from '../utils/clayTokens';
 import { HealthProfile, FitnessGoal, getHealthProfile, saveHealthProfile, calcBMR, calcTDEE, recommendCalories, calcDeficit } from '../utils/healthProfile';
 import { safeFetchJson, extractJson, extractContent } from '../utils/safeApi';
@@ -227,7 +231,7 @@ function fmtExternalSyncTime(value: string): string {
 // ── Component ──────────────────────────────────────────────────────────────────
 
 const HealthApp: React.FC = () => {
-  const { closeApp, addToast, apiConfig } = useOS();
+  const { closeApp, addToast, apiConfig, characters } = useOS(); // [EM: tietie-record] characters 给记号写名字
 
   const today    = new Date();
   const todayStr = toDateStr(today.getFullYear(), today.getMonth() + 1, today.getDate());
@@ -244,6 +248,20 @@ const HealthApp: React.FC = () => {
 
   // ── Data ──
   const [allEvents, setAllEvents] = useState<HealthEvent[]>([]);
+  // [EM-START: tietie-record]
+  const [tietieRecords, setTietieRecords] = useState<TietieRecord[]>([]);
+  useEffect(() => {
+    const load = () => { TietieDB.exportAll().then(rs => setTietieRecords(rs.filter(r => r.status === 'done'))).catch(() => setTietieRecords([])); };
+    load();
+    window.addEventListener(TIETIE_CHANGED_EVENT, load);
+    return () => window.removeEventListener(TIETIE_CHANGED_EVENT, load);
+  }, []);
+  const tietieByDay = useMemo(() => {
+    const map: Record<string, TietieRecord[]> = {};
+    for (const r of tietieRecords) (map[tietieDayKey(r.startedAt)] ||= []).push(r);
+    return map;
+  }, [tietieRecords]);
+  // [EM-END: tietie-record]
   const [isLoading, setIsLoading] = useState(true);
   const [externalHealth, setExternalHealth] = useState<ExternalHealthSnapshot | null>(() => loadExternalHealthSnapshot());
   const [externalHealthByDate, setExternalHealthByDate] = useState<Record<string, ExternalHealthSnapshot>>(
@@ -443,6 +461,7 @@ const HealthApp: React.FC = () => {
   const selSymptom = selectedEvents.find(e => e.type === 'symptom') as SymptomHealthEvent | undefined;
   const selSleep   = selectedEvents.find(e => e.type === 'sleep')   as SleepHealthEvent   | undefined;
   const selDiet    = selectedEvents.filter(e => e.type === 'diet')   as DietHealthEvent[];
+  const selTietie  = selectedDate ? (tietieByDay[selectedDate] || []) : []; // [EM: tietie-record]
 
   // ── Modal close / reset ──
   const closeRecord = () => {
@@ -1014,6 +1033,7 @@ const HealthApp: React.FC = () => {
                 const periodEv = events.find(e => e.type === 'period') as PeriodHealthEvent | undefined;
                 const hasWorkout = events.some(e => e.type === 'workout');
                 const hasSymptom = events.some(e => e.type === 'symptom');
+                const hasTietie = !!tietieByDay[dateStr]?.length; // [EM: tietie-record]
                 return (
                   <button key={dateStr} onClick={() => setSelectedDate(isSel ? null : dateStr)}
                     className={`flex flex-col items-center justify-center h-11 ${clay.pressSmall}`}
@@ -1037,6 +1057,7 @@ const HealthApp: React.FC = () => {
                       {/* 经期不画点：整格已是粉色背景 */}
                       {hasWorkout && <div style={{ width: 6, height: 6, borderRadius: '50%', background: CAT_COLORS.workout.shadow }} />}
                       {hasSymptom && <div style={{ width: 6, height: 6, borderRadius: '50%', background: CAT_COLORS.symptom.shadow }} />}
+                      {hasTietie && <Heart size={7} weight="fill" color={HUE.rose.main} aria-label="贴贴" />}{/* [EM: tietie-record] */}
                     </div>
                   </button>
                 );
@@ -1067,7 +1088,18 @@ const HealthApp: React.FC = () => {
                   </button>
                 </div>
 
-                {selectedEvents.length === 0 ? (
+                {/* [EM-START: tietie-record] 那天贴贴过：只读一行 */}
+                {selTietie.map(r => (
+                  <div key={r.id} className="mb-3 flex items-center gap-3" style={{ ...clay.card, padding: '12px 16px' }}>
+                    <Heart size={16} weight="fill" color={HUE.rose.main} style={{ flexShrink: 0 }} />
+                    <span style={{ fontSize: '14px', color: F.textPrimary, fontWeight: 600 }}>贴贴</span>
+                    <span className="min-w-0 truncate" style={{ fontSize: '13px', color: F.textSecondary }}>
+                      {[characters.find(c => c.id === r.charId)?.name, `${String(new Date(r.startedAt).getHours()).padStart(2, '0')}:${String(new Date(r.startedAt).getMinutes()).padStart(2, '0')}`, formatTietieDuration(tietieMinutes(r)), r.place].filter(Boolean).join(' · ')}
+                    </span>
+                  </div>
+                ))}
+                {/* [EM-END: tietie-record] */}
+                {selectedEvents.length === 0 && selTietie.length === 0 ? (
                   <div className="flex items-center justify-center gap-2 mt-4"
                     style={{ background: F.surfaceSunken, borderRadius: R.bigCard, boxShadow: S.sunken, padding: '20px 24px' }}>
                     <Plus size={18} weight="regular" style={{ color: F.textTertiary, flexShrink: 0 }} />
