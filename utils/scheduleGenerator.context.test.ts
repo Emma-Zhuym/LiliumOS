@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CharacterProfile, Message, UserProfile } from '../types';
-import { formatChatHistoryForSchedule, formatDailyRhythmForSchedule, formatSleepWindowForSchedule } from './scheduleGenerator';
+import { formatChatHistoryForSchedule, formatDailyRhythmForSchedule, formatSleepWindowForSchedule, recentMessagesForSchedule, SCHEDULE_HISTORY_MAX, SCHEDULE_HISTORY_MIN } from './scheduleGenerator';
 
 const char = {
     id: 'char-1',
@@ -133,3 +133,31 @@ describe('日程历史与私聊消息格式对齐', () => {
         expect(block.length).toBeLessThan(1000);
     });
 });
+
+// [EM-START: schedule-recent-context]
+describe('日程只看最近的聊天（重排太慢）', () => {
+    const NOW = new Date('2026-10-30T20:00:00Z').getTime();
+    const H = 3600_000;
+    const at = (id: number, hoursAgo: number) => msg({ id, role: 'user', type: 'text', content: `m${id}`, timestamp: NOW - hoursAgo * H });
+
+    it('只留最近一天半的', () => {
+        const old = Array.from({ length: 100 }, (_, i) => at(i, 100 - i * 0.1)); // 100–90 小时前
+        const recent = Array.from({ length: 50 }, (_, i) => at(1000 + i, 30 - i * 0.5)); // 30–5.5 小时前
+        expect(recentMessagesForSchedule([...old, ...recent], NOW).map(m => m.id)).toEqual(recent.map(m => m.id));
+    });
+
+    it('聊得很多也最多这么多条，留的是最后的', () => {
+        const messages = Array.from({ length: 400 }, (_, i) => at(i, 10 - i * 0.01));
+        const kept = recentMessagesForSchedule(messages, NOW);
+        expect(kept).toHaveLength(SCHEDULE_HISTORY_MAX);
+        expect(kept[0].id).toBe(400 - SCHEDULE_HISTORY_MAX);
+    });
+
+    it('最近没怎么聊：照样留最后几十条接前情', () => {
+        const messages = Array.from({ length: 80 }, (_, i) => at(i, 200 - i));
+        const kept = recentMessagesForSchedule(messages, NOW);
+        expect(kept).toHaveLength(SCHEDULE_HISTORY_MIN);
+        expect(kept.at(-1)?.id).toBe(79);
+    });
+});
+// [EM-END: schedule-recent-context]

@@ -79,7 +79,7 @@ LiliumOS 和 SullyOS 早就各走各的了（git 认的合并基线停在 2026-0
 ### 吸收后必跑自检
 
 ```bash
-bash scripts/check-em-patches.sh   # 当前 379 项锚点检查，红了就是功能被冲掉
+bash scripts/check-em-patches.sh   # 当前 380 项锚点检查，红了就是功能被冲掉
 pnpm vitest run                    # 单元测试
 ```
 
@@ -150,6 +150,7 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - `utils/safeAreaApps.ts` 加了 `AppID.Map`（哨兵 `[EM: map-schedule-clay]`，check 脚本有锚点）
 - MapWorld.cityName / MapRegion.description 为可选新字段，旧 IndexedDB 数据零迁移
 - 日程生成入口在聊天工具栏「日程/情绪」，地图 sheet 不放生成按钮（去找 TA 即达）
+- **日程只看最近一天半的聊天**（2026-10-30，`[EM-START: schedule-recent-context]`）：原来跟私聊读同一段范围，几万 token、重排要等好几分钟。最多 120 条、至少 30 条；更早的靠记忆宫殿召回和长期记忆，别改回整段
 - **日程密度**：`CharacterProfile.scheduleSlotCount?` 按角色保存，取值钳制为 5–12、缺省为 8；聊天日程/情绪弹窗的滑块在松手/键盘提交后才重生成，避免拖动时连续调 API。`utils/scheduleGenerator.ts` 的生活系和意识系 prompt 必须严格使用该数量，不能重新写死 5–7 或 8–10。
 
 ### 14. Finance 重设计 + 备份

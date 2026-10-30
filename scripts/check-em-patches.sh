@@ -141,6 +141,7 @@ check "Map safe-area 自理" utils/safeAreaApps.ts "[EM: map-schedule-clay]"
 check "地图世界存储模块" utils/mapWorlds.ts "matchRegionForSlot"
 check "ScheduleSlot.regionId 字段" types.ts "regionId?: string;    // [EM: map-region-id]"
 check "日程生成注入地点清单" utils/scheduleGenerator.ts "[EM-START: map-region-id]"
+check "日程只看最近一天半的聊天" utils/scheduleGenerator.ts "recentMessagesForSchedule(await loadCharacterContextRange"
 
 echo "── 神经链接 · 日常节律草稿 ──"
 check "草稿生成 prompt 构建" utils/scheduleGenerator.ts "[EM-START: daily-rhythm-draft]"

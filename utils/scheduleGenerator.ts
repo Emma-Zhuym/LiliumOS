@@ -51,6 +51,27 @@ function getScheduleSlotCount(char: CharacterProfile): number {
  * - 图片丢掉 base64，只留占位文本。
  * 空数组返回空串，prompt builder 会跳过该段。
  */
+// [EM-START: schedule-recent-context]
+/**
+ * 日程只看最近的聊天（阿萌 2026-10-30：重排日程不管哪个渠道都要等很久）。
+ * 原来跟私聊读同一段范围——记忆宫殿还没整理的全部原文，聊得多时一次就是几万 token，
+ * 又是不流式、整份 JSON 写完才回，而且跟聊天的提示词长得不一样，蹭不到缓存。
+ * 今天的安排只跟这一两天说过的事有关；更早的由记忆宫殿召回和长期记忆兜着。
+ */
+export const SCHEDULE_HISTORY_WINDOW_MS = 36 * 60 * 60 * 1000;
+export const SCHEDULE_HISTORY_MAX = 120;
+/** 最近一天半没怎么聊：至少留最后这么多条，前情才接得上 */
+export const SCHEDULE_HISTORY_MIN = 30;
+
+export const recentMessagesForSchedule = (messages: Message[], now = Date.now()): Message[] => {
+    const cutoff = now - SCHEDULE_HISTORY_WINDOW_MS;
+    let start = messages.findIndex(m => (m.timestamp || 0) >= cutoff);
+    if (start < 0) start = messages.length;
+    start = Math.min(start, Math.max(0, messages.length - SCHEDULE_HISTORY_MIN));
+    return messages.slice(Math.max(start, messages.length - SCHEDULE_HISTORY_MAX));
+};
+// [EM-END: schedule-recent-context]
+
 export function formatChatHistoryForSchedule(
     messages: Message[],
     char: CharacterProfile,
@@ -330,12 +351,12 @@ export async function generateDailyScheduleForChar(
 
     // ── 上下文范围对齐私聊 ──
     // adaptive/manual、记忆宫殿水位线、用户断点全部复用同一读取器。
-    const historyMessages: Message[] = await loadCharacterContextRange(char)
+    const historyMessages: Message[] = recentMessagesForSchedule(await loadCharacterContextRange(char) // [EM: schedule-recent-context] 只带最近一天半
         .then(snapshot => snapshot.messages)
         .catch(async e => {
             console.warn('[Schedule] load private-chat context range failed, falling back to recent history:', e);
             return DB.getRecentMessagesByCharId(char.id, char.contextLimit || 500, true).catch(() => [] as Message[]);
-        });
+        }), baseNow.getTime());
     const emojis = await DB.getEmojis().catch(() => [] as Emoji[]);
 
     // 记忆宫殿：与私聊主链路相同，结果会挂到 char.memoryPalaceInjection 上，
