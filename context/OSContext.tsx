@@ -21,7 +21,7 @@ import { externalizeVoiceMessageBlobs, restoreVoiceMessageBlobs, shouldIncludeVo
 import { listContentFavorites } from '../utils/contentFavorites'; // [EM: text-content-favorites]
 // [EM-START: em-backup-gaps]
 import { getHealthProfile, saveHealthProfile, isHealthProfile } from '../utils/healthProfile';
-import { exportContactRemarks, importContactRemarks } from '../utils/contactRemarks';
+import { exportContactRemarks, importContactRemarks, exportContactRemarkChanges, importContactRemarkChanges } from '../utils/contactRemarks'; // [EM: contact-remark-aware]
 import { exportDatePlans, importDatePlans } from '../utils/emDatePlans'; // [EM: date-plans]
 // [EM-END: em-backup-gaps]
 import { initPwaIcon, clearPwaIcon } from '../utils/appIcon';
@@ -4397,6 +4397,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               // [EM-START: em-backup-gaps] 存在 localStorage 的 EM 资料：健康档案（身高体重、目标）、通讯录备注
               emHealthProfile: (mode === 'text_only' || mode === 'full') ? (getHealthProfile() || undefined) : undefined,
               emContactRemarks: (mode === 'text_only' || mode === 'full') ? exportContactRemarks() : undefined,
+              emContactRemarkChanges: (mode === 'text_only' || mode === 'full') ? exportContactRemarkChanges() : undefined, // [EM: contact-remark-aware]
               emDatePlans: (mode === 'text_only' || mode === 'full') ? exportDatePlans() : undefined, // [EM: date-plans]
               // [EM-END: em-backup-gaps]
               // 桌面电子宠物主题的主色调偏好（账号级 localStorage）。room_card 涓流卡片本身
@@ -5307,6 +5308,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           // [EM-START: em-backup-gaps]
           if (isHealthProfile(data.emHealthProfile)) saveHealthProfile(data.emHealthProfile);
           if (data.emContactRemarks !== undefined) importContactRemarks(data.emContactRemarks);
+          if (data.emContactRemarkChanges !== undefined) importContactRemarkChanges(data.emContactRemarkChanges); // [EM: contact-remark-aware]
           if (data.emDatePlans !== undefined) importDatePlans(data.emDatePlans); // [EM: date-plans]
           // [EM-END: em-backup-gaps]
           if (data.eventNotifFlags && typeof data.eventNotifFlags === 'object') {

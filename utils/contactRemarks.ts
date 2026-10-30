@@ -1,18 +1,121 @@
 import { useSyncExternalStore } from 'react';
+import type { Message } from '../types';
 
-// UI-only storage. Never attach remarks to CharacterProfile or prompt/message data.
+// 备注只存本机 localStorage，不挂在 CharacterProfile / 消息上；角色从聊天提示词和心跳快照里看到它
+// （buildContactRemarkInjection / contactRemarkForSnapshot，2026-10-29 起）。
 const PREFIX = 'em_contact_remark_';
 const CHANGE = 'em-contact-remark-changed';
+// 最近一次改动，每个角色一条。别用 PREFIX 开头：exportContactRemarks 按前缀扫备注。
+const CHANGES_KEY = 'em_remark_changes_v1';
+/** 改了备注之后多久内还提醒 TA：超过一天就不提了。 */
+const CHANGE_NOTICE_MS = 24 * 60 * 60 * 1000;
+const REMARK_MAX = 60;
+
+export interface ContactRemarkChange {
+    /** 改之前的备注，原来没写就是空字符串 */
+    from: string;
+    /** 改成的备注，删掉了就是空字符串 */
+    to: string;
+    changedAt: number;
+}
 
 export function getContactRemark(characterId: string): string {
     return localStorage.getItem(PREFIX + characterId) || '';
 }
 
-export function saveContactRemark(characterId: string, value: string): void {
+const loadChanges = (): Record<string, ContactRemarkChange> => {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(CHANGES_KEY) || '{}');
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+        return {};
+    }
+};
+
+const isChange = (value: unknown): value is ContactRemarkChange => {
+    const c = value as ContactRemarkChange;
+    return !!c && typeof c.from === 'string' && typeof c.to === 'string' && Number.isFinite(c.changedAt);
+};
+
+export function getContactRemarkChange(characterId: string): ContactRemarkChange | null {
+    const change = loadChanges()[characterId];
+    return isChange(change) ? change : null;
+}
+
+export function saveContactRemark(characterId: string, value: string, now = Date.now()): void {
     const remark = value.trim();
+    const previous = getContactRemark(characterId);
     if (remark) localStorage.setItem(PREFIX + characterId, remark);
     else localStorage.removeItem(PREFIX + characterId);
+    // 改动只在这里记：从什么改成什么、什么时候。第一次写（从空到有）、删掉也算
+    if (remark !== previous) {
+        try {
+            localStorage.setItem(CHANGES_KEY, JSON.stringify({ ...loadChanges(), [characterId]: { from: previous, to: remark, changedAt: now } }));
+        } catch { /* 存不下就算了，备注本身已经存好 */ }
+    }
     window.dispatchEvent(new Event(CHANGE));
+}
+
+/**
+ * 还没跟 TA 提过的那次改动：一天之内、改完之后 TA 还没说过话。
+ * TA 回过一次（不管提没提）就算知道了，之后不再挂着。
+ */
+export function pendingContactRemarkChange(
+    characterId: string,
+    messages: Pick<Message, 'role' | 'type' | 'timestamp'>[] = [],
+    now = Date.now(),
+): ContactRemarkChange | null {
+    const change = getContactRemarkChange(characterId);
+    if (!change || now - change.changedAt > CHANGE_NOTICE_MS) return null;
+    const answered = messages.some(m => m.role === 'assistant' && m.type !== 'system' && (m.timestamp || 0) > change.changedAt);
+    return answered ? null : change;
+}
+
+const clip = (text: string) => text.slice(0, REMARK_MAX);
+
+/** 一句话说清楚改了什么：心跳后端照同一个意思写（heartbeat.mjs 的 contactRemarkLines） */
+export function describeRemarkChange(change: ContactRemarkChange, userName: string): string {
+    if (!change.from) return `${userName}给你在通讯录里写了备注「${clip(change.to)}」（原来没写备注）`;
+    if (!change.to) return `${userName}把通讯录里给你的备注「${clip(change.from)}」删掉了，现在你在 ta 手机里显示的是本名`;
+    return `${userName}把通讯录里给你的备注从「${clip(change.from)}」改成了「${clip(change.to)}」`;
+}
+
+const relativeAge = (at: number, now: number) => {
+    const minutes = Math.max(0, Math.floor((now - at) / 60_000));
+    if (minutes < 1) return '刚刚';
+    if (minutes < 60) return `${minutes} 分钟前`;
+    return `${Math.floor(minutes / 60)} 小时前`;
+};
+
+/** 聊天提示词：当前备注 + 还没提过的改动（fire_pack 不带改动：打包时的「刚改了」到点就过期了） */
+export function buildContactRemarkInjection(
+    characterId: string,
+    userName: string,
+    { messages = [], now = Date.now(), includeChange = true }: { messages?: Pick<Message, 'role' | 'type' | 'timestamp'>[]; now?: number; includeChange?: boolean } = {},
+): string {
+    const remark = getContactRemark(characterId);
+    const change = includeChange ? pendingContactRemarkChange(characterId, messages, now) : null;
+    if (!remark && !change) return '';
+    let text = '\n### 通讯录备注\n';
+    if (remark) text += `${userName}在自己手机通讯录里给你的备注是「${clip(remark)}」。这是 ta 私下对你的叫法，你知道就好，不用老提。\n`;
+    if (change) {
+        text += `${describeRemarkChange(change, userName)}（${relativeAge(change.changedAt, now)}）。你注意到了：这次回复可以照你的性格自然地反应一下——好奇、得意、吐槽、追问为什么都行，也可以不提；只在这一次，之后别再拿它说事。\n`;
+    }
+    return text;
+}
+
+/** 心跳快照：当前备注 + 还没提过的改动 */
+export function contactRemarkForSnapshot(
+    characterId: string,
+    messages: Pick<Message, 'role' | 'type' | 'timestamp'>[],
+    now = Date.now(),
+): { contactRemark?: string; contactRemarkChange?: { from: string; to: string; at: string } } {
+    const remark = getContactRemark(characterId);
+    const change = pendingContactRemarkChange(characterId, messages, now);
+    return {
+        ...(remark ? { contactRemark: clip(remark) } : {}),
+        ...(change ? { contactRemarkChange: { from: clip(change.from), to: clip(change.to), at: new Date(change.changedAt).toISOString() } } : {}),
+    };
 }
 
 /** 备份用：所有角色的备注，没有就是 undefined。 */
@@ -34,6 +137,22 @@ export function importContactRemarks(remarks: unknown): void {
         if (characterId && typeof value === 'string' && value.trim()) localStorage.setItem(PREFIX + characterId, value.trim());
     }
     if (typeof window !== 'undefined') window.dispatchEvent(new Event(CHANGE));
+}
+
+/** 备份用：每个角色最近一次改备注的记录，没有就是 undefined。 */
+export function exportContactRemarkChanges(): Record<string, ContactRemarkChange> | undefined {
+    const changes = Object.fromEntries(Object.entries(loadChanges()).filter(([, c]) => isChange(c)));
+    return Object.keys(changes).length ? changes : undefined;
+}
+
+/** 恢复改动记录；备份里没提到的角色保留本机原有记录。 */
+export function importContactRemarkChanges(changes: unknown): void {
+    if (!changes || typeof changes !== 'object' || Array.isArray(changes)) return;
+    const merged = loadChanges();
+    for (const [characterId, change] of Object.entries(changes)) {
+        if (characterId && isChange(change)) merged[characterId] = { from: change.from, to: change.to, changedAt: change.changedAt };
+    }
+    try { localStorage.setItem(CHANGES_KEY, JSON.stringify(merged)); } catch { /* 存不下就算了 */ }
 }
 
 function subscribe(listener: () => void) {

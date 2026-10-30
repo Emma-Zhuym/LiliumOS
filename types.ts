@@ -4460,6 +4460,7 @@ export interface FullBackupData {
     agendaItems?: AgendaItem[];                 // 时光契约日程（agenda store）
     emHealthProfile?: HealthProfile;            // 健康档案（liliumos_health_profile）
     emContactRemarks?: Record<string, string>;  // 通讯录备注，角色 id → 备注（em_contact_remark_*）
+    emContactRemarkChanges?: Record<string, import('./utils/contactRemarks').ContactRemarkChange>; // [EM: contact-remark-aware] 最近一次改备注（em_remark_changes_v1）
     emDatePlans?: import('./utils/emDatePlans').DatePlan[]; // [EM: date-plans] TA 给阿萌安排的约会（em_date_plans_v1）
     // [EM-END: em-backup-gaps]
 }

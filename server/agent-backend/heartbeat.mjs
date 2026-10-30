@@ -213,6 +213,33 @@ export const datePlansFrom = (snapshot, now, userTimezone) => {
         .map(p => ({ date: p.date, time: p.time || '', title: String(p.title || '约会'), itinerary: p.itinerary, today: p.date === today }));
 };
 
+/** 改备注的提醒只挂一天：快照放了很久没更新，也别隔几天还拿「刚改了」说事。 */
+const REMARK_CHANGE_FRESH_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * 阿萌在通讯录里给 TA 的备注，和最近一次还没跟 TA 提过的改动（手机 contactRemarks.ts，快照带来）。
+ * 措辞跟手机 describeRemarkChange 一个意思，改一边记得改另一边。
+ */
+export const contactRemarkLines = (p, userName, now) => {
+    const lines = [];
+    const clip = text => String(text || '').trim().slice(0, 60);
+    const remark = clip(p?.contactRemark);
+    if (remark) lines.push(`${userName}在自己手机通讯录里给你的备注是「${remark}」（ta 私下对你的叫法，知道就好，不用老提）。`);
+    const change = p?.contactRemarkChange;
+    const at = Date.parse(change?.at);
+    if (change && Number.isFinite(at) && now.getTime() - at <= REMARK_CHANGE_FRESH_MS && at <= now.getTime() + 60_000) {
+        const from = clip(change.from);
+        const to = clip(change.to);
+        const what = !from ? `给你在通讯录里写了备注「${to}」（原来没写备注）`
+            : !to ? `把通讯录里给你的备注「${from}」删掉了，现在你在 ta 手机里显示的是本名`
+                : `把通讯录里给你的备注从「${from}」改成了「${to}」`;
+        if (from || to) {
+            lines.push(`${userName}最近${what}，你还没跟 ta 提过。主动找 ta 的话可以顺口提一句（好奇、得意、吐槽都行），不提也行；已经提过就别再说。`);
+        }
+    }
+    return lines;
+};
+
 /** 约会当天、今天还没跟她说过话（聊天里、心跳发的都算）：这一跳就是去开场。返回那份安排或 null。 */
 export const dateDayToGreet = ({ datePlans, lastContact = null, ownMessages = [], now, userTimezone }) => {
     const plan = datePlans.find(p => p.today);
@@ -1167,6 +1194,7 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
             + p.oocPins.slice(0, 8).map(t => `- ${String(t).slice(0, 300)}`).join('\n'),
         );
     }
+    lines.push(...contactRemarkLines(p, userName, now)); // [contact-remark-aware] 她给 TA 的备注 / 刚改过
     // 两人不在一个时区时，直接给一块程序算好的双城时钟；不要把两个钟拆散后让模型再心算。
     if (userTimezone && userTimezone !== p.timezone) {
         lines.push(buildHeartbeatDualClockBlock(now, p.timezone, userTimezone, userName));

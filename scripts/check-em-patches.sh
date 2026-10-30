@@ -337,6 +337,15 @@ check "导出通讯录备注" context/OSContext.tsx "emContactRemarks: (mode ===
 check "恢复健康档案" context/OSContext.tsx "if (isHealthProfile(data.emHealthProfile)) saveHealthProfile(data.emHealthProfile);"
 check "恢复通讯录备注" context/OSContext.tsx "if (data.emContactRemarks !== undefined) importContactRemarks(data.emContactRemarks);"
 
+echo "── 角色看得到通讯录备注（改了也知道）──"
+check "备注改动只在写入处记" utils/contactRemarks.ts "if (remark !== previous) {"
+check "聊天提示词带备注 / 刚改过" utils/chatPrompts.ts "volatileState += buildContactRemarkInjection(char.id, userProfile.name, { messages: currentMsgs, includeChange: !forFirePack });"
+check "心跳快照带备注" utils/emAgentSnapshot.ts "...contactRemarkForSnapshot(char.id, messages, at.getTime()), // [EM: contact-remark-aware]"
+check "心跳提示词读备注" server/agent-backend/heartbeat.mjs "lines.push(...contactRemarkLines(p, userName, now));"
+check "导出备注改动记录" context/OSContext.tsx "emContactRemarkChanges: (mode === 'text_only' || mode === 'full') ? exportContactRemarkChanges() : undefined,"
+check "恢复备注改动记录" context/OSContext.tsx "if (data.emContactRemarkChanges !== undefined) importContactRemarkChanges(data.emContactRemarkChanges);"
+check "备份类型有改动记录" types.ts "emContactRemarkChanges?: Record<string, import('./utils/contactRemarks').ContactRemarkChange>;"
+
 echo "── 停止回复（本地 / mini / amsg）──"
 check "useChatAI 登记本轮可停" hooks/useChatAI.ts "const replyRun = beginLocalReply(char.id);"
 check "后处理带停止信号" hooks/useChatAI.ts "signal: replyRun.signal, // [EM: reply-stop]"

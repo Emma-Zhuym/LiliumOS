@@ -21,7 +21,7 @@ import {
     ACTIVE_CHAT_WINDOW_MS, DEEP_TALK_STALE_MS, buildPrompt, checkGates, speakBlock, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
     BREAK_COOLDOWN_MIN, currentSlot, decideIntent, formatGap, inBreakWindow, upcomingBreakStarts, jitterRatio, lastRealInteractionAt, listModelRuns, messageChance,
     nextRunAt, recordModelRun, shouldCaptureRaw, decideEpisode, episodeChance, isWorkSlot, lifeChance, pickLifeKind, veilSurprise,
-    datePlansFrom, dateDayToGreet, MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, heartbeatSchemaFor, stripUnbackedClaims, withPlanTime, withOuting, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule, unansweredProactive, lastUserSpokeAt, unansweredFactor, reachOutTimeRule, timeProgressRule, shouldSuppressStaleBedtimeMessage, recentOwnMessages, fillMomentComments, DUTY_RULE, PHOTO_HOW, previewWithoutPhotoTags,
+    datePlansFrom, dateDayToGreet, contactRemarkLines, MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, heartbeatSchemaFor, stripUnbackedClaims, withPlanTime, withOuting, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule, unansweredProactive, lastUserSpokeAt, unansweredFactor, reachOutTimeRule, timeProgressRule, shouldSuppressStaleBedtimeMessage, recentOwnMessages, fillMomentComments, DUTY_RULE, PHOTO_HOW, previewWithoutPhotoTags,
 } from './heartbeat.mjs';
 import { chatCompletionsUrl, createApiRunner, extractContentText, parseEpisode, parseHeartbeatOutput, parseLife } from './runner.mjs';
 import { applyThread, cancelPlan, closePassedPlans, closeStaleThreads, isPlanDue, isPlanThread, listOpenThreads, listPlans } from './lifeThreads.mjs';
@@ -2566,4 +2566,24 @@ test('心跳：模型失败的那条记录带渠道', async () => {
     await assert.rejects(() => runHandler(db, { runner, job: jobFor(character.heartbeatGeneration), scheduled: [] }), /502/);
     // 测试配置没有 secretsDir / 凭据 → 渠道为空，字段本身存在且不会让记录写失败
     assert.equal(listModelRuns(db)[0].channel, null);
+});
+
+test('通讯录备注：心跳提示词里有备注，一天内还没提过的改动也有', async () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    seedSnapshot(db, { contactRemark: '小狗', contactRemarkChange: { from: '露米', to: '小狗', at: new Date(AT.getTime() - 3_600_000).toISOString() } });
+    const prompts = [];
+    const runner = { run: async ({ system }) => { prompts.push(system); return { ok: true, output: { action: 'noop', activity: 'a', reason: '', urge: 'none', together: 'apart' } }; } };
+    await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 'remark1') });
+    assert.ok(prompts[0].includes('阿萌在自己手机通讯录里给你的备注是「小狗」'));
+    assert.ok(prompts[0].includes('把通讯录里给你的备注从「露米」改成了「小狗」'));
+});
+
+test('通讯录备注：没写不提；改动超过一天就不挂了；第一次写、删掉各有说法', () => {
+    const now = new Date('2026-10-29T12:00:00Z');
+    const hoursAgo = h => new Date(now.getTime() - h * 3_600_000).toISOString();
+    assert.deepEqual(contactRemarkLines({}, '阿萌', now), []);
+    assert.equal(contactRemarkLines({ contactRemark: '小狗', contactRemarkChange: { from: 'a', to: '小狗', at: hoursAgo(25) } }, '阿萌', now).length, 1);
+    assert.ok(contactRemarkLines({ contactRemarkChange: { from: '', to: '小狗', at: hoursAgo(1) } }, '阿萌', now)[0].includes('原来没写备注'));
+    assert.ok(contactRemarkLines({ contactRemarkChange: { from: '小狗', to: '', at: hoursAgo(1) } }, '阿萌', now)[0].includes('删掉了'));
 });

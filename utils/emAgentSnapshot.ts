@@ -25,6 +25,7 @@ import { loadDeepTalkForSnapshot, loadMatterNightIds } from './deepTalkDb'; // [
 import { isWalledDeepTalkMessage } from './deepTalk'; // [EM: deep-talk]
 import { datePlansForSnapshot } from './emDatePlans'; // [EM: date-plans]
 import { isOocMessage, loadOocPins } from './emOoc'; // [EM: ooc]
+import { contactRemarkForSnapshot } from './contactRemarks'; // [EM: contact-remark-aware]
 
 export const SNAPSHOT_SCHEMA_VERSION = 1;
 
@@ -121,6 +122,10 @@ export interface CharacterSnapshot {
         oocPins?: string[];
         /** [EM: date-plans] TA 给阿萌安排的约会（今天和接下来两天，全文）：当天心跳主动找她开场 */
         datePlans?: { date: string; time?: string; title: string; itinerary: string }[];
+        /** [EM: contact-remark-aware] 阿萌在通讯录里给 TA 的备注 */
+        contactRemark?: string;
+        /** [EM: contact-remark-aware] 最近一次改备注，TA 还没回过话（一天内）：心跳主动找她时可能提起 */
+        contactRemarkChange?: { from: string; to: string; at: string };
         /** [EM: deep-talk] 烛下正开着：心跳这一跳不开口（since 是最后一段话的时刻，超过 3 小时后端就不认） */
         deepTalk?: { open: true; since: string };
     };
@@ -357,6 +362,7 @@ export const buildCharacterSnapshot = async (
                 const datePlans = datePlansForSnapshot(char.id, at);
                 return datePlans.length ? { datePlans } : {};
             })(),
+            ...contactRemarkForSnapshot(char.id, messages, at.getTime()), // [EM: contact-remark-aware]
         },
     };
 };

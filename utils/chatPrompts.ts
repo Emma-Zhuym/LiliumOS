@@ -33,6 +33,7 @@ import { buildPlansChatInjection } from './emAgentPlans'; // [EM: agent-plans]
 import { buildDatePlansChatInjection } from './emDatePlans'; // [EM: date-plans]
 import { deviceTimeZone, userSideStamp } from './emUserClock'; // [EM: chat-user-clock]
 import { buildOocPinsInjection, isOocMessage, oocPromptContent } from './emOoc'; // [EM: ooc]
+import { buildContactRemarkInjection } from './contactRemarks'; // [EM: contact-remark-aware]
 import { buildCueInjection } from './emCuePool'; // [EM: char-drives-cue]
 import { buildTemporalInjection } from './emTemporal'; // [EM: calendar-temporal]
 import { DEEP_TALK_EVENT_KIND, keepInPromptHistory } from './deepTalk'; // [EM: deep-talk]
@@ -617,6 +618,9 @@ ${groupLogStr}\n`;
         // [EM-END: agent-plans]
         // [EM: ooc] 她钉住的出戏要求：每一轮都带（打包给主动消息也带，静态的）
         try { volatileState += buildOocPinsInjection(char.id, userProfile.name); } catch (e) { console.error('Failed to inject OOC pins:', e); }
+        // [EM-START: contact-remark-aware] 她在通讯录里给 TA 的备注；刚改过、TA 还没回过话就告诉 TA 一次（打包给主动消息只带备注）
+        try { volatileState += buildContactRemarkInjection(char.id, userProfile.name, { messages: currentMsgs, includeChange: !forFirePack }); } catch (e) { console.error('Failed to inject contact remark:', e); }
+        // [EM-END: contact-remark-aware]
         // [EM-START: date-plans] TA 给阿萌安排的约会（本机，不靠 mini）：写下的全文 + 怎么写
         if (!forFirePack) {
             try { volatileState += buildDatePlansChatInjection(char.id, { userName: userProfile.name }); } catch (e) { console.error('Failed to inject date plans:', e); }
