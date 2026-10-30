@@ -609,7 +609,7 @@ ${groupLogStr}\n`;
         // [EM-END: moments-chat-context]
         // [EM-START: agent-plans] TA 在心跳里跟亲友约下、还没到的事（读本机缓存）
         if (!forFirePack) {
-            try { volatileState += buildPlansChatInjection(char.id, { timeZone: charTz || undefined }); } catch (e) { console.error('Failed to inject plans:', e); }
+            try { volatileState += buildPlansChatInjection(char.id, { timeZone: charTz || undefined, userName: userProfile.name }); } catch (e) { console.error('Failed to inject plans:', e); }
         }
         // [EM-END: agent-plans]
         // [EM-START: char-drives-cue] 这一轮闪过的念头（发送前已抽好，没抽中就是空）

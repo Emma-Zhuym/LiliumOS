@@ -14,7 +14,8 @@ import { cancelJob, createJob, listJobs } from './jobs.mjs';
 import { characterExists, getCharacter, listCharacters, toCharacter, touchPresence, upsertCharacter } from './characters.mjs';
 import { listCredentials, putCredential } from './credentials.mjs';
 import { lastRealInteractionAt, listModelRuns } from './heartbeat.mjs';
-import { listPlans } from './lifeThreads.mjs';
+import { applyThread, cancelPlan, listPlans } from './lifeThreads.mjs';
+import { parsePlanTime } from './planTime.mjs';
 import { listPocketForPhone } from './pocket.mjs';
 import {
     applyTemperament, evolve as evolveDrives, ingestChatEvents, loadState as loadDriveState, privateMomentOf, setPrivateMoment, summarizeForPhone,
@@ -265,6 +266,38 @@ export const createRouter = ctx => {
         'GET /plans': {
             // 日历 App 摆出来、聊天里告诉 TA 自己约了什么。默认往前一周、往后两个月。
             handle: ({ query }) => ({ plans: listPlans(db, { from: query.get('from'), to: query.get('to') }) }),
+        },
+        // 聊天里 TA 自己约下 / 取消的事（utils/emAgentPlans.ts）。时间跟心跳一样由这里按角色时区解析，
+        // 认不出就整条不记：宁可少一个约定，也不能落一个错的时间。
+        'POST /plans': {
+            handle: ({ body }) => {
+                const charId = requireDriveChar(body.charId);
+                const snapshot = getSnapshot(db, charId);
+                const timeZone = snapshot?.payload?.timezone || getSetting(db, 'timezone') || 'America/Chicago';
+                const what = String(body.what || '').trim();
+                const at = String(body.at || '').trim();
+                // 「明天下午」按说这句话的时候算：mini 不在线时手机排着队，晚几小时才送到也不会差一天。
+                // 只认过去三天内的 saidAt；算出来已经过了的照样不记。
+                const now = new Date();
+                const said = Date.parse(body.saidAt);
+                const saidAt = Number.isFinite(said) && said <= now.getTime() && now.getTime() - said <= 3 * 86_400_000 ? new Date(said) : now;
+                const parsed = parsePlanTime(at, saidAt, timeZone);
+                const dueAt = parsed && parsed > now ? parsed : null;
+                if (!what || !dueAt) {
+                    throw Object.assign(new Error(what ? `认不出时间：${at.slice(0, 40)}` : '没写做什么'), { code: 'BAD_PLAN', status: 400 });
+                }
+                const plan = applyThread(db, charId, {
+                    title: what, summary: `约在${at}`, status: 'open', dueAt: dueAt.toISOString(), timeZone,
+                });
+                return { plan: { ...plan, charId } };
+            },
+        },
+        'POST /plans/cancel': {
+            handle: ({ body }) => {
+                const charId = requireDriveChar(body.charId);
+                const plan = cancelPlan(db, charId, body.id);
+                return { cancelled: plan ? { ...plan, charId } : null };
+            },
         },
 
         // ── 心思系统：聊天里副 API 评估给的事件标签（drives.mjs）──────────────

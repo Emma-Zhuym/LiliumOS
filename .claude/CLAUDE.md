@@ -79,7 +79,7 @@ LiliumOS 和 SullyOS 早就各走各的了（git 认的合并基线停在 2026-0
 ### 吸收后必跑自检
 
 ```bash
-bash scripts/check-em-patches.sh   # 当前 358 项锚点检查，红了就是功能被冲掉
+bash scripts/check-em-patches.sh   # 当前 368 项锚点检查，红了就是功能被冲掉
 pnpm vitest run                    # 单元测试
 ```
 
@@ -245,6 +245,7 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - 桥接建不了重复规则，事件的重复只能在苹果日历里建
 - 日历内容和桥接 Token 一样不得进日志、文档、Engram 或备份
 - **角色的约定**（心跳里 TA 跟亲友约下的事，后端 `life_threads.due_at`）经 `GET /plans` 拉到本机 `utils/emAgentPlans.ts` 缓存：日历 App 摆在对应那天（中性灰 + 角色头像），聊天提示词告诉 TA 自己两周内约了什么
+- **角色自己约 / 取消**（2026-10-29）：聊天里 `[[PLAN_ADD: 做什么 | 什么时候]]` / `[[PLAN_CANCEL: 编号]]`（`chatParser.ts` 的 `[EM-START: agent-plans-chat]` → `executePlanDirectives`，mini 不在线排队），后端 `POST /plans`、`POST /plans/cancel`；心跳里列出的未到点约定带编号，`cancelPlan` 必填（空字符串 = 照常去）。取消 = `status 'done'` + `cancelled_at`（不删行），`listPlans` 不列。时间一律由 mini 的 `planTime.mjs` 解析，别让模型写日期。只教接在 mini 上的角色（`canEditPlans`）
 
 ### 27. 换皮「F」（2026-09-25）
 - `utils/clayTokens.ts` 是唯一取值来源：全平（`S.*` = none）、中性底、圆角 12、OKLCH 16 色、`FONT` 衬线标题、`OVERLAY` 雾面浮层、`MOTION` 三条曲线

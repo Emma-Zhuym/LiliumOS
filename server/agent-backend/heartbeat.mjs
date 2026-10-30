@@ -15,7 +15,7 @@ import { readCredential } from './credentials.mjs';
 import { getCharacter, toCharacter } from './characters.mjs';
 import { getSnapshot } from './snapshots.mjs';
 import {
-    SHORT_ID_LENGTH, applyThread, closePassedPlans, closeStaleThreads, completeThread, isPlanDue, isPlanThread, listOpenThreads,
+    SHORT_ID_LENGTH, applyThread, cancelPlan, closePassedPlans, closeStaleThreads, completeThread, isPlanDue, isPlanThread, listOpenThreads,
 } from './lifeThreads.mjs';
 import { parsePlanTime } from './planTime.mjs';
 import {
@@ -969,6 +969,9 @@ export const HEARTBEAT_SCHEMA = {
                 },
             },
         },
+        // 临时去不了的约定：写那件事的编号（提示词里列的前 8 位），照常就写空字符串。
+        // 列了约定时必填（Gemini 在严格 schema 下只交必填项），空字符串 = 不取消。
+        cancelPlan: { type: 'string', maxLength: 16 },
         // 你们此刻在不在一块（心思系统用：同居在家时「想你」回落，异地异国涨得快）
         together: { type: 'string', enum: APARTNESS },
         // 这一跳的事对自己的影响（心思系统用）：只给标签，数值由程序定。
@@ -1046,8 +1049,8 @@ const LIFE_REQUIRED = {
  * 所以 life / episode / moments 在抽中时设成必填，life.kind 也收窄成抽中的那一种。
  * 心思系统要的 together（每跳都问）和 selfEvents（过日子那跳才问）同理：提示词问了就必填，selfEvents 可以是空数组。
  */
-export const heartbeatSchemaFor = ({ life = null, episode = false, moments = false, together = false, selfEvents = false } = {}) => {
-    if (!life && !episode && !moments && !together && !selfEvents) return HEARTBEAT_SCHEMA;
+export const heartbeatSchemaFor = ({ life = null, episode = false, moments = false, together = false, selfEvents = false, cancelPlan = false } = {}) => {
+    if (!life && !episode && !moments && !together && !selfEvents && !cancelPlan) return HEARTBEAT_SCHEMA;
     const properties = { ...HEARTBEAT_SCHEMA.properties };
     const required = [...HEARTBEAT_SCHEMA.required];
     if (life) {
@@ -1063,6 +1066,7 @@ export const heartbeatSchemaFor = ({ life = null, episode = false, moments = fal
     if (moments) required.push('moments');
     if (together) required.push('together');
     if (selfEvents) required.push('selfEvents');
+    if (cancelPlan) required.push('cancelPlan');
     return { ...HEARTBEAT_SCHEMA, required, properties };
 };
 
@@ -1252,7 +1256,8 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
     if (upcoming.length) {
         lines.push(
             '你跟别人约好、还没到时间的事（ta 还不知道，想说就说）：\n'
-            + upcoming.map(t => `- ${t.title}${t.summary ? `，${t.summary}` : ''}（${formatLocal(new Date(t.dueAt), p.timezone)}）`).join('\n'),
+            + upcoming.map(t => `- ${t.title}${t.summary ? `，${t.summary}` : ''}（${formatLocal(new Date(t.dueAt), p.timezone)}；编号：${String(t.id).slice(0, SHORT_ID_LENGTH)}）`).join('\n')
+            + '\n' + PLAN_CANCEL_HOW,
         );
     }
     if (duePlan) {
@@ -1474,6 +1479,10 @@ export const fillMomentComments = async ({ runner, character, snapshot, life, us
     const comments = result.ok && result.output?.life?.kind === 'moment' ? result.output.life.comments ?? [] : [];
     return comments.filter(c => !blocked.has(c.who));
 };
+
+/** 列了还没到的约定时：临时去不了就在 cancelPlan 里写编号。答应了别人的事，不轻易爽约。 */
+export const PLAN_CANCEL_HOW = '约好的事是答应了别人的，照常去就在 cancelPlan 里写空字符串。'
+    + '真去不了了（有更要紧的事、病了、对方改了主意），cancelPlan 写那件事的编号，取消了就不再记着它。';
 
 /** chat / social 共用：顺口约了以后的事就写进 plan，时间用说话的说法，由程序去解析。 */
 const PLAN_HOW = '如果你们顺口约了以后的事（明天、周末、下周几），就在 plan 里写：what 写做什么、带上对方的名字'
@@ -1840,6 +1849,8 @@ export const createHeartbeatHandler = ({
     const threads = openThreads.filter(t => !isPlanThread(t));
     const plans = openThreads.filter(isPlanThread);
     const duePlan = plans.find(t => isPlanDue(t, startedAt)) ?? null;
+    // 还没到点的约定：提示词里带编号列出来，临时去不了的可以取消（到点那件正在做，不让取消）
+    const upcomingPlans = plans.filter(t => t.id !== duePlan?.id);
     // 阿萌的现实安排：每天同步一次的缓存，按可见性裁过再进提示词（不调模型、不现读）。
     const veiledTemporal = veilForCharacter(
         listTemporalItems(db, { from: new Date(startedAt.getTime() - 4 * 3600_000).toISOString() }),
@@ -1927,6 +1938,7 @@ export const createHeartbeatHandler = ({
         moments: moments.length > 0,
         together: true,
         selfEvents: askSelfEvents,
+        cancelPlan: upcomingPlans.length > 0,
     });
     const firstPass = await runner.run({
         charId: character.charId,
@@ -2153,6 +2165,10 @@ export const createHeartbeatHandler = ({
     }
     // 到点的约定：这一跳写完就收掉（不管模型写没写好——时间过了，这件事就算去过了）。
     if (duePlan) completeThread(db, duePlan.id, startedAt);
+    // TA 临时去不了的约定：只认这一跳列出来的那几件，编号抄错了就当没写。
+    const cancelId = typeof modelOutput.cancelPlan === 'string' ? modelOutput.cancelPlan.trim() : '';
+    const cancelTarget = cancelId.length >= 4 ? upcomingPlans.find(t => String(t.id).startsWith(cancelId)) : null;
+    if (cancelTarget) cancelPlan(db, character.charId, cancelTarget.id, startedAt);
     // 新约的事：落成一条带时间的 thread，之后每跳都记得，到点那一跳去做。
     if (life?.plan?.dueAt) {
         applyThread(db, character.charId, {

@@ -24,7 +24,7 @@ import {
     MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, heartbeatSchemaFor, stripUnbackedClaims, withPlanTime, withOuting, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule, unansweredProactive, lastUserSpokeAt, unansweredFactor, reachOutTimeRule, timeProgressRule, shouldSuppressStaleBedtimeMessage, recentOwnMessages, fillMomentComments, DUTY_RULE, PHOTO_HOW, previewWithoutPhotoTags,
 } from './heartbeat.mjs';
 import { chatCompletionsUrl, createApiRunner, extractContentText, parseEpisode, parseHeartbeatOutput, parseLife } from './runner.mjs';
-import { applyThread, closePassedPlans, closeStaleThreads, isPlanDue, isPlanThread, listOpenThreads, listPlans } from './lifeThreads.mjs';
+import { applyThread, cancelPlan, closePassedPlans, closeStaleThreads, isPlanDue, isPlanThread, listOpenThreads, listPlans } from './lifeThreads.mjs';
 import { feedResult } from './xhsFeed.fixture.mjs';
 import { formatMomentsForPrompt, markMomentsSeen, parseMomentReactions, resolveMomentReactions, unseenMoments } from './moments.mjs';
 
@@ -1398,6 +1398,66 @@ test('约定窗口：前后 45 分钟内算到点，过了窗口还开着的静�
     assert.equal(isPlanDue(soon, new Date(AT.getTime() + 86 * 60_000)), false);
     assert.equal(closePassedPlans(db, CHAR, new Date(AT.getTime() + 86 * 60_000)), 1);
     assert.deepEqual(listOpenThreads(db, CHAR).map(t => t.id), [later.id]);
+});
+
+test('取消约定：照编号前缀找，重复行一起取消；日历和提示词都不再列，行还在', () => {
+    const db = freshDb();
+    seedCharacter(db);
+    const dueAt = new Date(AT.getTime() + 2 * 86400_000).toISOString();
+    const plan = applyThread(db, CHAR, { title: '和林越去看展', dueAt }, AT);
+    db.prepare(
+        `INSERT INTO life_threads (id, char_id, title, summary, status, created_at, updated_at, due_at)
+         VALUES ('twin-plan', ?, '和林越 去看展', '', 'open', ?, ?, ?)`,
+    ).run(CHAR, AT.toISOString(), AT.toISOString(), dueAt);
+    const other = applyThread(db, CHAR, { title: '和周鹏打球', dueAt: new Date(AT.getTime() + 3 * 86400_000).toISOString() }, AT);
+
+    assert.equal(cancelPlan(db, CHAR, 'zzzzzzzz', AT), null, '对不上就什么都不做');
+    assert.equal(cancelPlan(db, 'someone-else', plan.id.slice(0, 8), AT), null, '别的角色的约定取消不了');
+    const cancelled = cancelPlan(db, CHAR, plan.id.slice(0, 8), AT);
+    assert.equal(cancelled.id, plan.id);
+    assert.equal(cancelled.status, 'done');
+    assert.deepEqual(listOpenThreads(db, CHAR).map(t => t.id), [other.id]);
+    assert.deepEqual(listPlans(db, { now: AT }).map(t => t.id), [other.id], '取消的不上日历');
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM life_threads WHERE cancelled_at IS NOT NULL').get().n, 2);
+    assert.equal(cancelPlan(db, CHAR, plan.id.slice(0, 8), AT), null, '已经取消的不再算');
+
+    // 到点做了的那种照样上日历
+    closePassedPlans(db, CHAR, new Date(AT.getTime() + 4 * 86400_000));
+    assert.deepEqual(listPlans(db, { now: AT }).map(t => t.id), [other.id]);
+});
+
+test('心跳取消约定：列出来带编号、schema 里必填；只认列出来的那几件', async () => {
+    const db = freshDb();
+    setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+    const character = seedCharacter(db);
+    const now = chicago(15);
+    seedSnapshot(db, { todaySchedule: [{ start: '09:00', title: '在家', availability: 'online' }] }, now);
+    const later = applyThread(db, CHAR, { title: '和林越去看展', summary: '约在周六下午', status: 'open', dueAt: new Date(Date.UTC(2026, 8, 26, 20)).toISOString() }, AT);
+    const prompts = [];
+    const schemas = [];
+    const runnerWith = cancel => ({ run: async ({ system, schema }) => {
+        prompts.push(system);
+        schemas.push(schema);
+        return { ok: true, output: { action: 'noop', activity: '在家', reason: '', urge: 'none', together: 'apart', cancelPlan: cancel } };
+    } });
+    await runHandler(db, { runner: runnerWith(''), job: jobFor(character.heartbeatGeneration, 'c1'), now, rng: () => 0.99, deliver: async () => {} });
+    assert.ok(prompts[0].includes(`编号：${later.id.slice(0, 8)}`));
+    assert.ok(prompts[0].includes('cancelPlan'));
+    assert.ok(schemas[0].required.includes('cancelPlan'), '列了约定就必填');
+    assert.equal(listOpenThreads(db, CHAR).length, 1, '空字符串 = 照常去');
+
+    await runHandler(db, { runner: runnerWith('ab'), job: jobFor(character.heartbeatGeneration, 'c2'), now: new Date(now.getTime() + 3600_000), rng: () => 0.99, deliver: async () => {} });
+    assert.equal(listOpenThreads(db, CHAR).length, 1, '太短的编号不认');
+
+    await runHandler(db, { runner: runnerWith(later.id.slice(0, 8)), job: jobFor(character.heartbeatGeneration, 'c3'), now: new Date(now.getTime() + 7200_000), rng: () => 0.99, deliver: async () => {} });
+    assert.equal(listOpenThreads(db, CHAR).length, 0);
+    assert.equal(listPlans(db, { now }).length, 0);
+});
+
+test('schema：列了约定才要求写 cancelPlan', () => {
+    assert.ok(!HEARTBEAT_SCHEMA.required.includes('cancelPlan'));
+    assert.ok(heartbeatSchemaFor({ cancelPlan: true }).required.includes('cancelPlan'));
+    assert.ok(!heartbeatSchemaFor({ together: true }).required.includes('cancelPlan'));
 });
 
 test('真实执行：新约的事落成带时间的 thread；解析不了就不落库，生活照常送', async () => {

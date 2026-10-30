@@ -81,6 +81,7 @@ const stripBusinessTagsForBubble = (t: string): string =>
 const stripBusinessTagsForNotification = (t: string): string =>
   stripBusinessTagsForBubble(t)
     .replace(/\[\[(?:READ_NOTE|XHS_[A-Z_]+|LIFE|NEWS_CARD)[:\s][\s\S]*?\]\]/g, '')
+    .replace(/\[\[\s*PLAN_(?:ADD|CANCEL)\s*[:：][\s\S]*?\]\]/g, '') // [EM: agent-plans-chat]
     .replace(/\[\[XHS_[A-Z_]+\]\]/g, '');
 
 /**

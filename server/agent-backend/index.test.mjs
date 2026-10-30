@@ -500,3 +500,36 @@ test('端口被占用时给出可读提示，而不是崩溃堆栈', async t => 
     });
     assert.match(fatal, /已被占用/);
 });
+
+test('HTTP：聊天里约下 / 取消约定——时间由后端按角色时区解析，认不出不记', async t => {
+    const app = await startTestServer();
+    t.after(() => app.close());
+    resetPairingFailures();
+    const { code } = createPairingCode(app.db);
+    const paired = await (await fetch(`${app.base}/pair`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, deviceName: 'x' }),
+    })).json();
+    const headers = { Authorization: `Bearer ${paired.data.deviceToken}`, 'Content-Type': 'application/json' };
+    const post = (path, body) => fetch(`${app.base}${path}`, { method: 'POST', headers, body: JSON.stringify(body) });
+
+    const unknown = await post('/plans', { charId: 'nobody', what: '去看展', at: '明天下午' });
+    assert.equal((await unknown.json()).error.code, 'UNKNOWN_CHARACTER');
+
+    const charId = withChar(app.db);
+    const bad = await post('/plans', { charId, what: '去看展', at: '改天' });
+    assert.equal(bad.status, 400);
+    assert.equal((await bad.json()).error.code, 'BAD_PLAN');
+
+    const added = (await (await post('/plans', { charId, what: '和林越去看展', at: '明天下午' })).json()).data.plan;
+    assert.equal(added.charId, charId);
+    assert.equal(added.summary, '约在明天下午');
+    assert.ok(Date.parse(added.dueAt) > Date.now());
+    const listed = (await (await fetch(`${app.base}/plans`, { headers })).json()).data.plans;
+    assert.deepEqual(listed.map(p => p.id), [added.id]);
+
+    const cancelled = (await (await post('/plans/cancel', { charId, id: added.id.slice(0, 8) })).json()).data.cancelled;
+    assert.equal(cancelled.id, added.id);
+    assert.deepEqual((await (await fetch(`${app.base}/plans`, { headers })).json()).data.plans, []);
+    assert.equal((await (await post('/plans/cancel', { charId, id: added.id })).json()).data.cancelled, null);
+});

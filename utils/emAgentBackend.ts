@@ -406,6 +406,14 @@ export const AgentBackend = {
 
     /** 后端缓存里的现实安排（日历 App 读这个，不直接连桥接）。 */
     plans: () => request<{ plans: AgentPlan[] }>('/plans').then(data => data.plans), // [EM: agent-plans]
+    /** 聊天里 TA 自己约下的事：时间写说话的说法，mini 按角色时区解析（认不出 400 BAD_PLAN）。saidAt = 说这句话的时刻。 */
+    addPlan: (input: { charId: string; what: string; at: string; saidAt?: string }) => request<{ plan: AgentPlan }>(
+        '/plans', { method: 'POST', body: input },
+    ).then(data => data.plan), // [EM: agent-plans-chat]
+    /** TA 取消一个还没到的约定：id 可以是前 8 位。对不上返回 null。 */
+    cancelPlan: (charId: string, id: string) => request<{ cancelled: AgentPlan | null }>(
+        '/plans/cancel', { method: 'POST', body: { charId, id } },
+    ).then(data => data.cancelled), // [EM: agent-plans-chat]
     /** 话兜：TA 攒着还没跟阿萌说的话（查手机的草稿箱）。不带 charId 就是所有角色的。 */
     pocket: (charId?: string) => request<{ items: AgentPocketItem[] }>(
         `/pocket${charId ? `?charId=${encodeURIComponent(charId)}` : ''}`,

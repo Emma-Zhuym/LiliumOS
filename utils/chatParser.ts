@@ -6,6 +6,7 @@ import { sanitizeForBubble } from './sanitize';
 import { extractTransferCommands } from './transferFormat';
 import { executeLifeDirectives } from './lifeRecords';
 import { executeEmScribeDirectives } from './emScribe'; // [EM: em-scribe]
+import { executePlanDirectives } from './emAgentPlans'; // [EM: agent-plans-chat]
 import { wallClockToTimestamp } from './timezone';
 
 export interface MusicActionSnapshot {
@@ -531,6 +532,12 @@ export const ChatParser = {
             }
         }
         // [EM-END: em-scribe]
+
+        // [EM-START: agent-plans-chat] TA 自己约下 / 取消的事：[[PLAN_ADD]] / [[PLAN_CANCEL]] → mini 上的约定表
+        if (content.includes('[[PLAN_') || content.includes('[[ PLAN_')) {
+            content = executePlanDirectives(content, charId, charName, addToast);
+        }
+        // [EM-END: agent-plans-chat]
 
         // RECALL tag removal (handling done in main loop logic, but cleaning here just in case)
         content = content.replace(/\[\[RECALL:.*?\]\]/g, '').trim();

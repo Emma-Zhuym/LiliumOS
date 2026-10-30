@@ -18,8 +18,11 @@ export const SHORT_ID_LENGTH = 8;
  * 心跳 30–90 分钟一跳，±45 分钟基本碰得上；过了窗口还没碰上的算错过了，静默收掉。
  */
 export const PLAN_DUE_WINDOW_MS = 45 * 60 * 1000;
-/** 约定和「正在推进的事」各算各的名额：约一次饭不该把手上的工作挤掉。 */
-export const MAX_OPEN_PLANS = 3;
+/**
+ * 约定和「正在推进的事」各算各的名额：约一次饭不该把手上的工作挤掉。
+ * 聊天里也能约（POST /plans）以后从 3 放到 5，跟聊天提示词最多列 5 件对齐。
+ */
+export const MAX_OPEN_PLANS = 5;
 
 const toThread = row => ({
     id: row.id,
@@ -175,6 +178,32 @@ export const completeThread = (db, id, now = new Date()) =>
     db.prepare(`UPDATE life_threads SET status = 'done', updated_at = ? WHERE id = ? AND status = 'open'`)
         .run(now.toISOString(), id).changes;
 
+/**
+ * TA 自己取消一个还没到的约定（心跳里临时去不了、聊天里改主意）。
+ * 照 id 前缀找（心跳和聊天给模型看的都是前 8 位）；同一件事同一时刻的重复行一起取消，
+ * 不然 dedupeExactPlans 会把藏着的那条又露出来。状态记成 done + cancelled_at：不删行，
+ * 日历和提示词都不再列它。对不上、已经收掉的返回 null。
+ */
+export const cancelPlan = (db, charId, shortId, now = new Date()) => {
+    const prefix = String(shortId ?? '').trim().slice(0, 64);
+    if (!prefix) return null;
+    const row = db.prepare(
+        `SELECT * FROM life_threads
+          WHERE char_id = ? AND status = 'open' AND due_at IS NOT NULL AND id LIKE ? ESCAPE '\\'`,
+    ).get(charId, `${prefix.replace(/[\\%_]/g, m => `\\${m}`)}%`);
+    if (!row) return null;
+    const nowIso = now.toISOString();
+    const title = normalizePlanTitle(row.title);
+    const twins = db.prepare(
+        `SELECT id, title FROM life_threads WHERE char_id = ? AND status = 'open' AND due_at = ?`,
+    ).all(charId, row.due_at).filter(other => normalizePlanTitle(other.title) === title);
+    const cancel = db.prepare(
+        `UPDATE life_threads SET status = 'done', cancelled_at = ?, updated_at = ? WHERE id = ?`,
+    );
+    for (const twin of twins) cancel.run(nowIso, nowIso, twin.id);
+    return toThread(db.prepare('SELECT * FROM life_threads WHERE id = ?').get(row.id));
+};
+
 /** 列约定时默认看的窗口：往前一周（日历上还能看到刚做过的），往后两个月。 */
 export const PLANS_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 export const PLANS_LOOKAHEAD_MS = 60 * 24 * 60 * 60 * 1000;
@@ -189,6 +218,8 @@ export const listPlans = (db, { from = null, to = null, now = new Date() } = {})
     const toIso = to && Number.isFinite(Date.parse(to)) ? new Date(to).toISOString()
         : new Date(now.getTime() + PLANS_LOOKAHEAD_MS).toISOString();
     return dedupeExactPlans(db.prepare(
-        `SELECT * FROM life_threads WHERE due_at IS NOT NULL AND due_at >= ? AND due_at <= ? ORDER BY due_at ASC LIMIT 200`,
+        `SELECT * FROM life_threads
+          WHERE due_at IS NOT NULL AND cancelled_at IS NULL AND due_at >= ? AND due_at <= ?
+          ORDER BY due_at ASC LIMIT 200`,
     ).all(fromIso, toIso).map(row => ({ ...toThread(row), charId: row.char_id })));
 };

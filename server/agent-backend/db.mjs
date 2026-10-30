@@ -293,6 +293,11 @@ export const MIGRATIONS = [
     `
     ALTER TABLE model_runs ADD COLUMN channel TEXT;
     `,
+    // 14：TA 自己取消的约定。status 的 CHECK 只认 open / done，加一列比重建表省事：
+    // 取消 = done + cancelled_at，日历和提示词都不再列；到点做了的 cancelled_at 是 NULL。
+    `
+    ALTER TABLE life_threads ADD COLUMN cancelled_at TEXT;
+    `,
 ];
 
 export const DEFAULT_SETTINGS = {
