@@ -24,6 +24,7 @@ import { buildFinanceHeartbeatContext, type FinanceHeartbeatContext } from './fi
 import { loadDeepTalkForSnapshot, loadMatterNightIds } from './deepTalkDb'; // [EM: deep-talk]
 import { isWalledDeepTalkMessage } from './deepTalk'; // [EM: deep-talk]
 import { datePlansForSnapshot } from './emDatePlans'; // [EM: date-plans]
+import { isOocMessage, loadOocPins } from './emOoc'; // [EM: ooc]
 
 export const SNAPSHOT_SCHEMA_VERSION = 1;
 
@@ -116,6 +117,8 @@ export interface CharacterSnapshot {
         finance?: FinanceHeartbeatContext;
         boundaries?: SnapshotBoundary[];
         openThreads?: never[];
+        /** [EM: ooc] 她钉住的出戏要求：心跳也照做 */
+        oocPins?: string[];
         /** [EM: date-plans] TA 给阿萌安排的约会（今天和接下来两天，全文）：当天心跳主动找她开场 */
         datePlans?: { date: string; time?: string; title: string; itinerary: string }[];
         /** [EM: deep-talk] 烛下正开着：心跳这一跳不开口（since 是最后一段话的时刻，超过 3 小时后端就不认） */
@@ -289,6 +292,7 @@ export const buildCharacterSnapshot = async (
     const recent = mergeConsecutiveBubbles(messages
         .filter(message => message.type !== 'system')
         .filter(message => !isWalledDeepTalkMessage(message, matterNightIds)) // [EM: deep-talk] 烛下说的真话不给心跳看；谈事的那几次照常
+        .filter(message => !isOocMessage(message)) // [EM: ooc] 出戏的话不当成近况
         // 合并前多取一些：合完才截到 MAX_RECENT_MESSAGES 条
         .slice(-MAX_RECENT_MESSAGES * 8)
         .map(message => ({
@@ -345,6 +349,10 @@ export const buildCharacterSnapshot = async (
             })(),
             ...(options.boundaries?.length ? { boundaries: options.boundaries } : {}),
             ...(deepTalk ? { deepTalk } : {}), // [EM: deep-talk]
+            ...(() => { // [EM: ooc]
+                const pins = loadOocPins(char.id).map(p => p.text);
+                return pins.length ? { oocPins: pins } : {};
+            })(),
             ...(() => { // [EM: date-plans]
                 const datePlans = datePlansForSnapshot(char.id, at);
                 return datePlans.length ? { datePlans } : {};

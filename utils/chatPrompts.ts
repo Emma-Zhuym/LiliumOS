@@ -31,6 +31,8 @@ import { buildChronicleInjection } from './emAgentActivity'; // [EM: agent-backe
 import { buildMomentsChatInjection } from './emMomentsContext'; // [EM: moments-chat-context]
 import { buildPlansChatInjection } from './emAgentPlans'; // [EM: agent-plans]
 import { buildDatePlansChatInjection } from './emDatePlans'; // [EM: date-plans]
+import { deviceTimeZone, userSideStamp } from './emUserClock'; // [EM: chat-user-clock]
+import { buildOocPinsInjection, isOocMessage, oocPromptContent } from './emOoc'; // [EM: ooc]
 import { buildCueInjection } from './emCuePool'; // [EM: char-drives-cue]
 import { buildTemporalInjection } from './emTemporal'; // [EM: calendar-temporal]
 import { DEEP_TALK_EVENT_KIND, keepInPromptHistory } from './deepTalk'; // [EM: deep-talk]
@@ -613,6 +615,8 @@ ${groupLogStr}\n`;
             try { volatileState += buildPlansChatInjection(char.id, { timeZone: charTz || undefined, userName: userProfile.name }); } catch (e) { console.error('Failed to inject plans:', e); }
         }
         // [EM-END: agent-plans]
+        // [EM: ooc] 她钉住的出戏要求：每一轮都带（打包给主动消息也带，静态的）
+        try { volatileState += buildOocPinsInjection(char.id, userProfile.name); } catch (e) { console.error('Failed to inject OOC pins:', e); }
         // [EM-START: date-plans] TA 给阿萌安排的约会（本机，不靠 mini）：写下的全文 + 怎么写
         if (!forFirePack) {
             try { volatileState += buildDatePlansChatInjection(char.id, { userName: userProfile.name }); } catch (e) { console.error('Failed to inject date plans:', e); }
@@ -940,13 +944,16 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
                 }
             }
             // 时间感知关闭时，互动间隔与现实消息时间戳一起遮住。
-            if (lastRealMsg && currentMsg && timeAwarenessOn) timeGapHint = ChatPrompts.getTimeGapHint(lastRealMsg, currentMsg.timestamp, charTz);
+            // [EM: chat-user-clock] 「深夜了、沉默是在睡觉」说的是她：按她手机的钟判断，不按角色那边
+            if (lastRealMsg && currentMsg && timeAwarenessOn) timeGapHint = ChatPrompts.getTimeGapHint(lastRealMsg, currentMsg.timestamp, charTz ? (deviceTimeZone() || charTz) : charTz);
         }
 
         return {
             apiMessages: historySlice.map((m, index) => {
                 let content: any = m.content;
-                const timeStr = timeAwarenessOn ? `[${ChatPrompts.formatDate(m.timestamp, charTz)}]` : '';
+                const timeStr = timeAwarenessOn ? `[${ChatPrompts.formatDate(m.timestamp, charTz)}${userSideStamp(m, charTz)}]` : ''; // [EM: chat-user-clock] 她的话另标她当地几点
+                // [EM: ooc] 出戏的话：标明是作者对模型说的，最后一条还要求这一轮出戏回应
+                if (isOocMessage(m)) return { role: m.role, content: oocPromptContent(m, { userName: userProfile.name, timeStr, isLast: index === historySlice.length - 1 }) };
                 const sourceTag = (() => {
                     const source = m.metadata?.source;
                     if (source === 'call') return '[通话]';

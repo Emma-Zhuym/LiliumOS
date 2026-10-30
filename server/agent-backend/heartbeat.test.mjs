@@ -1487,6 +1487,17 @@ test('约会当天：还没说过话就不抽签、直接去开场；安排全�
     assert.ok(!prompts[0].includes('不该出现'));
 });
 
+test('她钉住的 OOC 要求：心跳提示词里也有', async () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    seedSnapshot(db, { oocPins: ['我在芝加哥，你在上海，时差看双城时钟'] });
+    const prompts = [];
+    const runner = { run: async ({ system }) => { prompts.push(system); return { ok: true, output: { action: 'noop', activity: 'a', reason: '', urge: 'none', together: 'apart' } }; } };
+    await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 'pin1') });
+    assert.ok(prompts[0].includes('阿萌钉住的要求（作者对你说的，不是剧情'));
+    assert.ok(prompts[0].includes('- 我在芝加哥，你在上海，时差看双城时钟'));
+});
+
 test('约会当天：今天已经说过话、或者不是那天，就不强行开场', () => {
     const now = chicago(10);
     const datePlans = datePlansFrom({ payload: { datePlans: [{ date: '2026-09-23', title: '生日', itinerary: 'x' }] } }, now, 'America/Chicago');

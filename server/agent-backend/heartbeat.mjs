@@ -1160,6 +1160,13 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
     }
     const userName = p.user?.name || '阿萌';
     lines.push(`对方是「${userName}」。`);
+    // 她在聊天里钉住的出戏要求（手机 emOoc.ts，快照带来）：心跳也照做
+    if (Array.isArray(p.oocPins) && p.oocPins.length) {
+        lines.push(
+            `${userName}钉住的要求（作者对你说的，不是剧情；照做，不要在消息里提起）：\n`
+            + p.oocPins.slice(0, 8).map(t => `- ${String(t).slice(0, 300)}`).join('\n'),
+        );
+    }
     // 两人不在一个时区时，直接给一块程序算好的双城时钟；不要把两个钟拆散后让模型再心算。
     if (userTimezone && userTimezone !== p.timezone) {
         lines.push(buildHeartbeatDualClockBlock(now, p.timezone, userTimezone, userName));

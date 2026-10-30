@@ -2,6 +2,7 @@ import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react'
 import { ShareNetwork, Trash, Plus, Smiley, PaperPlaneTilt, Lightning, X, Money, BookOpenText, GearSix, Image, Lock, ArrowsClockwise, ChatCircleDots, CalendarBlank, ForkKnife, Coffee, Code, Brain, PencilSimple, NotePencil, GameController, Microphone, Waveform, Sparkle, CaretDown, FadersHorizontal, LinkSimple, MagicWand, Alarm, Star, Stop } from '@phosphor-icons/react'; // [EM: icons NotePencil/GameController/Microphone/Waveform]
 import { intifaceClient } from '../../utils/intifaceClient'; // [EM: intiface]
 import PrivateMomentButton from './PrivateMomentButton'; // [EM: char-drives-private]
+import OocButton from './OocButton'; // [EM: ooc]
 import { CharacterProfile, ChatTheme, EmojiCategory, Emoji, ApiPreset } from '../../types';
 import { PRESET_THEMES } from './ChatConstants';
 import TokenImg from '../os/TokenImg';
@@ -1132,6 +1133,20 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                               </span>
                               <span className="text-xs font-bold">记忆链接</span>
                             </button>
+                            {/* [EM-START: ooc] 出戏跟模型说话：说明、写好「// 」、管钉住的 */}
+                            {activeCharacterId && (
+                              <OocButton
+                                charId={activeCharacterId}
+                                textClassName={acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}
+                                tileClassName={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border ${isDiscordStyle ? 'bg-slate-800 text-slate-300 border-white/10' : 'bg-slate-50 text-slate-500 border-slate-200'}`}
+                                onStart={() => {
+                                  setShowPanel('none');
+                                  setInput(input.startsWith('//') ? input : `// ${input}`);
+                                  requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }));
+                                }}
+                              />
+                            )}
+                            {/* [EM-END: ooc] */}
                           </div>
 
                           {/* 翻页指示器 */}

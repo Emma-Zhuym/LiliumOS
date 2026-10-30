@@ -36,6 +36,7 @@ import { trackEvent } from '../utils/analytics';
 import { sortCharacterGroups, GROUP_FILTER_UNGROUPED } from '../components/character/CharacterGroupFilter';
 import { groupApiPresets } from '../utils/apiPresetGroups'; // [EM: api-preset-group]
 import { isWalledDeepTalkMessage } from '../utils/deepTalk'; // [EM: deep-talk]
+import { isOocMessage } from '../utils/emOoc'; // [EM: ooc]
 import { loadMatterNightIds } from '../utils/deepTalkDb'; // [EM: deep-talk]
 import TemperamentSection from '../components/character/TemperamentSection'; // [EM: machine-room-split]
 import {
@@ -619,6 +620,7 @@ const Character: React.FC = () => {
           // 忽略 hideBeforeMessageId —— 这是强制重总结的关键
           const dayMsgs = allMsgs.filter(m => {
               if (isWalledDeepTalkMessage(m, matterNightIds)) return false; // [EM: deep-talk] 说真话的烛下原文不进记忆总结
+              if (isOocMessage(m)) return false; // [EM: ooc] 出戏的话不进记忆总结
               const d = new Date(m.timestamp);
               const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
               return key === dateStr;
@@ -772,6 +774,7 @@ const handleExportPreview = () => { if (!formData) return; const mems = formData
             
             msgs.forEach(m => {
                 if (isWalledDeepTalkMessage(m, matterNightIds)) return; // [EM: deep-talk] 说真话的烛下原文不进记忆总结
+                if (isOocMessage(m)) return; // [EM: ooc]
                 const d = new Date(m.timestamp);
                 const year = d.getFullYear();
                 const month = String(d.getMonth() + 1).padStart(2, '0');

@@ -59,6 +59,7 @@ import { isImageValue, migrateDataUrlToRef, putImageBlob, useBlobRefUrl } from '
 import { buildReplySnapshotContent } from '../utils/applyAssistantPostProcessing';
 import { resolveLifeRecordCard } from '../utils/lifeRecords';
 import { resolveEmScribeCard } from '../utils/emScribe'; // [EM: em-scribe]
+import { parseOocInput } from '../utils/emOoc'; // [EM: ooc]
 import MessageItem, { ThinkingChainBlock } from '../components/chat/MessageItem';
 import { PRESET_THEMES, DEFAULT_ARCHIVE_PROMPTS } from '../components/chat/ChatConstants';
 import { resolveChatTheme } from '../utils/groupChat/theme';
@@ -1496,8 +1497,13 @@ const Chat: React.FC = () => {
         noteMessageSent();
         // 借用户"发送"这个手势解锁音频上下文，好让稍后 AI 回复时的白框提示音能顺利播放（移动端自动播放策略）。
         unlockWhiteboxAudio();
-        const text = customContent || input.trim();
+        // [EM-START: ooc] 「//」「OOC：」开头：出戏，跟模型本身说话（emOoc.ts）
+        const rawText = customContent || input.trim();
         const type = customType || 'text';
+        const oocText = type === 'text' && !metadata?.voice ? parseOocInput(rawText) : null;
+        if (oocText !== null) metadata = { ...(metadata || {}), ooc: true };
+        const text = oocText ?? rawText;
+        // [EM-END: ooc]
 
         // 发消息隐含"回到当前聊天"——退出 windowed 旧消息浏览模式
         if (windowedFocusMsgId !== null) {

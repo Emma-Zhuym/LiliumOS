@@ -1,7 +1,7 @@
 // [EM-START: chat-user-clock]
 import { describe, expect, it } from 'vitest';
 
-import { timeDifferenceNote, userClockNote } from './emUserClock';
+import { HISTORY_STAMP_LEGEND, timeDifferenceNote, userClockNote, userSideStamp } from './emUserClock';
 import { placeName } from './openMeteo';
 
 const NOW = Date.parse('2026-09-29T19:37:00.000Z'); // 芝加哥下午 2:37，上海凌晨 3:37
@@ -33,6 +33,17 @@ describe('时差直接算成一句话', () => {
         const noon = Date.parse('2026-09-29T17:00:00.000Z'); // 芝加哥中午，洛杉矶上午，印度晚上 10:30
         expect(timeDifferenceNote('America/Los_Angeles', 'America/Chicago', noon)).toContain('对方当地比你（角色）当地快 2 小时；两边当前是同一个日历日');
         expect(timeDifferenceNote('Asia/Kolkata', 'America/Chicago', noon)).toContain('你（角色）当地比对方当地快 10 小时 30 分钟');
+    });
+});
+
+describe('聊天记录的时间戳标明是谁的钟（2026-10-30 时差还是搞错）', () => {
+    it('她发的话另标她当地几点；双城时钟下面说明怎么看', () => {
+        const morning = Date.parse('2026-10-30T13:00:00.000Z'); // 芝加哥早上 8 点，上海晚上 9 点
+        expect(userSideStamp({ role: 'user', timestamp: morning }, 'Asia/Shanghai', 'America/Chicago')).toBe('｜对方当地 10-30 08:00');
+        expect(userSideStamp({ role: 'assistant', timestamp: morning }, 'Asia/Shanghai', 'America/Chicago')).toBe('');
+        expect(userSideStamp({ role: 'user', timestamp: morning }, undefined, 'America/Chicago')).toBe('');
+        expect(userSideStamp({ role: 'user', timestamp: morning }, 'America/Chicago', 'America/Chicago')).toBe('');
+        expect(userClockNote('Asia/Shanghai', NOW, 'America/Chicago')).toContain(HISTORY_STAMP_LEGEND);
     });
 });
 

@@ -79,7 +79,7 @@ LiliumOS 和 SullyOS 早就各走各的了（git 认的合并基线停在 2026-0
 ### 吸收后必跑自检
 
 ```bash
-bash scripts/check-em-patches.sh   # 当前 380 项锚点检查，红了就是功能被冲掉
+bash scripts/check-em-patches.sh   # 当前 391 项锚点检查，红了就是功能被冲掉
 pnpm vitest run                    # 单元测试
 ```
 
@@ -246,6 +246,7 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - 桥接建不了重复规则，事件的重复只能在苹果日历里建
 - 日历内容和桥接 Token 一样不得进日志、文档、Engram 或备份
 - **角色的约定**（心跳里 TA 跟亲友约下的事，后端 `life_threads.due_at`）经 `GET /plans` 拉到本机 `utils/emAgentPlans.ts` 缓存：日历 App 摆在对应那天（中性灰 + 角色头像），聊天提示词告诉 TA 自己两周内约了什么
+- **聊天记录的时间戳标明是谁的钟**（2026-10-30，`emUserClock.ts` 的 `userSideStamp`）：方括号是角色那边的钟，她的话另标「对方当地 HH:MM」；双城时钟下面一行 `HISTORY_STAMP_LEGEND` 说明怎么看；`getTimeGapHint` 的「深夜沉默」按她手机时区
 - **角色自己约 / 取消**（2026-10-29）：聊天里 `[[PLAN_ADD: 做什么 | 什么时候]]` / `[[PLAN_CANCEL: 编号]]`（`chatParser.ts` 的 `[EM-START: agent-plans-chat]` → `executePlanDirectives`，mini 不在线排队），后端 `POST /plans`、`POST /plans/cancel`；心跳里列出的未到点约定带编号，`cancelPlan` 必填（空字符串 = 照常去）。取消 = `status 'done'` + `cancelled_at`（不删行），`listPlans` 不列。时间一律由 mini 的 `planTime.mjs` 解析，别让模型写日期。只教接在 mini 上的角色（`canEditPlans`）
 
 ### 27. 换皮「F」（2026-09-25）
@@ -488,6 +489,13 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - 当天：`datePrompts.ts` 两个出口经 `withDatePlanScene` 把安排接进见面系统提示词；心跳快照 `datePlans`（今天 + 两天内）→ `heartbeat.mjs` 的 `dateDayToGreet`：当天还没说过话就不抽签直接 reach_out（缘由 `date_day`）
 - 随备份 `emDatePlans`（OSContext 导出 / 恢复各一行）；跟第 26 节「角色的约定」（TA 跟亲友、存 mini）不是一回事，别合并
 - 以后做情侣空间时搬进「我们 · 约好的」，数据不用动
+
+### 43. OOC：出戏跟模型说话（2026-10-30）
+- 起因：她只能在对话后面加括号写元指令，情绪 API 把不满当成角色面对的情绪。纯逻辑 `utils/emOoc.ts`，气泡 `components/chat/OocChatItem.tsx`（P20），工具栏 `OocButton.tsx`
+- 发送时 `//`、`OOC：`、`（OOC）` 前缀 → `metadata.ooc`（`apps/Chat.tsx` 的 `[EM-START: ooc]`）；模型的出戏回应也是 `metadata.ooc`
+- `useChatAI.ts`：最后一条是 OOC 就固定本机生成（否决 mini / amsg / Instant Push）、不跑情绪评估、不抽契机，回应整段存一条不走后处理；情绪评估的输入剔掉带 `OOC_MARK` 的行
+- 不进记忆宫殿（`pipeline.ts` 三处）、手动记忆总结（`Character.tsx` 两处）、心跳快照近况；钉住的（localStorage `em_ooc_pins_v1:<charId>`，最多 8 条）每轮进 volatileState，也随快照 `oocPins` 进心跳提示词
+- 以后加新的「带走」路径（导出、摘要、快照…）先想 OOC 要不要剔掉
 
 ### 34. 小厨房（现实食品库存）
 - 详细设计与每次改动见 `docs/kitchen-3d.md`；UI 规则见 `APP_CONVENTIONS.md` 的 P14 与 `utils/kitchenPaperTokens.ts`

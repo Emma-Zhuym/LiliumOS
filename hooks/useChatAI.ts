@@ -60,6 +60,7 @@ import { resolveCharacterApiConfig } from '../utils/characterApi';
 import { announceInstantChatRoute, getInstantChatPending, resolveInstantChatReadiness, sendInstantChatTurn, stageInstantChatExpiredNotices } from '../utils/amsgInstantChat';
 import { beginLocalReply, isReplyStopError, stopReply } from '../utils/emReplyStop'; // [EM: reply-stop]
 import { isAgentChatReady, sendAgentChatTurn, tokenUsageFromCloudMetadata } from '../utils/emAgentChat'; // [EM: agent-instant-chat]
+import { cleanOocReply, isOocMessage, isOocPromptContent } from '../utils/emOoc'; // [EM: ooc]
 import { cleanDeepTalkReply, extractDeepTalkThinking, parseDeepTalkAnswer, type DeepTalkNight } from '../utils/deepTalk'; // [EM: deep-talk]
 import { DeepTalkDB } from '../utils/deepTalkDb'; // [EM: deep-talk]
 import { applyDeepTalkAnswer, saveDeepTalkSegment } from '../utils/deepTalkActions'; // [EM: deep-talk]
@@ -155,7 +156,7 @@ function buildEmotionEvalPrompt(
 
     // 将主 API 的消息数组展平成文本（保留时间戳、引用、特殊消息类型等格式）
     // 不截断：与主 API 完全对齐（contextLimit 条），让情绪 eval 能看到完整的情绪演变轨迹
-    const recentLines = apiMessages.map(m => {
+    const recentLines = apiMessages.filter(m => !isOocPromptContent(m.content)).map(m => { // [EM: ooc] 出戏的话不算情绪
         const role = m.role === 'user' ? '用户' : (m.role === 'assistant' ? char.name : '系统');
         let text = '';
         if (typeof m.content === 'string') {
@@ -913,7 +914,10 @@ export const useChatAI = ({
                 : null;
             const deepTalkLocal = !!deepTalkTurn && deepTalkTurn.mode !== 'later';
             // [EM-END: deep-talk]
-            const instantPushConfigured = isInstantConfigReady() && !deepTalkLocal; // [EM: deep-talk]
+            // [EM-START: ooc] 她最后发的是出戏的话：本机生成，模型出戏回一段，不跑情绪评估
+            const oocTurn = isOocMessage([...contextMsgs].reverse().find(m => m.role === 'user' || m.role === 'assistant'));
+            // [EM-END: ooc]
+            const instantPushConfigured = isInstantConfigReady() && !deepTalkLocal && !oocTurn; // [EM: deep-talk] [EM: ooc]
             const financeAwareness = await getFinanceAwareness(char.id).catch(() => ({ hasLedger: false, pulse: null }));
             const financeTopicTriggered = shouldEnableFinanceTools(currentMsgs);
             // 新账本事件或用户明确聊钱时必须留在本机；普通本地聊天也可自主查账，
@@ -937,6 +941,7 @@ export const useChatAI = ({
             const locationLocalRequired = isLocationChatToolEnabled()
                 && shouldPreferLocalLocationTool(currentMsgs);
             const instantChatVeto: string | null = deepTalkLocal ? 'deep-talk' // [EM: deep-talk]
+                        : oocTurn ? 'ooc' // [EM: ooc]
                         : intifaceReady ? 'intiface'
                             : healthToolTurn ? 'health-local'
                             : locationLocalRequired ? 'location-local'
@@ -963,7 +968,7 @@ export const useChatAI = ({
             // 摘录本地先读好、放进 volatileState，不需要工具循环，所以不改这一轮的路线。
             // 她自己正聊着某个工具话题时不闪。
             await rollChatCue(char, {
-                skip: Boolean(deepTalkLocal /* [EM: deep-talk] */ || financeTopicTriggered || healthToolTurn || mcpToolTurn || locationLocalRequired),
+                skip: Boolean(deepTalkLocal /* [EM: deep-talk] */ || oocTurn /* [EM: ooc] */ || financeTopicTriggered || healthToolTurn || mcpToolTurn || locationLocalRequired),
                 route: agentChatRoute ? 'mini' : instantChatRoute ? 'cloud' : instantPushConfigured ? 'push' : 'local',
                 userName: userProfile.name,
             });
@@ -1138,7 +1143,8 @@ export const useChatAI = ({
             //      一起交给 worker, worker 跑完把结果推回来, 客户端 flush 时落 buff —— 这样前端被杀
             //      也算数, 且不会跟客户端 eval 双跑双扣费. 见下方两个上云分支 + activeMsgRuntime.
             const emotionEvalEnabled = !!(!promptBuildSkipped && !isEmotionEvalSkipped() && isScheduleFeatureOn(char) && char.emotionConfig?.enabled)
-                && deepTalkTurn?.mode !== 'open'; // [EM: deep-talk] 烛下说的真话不写进情绪底色（它会带进平时聊天和心跳）
+                && deepTalkTurn?.mode !== 'open' // [EM: deep-talk] 烛下说的真话不写进情绪底色（它会带进平时聊天和心跳）
+                && !oocTurn; // [EM: ooc] 出戏的话不是 TA 面对的情绪
             // 这一轮的生成在云端跑（两条路互斥，见 instantChatRoute 的算法）。
             // instantPushConfigured 是路由判定处冻结的同一回合终值——这里绝不自己再读
             // 一次，否则可能「按上云模式把评估打包走了，实际却走本地」，情绪底色悄悄停更。
@@ -2071,6 +2077,16 @@ export const useChatAI = ({
             postProcessingStarted = true; // [EM: reply-stop]
             // [EM-START: deep-talk] 开着的深谈：整段存成一条，不拆气泡、不跑表情 / 引用；邀请那一轮先剥标记
             const deepTalkAnswer = deepTalkTurn?.mode === 'invite' ? parseDeepTalkAnswer(rawAiContent) : null;
+            // [EM-START: ooc] 出戏回应：整段存一条灰色 OOC，不拆气泡、不跑标签和副作用
+            if (oocTurn) {
+                const reply = cleanOocReply(rawAiContent);
+                if (reply && !replyRun.signal.aborted) {
+                    await DB.saveMessage({ charId: char.id, role: 'assistant', type: 'text', content: reply, metadata: { ooc: true } });
+                }
+                updateTokenUsage(data, historyMsgCount, 'ooc');
+                setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
+            } else
+            // [EM-END: ooc]
             if (deepTalkTurn?.mode === 'open') {
                 const segment = cleanDeepTalkReply(rawAiContent, char.name);
                 const thinking = extractDeepTalkThinking(rawAiContent, data.choices?.[0]?.message?.reasoning_content);

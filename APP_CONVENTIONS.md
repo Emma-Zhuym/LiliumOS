@@ -296,6 +296,12 @@
 - 日记是整页（`clay-sheet-in`）：`HUE.rose.tint` 底上一张白纸，左上裸 icon 关闭、居中「第 NN 次」；标题衬线 22/700、日期一行、三格 tint 小块（什么时候 / 多久 / 在哪）、正文衬线 400（同 P17 的例外）、手写体签名；末尾「TA 记住的」+ 裸 icon 删除（ClayDialog 确认）
 - 整套只用 rose 一个主色
 
+## P20. 出戏（OOC）气泡（2026-10-30）
+
+- 跟剧情明显分开但不抢眼：surfaceSunken 底 + 1px borderSoft、radius 10、14px textSecondary 正文；顶上 11px tertiary 小标签「OOC」/「OOC · 模型」
+- 她发的靠右、模型的靠左，不带头像、不拆气泡；钉住 = 标签后加「· 已钉住」+ 实心图钉（44 触控区的裸 icon）
+- 长按照常弹消息菜单（删除等）：气泡挂 MessageItem 的 interactionProps
+
 ## P19. 封起来的内容（约会 App，2026-10-29 阿萌选「当天才揭晓」）
 
 - 还不能看的内容不渲染进页面（不是遮住），只给外壳：哪天 / 几点 / 场合 + 一个 surfaceSunken 凹槽，

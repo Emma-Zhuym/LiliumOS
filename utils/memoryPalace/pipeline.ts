@@ -85,6 +85,7 @@ import { DB } from '../db';
 import { isMessageSemanticallyRelevant, formatMessageForPrompt } from '../messageFormat';
 import { isWalledDeepTalkMessage } from '../deepTalk'; // [EM: deep-talk]
 import { loadMatterNightIds } from '../deepTalkDb'; // [EM: deep-talk]
+import { isOocMessage } from '../emOoc'; // [EM: ooc]
 import { sanitizeQuerySourceMessages } from './querySanitizer';
 import { getLocalDateKey } from '../localDate';
 import { extractExternalMemoryText } from './externalMemory';
@@ -1631,7 +1632,7 @@ export async function getMemoryPalaceUnprocessedBufferCount(
 ): Promise<number> {
     const allMessages = await DB.getMessagesByCharId(charId, true);
     const matterNightIds = await loadMatterNightIds(charId); // [EM: deep-talk]
-    const semantic = allMessages.filter(m => !m.groupId && isMessageSemanticallyRelevant(m) && !isWalledDeepTalkMessage(m, matterNightIds)); // [EM: deep-talk] 说真话的烛下原文不进记忆宫殿
+    const semantic = allMessages.filter(m => !m.groupId && isMessageSemanticallyRelevant(m) && !isWalledDeepTalkMessage(m, matterNightIds) && !isOocMessage(m)); // [EM: deep-talk] 说真话的烛下原文不进记忆宫殿 [EM: ooc] 出戏的话也不进
     const highWaterMark = await getReliableMemoryPalaceHighWaterMark(charId);
     const waterline = await loadCharacterWaterline(charId, waterlineOverride);
     return countUnprocessedBufferMessages(semantic, highWaterMark, waterline.hotZoneSize);
@@ -1648,7 +1649,7 @@ export async function getMemoryPalaceOneShotPendingCount(
     const allMessages = await DB.getMessagesByCharId(charId, true);
     const privateMessages = allMessages.filter(message => !message.groupId);
     const matterNightIds = await loadMatterNightIds(charId); // [EM: deep-talk]
-    const semantic = privateMessages.filter(message => isMessageSemanticallyRelevant(message) && !isWalledDeepTalkMessage(message, matterNightIds)); // [EM: deep-talk]
+    const semantic = privateMessages.filter(message => isMessageSemanticallyRelevant(message) && !isWalledDeepTalkMessage(message, matterNightIds) && !isOocMessage(message)); // [EM: deep-talk] [EM: ooc]
     const highWaterMark = await getReliableMemoryPalaceHighWaterMark(charId);
     return countOneShotPendingMessages(
         semantic,
@@ -2078,7 +2079,7 @@ export async function processNewMessages(
             .sort((a, b) => a.id - b.id);
         const matterNightIds = await loadMatterNightIds(charId); // [EM: deep-talk]
         const textMessages = privateMessages
-            .filter(m => isMessageSemanticallyRelevant(m) && !isWalledDeepTalkMessage(m, matterNightIds)) // [EM: deep-talk] 说真话的烛下原文不进记忆宫殿，只有 TA 挑的原话另外写进去；谈事的照常
+            .filter(m => isMessageSemanticallyRelevant(m) && !isWalledDeepTalkMessage(m, matterNightIds) && !isOocMessage(m)) // [EM: deep-talk] 说真话的烛下原文不进记忆宫殿，只有 TA 挑的原话另外写进去；谈事的照常 [EM: ooc] 出戏的话不进
             .sort((a, b) => a.id - b.id);
 
         const totalCount = textMessages.length;
