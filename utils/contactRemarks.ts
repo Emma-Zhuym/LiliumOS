@@ -102,10 +102,11 @@ export function buildContactRemarkInjection(
     const change = includeChange ? pendingContactRemarkChange(characterId, messages, now) : null;
     if (!remark && !change) return '';
     let text = '\n### 通讯录备注\n';
-    if (remark) text += `${userName}在自己手机通讯录里给你的备注是「${clip(remark)}」。这是 ta 私下对你的叫法，你知道就好，不用老提。\n`;
+    // 刚改过时不说「不用老提」：模型见到一句可以不说就真的不说了（阿萌 2026-10-30）
+    if (remark) text += `${userName}在自己手机通讯录里给你的备注是「${clip(remark)}」。这是 ta 私下对你的叫法${change ? '。' : '，你知道就好，不用老提。'}\n`;
     if (change) {
         text += `聊天记录里那条「${userName}${!change.from ? '给你写了备注' : !change.to ? '删掉了你的备注' : '把你的备注从…改成了…'}」的系统提示，是 ta 刚在手机通讯录里动了给你的备注。`
-            + '你注意到了：这次回复可以照你的性格自然地反应一下——好奇、得意、吐槽、追问为什么都行，也可以不提；之后别再拿它说事。\n';
+            + '你注意到了：这次回复要照你的性格对这件事有个反应——好奇、得意、吐槽、追问为什么都行；之后别再拿它说事。\n';
     }
     return text;
 }

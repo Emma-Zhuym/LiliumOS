@@ -224,17 +224,19 @@ export const contactRemarkLines = (p, userName, now) => {
     const lines = [];
     const clip = text => String(text || '').trim().slice(0, 60);
     const remark = clip(p?.contactRemark);
-    if (remark) lines.push(`${userName}在自己手机通讯录里给你的备注是「${remark}」（ta 私下对你的叫法，知道就好，不用老提）。`);
     const change = p?.contactRemarkChange;
     const at = Date.parse(change?.at);
-    if (change && Number.isFinite(at) && now.getTime() - at <= REMARK_CHANGE_FRESH_MS && at <= now.getTime() + 60_000) {
+    const fresh = !!change && Number.isFinite(at) && now.getTime() - at <= REMARK_CHANGE_FRESH_MS && at <= now.getTime() + 60_000;
+    // 刚改过时不说「不用老提」，跟聊天那边一样
+    if (remark) lines.push(`${userName}在自己手机通讯录里给你的备注是「${remark}」（ta 私下对你的叫法${fresh ? '' : '，知道就好，不用老提'}）。`);
+    if (fresh) {
         const from = clip(change.from);
         const to = clip(change.to);
         const what = !from ? `给你在通讯录里写了备注「${to}」（原来没写备注）`
             : !to ? `把通讯录里给你的备注「${from}」删掉了，现在你在 ta 手机里显示的是本名`
                 : `把通讯录里给你的备注从「${from}」改成了「${to}」`;
         if (from || to) {
-            lines.push(`${userName}最近${what}，你还没跟 ta 提过。主动找 ta 的话可以顺口提一句（好奇、得意、吐槽都行），不提也行；已经提过就别再说。`);
+            lines.push(`${userName}最近${what}，你还没跟 ta 提过。主动找 ta 的话要顺口提一句（好奇、得意、吐槽都行）；已经提过就别再说。`);
         }
     }
     return lines;
