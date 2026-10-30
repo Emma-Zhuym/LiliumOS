@@ -65,6 +65,14 @@ describe('先按显示范围过滤，再计算最近 N 条', () => {
         expect(recent.messages.map(m => m.id)).toEqual(ids.slice(-30));
     });
 
+    it('改备注的提示跟戳一戳一样常驻：隐藏系统日志也显示，但不进桌面预览', () => { // [EM: contact-remark-aware]
+        const notice = { id: 1, charId: 'c', role: 'system', type: 'text', content: '阿萌把露米的备注从「小狗」改成了「大笨狗」', timestamp: 1, metadata: { kind: 'contact_remark_change' } } as any;
+        const log = { ...notice, metadata: undefined };
+        expect(isVisibleChatMessage(notice, true)).toBe(true);
+        expect(isVisibleChatMessage(log, true)).toBe(false);
+        expect(isChatPreviewMessage(notice)).toBe(false);
+    });
+
     it('记忆处理水位不影响桌面预览和可回看的聊天', async () => {
         const charId = nextCharId();
         const id = await DB.saveMessage({ charId, role: 'assistant', type: 'text', content: '旧聊天仍能回看' });
