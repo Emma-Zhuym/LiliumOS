@@ -202,6 +202,28 @@ const dateKey = (date, timezone) => {
 };
 
 /**
+ * TA 给阿萌安排的约会（手机「约会」，快照带今天和接下来两天，全文）。日期是阿萌那边的。
+ * 跟 life_threads 的约定不是一回事：那是 TA 跟亲友，这是跟她。
+ */
+export const datePlansFrom = (snapshot, now, userTimezone) => {
+    const today = dateKey(now, userTimezone);
+    const plans = Array.isArray(snapshot?.payload?.datePlans) ? snapshot.payload.datePlans : [];
+    return plans
+        .filter(p => p && /^\d{4}-\d{2}-\d{2}$/.test(String(p.date)) && p.date >= today && typeof p.itinerary === 'string')
+        .map(p => ({ date: p.date, time: p.time || '', title: String(p.title || '约会'), itinerary: p.itinerary, today: p.date === today }));
+};
+
+/** 约会当天、今天还没跟她说过话（聊天里、心跳发的都算）：这一跳就是去开场。返回那份安排或 null。 */
+export const dateDayToGreet = ({ datePlans, lastContact = null, ownMessages = [], now, userTimezone }) => {
+    const plan = datePlans.find(p => p.today);
+    if (!plan) return null;
+    const today = dateKey(now, userTimezone);
+    if (lastContact && dateKey(lastContact, userTimezone) === today) return null;
+    if (ownMessages.some(m => dateKey(new Date(m.at), userTimezone) === today)) return null;
+    return plan;
+};
+
+/**
  * 快照里的「今天的安排」只在拼快照的那一天有效。
  *
  * 快照只在阿萌发消息 / 打开 App 时更新：一整天没动静，手里那份就还是昨天的，
@@ -1260,6 +1282,17 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
             + '\n' + PLAN_CANCEL_HOW,
         );
     }
+    // [date-plans] 你给 ta 安排的约会：全文给 TA 自己看（ta 只知道有，当天才揭晓）
+    const datePlans = datePlansFrom(snapshot, now, userTimezone || p.timezone);
+    if (datePlans.length) {
+        lines.push(
+            `你给 ${userName || 'ta'} 安排的约会（你自己写下的；ta 只知道你安排好了，不知道内容，当天才揭晓）：\n`
+            + datePlans.map(d => `- ${d.today ? '今天' : d.date}${d.time ? ` ${d.time}` : ''} · ${d.title}：\n${d.itinerary}`).join('\n')
+            + (datePlans.some(d => d.today)
+                ? '\n今天就是那天：说话、做事都照这份安排来，到哪一步揭晓哪一步。'
+                : '\n还没到，别剧透细节；可以惦记着、为它做点准备。'),
+        );
+    }
     if (duePlan) {
         lines.push(
             `现在就是你约好的时间：「${duePlan.title}」${duePlan.summary ? `（${duePlan.summary}）` : ''}。`
@@ -1823,7 +1856,7 @@ export const createHeartbeatHandler = ({
         });
         return { skipped: 'private_moment' };
     }
-    const { intent } = decideIntent({
+    const decided = decideIntent({
         snapshot,
         now: startedAt,
         timezone,
@@ -1835,6 +1868,11 @@ export const createHeartbeatHandler = ({
         rng,
         chanceFactor: drivesLive ? driveChanceFactor(drives) : 1,
     });
+    // 约会当天还没跟她说过话：不抽签，这一跳就去开场（抽签照样抽，保持随机序列不变）
+    const dateDay = !hush && !unread.length
+        ? dateDayToGreet({ datePlans: datePlansFrom(snapshot, startedAt, userTimezone || timezone), lastContact, ownMessages, now: startedAt, userTimezone: userTimezone || timezone })
+        : null;
+    const intent = dateDay ? 'reach_out' : decided.intent;
     // 只回看最近 12 小时：更早的那些，今天的聊天多半已经盖过去了。
     const thoughts = recentThoughts(db, character.charId, {
         since: new Date(startedAt.getTime() - 12 * 60 * 60_000),
@@ -1870,7 +1908,8 @@ export const createHeartbeatHandler = ({
     const pocket = intent === 'reach_out'
         ? listUnsaid(db, character.charId, startedAt, { userName: snapshot.payload?.user?.name ?? '' })
         : [];
-    const reachReason = intent === 'reach_out' && !(carried && unanswered.length < 2)
+    const reachReason = dateDay ? { kind: 'date_day', item: dateDay }
+        : intent === 'reach_out' && !(carried && unanswered.length < 2)
         ? pickReachReason({
             pocket,
             ownLife: lifeLog,

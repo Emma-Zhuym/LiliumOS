@@ -49,6 +49,7 @@ export enum AppID {
   Moments = 'moments', // [EM: moments] 朋友圈 — 所有人的动态汇总，用户可发图文、点赞评论
   Kitchen = 'kitchen', // [EM: kitchen-app] Lilian Kitchen — 现实食品库存与小厨房
   MachineRoom = 'machine_room', // [EM: machine-room] 机房 — Mac mini 后端的家（心跳、心思、连接、开关）
+  DatePlans = 'date_plans', // [EM: date-plans] 约会 — TA 给阿萌安排的约会（当天才揭晓）
 }
 
 export interface SystemLog {
@@ -4459,6 +4460,7 @@ export interface FullBackupData {
     agendaItems?: AgendaItem[];                 // 时光契约日程（agenda store）
     emHealthProfile?: HealthProfile;            // 健康档案（liliumos_health_profile）
     emContactRemarks?: Record<string, string>;  // 通讯录备注，角色 id → 备注（em_contact_remark_*）
+    emDatePlans?: import('./utils/emDatePlans').DatePlan[]; // [EM: date-plans] TA 给阿萌安排的约会（em_date_plans_v1）
     // [EM-END: em-backup-gaps]
 }
 

@@ -19,6 +19,7 @@ const SELF_HANDLED: AppID[] = [
     AppID.Calendar, // [EM: calendar-temporal]
     AppID.Kitchen, // [EM: kitchen-app]
     AppID.MachineRoom, // [EM: machine-room]
+    AppID.DatePlans, // [EM: date-plans]
 ];
 
 describe('shellHandlesSafeArea', () => {

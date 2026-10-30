@@ -21,7 +21,7 @@ import {
     ACTIVE_CHAT_WINDOW_MS, DEEP_TALK_STALE_MS, buildPrompt, checkGates, speakBlock, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
     BREAK_COOLDOWN_MIN, currentSlot, decideIntent, formatGap, inBreakWindow, upcomingBreakStarts, jitterRatio, lastRealInteractionAt, listModelRuns, messageChance,
     nextRunAt, recordModelRun, shouldCaptureRaw, decideEpisode, episodeChance, isWorkSlot, lifeChance, pickLifeKind, veilSurprise,
-    MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, heartbeatSchemaFor, stripUnbackedClaims, withPlanTime, withOuting, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule, unansweredProactive, lastUserSpokeAt, unansweredFactor, reachOutTimeRule, timeProgressRule, shouldSuppressStaleBedtimeMessage, recentOwnMessages, fillMomentComments, DUTY_RULE, PHOTO_HOW, previewWithoutPhotoTags,
+    datePlansFrom, dateDayToGreet, MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, heartbeatSchemaFor, stripUnbackedClaims, withPlanTime, withOuting, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule, unansweredProactive, lastUserSpokeAt, unansweredFactor, reachOutTimeRule, timeProgressRule, shouldSuppressStaleBedtimeMessage, recentOwnMessages, fillMomentComments, DUTY_RULE, PHOTO_HOW, previewWithoutPhotoTags,
 } from './heartbeat.mjs';
 import { chatCompletionsUrl, createApiRunner, extractContentText, parseEpisode, parseHeartbeatOutput, parseLife } from './runner.mjs';
 import { applyThread, cancelPlan, closePassedPlans, closeStaleThreads, isPlanDue, isPlanThread, listOpenThreads, listPlans } from './lifeThreads.mjs';
@@ -1458,6 +1458,44 @@ test('schema：列了约定才要求写 cancelPlan', () => {
     assert.ok(!HEARTBEAT_SCHEMA.required.includes('cancelPlan'));
     assert.ok(heartbeatSchemaFor({ cancelPlan: true }).required.includes('cancelPlan'));
     assert.ok(!heartbeatSchemaFor({ together: true }).required.includes('cancelPlan'));
+});
+
+test('约会当天：还没说过话就不抽签、直接去开场；安排全文在提示词里', async () => {
+    const db = freshDb();
+    setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+    const character = seedCharacter(db);
+    const now = chicago(10);
+    seedSnapshot(db, {
+        userTimezone: 'America/Chicago',
+        todaySchedule: [{ start: '09:00', title: '在家', availability: 'online' }],
+        datePlans: [
+            { date: '2026-09-23', time: '19:00', title: '你的生日', itinerary: '下午三点来接你，先去花市，晚上在河边那家吃饭。' },
+            { date: '2026-09-25', title: '看海', itinerary: '开车去海边' },
+            { date: '2026-09-20', title: '过去的', itinerary: '不该出现' },
+        ],
+    }, now);
+    const prompts = [];
+    const runner = { run: async ({ system }) => {
+        prompts.push(system);
+        return { ok: true, output: { action: 'message', activity: '在准备', reason: '', urge: 'none', text: '生日快乐', together: 'apart' } };
+    } };
+    const result = await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration, 'date1'), now, rng: () => 0.99, deliver: async () => {} });
+    assert.equal(result.intent, 'reach_out', '抽签本来是 live，约会当天直接开口');
+    assert.ok(prompts[0].includes('今天是你给 ta 安排约会的日子（你的生日，19:00 开始）'));
+    assert.ok(prompts[0].includes('下午三点来接你'));
+    assert.ok(prompts[0].includes('2026-09-25 · 看海'));
+    assert.ok(!prompts[0].includes('不该出现'));
+});
+
+test('约会当天：今天已经说过话、或者不是那天，就不强行开场', () => {
+    const now = chicago(10);
+    const datePlans = datePlansFrom({ payload: { datePlans: [{ date: '2026-09-23', title: '生日', itinerary: 'x' }] } }, now, 'America/Chicago');
+    assert.equal(dateDayToGreet({ datePlans, now, userTimezone: 'America/Chicago' })?.title, '生日');
+    assert.equal(dateDayToGreet({ datePlans, now, userTimezone: 'America/Chicago', lastContact: chicago(1) }), null, '凌晨聊过了');
+    assert.equal(dateDayToGreet({ datePlans, now, userTimezone: 'America/Chicago', ownMessages: [{ at: chicago(8).toISOString(), text: '早' }] }), null);
+    assert.equal(dateDayToGreet({ datePlans, now, userTimezone: 'America/Chicago', lastContact: new Date(Date.UTC(2026, 8, 23, 4)) })?.title, '生日', '前一天晚上聊的不算');
+    const tomorrow = datePlansFrom({ payload: { datePlans: [{ date: '2026-09-24', title: '生日', itinerary: 'x' }] } }, now, 'America/Chicago');
+    assert.equal(dateDayToGreet({ datePlans: tomorrow, now, userTimezone: 'America/Chicago' }), null);
 });
 
 test('真实执行：新约的事落成带时间的 thread；解析不了就不落库，生活照常送', async () => {

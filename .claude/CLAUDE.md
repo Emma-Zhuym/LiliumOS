@@ -79,7 +79,7 @@ LiliumOS 和 SullyOS 早就各走各的了（git 认的合并基线停在 2026-0
 ### 吸收后必跑自检
 
 ```bash
-bash scripts/check-em-patches.sh   # 当前 368 项锚点检查，红了就是功能被冲掉
+bash scripts/check-em-patches.sh   # 当前 376 项锚点检查，红了就是功能被冲掉
 pnpm vitest run                    # 单元测试
 ```
 
@@ -478,6 +478,15 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - 一次调用出日记 + `memory` + `after`：`memory` 写成一条卧室记忆（标签「贴贴」），卡片消息 content 是给后续上下文的那一行（含 memory），日记全文不进上下文；删记忆时卡片那一行一起去掉细节
 - 健康 App 只读 `TietieDB` 打记号，不写 healthDb、不进健康摘要
 - 上游文件接线：`Chat.tsx`、`MessageItem.tsx`、`chatMessageVisibility.ts`、`OSContext.tsx`、`types.ts`（`check-em-patches.sh`「贴贴事后记录」一节）
+
+### 42. 约会 App（TA 给阿萌安排的约会，2026-10-29）
+- 起因：生日前一天，角色们嘴上说「都安排好了」却没地方存。纯逻辑 `utils/emDatePlans.ts`，界面 `apps/DatePlansApp.tsx`（主色 rose，模式 P19）
+- 聊天 `[[DATE_PLAN: 哪天 几点 | 场合 | 完整安排]]` / `[[DATE_PLAN_CANCEL: 哪天]]`（`chatParser.ts` 的 `[EM-START: date-plans]`），存本机 localStorage `em_date_plans_v1`，不靠 mini；同一角色同一天一份，再写就是改；取消不删
+- 日期是**阿萌这边的日历**（她的生日按她过），不按角色时区；只认说话的说法，认不出就不记并提示
+- **当天之前不给阿萌看内容**（阿萌选的）：App 只渲染外壳和字数，别把全文塞进 DOM 再遮；TA 自己每轮聊天看得到全文
+- 当天：`datePrompts.ts` 两个出口经 `withDatePlanScene` 把安排接进见面系统提示词；心跳快照 `datePlans`（今天 + 两天内）→ `heartbeat.mjs` 的 `dateDayToGreet`：当天还没说过话就不抽签直接 reach_out（缘由 `date_day`）
+- 随备份 `emDatePlans`（OSContext 导出 / 恢复各一行）；跟第 26 节「角色的约定」（TA 跟亲友、存 mini）不是一回事，别合并
+- 以后做情侣空间时搬进「我们 · 约好的」，数据不用动
 
 ### 34. 小厨房（现实食品库存）
 - 详细设计与每次改动见 `docs/kitchen-3d.md`；UI 规则见 `APP_CONVENTIONS.md` 的 P14 与 `utils/kitchenPaperTokens.ts`

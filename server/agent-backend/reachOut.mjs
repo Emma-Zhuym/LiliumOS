@@ -159,6 +159,10 @@ export const formatReachReason = (reason, { formatGap = () => '' } = {}) => {
                 + '可以借这个关心一句、或者就这件事聊起来；别像在查岗，也别猜 ta 没说的事。';
         case 'thread':
             return '你想起 ta，是因为你们上次聊的那些还在你心里，想接着说下去。';
+        case 'date_day':
+            return `今天是你给 ta 安排约会的日子（${reason.item.title}${reason.item.time ? `，${reason.item.time} 开始` : ''}），`
+                + '这次找 ta 就是为这个：照你写下的安排开个头——问候 ta、告诉 ta 什么时候见、先做什么。'
+                + '留一点悬念，别把整份安排一口气说完。';
         case 'grievance':
             return `你想起 ta，是因为心里还有点堵：ta 说过「${reason.item.quote}」。`
                 + '可以把不满说出来，用你自己的方式——别憋着，也别借题发挥吵大；说开了，心里就过去了。';

@@ -7,6 +7,7 @@ import { extractTransferCommands } from './transferFormat';
 import { executeLifeDirectives } from './lifeRecords';
 import { executeEmScribeDirectives } from './emScribe'; // [EM: em-scribe]
 import { executePlanDirectives } from './emAgentPlans'; // [EM: agent-plans-chat]
+import { executeDatePlanDirectives } from './emDatePlans'; // [EM: date-plans]
 import { wallClockToTimestamp } from './timezone';
 
 export interface MusicActionSnapshot {
@@ -538,6 +539,12 @@ export const ChatParser = {
             content = executePlanDirectives(content, charId, charName, addToast);
         }
         // [EM-END: agent-plans-chat]
+
+        // [EM-START: date-plans] TA 给阿萌安排的约会：[[DATE_PLAN]] / [[DATE_PLAN_CANCEL]] → 本机「约会」
+        if (content.includes('DATE_PLAN')) {
+            content = executeDatePlanDirectives(content, charId, charName, addToast);
+        }
+        // [EM-END: date-plans]
 
         // RECALL tag removal (handling done in main loop logic, but cleaning here just in case)
         content = content.replace(/\[\[RECALL:.*?\]\]/g, '').trim();

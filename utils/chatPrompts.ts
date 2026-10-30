@@ -30,6 +30,7 @@ import { buildEmScribeInjection } from './emScribe'; // [EM: em-scribe]
 import { buildChronicleInjection } from './emAgentActivity'; // [EM: agent-backend-chronicle]
 import { buildMomentsChatInjection } from './emMomentsContext'; // [EM: moments-chat-context]
 import { buildPlansChatInjection } from './emAgentPlans'; // [EM: agent-plans]
+import { buildDatePlansChatInjection } from './emDatePlans'; // [EM: date-plans]
 import { buildCueInjection } from './emCuePool'; // [EM: char-drives-cue]
 import { buildTemporalInjection } from './emTemporal'; // [EM: calendar-temporal]
 import { DEEP_TALK_EVENT_KIND, keepInPromptHistory } from './deepTalk'; // [EM: deep-talk]
@@ -612,6 +613,11 @@ ${groupLogStr}\n`;
             try { volatileState += buildPlansChatInjection(char.id, { timeZone: charTz || undefined, userName: userProfile.name }); } catch (e) { console.error('Failed to inject plans:', e); }
         }
         // [EM-END: agent-plans]
+        // [EM-START: date-plans] TA 给阿萌安排的约会（本机，不靠 mini）：写下的全文 + 怎么写
+        if (!forFirePack) {
+            try { volatileState += buildDatePlansChatInjection(char.id, { userName: userProfile.name }); } catch (e) { console.error('Failed to inject date plans:', e); }
+        }
+        // [EM-END: date-plans]
         // [EM-START: char-drives-cue] 这一轮闪过的念头（发送前已抽好，没抽中就是空）
         if (!forFirePack) {
             try { volatileState += buildCueInjection(char.id); } catch (e) { console.error('Failed to inject cue:', e); }

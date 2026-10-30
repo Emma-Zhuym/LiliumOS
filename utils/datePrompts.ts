@@ -27,6 +27,7 @@ import { injectMemoryPalace } from './memoryPalace/pipeline';
 import { resolveCharTimeZone, nowInTimeZone } from './timezone';
 import { getVoicePromptOverride } from './ttsProvider';
 import { buildDateWritingStylePrompt } from './dateWritingStyle'; // EM: 约会写作风格预设
+import { withDatePlanScene } from './emDatePlans'; // [EM: date-plans]
 import { injectWorldbookDepthEntries, resolveWorldbookDepthEntries, type WorldbookScanMessage } from './worldbook';
 
 export type ApiMessage = { role: string; content: any };
@@ -731,10 +732,10 @@ ${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlo
         // 历史已经压进这一条 user 消息里，深度条目就以它为准：深度 0 在它之后，其余在它之前
         const peekMsg: ApiMessage = { role: 'user', content: `[最近记录 (Previous Context)]:${recentMsgs}${contextSeparator}${peekInstructions}\n\n(Start sensing...)` };
         return {
-            messages: [
+            messages: withDatePlanScene([ // [EM: date-plans] 今天有 TA 安排的约会：开场照安排来
                 { role: 'system', content: baseContext },
                 ...withWorldbookDepthEntries([peekMsg], char, userProfile?.name || '', apiMessages),
-            ],
+            ], char.id, userProfile?.name),
         };
     },
 
@@ -782,7 +783,7 @@ ${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlo
             : `(System Note: Reroll. 换一个切入角度重写，不要复用上一版的展开思路。依然严格遵守 VN 格式：每一行以 [emotion] 开头并逐行切换情绪，叙述行写具体的感官细节和停顿，不要罗列动作。${focusLine})`;
 
         return {
-            messages: [
+            messages: withDatePlanScene([ // [EM: date-plans]
                 { role: 'system', content: systemPrompt },
                 ...withWorldbookDepthEntries(
                     [...historyMsgs, { role: 'user', content: `${userText}\n\n${note}` }],
@@ -790,7 +791,7 @@ ${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlo
                     userProfile?.name || '',
                     worldbookScan,
                 ),
-            ],
+            ], char.id, userProfile?.name),
         };
     },
 };

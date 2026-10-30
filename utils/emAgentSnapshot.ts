@@ -23,6 +23,7 @@ import { loadUserMomentsForSnapshot, type SnapshotUserMoment } from './emMoments
 import { buildFinanceHeartbeatContext, type FinanceHeartbeatContext } from './financeChatTools';
 import { loadDeepTalkForSnapshot, loadMatterNightIds } from './deepTalkDb'; // [EM: deep-talk]
 import { isWalledDeepTalkMessage } from './deepTalk'; // [EM: deep-talk]
+import { datePlansForSnapshot } from './emDatePlans'; // [EM: date-plans]
 
 export const SNAPSHOT_SCHEMA_VERSION = 1;
 
@@ -115,6 +116,8 @@ export interface CharacterSnapshot {
         finance?: FinanceHeartbeatContext;
         boundaries?: SnapshotBoundary[];
         openThreads?: never[];
+        /** [EM: date-plans] TA 给阿萌安排的约会（今天和接下来两天，全文）：当天心跳主动找她开场 */
+        datePlans?: { date: string; time?: string; title: string; itinerary: string }[];
         /** [EM: deep-talk] 烛下正开着：心跳这一跳不开口（since 是最后一段话的时刻，超过 3 小时后端就不认） */
         deepTalk?: { open: true; since: string };
     };
@@ -342,6 +345,10 @@ export const buildCharacterSnapshot = async (
             })(),
             ...(options.boundaries?.length ? { boundaries: options.boundaries } : {}),
             ...(deepTalk ? { deepTalk } : {}), // [EM: deep-talk]
+            ...(() => { // [EM: date-plans]
+                const datePlans = datePlansForSnapshot(char.id, at);
+                return datePlans.length ? { datePlans } : {};
+            })(),
         },
     };
 };

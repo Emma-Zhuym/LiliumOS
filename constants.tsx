@@ -43,6 +43,7 @@ import {
   Storefront,
   CookingPot, // [EM: kitchen-app]
   HardDrives, // [EM: machine-room]
+  Champagne, // [EM: date-plans]
 } from '@phosphor-icons/react';
 
 // SVG 图标库 - Phosphor Icons
@@ -91,6 +92,7 @@ export const Icons: Record<string, React.FC<{ className?: string }>> = {
   Calendar: ({ className }) => <CalendarBlank className={className} weight="regular" />, // [EM: calendar-temporal]
   Kitchen: ({ className }) => <CookingPot className={className} weight="regular" />, // [EM: kitchen-app]
   MachineRoom: ({ className }) => <HardDrives className={className} weight="regular" />, // [EM: machine-room]
+  DatePlans: ({ className }) => <Champagne className={className} weight="regular" />, // [EM: date-plans]
 };
 
 export const INSTALLED_APPS: AppConfig[] = [
@@ -114,6 +116,7 @@ export const INSTALLED_APPS: AppConfig[] = [
   { id: AppID.Calendar, name: '日历', icon: 'Calendar', color: 'indigo' }, // [EM: calendar-temporal]
   { id: AppID.Kitchen, name: '小厨房', icon: 'Kitchen', color: 'green' }, // [EM: kitchen-app]
   { id: AppID.MachineRoom, name: '机房', icon: 'MachineRoom', color: 'teal' }, // [EM: machine-room]
+  { id: AppID.DatePlans, name: '约会', icon: 'DatePlans', color: 'rose' }, // [EM: date-plans]
   { id: AppID.Journal, name: '交换日记', icon: 'Journal', color: 'amber' },
   // { id: AppID.Handbook, name: '手账', icon: 'Handbook', color: 'fuchsia' }, // Hidden temporarily, pending update
   { id: AppID.Social, name: 'Spark', icon: 'Social', color: 'red' },
