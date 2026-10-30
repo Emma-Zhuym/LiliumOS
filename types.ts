@@ -521,6 +521,7 @@ export interface ActiveMsg2InboxMessage {
    * 处理失败时消息会写回收件箱等重试，这个计数决定什么时候放弃重试、退回存原稿保底。
    */
   processAttempts?: number;
+  claimedAt?: number; // [EM: inbox-durable-claim] 正在被哪一趟冲刷处理（的认领时刻），见 ActiveMsgStore.claimInboxMessages
 }
 
 // Phase 2 Round 1 — Instant Push agentic loop session state, written client-side

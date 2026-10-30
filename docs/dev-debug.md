@@ -23,13 +23,13 @@ isDevDebugAvailable()  // utils/devDebug.ts
 | 在其他分支构建 | ✅ 显示 |
 | 设了 `VITE_HIDE_BUILD_BADGE=1` | ❌ 强制隐藏（覆盖默认） |
 | 设了 `VITE_SHOW_BUILD_BADGE=1` | ✅ 强制显示（在 master 本地调试用） |
-| 设置页底部连点「构建版本」5 下 | ✅ 显示（**手动解锁**，会话级、刷新即关，正式版临时排障用） |
+| 设置 → 关于，连点最上面的版本号 5 下 | ✅ 显示（**手动解锁**，会话级、刷新即关，正式版临时排障用） |
 
 > 分支名的来源：CI 优先读 `GITHUB_REF_NAME` / `VERCEL_GIT_COMMIT_REF` / `CF_PAGES_BRANCH` / `BRANCH`，本地退化成 `git rev-parse --abbrev-ref HEAD`，非 git 环境是 `'unknown'`（`'unknown'` 不在发布分支集合里，所以会显示）。
 
 **关键含义**：在 master 上本地想调试，跑 `VITE_SHOW_BUILD_BADGE=1 pnpm dev` 即可，不用改代码。
 
-**正式版排障（手动解锁）**：设置页底部连点 `VersionInfo`（构建版本那栏）5 下 → `unlockDevDebug()` **会话级**解锁（**不落 localStorage**），`isDevDebugAvailable()` 放行、`<DevDebugPanel />` 经 `subscribeDevDebugAvailability` 即时弹出。
+**正式版排障（手动解锁）**：设置 → 关于，连点 `VersionInfo` 最上面的版本号（如 `v3.3 …`，不是 build / sw 小标签）5 下 → `unlockDevDebug()` **会话级**解锁（**不落 localStorage**），`isDevDebugAvailable()` 放行、`<DevDebugPanel />` 经 `subscribeDevDebugAvailability` 即时弹出。
 
 **怎么关掉**：
 - **刷新页面**：`manualUnlock` 清零 → prod 回到隐藏；非 prod 因 `__BUILD_BADGE_VISIBLE__` 默认可见，刷新后照常显示（即「非 prod 一直开」）。

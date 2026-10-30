@@ -20,6 +20,30 @@ const STORE_PENDING_TOOL_CALLS = 'pending_tool_calls';
 const STORE_REASONING_BUFFER = 'reasoning_buffer';
 const GLOBAL_CONFIG_KEY = 'global-config';
 
+// [EM-START: inbox-durable-claim]
+/**
+ * 认领的租约。同一页面的冲刷是串行的，不会重复认领；这个时长挡的是另一个标签页正在处理，
+ * 也决定页面被杀之后那条消息最多等多久被捡回来（前台巡查 3 秒一跳，到期就捡）。
+ */
+export const INBOX_CLAIM_LEASE_MS = 90_000;
+
+// amsg-instant 0.8+ 一个 user turn 可能产 N 条 push (multi-chunk
+// pushPayloads). FCM 投递不严格保序, 必须按 (sessionId, messageIndex) 排序
+// 才能拿到正确气泡顺序. 没 sessionId 的 (老 worker / proactive push 等)
+// 走 sentAt fallback 保持兼容.
+const sortInboxMessages = (messages: ActiveMsg2InboxMessage[]): ActiveMsg2InboxMessage[] =>
+  messages.sort((a, b) => {
+    const aSess = a.metadata?.sessionId as string | undefined;
+    const bSess = b.metadata?.sessionId as string | undefined;
+    if (aSess && aSess === bSess) {
+      const aIdx = Number(a.metadata?.messageIndex ?? 0);
+      const bIdx = Number(b.metadata?.messageIndex ?? 0);
+      return aIdx - bIdx;
+    }
+    return (a.sentAt || a.receivedAt) - (b.sentAt || b.receivedAt);
+  });
+// [EM-END: inbox-durable-claim]
+
 const EXPIRED_NOTICES_PREFIX = 'amsg2_expired_notices_';
 const EXPIRED_NOTICES_MAX = 10;
 const EXPIRED_NOTICES_TTL_MS = 48 * 3600_000;
@@ -225,7 +249,11 @@ export const ActiveMsgStore = {
       const tx = db.transaction(STORE_INBOX, 'readwrite');
       const store = tx.objectStore(STORE_INBOX);
       const previous = store.get(message.messageId);
-      previous.onsuccess = () => store.put(mergeInboxDelivery(message, previous.result));
+      previous.onsuccess = () => {
+        const merged = mergeInboxDelivery(message, previous.result);
+        delete merged.claimedAt; // [EM: inbox-durable-claim] 写回来的（重试 / 等齐）要能被下一趟立刻认领，不等租约
+        store.put(merged);
+      };
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
       tx.onabort = () => reject(tx.error || new Error('Inbox delivery aborted'));
@@ -262,18 +290,54 @@ export const ActiveMsgStore = {
     });
   },
 
-  // 单事务原子 claim: getAll + delete 同一个 readwrite tx。IndexedDB 跨连接
-  // (跨 tab / 跨 SW / 同 tab 多 caller) 对同一 object store 的 readwrite 事务
-  // 是 serializable 的, 第二个 caller 会等第一个 commit 后才进入, 所以同一条
-  // inbox 消息绝不可能被两个 caller 同时 claim。这是把 race 关在 IDB 层。
+  // [EM-START: inbox-durable-claim]
+  // 认领要处理的消息：单事务 getAll + 打标记，跨 tab / SW 的 readwrite 事务是串行的，
+  // 同一条不会被两趟同时认领。
   //
-  // 已知取舍 (TODO): 这是"先 ack 后处理"语义 —— 调用方拿到 messages 后若
-  // saveMessage 抛错, 消息已经从 inbox 删了, 会丢。当前没修是因为:
-  //   1. DB.saveMessage 用 IDB add(), 失败极罕见 (quota / corruption)
-  //   2. 改成"先 save 后 ack" 会需要把 list 和 delete 拆开, 反而把这里的
-  //      原子性优势让出去, 重新打开并发读到同一项的窗口
-  // 真要补防丢, 加一层 dead-letter / try-catch 后 put 回 inbox, 而不是
-  // 拆开这个事务。
+  // 原来是取走就从库里删（consumeInboxMessages），处理期间消息只在内存里。2026-10-30 陆时
+  // 那条就这么没的：取信箱销了账、消息进收件箱，冲刷刚取走它一秒，页面被系统杀掉重载，
+  // 内存里那份跟着没了，mini 信箱和本机收件箱都已经没有这一条。
+  // 现在处理完才删（settleInboxMessage）。认领超过租约还在的，说明上一趟死在半路：
+  // 计一次重试再认领，走现成的重试清场（删半成品气泡、副作用不重放），不会写重。
+  async claimInboxMessages(now: number = Date.now()): Promise<ActiveMsg2InboxMessage[]> {
+    const db = await openDB();
+    return new Promise<ActiveMsg2InboxMessage[]>((resolve, reject) => {
+      const tx = db.transaction(STORE_INBOX, 'readwrite');
+      const store = tx.objectStore(STORE_INBOX);
+      const request = store.getAll();
+      let messages: ActiveMsg2InboxMessage[] = [];
+      request.onsuccess = () => {
+        const all = (request.result || []) as ActiveMsg2InboxMessage[];
+        messages = sortInboxMessages(all
+          .filter((m) => !m.claimedAt || now - m.claimedAt >= INBOX_CLAIM_LEASE_MS)
+          .map((m) => ({
+            ...m,
+            claimedAt: now,
+            ...(m.claimedAt ? { processAttempts: (m.processAttempts ?? 0) + 1 } : {}),
+          })));
+        messages.forEach((m) => store.put(m));
+      };
+      request.onerror = () => reject(request.error);
+      tx.oncomplete = () => resolve(messages);
+      tx.onabort = () => reject(tx.error || new Error('inbox claim aborted'));
+      tx.onerror = () => reject(tx.error);
+    });
+  },
+
+  /** 这条有着落了（落库 / 按规则丢弃 / 重试到头），可以从收件箱删了。 */
+  async settleInboxMessage(messageId: string): Promise<void> {
+    const db = await openDB();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_INBOX, 'readwrite');
+      tx.objectStore(STORE_INBOX).delete(messageId);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('inbox settle aborted'));
+    });
+  },
+  // [EM-END: inbox-durable-claim]
+
+  /** 取走并清空收件箱。[EM: inbox-durable-claim] 冲刷已改走 claimInboxMessages，这里只剩测试清场在用。 */
   async consumeInboxMessages(): Promise<ActiveMsg2InboxMessage[]> {
     const db = await openDB();
     return new Promise<ActiveMsg2InboxMessage[]>((resolve, reject) => {
@@ -282,21 +346,7 @@ export const ActiveMsgStore = {
       const request = store.getAll();
       let messages: ActiveMsg2InboxMessage[] = [];
       request.onsuccess = () => {
-        messages = (request.result || []) as ActiveMsg2InboxMessage[];
-        // amsg-instant 0.8+ 一个 user turn 可能产 N 条 push (multi-chunk
-        // pushPayloads). FCM 投递不严格保序, 必须按 (sessionId, messageIndex) 排序
-        // 才能拿到正确气泡顺序. 没 sessionId 的 (老 worker / proactive push 等)
-        // 走 sentAt fallback 保持兼容.
-        messages.sort((a, b) => {
-          const aSess = a.metadata?.sessionId as string | undefined;
-          const bSess = b.metadata?.sessionId as string | undefined;
-          if (aSess && aSess === bSess) {
-            const aIdx = Number(a.metadata?.messageIndex ?? 0);
-            const bIdx = Number(b.metadata?.messageIndex ?? 0);
-            return aIdx - bIdx;
-          }
-          return (a.sentAt || a.receivedAt) - (b.sentAt || b.receivedAt);
-        });
+        messages = sortInboxMessages((request.result || []) as ActiveMsg2InboxMessage[]);
         messages.forEach((m) => store.delete(m.messageId));
       };
       request.onerror = () => reject(request.error);

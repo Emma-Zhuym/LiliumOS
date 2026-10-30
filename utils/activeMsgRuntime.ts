@@ -1684,7 +1684,7 @@ export type FlushTrigger =
   | '本地巡查';       // 前台每几秒数一眼本地收件箱，自己发现躺着的消息
 
 const flushInboxToChatImpl = async (trigger: FlushTrigger): Promise<string[]> => {
-  const pendingMessages = await ActiveMsgStore.consumeInboxMessages();
+  const pendingMessages = await ActiveMsgStore.claimInboxMessages(); // [EM: inbox-durable-claim]
   // 这一趟真正落进聊天流的那几条（见 flushInboxToChat 的返回值说明）。
   const landedMessageIds: string[] = [];
   activeMsgTrace('runtime-flush-start', { count: pendingMessages.length, trigger });
@@ -1714,17 +1714,16 @@ const flushInboxToChatImpl = async (trigger: FlushTrigger): Promise<string[]> =>
     return ids.has(messageId);
   };
   try {
-  // consumeInboxMessages 是 "先 ack 后处理" 语义 —— inbox 已经原子地清空。
+  // [EM: inbox-durable-claim] 消息这时只是被认领，还在收件箱里，每条处理完才删（见循环末尾）。
   // 这里 per-message try/catch: 单条处理抛错 (quota / DB 故障 / postprocess 异常) 不连累
   // 后续条目。Phase 1 改成: 先尝试走 applyAssistantPostProcessing (与本地 fetch 路径
   // 行为对齐 — emoji / 翻译 / HTML / 引用 / chunking 全部复用同一管线); 如果走管线失败,
   // 降级回原来的 "原文一次性 saveMessage" 防止消息丢失。dispatchEvent 始终 fire 一次,
   // 保证 toast / 未读 / 通知 / sendInstantPush resolver 语义不变。
   for (const message of pendingMessages) {
-    // 这一层是**整批消息的最后一道防线**：消息在 consumeInboxMessages 那一刻就已经从
-    // 收件箱里没了，下面任何一步抛出去的异常都会穿过整个 for 循环，剩下的消息既没落进
-    // 聊天记录、也没回到收件箱——用户那边只看到「正在输入…」一直亮到 60s 点名判失败，
-    // 角色的回复彻底消失。所以整段都得包住，不能只包后处理那一小截。
+    // 这一层是**整批消息的最后一道防线**：下面任何一步抛出去的异常都会穿过整个 for 循环，
+    // 剩下的消息没落进聊天记录——用户那边只看到「正在输入…」一直亮到 60s 点名判失败。
+    // 所以整段都得包住，不能只包后处理那一小截。
     try {
       // 'active-msg-received' 事件里的 sentAt 维持原口径（发送时刻优先）：
       // 它只喂 toast / 未读预览，不进聊天记录，别跟落库口径搅在一起。
@@ -2099,7 +2098,16 @@ const flushInboxToChatImpl = async (trigger: FlushTrigger): Promise<string[]> =>
           messageId: message.messageId, error: handlerErr,
         });
       }
+    // [EM-START: inbox-durable-claim] 有着落了才从收件箱删；写回去等重试 / 等齐的留着
+    } finally {
+      if (!retainedInboxMessageIds.has(message.messageId)) {
+        await ActiveMsgStore.settleInboxMessage(message.messageId).catch((e) => {
+          // 删不掉最多是租约到期后重来一趟：重试清场会先删掉这次的气泡，不会写重。
+          log.warn('收件箱销条失败，租约到期后会重处理一次', { messageId: message.messageId, error: e });
+        });
+      }
     }
+    // [EM-END: inbox-durable-claim]
   }
   } finally {
     // 有着落的那些去云端账本上销账。这一步是纯收尾：销不掉只是下次会再拉回来一趟，

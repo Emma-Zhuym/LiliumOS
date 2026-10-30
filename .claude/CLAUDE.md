@@ -79,7 +79,7 @@ LiliumOS 和 SullyOS 早就各走各的了（git 认的合并基线停在 2026-0
 ### 吸收后必跑自检
 
 ```bash
-bash scripts/check-em-patches.sh   # 当前 404 项锚点检查，红了就是功能被冲掉
+bash scripts/check-em-patches.sh   # 当前 407 项锚点检查，红了就是功能被冲掉
 pnpm vitest run                    # 单元测试
 ```
 
@@ -274,6 +274,7 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - 复用 amsg 即时对话：待收记录 `via:'mini'`（`amsgInstantChat.ts`），`activeMsgRuntime.ts` 的状态点名把 mini 轮次分走（否则会去 amsg 查无此行被判死）；回复推送是 amsg content 形状，SW 直接进收件箱走后处理
 - 后端 `server/agent-backend/chatTurns.mjs`：`POST/GET /chat/turns`，凭据只在内存，重启后未跑的那轮判失败让手机重发；>3.5KB 只推 `agent-pull` 信号（`amsgResults.ts`）
 - 心跳：`lastChatMessageAt` 把 `chat_reply` 算作回过；即时回复在跑时 `chat_turn_running` 不开口
+- **收件箱处理完才删**（2026-10-30，哨兵 `inbox-durable-claim`）：冲刷用 `ActiveMsgStore.claimInboxMessages` 认领（打 `claimedAt`，消息还在库里），每条有着落了才 `settleInboxMessage`；页面死在半路的，90 秒租约到期后算一次重试捡回来，走现成的重试清场。取信箱在写进收件箱后就向 mini 销账，靠的就是这层，别改回取走就删的 `consumeInboxMessages`
 
 ### 30. 角色是活在社会里的人（社会责任）
 - 阿萌 2026-10-01 定：她受伤、出事，角色可以放下工作赶来；她想逛超市角色就早退、她生气角色就推掉工作跨国飞来，不行。**她明确说不是日程规则的问题**（改日程可以），是角色整个没有社会责任——所以写的是「你是什么样的人」，不要改成条款或去动日程块

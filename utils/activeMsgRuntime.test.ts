@@ -49,7 +49,7 @@ import {
   stageInstantChatExpiredNotices,
 } from './amsgInstantChat';
 import { ActiveMsgClient } from './activeMsgClient';
-import { ActiveMsgStore } from './activeMsgStore';
+import { ActiveMsgStore, INBOX_CLAIM_LEASE_MS } from './activeMsgStore';
 import { AMSG_SELF_LOG_KEY, amsgStateNamespace } from './amsgFirePack';
 import { CHAT_GEN_EVENTS } from './chatGenEvents';
 import { DB } from './db';
@@ -457,11 +457,74 @@ describe('shouldRenderInstantly（这条要不要跳过打字慢放）', () => {
  * 收件箱——但这趟巡查几秒就跑一次，空表时必须什么都不做，否则光是空转的记录就能把排障
  * 要看的东西全顶出缓冲区。
  */
+// [EM-START: inbox-durable-claim]
+// 2026-10-30：冲刷刚取走消息一秒，页面被系统杀掉，那条回复就从哪儿都找不到了。
+describe('处理到一半页面被杀，消息不丢（走真库）', () => {
+  const charId = 'char-durable-claim';
+  const msg = (messageId: string) => ({
+    messageId, charId, charName: '陆时', body: '看着像泡芙\n至少62', messageType: 'instant',
+    receivedAt: Date.now() - 5 * 60_000, sentAt: Date.now() - 5 * 60_000, metadata: { charId },
+  }) as any;
+  const texts = async () => (await DB.getRecentMessagesByCharId(charId, 50))
+    .filter((m) => m.role === 'assistant').map((m) => m.content);
+
+  beforeAll(async () => {
+    (globalThis as any).window ??= { dispatchEvent: () => true, addEventListener: () => {} };
+    await DB.saveCharacter({ id: charId, name: '陆时' } as any);
+  });
+  beforeEach(async () => {
+    await ActiveMsgStore.consumeInboxMessages();
+    const old = await DB.getRecentMessagesByCharId(charId, 50);
+    if (old.length) await DB.deleteMessages(old.map((m) => m.id));
+  });
+
+  it('认领之后还在库里；租约内不会被再认领，过了租约才捡回来并算一次重试', async () => {
+    await ActiveMsgStore.saveInboxMessage(msg('m-lease'));
+    const t0 = Date.now();
+    expect(await ActiveMsgStore.claimInboxMessages(t0)).toHaveLength(1);
+    expect(await ActiveMsgStore.countInboxMessages()).toBe(1);
+    expect(await ActiveMsgStore.claimInboxMessages(t0 + INBOX_CLAIM_LEASE_MS - 1)).toHaveLength(0);
+    const [again] = await ActiveMsgStore.claimInboxMessages(t0 + INBOX_CLAIM_LEASE_MS);
+    expect(again.processAttempts).toBe(1);
+  });
+
+  it('上一趟死在半路：过了租约再冲刷，消息补上屏，半成品不留第二份', async () => {
+    await ActiveMsgStore.saveInboxMessage(msg('m-killed'));
+    await ActiveMsgStore.claimInboxMessages(Date.now() - INBOX_CLAIM_LEASE_MS); // 认领后页面没了
+    await DB.saveMessage({
+      charId, role: 'assistant', type: 'text', content: '看着像泡芙',
+      metadata: { activeMsg2: { messageId: 'm-killed' } },
+    } as any); // 死之前已经写下的第一个气泡
+
+    expect(await flushInboxToChat('启动')).toEqual(['m-killed']);
+
+    expect(await texts()).toEqual(['看着像泡芙', '至少62']);
+    expect(await ActiveMsgStore.countInboxMessages()).toBe(0);
+  }, 20000);
+
+  it('正常处理完就从收件箱删掉；再冲刷一次不会重复', async () => {
+    await ActiveMsgStore.saveInboxMessage(msg('m-normal'));
+    await flushInboxToChat('SW通知');
+    expect(await ActiveMsgStore.countInboxMessages()).toBe(0);
+    await flushInboxToChat('SW通知');
+    expect(await texts()).toEqual(['看着像泡芙', '至少62']);
+  }, 20000);
+
+  it('写回收件箱的重试不带认领标记，下一趟立刻能捡', async () => {
+    await ActiveMsgStore.saveInboxMessage(msg('m-requeue'));
+    const [claimed] = await ActiveMsgStore.claimInboxMessages();
+    await ActiveMsgStore.saveInboxMessage({ ...claimed, processAttempts: 1 });
+    const [next] = await ActiveMsgStore.claimInboxMessages();
+    expect(next.processAttempts).toBe(1);
+  });
+});
+// [EM-END: inbox-durable-claim]
+
 describe('本地收件箱守望', () => {
   it('库里没货：不动收件箱，也不留下冲刷记录', async () => {
     await ActiveMsgStore.consumeInboxMessages();  // 先清干净
     const before = readAllInstantTraces().length;
-    const consume = vi.spyOn(ActiveMsgStore, 'consumeInboxMessages');
+    const consume = vi.spyOn(ActiveMsgStore, 'claimInboxMessages');
 
     await sweepLocalInbox();
 
@@ -484,7 +547,7 @@ describe('本地收件箱守望', () => {
     } as any);
     // 取空这一步换成空实现：这条守的是「数出有货就往下走」，冲刷内部怎么处理有它自己
     // 的用例，不该在这里连带跑一遍真管线（还会往后面的用例里漏重试定时器）。
-    const consume = vi.spyOn(ActiveMsgStore, 'consumeInboxMessages').mockResolvedValue([]);
+    const consume = vi.spyOn(ActiveMsgStore, 'claimInboxMessages').mockResolvedValue([]);
     try {
       await sweepLocalInbox();
       expect(consume, '数出有货就该接着冲刷').toHaveBeenCalled();

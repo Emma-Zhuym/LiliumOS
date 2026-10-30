@@ -522,6 +522,12 @@ check "备份恢复" context/OSContext.tsx "await TietieDB.importAll(data.emTiet
 check "备份字段" types.ts "emTietieRecords?: import('./utils/tietie').TietieRecord[];"
 
 echo ""
+echo "--- 收件箱处理完才删 ---"
+check "冲刷认领不取走" utils/activeMsgRuntime.ts "const pendingMessages = await ActiveMsgStore.claimInboxMessages(); // [EM: inbox-durable-claim]"
+check "处理完才删" utils/activeMsgRuntime.ts "await ActiveMsgStore.settleInboxMessage(message.messageId)"
+check "写回清认领" utils/activeMsgStore.ts "delete merged.claimedAt; // [EM: inbox-durable-claim]"
+
+echo ""
 if [ $FAIL -gt 0 ]; then
     echo "🔴 $FAIL 项缺失（$PASS 项通过）——EM 功能被冲掉了，对照 .claude/CLAUDE.md 补回来"
     exit 1
