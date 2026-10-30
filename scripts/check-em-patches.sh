@@ -349,6 +349,7 @@ check "改备注在私聊留系统提示" components/chat/ChatSettingsPage.tsx "
 check "系统提示写进私聊" utils/contactRemarkActions.ts "metadata: { kind: CONTACT_REMARK_NOTICE_KIND, from: change.from, to: change.to },"
 check "聊天页收到提示后刷新" apps/Chat.tsx "onRemarkNotice={() => void reloadMessages(visibleCountRef.current)}"
 check "快照不把改备注提示当 TA 的话" utils/emAgentSnapshot.ts "message.metadata?.kind !== CONTACT_REMARK_NOTICE_KIND"
+check "改备注提示是一行灰字" components/chat/MessageItem.tsx "if (m.metadata?.kind === CONTACT_REMARK_NOTICE_KIND) return <RemarkNoticeItem msg={m} interactionProps={interactionProps} />;"
 
 echo "── 停止回复（本地 / mini / amsg）──"
 check "useChatAI 登记本轮可停" hooks/useChatAI.ts "const replyRun = beginLocalReply(char.id);"

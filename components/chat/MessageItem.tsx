@@ -18,6 +18,8 @@ import QixiEventCardView from './QixiEventCard';
 import DeepTalkChatItem from '../deepTalk/DeepTalkChatItem'; // [EM: deep-talk]
 import TietieChatItem from '../tietie/TietieChatItem'; // [EM: tietie-record]
 import OocChatItem from './OocChatItem'; // [EM: ooc]
+import RemarkNoticeItem from './RemarkNoticeItem'; // [EM: contact-remark-aware]
+import { CONTACT_REMARK_NOTICE_KIND } from '../../utils/contactRemarks'; // [EM: contact-remark-aware]
 
 // 思考链卡片支持的 12 种风格预设 — 同时被 MessageItem 与 ThinkingChainSettingsModal 复用
 export type ThinkingChainStyleId = 'echo' | 'whisper' | 'minimal' | 'ink' | 'neon' | 'terminal' | 'stellar' | 'tama' | 'pixel' | 'muji' | 'ins' | 'custom';
@@ -1741,6 +1743,7 @@ avatarShape = 'circle',
     if (String(m.metadata?.kind || '').startsWith('deep_talk_')) return <DeepTalkChatItem msg={m} charName={charName} />;
     if (m.metadata?.kind === 'tietie_card') return <TietieChatItem msg={m} charName={charName} />; // [EM: tietie-record] 贴贴事后记录卡
     if (m.metadata?.ooc === true) return <OocChatItem msg={m} interactionProps={interactionProps} />; // [EM: ooc] 出戏的话：灰色小气泡
+    if (m.metadata?.kind === CONTACT_REMARK_NOTICE_KIND) return <RemarkNoticeItem msg={m} interactionProps={interactionProps} />; // [EM: contact-remark-aware] 改备注的提示：一行灰字
 
     // --- SYSTEM MESSAGE RENDERING ---
     if (isSystem) {
