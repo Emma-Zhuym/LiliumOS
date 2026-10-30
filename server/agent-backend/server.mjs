@@ -18,7 +18,7 @@ import { applyThread, cancelPlan, listPlans } from './lifeThreads.mjs';
 import { parsePlanTime } from './planTime.mjs';
 import { listPocketForPhone } from './pocket.mjs';
 import {
-    applyTemperament, evolve as evolveDrives, ingestChatEvents, loadState as loadDriveState, privateMomentOf, setPrivateMoment, summarizeForPhone,
+    applyTemperament, cancelPrivateMoment, evolve as evolveDrives, ingestChatEvents, loadState as loadDriveState, privateMomentOf, setPrivateMoment, summarizeForPhone,
 } from './drives.mjs';
 import { getSnapshot, listSnapshotMeta, putSnapshot } from './snapshots.mjs';
 import { getSetting, setSetting } from './db.mjs';
@@ -326,6 +326,8 @@ export const createRouter = ctx => {
             handle: ({ body }) => {
                 const charId = requireDriveChar(body.charId);
                 const now = new Date();
+                // 不是贴贴（猜错了 / 按错了）：只关掉，不算事后
+                if (body.cancel === true) return { private: cancelPrivateMoment(db, { charId, now }) };
                 const { localHour, temperament } = driveContext(charId, now);
                 return { private: setPrivateMoment(db, { charId, on: body.on === true, now, silenceHours: 0, localHour, temperament }) };
             },

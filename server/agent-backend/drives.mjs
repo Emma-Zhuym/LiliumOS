@@ -489,6 +489,16 @@ export const setPrivateMoment = (db, { charId, on, now = new Date(), silenceHour
     return privateMomentOf(state, now);
 };
 
+/**
+ * 不是两个人的时间（副 API 把调情猜成「要开始了」、她按错了）：直接关掉，不算「事后」——
+ * 念想不落、不进不应期，心思账里也不记一笔 intimacy_done（阿萌 2026-10-30）。
+ */
+export const cancelPrivateMoment = (db, { charId, now = new Date() }) => {
+    const state = { ...loadState(db, charId, now), privateUntil: null, privateSource: null };
+    saveState(db, charId, state);
+    return privateMomentOf(state, now);
+};
+
 /** 给手机按钮看的：在不在两个人的时间里、到几点、是不是她自己按的。 */
 export const privateMomentOf = (state, now = new Date()) => (
     inPrivateMoment(state, now)

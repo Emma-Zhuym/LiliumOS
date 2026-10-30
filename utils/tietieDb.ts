@@ -70,6 +70,18 @@ export const TietieDB = {
         announce(record.charId);
     },
 
+    /** 这次不算：整条删掉（日记里「这次不算」，阿萌 2026-10-30） */
+    remove: async (record: Pick<TietieRecord, 'id' | 'charId'>): Promise<void> => {
+        const db = await openDB();
+        await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction(STORE, 'readwrite');
+            tx.objectStore(STORE).delete(record.id);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+        });
+        announce(record.charId);
+    },
+
     exportAll: () => readAll(),
 
     importAll: async (records: TietieRecord[] | undefined): Promise<void> => {

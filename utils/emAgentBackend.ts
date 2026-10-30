@@ -443,6 +443,10 @@ export const AgentBackend = {
     setPrivateMoment: (charId: string, on: boolean) => request<{ private: AgentPrivateMoment }>(
         '/drives/private', { method: 'POST', body: { charId, on } },
     ).then(data => data.private), // [EM: char-drives-engine]
+    /** 不是贴贴（副 API 猜错了 / 按错了）：mini 只关掉，不算事后。 */
+    cancelPrivateMoment: (charId: string) => request<{ private: AgentPrivateMoment }>(
+        '/drives/private', { method: 'POST', body: { charId, on: false, cancel: true } },
+    ).then(data => data.private), // [EM: tietie-record]
     // [EM-START: agent-instant-chat]
     /** 不带设备钥匙的探活：即时回复发之前用，3 秒内没回就当 mini 不在。 */
     health: (timeoutMs = 3_000) => request<{ ok: boolean; version: string }>('/health', { auth: false, timeoutMs }),

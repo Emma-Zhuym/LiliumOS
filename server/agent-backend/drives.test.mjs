@@ -10,7 +10,7 @@ import { upsertCharacter } from './characters.mjs';
 import { putSnapshot } from './snapshots.mjs';
 import {
     DEFAULT_BASELINE, SULK_MAX_MS, apartnessOf, applyLabel, chanceFactor, evolve, formatFeelings, freshState, grievanceOf,
-    ingestChatEvents, isDriveTrial, lifeWeightFactors, loadState, privateMomentOf, satisfy, saveState, setPrivateMoment, summarizeForPhone, withApartness,
+    cancelPrivateMoment, ingestChatEvents, isDriveTrial, lifeWeightFactors, loadState, privateMomentOf, satisfy, saveState, setPrivateMoment, summarizeForPhone, withApartness,
 } from './drives.mjs';
 import { createHeartbeatHandler, decideIntent, heartbeatSchemaFor, pickLifeKind } from './heartbeat.mjs';
 
@@ -277,6 +277,22 @@ test('贴贴按钮：手动开始、自动猜的「事后」不替她关、手�
     // 忘了按结束：两小时后自己出来
     setPrivateMoment(db, { charId: CHAR, on: true, now: at(300) });
     assert.equal(privateMomentOf(loadState(db, CHAR, at(301)), at(300 + 121)).active, false);
+});
+
+test('贴贴不算数：副 API 猜错开的，她说「不是」只关掉——念想不落、不进不应期、不记「事后」', () => {
+    const db = freshDb();
+    const at = min => new Date(AT.getTime() + min * 60_000);
+    ingestChatEvents(db, { charId: CHAR, events: [{ label: 'getting_intimate', quote: '你好坏' }], now: at(0) });
+    const on = privateMomentOf(loadState(db, CHAR, at(1)), at(1));
+    assert.equal(on.active, true);
+    assert.equal(on.source, 'auto');
+    const before = loadState(db, CHAR, at(2));
+    const off = cancelPrivateMoment(db, { charId: CHAR, now: at(2) });
+    assert.equal(off.active, false);
+    const after = loadState(db, CHAR, at(3));
+    assert.equal(after.values.desire, before.values.desire, '念想没被当成满足');
+    assert.ok(!after.desireRefractoryUntil || Date.parse(after.desireRefractoryUntil) < at(3).getTime(), '没进不应期');
+    assert.equal(db.prepare("SELECT 1 FROM drive_ledger WHERE label = 'intimacy_done'").get(), undefined);
 });
 
 test('排队补送的事件按真发生的时刻算：三小时前的「说要开始了」现在不再拦心跳', () => {

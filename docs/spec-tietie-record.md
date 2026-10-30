@@ -7,7 +7,10 @@
 ## 一次贴贴的流程
 
 1. 她点工具栏「贴贴」→ 照旧告诉 mini 心跳闭嘴 2 小时；**同时本机记下开始时刻**（`localStorage em_tietie_session_v1:<charId>` = `{ startedAt, until }`，已在里面就保留最早的开始）。
-2. 她点「结束贴贴」→ mini 照旧 `intimacy_done`；本机取出开始时刻，发 `em-tietie-ended` 事件，聊天页接住，用**角色自己的 API** 写记录。
+2. 她点「结束贴贴」→ 先按 `tietieEndKind` 分（2026-10-30）：
+   - 不是她点的开始（副 API 猜着开的，本机没记开始）→ 弹「刚才是贴贴吗」：「不是」走 mini `POST /drives/private { cancel: true }` 只关掉（不算事后、不记心思账），不写记录；「是」照常结束，开始时刻 = mini 的 until − 2 小时
+   - 她自己点的开始、2 分钟内就关 → 当按错，同样只关掉
+   - 其余照常：mini `intimacy_done`；本机取出开始时刻，发 `em-tietie-ended` 事件，聊天页接住，用**角色自己的 API** 写记录。
 3. 忘了点结束、2 小时到了：下次打开这个角色的聊天，发现本机那条已经过了 `until`，补写（`endedBy: 'timeout'`，时长用 TA 自己估的）。
 4. 写完：聊天里落一张卡（`role: system`，`metadata.kind = 'tietie_card'` + `tietieId`），紧跟着 TA 发一两条事后的话（普通 assistant 消息），她接着回就行。
 5. 写不出来（API 拒写、超时、解析失败两次）：照样落卡，卡上「没写出来 · 再写一次」，点了重写，同一张卡原地更新。
@@ -31,6 +34,10 @@
 - 聊天卡（`components/tietie/TietieChatItem.tsx`）：名字、第几次、一句话、在哪 · 多久、「翻开」。
 - 日记（`components/tietie/TietieDiary.tsx`）：玫瑰 tint 底上一张白纸，标题衬线、三格、正文衬线 400（同烛下信笺的例外）、手写体签名，末尾「TA 记住的」。
 - 健康 App 日历：那一天一颗小心形；点开那天多一行「贴贴 · 角色 · 时刻 · 多久」。只是记号：不进健康摘要（角色看不到），不影响经期推算。
+
+## 这次不算（2026-10-30）
+
+- 日记右上角垃圾桶 → `discardTietieRecord`：删记忆（本地 + 远程向量）、删聊天里的卡、删记录（健康日历的记号跟着没了）。TA 事后的那一两句是普通消息，不动
 
 ## 本次不做
 

@@ -78,6 +78,27 @@ export const clearTietieSession = (charId: string) => {
 export const sessionStartFor = (session: TietieSession | null, endedAt: number): number =>
     session && session.startedAt < endedAt ? session.startedAt : endedAt - 60 * 60 * 1000;
 
+/** 自己点了开始、这么快就关了：当成按错，不写记录（阿萌 2026-10-30） */
+export const TIETIE_MISTAP_MS = 2 * 60 * 1000;
+
+/**
+ * 她点「结束贴贴」时这一次算什么：
+ * - ask：不是她点的开始（副 API 从聊天里猜的），先问「刚才是贴贴吗」——猜错了就只关掉、不写记录
+ * - mistap：她自己点的开始，两分钟内就关了：按错了，只关掉
+ * - end：照常结束，TA 写事后记录
+ * 本机没记开始、mini 又说是她手动开的（别的设备开的、升级前开的）：照旧当结束。
+ */
+export const tietieEndKind = (input: { session: TietieSession | null; source: 'manual' | 'auto' | null | undefined; now: number }): 'ask' | 'mistap' | 'end' => {
+    if (input.session) return input.now - input.session.startedAt < TIETIE_MISTAP_MS ? 'mistap' : 'end';
+    return input.source === 'manual' ? 'end' : 'ask';
+};
+
+/** 副 API 猜着开的那次大概几点开始：mini 给的 until 往前推 2 小时（中途延长过就会偏早一点） */
+export const autoSessionStart = (until: string | null | undefined, endedAt: number): number => {
+    const at = until ? Date.parse(until) - TIETIE_WINDOW_MS : NaN;
+    return Number.isFinite(at) && at < endedAt ? at : endedAt - 60 * 60 * 1000;
+};
+
 /** 忘了点结束：本机那条已经过了 until，返回要补写的这一次 */
 export const expiredTietieSession = (session: TietieSession | null, now = Date.now()): TietieSession | null =>
     session && now >= session.until ? session : null;

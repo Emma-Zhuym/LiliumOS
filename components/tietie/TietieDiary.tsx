@@ -8,7 +8,7 @@ import { Trash, X } from '@phosphor-icons/react';
 import type { CharacterProfile } from '../../types';
 import { F, FONT, HUE, R } from '../../utils/clayTokens';
 import { formatTietieDuration, tietieMinutes, tietieNoLabel, type TietieRecord } from '../../utils/tietie';
-import { forgetTietieMemory } from '../../utils/tietieActions';
+import { discardTietieRecord, forgetTietieMemory } from '../../utils/tietieActions';
 import { useOS } from '../../context/OSContext';
 import ClayDialog from '../os/ClayDialog';
 import { TIETIE_OPEN_EVENT, useTietieRecord } from './useTietie';
@@ -66,6 +66,37 @@ const Remembered: React.FC<{ record: TietieRecord; charName: string }> = ({ reco
     );
 };
 
+/** 这次不算：日记、TA 记住的、聊天里的卡一起删（阿萌 2026-10-30：猜错开的贴贴照样写了记录） */
+const Discard: React.FC<{ record: TietieRecord; charName: string; onDone: () => void }> = ({ record, charName, onDone }) => {
+    const { remoteVectorConfig } = useOS();
+    const [confirming, setConfirming] = useState(false);
+    return (
+        <>
+            <button type="button" aria-label="这次不算" onClick={() => setConfirming(true)} className="absolute grid place-items-center active:opacity-40 transition-opacity"
+                style={{ right: 6, bottom: 4, width: 44, height: 44, background: 'transparent', border: 'none' }}>
+                <Trash size={21} weight="bold" color={F.textPrimary} />
+            </button>
+            <ClayDialog isOpen={confirming} title="这次不算" onClose={() => setConfirming(false)} footer={
+                <div className="flex" style={{ gap: 10 }}>
+                    <button type="button" onClick={() => setConfirming(false)} className="flex-1 clay-press"
+                        style={{ height: 44, borderRadius: R.button, background: F.surface, border: `1px solid ${F.borderSoft}`, color: F.textPrimary, fontSize: 15, fontWeight: 600 }}>
+                        留着
+                    </button>
+                    <button type="button" className="flex-1 clay-press"
+                        onClick={() => { setConfirming(false); void discardTietieRecord(record, remoteVectorConfig).then(onDone); }}
+                        style={{ height: 44, borderRadius: R.button, background: F.textPrimary, border: 'none', color: F.surface, fontSize: 15, fontWeight: 600 }}>
+                        删掉
+                    </button>
+                </div>
+            }>
+                <p style={{ margin: 0, fontSize: 15, lineHeight: '23px', color: F.textSecondary }}>
+                    这页日记、{charName}记住的那条和聊天里的卡片一起删掉，健康日历上的记号也会消失。{charName}事后说的那一两句还在聊天里，想删可以长按删。
+                </p>
+            </ClayDialog>
+        </>
+    );
+};
+
 export const TietieDiary: React.FC<{ charId: string; charName: string; recordId: string; onClose: () => void }> = ({ charId, charName, recordId, onClose }) => {
     const record = useTietieRecord(charId, recordId);
     if (!record) return null;
@@ -78,6 +109,7 @@ export const TietieDiary: React.FC<{ charId: string; charName: string; recordId:
                     <X size={22} weight="bold" color={F.textPrimary} />
                 </button>
                 <span style={{ fontSize: 13, color: HUE.rose.ink, letterSpacing: 2, fontVariantNumeric: 'tabular-nums' }}>{tietieNoLabel(record.no)}</span>
+                <Discard record={record} charName={charName} onDone={onClose} />
             </header>
             <div className="flex-1 min-h-0 overflow-y-auto" style={{ padding: '0 16px', paddingBottom: 'calc(20px + var(--safe-bottom))' }}>
                 <article style={{ background: F.surface, border: `1px solid ${HUE.rose.soft}`, borderRadius: R.bigCard, padding: '26px 22px', display: 'flex', flexDirection: 'column', gap: 16 }}>

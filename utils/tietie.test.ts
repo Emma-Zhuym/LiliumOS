@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Message } from '../types';
 import {
+    autoSessionStart,
     beginTietieSession,
     buildTietieCardContent,
     buildTietieMaterials,
@@ -10,6 +11,8 @@ import {
     formatTietieDuration,
     nextTietieNo,
     parseTietieResult,
+    tietieEndKind,
+    TIETIE_WINDOW_MS,
     readTietieSession,
     sessionStartFor,
     tietieMinutes,
@@ -103,5 +106,24 @@ describe('显示和上下文', () => {
             .toBe('（你们刚度过了两个人的时间 · 第7次《浴室起雾》：十点在卧室）');
         expect(buildTietieCardContent({ status: 'failed' })).toBe('（你们刚度过了两个人的时间）');
         expect(nextTietieNo([{ no: 2 }, {}, { no: 5 }])).toBe(6);
+    });
+});
+
+describe('贴贴结束时算什么（2026-10-30：猜错开的照样写了记录）', () => {
+    const NOW = Date.parse('2026-10-29T22:00:00.000Z');
+    it('不是她点的开始：先问', () => {
+        expect(tietieEndKind({ session: null, source: 'auto', now: NOW })).toBe('ask');
+        expect(tietieEndKind({ session: null, source: undefined, now: NOW })).toBe('ask');
+    });
+    it('她点的开始：两分钟内关掉是按错，之后是真结束', () => {
+        expect(tietieEndKind({ session: { startedAt: NOW - 60_000, until: NOW + TIETIE_WINDOW_MS }, source: 'manual', now: NOW })).toBe('mistap');
+        expect(tietieEndKind({ session: { startedAt: NOW - 30 * 60_000, until: NOW + TIETIE_WINDOW_MS }, source: 'manual', now: NOW })).toBe('end');
+    });
+    it('别的设备点的开始（本机没记）：照旧当结束', () => {
+        expect(tietieEndKind({ session: null, source: 'manual', now: NOW })).toBe('end');
+    });
+    it('猜着开、她确认是真的：开始时刻按 until 往前推两小时', () => {
+        expect(autoSessionStart(new Date(NOW + 90 * 60_000).toISOString(), NOW)).toBe(NOW - 30 * 60_000);
+        expect(autoSessionStart(null, NOW)).toBe(NOW - 60 * 60_000);
     });
 });

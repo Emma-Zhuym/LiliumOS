@@ -161,6 +161,16 @@ export const writeTietieRecord = async (input: {
 };
 
 /**
+ * 这次不算（副 API 猜错了开的、按错了还是写了）：日记、卧室记忆、聊天里那张卡一起删。
+ * TA 事后说的那一两句是普通消息，留在聊天里，她想删就长按删。之后的「第几次」按剩下的算。
+ */
+export const discardTietieRecord = async (record: TietieRecord, remote?: RemoteVectorConfig | null): Promise<void> => {
+    await forgetTietieMemory(record, remote);
+    if (record.cardMessageId) await DB.deleteMessage(record.cardMessageId).catch(() => {});
+    await TietieDB.remove(record);
+};
+
+/**
  * 她不想让 TA 记住这一次的细节：删那条卧室记忆（本地向量、远程向量一起），
  * 聊天里那张卡给上下文的那一行也去掉细节。日记本身留着。
  */

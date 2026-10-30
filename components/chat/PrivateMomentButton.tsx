@@ -16,8 +16,10 @@ import { Heart } from '@phosphor-icons/react';
 import { useOS } from '../../context/OSContext';
 import { AgentBackend, isAgentPaired, type AgentPrivateMoment } from '../../utils/emAgentBackend';
 // [EM-START: tietie-record] 结束时 TA 写事后记录：本机记下这一次从几点开始（docs/spec-tietie-record.md）
-import { beginTietieSession, clearTietieSession, readTietieSession, sessionStartFor, TIETIE_WINDOW_MS } from '../../utils/tietie';
+import { autoSessionStart, beginTietieSession, clearTietieSession, readTietieSession, sessionStartFor, tietieEndKind, TIETIE_WINDOW_MS } from '../../utils/tietie';
 import { announceTietieEnded } from '../tietie/useTietie';
+import ClayDialog from '../os/ClayDialog';
+import { F, R } from '../../utils/clayTokens';
 // [EM-END: tietie-record]
 
 const cacheKey = (charId: string) => `em_private_moment_v1:${charId}`;
@@ -52,6 +54,7 @@ const PrivateMomentButton: React.FC<Props> = ({ charId, textClassName, tileClass
     const { addToast } = useOS();
     const [state, setState] = useState<AgentPrivateMoment | null>(() => readCached(charId));
     const [busy, setBusy] = useState(false);
+    const [asking, setAsking] = useState(false); // [EM: tietie-record] 不是她点的开始：先问是不是贴贴
 
     useEffect(() => {
         let alive = true;
@@ -69,10 +72,19 @@ const PrivateMomentButton: React.FC<Props> = ({ charId, textClassName, tileClass
     if (!isAgentPaired()) return null;
     const active = isPrivateActive(state);
 
-    const toggle = async () => {
+    /** confirmed：她在「刚才是贴贴吗」里选了「是」，不再问 */
+    const toggle = async (confirmed = false) => {
         if (busy) return;
+        // [EM-START: tietie-record] 结束前先分清：真结束了 / 按错了 / 副 API 猜错了（阿萌 2026-10-30）
+        if (active && !confirmed) {
+            const kind = tietieEndKind({ session: readTietieSession(charId), source: state?.source, now: Date.now() });
+            if (kind === 'ask') { setAsking(true); return; }
+            if (kind === 'mistap') { await cancel('刚开始就关了，这次不算'); return; }
+        }
+        // [EM-END: tietie-record]
         setBusy(true);
         try {
+            const previous = state; // [EM: tietie-record]
             const next = await AgentBackend.setPrivateMoment(charId, !active);
             setState(next);
             writeCached(charId, next);
@@ -83,7 +95,8 @@ const PrivateMomentButton: React.FC<Props> = ({ charId, textClassName, tileClass
             } else {
                 const session = readTietieSession(charId);
                 clearTietieSession(charId);
-                announceTietieEnded(charId, sessionStartFor(session, now), now);
+                // 副 API 猜着开、她确认是真的：开始时刻按 mini 的 until 往前推
+                announceTietieEnded(charId, session ? sessionStartFor(session, now) : autoSessionStart(previous?.until, now), now);
             }
             // [EM-END: tietie-record]
             addToast(next.active
@@ -97,13 +110,52 @@ const PrivateMomentButton: React.FC<Props> = ({ charId, textClassName, tileClass
         }
     };
 
+    // [EM-START: tietie-record] 不是贴贴：mini 只关掉（不算事后），本机不写记录
+    const cancel = async (message: string) => {
+        setAsking(false);
+        setBusy(true);
+        try {
+            const next = await AgentBackend.cancelPrivateMoment(charId);
+            setState(next);
+            writeCached(charId, next);
+            clearTietieSession(charId);
+            addToast(message, 'success');
+            onDone();
+        } catch {
+            addToast('连不上 mini，这次没关上', 'error');
+        } finally {
+            setBusy(false);
+        }
+    };
+    // [EM-END: tietie-record]
+
     return (
+        <>
         <button onClick={() => { void toggle(); }} disabled={busy} className={`flex flex-col items-center gap-2 tool-btn ${textClassName} ${busy ? 'opacity-50' : ''}`}>
             <div className={tileClassName(active)}>
                 <Heart className="w-6 h-6" weight={active ? 'fill' : 'bold'} />
             </div>
             <span className="text-xs font-bold">{active ? '结束贴贴' : '贴贴'}</span>
         </button>
+            {/* [EM-START: tietie-record] */}
+            <ClayDialog isOpen={asking} title="刚才是贴贴吗？" onClose={() => setAsking(false)} footer={
+                <div className="flex" style={{ gap: 10 }}>
+                    <button type="button" onClick={() => { void cancel('知道了，刚才不算，TA 不会写事后记录'); }} className="flex-1 clay-press"
+                        style={{ height: 44, borderRadius: R.button, background: F.surface, border: `1px solid ${F.borderSoft}`, color: F.textPrimary, fontSize: 15, fontWeight: 600 }}>
+                        不是，TA 误会了
+                    </button>
+                    <button type="button" onClick={() => { setAsking(false); void toggle(true); }} className="flex-1 clay-press"
+                        style={{ height: 44, borderRadius: R.button, background: F.textPrimary, border: 'none', color: F.surface, fontSize: 15, fontWeight: 600 }}>
+                        是，结束了
+                    </button>
+                </div>
+            }>
+                <p style={{ margin: 0, fontSize: 15, lineHeight: '23px', color: F.textSecondary, textAlign: 'left' }}>
+                    这次不是你点的开始，是从聊天里猜的。猜错了就选「不是」：只关掉，不写事后记录，也不算「事后」。
+                </p>
+            </ClayDialog>
+            {/* [EM-END: tietie-record] */}
+        </>
     );
 };
 

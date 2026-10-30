@@ -79,7 +79,7 @@ LiliumOS 和 SullyOS 早就各走各的了（git 认的合并基线停在 2026-0
 ### 吸收后必跑自检
 
 ```bash
-bash scripts/check-em-patches.sh   # 当前 376 项锚点检查，红了就是功能被冲掉
+bash scripts/check-em-patches.sh   # 当前 379 项锚点检查，红了就是功能被冲掉
 pnpm vitest run                    # 单元测试
 ```
 
