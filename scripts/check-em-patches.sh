@@ -345,6 +345,10 @@ check "心跳提示词读备注" server/agent-backend/heartbeat.mjs "lines.push(
 check "导出备注改动记录" context/OSContext.tsx "emContactRemarkChanges: (mode === 'text_only' || mode === 'full') ? exportContactRemarkChanges() : undefined,"
 check "恢复备注改动记录" context/OSContext.tsx "if (data.emContactRemarkChanges !== undefined) importContactRemarkChanges(data.emContactRemarkChanges);"
 check "备份类型有改动记录" types.ts "emContactRemarkChanges?: Record<string, import('./utils/contactRemarks').ContactRemarkChange>;"
+check "改备注在私聊留系统提示" components/chat/ChatSettingsPage.tsx "if (await saveContactRemarkWithNotice(character, draft, userProfile?.name || '')) onRemarkNotice?.();"
+check "系统提示写进私聊" utils/contactRemarkActions.ts "metadata: { kind: CONTACT_REMARK_NOTICE_KIND, from: change.from, to: change.to },"
+check "聊天页收到提示后刷新" apps/Chat.tsx "onRemarkNotice={() => void reloadMessages(visibleCountRef.current)}"
+check "快照不把改备注提示当 TA 的话" utils/emAgentSnapshot.ts "message.metadata?.kind !== CONTACT_REMARK_NOTICE_KIND"
 
 echo "── 停止回复（本地 / mini / amsg）──"
 check "useChatAI 登记本轮可停" hooks/useChatAI.ts "const replyRun = beginLocalReply(char.id);"

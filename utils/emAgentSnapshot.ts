@@ -25,7 +25,7 @@ import { loadDeepTalkForSnapshot, loadMatterNightIds } from './deepTalkDb'; // [
 import { isWalledDeepTalkMessage } from './deepTalk'; // [EM: deep-talk]
 import { datePlansForSnapshot } from './emDatePlans'; // [EM: date-plans]
 import { isOocMessage, loadOocPins } from './emOoc'; // [EM: ooc]
-import { contactRemarkForSnapshot } from './contactRemarks'; // [EM: contact-remark-aware]
+import { CONTACT_REMARK_NOTICE_KIND, contactRemarkForSnapshot } from './contactRemarks'; // [EM: contact-remark-aware]
 
 export const SNAPSHOT_SCHEMA_VERSION = 1;
 
@@ -298,6 +298,7 @@ export const buildCharacterSnapshot = async (
         .filter(message => message.type !== 'system')
         .filter(message => !isWalledDeepTalkMessage(message, matterNightIds)) // [EM: deep-talk] 烛下说的真话不给心跳看；谈事的那几次照常
         .filter(message => !isOocMessage(message)) // [EM: ooc] 出戏的话不当成近况
+        .filter(message => message.metadata?.kind !== CONTACT_REMARK_NOTICE_KIND) // [EM: contact-remark-aware] 改备注的系统提示走 contactRemarkChange，别当成 TA 说的话
         // 合并前多取一些：合完才截到 MAX_RECENT_MESSAGES 条
         .slice(-MAX_RECENT_MESSAGES * 8)
         .map(message => ({

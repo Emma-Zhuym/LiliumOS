@@ -3413,7 +3413,8 @@ const Chat: React.FC = () => {
                  onClose={() => setChatSettingsOpen(false)} onCharacter={openCharacterSettings}
                  onSearch={() => setShowChatSearch(true)}
                  onGroup={group => { setSettingsGroup(group); setModalType('chat-settings'); }}
-                 onAction={handlePanelAction} onError={() => addToast('备注保存失败，请重试', 'error')} />}
+                 onAction={handlePanelAction} onError={() => addToast('备注保存失败，请重试', 'error')}
+                 onRemarkNotice={() => void reloadMessages(visibleCountRef.current)} /> /* [EM: contact-remark-aware] 改备注留的系统提示 */}
              {showChatSearch && <div className="absolute inset-0 z-[90]" style={{ background: F.appBg }}><ChatSearch character={char}
                  onClose={() => setShowChatSearch(false)} onOpenMessage={message => {
                      setShowChatSearch(false); setChatSettingsOpen(false);

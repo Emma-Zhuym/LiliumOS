@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { CaretLeft, CaretRight, MagnifyingGlass, Check, Trash } from '@phosphor-icons/react';
 import { CharacterProfile } from '../../types';
 import { F, FONT, HUE, R, S, STATUS } from '../../utils/clayTokens';
-import { saveContactRemark, useContactRemark } from '../../utils/contactRemarks';
+import { useContactRemark } from '../../utils/contactRemarks';
+import { saveContactRemarkWithNotice } from '../../utils/contactRemarkActions';
 import TokenImg from '../os/TokenImg';
 import { PRESET_THEMES } from './ChatConstants';
 import { useOS } from '../../context/OSContext';
@@ -54,18 +55,25 @@ function Group({ title, children }: { title?: string; children: React.ReactNode 
     </section>;
 }
 
-export default function ChatSettingsPage({ character, onClose, onCharacter, onSearch, onGroup, onAction, onError }: {
+export default function ChatSettingsPage({ character, onClose, onCharacter, onSearch, onGroup, onAction, onError, onRemarkNotice }: {
     character: CharacterProfile; onClose: () => void; onCharacter: () => void; onSearch: () => void;
     onGroup: (group: ChatSettingsGroup) => void; onAction: (action: string) => void; onError: () => void;
+    /** 改了备注、私聊里多了一条系统提示：聊天页刷新一下 */
+    onRemarkNotice?: () => void;
 }) {
-    const { customThemes, updateCharacter, removeCustomTheme } = useOS();
+    const { customThemes, updateCharacter, removeCustomTheme, userProfile } = useOS();
     const [bubbleSearch, setBubbleSearch] = useState('');
     const [deletingTheme, setDeletingTheme] = useState<string | null>(null);
     const remark = useContactRemark(character.id);
     const [view, setView] = useState<'home' | 'remark' | 'proactive' | 'appearance' | 'extensions' | 'display' | 'bubbles'>('home');
     const [draft, setDraft] = useState(remark);
     const titles = { home: '聊天设置', remark: '设置备注', proactive: '主动与定时消息', appearance: '背景与聊天装扮', extensions: '扩展能力', display: '思考与系统消息', bubbles: '气泡样式' };
-    const save = () => { try { saveContactRemark(character.id, draft); setView('home'); } catch { onError(); } };
+    const save = async () => {
+        try {
+            if (await saveContactRemarkWithNotice(character, draft, userProfile?.name || '')) onRemarkNotice?.();
+            setView('home');
+        } catch { onError(); }
+    };
     return <ChatSettingsFrame title={titles[view]} onClose={() => view === 'home' ? onClose() : setView(view === 'bubbles' ? 'appearance' : 'home')}
         footer={view === 'remark' ? <button type="button" onClick={save} className="h-12 w-full text-sm font-semibold" style={{ background: F.textPrimary, color: F.surface, borderRadius: R.button }}>保存备注</button> : undefined}>
         {view === 'home' && <>

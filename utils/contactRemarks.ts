@@ -1,8 +1,9 @@
 import { useSyncExternalStore } from 'react';
 import type { Message } from '../types';
 
-// 备注只存本机 localStorage，不挂在 CharacterProfile / 消息上；角色从聊天提示词和心跳快照里看到它
+// 备注只存本机 localStorage，不挂在 CharacterProfile 上；角色从聊天提示词和心跳快照里看到它
 // （buildContactRemarkInjection / contactRemarkForSnapshot，2026-10-29 起）。
+// 改了备注在私聊里留一条系统提示（contactRemarkActions.ts），TA 从聊天记录里看到改动。
 const PREFIX = 'em_contact_remark_';
 const CHANGE = 'em-contact-remark-changed';
 // 最近一次改动，每个角色一条。别用 PREFIX 开头：exportContactRemarks 按前缀扫备注。
@@ -42,18 +43,31 @@ export function getContactRemarkChange(characterId: string): ContactRemarkChange
     return isChange(change) ? change : null;
 }
 
-export function saveContactRemark(characterId: string, value: string, now = Date.now()): void {
+/** 存备注；真改了就返回这次改动（没变返回 null）。 */
+export function saveContactRemark(characterId: string, value: string, now = Date.now()): ContactRemarkChange | null {
     const remark = value.trim();
     const previous = getContactRemark(characterId);
     if (remark) localStorage.setItem(PREFIX + characterId, remark);
     else localStorage.removeItem(PREFIX + characterId);
     // 改动只在这里记：从什么改成什么、什么时候。第一次写（从空到有）、删掉也算
+    let change: ContactRemarkChange | null = null;
     if (remark !== previous) {
+        change = { from: previous, to: remark, changedAt: now };
         try {
-            localStorage.setItem(CHANGES_KEY, JSON.stringify({ ...loadChanges(), [characterId]: { from: previous, to: remark, changedAt: now } }));
+            localStorage.setItem(CHANGES_KEY, JSON.stringify({ ...loadChanges(), [characterId]: change }));
         } catch { /* 存不下就算了，备注本身已经存好 */ }
     }
     window.dispatchEvent(new Event(CHANGE));
+    return change;
+}
+
+export const CONTACT_REMARK_NOTICE_KIND = 'contact_remark_change';
+
+/** 私聊里那条系统提示：她和 TA 都看得到，所以用名字说，不用「你」 */
+export function remarkChangeNotice(change: ContactRemarkChange, userName: string, charName: string): string {
+    if (!change.from) return `${userName}给${charName}写了备注「${clip(change.to)}」`;
+    if (!change.to) return `${userName}删掉了${charName}的备注「${clip(change.from)}」`;
+    return `${userName}把${charName}的备注从「${clip(change.from)}」改成了「${clip(change.to)}」`;
 }
 
 /**
@@ -73,21 +87,12 @@ export function pendingContactRemarkChange(
 
 const clip = (text: string) => text.slice(0, REMARK_MAX);
 
-/** 一句话说清楚改了什么：心跳后端照同一个意思写（heartbeat.mjs 的 contactRemarkLines） */
-export function describeRemarkChange(change: ContactRemarkChange, userName: string): string {
-    if (!change.from) return `${userName}给你在通讯录里写了备注「${clip(change.to)}」（原来没写备注）`;
-    if (!change.to) return `${userName}把通讯录里给你的备注「${clip(change.from)}」删掉了，现在你在 ta 手机里显示的是本名`;
-    return `${userName}把通讯录里给你的备注从「${clip(change.from)}」改成了「${clip(change.to)}」`;
-}
-
-const relativeAge = (at: number, now: number) => {
-    const minutes = Math.max(0, Math.floor((now - at) / 60_000));
-    if (minutes < 1) return '刚刚';
-    if (minutes < 60) return `${minutes} 分钟前`;
-    return `${Math.floor(minutes / 60)} 小时前`;
-};
-
-/** 聊天提示词：当前备注 + 还没提过的改动（fire_pack 不带改动：打包时的「刚改了」到点就过期了） */
+/**
+ * 聊天提示词：当前备注每轮都带；没写就不加。
+ * 改动本身不在这里复述——私聊里那条系统提示就在聊天记录里，位置和时间都对；
+ * 只在 TA 还没回过话（一天内）时补一句「那条提示是什么意思、可以怎么反应」。
+ * fire_pack 不带这一句：打包时的「刚改了」到点就过期了。
+ */
 export function buildContactRemarkInjection(
     characterId: string,
     userName: string,
@@ -99,7 +104,8 @@ export function buildContactRemarkInjection(
     let text = '\n### 通讯录备注\n';
     if (remark) text += `${userName}在自己手机通讯录里给你的备注是「${clip(remark)}」。这是 ta 私下对你的叫法，你知道就好，不用老提。\n`;
     if (change) {
-        text += `${describeRemarkChange(change, userName)}（${relativeAge(change.changedAt, now)}）。你注意到了：这次回复可以照你的性格自然地反应一下——好奇、得意、吐槽、追问为什么都行，也可以不提；只在这一次，之后别再拿它说事。\n`;
+        text += `聊天记录里那条「${userName}${!change.from ? '给你写了备注' : !change.to ? '删掉了你的备注' : '把你的备注从…改成了…'}」的系统提示，是 ta 刚在手机通讯录里动了给你的备注。`
+            + '你注意到了：这次回复可以照你的性格自然地反应一下——好奇、得意、吐槽、追问为什么都行，也可以不提；之后别再拿它说事。\n';
     }
     return text;
 }
@@ -110,6 +116,7 @@ export function contactRemarkForSnapshot(
     messages: Pick<Message, 'role' | 'type' | 'timestamp'>[],
     now = Date.now(),
 ): { contactRemark?: string; contactRemarkChange?: { from: string; to: string; at: string } } {
+    if (typeof localStorage === 'undefined') return {};
     const remark = getContactRemark(characterId);
     const change = pendingContactRemarkChange(characterId, messages, now);
     return {

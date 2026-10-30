@@ -67,6 +67,24 @@ describe('角色近况快照', () => {
         expect(JSON.stringify(snapshot)).not.toContain('base64');
     });
 
+    it('通讯录备注：带当前备注和还没回过的改动；改备注的系统提示不当成 TA 说的话', async () => { // [EM: contact-remark-aware]
+        const changedAt = Date.parse('2026-09-23T20:01:00.000Z');
+        localStorage.setItem('em_contact_remark_lumi', '小狗');
+        localStorage.setItem('em_remark_changes_v1', JSON.stringify({ lumi: { from: '', to: '小狗', changedAt } }));
+        try {
+            const snapshot = await buildCharacterSnapshot(char, [
+                message({ id: 1 }),
+                message({ id: 2, role: 'system', content: '阿萌给露米写了备注「小狗」', timestamp: changedAt, metadata: { kind: 'contact_remark_change' } }),
+            ], { at: new Date('2026-09-23T20:05:00.000Z') });
+            expect(snapshot.payload.contactRemark).toBe('小狗');
+            expect(snapshot.payload.contactRemarkChange).toEqual({ from: '', to: '小狗', at: new Date(changedAt).toISOString() });
+            expect(snapshot.payload.recentMessages?.map(item => item.text)).toEqual(['在吗']);
+        } finally {
+            localStorage.removeItem('em_contact_remark_lumi');
+            localStorage.removeItem('em_remark_changes_v1');
+        }
+    });
+
     it('未完事项恒为空：猜出来的会被角色当成约定说出口', async () => {
         const snapshot = await buildCharacterSnapshot(char, [message({})], {});
         expect(snapshot.payload.openThreads).toBeUndefined();

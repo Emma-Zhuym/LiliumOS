@@ -79,7 +79,7 @@ LiliumOS 和 SullyOS 早就各走各的了（git 认的合并基线停在 2026-0
 ### 吸收后必跑自检
 
 ```bash
-bash scripts/check-em-patches.sh   # 当前 398 项锚点检查，红了就是功能被冲掉
+bash scripts/check-em-patches.sh   # 当前 402 项锚点检查，红了就是功能被冲掉
 pnpm vitest run                    # 单元测试
 ```
 
@@ -99,7 +99,7 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - `components/PhoneShell.tsx` 里 `case AppID.Chat` 根据 `messageSubView` 切换显示
 - `components/chat/ChatHeaderShell.tsx` 里的 `onOpenContacts` prop + 小房子按钮
 - 通讯录备注存 localStorage `em_contact_remark_<角色id>`（`utils/contactRemarks.ts`），随备份走 `emContactRemarks`；恢复只覆盖备份里有的角色
-- **角色看得到备注**（2026-10-30，哨兵 `contact-remark-aware`）：`chatPrompts.ts` volatileState 每轮带当前备注；改动只在 `saveContactRemark` 里记（`em_remark_changes_v1`，别用 `em_contact_remark_` 开头，导出按前缀扫备注），改完后 TA 还没说过话、且一天内才提醒一次（fire_pack 只带备注不带改动）；心跳快照 `contactRemark` / `contactRemarkChange` → `heartbeat.mjs` 的 `contactRemarkLines`（措辞两边一起改）；改动记录随备份 `emContactRemarkChanges`
+- **角色看得到备注**（2026-10-30，哨兵 `contact-remark-aware`）：`chatPrompts.ts` volatileState 每轮带当前备注；改动只在 `saveContactRemark` 里记（`em_remark_changes_v1`，别用 `em_contact_remark_` 开头，导出按前缀扫备注），改了由 `utils/contactRemarkActions.ts` 在私聊留一条 `role: 'system'` 提示（`metadata.kind = 'contact_remark_change'`，「从「旧」改成了「新」」），TA 从历史里看到；TA 还没说过话且一天内，提示词再补一句怎么反应（fire_pack 不补）；快照近况剔掉这条提示；心跳快照 `contactRemark` / `contactRemarkChange` → `heartbeat.mjs` 的 `contactRemarkLines`（措辞两边一起改）；改动记录随备份 `emContactRemarkChanges`
 
 ### 2. Token 面板 (contextComposition)
 - `hooks/useChatAI.ts` 里的 `ContextComposition` interface + state
