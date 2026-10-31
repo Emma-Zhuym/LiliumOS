@@ -41,7 +41,9 @@ describe('关心排在规矩前面', () => {
         expect(rule.length).toBeLessThan(90);
     });
     it('她怀疑要不要 TA 时别认输', () => {
-        expect(emSteadyVoiceSection('阿萌')).toContain('别顺着认输');
+        expect(emSteadyVoiceSection('阿萌')).toContain('别只认输');
+        expect(emSteadyVoiceSection('阿萌')).toContain('「可以吗」是另一回事');
+        expect(emComfortSection('阿萌')).toContain('你有错时好好道歉');
         expect(emSteadyVoiceSection('阿萌')).toContain('软话照说');
     });
 });

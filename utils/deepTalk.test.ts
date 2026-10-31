@@ -182,8 +182,10 @@ describe('truth-telling nights', () => {
         const block = buildOpenTurnBlock(names);
         expect(block).toContain('关心在最前面');
         expect(block).toContain('可以说对不起，只是不能只说对不起');
-        expect(block).toContain('别顺着认输');
-        expect(block).toContain('别把决定交回给 ta');
+        expect(block).toContain('别只认输');
+        expect(block).toContain('道歉要像人话');
+        expect(block).toContain('可以问「可以吗」');
+        expect(block).not.toContain('别把决定交回给 ta');
         expect(block).toContain('ta 的话 ta 自己懂');
         expect(block).toContain('别凑字');
         expect(block).not.toContain('120 到 400');
