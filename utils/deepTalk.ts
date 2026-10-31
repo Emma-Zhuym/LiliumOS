@@ -439,4 +439,15 @@ export const extractDeepTalkThinking = (raw: string, reasoning?: string | null):
 /** 一段话拆成段落（空行或换行都算） */
 export const toParagraphs = (content: string): string[] =>
     (content || '').split(/\n+/).map(p => p.trim()).filter(Boolean);
+
+/**
+ * 纸面上的「重写」：最后几段是 TA 的就换掉（rewriteIds），最后是她的就是 TA 还没接上（rewriteIds 为空）。
+ * 一段话都没有时没什么可重写的，返回 null。
+ */
+export const deepTalkRetryPlan = (segments: Array<{ id: number; role: string }>): { rewriteIds: number[] } | null => {
+    if (!segments.length) return null;
+    const rewriteIds: number[] = [];
+    for (let i = segments.length - 1; i >= 0 && segments[i].role === 'assistant'; i--) rewriteIds.push(segments[i].id);
+    return { rewriteIds };
+};
 // [EM-END: deep-talk]

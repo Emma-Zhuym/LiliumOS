@@ -13,6 +13,7 @@ import {
     preselectKind,
     buildInviteTurnBlock,
     candleLabel,
+    deepTalkRetryPlan,
     isNightAt,
     keepInPromptHistory,
     nextNightNo,
@@ -233,5 +234,19 @@ describe('where they are', () => {
 
     it('counts candles, not nights', () => {
         expect(candleLabel(3)).toBe('第 03 支蜡烛');
+    });
+});
+
+describe('纸面上的重写', () => {
+    it('最后是 TA 的话就换掉结尾那几段，只动结尾', () => {
+        expect(deepTalkRetryPlan([
+            { id: 1, role: 'user' }, { id: 2, role: 'assistant' }, { id: 3, role: 'user' }, { id: 4, role: 'assistant' }, { id: 5, role: 'assistant' },
+        ])).toEqual({ rewriteIds: [5, 4] });
+    });
+    it('最后是她的话：不删东西，只让 TA 接上', () => {
+        expect(deepTalkRetryPlan([{ id: 1, role: 'assistant' }, { id: 2, role: 'user' }])).toEqual({ rewriteIds: [] });
+    });
+    it('一段话都没有就没有重写', () => {
+        expect(deepTalkRetryPlan([])).toBeNull();
     });
 });

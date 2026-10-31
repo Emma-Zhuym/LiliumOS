@@ -58,7 +58,7 @@ import { buildAmsg2NoticesText, buildAmsg2TaskContextText, collectAmsg2TaskConte
 import { resolveCharTimeZone } from '../utils/timezone';
 import { resolveCharacterApiConfig } from '../utils/characterApi';
 import { announceInstantChatRoute, getInstantChatPending, resolveInstantChatReadiness, sendInstantChatTurn, stageInstantChatExpiredNotices } from '../utils/amsgInstantChat';
-import { beginLocalReply, isReplyStopError, stopReply } from '../utils/emReplyStop'; // [EM: reply-stop]
+import { beginLocalReply, isReplyStopError, replyStoppedError, stopReply } from '../utils/emReplyStop'; // [EM: reply-stop]
 import { isAgentChatReady, sendAgentChatTurn, tokenUsageFromCloudMetadata } from '../utils/emAgentChat'; // [EM: agent-instant-chat]
 import { cleanOocReply, isOocMessage, isOocPromptContent } from '../utils/emOoc'; // [EM: ooc]
 import { cleanDeepTalkReply, extractDeepTalkThinking, parseDeepTalkAnswer, type DeepTalkNight } from '../utils/deepTalk'; // [EM: deep-talk]
@@ -813,6 +813,38 @@ export const useChatAI = ({
         const replyRun = beginLocalReply(char.id);
         let stopPreviewBubbles: string[] = []; // 停的那一刻流式预览里已经露出来的气泡
         let postProcessingStarted = false;
+        let deepTalkPaperTurn = false; // [EM: deep-talk] 这一轮写在纸面上：出错的系统消息被纸盖住，要另外提示
+        // 这一轮的界面收尾：灭「正在输入」、放开发送锁。只收一次。
+        let replyUiSettled = false;
+        const settleReplyUi = () => {
+            if (replyUiSettled) return;
+            replyUiSettled = true;
+            releaseReply();
+            replyBusyRef.current = false;
+            setLocalTyping(false);
+            KeepAlive.stop();
+            // 本轮生成结束（成功/失败/中断都经过）→ 停止本地续租；远端靠 45s TTL 自然失效。
+            // 未开过租约（instant push / 非 amsg2 角色）时是幂等 no-op。
+            stopAmsgChatPresence(char.id);
+            // 全局横幅熄灭（成功/失败/instant 均经过这里；OSContext 同时借它兜底刷新，
+            // 覆盖 catch 里落库的错误系统消息）。
+            announceChatGen(CHAT_GEN_EVENTS.replyEnd, { charId: char.id, charName: char.name });
+            // 兜底熄「发送准备中」灯 (幂等, 正常路径 deliver() 前已熄过)。不加的话
+            // config-missing / subscription-failed / 拼 context 阶段 throw 这些没走到
+            // POST 的路径都不会调 onInstantPosted, 头部「发送中…」徽章会卡死到刷新
+            // —— 2026-07 安卓用户实测: 订阅失败弹了错, 但三个小点到角色回复了都不消失。
+            onInstantPosted?.();
+            setStreamingBubbles([]);  // 错误/中断路径兜底清预览
+            setStreamingThinking('');
+            setStreamingHandoverIds([]);
+            setRecallStatus('');
+            setSearchStatus('');
+            setDiaryStatus('');
+            setXhsStatus('');
+        };
+        // 停了以后 catch / finally 通常马上就跑。但这一轮可能卡在不认中止信号的地方
+        // （熄屏后没回音的召回、KeepAlive），那样 finally 永远等不到，这里兜底放开，别让人只能杀进程。
+        replyRun.signal.addEventListener('abort', () => { window.setTimeout(settleReplyUi, 1500); }, { once: true });
         // [EM-END: reply-stop]
         // 本轮里角色自己新排出来的任务。排程现状块每轮现算时靠它把这些点名标出来——不标
         // 的话角色分不清清单上哪条是自己刚排的，回头又排一条一模一样的。
@@ -913,6 +945,7 @@ export const useChatAI = ({
                 ? { mode: (deepTalkNight.status === 'open' ? 'open' : deepTalkNight.status === 'invited' ? 'invite' : 'later') as 'open' | 'invite' | 'later', night: deepTalkNight }
                 : null;
             const deepTalkLocal = !!deepTalkTurn && deepTalkTurn.mode !== 'later';
+            deepTalkPaperTurn = deepTalkTurn?.mode === 'open';
             // [EM-END: deep-talk]
             // [EM-START: ooc] 她最后发的是出戏的话：本机生成，模型出戏回一段，不跑情绪评估
             const oocTurn = isOocMessage([...contextMsgs].reverse().find(m => m.role === 'user' || m.role === 'assistant'));
@@ -1637,7 +1670,7 @@ export const useChatAI = ({
                     if (streamPreviewEligible) {
                         const bubbles = computeStreamPreviewBubbles(fullText);
                         latestStreamPreviewBubbles = bubbles;
-                        stopPreviewBubbles = bubbles; // [EM: reply-stop]
+                        if (!deepTalkPaperTurn) stopPreviewBubbles = bubbles; // [EM: reply-stop] 纸面不显示预览，停了也别把半截话当普通消息存
                         if (bubbles.length > 0) streamPreviewShown = true;
                         setStreamingBubbles(prev =>
                             (prev.length === bubbles.length && prev.every((b, i) => b === bubbles[i])) ? prev : bubbles
@@ -1655,6 +1688,7 @@ export const useChatAI = ({
                 },
             } : undefined;
 
+            if (replyRun.signal.aborted) throw replyStoppedError(); // [EM: reply-stop] 卡在前面时点了停止，走到这儿就别再发了
             // 主请求即将发出 → 立即并行发射情绪评估（错峰延迟已按用户要求取消，见定义处注释）。
             fireLocalEmotionEval?.();
 
@@ -2171,31 +2205,11 @@ export const useChatAI = ({
             // 13 步)。这里抛错多半不是网络问题, 而是解析/正则/落库异常。别再叫"连接中断"误导排查。
             const errMsg = e?.message || String(e);
             await DB.saveMessage({ charId: char.id, role: 'system', type: 'text', content: `[回复处理失败: ${errMsg}]` });
+            if (deepTalkPaperTurn) addToast(`${char.name}没写成：${errMsg}`, 'error'); // [EM: deep-talk]
             setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
         } finally {
             replyRun.end(); // [EM: reply-stop]
-            releaseReply();
-            replyBusyRef.current = false;
-            setLocalTyping(false);
-            KeepAlive.stop();
-            // 本轮生成结束（成功/失败/中断都经过）→ 停止本地续租；远端靠 45s TTL 自然失效。
-            // 未开过租约（instant push / 非 amsg2 角色）时是幂等 no-op。
-            stopAmsgChatPresence(char.id);
-            // 全局横幅熄灭（成功/失败/instant 均经过这里；OSContext 同时借它兜底刷新，
-            // 覆盖 catch 里落库的错误系统消息）。
-            announceChatGen(CHAT_GEN_EVENTS.replyEnd, { charId: char.id, charName: char.name });
-            // 兜底熄「发送准备中」灯 (幂等, 正常路径 deliver() 前已熄过)。不加的话
-            // config-missing / subscription-failed / 拼 context 阶段 throw 这些没走到
-            // POST 的路径都不会调 onInstantPosted, 头部「发送中…」徽章会卡死到刷新
-            // —— 2026-07 安卓用户实测: 订阅失败弹了错, 但三个小点到角色回复了都不消失。
-            onInstantPosted?.();
-            setStreamingBubbles([]);  // 错误/中断路径兜底清预览
-            setStreamingThinking('');
-            setStreamingHandoverIds([]);
-            setRecallStatus('');
-            setSearchStatus('');
-            setDiaryStatus('');
-            setXhsStatus('');
+            settleReplyUi(); // [EM: reply-stop]
 
             // 满血主动消息：一轮聊完把该角色标脏，fire_pack 随即批量同步到 worker 的
             // client_state（未配 amsg2 任务的角色在 markDirty 内直接忽略，零成本）。

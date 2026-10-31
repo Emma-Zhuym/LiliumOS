@@ -5,17 +5,17 @@
  * 盖在聊天上面（聊天本身还挂着），返回键照常离开聊天，回来还是这张纸。
  */
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowUp, CaretLeft } from '@phosphor-icons/react';
+import { ArrowsClockwise, ArrowUp, CaretLeft, Stop } from '@phosphor-icons/react';
 import type { CharacterProfile } from '../../types';
 import { F, FONT, R } from '../../utils/clayTokens';
-import { deepTalkEventText, type DeepTalkNight } from '../../utils/deepTalk';
+import { deepTalkEventText, deepTalkRetryPlan, type DeepTalkNight } from '../../utils/deepTalk';
 import { resolveCharTimeZone } from '../../utils/timezone';
 import ClayDialog from '../os/ClayDialog';
 import { Candle, ruledBackground, ThemeGlyph, useDeepTalkTheme, WobbleDefs } from './DeepTalkInk';
 import { DeepTalkEdge, DeepTalkSegments, LINE, talkTextStyle } from './DeepTalkTalk';
 import { useNightSegments } from './useDeepTalk';
 
-export default function DeepTalkPaper({ char, userName, night, isTyping, ending, onBack, onSend, onEnd }: {
+export default function DeepTalkPaper({ char, userName, night, isTyping, ending, onBack, onSend, onStop, onRetry, onEnd }: {
     char: CharacterProfile;
     userName: string;
     night: DeepTalkNight;
@@ -23,6 +23,8 @@ export default function DeepTalkPaper({ char, userName, night, isTyping, ending,
     ending: boolean;
     onBack: () => void;
     onSend: (text: string) => Promise<void>;
+    onStop: () => void;
+    onRetry: () => Promise<void>;
     onEnd: () => void;
 }) {
     const { theme, palette, toggle } = useDeepTalkTheme(char.id, resolveCharTimeZone(char));
@@ -30,6 +32,7 @@ export default function DeepTalkPaper({ char, userName, night, isTyping, ending,
     const [draft, setDraft] = useState('');
     const [sending, setSending] = useState(false);
     const [confirmEnd, setConfirmEnd] = useState(false);
+    const [confirmRewrite, setConfirmRewrite] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
     const fieldRef = useRef<HTMLTextAreaElement>(null);
     const names = { userName, charName: char.name };
@@ -60,6 +63,9 @@ export default function DeepTalkPaper({ char, userName, night, isTyping, ending,
         }
     };
 
+    const retryPlan = busy ? null : deepTalkRetryPlan(segments);
+    const rewriting = !!retryPlan?.rewriteIds.length;
+
     const opening = night.relit ? deepTalkEventText('relight', names) : '蜡烛点上了';
 
     return (
@@ -89,6 +95,14 @@ export default function DeepTalkPaper({ char, userName, night, isTyping, ending,
                 <div style={{ ...talkTextStyle(palette), padding: `${LINE}px 16px ${LINE}px 22px`, marginLeft: 18, borderLeft: `1px solid ${palette.line}`, minHeight: '100%' }}>
                     <DeepTalkEdge palette={palette} candle={<Candle lit palette={palette} />}>{opening}</DeepTalkEdge>
                     <DeepTalkSegments segments={segments} palette={palette} names={names} />
+                    {retryPlan && (
+                        <button type="button" onClick={() => { if (rewriting) setConfirmRewrite(true); else void onRetry(); }}
+                            className="inline-flex items-center self-start active:opacity-40 transition-opacity"
+                            style={{ minHeight: 44, marginTop: -LINE, padding: 0, gap: 6, background: 'transparent', border: 'none', fontFamily: FONT.hand, fontSize: 17, color: palette.inkSoft }}>
+                            <ArrowsClockwise size={14} weight="bold" />
+                            {rewriting ? `让${char.name}重写这一段` : `还没接上，让${char.name}写`}
+                        </button>
+                    )}
                     {isTyping && (
                         <div style={{ height: LINE, fontFamily: FONT.hand, fontSize: 17, color: palette.inkSoft }}>{char.name}在写……</div>
                     )}
@@ -107,16 +121,40 @@ export default function DeepTalkPaper({ char, userName, night, isTyping, ending,
                         minHeight: 44, padding: '10px 12px', borderRadius: R.input, border: `1px solid ${palette.line}`,
                         background: palette.paper, color: palette.ink, fontFamily: FONT.heading, fontWeight: 400, fontSize: 15, lineHeight: '22px',
                     }} />
-                <button type="button" aria-label="说给 TA 听" onClick={send} disabled={!draft.trim() || busy}
-                    className="grid place-items-center active:opacity-40 transition-opacity disabled:opacity-40" style={{ width: 44, height: 44, background: 'transparent', border: 'none' }}>
-                    <ArrowUp size={21} weight="bold" color={palette.ink} />
-                </button>
+                {isTyping ? (
+                    <button type="button" aria-label="停下这一轮" onClick={onStop}
+                        className="grid place-items-center active:opacity-40 transition-opacity" style={{ width: 44, height: 44, background: 'transparent', border: 'none' }}>
+                        <Stop size={21} weight="fill" color={palette.ink} />
+                    </button>
+                ) : (
+                    <button type="button" aria-label="说给 TA 听" onClick={send} disabled={!draft.trim() || busy}
+                        className="grid place-items-center active:opacity-40 transition-opacity disabled:opacity-40" style={{ width: 44, height: 44, background: 'transparent', border: 'none' }}>
+                        <ArrowUp size={21} weight="bold" color={palette.ink} />
+                    </button>
+                )}
                 <button type="button" aria-label="结束深谈" onClick={() => setConfirmEnd(true)} disabled={ending}
                     className="inline-flex items-center active:opacity-40 transition-opacity disabled:opacity-40"
                     style={{ height: 44, padding: '0 8px', gap: 4, background: 'transparent', border: 'none', fontFamily: FONT.hand, fontSize: 17, color: palette.ink }}>
                     <Candle lit={false} palette={palette} />结束
                 </button>
             </div>
+
+            <ClayDialog isOpen={confirmRewrite} title={`让${char.name}重写这一段吗`} onClose={() => setConfirmRewrite(false)} footer={
+                <div className="flex" style={{ gap: 10 }}>
+                    <button type="button" onClick={() => setConfirmRewrite(false)} className="flex-1 clay-press"
+                        style={{ height: 44, borderRadius: R.button, background: F.surface, border: `1px solid ${F.borderSoft}`, color: F.textPrimary, fontSize: 15, fontWeight: 600 }}>
+                        留着
+                    </button>
+                    <button type="button" onClick={() => { setConfirmRewrite(false); void onRetry(); }} className="flex-1 clay-press"
+                        style={{ height: 46, borderRadius: R.button, background: F.textPrimary, border: 'none', color: F.surface, fontSize: 15, fontWeight: 600 }}>
+                        重写
+                    </button>
+                </div>
+            }>
+                <p style={{ margin: 0, fontSize: 15, lineHeight: '23px', color: F.textSecondary }}>
+                    {char.name}刚才这段话会被换掉，找不回来。
+                </p>
+            </ClayDialog>
 
             <ClayDialog isOpen={confirmEnd} title="让蜡烛灭了吗" onClose={() => setConfirmEnd(false)} footer={
                 <div className="flex" style={{ gap: 10 }}>

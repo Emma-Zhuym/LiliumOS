@@ -14,7 +14,8 @@ import { buildCharacterSnapshot } from '../utils/emAgentSnapshot';
 // [EM-START: deep-talk]
 import { flushSnapshotUpload } from '../utils/emAgentBackend';
 import { resolveCharacterApiConfig } from '../utils/characterApi';
-import { isDeepTalkIdle } from '../utils/deepTalk';
+import { deepTalkRetryPlan, isDeepTalkIdle } from '../utils/deepTalk';
+import { notifyDeepTalkChanged } from '../utils/deepTalkDb';
 import { endDeepTalk, loadNightSegments, saveDeepTalkSegment, startDeepTalkInvite } from '../utils/deepTalkActions';
 import { proposedAtFromClock } from '../utils/deepTalk'; // [EM: deep-talk-schedule]
 import DeepTalkPaper from '../components/deepTalk/DeepTalkPaper';
@@ -1016,12 +1017,12 @@ const Chat: React.FC = () => {
             await flushSnapshotUpload(await buildCharacterSnapshot(current, await DB.getMessagesByCharId(current.id), { userName: userProfile?.name }));
         } catch { /* 后端不在线是常态 */ }
     }, [userProfile?.name]);
-    const triggerWithLatest = useCallback(async () => {
+    const triggerWithLatest = useCallback(async (opts?: { skipEmotionInjection?: boolean }) => {
         const current = charRef.current;
         if (!current) return;
         const recent = (await DB.getRecentMessagesByCharId(current.id, 200))
             .filter(m => isVisibleChatMessage(m, !!current.hideSystemLogs, false) || m.metadata?.source === 'deep_talk');
-        triggerAI(recent);
+        triggerAI(recent, undefined, undefined, opts);
     }, [triggerAI]);
     const handleDeepTalkInvite = useCallback(async (proposedAt?: number) => {
         if (!char) return;
@@ -1043,6 +1044,23 @@ const Chat: React.FC = () => {
         signalAgentPresence(char.id);
         await triggerWithLatest();
     }, [char, deepTalkNight, triggerWithLatest]);
+    // 纸面上的停止：熄屏后请求可能一直没回音，不能只剩「在写」
+    const handleDeepTalkStop = useCallback(() => {
+        if (!char) return;
+        if (stopReply(char.id).local) addToast('已停下，可以接着写，也可以重写', 'info');
+    }, [char, addToast]);
+    // 纸面上的重写：最后是 TA 的话就换掉，最后是她的话就让 TA 接上
+    const handleDeepTalkRetry = useCallback(async () => {
+        if (!char || !deepTalkNight || deepTalkNight.status !== 'open' || isTyping) return;
+        autoReply.cancel();
+        const plan = deepTalkRetryPlan(await loadNightSegments(char.id, deepTalkNight.id));
+        if (!plan) return;
+        if (plan.rewriteIds.length) {
+            await DB.deleteMessages(plan.rewriteIds);
+            notifyDeepTalkChanged(char.id);
+        }
+        await triggerWithLatest({ skipEmotionInjection: true });
+    }, [char, deepTalkNight, isTyping, triggerWithLatest]);
     const handleDeepTalkEnd = useCallback(async (reason: 'end' | 'burnt_out' = 'end') => {
         const current = charRef.current;
         if (!current || !deepTalkNight || deepTalkNight.status !== 'open' || deepTalkEnding) return;
@@ -3424,7 +3442,7 @@ const Chat: React.FC = () => {
              {/* [EM-START: deep-talk] 深谈开着时整个聊天区变成纸；卡片翻开的信笺 / 所有夜晚 */}
              {deepTalkNight?.status === 'open' && <DeepTalkPaper char={char} userName={deepTalkNames.userName} night={deepTalkNight}
                  isTyping={isTyping} ending={deepTalkEnding} onBack={() => setMessageSubView('contacts')}
-                 onSend={handleDeepTalkSend} onEnd={() => void handleDeepTalkEnd('end')} />}
+                 onSend={handleDeepTalkSend} onStop={handleDeepTalkStop} onRetry={handleDeepTalkRetry} onEnd={() => void handleDeepTalkEnd('end')} />}
              <DeepTalkOverlays char={char} userName={deepTalkNames.userName} />
              <TietieOverlays char={char} />{/* [EM: tietie-record] */}
              <DeepTalkInviteSheet open={deepTalkSheetOpen} charName={char.name} onClose={() => setDeepTalkSheetOpen(false)}
