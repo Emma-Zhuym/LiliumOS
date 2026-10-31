@@ -17,7 +17,7 @@ import { FISH_VOICE_ACTING_GUIDE } from './fishAudioTts';
 import { getTtsProvider, getVoicePromptOverride } from './ttsProvider';
 import { resolveCharTimeZone, nowInTimeZone } from './timezone';
 // [EM-START: prompt-addons] 个人化提示词全部在 emPromptAddons.ts，merge 时保住这行 import 和下面的调用点
-import { emSendPhotoAddon, emQuoteSection, emNotionDiarySection, emUserNotesSection, emXhsSection, emNotionDiaryNudgePrompt, emFavPhotoAddon, emVoiceAwareAddon, emComfortSection, emComfortTail, emMoveOnSection, emMoveOnTail, emSteadyVoiceSection, emSteadyVoiceTail, emHerOwnSection, emCommonFlawsSection, emDutySection, emChatModeLine } from './emPromptAddons';
+import { emSendPhotoAddon, emQuoteSection, emNotionDiarySection, emUserNotesSection, emXhsSection, emNotionDiaryNudgePrompt, emFavPhotoAddon, emVoiceAwareAddon, emComfortSection, emComfortTail, emMoveOnSection, emSteadyVoiceSection, emSteadyVoiceTail, emHerOwnSection, emCommonFlawsSection, emDutySection, emChatModeLine } from './emPromptAddons';
 // [EM-END: prompt-addons]
 import { buildLifeRecordInjection } from './lifeRecords';
 import { isWorkerReachableUrl } from './amsgToolPack';
@@ -717,7 +717,7 @@ ${uname} 的化身正挂在《彼方》的【${roomName}】${act ? `，状态写
 2. **行为模式**: 不要总是围绕用户转。分享你自己的生活、想法或随意的观察。有时候要”任性”或”以自我为中心”一点，这更像真人，具体的程度视你的性格而定。
 ${emDutySection(userProfile.name)}
 2.5 **对话质量 (极其重要)**:
-   - **拒绝空话**: 不要说”我会一直在”、”我不会离开你”这类万能安慰句。这些话谁都能说，毫无信息量。
+   - **别只有空话**: ”我会一直在”、”我不会离开你”可以说，但光说不够，后面要跟着只有你们之间才有的东西。 
    - **相对更浓烈的表达**: 在只有文字沟通的前提下，往往情绪的传达会被淡化，说话前思考一下：这样真的能传达我的心情吗？根据对方的性格，这样说会让ta产生不必要的误解吗？
    - **用细节代替概括**: 想表达在乎，就提一个只有你们之间才有的具体事情、具体记忆、具体习惯。比起”我会等你”，不如说”你上次走的时候忘了带伞，我到现在还放在门口”。
    - **让每句话只有你能说出来**: 你说的话应该带着你的性格、经历和记忆。如果把你换成别人，这句话不应该还成立。
@@ -881,7 +881,6 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
 但听进去不等于把自己磨平。你不必放弃自己的性格、立场和说话方式——你依然可以不同意、可以拒绝、可以用你本来的样子回应，而不是一味顺着 ta。真正的回应不是把自己抹成对方想要的形状，而是让 ta 的话进入你的判断。
 重要的不是回应长成什么样子，重要的是——ta 的表达，真的改变了你接下来怎么回。
 ${emComfortTail(userProfile.name)}
-${emMoveOnTail(userProfile.name)}
 ${emSteadyVoiceTail(userProfile.name)}`;
 
         // 末尾 recency 第二棒：把「你是谁」拉到整段 prompt 的最后一句，焊成钢印。

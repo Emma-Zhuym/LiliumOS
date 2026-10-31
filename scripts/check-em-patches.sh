@@ -280,7 +280,6 @@ check "回避腔：开口前" utils/chatPrompts.ts "\${emSteadyVoiceTail(userPro
 check "不替她下定论 / 不全能" utils/chatPrompts.ts "\${emHerOwnSection(userProfile.name)}"
 check "预设里的通病" utils/chatPrompts.ts "\${emCommonFlawsSection()}"
 check "不解释她的话：行为规范" utils/chatPrompts.ts "\${emMoveOnSection(userProfile.name)}"
-check "不解释她的话：开口前" utils/chatPrompts.ts "\${emMoveOnTail(userProfile.name)}"
 check "哄人：开口前最后一句" utils/chatPrompts.ts "\${emComfortTail(userProfile.name)}"
 check "社会责任：聊天行为规范" utils/chatPrompts.ts "\${emDutySection(userProfile.name)}"
 check "聊天开头：只禁动作，不禁在一起" utils/chatPrompts.ts "\${emChatModeLine(userProfile.name)}"

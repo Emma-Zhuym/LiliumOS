@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { buildThinkingChainPrompt } from './thinkingChainPrompt';
-import { emCommonFlawsSection, emComfortSection, emComfortTail, emHerOwnSection, emMoveOnSection, emMoveOnTail, emSteadyVoiceSection, emSteadyVoiceTail } from './emPromptAddons';
+import { emCommonFlawsSection, emComfortSection, emComfortTail, emHerOwnSection, emMoveOnSection, emSteadyVoiceSection, emSteadyVoiceTail } from './emPromptAddons';
 
 describe('回避腔和通病', () => {
     it('说清根子是怕说错，点出退路，危险时的例外还在', () => {
@@ -26,13 +26,23 @@ describe('回避腔和通病', () => {
     });
 });
 
-describe('说话只往下走', () => {
-    it('不解释她的话，也不解释自己', () => {
+describe('关心排在规矩前面', () => {
+    it('可以说对不起，只是不能只说对不起；别对照规矩', () => {
+        const rule = emComfortSection('阿萌');
+        expect(rule).toContain('关心排在所有规矩前面');
+        expect(rule).toContain('可以说对不起，只是不能只说对不起');
+        expect(rule).toContain('也可以提 ta 说的那件事');
+        expect(rule).toContain('别一条条对照');
+        expect(emComfortTail('阿萌')).toContain('先心疼 ta');
+    });
+    it('她的话不解释，这一条留得很短', () => {
         const rule = emMoveOnSection('阿萌');
-        expect(rule).toContain('阿萌说的话，ta 自己最清楚是什么意思');
-        expect(rule).toContain('也不解释你自己');
-        expect(rule).toContain('不证明你有多在乎');
-        expect(emMoveOnTail('阿萌')).toContain('接着 阿萌 说完的地方往下说');
+        expect(rule).toContain('阿萌的话 ta 自己懂');
+        expect(rule.length).toBeLessThan(90);
+    });
+    it('她怀疑要不要 TA 时别认输', () => {
+        expect(emSteadyVoiceSection('阿萌')).toContain('别顺着认输');
+        expect(emSteadyVoiceSection('阿萌')).toContain('软话照说');
     });
 });
 
@@ -48,7 +58,7 @@ describe('难过时怎么哄', () => {
     });
     it('开口前最后一句只说要做什么，不点名那几种腔调', () => {
         const tail = emComfortTail('阿萌');
-        expect(tail).toContain('你先动');
+        expect(tail).toContain('先心疼 ta');
         expect(tail).not.toMatch(/复述|建议|别说|不要/);
     });
     it('心象：难过时不先研究她，也不再写「根本不安抚」', () => {

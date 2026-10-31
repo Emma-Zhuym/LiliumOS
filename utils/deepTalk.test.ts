@@ -180,7 +180,9 @@ describe('truth-telling nights', () => {
 
     it('makes every turn move forward instead of restating and blaming itself', () => {
         const block = buildOpenTurnBlock(names);
-        expect(block).toContain('每一段都要往前走一步');
+        expect(block).toContain('关心在最前面');
+        expect(block).toContain('可以说对不起，只是不能只说对不起');
+        expect(block).toContain('别顺着认输');
         expect(block).toContain('别把决定交回给 ta');
         expect(block).toContain('ta 的话 ta 自己懂');
         expect(block).toContain('别凑字');

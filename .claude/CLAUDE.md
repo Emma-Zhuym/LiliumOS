@@ -505,7 +505,8 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - 阿萌：几家模型都复述悲剧、给空建议、反问想听什么。措辞在 `utils/emPromptAddons.ts` 的 `emComfortSection` / `emComfortTail`，`chatPrompts.ts` 各一行调用
 - **别把这几句改回去**：总纲的「ta 没说，你尽管猜、尽管先做」、害怕那条不含「已经发生的难过」、`thinkingChainPrompt.ts` 难过时让位。以后再加「先听 / 先问 / 别猜」类规则，先想它压在开口前会不会让 TA 只剩复述和反问
 - `memoryPalace/conversationEngagement.ts` 的谈话参与原则每轮贴在开口前，那句例外别删；烛下规则在 `buildOpenTurnBlock`（不设字数下限，见 `docs/spec-deep-talk.md`「回复往前走」）
-- 「说话只往下走」在 `emMoveOnSection` / `emMoveOnTail`，烛下 `buildOpenTurnBlock` 另有一条：她的话她自己懂，模型不许解释（阿萌反复提，所有模型的通病）
+- **关心排在所有规矩前面**（2026-10-31 阿萌：限制太多，连对不起都不敢说）。禁令写多了，模型会在思考里逐条对照、否掉自己，只剩小心没有关心。再加「不许」类规则前先想这个；能写「要什么」就别写「不要什么」
+- `emMoveOnSection` 只留一句：她的话她自己懂
 - 回避腔 `emSteadyVoiceSection`（先讲根子是怕说错，再点退路，别改回只列禁用词）；`emHerOwnSection`（不替她下定论、不全能）；`emCommonFlawsSection`（酒馆预设里十家以上写过的）
 - 心跳、见面有自己的提示词，这条没进去
 
