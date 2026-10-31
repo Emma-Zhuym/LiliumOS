@@ -500,6 +500,11 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - 不进记忆宫殿（`pipeline.ts` 三处）、手动记忆总结（`Character.tsx` 两处）、心跳快照近况；钉住的（localStorage `em_ooc_pins_v1:<charId>`，最多 8 条）每轮进 volatileState，也随快照 `oocPins` 进心跳提示词
 - 以后加新的「带走」路径（导出、摘要、快照…）先想 OOC 要不要剔掉
 
+### 44. 难过时怎么哄（2026-10-30）
+- 阿萌：几家模型都复述悲剧、给空建议、反问想听什么。措辞在 `utils/emPromptAddons.ts` 的 `emComfortSection` / `emComfortTail`，`chatPrompts.ts` 各一行调用
+- **别把这几句改回去**：总纲的「ta 没说，你尽管猜、尽管先做」、害怕那条不含「已经发生的难过」、`thinkingChainPrompt.ts` 难过时让位。以后再加「先听 / 先问 / 别猜」类规则，先想它压在开口前会不会让 TA 只剩复述和反问
+- 心跳、见面有自己的提示词，这条没进去
+
 ### 34. 小厨房（现实食品库存）
 - 详细设计与每次改动见 `docs/kitchen-3d.md`；UI 规则见 `APP_CONVENTIONS.md` 的 P14 与 `utils/kitchenPaperTokens.ts`
 - `utils/kitchenDb.ts` 是唯一能改库存的地方（独立库 `LiliumOS_Kitchen`）：每次改数量记一笔事件、带 operationId 去重；**一起发生的一批（拍一张小票、做一道菜）一个事务写完、同一个 `batchId`，「撤销最近操作」整批撤回**，做菜撤销连「做过几次」一起退
