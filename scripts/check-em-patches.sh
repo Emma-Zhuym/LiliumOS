@@ -84,6 +84,7 @@ check "朋友圈顶栏自理安全区" utils/safeAreaApps.ts "AppID.Moments, // 
 check "查手机条目带日期" apps/CheckPhone.tsx "const fmtWhen = (t: number) => formatMomentTime(t)"
 check "查手机刷新朋友圈带亲友评论" apps/CheckPhone.tsx "buildMomentExtrasPrompt(targetChar)"
 check "朋友圈备份" context/OSContext.tsx "emMoments: await MomentsDB.exportAll"
+check "启动读库失败先重连重读" context/OSContext.tsx "createReconnectingReader(resetDBConnection)"
 check "查手机记录的 moment 字段" types.ts "[EM-START: moments]"
 
 echo "── PhoneShell / ChatHeaderShell ──"

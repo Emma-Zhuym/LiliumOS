@@ -506,6 +506,22 @@ const normalizeWorldRelationships = (world: WorldProfile): WorldProfile => {
     return { ...world, relationships: out };
 };
 
+// [EM-START: db-reconnect]
+/**
+ * 丢掉缓存的连接，下次 openDB 重开一条。
+ *
+ * iOS Safari 切后台 / 冷启动时，WebKit 的 IndexedDB 服务端会把连接上的事务弄丢，但不一定派发
+ * onclose：客户端还拿着这条连接，每个请求都异步报「Attempt to get records from database without
+ * an in-progress transaction」，自愈分支永远等不到。读失败时调用这里，换一条新连接重试。
+ */
+export const resetDBConnection = async (): Promise<void> => {
+  const stale = dbPromise;
+  dbPromise = null;
+  if (!stale) return;
+  try { (await stale).close(); } catch { /* 已经坏了 / 打开失败都无所谓 */ }
+};
+// [EM-END: db-reconnect]
+
 export const DB = {
   deleteDB: async (): Promise<void> => {
       // 删库前先关掉单例连接, 否则这条还开着的连接会 block 掉 deleteDatabase。
