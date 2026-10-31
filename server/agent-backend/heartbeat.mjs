@@ -243,6 +243,31 @@ export const contactRemarkLines = (p, userName, now) => {
 };
 
 /** 约会当天、今天还没跟她说过话（聊天里、心跳发的都算）：这一跳就是去开场。返回那份安排或 null。 */
+/**
+ * [char-promises] TA 答应她的事（手机快照带到期和两天内的）。日期是阿萌那边的。
+ * overdue：过了日期还没结的天数。
+ */
+export const promisesFrom = (snapshot, now, userTimezone) => {
+    const today = dateKey(now, userTimezone);
+    const list = Array.isArray(snapshot?.payload?.promises) ? snapshot.payload.promises : [];
+    return list
+        .filter(p => p && /^\d{4}-\d{2}-\d{2}$/.test(String(p.date)) && typeof p.what === 'string')
+        .map(p => ({
+            date: p.date, time: p.time, what: p.what, today: p.date === today,
+            overdue: Math.max(0, Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${p.date}T00:00:00Z`)) / 86_400_000)),
+        }));
+};
+
+/** 今天到期（或过期三天内）还没跟她说过话：这一跳就去找她。跟约会当天同一个判断。 */
+export const promiseToGreet = ({ promises, lastContact = null, ownMessages = [], now, userTimezone }) => {
+    const item = promises.find(p => p.today) ?? promises.find(p => p.overdue > 0 && p.overdue <= 3);
+    if (!item) return null;
+    const today = dateKey(now, userTimezone);
+    if (lastContact && dateKey(lastContact, userTimezone) === today) return null;
+    if (ownMessages.some(m => dateKey(new Date(m.at), userTimezone) === today)) return null;
+    return item;
+};
+
 export const dateDayToGreet = ({ datePlans, lastContact = null, ownMessages = [], now, userTimezone }) => {
     const plan = datePlans.find(p => p.today);
     if (!plan) return null;
@@ -1330,6 +1355,17 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
                 : '\n还没到，别剧透细节；可以惦记着、为它做点准备。'),
         );
     }
+    // [char-promises] 你答应 ta 的事
+    const promises = promisesFrom(snapshot, now, userTimezone || p.timezone);
+    if (promises.length) {
+        lines.push(
+            `你亲口答应 ${userName || 'ta'} 的事（ta 看得到）：\n`
+            + promises.map(d => `- ${d.overdue > 0 ? `过期 ${d.overdue} 天` : d.today ? '今天' : d.date}${d.time ? ` ${d.time}` : ''}：${d.what}`).join('\n')
+            + (promises.some(d => d.today || d.overdue > 0)
+                ? '\n到期的这一跳就去办，生活里给它留出时间；办不了就直接告诉 ta，别等 ta 来问。'
+                : ''),
+        );
+    }
     if (duePlan) {
         lines.push(
             `现在就是你约好的时间：「${duePlan.title}」${duePlan.summary ? `（${duePlan.summary}）` : ''}。`
@@ -1909,7 +1945,10 @@ export const createHeartbeatHandler = ({
     const dateDay = !hush && !unread.length
         ? dateDayToGreet({ datePlans: datePlansFrom(snapshot, startedAt, userTimezone || timezone), lastContact, ownMessages, now: startedAt, userTimezone: userTimezone || timezone })
         : null;
-    const intent = dateDay ? 'reach_out' : decided.intent;
+    const promiseDay = !hush && !unread.length && !dateDay
+        ? promiseToGreet({ promises: promisesFrom(snapshot, startedAt, userTimezone || timezone), lastContact, ownMessages, now: startedAt, userTimezone: userTimezone || timezone })
+        : null;
+    const intent = dateDay || promiseDay ? 'reach_out' : decided.intent;
     // 只回看最近 12 小时：更早的那些，今天的聊天多半已经盖过去了。
     const thoughts = recentThoughts(db, character.charId, {
         since: new Date(startedAt.getTime() - 12 * 60 * 60_000),
@@ -1946,6 +1985,7 @@ export const createHeartbeatHandler = ({
         ? listUnsaid(db, character.charId, startedAt, { userName: snapshot.payload?.user?.name ?? '' })
         : [];
     const reachReason = dateDay ? { kind: 'date_day', item: dateDay }
+        : promiseDay ? { kind: 'promise_day', item: promiseDay }
         : intent === 'reach_out' && !(carried && unanswered.length < 2)
         ? pickReachReason({
             pocket,

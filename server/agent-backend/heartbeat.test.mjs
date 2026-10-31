@@ -21,7 +21,7 @@ import {
     ACTIVE_CHAT_WINDOW_MS, DEEP_TALK_STALE_MS, buildPrompt, checkGates, speakBlock, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
     BREAK_COOLDOWN_MIN, currentSlot, decideIntent, formatGap, inBreakWindow, upcomingBreakStarts, jitterRatio, lastRealInteractionAt, listModelRuns, messageChance,
     nextRunAt, recordModelRun, shouldCaptureRaw, decideEpisode, episodeChance, isWorkSlot, lifeChance, pickLifeKind, veilSurprise,
-    datePlansFrom, dateDayToGreet, contactRemarkLines, MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, heartbeatSchemaFor, stripUnbackedClaims, withPlanTime, withOuting, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule, unansweredProactive, lastUserSpokeAt, unansweredFactor, reachOutTimeRule, timeProgressRule, shouldSuppressStaleBedtimeMessage, recentOwnMessages, fillMomentComments, DUTY_RULE, PHOTO_HOW, previewWithoutPhotoTags,
+    datePlansFrom, dateDayToGreet, promisesFrom, promiseToGreet, contactRemarkLines, MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, heartbeatSchemaFor, stripUnbackedClaims, withPlanTime, withOuting, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule, unansweredProactive, lastUserSpokeAt, unansweredFactor, reachOutTimeRule, timeProgressRule, shouldSuppressStaleBedtimeMessage, recentOwnMessages, fillMomentComments, DUTY_RULE, PHOTO_HOW, previewWithoutPhotoTags,
 } from './heartbeat.mjs';
 import { chatCompletionsUrl, createApiRunner, extractContentText, parseEpisode, parseHeartbeatOutput, parseLife } from './runner.mjs';
 import { applyThread, cancelPlan, closePassedPlans, closeStaleThreads, isPlanDue, isPlanThread, listOpenThreads, listPlans } from './lifeThreads.mjs';
@@ -2586,4 +2586,15 @@ test('通讯录备注：没写不提；改动超过一天就不挂了；第一�
     assert.equal(contactRemarkLines({ contactRemark: '小狗', contactRemarkChange: { from: 'a', to: '小狗', at: hoursAgo(25) } }, '阿萌', now).length, 1);
     assert.ok(contactRemarkLines({ contactRemarkChange: { from: '', to: '小狗', at: hoursAgo(1) } }, '阿萌', now)[0].includes('原来没写备注'));
     assert.ok(contactRemarkLines({ contactRemarkChange: { from: '小狗', to: '', at: hoursAgo(1) } }, '阿萌', now)[0].includes('删掉了'));
+});
+
+test('答应她的事：到期那天还没说过话就去找她，过期太久不再追', () => {
+    const now = new Date('2026-09-23T15:00:00Z');
+    const tz = 'America/Chicago';
+    const list = (date) => promisesFrom({ payload: { promises: [{ date, what: '陪你' }] } }, now, tz);
+    assert.equal(promiseToGreet({ promises: list('2026-09-23'), now, userTimezone: tz })?.what, '陪你');
+    assert.equal(promiseToGreet({ promises: list('2026-09-21'), now, userTimezone: tz })?.overdue, 2);
+    assert.equal(promiseToGreet({ promises: list('2026-09-10'), now, userTimezone: tz }), null, '过期太久');
+    assert.equal(promiseToGreet({ promises: list('2026-09-25'), now, userTimezone: tz }), null, '还没到');
+    assert.equal(promiseToGreet({ promises: list('2026-09-23'), now, userTimezone: tz, lastContact: new Date('2026-09-23T14:00:00Z') }), null, '今天聊过了');
 });

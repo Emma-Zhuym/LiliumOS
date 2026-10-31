@@ -16,6 +16,7 @@ import { flushSnapshotUpload } from '../utils/emAgentBackend';
 import { resolveCharacterApiConfig } from '../utils/characterApi';
 import { deepTalkRetryPlan, isDeepTalkIdle } from '../utils/deepTalk';
 import { notifyDeepTalkChanged } from '../utils/deepTalkDb';
+import { retractPromisesSince } from '../utils/emPromises'; // [EM: char-promises]
 import { endDeepTalk, loadNightSegments, saveDeepTalkSegment, startDeepTalkInvite } from '../utils/deepTalkActions';
 import { proposedAtFromClock } from '../utils/deepTalk'; // [EM: deep-talk-schedule]
 import DeepTalkPaper from '../components/deepTalk/DeepTalkPaper';
@@ -1053,9 +1054,12 @@ const Chat: React.FC = () => {
     const handleDeepTalkRetry = useCallback(async () => {
         if (!char || !deepTalkNight || deepTalkNight.status !== 'open' || isTyping) return;
         autoReply.cancel();
-        const plan = deepTalkRetryPlan(await loadNightSegments(char.id, deepTalkNight.id));
+        const segments = await loadNightSegments(char.id, deepTalkNight.id);
+        const plan = deepTalkRetryPlan(segments);
         if (!plan) return;
         if (plan.rewriteIds.length) {
+            const kept = segments.filter(m => !plan.rewriteIds.includes(m.id));
+            retractPromisesSince(char.id, kept[kept.length - 1]?.timestamp ?? deepTalkNight.startedAt ?? 0); // [EM: char-promises]
             await DB.deleteMessages(plan.rewriteIds);
             notifyDeepTalkChanged(char.id);
         }
@@ -1929,6 +1933,7 @@ const Chat: React.FC = () => {
 
         if (toDeleteIds.length === 0) return;
 
+        if (char) retractPromisesSince(char.id, messages[index]?.timestamp ?? 0); // [EM: char-promises] 被换掉的回复里答应的不算数
         await DB.deleteMessages(toDeleteIds);
         discardVoiceForMessages(toDeleteIds);
         // 重 roll 也删了消息：正常路径下这轮生成结束会再打脏一次，这里先打是兜住

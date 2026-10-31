@@ -61,7 +61,8 @@ import { announceInstantChatRoute, getInstantChatPending, resolveInstantChatRead
 import { beginLocalReply, isReplyStopError, replyStoppedError, stopReply } from '../utils/emReplyStop'; // [EM: reply-stop]
 import { isAgentChatReady, sendAgentChatTurn, tokenUsageFromCloudMetadata } from '../utils/emAgentChat'; // [EM: agent-instant-chat]
 import { cleanOocReply, isOocMessage, isOocPromptContent } from '../utils/emOoc'; // [EM: ooc]
-import { cleanDeepTalkReply, extractDeepTalkThinking, parseDeepTalkAnswer, type DeepTalkNight } from '../utils/deepTalk'; // [EM: deep-talk]
+import { cleanDeepTalkReply, extractDeepTalkThinking, parseDeepTalkAnswer, stripDeepTalkThinking, type DeepTalkNight } from '../utils/deepTalk'; // [EM: deep-talk]
+import { executePromiseDirectives } from '../utils/emPromises'; // [EM: char-promises]
 import { DeepTalkDB } from '../utils/deepTalkDb'; // [EM: deep-talk]
 import { applyDeepTalkAnswer, saveDeepTalkSegment } from '../utils/deepTalkActions'; // [EM: deep-talk]
 // worker 模块的常量叶子（零运行时依赖，前端引它不带进 worker 环境）：
@@ -2122,7 +2123,9 @@ export const useChatAI = ({
             } else
             // [EM-END: ooc]
             if (deepTalkTurn?.mode === 'open') {
-                const segment = cleanDeepTalkReply(rawAiContent, char.name);
+                // [EM: char-promises] 烛下不走聊天后处理，答应的事在这里记；停掉的那一轮不记
+                const spoken = replyRun.signal.aborted ? '' : executePromiseDirectives(stripDeepTalkThinking(rawAiContent), char.id, char.name, addToast, { deepTalk: true });
+                const segment = cleanDeepTalkReply(spoken, char.name);
                 const thinking = extractDeepTalkThinking(rawAiContent, data.choices?.[0]?.message?.reasoning_content);
                 if (segment && !replyRun.signal.aborted) await saveDeepTalkSegment(char.id, deepTalkTurn.night.id, 'assistant', segment, thinking);
                 updateTokenUsage(data, historyMsgCount, 'deep-talk');

@@ -8,6 +8,7 @@ import { executeLifeDirectives } from './lifeRecords';
 import { executeEmScribeDirectives } from './emScribe'; // [EM: em-scribe]
 import { executePlanDirectives } from './emAgentPlans'; // [EM: agent-plans-chat]
 import { executeDatePlanDirectives } from './emDatePlans'; // [EM: date-plans]
+import { executePromiseDirectives } from './emPromises'; // [EM: char-promises]
 import { wallClockToTimestamp } from './timezone';
 
 export interface MusicActionSnapshot {
@@ -545,6 +546,11 @@ export const ChatParser = {
             content = executeDatePlanDirectives(content, charId, charName, addToast);
         }
         // [EM-END: date-plans]
+        // [EM-START: char-promises] TA 答应她的事：[[PROMISE]] / [[PROMISE_DONE]] / [[PROMISE_DROP]]
+        if (content.includes('[[PROMISE') || content.includes('[[ PROMISE')) {
+            content = executePromiseDirectives(content, charId, charName, addToast);
+        }
+        // [EM-END: char-promises]
 
         // RECALL tag removal (handling done in main loop logic, but cleaning here just in case)
         content = content.replace(/\[\[RECALL:.*?\]\]/g, '').trim();

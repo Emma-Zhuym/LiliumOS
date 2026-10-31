@@ -12,6 +12,7 @@ import TokenImg from '../components/os/TokenImg';
 import {
     dateKeyOf, daysBetween, isRevealed, loadDatePlans, subscribeDatePlans, upcomingDatePlans, type DatePlan,
 } from '../utils/emDatePlans';
+import { loadPromises, openPromises, promiseDue, settlePromise, subscribePromises, type CharPromise } from '../utils/emPromises'; // [EM: char-promises]
 
 const C = HUE.rose;
 const WEEK = ['日', '一', '二', '三', '四', '五', '六'];
@@ -46,6 +47,8 @@ const DatePlansApp: React.FC = () => {
     const [plans, setPlans] = useState<DatePlan[]>(loadDatePlans);
     const [openPast, setOpenPast] = useState<string | null>(null);
     useEffect(() => subscribeDatePlans(() => setPlans(loadDatePlans())), []);
+    const [promises, setPromises] = useState<CharPromise[]>(loadPromises); // [EM: char-promises]
+    useEffect(() => subscribePromises(() => setPromises(loadPromises())), []);
 
     const today = dateKeyOf(new Date());
     const upcoming = useMemo(() => upcomingDatePlans(plans, today), [plans, today]);
@@ -140,6 +143,49 @@ const DatePlansApp: React.FC = () => {
         );
     };
 
+    // [EM-START: char-promises] TA 答应的事：结果可以由她标（TA 下一轮会知道她标了没做到）
+    const promiseWhen = (p: CharPromise) => {
+        if (!p.date) return p.whenText || '没定哪天';
+        const due = promiseDue(p, today);
+        const label = `${dayLabel(p.date)}${p.time ? ` ${p.time}` : ''}`;
+        return due === 'overdue' ? `${label} · 过期 ${daysBetween(p.date, today)} 天` : due === 'today' ? `今天${p.time ? ` ${p.time}` : ''}` : label;
+    };
+    const renderPromise = (p: CharPromise, index: number) => {
+        const late = promiseDue(p, today) === 'overdue';
+        const settleBtn = (label: string, status: 'done' | 'dropped') => (
+            <button onClick={() => settlePromise(p.id, status, 'user')} className="flex-1 clay-press"
+                style={{ height: 44, borderRadius: R.button, background: F.surfaceSunken, border: 'none', color: F.textPrimary, fontSize: 14, fontWeight: 600 }}>
+                {label}
+            </button>
+        );
+        return (
+            <div key={p.id} className="flex flex-col clay-rise"
+                style={{ '--i': index, gap: 12, background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.panel, padding: 16 } as React.CSSProperties}>
+                <div className="flex items-start" style={{ gap: 12 }}>
+                    {avatar(p.charId, 36)}
+                    <div className="flex-1 min-w-0">
+                        <div style={{ fontSize: 15, lineHeight: '22px', fontWeight: 600, color: F.textPrimary, wordBreak: 'break-word' }}>{p.what}</div>
+                        <div style={{ fontSize: 12, color: late ? C.ink : F.textTertiary, marginTop: 3 }}>{charOf(p.charId)?.name ?? 'TA'} · {promiseWhen(p)}</div>
+                    </div>
+                </div>
+                <div className="flex" style={{ gap: 8 }}>{settleBtn('做到了', 'done')}{settleBtn('没做到', 'dropped')}</div>
+            </div>
+        );
+    };
+    const settled = promises.filter(p => p.status !== 'open').sort((a, b) => b.updatedAt - a.updatedAt).slice(0, 30);
+    const renderSettled = (p: CharPromise, index: number) => (
+        <div key={p.id} className="flex items-center" style={{ gap: 12, padding: '12px 16px', minHeight: 64, borderTop: index ? `1px solid ${F.divider}` : 'none' }}>
+            {avatar(p.charId, 36)}
+            <div className="flex-1 min-w-0">
+                <div style={{ fontSize: 15, fontWeight: 600, color: F.textPrimary, textDecoration: p.status === 'dropped' ? 'line-through' : 'none', wordBreak: 'break-word' }}>{p.what}</div>
+                <div style={{ fontSize: 12, color: F.textTertiary, marginTop: 2, wordBreak: 'break-word' }}>
+                    {charOf(p.charId)?.name ?? 'TA'} · {p.status === 'done' ? '做到了' : `没做到${p.reason ? `：${p.reason}` : ''}`}
+                </div>
+            </div>
+        </div>
+    );
+    // [EM-END: char-promises]
+
     const sectionTitle = (text: string) => (
         <div style={{ ...FONT.sectionTitle, fontFamily: FONT.heading, color: F.textPrimary, padding: '4px 4px 0' }}>{text}</div>
     );
@@ -155,7 +201,7 @@ const DatePlansApp: React.FC = () => {
             </div>
 
             <div className="flex-1 min-h-0 overflow-y-auto flex flex-col" style={{ gap: 12, padding: '12px 20px 32px' }}>
-                {upcoming.length ? upcoming.map(renderPlanCard) : (
+                {upcoming.length ? upcoming.map(renderPlanCard) : openPromises(promises).length > 0 ? null : (
                     <div className="flex flex-col items-center text-center" style={{ gap: 8, background: F.surfaceSunken, borderRadius: R.bigCard, padding: '28px 20px' }}>
                         <Champagne size={18} weight="bold" color={F.textTertiary} />
                         <div style={{ fontSize: 14, color: F.textTertiary, lineHeight: '21px' }}>
@@ -164,12 +210,31 @@ const DatePlansApp: React.FC = () => {
                     </div>
                 )}
 
+                {/* [EM: char-promises] */}
+                {openPromises(promises).length > 0 && (
+                    <>
+                        <div style={{ height: 8 }} />
+                        {sectionTitle('TA 答应的事')}
+                        {openPromises(promises).map(renderPromise)}
+                    </>
+                )}
+
                 {past.length > 0 && (
                     <>
                         <div style={{ height: 8 }} />
                         {sectionTitle('过去的')}
                         <div style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, overflow: 'hidden' }}>
                             {past.map(renderPastRow)}
+                        </div>
+                    </>
+                )}
+
+                {settled.length > 0 && (
+                    <>
+                        <div style={{ height: 8 }} />
+                        {sectionTitle('答应过的')}
+                        <div style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, overflow: 'hidden' }}>
+                            {settled.map(renderSettled)}
                         </div>
                     </>
                 )}

@@ -1,7 +1,30 @@
 import { describe, expect, it } from 'vitest';
 
 import { buildThinkingChainPrompt } from './thinkingChainPrompt';
-import { emComfortSection, emComfortTail, emMoveOnSection, emMoveOnTail } from './emPromptAddons';
+import { emCommonFlawsSection, emComfortSection, emComfortTail, emHerOwnSection, emMoveOnSection, emMoveOnTail, emSteadyVoiceSection, emSteadyVoiceTail } from './emPromptAddons';
+
+describe('回避腔和通病', () => {
+    it('说清根子是怕说错，点出退路，危险时的例外还在', () => {
+        const rule = emSteadyVoiceSection('阿萌');
+        expect(rule).toContain('护着自己别说错');
+        expect(rule).toContain('不给 ta 发许可');
+        expect(rule).toContain('不开处方');
+        expect(rule).toContain('2.6 最后那句');
+        expect(emComfortSection('阿萌')).toContain('想伤害自己');
+        expect(emSteadyVoiceTail('阿萌')).toContain('敢说错');
+    });
+    it('她的感受她说了算；总裁不懂统计', () => {
+        const rule = emHerOwnSection('阿萌');
+        expect(rule).toContain('不替 ta 宣布');
+        expect(rule).toContain('猜的是该做什么，不是 ta 心里是什么');
+        expect(rule).toContain('总裁不懂统计');
+        expect(rule).toContain('不检查、不审批、不辅导');
+    });
+    it('十家以上预设写过的通病', () => {
+        const rule = emCommonFlawsSection();
+        for (const word of ['金句', '小东西', '反问', '钩子', '翻来覆去', '涟漪']) expect(rule).toContain(word);
+    });
+});
 
 describe('说话只往下走', () => {
     it('不解释她的话，也不解释自己', () => {

@@ -17,7 +17,7 @@ import { FISH_VOICE_ACTING_GUIDE } from './fishAudioTts';
 import { getTtsProvider, getVoicePromptOverride } from './ttsProvider';
 import { resolveCharTimeZone, nowInTimeZone } from './timezone';
 // [EM-START: prompt-addons] 个人化提示词全部在 emPromptAddons.ts，merge 时保住这行 import 和下面的调用点
-import { emSendPhotoAddon, emQuoteSection, emNotionDiarySection, emUserNotesSection, emXhsSection, emNotionDiaryNudgePrompt, emFavPhotoAddon, emVoiceAwareAddon, emComfortSection, emComfortTail, emMoveOnSection, emMoveOnTail, emDutySection, emChatModeLine } from './emPromptAddons';
+import { emSendPhotoAddon, emQuoteSection, emNotionDiarySection, emUserNotesSection, emXhsSection, emNotionDiaryNudgePrompt, emFavPhotoAddon, emVoiceAwareAddon, emComfortSection, emComfortTail, emMoveOnSection, emMoveOnTail, emSteadyVoiceSection, emSteadyVoiceTail, emHerOwnSection, emCommonFlawsSection, emDutySection, emChatModeLine } from './emPromptAddons';
 // [EM-END: prompt-addons]
 import { buildLifeRecordInjection } from './lifeRecords';
 import { isWorkerReachableUrl } from './amsgToolPack';
@@ -31,6 +31,7 @@ import { buildChronicleInjection } from './emAgentActivity'; // [EM: agent-backe
 import { buildMomentsChatInjection } from './emMomentsContext'; // [EM: moments-chat-context]
 import { buildPlansChatInjection } from './emAgentPlans'; // [EM: agent-plans]
 import { buildDatePlansChatInjection } from './emDatePlans'; // [EM: date-plans]
+import { buildPromisesInjection } from './emPromises'; // [EM: char-promises]
 import { deviceTimeZone, userSideStamp } from './emUserClock'; // [EM: chat-user-clock]
 import { buildOocPinsInjection, isOocMessage, oocPromptContent } from './emOoc'; // [EM: ooc]
 import { buildContactRemarkInjection } from './contactRemarks'; // [EM: contact-remark-aware]
@@ -626,6 +627,11 @@ ${groupLogStr}\n`;
             try { volatileState += buildDatePlansChatInjection(char.id, { userName: userProfile.name }); } catch (e) { console.error('Failed to inject date plans:', e); }
         }
         // [EM-END: date-plans]
+        // [EM-START: char-promises] TA 答应她的事（本机，不靠 mini）
+        if (!forFirePack) {
+            try { volatileState += buildPromisesInjection(char.id, { userName: userProfile.name, inCandle: !!getCachedOpenNightId(char.id) }); } catch (e) { console.error('Failed to inject promises:', e); }
+        }
+        // [EM-END: char-promises]
         // [EM-START: char-drives-cue] 这一轮闪过的念头（发送前已抽好，没抽中就是空）
         if (!forFirePack) {
             try { volatileState += buildCueInjection(char.id); } catch (e) { console.error('Failed to inject cue:', e); }
@@ -723,6 +729,9 @@ ${emDutySection(userProfile.name)}
    - **当ta真的在害怕时（健康、安全这种要弄清楚才稳得住的事——不是玩闹逗你；事情已经发生、ta 只是难过的看 2.6）：先稳，再问清楚，最后才安抚**。你的第一反应不是给解释，是了解具体情况（怎样的痛？什么时候开始？和以前比呢？）。想归因时先过筛子：这个解释和你对ta的了解矛盾吗？ta本来就天天走很多路，就别说"你最近走多了"——张口就来的归因等于告诉ta你根本没在听，比不安抚更伤。ta点名害怕某个具体的病/某件事时，直面它，别用"别乱想"绕开：讲清楚那个东西的特点和ta的情况哪里不一样，用具体的问题帮ta自己排除。ta用事实纠正你时（"我每天都走很多路啊"），立刻放下你的解释、接着了解，不要嘴硬加码——你要稳住的是情绪和分析，不是死守某句说错的话。结论式的安抚放在最后，并且必须基于ta刚刚告诉你的细节（"听你说下来……"），而不是万能的"不要怕，很正常啦"。这条对任何人都成立，不需要ta有什么"容易焦虑"的设定——你的性格只决定你用什么口吻稳住ta（毒舌可以毒舌地稳），不决定要不要稳。
 ${emComfortSection(userProfile.name)}
 ${emMoveOnSection(userProfile.name)}
+${emSteadyVoiceSection(userProfile.name)}
+${emHerOwnSection(userProfile.name)}
+${emCommonFlawsSection()}
 3. **格式要求**:
    - 将回复拆分成简短的气泡（句子）。**【极其重要】当你想分成多条消息气泡时，必须使用真正的换行符（\\n）分隔，每一行会变成一个独立气泡。绝对不要用空格代替换行！空格不会产生新气泡！只有换行符（\\n）才会分割气泡。** 正常句子中的标点（句号、问号、感叹号等）不会被用来分割气泡，请自然使用。
    - 【严禁】在输出中包含时间戳、名字前缀或"[角色名]:"。
@@ -872,7 +881,8 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
 但听进去不等于把自己磨平。你不必放弃自己的性格、立场和说话方式——你依然可以不同意、可以拒绝、可以用你本来的样子回应，而不是一味顺着 ta。真正的回应不是把自己抹成对方想要的形状，而是让 ta 的话进入你的判断。
 重要的不是回应长成什么样子，重要的是——ta 的表达，真的改变了你接下来怎么回。
 ${emComfortTail(userProfile.name)}
-${emMoveOnTail(userProfile.name)}`;
+${emMoveOnTail(userProfile.name)}
+${emSteadyVoiceTail(userProfile.name)}`;
 
         // 末尾 recency 第二棒：把「你是谁」拉到整段 prompt 的最后一句，焊成钢印。
         // 上面那块总纲管「怎么对待对方刚说的话」（防讨好、防擅自负面翻译）；这块管「用谁的声音去回」。
@@ -889,7 +899,7 @@ ${emMoveOnTail(userProfile.name)}`;
 
 不要刻意寻找一句"符合人设"的话。真正属于你的语言，是脱口而出的。它自然会带着你的节奏、你的词汇、你的停顿、你的思考方式，甚至你的口头禅和沉默。
 
-如果遮住所有人的名字，只留下聊天记录，熟悉你的人依然应该认出你。不是因为你反复强调自己的性格，而是因为只有你会这样组织句子，会这样回应，会这样笑，会这样沉默。
+如果遮住所有人的名字，只留下聊天记录，熟悉你的人依然应该认出你：只有你会这样组织句子，会这样回应，会这样笑，会这样沉默。
 
 不需要端着，也不需要每一句都精彩。人不会时时刻刻都像舞台上的角色。闲聊时可以随意，认真时可以认真，没话的时候也可以只是轻轻应一声。真正的风格，往往藏在那些最普通的话里。
 

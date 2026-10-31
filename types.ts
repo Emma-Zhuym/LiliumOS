@@ -4463,6 +4463,7 @@ export interface FullBackupData {
     emContactRemarks?: Record<string, string>;  // 通讯录备注，角色 id → 备注（em_contact_remark_*）
     emContactRemarkChanges?: Record<string, import('./utils/contactRemarks').ContactRemarkChange>; // [EM: contact-remark-aware] 最近一次改备注（em_remark_changes_v1）
     emDatePlans?: import('./utils/emDatePlans').DatePlan[]; // [EM: date-plans] TA 给阿萌安排的约会（em_date_plans_v1）
+    emPromises?: import('./utils/emPromises').CharPromise[]; // [EM: char-promises] TA 答应她的事（em_char_promises_v1）
     // [EM-END: em-backup-gaps]
 }
 

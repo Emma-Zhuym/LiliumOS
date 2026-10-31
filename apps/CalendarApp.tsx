@@ -19,6 +19,7 @@ import { useOS } from '../context/OSContext';
 import { F, FONT, HUE, OVERLAY, R, S, STATUS } from '../utils/clayTokens';
 import { AgentBackend, isAgentPaired, type AgentPlan, type TemporalItem } from '../utils/emAgentBackend';
 import { loadPlansCache, refreshPlansCache } from '../utils/emAgentPlans';
+import { loadPromises, openPromises, subscribePromises, type CharPromise } from '../utils/emPromises'; // [EM: char-promises]
 import TokenImg from '../components/os/TokenImg';
 import {
     cacheItem, dayKey, dueText, groupByDay, hasOpenSource, isOverdue, itemTimeText, loadTemporalCache, monthGrid,
@@ -43,6 +44,8 @@ const CalendarApp: React.FC = () => {
     const today = useMemo(() => new Date(), []);
     const [cache, setCache] = useState<TemporalCache | null>(loadTemporalCache);
     const [plans, setPlans] = useState<AgentPlan[]>(loadPlansCache);
+    const [promises, setPromises] = useState<CharPromise[]>(loadPromises); // [EM: char-promises]
+    useEffect(() => subscribePromises(() => setPromises(loadPromises())), []);
     const [loading, setLoading] = useState(false);
     const [syncing, setSyncing] = useState(false);
     const [cursor, setCursor] = useState(() => ({ year: today.getFullYear(), month: today.getMonth() }));
@@ -90,6 +93,16 @@ const CalendarApp: React.FC = () => {
         return map;
     }, [plans, characters]);
     const dayPlans = plansByDay.get(selected) ?? [];
+    // [EM: char-promises] TA 答应她的事，有日期的摆在那天
+    const promisesByDay = useMemo(() => {
+        const map = new Map<string, CharPromise[]>();
+        for (const p of openPromises(promises)) {
+            if (!p.date || !characters.some(c => c.id === p.charId)) continue;
+            map.set(p.date, [...(map.get(p.date) ?? []), p]);
+        }
+        return map;
+    }, [promises, characters]);
+    const dayPromises = promisesByDay.get(selected) ?? [];
     const todayKey = dayKey(today);
 
     const lists = useMemo(() => writableLists(cache?.visibility), [cache]);
@@ -155,7 +168,7 @@ const CalendarApp: React.FC = () => {
         const isToday = cell.key === todayKey;
         const hasEvent = bucket.some(item => item.kind === 'event');
         const hasReminder = bucket.some(item => item.kind === 'reminder');
-        const hasPlan = plansByDay.has(cell.key);
+        const hasPlan = plansByDay.has(cell.key) || promisesByDay.has(cell.key); // [EM: char-promises]
         return (
             <button key={cell.key} onClick={() => setSelected(cell.key)}
                 className={`flex flex-col items-center justify-center clay-press${isSelected ? ' clay-pop' : ''}`}
@@ -223,6 +236,29 @@ const CalendarApp: React.FC = () => {
                     <div className="flex items-center flex-wrap" style={{ gap: 8, marginTop: 3, fontSize: 12, color: F.textTertiary }}>
                         <span style={{ color: F.textSecondary, fontWeight: 600 }}>{time}</span>
                         <span className="truncate">{char?.name ?? 'TA'} 的约定</span>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    const renderPromise = (p: CharPromise, index: number) => {
+        const char = characters.find(c => c.id === p.charId);
+        return (
+            <div key={p.id} className="flex items-start gap-3 clay-rise"
+                style={{ '--i': dayItems.length + dayPlans.length + index, background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.bigCard, padding: '14px 16px' } as React.CSSProperties}>
+                {char?.avatar
+                    ? <TokenImg value={char.avatar} alt={char.name} style={{ width: 36, height: 36, borderRadius: R.small, objectFit: 'cover', flexShrink: 0 }} />
+                    : (
+                        <div className="flex items-center justify-center shrink-0" style={{ width: 36, height: 36, borderRadius: R.small, background: F.surfaceSunken }}>
+                            <Users size={18} weight="bold" color={F.textSecondary} />
+                        </div>
+                    )}
+                <div className="flex-1 min-w-0">
+                    <div style={{ fontSize: 15, fontWeight: 600, color: F.textPrimary, wordBreak: 'break-word' }}>{p.what}</div>
+                    <div className="flex items-center flex-wrap" style={{ gap: 8, marginTop: 3, fontSize: 12, color: F.textTertiary }}>
+                        {p.time && <span style={{ color: F.textSecondary, fontWeight: 600 }}>{p.time}</span>}
+                        <span>{char?.name ?? 'TA'} 答应你的</span>
                     </div>
                 </div>
             </div>
@@ -359,10 +395,11 @@ const CalendarApp: React.FC = () => {
                 {/* 选中那天 */}
                 <div className="flex items-center justify-between px-1">
                     <span style={{ ...FONT.sectionTitle, fontFamily: FONT.heading, color: F.textPrimary }}>{selectedLabel}</span>
-                    <span style={{ fontSize: 12, color: F.textTertiary }}>{dayItems.length + dayPlans.length > 0 ? `${dayItems.length + dayPlans.length} 项` : '没有安排'}</span>
+                    <span style={{ fontSize: 12, color: F.textTertiary }}>{dayItems.length + dayPlans.length + dayPromises.length > 0 ? `${dayItems.length + dayPlans.length + dayPromises.length} 项` : '没有安排'}</span>
                 </div>
                 {dayItems.map(renderItem)}
                 {dayPlans.map(renderPlan)}
+                {dayPromises.map(renderPromise)}
 
                 {/* 记着的事：提醒不挂在某一天上看才有用——逾期的、没写时间的都在这儿 */}
                 {reminders.length > 0 && (

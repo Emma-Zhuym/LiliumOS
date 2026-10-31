@@ -1,5 +1,5 @@
 // [EM-START: date-plans]
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi , afterEach} from 'vitest';
 
 import {
     buildDatePlanSceneNote, buildDatePlansChatInjection, cancelDatePlan, datePlansForSnapshot, executeDatePlanDirectives,
@@ -8,6 +8,10 @@ import {
 
 // 2026-10-29 周四 晚上九点（本机时区）
 const NOW = new Date(2026, 9, 29, 21, 0);
+
+// 用例里写死了 2026 年 10 月的日期，「今天」也要固定住，不然过了那几天就全红
+beforeEach(() => { vi.useFakeTimers({ now: new Date(2026, 9, 20, 10, 0), toFake: ['Date'] }); });
+afterEach(() => { vi.useRealTimers(); });
 
 describe('约会：日期和时间', () => {
     it('认常见说法，按阿萌这边的日历算', () => {

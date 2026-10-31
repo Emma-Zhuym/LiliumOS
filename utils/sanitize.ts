@@ -83,6 +83,7 @@ const stripBusinessTagsForNotification = (t: string): string =>
     .replace(/\[\[(?:READ_NOTE|XHS_[A-Z_]+|LIFE|NEWS_CARD)[:\s][\s\S]*?\]\]/g, '')
     .replace(/\[\[\s*PLAN_(?:ADD|CANCEL)\s*[:：][\s\S]*?\]\]/g, '') // [EM: agent-plans-chat]
     .replace(/\[\[\s*DATE_PLAN(?:_CANCEL)?\s*[:：][\s\S]*?\]\]/g, '') // [EM: date-plans]
+    .replace(/\[\[\s*PROMISE(?:_DONE|_DROP)?\s*[:：][\s\S]*?\]\]/g, '') // [EM: char-promises]
     .replace(/\[\[XHS_[A-Z_]+\]\]/g, '');
 
 /**

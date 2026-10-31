@@ -505,7 +505,14 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - **别把这几句改回去**：总纲的「ta 没说，你尽管猜、尽管先做」、害怕那条不含「已经发生的难过」、`thinkingChainPrompt.ts` 难过时让位。以后再加「先听 / 先问 / 别猜」类规则，先想它压在开口前会不会让 TA 只剩复述和反问
 - `memoryPalace/conversationEngagement.ts` 的谈话参与原则每轮贴在开口前，那句例外别删；烛下规则在 `buildOpenTurnBlock`（不设字数下限，见 `docs/spec-deep-talk.md`「回复往前走」）
 - 「说话只往下走」在 `emMoveOnSection` / `emMoveOnTail`，烛下 `buildOpenTurnBlock` 另有一条：她的话她自己懂，模型不许解释（阿萌反复提，所有模型的通病）
+- 回避腔 `emSteadyVoiceSection`（先讲根子是怕说错，再点退路，别改回只列禁用词）；`emHerOwnSection`（不替她下定论、不全能）；`emCommonFlawsSection`（酒馆预设里十家以上写过的）
 - 心跳、见面有自己的提示词，这条没进去
+
+### 45. TA 答应的事（2026-10-31）
+- 纯逻辑 `utils/emPromises.ts`（`em_char_promises_v1`，存本机，随备份 `emPromises`）；聊天经 `chatParser.ts`，烛下不走后处理，在 `useChatAI.ts` 的 `char-promises` 那行单独记；`sanitize.ts` 要剥标签
+- 跟约会（`emDatePlans`，一整份安排、当天揭晓）、角色的约定（`emAgentPlans`，TA 跟亲友、存 mini）不是一回事，别合并
+- 重写 / 重新生成要调 `retractPromisesSince`；烛下带现实处境的打 `candleOnly`，只在 `inCandle` 时进提示词
+- 心跳：快照 `promises` → `promisesFrom` / `promiseToGreet` → 缘由 `promise_day`（`reachOut.mjs`）；只有 `chatPrompts` 不打包给 fire_pack
 
 ### 34. 小厨房（现实食品库存）
 - 详细设计与每次改动见 `docs/kitchen-3d.md`；UI 规则见 `APP_CONVENTIONS.md` 的 P14 与 `utils/kitchenPaperTokens.ts`

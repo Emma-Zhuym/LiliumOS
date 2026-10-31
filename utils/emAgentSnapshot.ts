@@ -24,6 +24,7 @@ import { buildFinanceHeartbeatContext, type FinanceHeartbeatContext } from './fi
 import { loadDeepTalkForSnapshot, loadMatterNightIds } from './deepTalkDb'; // [EM: deep-talk]
 import { isWalledDeepTalkMessage } from './deepTalk'; // [EM: deep-talk]
 import { datePlansForSnapshot } from './emDatePlans'; // [EM: date-plans]
+import { promisesForSnapshot } from './emPromises'; // [EM: char-promises]
 import { isOocMessage, loadOocPins } from './emOoc'; // [EM: ooc]
 import { CONTACT_REMARK_NOTICE_KIND, contactRemarkForSnapshot } from './contactRemarks'; // [EM: contact-remark-aware]
 
@@ -122,6 +123,8 @@ export interface CharacterSnapshot {
         oocPins?: string[];
         /** [EM: date-plans] TA 给阿萌安排的约会（今天和接下来两天，全文）：当天心跳主动找她开场 */
         datePlans?: { date: string; time?: string; title: string; itinerary: string }[];
+        /** [EM: char-promises] TA 答应她、到期或两天内要做的事：到期那天心跳主动找她 */
+        promises?: { date: string; time?: string; what: string }[];
         /** [EM: contact-remark-aware] 阿萌在通讯录里给 TA 的备注 */
         contactRemark?: string;
         /** [EM: contact-remark-aware] 最近一次改备注，TA 还没回过话（一天内）：心跳主动找她时可能提起 */
@@ -362,6 +365,10 @@ export const buildCharacterSnapshot = async (
             ...(() => { // [EM: date-plans]
                 const datePlans = datePlansForSnapshot(char.id, at);
                 return datePlans.length ? { datePlans } : {};
+            })(),
+            ...(() => { // [EM: char-promises]
+                const promises = promisesForSnapshot(char.id, at);
+                return promises.length ? { promises } : {};
             })(),
             ...contactRemarkForSnapshot(char.id, messages, at.getTime()), // [EM: contact-remark-aware]
         },
