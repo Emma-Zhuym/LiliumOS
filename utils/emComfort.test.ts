@@ -10,6 +10,8 @@ describe('难过时怎么哄', () => {
         expect(rule).toContain('你先动');
         expect(rule).toContain('一点点哄');
         expect(rule).toContain('危机热线');
+        expect(rule).toContain('别照抄');
+        expect(rule).toContain('我再待会儿');
     });
     it('开口前最后一句只说要做什么，不点名那几种腔调', () => {
         const tail = emComfortTail('阿萌');
