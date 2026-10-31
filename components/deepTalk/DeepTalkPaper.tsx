@@ -5,14 +5,15 @@
  * 盖在聊天上面（聊天本身还挂着），返回键照常离开聊天，回来还是这张纸。
  */
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowsClockwise, ArrowUp, CaretLeft, Stop } from '@phosphor-icons/react';
-import type { CharacterProfile } from '../../types';
+import { ArrowsClockwise, ArrowUp, CaretLeft, Stop, X } from '@phosphor-icons/react';
+import type { CharacterProfile, Message } from '../../types';
 import { F, FONT, R } from '../../utils/clayTokens';
 import { deepTalkEventText, deepTalkRetryPlan, type DeepTalkNight } from '../../utils/deepTalk';
 import { resolveCharTimeZone } from '../../utils/timezone';
 import ClayDialog from '../os/ClayDialog';
 import { Candle, ruledBackground, ThemeGlyph, useDeepTalkTheme, WobbleDefs } from './DeepTalkInk';
 import { DeepTalkEdge, DeepTalkSegments, LINE, talkTextStyle } from './DeepTalkTalk';
+import DeepTalkSegmentMenu from './DeepTalkSegmentMenu'; // [EM: deep-talk-actions]
 import { useNightSegments } from './useDeepTalk';
 
 export default function DeepTalkPaper({ char, userName, night, isTyping, ending, onBack, onSend, onStop, onRetry, onEnd }: {
@@ -22,7 +23,7 @@ export default function DeepTalkPaper({ char, userName, night, isTyping, ending,
     isTyping: boolean;
     ending: boolean;
     onBack: () => void;
-    onSend: (text: string) => Promise<void>;
+    onSend: (text: string, quote?: Message | null) => Promise<void>;
     onStop: () => void;
     onRetry: () => Promise<void>;
     onEnd: () => void;
@@ -33,6 +34,8 @@ export default function DeepTalkPaper({ char, userName, night, isTyping, ending,
     const [sending, setSending] = useState(false);
     const [confirmEnd, setConfirmEnd] = useState(false);
     const [confirmRewrite, setConfirmRewrite] = useState(false);
+    const [menuFor, setMenuFor] = useState<Message | null>(null); // [EM: deep-talk-actions]
+    const [quote, setQuote] = useState<Message | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
     const fieldRef = useRef<HTMLTextAreaElement>(null);
     const names = { userName, charName: char.name };
@@ -56,8 +59,9 @@ export default function DeepTalkPaper({ char, userName, night, isTyping, ending,
         if (!text || busy) return;
         setSending(true);
         try {
-            await onSend(text);
+            await onSend(text, quote);
             setDraft('');
+            setQuote(null);
         } finally {
             setSending(false);
         }
@@ -94,7 +98,7 @@ export default function DeepTalkPaper({ char, userName, night, isTyping, ending,
             <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto" style={ruledBackground(palette, LINE)}>
                 <div style={{ ...talkTextStyle(palette), padding: `${LINE}px 16px ${LINE}px 22px`, marginLeft: 18, borderLeft: `1px solid ${palette.line}`, minHeight: '100%' }}>
                     <DeepTalkEdge palette={palette} candle={<Candle lit palette={palette} />}>{opening}</DeepTalkEdge>
-                    <DeepTalkSegments segments={segments} palette={palette} names={names} />
+                    <DeepTalkSegments segments={segments} palette={palette} names={names} onLongPress={setMenuFor} />
                     {retryPlan && (
                         <button type="button" onClick={() => { if (rewriting) setConfirmRewrite(true); else void onRetry(); }}
                             className="inline-flex items-center self-start active:opacity-40 transition-opacity"
@@ -112,6 +116,15 @@ export default function DeepTalkPaper({ char, userName, night, isTyping, ending,
                 </div>
             </div>
 
+            {quote && (
+                <div className="shrink-0 flex items-center" style={{ gap: 8, padding: '4px 8px 4px 16px', borderTop: `1px solid ${palette.line}`, background: palette.paper, color: palette.inkSoft, fontSize: 13 }}>
+                    <span className="flex-1 min-w-0 truncate">回 {quote.role === 'user' ? userName : char.name}：{quote.content}</span>
+                    <button type="button" aria-label="不引用了" onClick={() => setQuote(null)} className="grid place-items-center shrink-0 active:opacity-40 transition-opacity"
+                        style={{ width: 44, height: 44, background: 'transparent', border: 'none' }}>
+                        <X size={16} weight="bold" color={palette.inkSoft} />
+                    </button>
+                </div>
+            )}
             <div className="shrink-0 flex items-end" style={{ gap: 4, padding: '10px 8px calc(12px + var(--safe-bottom)) 12px', borderTop: `1px solid ${palette.line}`, background: palette.paper }}>
                 <textarea ref={fieldRef} value={draft} rows={1} placeholder={isTyping ? `${char.name}在写……` : '慢慢说……'}
                     aria-label="写下你想说的"
@@ -138,6 +151,8 @@ export default function DeepTalkPaper({ char, userName, night, isTyping, ending,
                     <Candle lit={false} palette={palette} />结束
                 </button>
             </div>
+
+            <DeepTalkSegmentMenu message={menuFor} charName={char.name} userName={userName} editable onQuote={setQuote} onClose={() => setMenuFor(null)} />
 
             <ClayDialog isOpen={confirmRewrite} title={`让${char.name}重写这一段吗`} onClose={() => setConfirmRewrite(false)} footer={
                 <div className="flex" style={{ gap: 10 }}>

@@ -1038,10 +1038,12 @@ const Chat: React.FC = () => {
             if (!relit) await triggerWithLatest();
         } catch (e: any) { addToast(e?.message || '蜡烛没点着，再试一次', 'error'); }
     }, [char, isTyping, addToast, deepTalkNames, reloadMessages, flushDeepTalkSnapshot, triggerWithLatest]);
-    const handleDeepTalkSend = useCallback(async (text: string) => {
+    const handleDeepTalkSend = useCallback(async (text: string, quote?: Message | null) => {
         if (!char || !deepTalkNight || deepTalkNight.status !== 'open') return;
         autoReply.cancel(); // [EM: deep-talk]
-        await saveDeepTalkSegment(char.id, deepTalkNight.id, 'user', text);
+        await saveDeepTalkSegment(char.id, deepTalkNight.id, 'user', text, undefined, quote // [EM: deep-talk-actions]
+            ? { id: quote.id, content: buildReplySnapshotContent(quote), name: quote.role === 'user' ? '我' : char.name }
+            : undefined);
         signalAgentPresence(char.id);
         await triggerWithLatest();
     }, [char, deepTalkNight, triggerWithLatest]);

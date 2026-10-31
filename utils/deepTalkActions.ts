@@ -181,12 +181,14 @@ export const saveDeepTalkSegment = async (
     role: 'user' | 'assistant',
     content: string,
     thinking?: string,
+    replyTo?: { id: number; content: string; name: string }, // [EM: deep-talk-actions]
 ): Promise<number> => {
     const id = await DB.saveMessage({
         charId,
         role,
         type: 'text',
         content,
+        ...(replyTo ? { replyTo } : {}),
         // 思考只存在这条消息上：不进历史正文、深谈原文也不进记忆宫殿
         metadata: { source: DEEP_TALK_SOURCE, deepTalkId: nightId, ...(thinking ? { deepTalkThinking: thinking } : {}) },
     });

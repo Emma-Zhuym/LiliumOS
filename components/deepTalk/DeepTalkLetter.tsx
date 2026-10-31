@@ -5,11 +5,12 @@
  */
 import React, { useEffect, useState } from 'react';
 import { CaretDown, CaretLeft, X } from '@phosphor-icons/react';
-import type { CharacterProfile } from '../../types';
+import type { CharacterProfile, Message } from '../../types';
 import { F, FONT, R } from '../../utils/clayTokens';
 import { candleLabel, deepTalkEventText, type DeepTalkKind, type DeepTalkNight } from '../../utils/deepTalk';
 import { removeKeptLine, setDeepTalkKind } from '../../utils/deepTalkActions';
 import ClayDialog from '../os/ClayDialog';
+import DeepTalkSegmentMenu from './DeepTalkSegmentMenu'; // [EM: deep-talk-actions]
 import { resolveCharTimeZone } from '../../utils/timezone';
 import { useOS } from '../../context/OSContext';
 import { Candle, useDeepTalkTheme, WobbleDefs, type DeepTalkPalette } from './DeepTalkInk';
@@ -164,6 +165,7 @@ export const DeepTalkLetter: React.FC<{
     const { palette } = useDeepTalkTheme(char.id, resolveCharTimeZone(char));
     const night = useNight(char.id, nightId);
     const segments = useNightSegments(char.id, nightId);
+    const [menuFor, setMenuFor] = useState<Message | null>(null); // [EM: deep-talk-actions]
     const names = { userName, charName: char.name };
     return (
         <section role="dialog" aria-label={`${candleLabel(night?.nightNo)} 信笺`} className="clay-sheet-in absolute inset-0 z-[46] flex flex-col overflow-hidden"
@@ -186,7 +188,7 @@ export const DeepTalkLetter: React.FC<{
                         <h2 style={{ fontFamily: FONT.heading, fontWeight: 700, fontSize: 28, lineHeight: 1.25, margin: '8px 0 4px', letterSpacing: '.04em' }}>{night.title}</h2>
                         <div style={{ fontSize: 13, color: palette.inkSoft, marginBottom: 18 }}>{char.name}给这一次起的名字</div>
                         <div style={talkTextStyle(palette)}>
-                            <DeepTalkSegments segments={segments} palette={palette} names={names} />
+                            <DeepTalkSegments segments={segments} palette={palette} names={names} onLongPress={setMenuFor} />
                             <DeepTalkEdge palette={palette} candle={<Candle lit={false} palette={palette} />}>
                                 {deepTalkEventText(night.burntOut ? 'burnt_out' : 'end', names)}
                             </DeepTalkEdge>
@@ -199,6 +201,7 @@ export const DeepTalkLetter: React.FC<{
                     </div>
                 )}
             </div>
+            <DeepTalkSegmentMenu message={menuFor} charName={char.name} userName={names.userName} onClose={() => setMenuFor(null)} />
         </section>
     );
 };
