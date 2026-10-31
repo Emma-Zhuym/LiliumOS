@@ -270,6 +270,8 @@ check "推送失效提示：OSContext 弹说明" context/OSContext.tsx "em-agent
 check "心跳发照片：信箱落成待生成图片" utils/emAgentInbox.ts "parsePhotoBubble(chunk)"
 check "心跳发照片：提示词教写法" server/agent-backend/heartbeat.mjs "lines.push(PHOTO_HOW)"
 check "哄人：聊天行为规范" utils/chatPrompts.ts "\${emComfortSection(userProfile.name)}"
+check "不解释她的话：行为规范" utils/chatPrompts.ts "\${emMoveOnSection(userProfile.name)}"
+check "不解释她的话：开口前" utils/chatPrompts.ts "\${emMoveOnTail(userProfile.name)}"
 check "哄人：开口前最后一句" utils/chatPrompts.ts "\${emComfortTail(userProfile.name)}"
 check "社会责任：聊天行为规范" utils/chatPrompts.ts "\${emDutySection(userProfile.name)}"
 check "聊天开头：只禁动作，不禁在一起" utils/chatPrompts.ts "\${emChatModeLine(userProfile.name)}"

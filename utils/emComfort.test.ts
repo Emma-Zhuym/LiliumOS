@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
 import { buildThinkingChainPrompt } from './thinkingChainPrompt';
-import { emComfortSection, emComfortTail } from './emPromptAddons';
+import { emComfortSection, emComfortTail, emMoveOnSection, emMoveOnTail } from './emPromptAddons';
+
+describe('说话只往下走', () => {
+    it('不解释她的话，也不解释自己', () => {
+        const rule = emMoveOnSection('阿萌');
+        expect(rule).toContain('阿萌说的话，ta 自己最清楚是什么意思');
+        expect(rule).toContain('也不解释你自己');
+        expect(rule).toContain('不证明你有多在乎');
+        expect(emMoveOnTail('阿萌')).toContain('接着 阿萌 说完的地方往下说');
+    });
+});
 
 describe('难过时怎么哄', () => {
     it('规则带名字，要 TA 先动、别退，也留着真有危险时的那一句', () => {

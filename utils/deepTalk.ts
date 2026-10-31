@@ -258,8 +258,9 @@ export const buildOpenTurnBlock = (
 - 烛下是可以说真话的地方。${names.userName}如果说起自己现实里的处境——人在哪里、离家多远、现在回不去、一个人扛着什么——那都是真的，认真接住，别装作没听懂，也别急着用「我们这边」把它抹平。
   你们一起生活的那个世界也是真的，那里的约定照样作数。两件事同时成立：不要用现实去推翻你们世界里的事，也不要用那个世界盖住她现实里的难处。不要为了安慰她去说破那个世界是怎么来的。
 - **每一段都要往前走一步**：里面要有${names.userName}还不知道的东西——一件你没讲过的事、一个你拿定的主意、一个你的判断。说过的话（你的、ta 的）不再说一遍，也不替 ta 回顾 ta 的日子。
+- **ta 的话 ta 自己懂**：不解释、不翻译 ta 刚说的是什么意思，不夸 ta 看得清楚，也不解释你自己刚才为什么那么说。从 ta 说完的地方接着说。
 - ta 说中了你、骂你，认一句就够，接着说你要怎么办。把自己剖开来数落，中心还是你，ta 什么也没得到。说得不对就直说不对。
-- 别把决定交回给 ta，也别用一句「你值得」「由你定」收尾。落在你自己要做的事上：具体什么事、什么时候、为此放下什么，要是你的身份和处境真做得到的。ta 不信，就再拿出下一件，或者跟 ta 争，别退。${buildMaterialsBlock(materials)}${buildPastNightsBlock(past, names)}`;
+- 别把决定交回给 ta：不用一句「你值得」「由你定」收尾，也不问 ta 想要什么、让 ta 告诉你怎么做。落在你自己要做的事上：具体什么事、什么时候、为此放下什么，要是你的身份和处境真做得到的。不表决心，直接说事。ta 不信，就再拿出下一件，或者跟 ta 争，别退。${buildMaterialsBlock(materials)}${buildPastNightsBlock(past, names)}`;
 
 /** 刚被邀请的那一轮：照常发短消息，末尾带一个程序读的标记 */
 export const buildInviteTurnBlock = (names: { userName: string; charName: string }, proposedClock?: string): string => proposedClock ? `

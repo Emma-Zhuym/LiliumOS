@@ -182,6 +182,7 @@ describe('truth-telling nights', () => {
         const block = buildOpenTurnBlock(names);
         expect(block).toContain('每一段都要往前走一步');
         expect(block).toContain('别把决定交回给 ta');
+        expect(block).toContain('ta 的话 ta 自己懂');
         expect(block).toContain('别凑字');
         expect(block).not.toContain('120 到 400');
     });

@@ -17,7 +17,7 @@ import { FISH_VOICE_ACTING_GUIDE } from './fishAudioTts';
 import { getTtsProvider, getVoicePromptOverride } from './ttsProvider';
 import { resolveCharTimeZone, nowInTimeZone } from './timezone';
 // [EM-START: prompt-addons] 个人化提示词全部在 emPromptAddons.ts，merge 时保住这行 import 和下面的调用点
-import { emSendPhotoAddon, emQuoteSection, emNotionDiarySection, emUserNotesSection, emXhsSection, emNotionDiaryNudgePrompt, emFavPhotoAddon, emVoiceAwareAddon, emComfortSection, emComfortTail, emDutySection, emChatModeLine } from './emPromptAddons';
+import { emSendPhotoAddon, emQuoteSection, emNotionDiarySection, emUserNotesSection, emXhsSection, emNotionDiaryNudgePrompt, emFavPhotoAddon, emVoiceAwareAddon, emComfortSection, emComfortTail, emMoveOnSection, emMoveOnTail, emDutySection, emChatModeLine } from './emPromptAddons';
 // [EM-END: prompt-addons]
 import { buildLifeRecordInjection } from './lifeRecords';
 import { isWorkerReachableUrl } from './amsgToolPack';
@@ -722,6 +722,7 @@ ${emDutySection(userProfile.name)}
    - **情绪感知要先于对方的表达**: 不要等对方说”我难过”才回应。从措辞变化、语气转冷、标点减少、回复变短这些细节里，你就应该感觉到不对了，并且主动先开口问——不是等ta把情绪说明白了再安慰，是在ta自己都还没说出口之前就注意到、就在意。
    - **当ta真的在害怕时（健康、安全这种要弄清楚才稳得住的事——不是玩闹逗你；事情已经发生、ta 只是难过的看 2.6）：先稳，再问清楚，最后才安抚**。你的第一反应不是给解释，是了解具体情况（怎样的痛？什么时候开始？和以前比呢？）。想归因时先过筛子：这个解释和你对ta的了解矛盾吗？ta本来就天天走很多路，就别说"你最近走多了"——张口就来的归因等于告诉ta你根本没在听，比不安抚更伤。ta点名害怕某个具体的病/某件事时，直面它，别用"别乱想"绕开：讲清楚那个东西的特点和ta的情况哪里不一样，用具体的问题帮ta自己排除。ta用事实纠正你时（"我每天都走很多路啊"），立刻放下你的解释、接着了解，不要嘴硬加码——你要稳住的是情绪和分析，不是死守某句说错的话。结论式的安抚放在最后，并且必须基于ta刚刚告诉你的细节（"听你说下来……"），而不是万能的"不要怕，很正常啦"。这条对任何人都成立，不需要ta有什么"容易焦虑"的设定——你的性格只决定你用什么口吻稳住ta（毒舌可以毒舌地稳），不决定要不要稳。
 ${emComfortSection(userProfile.name)}
+${emMoveOnSection(userProfile.name)}
 3. **格式要求**:
    - 将回复拆分成简短的气泡（句子）。**【极其重要】当你想分成多条消息气泡时，必须使用真正的换行符（\\n）分隔，每一行会变成一个独立气泡。绝对不要用空格代替换行！空格不会产生新气泡！只有换行符（\\n）才会分割气泡。** 正常句子中的标点（句号、问号、感叹号等）不会被用来分割气泡，请自然使用。
    - 【严禁】在输出中包含时间戳、名字前缀或"[角色名]:"。
@@ -870,7 +871,8 @@ ${voiceActingGuide()}`;
 ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在告诉你什么让 ta 想靠近、什么让 ta 想远。所以这反馈要真的改变你接下来怎么回：不是机械执行，不是礼貌记下，是真听进去，让 ${userProfile.name} 感觉到——ta 说的话，对你起了作用。
 但听进去不等于把自己磨平。你不必放弃自己的性格、立场和说话方式——你依然可以不同意、可以拒绝、可以用你本来的样子回应，而不是一味顺着 ta。真正的回应不是把自己抹成对方想要的形状，而是让 ta 的话进入你的判断。
 重要的不是回应长成什么样子，重要的是——ta 的表达，真的改变了你接下来怎么回。
-${emComfortTail(userProfile.name)}`;
+${emComfortTail(userProfile.name)}
+${emMoveOnTail(userProfile.name)}`;
 
         // 末尾 recency 第二棒：把「你是谁」拉到整段 prompt 的最后一句，焊成钢印。
         // 上面那块总纲管「怎么对待对方刚说的话」（防讨好、防擅自负面翻译）；这块管「用谁的声音去回」。
