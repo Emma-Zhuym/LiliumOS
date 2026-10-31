@@ -456,7 +456,7 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - **正文是普通聊天消息**（`metadata.source = 'deep_talk'` + `deepTalkId`）：记忆宫殿只认消息流。聊天列表不显示它们（`chatMessageVisibility.ts`），结束了的那夜在 `buildMessageHistory` 里只剩折叠卡那一行（`keepInPromptHistory`），结束后第一轮走「模式切换」拉回短消息
 - 邀请那一轮和开着的深谈**固定本机生成**（`useChatAI.ts` 的 `deepTalkLocal`：否决 mini / amsg 即时对话和 Instant Push），TA 那段话不进 `applyAssistantPostProcessing`，整段存一条
 - 纸面盖住了普通输入框，停止和重写要自己有（2026-10-30）：回复中发送钮变停止（`handleDeepTalkStop`），`deepTalkRetryPlan` 决定换掉 TA 结尾那几段还是让 TA 接上；`useChatAI.ts` 的 `settleReplyUi` 在停止 1.5 秒后兜底放开，熄屏后请求没回音时靠它
-- 纸上长按菜单在 `DeepTalkSegmentMenu.tsx`（引用 / 复制 / 收藏 / 编辑 / 删除，信笺只有复制和收藏），思维链能复制
+- 纸上长按菜单在 `DeepTalkSegmentMenu.tsx`（引用 / 复制 / 收藏 / 编辑 / 删除，信笺只有复制和收藏），思维链能复制；顶栏图钉 `DeepTalkPinsSheet.tsx` 改钉住的 OOC（纸面盖着聊天，普通入口够不着）
 - 开着时：快照 `deepTalk` → 心跳 `speakBlock` 返回 `deep_talk`（since 超 3 小时不认）；本地主动消息跳过；amsg 云端排程管不到（阿萌本来也不靠它）。放着 3 小时没动，下次打开聊天自动收卡（「蜡烛燃尽了」）
 - 夜间配色 `CANDLE_NIGHT`、手写体 `FONT.hand` 都在 clayTokens；卡片和系统气泡在聊天里一律白天配色
 - **两种（2026-10-22）**：结束时预选、信笺里可改——谈事（`kind: 'matter'`）的原文当普通聊天记（按条数进上下文、进记忆宫殿 / 心跳 / 手动总结），说真话（缺省）的照下面隔离。判断一律走 `isWalledDeepTalkMessage(m, matterNightIds)`，别再直接拿 `isDeepTalkMessage` 当「不进记忆」

@@ -5,7 +5,7 @@
  * 盖在聊天上面（聊天本身还挂着），返回键照常离开聊天，回来还是这张纸。
  */
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowsClockwise, ArrowUp, CaretLeft, Stop, X } from '@phosphor-icons/react';
+import { ArrowsClockwise, ArrowUp, CaretLeft, PushPin, Stop, X } from '@phosphor-icons/react';
 import type { CharacterProfile, Message } from '../../types';
 import { F, FONT, R } from '../../utils/clayTokens';
 import { deepTalkEventText, deepTalkRetryPlan, type DeepTalkNight } from '../../utils/deepTalk';
@@ -14,6 +14,7 @@ import ClayDialog from '../os/ClayDialog';
 import { Candle, ruledBackground, ThemeGlyph, useDeepTalkTheme, WobbleDefs } from './DeepTalkInk';
 import { DeepTalkEdge, DeepTalkSegments, LINE, talkTextStyle } from './DeepTalkTalk';
 import DeepTalkSegmentMenu from './DeepTalkSegmentMenu'; // [EM: deep-talk-actions]
+import DeepTalkPinsSheet, { useOocPins } from './DeepTalkPinsSheet'; // [EM: deep-talk-actions]
 import { useNightSegments } from './useDeepTalk';
 
 export default function DeepTalkPaper({ char, userName, night, isTyping, ending, onBack, onSend, onStop, onRetry, onEnd }: {
@@ -36,6 +37,8 @@ export default function DeepTalkPaper({ char, userName, night, isTyping, ending,
     const [confirmRewrite, setConfirmRewrite] = useState(false);
     const [menuFor, setMenuFor] = useState<Message | null>(null); // [EM: deep-talk-actions]
     const [quote, setQuote] = useState<Message | null>(null);
+    const pins = useOocPins(char.id);
+    const [pinsOpen, setPinsOpen] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
     const fieldRef = useRef<HTMLTextAreaElement>(null);
     const names = { userName, charName: char.name };
@@ -82,16 +85,24 @@ export default function DeepTalkPaper({ char, userName, night, isTyping, ending,
                         className="grid place-items-center active:opacity-40 transition-opacity" style={{ width: 44, height: 44, background: 'transparent', border: 'none' }}>
                         <CaretLeft size={22} weight="bold" color={palette.ink} />
                     </button>
-                    <div className="pointer-events-none absolute inset-x-16 flex flex-col items-center" style={{ gap: 1 }}>
+                    <div className="pointer-events-none absolute inset-x-24 flex flex-col items-center" style={{ gap: 1 }}>
                         <span style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: palette.ink }}>{char.name}</span>
                         <span className="inline-flex items-center" style={{ gap: 4, fontSize: 11, color: palette.inkSoft }}>
                             <Candle lit palette={palette} width={10} height={13} />烛下
                         </span>
                     </div>
-                    <button type="button" aria-label={theme === 'night' ? '换成白天的纸' : '换成夜里的纸'} onClick={toggle}
-                        className="grid place-items-center active:opacity-40 transition-opacity" style={{ width: 44, height: 44, background: 'transparent', border: 'none' }}>
-                        <ThemeGlyph theme={theme} color={palette.ink} />
-                    </button>
+                    <div className="flex items-center">
+                        {pins.length > 0 && (
+                            <button type="button" aria-label={`钉住的要求，${pins.length} 条`} onClick={() => setPinsOpen(true)}
+                                className="grid place-items-center active:opacity-40 transition-opacity" style={{ width: 44, height: 44, background: 'transparent', border: 'none' }}>
+                                <PushPin size={20} weight="bold" color={palette.ink} />
+                            </button>
+                        )}
+                        <button type="button" aria-label={theme === 'night' ? '换成白天的纸' : '换成夜里的纸'} onClick={toggle}
+                            className="grid place-items-center active:opacity-40 transition-opacity" style={{ width: 44, height: 44, background: 'transparent', border: 'none' }}>
+                            <ThemeGlyph theme={theme} color={palette.ink} />
+                        </button>
+                    </div>
                 </div>
             </header>
 
@@ -153,6 +164,7 @@ export default function DeepTalkPaper({ char, userName, night, isTyping, ending,
             </div>
 
             <DeepTalkSegmentMenu message={menuFor} charName={char.name} userName={userName} editable onQuote={setQuote} onClose={() => setMenuFor(null)} />
+            <DeepTalkPinsSheet charId={char.id} pins={pins} open={pinsOpen} onClose={() => setPinsOpen(false)} />
 
             <ClayDialog isOpen={confirmRewrite} title={`让${char.name}重写这一段吗`} onClose={() => setConfirmRewrite(false)} footer={
                 <div className="flex" style={{ gap: 10 }}>

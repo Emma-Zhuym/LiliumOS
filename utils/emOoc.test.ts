@@ -5,6 +5,7 @@ import type { CharacterProfile, Message, UserProfile } from '../types';
 import { ChatPrompts } from './chatPrompts';
 import {
     buildOocPinsInjection, cleanOocReply, isOocPinned, isOocPromptContent, loadOocPins, oocPromptContent, parseOocInput, pinOoc, unpinOoc,
+    updateOocPin,
 } from './emOoc';
 
 describe('OOC：怎么认', () => {
@@ -70,3 +71,13 @@ describe('OOC：钉住', () => {
     });
 });
 // [EM-END: ooc]
+
+describe('改钉住的要求', () => {
+    it('只改钉住的这份，进提示词的跟着变', () => {
+        pinOoc('edit-a', { id: 7, content: '绝对不能复述' });
+        updateOocPin('edit-a', 7, '  可以提，但要有心疼  ');
+        expect(loadOocPins('edit-a')[0].text).toBe('可以提，但要有心疼');
+        expect(buildOocPinsInjection('edit-a', '阿萌')).toContain('可以提，但要有心疼');
+        expect(buildOocPinsInjection('edit-a', '阿萌')).not.toContain('绝对不能复述');
+    });
+});

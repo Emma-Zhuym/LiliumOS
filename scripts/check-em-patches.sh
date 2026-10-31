@@ -496,6 +496,7 @@ check "深谈：备份导出" context/OSContext.tsx "emDeepTalkNights: await Dee
 check "深谈：纸上长按菜单" components/deepTalk/DeepTalkPaper.tsx "<DeepTalkSegmentMenu message={menuFor}"
 check "深谈：比例写在最后" utils/chatRequestPayload.ts "volatileTail += buildOpenTurnLastWord("
 check "深谈：跳过谈话参与原则" utils/chatRequestPayload.ts "input.deepTalk?.mode === 'open' ? undefined : recallTrace.deepEngagement"
+check "深谈：纸上改钉住的要求" components/deepTalk/DeepTalkPaper.tsx "<DeepTalkPinsSheet charId={char.id}"
 check "深谈：纸面能停" apps/Chat.tsx "onStop={handleDeepTalkStop} onRetry={handleDeepTalkRetry}"
 check "停止回复：卡死也放开" hooks/useChatAI.ts "window.setTimeout(settleReplyUi, 1500)"
 check "深谈：备份恢复" context/OSContext.tsx "DeepTalkDB.importAll(data.emDeepTalkNights)"

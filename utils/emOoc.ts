@@ -86,6 +86,10 @@ const savePins = (charId: string, pins: OocPin[]) => {
 export const pinOoc = (charId: string, m: Pick<Message, 'id' | 'content'>, now = Date.now()) =>
     savePins(charId, [...loadOocPins(charId).filter(p => p.id !== m.id), { id: m.id, text: String(m.content).slice(0, 500), pinnedAt: now }].slice(-PINS_MAX));
 
+/** 只改钉住的这份，聊天记录里那条原话不动 */
+export const updateOocPin = (charId: string, id: number, text: string) =>
+    savePins(charId, loadOocPins(charId).map(p => (p.id === id ? { ...p, text: text.trim().slice(0, 500) } : p)));
+
 export const unpinOoc = (charId: string, id: number) => savePins(charId, loadOocPins(charId).filter(p => p.id !== id));
 
 export const isOocPinned = (charId: string, id: number) => loadOocPins(charId).some(p => p.id === id);
