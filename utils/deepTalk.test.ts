@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     buildCardContent,
     buildOpenTurnBlock,
+    buildOpenTurnLastWord,
     buildPastNightsBlock,
     isSafeKeptLine,
     keptLineMemoryContent,
@@ -176,6 +177,13 @@ describe('truth-telling nights', () => {
         const block = buildOpenTurnBlock(names);
         expect(block).toContain('烛下是可以说真话的地方');
         expect(block).toContain('不要用现实去推翻你们世界里的事');
+    });
+
+    it('ends on proportion: her story gets one line, the rest is care', () => {
+        const last = buildOpenTurnLastWord(names);
+        expect(last).toContain('ta 经历的事最多带一句');
+        expect(last).toContain('哪怕 ta 说不怪你');
+        expect(last).toContain('可以吗');
     });
 
     it('makes every turn move forward instead of restating and blaming itself', () => {

@@ -35,7 +35,7 @@ import { injectWorldbookDepthEntries, resolveWorldbookDepthEntries } from './wor
 import { normalizeTranslationLangLabel } from './translationLang';
 import { cleanApiMessages, flattenImageContentParts } from './promptMessageCleanup';
 import { materializeVisionDescriptions } from './visionApi';
-import { buildInviteTurnBlock, buildLaterReminderLine, buildOpenTurnBlock, formatClock, type DeepTalkNight } from './deepTalk'; // [EM: deep-talk]
+import { buildInviteTurnBlock, buildLaterReminderLine, buildOpenTurnBlock, buildOpenTurnLastWord, formatClock, type DeepTalkNight } from './deepTalk'; // [EM: deep-talk]
 import { loadDeepTalkMaterials, loadPastCandleNights } from './deepTalkActions'; // [EM: deep-talk]
 import { resolveCharTimeZone } from './timezone'; // [EM: deep-talk]
 
@@ -455,7 +455,8 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     if (input.recallEntryPoint === 'chat_app') {
         volatileTail += renderLocalContextGuidance(recallTrace.contextAnalyzer);
         volatileTail += renderInteractionAdaptationGuidance(recallTrace.interactionAdaptation?.analysis);
-        const engagementTrace = recallTrace.deepEngagement;
+        // [EM: deep-talk] 烛下有自己的规矩。这段「别自动进入安慰、先了解」排在后面，会把烛下的关心盖掉
+        const engagementTrace = input.deepTalk?.mode === 'open' ? undefined : recallTrace.deepEngagement;
         if (engagementTrace?.engine === 'legacy_depth') {
             volatileTail += renderDeepEngagementGuidance(engagementTrace.analysis as DeepEngagementAnalysis | undefined);
         } else if (engagementTrace?.engine === 'conversation_v2') {
@@ -466,6 +467,9 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         }
     }
     volatileTail += parts.recencyTail;
+    if (input.deepTalk?.mode === 'open') { // [EM: deep-talk] 比例写在真正的最后，别被前面几大段压住
+        volatileTail += buildOpenTurnLastWord({ userName: userProfile?.name || '用户', charName: char.name });
+    }
 
     // 结构：[稳定 system] + [历史消息] + [易变状态 system] (+ 末尾 reminder)。
     // 稳定前缀不再包含分钟级时间戳等易变内容 → 支持前缀缓存的中转能跨轮命中；

@@ -507,6 +507,7 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - `memoryPalace/conversationEngagement.ts` 的谈话参与原则每轮贴在开口前，那句例外别删；烛下规则在 `buildOpenTurnBlock`（不设字数下限，见 `docs/spec-deep-talk.md`「回复往前走」）
 - **关心排在所有规矩前面**（2026-10-31 阿萌：限制太多，连对不起都不敢说）。禁令写多了，模型会在思考里逐条对照、否掉自己，只剩小心没有关心。再加「不许」类规则前先想这个；能写「要什么」就别写「不要什么」
 - `emMoveOnSection` 只留一句：她的话她自己懂
+- 烛下这一轮：跳过 `renderConversationEngagementGuidance`，`buildOpenTurnLastWord` 排在 `recencyTail` 后面。改提示词先看「模型最后读到什么」，排在前面的规矩容易被盖掉
 - 回避腔 `emSteadyVoiceSection`（先讲根子是怕说错，再点退路，别改回只列禁用词）；`emHerOwnSection`（不替她下定论、不全能）；`emCommonFlawsSection`（酒馆预设里十家以上写过的）
 - 心跳、见面有自己的提示词，这条没进去
 

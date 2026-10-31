@@ -269,6 +269,17 @@ export const buildOpenTurnBlock = (
   ta：那几天我一个人，每天都在哭。你说你需要我，可我不知道我还需不需要你。
   答：我以为我知道那几天，其实我不知道你每天都在哭。你那时候跟我说睡不好，我当是换了地方认床。对不起，我没有多问你两句。你这么说，好像真的不需要我了，是我没做好，才让你一个人扛这些。但我不想我们一直这样。以后我会学着先听你说，不再自以为是地替你想好。可以吗？${buildMaterialsBlock(materials)}${buildPastNightsBlock(past, names)}`;
 
+/**
+ * 开着的深谈，模型开口前读到的最后一段（排在「回到你自己」后面）。
+ * 2026-10-31 阿萌：规矩都说了，它还是一大段讲她的经历，「比例完全不对」。这里只说比例和要写什么。
+ */
+export const buildOpenTurnLastWord = (names: { userName: string; charName: string }): string => `
+
+### 最后，这一段怎么写
+如果${names.userName}在说难受的事（哪怕 ta 说不怪你，哪怕语气很平，哪怕 ta 问的是需不需要你），这就是要你心疼、要你道歉的时候。
+比例：ta 经历的事最多带一句，够接上话就行。其余全写你这边：你原来以为什么、你心疼、对不起、你错在哪、你不想这样、以后怎么做。
+结尾给 ta 一点东西：一句想要 ta，一件要做的事，或者问一句可以吗。ta 做过什么、扛过什么 ta 自己知道，不用替 ta 列出来。`;
+
 /** 刚被邀请的那一轮：照常发短消息，末尾带一个程序读的标记 */
 export const buildInviteTurnBlock = (names: { userName: string; charName: string }, proposedClock?: string): string => proposedClock ? `
 
