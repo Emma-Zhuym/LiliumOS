@@ -503,6 +503,7 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 ### 44. 难过时怎么哄（2026-10-30）
 - 阿萌：几家模型都复述悲剧、给空建议、反问想听什么。措辞在 `utils/emPromptAddons.ts` 的 `emComfortSection` / `emComfortTail`，`chatPrompts.ts` 各一行调用
 - **别把这几句改回去**：总纲的「ta 没说，你尽管猜、尽管先做」、害怕那条不含「已经发生的难过」、`thinkingChainPrompt.ts` 难过时让位。以后再加「先听 / 先问 / 别猜」类规则，先想它压在开口前会不会让 TA 只剩复述和反问
+- `memoryPalace/conversationEngagement.ts` 的谈话参与原则每轮贴在开口前，那句例外别删；烛下规则在 `buildOpenTurnBlock`（不设字数下限，见 `docs/spec-deep-talk.md`「回复往前走」）
 - 心跳、见面有自己的提示词，这条没进去
 
 ### 34. 小厨房（现实食品库存）

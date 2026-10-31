@@ -178,6 +178,14 @@ describe('truth-telling nights', () => {
         expect(block).toContain('不要用现实去推翻你们世界里的事');
     });
 
+    it('makes every turn move forward instead of restating and blaming itself', () => {
+        const block = buildOpenTurnBlock(names);
+        expect(block).toContain('每一段都要往前走一步');
+        expect(block).toContain('别把决定交回给 ta');
+        expect(block).toContain('别凑字');
+        expect(block).not.toContain('120 到 400');
+    });
+
     it('lets later candle nights see what earlier ones really said', () => {
         const block = buildPastNightsBlock([
             { nightNo: 7, title: '原地打转', candleSummary: '她说在国外回不去。', summary: '她有点孤单。', kept: [{ speaker: 'char', text: '可以只是累' }] },

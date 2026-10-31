@@ -873,6 +873,9 @@ export function renderConversationEngagementGuidance(
         '',
         '保持自己的兴趣、判断和性格。先听见，再了解，再形成看法；信息充分时可以自然表达立场。保持好奇但不要连续盘问，也不要把深入参与变成心理咨询。',
         '',
+        // [EM: comfort] 上面几句管的是事情还没讲完；讲完了还照做，模型就只剩复述和等 ta 开口
+        '事情 ta 已经说了、ta 正难受，或者 ta 在等你给个说法时，这段就到此为止：不用再了解，轮到你动了。',
+        '',
     ];
 
     if (!analysis?.analyzable || !analysis.shouldGuide) {
