@@ -7,7 +7,8 @@ import { getCheckPhoneApi, setCheckPhoneApi } from '../utils/checkPhoneApi';
 
 import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
 import { APIConfig, AppID, OSTheme, VirtualTime, CharacterProfile, CharacterGroup, ChatTheme, Toast, FullBackupData, UserProfile, ApiPreset, GroupProfile, SystemLog, Worldbook, NovelBook, SongSheet, Message, RealtimeConfig, AppearancePreset, CloudBackupConfig, CloudBackupFile } from '../types';
-import { DB } from '../utils/db';
+import { DB, resetDBConnection } from '../utils/db'; // [EM: db-reconnect]
+import { createReconnectingReader } from '../utils/dbReconnect'; // [EM: db-reconnect]
 import type { AvatarTouchRecord } from '../utils/avatarTouch';
 import { clampClaudeTemperature, modelRejectsSamplingParams, stripSamplingParams } from '../utils/samplingParamCompat';
 import { buildMalformedImageDiagnostics, stripBackupImages, extractImagesInPlace, deepCloneForExport, parseImageDataUrlForBackup, type BackupObjectPath, type MalformedBackupImageDiagnostic } from '../utils/backupExport';
@@ -1601,24 +1602,27 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
         // 整批加载就全挂 → setCharacters / setWorldbooks 都不执行 → 角色和世界书"凭空消失"
         // （数据其实还在 IndexedDB 里，只是没读进 state）→ Chat 渲染时 char 为 undefined 直接崩。
         // 改成各 store 独立失败，一个坏掉不连累其余，最大限度保住用户数据。
-        const settle = async <T,>(p: Promise<T>, label: string, fallback: T): Promise<T> => {
+        // [EM-START: db-reconnect] 读失败先换一条新连接重读一次（iOS 上连接会悄悄坏掉），还不行才降级
+        const readWithReconnect = createReconnectingReader(resetDBConnection);
+        const settle = async <T,>(read: () => Promise<T>, label: string, fallback: T): Promise<T> => {
             try {
-                return await p;
+                return await readWithReconnect(read, e => console.warn(`Data init: 读取 ${label} 失败，换新连接重试`, e));
             } catch (e) {
                 console.error(`Data init: 读取 ${label} 失败，已降级`, e);
                 return fallback;
             }
         };
+        // [EM-END: db-reconnect]
 
         const [dbChars, dbThemes, dbUser, dbGroups, dbWorldbooks, dbNovels, dbSongs, dbCharGroups] = await Promise.all([
-            settle(DB.getAllCharacters(), 'characters', [] as CharacterProfile[]),
-            settle(DB.getThemes(), 'themes', [] as ChatTheme[]),
-            settle(DB.getUserProfile(), 'userProfile', null as UserProfile | null),
-            settle(DB.getGroups(), 'groups', [] as GroupProfile[]),
-            settle(DB.getAllWorldbooks(), 'worldbooks', [] as Worldbook[]),
-            settle(DB.getAllNovels(), 'novels', [] as NovelBook[]),
-            settle(DB.getAllSongs(), 'songs', [] as SongSheet[]),
-            settle(DB.getCharacterGroups(), 'characterGroups', [] as CharacterGroup[])
+            settle(() => DB.getAllCharacters(), 'characters', [] as CharacterProfile[]),
+            settle(() => DB.getThemes(), 'themes', [] as ChatTheme[]),
+            settle(() => DB.getUserProfile(), 'userProfile', null as UserProfile | null),
+            settle(() => DB.getGroups(), 'groups', [] as GroupProfile[]),
+            settle(() => DB.getAllWorldbooks(), 'worldbooks', [] as Worldbook[]),
+            settle(() => DB.getAllNovels(), 'novels', [] as NovelBook[]),
+            settle(() => DB.getAllSongs(), 'songs', [] as SongSheet[]),
+            settle(() => DB.getCharacterGroups(), 'characterGroups', [] as CharacterGroup[])
         ]);
 
         let finalChars = dbChars;
