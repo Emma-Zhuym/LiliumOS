@@ -366,13 +366,14 @@ p.kitchen-note { margin: 0; padding: 0; border: 0; background: transparent; colo
 /* 每行是个按钮：点了打开那一样（还在的开操作面板，吃完的开详情） */
 .kitchen-receipt-row { display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 12px; width: 100%; min-height: 32px; margin: -4px 0; padding: 4px 0; border: 0; background: transparent; color: inherit; font-size: 15px; line-height: 1.5; text-align: left; }
 .kitchen-receipt-row:active { opacity: .6; }
-.kitchen-receipt-lines--after .kitchen-receipt-row { grid-template-columns: auto 1fr auto; }
 .kitchen-receipt-section { margin: 0; padding: 8px 0 0; border-top: 1px dashed var(--k-faint); color: var(--k-muted); font-family: var(--k-mono); font-size: 11px; letter-spacing: .2em; text-align: center; }
-.kitchen-receipt-time { color: var(--k-muted); font-family: var(--k-mono); font-size: 12px; font-variant-numeric: tabular-nums; }
 .kitchen-receipt-name { min-width: 0; overflow-wrap: anywhere; }
 .kitchen-receipt-name > em { margin-left: 6px; color: var(--k-faint); font-size: 11px; font-style: normal; }
 .kitchen-receipt-amount { font-family: var(--k-mono); font-size: 13px; font-variant-numeric: tabular-nums; }
-.kitchen-receipt-row.is-undone > :is(.kitchen-receipt-time, .kitchen-receipt-amount) { color: var(--k-faint); text-decoration: line-through; }
+/* 吃了一些：打印的数量旁边用蓝笔写的余量，跟「3 天吃完」同一支笔 */
+.kitchen-receipt-left { margin-left: 8px; color: var(--k-blue-ink); font-size: 12px; font-style: normal; }
+.kitchen-receipt-qty { white-space: nowrap; }
+.kitchen-receipt-row.is-undone .kitchen-receipt-amount { color: var(--k-faint); text-decoration: line-through; }
 .kitchen-receipt-row.is-undone > .kitchen-receipt-name { color: var(--k-faint); text-decoration: line-through; }
 .kitchen-receipt-row.is-gone .kitchen-receipt-name > span { color: var(--k-muted); text-decoration: line-through; text-decoration-color: var(--k-blue-ink); text-decoration-thickness: 2px; }
 .kitchen-receipt-row.is-gone > .kitchen-receipt-amount { color: var(--k-blue-ink); font-family: inherit; font-size: 12px; }

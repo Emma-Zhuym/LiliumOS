@@ -19,7 +19,7 @@ export const KITCHEN_PAPER = {
   warn: STATUS.warning.ink,
   warnTint: STATUS.warning.tint,
   heading: '"Noto Serif SC", "Songti SC", "ZCOOL XiaoWei", "STSong", Georgia, serif',
-  /** 操作记录小票上的热敏打印字（只用在数字、时间、小票号） */
+  /** 小票上的热敏打印字（只用在数字、时间、小票号） */
   mono: 'ui-monospace, "SF Mono", Menlo, "Courier New", monospace',
   paperPhoto: `${import.meta.env.BASE_URL}kitchen/cotton-paper-soft.svg`,
   texture: `${import.meta.env.BASE_URL}kitchen/paper-fibers.svg`,

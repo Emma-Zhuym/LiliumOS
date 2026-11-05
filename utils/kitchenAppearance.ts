@@ -7,7 +7,7 @@
  */
 import type { KitchenEvent, KitchenFood, KitchenLot, KitchenShoppingItem } from './kitchenDb';
 import { hasKitchenEventChange, shoppingMatches } from './kitchenDb';
-import { formatEventAmount, formatQuantity } from './kitchenPresentation';
+import { formatEventAmount, formatQuantity, shortLotStock } from './kitchenPresentation';
 import { looksLikeDish } from './kitchenDishNames';
 
 export type KitchenLook = 'carton' | 'eggs' | 'bottle' | 'jar' | 'box' | 'produce' | 'tray' | 'bag';
@@ -105,16 +105,19 @@ export function stickyReminders(lots: KitchenLot[], foods: KitchenFood[], events
 
 /**
  * 一次采购一张小票（阿萌 2026-10-12 定：一周最多买一次，按天撕会被每天的「吃掉」淹掉）。
- * - 买回来的（放进、不是自己做的菜）前后相隔不到 TRIP_GAP 算同一次；以后拍小票入库，一张照片就是一次。
- * - 两次采购之间吃掉、丢掉、核对、做的菜，接在上一张小票的后半截。
- * - 第一次采购之前的零碎记在「开张」那张。
- * - 撤销本身不单列，被撤销的那一行划掉。
+ * - 买回来的（放进、不是自己做的菜）前后相隔不到 TRIP_GAP 算同一次；拍小票入库，一张照片就是一次。
+ * - 小票上只有买回来的那几行，每行旁边写现在还剩多少（2026-11-04 阿萌：原来票底下接着一截
+ *   「之后」的吃掉、丢掉流水，一张要翻好久才到下一张，也看不出还剩几个）。流水还在库里，
+ *   点一行进那一样的详情页看。自己做的菜不上小票，在冷冻门「热一热就能吃」那张上。
+ * - 同一次里撤销掉的那一行划掉；隔得久、又撤销了的买入不单开一张。
  * 新的一张在前。
  */
 export const TRIP_GAP = 2 * 3_600_000;
 
 export interface TripLine {
-  id: string; lotId: string; at: number; verb: string; name: string; amount: string; undone: boolean;
+  id: string; lotId: string; at: number; name: string; amount: string; undone: boolean;
+  /** 还有、跟买回来时不一样了：现在还剩多少（「5 件」「约 1/2 件」）。没动过的不写 */
+  left?: string;
   /** 买回来的那一行：这一样现在已经吃完 / 丢了，小票上划掉 */
   gone?: GoneLabel;
   /** 从买回来到吃完 / 丢掉用了多久（「3 天」「2 周」「3 个月」）：看自己吃得多快 */
@@ -172,59 +175,44 @@ export interface ShoppingTrip {
   boughtOn?: number;
   /** 小票号：由开始时间算出，不会变 */
   no: string;
-  opening: boolean;
   bought: TripLine[];
-  after: TripLine[];
-  /** 要吃掉的那些（不算耐放的、撤销的）全划掉了：记录页折起来 */
+  /** 要吃掉的那些（不算耐放的、撤销的）全划掉了：小票页折起来 */
   finished: boolean;
 }
-
-const TRIP_VERBS: Record<KitchenEvent['type'], string> = { ADD: '放进', CONSUME: '吃掉', DISCARD: '丢掉', ADJUST: '核对', UNDO: '撤销' };
 
 export function shoppingTrips(events: KitchenEvent[], foods: KitchenFood[], lots: KitchenLot[] = []): ShoppingTrip[] {
   const names = new Map(foods.map(food => [food.id, food.name]));
   const lotById = new Map(lots.map(lot => [lot.id, lot]));
   const trips: (ShoppingTrip & { lastBuy: number })[] = [];
-  const sorted = events.filter(event => event.type !== 'UNDO' && hasKitchenEventChange(event))
+  const sorted = events.filter(event => event.type === 'ADD' && event.quantityDelta > 0 && hasKitchenEventChange(event))
     .sort((a, b) => a.occurredAt - b.occurredAt || a.id.localeCompare(b.id));
-  const open = (start: number, opening: boolean) => {
-    const trip: ShoppingTrip & { lastBuy: number } = { start, opening, lastBuy: start, bought: [], after: [], finished: false,
-      no: ((Math.floor(start / 60_000) * 2654435761) >>> 0).toString(16).toUpperCase().padStart(8, '0').slice(-6) };
-    trips.push(trip);
-    return trip;
-  };
   for (const event of sorted) {
-    const name = names.get(event.foodId) ?? '食物';
-    // 拍小票放进来的一定是买的（速冻饺子名字像菜，但它是买回来的）
     const lot = lotById.get(event.lotId);
-    const dish = event.type === 'ADD' && !event.operationId.startsWith('receipt_') && isDish(lot?.foodState);
-    const buying = event.type === 'ADD' && event.quantityDelta > 0 && !dish;
+    // 拍小票放进来的一定是买的（速冻饺子名字像菜，但它是买回来的）；自己做的菜不上小票
+    if (!event.operationId.startsWith('receipt_') && isDish(lot?.foodState)) continue;
     let trip = trips[trips.length - 1];
-    const sameTrip = trip && !trip.opening && event.occurredAt - trip.lastBuy <= TRIP_GAP;
-    // 买回来的、隔得久了：新开一张（撤销掉的买入不单独开一张）
-    if (buying && !sameTrip && !event.undoneAt) {
-      trip = open(event.occurredAt, false);
+    if (!trip || event.occurredAt - trip.lastBuy > TRIP_GAP) {
+      if (event.undoneAt) continue;
+      trip = { start: event.occurredAt, lastBuy: event.occurredAt, bought: [], finished: false,
+        no: ((Math.floor(event.occurredAt / 60_000) * 2654435761) >>> 0).toString(16).toUpperCase().padStart(8, '0').slice(-6) };
       const printed = event.operationId.startsWith('receipt_') && lot?.purchasedAt ? new Date(`${lot.purchasedAt.slice(0, 10)}T12:00:00`).getTime() : NaN;
       if (Number.isFinite(printed) && printed <= event.occurredAt) trip.boughtOn = printed;
+      trips.push(trip);
     }
-    else if (!trip) trip = open(event.occurredAt, true);
-    const line: TripLine = {
-      id: event.id, lotId: event.lotId, at: event.occurredAt, name, amount: formatEventAmount(event), undone: Boolean(event.undoneAt),
-      // 照菜谱做菜扣掉的（note 是「做番茄炖牛腩」）写「做菜用」，不写「吃掉」
-      verb: dish ? '做了' : event.type === 'CONSUME' && event.note?.startsWith('做') ? '做菜用' : TRIP_VERBS[event.type],
-    };
-    if (buying && (sameTrip || trip.bought.length === 0 && !trip.opening)) {
-      const gone = line.undone ? undefined : goneFor(event.lotId, lotById, events);
-      const since = trip.boughtOn ?? event.occurredAt;
-      if (gone) { line.gone = gone.label; line.lasted = lastedText(since, gone.at); }
-      if (isLongKeeping(name, lot, since)) line.slow = true;
-      trip.bought.push(line);
-      if (!event.undoneAt) trip.lastBuy = event.occurredAt;
-    } else {
-      trip.after.push(line);
+    const name = names.get(event.foodId) ?? '食物';
+    const line: TripLine = { id: event.id, lotId: event.lotId, at: event.occurredAt, name, amount: formatEventAmount(event), undone: Boolean(event.undoneAt) };
+    const since = trip.boughtOn ?? event.occurredAt;
+    const gone = line.undone ? undefined : goneFor(event.lotId, lotById, events);
+    if (gone) { line.gone = gone.label; line.lasted = lastedText(since, gone.at); }
+    else if (!line.undone && lot && lot.quantity > 0) {
+      const untouched = lot.quantity === event.quantityAfter && lot.openContainerRemaining === event.openContainerRemainingAfter;
+      if (!untouched) line.left = shortLotStock(lot);
     }
+    if (isLongKeeping(name, lot, since)) line.slow = true;
+    trip.bought.push(line);
+    if (!event.undoneAt) trip.lastBuy = event.occurredAt;
   }
-  // 要吃掉的都划了才算吃完；一样要吃掉的都没有（只买了酱料、开张那张）也算
+  // 要吃掉的都划了才算吃完；只买了酱料也算
   return trips.reverse().map(({ lastBuy: _lastBuy, ...trip }) => ({
     ...trip, finished: trip.bought.every(line => line.undone || line.slow || !!line.gone),
   }));
@@ -233,11 +221,11 @@ export function shoppingTrips(events: KitchenEvent[], foods: KitchenFood[], lots
 export interface DoorReceipt { day: number; items: { name: string; amount: string; lotId: string; gone?: string; slow?: boolean }[] }
 
 /**
- * 门上的小票：最近一次采购买回来的几样（跟操作记录里最上面那张是同一次，见 kitchenTrips）。撤销掉的不算。
+ * 门上的小票：最近一次采购买回来的几样（跟小票页最上面那张是同一次）。撤销掉的不算。
  * 以后拍小票入库，就是这张小票反过来用。
  */
 export function latestReceipt(events: KitchenEvent[], foods: KitchenFood[], lots: KitchenLot[] = [], limit = 8): DoorReceipt | null {
-  const trip = shoppingTrips(events, foods, lots).find(item => !item.opening);
+  const trip = shoppingTrips(events, foods, lots)[0];
   if (!trip) return null;
   // 要吃掉的在前，耐放的排在后面「慢慢吃」那段
   const lines = trip.bought.filter(line => !line.undone);
@@ -252,6 +240,7 @@ export interface HeatList { lines: (DoorNoteLine & { amount: string })[]; more: 
 /**
  * 「热一热就能吃」：冷冻门上那张（阿萌 2026-10-12 定）。看库存，不是流水：
  * 冷藏、冷冻里还有的自己做的菜 / 剩菜，加上买来的速冻半成品。
+ * 自己做的排在买的速食前面（2026-11-04 起小票上不再记做了什么菜，这张就是看做过的菜的地方）。
  * 冷藏的剩菜放不久，排在前面、快到期的最前；冷冻的放得久，先放进去的先吃。
  */
 export function heatList(lots: KitchenLot[], foods: KitchenFood[], now = Date.now(), limit = 5): HeatList | null {
@@ -262,7 +251,10 @@ export function heatList(lots: KitchenLot[], foods: KitchenFood[], now = Date.no
     .filter(({ lot, name }) => isDish(lot.foodState) || READY.test(name));
   if (!ready.length) return null;
   const due = (lot: KitchenLot) => lot.expiresAt ? Math.round((startOfDay(new Date(`${lot.expiresAt}T12:00:00`).getTime()) - today) / DAY) : Infinity;
-  ready.sort((a, b) => (a.lot.storageZone === 'fridge' ? 0 : 1) - (b.lot.storageZone === 'fridge' ? 0 : 1)
+  // 自己做的在前、买的速食在后（阿萌 2026-11-04）；各自里面冷藏的在前、快到期的最前
+  const bought = (lot: KitchenLot) => isDish(lot.foodState) ? 0 : 1;
+  ready.sort((a, b) => bought(a.lot) - bought(b.lot)
+    || (a.lot.storageZone === 'fridge' ? 0 : 1) - (b.lot.storageZone === 'fridge' ? 0 : 1)
     || (a.lot.storageZone === 'fridge' ? due(a.lot) - due(b.lot) : 0)
     || a.lot.createdAt - b.lot.createdAt || a.lot.id.localeCompare(b.lot.id));
   const lines = ready.slice(0, limit).map(({ lot, name }) => {

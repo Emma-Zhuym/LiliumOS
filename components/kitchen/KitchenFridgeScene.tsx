@@ -14,7 +14,7 @@ interface Props {
   foods: KitchenFood[];
   events?: KitchenEvent[];
   onOpenLot: (id: string) => void;
-  /** 点门上的小票：去看操作记录 */
+  /** 点门上的小票：去小票页 */
   onOpenHistory?: () => void;
   /** 点「柜子里」那张纸的空白处：去看常温柜的完整清单 */
   onOpenPantry?: () => void;
@@ -45,7 +45,7 @@ const loadGlyphs = (text: string) => {
 
 /**
  * 上一次贴在门上的样子（哪些划掉了、有哪些批次），离开首页再回来也记着：
- * 在操作记录页撤销「吃完」、在清单页放进东西，回到冰箱前笔和橡皮、纸签照样补上。
+ * 在小票页撤销「吃完」、在清单页放进东西，回到冰箱前笔和橡皮、纸签照样补上。
  * 只活在这一次打开的页面里，刷新后第一次进厨房不播（2026-10-14 重审）。
  */
 const doorMemory: { marked: Map<string, string | undefined> | null; knownLots: Set<string> | null } = { marked: null, knownLots: null };
@@ -424,7 +424,7 @@ const KitchenFridgeScene: React.FC<Props> = ({ lots, foods, events = [], onOpenL
       if (!disposed && !frame && !failed) { last = performance.now(); frame = requestAnimationFrame(draw); }
     }
 
-    /* 点哪儿：食物 → 打开那一样；便利贴的某一行 → 那一样；小票 → 操作记录；磁贴 → 拔一下；门 / 抽屉 → 开关 */
+    /* 点哪儿：食物 → 打开那一样；便利贴的某一行 → 那一样；小票 → 小票页；磁贴 → 拔一下；门 / 抽屉 → 开关 */
     const ray = new THREE.Raycaster();
     let downAt: { x: number; y: number } | null = null;
     const toggleDoor = (zone: Zone) => setOpen(value => ({ ...value, [zone]: !value[zone] }));

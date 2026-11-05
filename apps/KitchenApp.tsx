@@ -1,5 +1,5 @@
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowCounterClockwise, BookOpenText, CaretLeft, CaretRight, ClockCounterClockwise, MagnifyingGlass, Package, Plus, Snowflake, X } from '@phosphor-icons/react';
+import { ArrowCounterClockwise, BookOpenText, CaretLeft, CaretRight, MagnifyingGlass, Package, Plus, Receipt, Snowflake, X } from '@phosphor-icons/react';
 import { useOS } from '../context/OSContext';
 import KitchenLotDetail from '../components/kitchen/KitchenLotDetail';
 import KitchenSheet from '../components/kitchen/KitchenSheet';
@@ -55,6 +55,8 @@ const KitchenApp: React.FC = () => {
   const [reviewingReceipt, setReviewingReceipt] = useState(false);
   useEffect(() => { if (!showAdd) setReviewingReceipt(false); }, [showAdd]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  /** 从小票点进来的：直接问还剩多少（2026-11-04） */
+  const [askRemaining, setAskRemaining] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [zoneFilter, setZoneFilter] = useState<KitchenStorageZone | 'all'>('all');
@@ -111,6 +113,7 @@ const KitchenApp: React.FC = () => {
   const stagedCount = activeLots.filter(lot => lot.storageZone === 'staging').length;
   const visibleEvents = events.filter(hasKitchenEventChange);
   const canUndo = visibleEvents.some(event => event.type !== 'UNDO' && !event.undoneAt);
+  const trips = view === 'history' ? shoppingTrips(visibleEvents, foods, lots) : [];
   const selectedLot = lots.find(lot => lot.id === selectedId && lot.quantity > 0);
   const detailLot = lots.find(lot => lot.id === detailId);
   const detailFood = detailLot && foodById.get(detailLot.foodId);
@@ -150,13 +153,13 @@ const KitchenApp: React.FC = () => {
     const success = await run(async () => { restored = !!await KitchenDB.undoLatest(makeOperationId('undo')); }, '已撤销最近操作', false, false);
     if (success && !restored) setNotice({ text: '暂时没有可以撤销的操作' });
   };
-  const openLot = useCallback((id: string) => { setNotice(null); setSelectedId(id); }, []);
-  // 记录页点一行：还有的开操作面板（记用量、核对），已经吃完 / 丢了的开详情页（改资料、看这一样的记录）
+  const openLot = useCallback((id: string) => { setNotice(null); setAskRemaining(false); setSelectedId(id); }, []);
+  // 小票上点一行：还有的开操作面板、直接改还剩多少，已经吃完 / 丢了的开详情页（改资料、看这一样的记录）
   const openHistoryLot = (id: string) => {
     const lot = lots.find(item => item.id === id);
     if (!lot) return;
     setNotice(null);
-    if (lot.quantity > 0) setSelectedId(id); else setDetailId(id);
+    if (lot.quantity > 0) { setAskRemaining(true); setSelectedId(id); } else setDetailId(id);
   };
   const openList = (focusSearch = false, filter: typeof zoneFilter = 'all') => {
     searchOnOpen.current = focusSearch;
@@ -254,7 +257,7 @@ const KitchenApp: React.FC = () => {
     siblingLotCount={lots.filter(lot => lot.foodId === detailLot.foodId).length} busy={busy} notice={notice?.text ?? null}
     unitLabels={UNIT_LABELS} zoneLabels={ZONE_LABELS} editableUnits={editableUnitsFor(detailLot.unit)}
     onBack={() => { setDetailId(null); setNotice(null); }} onSave={input => { void saveDetails(input); }}
-    onFinish={() => { void run(() => KitchenDB.changeLot({ type: 'FINISH', lotId: detailLot.id, operationId: makeOperationId('finish') }), '这条库存已清零，可在操作记录里撤销'); }} />;
+    onFinish={() => { void run(() => KitchenDB.changeLot({ type: 'FINISH', lotId: detailLot.id, operationId: makeOperationId('finish') }), '这条库存已清零，可以在小票页撤销'); }} />;
 
   const renderRows = (items: KitchenLot[]) => <div className="kitchen-inventory">
     {items.map(lot => {
@@ -291,7 +294,7 @@ const KitchenApp: React.FC = () => {
             else if (view === 'sauce-edit') setView(sauceBack);
             else setView('home');
           }}><CaretLeft size={22} weight="bold" /></button></div>
-        <h1 className="kitchen-heading">{({ home: '小厨房', list: '食材清单', history: '操作记录', recipes: '菜谱', recipe: '菜谱',
+        <h1 className="kitchen-heading">{({ home: '小厨房', list: '食材清单', history: '小票', recipes: '菜谱', recipe: '菜谱',
           'recipe-edit': currentRecipe ? '改菜谱' : '写一道菜', 'sauce-edit': currentSauce ? '改酱汁' : '调一个酱汁' } as Record<View, string>)[view]}</h1>
         <div className="kitchen-header-actions">
           {view === 'home' && <button type="button" className="kitchen-icon" aria-label="搜索食材" onClick={() => openList(true)}><MagnifyingGlass size={21} /></button>}
@@ -315,7 +318,7 @@ const KitchenApp: React.FC = () => {
             <nav className="kitchen-stage-chips" aria-label="厨房">
               <button type="button" className="kitchen-button" aria-label="食材清单" onClick={() => openList()}>食材清单 · {activeLots.length}</button>
               {stagedCount > 0 && <button type="button" className="kitchen-button" onClick={() => openList(false, 'staging')}>{stagedCount} 条还没收好</button>}
-              <button type="button" className="kitchen-button" onClick={() => setView('history')}><ClockCounterClockwise size={16} />操作记录</button>
+              <button type="button" className="kitchen-button" onClick={() => setView('history')}><Receipt size={16} />小票</button>
               <button type="button" className="kitchen-button" onClick={() => { setNotice(null); setView('recipes'); }}><BookOpenText size={16} />菜谱</button>
             </nav>
           </> : view === 'recipes' ? <KitchenRecipeBook tab={recipeTab} recipes={recipes} sauces={sauces} lots={lots} foods={foods} onTab={setRecipeTab}
@@ -346,11 +349,11 @@ const KitchenApp: React.FC = () => {
               {renderRows(group.lots)}
             </section>) : renderRows(visibleLots) : <div className="kitchen-empty"><Package size={24} /><p>{activeLots.length ? '没有找到符合条件的食材，换个名称或位置试试。' : '还没有食材，先把买回来的放进来吧。'}</p></div>}
           </> : <>
-            <div className="kitchen-history-head"><p className="kitchen-note">每次添置、用掉，都记在这页。</p>
+            <div className="kitchen-history-head"><p className="kitchen-note">每次买回来的，还剩多少写在旁边，点一行改。</p>
               <button type="button" className="kitchen-text-button" disabled={busy || !canUndo} onClick={() => { void undo(); }}><ArrowCounterClockwise size={18} />撤销最近操作</button>
             </div>
-            {visibleEvents.length === 0 ? <div className="kitchen-empty">还没有操作记录。</div>
-              : <KitchenHistoryReceipts trips={shoppingTrips(visibleEvents, foods, lots)} onOpenLot={openHistoryLot} />}
+            {trips.length === 0 ? <div className="kitchen-empty">还没有小票，买回来的东西放进来就有了。</div>
+              : <KitchenHistoryReceipts trips={trips} onOpenLot={openHistoryLot} />}
           </>}
       </main>
     </div>
@@ -370,7 +373,7 @@ const KitchenApp: React.FC = () => {
           onToggle={id => { void editShopping(() => KitchenDB.toggleShopping(id)); }}
           onRemove={id => { void editShopping(() => KitchenDB.removeShopping(id)); }}
           onClearChecked={() => { void editShopping(() => KitchenDB.clearCheckedShopping()); }} />
-        : <KitchenLotActions key={selectedLot!.id} lot={selectedLot!} busy={busy}
+        : <KitchenLotActions key={selectedLot!.id} lot={selectedLot!} busy={busy} startWith={askRemaining ? 'remaining' : undefined}
           onAddShopping={() => {
             const name = foodById.get(selectedLot!.foodId)?.name;
             if (name) void editShopping(() => KitchenDB.addShopping(name, selectedLot!.id)).then(ok => { if (ok) setNotice({ text: `${name}加进要买清单了` }); });

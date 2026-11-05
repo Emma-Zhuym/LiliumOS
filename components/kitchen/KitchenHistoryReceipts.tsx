@@ -25,31 +25,30 @@ const TornEdge: React.FC = () => <svg className="kitchen-receipt-edge" viewBox="
 const hm = (at: number) => new Date(at).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
 const md = (at: number) => { const d = new Date(at); return `${d.getMonth() + 1}/${d.getDate()}`; };
 
-// 撤销的：整行淡掉划掉；买回来的已经吃完 / 丢了：名字划掉，数量换成「3 天吃完」（看自己吃得多快，不做统计数字）
-// 点一行就打开那一样（2026-10-14：原来记录页只能看，要改得回食材清单去找）
+// 撤销的：整行淡掉划掉；吃完 / 丢了：名字划掉，数量换成「3 天吃完」（看自己吃得多快，不做统计数字）；
+// 吃了一些的：数量旁边用笔写「剩 5 件」（2026-11-04，原来要去下面一串流水里自己算）。
+// 点一行：还有的打开改余量，没了的打开详情页（那一样的来龙去脉在详情页）
 const OpenLot = React.createContext<(lotId: string) => void>(() => {});
-const Line: React.FC<{ line: TripLine; when?: string }> = ({ line, when }) => {
+const Line: React.FC<{ line: TripLine }> = ({ line }) => {
   const open = React.useContext(OpenLot);
   return <li>
     <button type="button" className={`kitchen-receipt-row${line.undone ? ' is-undone' : line.gone ? ' is-gone' : ''}`} onClick={() => open(line.lotId)}>
-      {when && <span className="kitchen-receipt-time">{when}</span>}
-      <span className="kitchen-receipt-name">{line.verb === '放进' ? '' : `${line.verb} `}<span>{line.name}</span>{line.undone && <em>已撤销</em>}</span>
-      <span className="kitchen-receipt-amount">{line.gone ? goneText(line) : line.amount}</span>
+      <span className="kitchen-receipt-name"><span>{line.name}</span>{line.undone && <em>已撤销</em>}</span>
+      {line.gone ? <span className="kitchen-receipt-amount">{goneText(line)}</span>
+        : <span className="kitchen-receipt-qty"><span className="kitchen-receipt-amount">{line.amount}</span>{line.left && <em className="kitchen-receipt-left">剩 {line.left}</em>}</span>}
     </button>
   </li>;
 };
 
-/** 一张完整的小票：买回来的（要吃掉的在前、耐放的在「慢慢吃」那段），撕痕下面是到下一次采购之前用掉的 */
+/** 一张完整的小票：买回来的，要吃掉的在前、耐放的在「慢慢吃」那段 */
 const Receipt: React.FC<{ trip: ShoppingTrip }> = ({ trip }) => {
   // 拍小票进来的写小票上的日子（没有几点几分）；手动放进的写放进来的时刻
   const day = trip.boughtOn ?? trip.start, date = new Date(day);
   const eat = trip.bought.filter(line => !line.slow), slow = trip.bought.filter(line => line.slow);
-  // 后半截跨好几天：换了一天才写日期
-  let lastDay = '';
   return <>
     <div className="kitchen-receipt-paper">
       <header className="kitchen-receipt-head">
-        <span><strong>{trip.opening ? '小厨房 · 开张' : '小厨房 · 采购'}</strong><small>NO. {trip.no}</small></span>
+        <span><strong>小厨房 · 采购</strong><small>NO. {trip.no}</small></span>
         <time dateTime={date.toISOString()}>{md(day)}<small>{WEEKDAYS[date.getDay()]}{trip.boughtOn ? '' : ` ${hm(trip.start)}`}</small></time>
       </header>
       {eat.length > 0 && <ul className="kitchen-receipt-lines">
@@ -59,16 +58,6 @@ const Receipt: React.FC<{ trip: ShoppingTrip }> = ({ trip }) => {
         <p className="kitchen-receipt-section">慢 慢 吃</p>
         <ul className="kitchen-receipt-lines kitchen-receipt-lines--slow">
           {slow.map(line => <Line key={line.id} line={line} />)}
-        </ul>
-      </>}
-      {trip.after.length > 0 && <>
-        {trip.bought.length > 0 && <p className="kitchen-receipt-section">之 后</p>}
-        <ul className="kitchen-receipt-lines kitchen-receipt-lines--after">
-          {trip.after.map(line => {
-            const day = md(line.at), when = day === lastDay ? hm(line.at) : `${day} ${hm(line.at)}`;
-            lastDay = day;
-            return <Line key={line.id} line={line} when={when} />;
-          })}
         </ul>
       </>}
       <footer className="kitchen-receipt-foot">
@@ -102,14 +91,14 @@ const KitchenHistoryReceipts: React.FC<{ trips: ShoppingTrip[]; onOpenLot: (lotI
           return <li key={trip.start} className={`kitchen-receipt${expanded ? ' is-open' : ''}`}>
             {/* 折起来：一截撕下来的短小票——日期、一小段条形码，那次买的东西划掉了排一行，慢慢吃的淡淡跟在后面 */}
             <button type="button" className="kitchen-receipt-stub" aria-expanded={expanded} onClick={() => toggle(trip.start)}
-              aria-label={`${md(day)} ${trip.opening ? '开张' : '采购'}的小票，${expanded ? '收起' : '展开'}`}>
+              aria-label={`${md(day)} 采购的小票，${expanded ? '收起' : '展开'}`}>
               <span className="kitchen-receipt-stub-head">
                 <time dateTime={date.toISOString()}>{md(day)}<small>{WEEKDAYS[date.getDay()]}</small></time>
                 {expanded ? <span className="kitchen-receipt-stub-fold">收起</span> : <Barcode code={trip.no} />}
               </span>
               {/* 展开时整张小票就在下面，票根只留日期和「收起」，不重复 */}
               {!expanded && <span className="kitchen-receipt-stub-items">
-                {trip.opening && !eaten.length ? <em>买东西以前的零碎</em> : eaten.map(line => <s key={line.id}>{line.name}</s>)}
+                {eaten.map(line => <s key={line.id}>{line.name}</s>)}
                 {slow.length > 0 && <em>· {slow.map(line => line.name).join('、')}慢慢吃</em>}
               </span>}
             </button>

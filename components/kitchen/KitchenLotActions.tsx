@@ -11,16 +11,18 @@ interface Props {
   onError: (message: string) => void;
   onEdit: () => void;
   onAddShopping?: () => void;
+  /** 从小票点进来：先问还剩多少 */
+  startWith?: 'remaining' | 'consume';
 }
 
-export default function KitchenLotActions({ lot, busy, run, onError, onEdit, onAddShopping }: Props) {
+export default function KitchenLotActions({ lot, busy, run, onError, onEdit, onAddShopping, startWith }: Props) {
   const divisible = lot.trackingMode === 'divisible';
   const remainingInput = () => formatPackageAmount(lot.packageSize, lot.openContainerRemaining ?? 1)
     ?? formatPortionInput(lot.openContainerRemaining ?? 1);
-  const [mode, setMode] = useState<'remaining' | 'consume'>(divisible ? 'remaining' : 'consume');
+  const [mode, setMode] = useState<'remaining' | 'consume'>(startWith ?? (divisible ? 'remaining' : 'consume'));
   const [value, setValue] = useState(divisible
-    ? remainingInput()
-    : String(quickAmount(lot)));
+    ? (startWith === 'consume' ? '' : remainingInput())
+    : String(startWith === 'remaining' ? lot.quantity : quickAmount(lot)));
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const chooseMode = (next: typeof mode) => {
     setMode(next);
@@ -38,10 +40,19 @@ export default function KitchenLotActions({ lot, busy, run, onError, onEdit, onA
       mode === 'remaining' ? '余量已记好' : '这次用量已记好', true);
     } else {
       if (!value.trim() || !Number.isFinite(Number(value))) { onError('请填写数量'); return; }
-      await run(() => mode === 'remaining'
-        ? KitchenDB.changeLot({ type: 'ADJUST', lotId: lot.id, quantity: Number(value), operationId: makeOperationId('adjust') })
-        : KitchenDB.changeLot({ type: 'CONSUME', lotId: lot.id, amount: Number(value), operationId: makeOperationId('consume') }),
-      mode === 'remaining' ? '数量已核对' : `已记下用了 ${formatQuantity(Number(value), lot.unit)}`, true);
+      const next = Number(value);
+      if (mode === 'remaining') {
+        if (next < 0) { onError('剩的不能小于 0'); return; }
+        if (next === lot.quantity) { onError('跟现在一样，不用改'); return; }
+        // 剩得比现在少 = 吃掉了那么多：记成「吃掉」，减到 0 时小票上才算得出几天吃完；多了才是核对
+        await run(() => next < lot.quantity
+          ? KitchenDB.changeLot({ type: 'CONSUME', lotId: lot.id, amount: lot.quantity - next, operationId: makeOperationId('consume'), note: '改余量' })
+          : KitchenDB.changeLot({ type: 'ADJUST', lotId: lot.id, quantity: next, operationId: makeOperationId('adjust') }),
+        next === 0 ? '吃完了' : `余量改成 ${formatQuantity(next, lot.unit)}`, true);
+        return;
+      }
+      await run(() => KitchenDB.changeLot({ type: 'CONSUME', lotId: lot.id, amount: next, operationId: makeOperationId('consume') }),
+        `已记下用了 ${formatQuantity(next, lot.unit)}`, true);
     }
   };
 

@@ -60,6 +60,18 @@ export const describeLotStock = (lot: KitchenLot): string => {
   return sealedCount > 0 ? `${opened} · 另有 ${sealedCount} ${UNIT_LABELS[lot.unit]}未开封` : opened;
 };
 
+/**
+ * 小票上那一行旁边写的余量（2026-11-04）：比 describeLotStock 短，一行写得下。
+ * 「5 件」「约 1/2 件」「2 件 + 约 700 ml」。
+ */
+export const shortLotStock = (lot: KitchenLot): string => {
+  const remaining = lot.trackingMode === 'divisible' ? lot.openContainerRemaining : undefined;
+  if (remaining === undefined) return formatQuantity(lot.quantity, lot.unit);
+  const sealed = Math.max(0, lot.quantity - 1);
+  const opened = `约 ${formatPackageAmount(lot.packageSize, remaining) ?? `${formatPortionFraction(remaining)} ${UNIT_LABELS[lot.unit]}`}`;
+  return sealed > 0 ? `${formatQuantity(sealed, lot.unit)} + ${opened}` : opened;
+};
+
 export const formatEventAmount = (event: KitchenEvent): string => {
   const delta = event.contentDelta ?? event.quantityDelta;
   const prefix = delta > 0 ? '+' : '';
