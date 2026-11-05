@@ -234,7 +234,8 @@ export const salvageFields = raw => {
 const MISSING_COLON_RE = /([{,]\s*)"(action|activity|reason|urge|text|message|content|reply)(?=[^"\s:])/g;
 export const repairMissingColons = raw => raw.replace(MISSING_COLON_RE, '$1"$2": "');
 
-const SELF_EVENT_LABELS = new Set(['work_trouble', 'work_win', 'friend_fun', 'tired_day']);
+// 跟 drives.mjs 的 SELF_LABELS 一致（runner 不引心思引擎）
+const SELF_EVENT_LABELS = new Set(['work_trouble', 'work_win', 'friend_fun', 'tired_day', 'bored', 'new_thing', 'lonely_day', 'old_memory']);
 
 const toOutput = (parsed, { inferMissingAction = false } = {}) => {
     const body = pickText(parsed);

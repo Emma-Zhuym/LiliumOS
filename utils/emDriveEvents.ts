@@ -14,7 +14,7 @@ import { AgentBackend, isAgentPaired } from './emAgentBackend';
 
 export const DRIVE_EVENT_LABELS = [
     'affectionate', 'flirt', 'getting_intimate', 'intimacy_done', 'vulnerable', 'reassuring', 'sharing',
-    'cold', 'dismissive', 'conflict', 'broken_promise', 'pressing', 'concern_fact',
+    'cold', 'dismissive', 'conflict', 'broken_promise', 'pressing', 'concern_fact', 'reminiscing',
 ] as const;
 export type DriveEventLabel = typeof DRIVE_EVENT_LABELS[number];
 export interface DriveEvent { label: DriveEventLabel; quote?: string }
@@ -44,6 +44,7 @@ export const buildDriveEventsEvalSection = (): string => {
 - broken_promise：答应过的事没做 / 忘了
 - pressing：催、追问
 - concern_fact：提到会让人挂心的事实（考试、看病、出远门、大额花销）
+- reminiscing：提起你们以前的事、纪念日、翻出旧照片 / 旧聊天
 规则：cold / dismissive / conflict / broken_promise / pressing **必须**在 quote 里一字不差地引她的原话，引不出来就别标；兴奋、开玩笑、语气词多不是负面。没有合适的就写 "driveEvents": []。`;
 };
 

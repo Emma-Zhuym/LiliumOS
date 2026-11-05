@@ -62,6 +62,25 @@ export const inPrivateMoment = (state, now = new Date()) =>
     Boolean(state?.privateUntil) && now.getTime() < Date.parse(state.privateUntil);
 const DESIRE_MORNING = 0.1;
 
+/**
+ * 好奇、社交：离上次真做过越久越想（spec 5.1「时间慢升」，2026-11-04 补上——之前只写在 spec 里，
+ * 这两种只会往基线回、从来不涨，查手机几乎看不到）。基线按「距上次满足多少小时」往上爬，有封顶；
+ * 都比分开时的「想你」慢，异地时想你仍排第一。时钟记在 state.satisfiedAt，真做完（satisfy）或
+ * 对应的自身经历（LABEL_SATISFIES）重新算；旧状态没有记录的，从上次更新时刻算起。夜里 23–7 点不加。
+ */
+export const HUNGER_DRIFT = {
+    social: { perHour: 0.03, max: 0.3 },
+    curious: { perHour: 0.025, max: 0.25 },
+};
+/** 回味没有「做完」这回事，不随时间攒；只在夜里（角色那边 21–1 点）浮上来一点，单靠它到不了显示门槛，要有事推。 */
+const REMINISCE_NIGHT = 0.1;
+const isReminisceHour = localHour => localHour >= 21 || localHour < 1;
+/** 这些自身经历本身就算满足过一次（跟朋友玩得开心 = 社交满足了），时钟重新算。 */
+const LABEL_SATISFIES = { friend_fun: ['social'] };
+const restartClocks = (state, keys, now) => (keys?.length
+    ? { ...state.satisfiedAt, ...Object.fromEntries(keys.filter(key => HUNGER_DRIFT[key]).map(key => [key, now.toISOString()])) }
+    : state.satisfiedAt);
+
 /** 撒娇 / 亲密时「想你」怎么变：在一块是满足了，分开时是更想见面。 */
 const AFFECTION_MISS = { together: -0.10, today: 0.03, far: 0.08, unknown: 0 };
 
@@ -94,7 +113,10 @@ export const LABEL_EFFECTS = {
     intimate: { desire: 0.15, miss: -0.05 },
     vulnerable: { concern: 0.15 },
     reassuring: { sulk: -0.30, stress: -0.10 },
-    sharing: { curious: 0.05, miss: -0.05 },
+    // 她兴冲冲分享：好奇 0.05 → 0.10（2026-11-04：原来小到推不动）
+    sharing: { curious: 0.10, miss: -0.05 },
+    // 她提起以前的事、纪念日、翻旧照片：TA 也跟着想起来
+    reminiscing: { reminisce: 0.12, miss: -0.03 },
     // 轻的（冷淡、不当回事）单独一次只让他心里有点堵；重的（吵架、失约）一次就够他主动提（阿萌 2026-10-19）
     cold: { sulk: 0.06, miss: 0.05 },
     dismissive: { sulk: 0.07 },
@@ -108,9 +130,14 @@ export const LABEL_EFFECTS = {
     work_win: { stress: -0.08 },
     friend_fun: { social: -0.10, stress: -0.05 },
     tired_day: { tired: 0.15 },
+    // 2026-11-04 补：好奇、社交、回味原来没有任何东西推
+    bored: { curious: 0.10 },
+    new_thing: { curious: 0.12 },
+    lonely_day: { social: 0.12 },
+    old_memory: { reminisce: 0.15 },
 };
-export const CHAT_LABELS = ['affectionate', 'flirt', 'getting_intimate', 'intimacy_done', 'intimate', 'vulnerable', 'reassuring', 'sharing', 'cold', 'dismissive', 'conflict', 'broken_promise', 'pressing', 'concern_fact', 'neutral'];
-export const SELF_LABELS = ['work_trouble', 'work_win', 'friend_fun', 'tired_day'];
+export const CHAT_LABELS = ['affectionate', 'flirt', 'getting_intimate', 'intimacy_done', 'intimate', 'vulnerable', 'reassuring', 'sharing', 'cold', 'dismissive', 'conflict', 'broken_promise', 'pressing', 'concern_fact', 'reminiscing', 'neutral'];
+export const SELF_LABELS = ['work_trouble', 'work_win', 'friend_fun', 'tired_day', 'bored', 'new_thing', 'lonely_day', 'old_memory'];
 
 /** 真做完了：按比例往下落（乘性），之后两跳内这种不再加权。 */
 export const SATISFY = {
@@ -194,6 +221,8 @@ export const evolve = (state, now = new Date(), { silenceHours = 0, localHour = 
     const refractory = state.desireRefractoryUntil && now.getTime() < Date.parse(state.desireRefractoryUntil);
     const tiredOver = Math.max(0, (state.values.tired ?? 0) - (state.baseline.tired ?? DEFAULT_BASELINE.tired));
     const dtH = Math.max(0, (now.getTime() - Date.parse(state.updatedAt)) / 3_600_000);
+    const satisfiedAt = { ...(state.satisfiedAt ?? {}) };
+    for (const key of Object.keys(HUNGER_DRIFT)) if (!satisfiedAt[key]) satisfiedAt[key] = state.updatedAt;
     const values = {};
     for (const key of DRIVES) {
         let base = state.baseline[key] ?? DEFAULT_BASELINE[key];
@@ -202,6 +231,13 @@ export const evolve = (state, now = new Date(), { silenceHours = 0, localHour = 
             base = clamp01(base + (drift.perHour >= 0 ? Math.min(drift.max, moved) : Math.max(drift.max, moved)));
         }
         if (key === 'tired') base = tiredBaseFor(base, localHour);
+        // 夜里（角色那边 23–7 点）睡着了不惦记出门找人、刷东西：不加，早上接着按「多久没做」算
+        if (HUNGER_DRIFT[key] && localHour >= 7 && localHour < 23) {
+            const { perHour, max } = HUNGER_DRIFT[key];
+            const hungryH = Math.max(0, (now.getTime() - Date.parse(satisfiedAt[key])) / 3_600_000);
+            base = clamp01(base + Math.min(max, perHour * hungryH));
+        }
+        if (key === 'reminisce' && isReminisceHour(localHour)) base = clamp01(base + REMINISCE_NIGHT);
         if (key === 'desire') {
             // 早上有个小脉冲（不应期里不算）；累了、在上班时往下压
             if (!refractory && localHour >= 6 && localHour < 9) base += DESIRE_MORNING;
@@ -219,7 +255,7 @@ export const evolve = (state, now = new Date(), { silenceHours = 0, localHour = 
         values.sulk = state.baseline.sulk ?? DEFAULT_BASELINE.sulk;
         sulkEvidence = null;
     }
-    return { ...state, values, updatedAt: now.toISOString(), sulkEvidence };
+    return { ...state, values, updatedAt: now.toISOString(), sulkEvidence, satisfiedAt };
 };
 
 /**
@@ -274,6 +310,7 @@ export const applyLabel = (state, { label, quote = '', source = 'chat', now = ne
             ...(togetherIntimacy ? { desireRefractoryUntil: new Date(now.getTime() + DESIRE_REFRACTORY_MS).toISOString() } : {}),
             ...privateMomentAfter(state, label, source, now),
             values,
+            satisfiedAt: restartClocks(state, LABEL_SATISFIES[label], now),
             labels: { ...(state.labels ?? {}), [label]: { at: now.toISOString(), repeats } },
             sulkEvidence: sulkReset ? null : sulkUp ? { at: now.toISOString(), quote: cleanQuote, label } : state.sulkEvidence,
         },
@@ -300,7 +337,7 @@ const privateMomentAfter = (state, label, source, now) => {
 const STATEFUL_LABELS = new Set(['getting_intimate', 'intimacy_done', 'reassuring']);
 
 /** 真做完了一件事：对应的心思按比例往下落。 */
-export const satisfy = (state, what, { source = 'heartbeat' } = {}) => {
+export const satisfy = (state, what, { source = 'heartbeat', now = new Date() } = {}) => {
     const table = SATISFY[what];
     if (!table) return { state, changes: [] };
     const values = { ...state.values };
@@ -313,7 +350,8 @@ export const satisfy = (state, what, { source = 'heartbeat' } = {}) => {
         changes.push({ drive: key, delta: after - before, valueAfter: after, label: `satisfy:${what}`, source, reason: what });
     }
     const sulkEvidence = what === 'grievance_said' ? null : state.sulkEvidence;
-    return { state: { ...state, values, sulkEvidence }, changes };
+    // 真做完了：好奇、社交的「多久没做」时钟重新算（数值没动也算——本来就不想也是做过了）
+    return { state: { ...state, values, sulkEvidence, satisfiedAt: restartClocks(state, Object.keys(table), now) }, changes };
 };
 
 const above = (state, key) => (state.values[key] ?? 0) - (state.baseline[key] ?? DEFAULT_BASELINE[key]);

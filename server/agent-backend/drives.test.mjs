@@ -35,6 +35,45 @@ test('时间：往基线回；久不说话「想你」的基线往上爬，有�
     assert.ok(night.values.tired > DEFAULT_BASELINE.tired, '深夜累一点');
 });
 
+test('好奇、社交：多久没做越想，夜里不加，真做完时钟重来；回味夜里浮一点、要有事推才显示（2026-11-04）', () => {
+    // AT = 芝加哥 15:00；一路醒着到 22:00（7 小时）——还没到显示
+    const s0 = freshState(DEFAULT_BASELINE, AT);
+    const day = evolve(s0, new Date(AT.getTime() + 7 * H), { localHour: 22 });
+    assert.ok(day.values.social > DEFAULT_BASELINE.social && day.values.curious > DEFAULT_BASELINE.curious, '白天在涨');
+    // 一整个白天（8 点起到 22 点）没找过人：晚上「想找朋友说说话」
+    const morning = { ...freshState(DEFAULT_BASELINE, AT) };
+    let st = morning;
+    for (let h = 1; h <= 14; h += 1) st = evolve(st, new Date(AT.getTime() + h * H), { localHour: 8 + h });
+    assert.match(formatFeelings(st, { userName: '她' }).text, /想找朋友说说话/);
+    // 有封顶
+    let long = freshState(DEFAULT_BASELINE, AT);
+    for (let h = 1; h <= 60; h += 1) long = evolve(long, new Date(AT.getTime() + h * H), { localHour: 12 });
+    assert.ok(long.values.social <= DEFAULT_BASELINE.social + 0.3 + 1e-9);
+    assert.ok(long.values.curious <= DEFAULT_BASELINE.curious + 0.25 + 1e-9);
+    // 夜里不加：同样隔 7 小时，凌晨那段基线不动
+    const night = evolve(freshState(DEFAULT_BASELINE, AT), new Date(AT.getTime() + 7 * H), { localHour: 3 });
+    assert.ok(Math.abs(night.values.social - DEFAULT_BASELINE.social) < 1e-9);
+    // 真做完：时钟重来、数值落
+    const done = satisfy(long, 'chat', { now: new Date(AT.getTime() + 60 * H) }).state;
+    assert.equal(done.satisfiedAt.social, new Date(AT.getTime() + 60 * H).toISOString());
+    assert.ok(done.values.social < long.values.social);
+    const after = evolve(done, new Date(AT.getTime() + 61 * H), { localHour: 12 });
+    assert.ok(after.values.social < long.values.social, '刚聊完不会马上又想');
+    // 跟朋友玩得开心也算社交满足过
+    const fun = applyLabel(long, { label: 'friend_fun', source: 'heartbeat', now: new Date(AT.getTime() + 60 * H) }).state;
+    assert.equal(fun.satisfiedAt.social, new Date(AT.getTime() + 60 * H).toISOString());
+    // 回味：夜里单靠时段到不了显示门槛；她翻旧照片 + 自己想起旧事才显示
+    const quietNight = evolve(freshState(DEFAULT_BASELINE, AT), new Date(AT.getTime() + 6 * H), { localHour: 21 });
+    assert.doesNotMatch(formatFeelings(quietNight).text, /以前的事/);
+    let memo = applyLabel(quietNight, { label: 'reminiscing', now: new Date(AT.getTime() + 6 * H) }).state;
+    memo = applyLabel(memo, { label: 'old_memory', source: 'heartbeat', now: new Date(AT.getTime() + 6 * H) }).state;
+    assert.match(formatFeelings(memo).text, /以前的事/);
+    // 新的自身经历都认
+    for (const label of ['bored', 'new_thing', 'lonely_day', 'old_memory']) {
+        assert.ok(applyLabel(s0, { label, source: 'heartbeat', now: AT }).changes.length > 0, label);
+    }
+});
+
 test('标签：负面的没有原话不收；同一标签 15 分钟内打折；一次最多推 0.2', () => {
     const s0 = freshState(DEFAULT_BASELINE, AT);
     assert.equal(applyLabel(s0, { label: 'cold', quote: '', now: AT }).rejected, 'no_quote');

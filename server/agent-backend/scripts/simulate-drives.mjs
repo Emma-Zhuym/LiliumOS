@@ -10,7 +10,7 @@
  */
 
 import {
-    DEFAULT_BASELINE, applyLabel, evolve, formatFeelings, freshState, grievanceOf, inPrivateMoment, withApartness,
+    DEFAULT_BASELINE, applyLabel, evolve, formatFeelings, freshState, grievanceOf, inPrivateMoment, satisfy, withApartness,
 } from '../drives.mjs';
 
 const H = 3_600_000;
@@ -45,15 +45,32 @@ const scenarios = [
         events: [[0, 'apart', 'today'], [2, 'self', 'work_trouble'], [4, 'self', 'work_trouble'], [7, 'self', 'tired_day'], [9, 'self', 'work_win']],
         chatAt: [0],
     },
+    // 2026-11-04：好奇、社交随时间涨，回味夜里浮上来；satisfy = 心跳里真做完了（找朋友聊天、刷小红书）
+    {
+        name: '普通工作日：中午刷了会儿小红书，下班跟朋友聊天，晚上说过几句',
+        events: [[0, 'apart', 'today'], [3, 'self', 'work_trouble'], [4, 'satisfy', 'xhs'], [10, 'satisfy', 'chat'], [12, 'chat', 'affectionate']],
+        chatAt: [0, 4, 12],
+    },
+    {
+        name: '周末宅在一块：她分享东西、有点无聊、晚上翻旧照片',
+        events: [[0, 'apart', 'together'], [3, 'chat', 'sharing'], [5, 'self', 'bored'], [6, 'self', 'new_thing'], [7, 'satisfy', 'xhs'],
+            [13, 'chat', 'reminiscing'], [14, 'self', 'old_memory']],
+        chatAt: [0, 3, 7, 13, 14],
+    },
+    {
+        name: '闷了一整天：没见朋友、没刷手机，一直在说话',
+        events: [[0, 'apart', 'today'], [9, 'self', 'lonely_day']],
+        chatAt: Array.from({ length: 27 }, (_, i) => i),
+    },
 ];
 
 const pick = process.argv[2];
-const cols = ['miss', 'sulk', 'stress', 'desire', 'tired'];
+const cols = ['miss', 'sulk', 'stress', 'desire', 'tired', 'social', 'curious', 'reminisce'];
 const pad = (v, n = 6) => String(v).padStart(n);
 
 for (const sc of scenarios.filter(s => !pick || s.name.includes(pick))) {
     console.log(`\n## ${sc.name}`);
-    console.log(`时刻  ${cols.map(c => pad(c)).join('')}   在一块    主动提?  两人时间  感受`);
+    console.log(`时刻  ${cols.map(c => pad(c.slice(0, 6), 7)).join('')}   在一块    主动提?  两人时间  感受`);
     let state = freshState(DEFAULT_BASELINE, START);
     const events = sc.events.slice().sort((a, b) => a[0] - b[0]);
     for (let h = 0; h <= 26; h += 1) {
@@ -64,9 +81,10 @@ for (const sc of scenarios.filter(s => !pick || s.name.includes(pick))) {
         for (const [t, kind, value, quote] of events.filter(e => e[0] > h - 1 && e[0] <= h)) {
             const at = new Date(START.getTime() + t * H);
             if (kind === 'apart') state = withApartness(state, value, at);
+            else if (kind === 'satisfy') state = satisfy(state, value, { now: at }).state;
             else state = applyLabel(state, { label: value, quote, now: at, source: kind }).state;
         }
         const feel = formatFeelings(state, { userName: '她' }).text.split('\n').slice(1).map(l => l.replace(/^- /, '')).join(' ');
-        console.log(`${pad(`${localHour}:00`, 5)} ${cols.map(c => pad(state.values[c].toFixed(2))).join('')}   ${pad(state.apartness?.value ?? '-', 8)}  ${grievanceOf(state) ? '  是  ' : '      '}  ${inPrivateMoment(state, now) ? '  是  ' : '      '}  ${feel}`);
+        console.log(`${pad(`${localHour}:00`, 5)} ${cols.map(c => pad(state.values[c].toFixed(2), 7)).join('')}   ${pad(state.apartness?.value ?? '-', 8)}  ${grievanceOf(state) ? '  是  ' : '      '}  ${inPrivateMoment(state, now) ? '  是  ' : '      '}  ${feel}`);
     }
 }

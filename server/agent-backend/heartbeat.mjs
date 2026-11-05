@@ -1544,7 +1544,9 @@ export const TOGETHER_HOW = 'together：你们此刻在不在一块——togethe
 
 /** 过日子那一跳顺手标一下这件事对自己有什么影响（drives.mjs 的 SELF_LABELS）。只给标签，数值程序定。 */
 export const SELF_EVENTS_HOW = 'selfEvents：如果这一跳的事让你自己有点什么，写对应的词（可以几个，也可以省略）：'
-    + 'work_trouble = 工作 / 学业上遇到头疼的事；work_win = 顺利搞定了一件事；friend_fun = 跟朋友待得挺开心；tired_day = 今天挺累。'
+    + 'work_trouble = 工作 / 学业上遇到头疼的事；work_win = 顺利搞定了一件事；friend_fun = 跟朋友待得挺开心；tired_day = 今天挺累；'
+    + 'bored = 闲着没事干、有点无聊；new_thing = 听说 / 刷到 / 碰上一件新鲜事，想多看看；lonely_day = 一整天没怎么跟人说上话；'
+    + 'old_memory = 路过老地方、翻到旧东西、想起以前的事。'
     + '没有就省略，别为了写而写。';
 
 /**
@@ -2218,11 +2220,11 @@ export const createHeartbeatHandler = ({
             if (SELF_LABELS.includes(label)) absorb(applyLabel(next, { label, source: 'heartbeat', now: settledAt }));
         }
         if (output.action === 'message') {
-            absorb(satisfyDrive(next, 'message'));
-            if (reachReason?.kind === 'her_side') absorb(satisfyDrive(next, 'reach_her_side'));
-            if (reachReason?.kind === 'grievance') absorb(satisfyDrive(next, 'grievance_said'));
+            absorb(satisfyDrive(next, 'message', { now: settledAt }));
+            if (reachReason?.kind === 'her_side') absorb(satisfyDrive(next, 'reach_her_side', { now: settledAt }));
+            if (reachReason?.kind === 'grievance') absorb(satisfyDrive(next, 'grievance_said', { now: settledAt }));
         }
-        if (life?.kind) absorb(satisfyDrive(next, life.kind));
+        if (life?.kind) absorb(satisfyDrive(next, life.kind, { now: settledAt }));
         next = withApartness(next, modelOutput.together, settledAt);
         writeDriveLedger(db, character.charId, changes, settledAt);
         saveDriveState(db, character.charId, next);
