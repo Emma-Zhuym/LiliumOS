@@ -11,6 +11,7 @@ import { calcCycleStatus } from '../utils/cycleCalc';
 // [EM-START: tietie-record] 贴贴事后记录在日历上打个记号：只是记号，不进健康摘要、不影响经期推算
 import { TietieDB, TIETIE_CHANGED_EVENT } from '../utils/tietieDb';
 import { formatTietieDuration, tietieDayKey, tietieMinutes, type TietieRecord } from '../utils/tietie';
+import { TietieDiary } from '../components/tietie/TietieDiary';
 // [EM-END: tietie-record]
 import { F, FONT, OVERLAY, S, R, HUE, STATUS, MOTION } from '../utils/clayTokens';
 import { HealthProfile, FitnessGoal, getHealthProfile, saveHealthProfile, calcBMR, calcTDEE, recommendCalories, calcDeficit } from '../utils/healthProfile';
@@ -231,7 +232,7 @@ function fmtExternalSyncTime(value: string): string {
 // ── Component ──────────────────────────────────────────────────────────────────
 
 const HealthApp: React.FC = () => {
-  const { closeApp, addToast, apiConfig, characters } = useOS(); // [EM: tietie-record] characters 给记号写名字
+  const { closeApp, addToast, apiConfig, characters, registerBackHandler } = useOS(); // [EM: tietie-record] characters 给记号写名字，返回键合上日记
 
   const today    = new Date();
   const todayStr = toDateStr(today.getFullYear(), today.getMonth() + 1, today.getDate());
@@ -256,6 +257,12 @@ const HealthApp: React.FC = () => {
     window.addEventListener(TIETIE_CHANGED_EVENT, load);
     return () => window.removeEventListener(TIETIE_CHANGED_EVENT, load);
   }, []);
+  // 点那一行翻开 TA 写的日记（2026-11-04：原来只能回聊天里点卡片）
+  const [openTietie, setOpenTietie] = useState<TietieRecord | null>(null);
+  useEffect(() => {
+    if (!openTietie) return;
+    return registerBackHandler(() => { setOpenTietie(null); return true; });
+  }, [openTietie, registerBackHandler]);
   const tietieByDay = useMemo(() => {
     const map: Record<string, TietieRecord[]> = {};
     for (const r of tietieRecords) (map[tietieDayKey(r.startedAt)] ||= []).push(r);
@@ -1088,15 +1095,22 @@ const HealthApp: React.FC = () => {
                   </button>
                 </div>
 
-                {/* [EM-START: tietie-record] 那天贴贴过：只读一行 */}
+                {/* [EM-START: tietie-record] 那天贴贴过：一行，点开是 TA 写的日记 */}
                 {selTietie.map(r => (
-                  <div key={r.id} className="mb-3 flex items-center gap-3" style={{ ...clay.card, padding: '12px 16px' }}>
+                  <button key={r.id} type="button" onClick={() => setOpenTietie(r)} aria-haspopup="dialog"
+                    className={`mb-3 w-full flex items-center gap-3 text-left ${clay.pressSmall}`} style={{ ...clay.card, padding: '12px 16px' }}>
                     <Heart size={16} weight="fill" color={HUE.rose.main} style={{ flexShrink: 0 }} />
-                    <span style={{ fontSize: '14px', color: F.textPrimary, fontWeight: 600 }}>贴贴</span>
-                    <span className="min-w-0 truncate" style={{ fontSize: '13px', color: F.textSecondary }}>
-                      {[characters.find(c => c.id === r.charId)?.name, `${String(new Date(r.startedAt).getHours()).padStart(2, '0')}:${String(new Date(r.startedAt).getMinutes()).padStart(2, '0')}`, formatTietieDuration(tietieMinutes(r)), r.place].filter(Boolean).join(' · ')}
+                    <span className="flex-1 min-w-0 flex flex-col" style={{ gap: 2 }}>
+                      <span className="flex items-baseline gap-3 min-w-0">
+                        <span style={{ fontSize: '14px', color: F.textPrimary, fontWeight: 600, flexShrink: 0 }}>{r.title || '贴贴'}</span>
+                        <span className="min-w-0 truncate" style={{ fontSize: '13px', color: F.textSecondary }}>
+                          {[characters.find(c => c.id === r.charId)?.name, `${String(new Date(r.startedAt).getHours()).padStart(2, '0')}:${String(new Date(r.startedAt).getMinutes()).padStart(2, '0')}`, formatTietieDuration(tietieMinutes(r)), r.place].filter(Boolean).join(' · ')}
+                        </span>
+                      </span>
+                      {r.oneLine && <span className="truncate" style={{ fontSize: '13px', color: F.textTertiary }}>{r.oneLine}</span>}
                     </span>
-                  </div>
+                    <CaretRight size={14} weight="bold" style={{ color: F.textTertiary, flexShrink: 0 }} />
+                  </button>
                 ))}
                 {/* [EM-END: tietie-record] */}
                 {selectedEvents.length === 0 && selTietie.length === 0 ? (
@@ -1645,6 +1659,13 @@ const HealthApp: React.FC = () => {
           )}
         </div>
       )}
+
+      {/* [EM-START: tietie-record] */}
+      {openTietie && (
+        <TietieDiary charId={openTietie.charId} charName={characters.find(c => c.id === openTietie.charId)?.name || 'TA'}
+          recordId={openTietie.id} onClose={() => setOpenTietie(null)} />
+      )}
+      {/* [EM-END: tietie-record] */}
 
       {/* [EM-START: apple-health-detail-sheet] */}
       {showExternalHealthDetails && viewedExternalHealth && (

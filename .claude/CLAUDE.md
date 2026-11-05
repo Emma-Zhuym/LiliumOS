@@ -482,7 +482,7 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - 契约 `docs/spec-tietie-record.md`，UI 模式 `APP_CONVENTIONS.md` P17b。纯逻辑 `utils/tietie.ts`，落库 / 请求 `utils/tietieActions.ts`，独立库 `utils/tietieDb.ts`（`LiliumOS_Tietie`，备份 `emTietieRecords`），界面 `components/tietie/*`
 - 开始时刻只记在本机（`em_tietie_session_v1:<charId>`）：`PrivateMomentButton` 开始时记、结束时发 `em-tietie-ended`；聊天页接住写，忘了点结束的打开聊天时补写
 - 一次调用出日记 + `memory` + `after`：`memory` 写成一条卧室记忆（标签「贴贴」），卡片消息 content 是给后续上下文的那一行（含 memory），日记全文不进上下文；删记忆时卡片那一行一起去掉细节
-- 健康 App 只读 `TietieDB` 打记号，不写 healthDb、不进健康摘要
+- 健康 App 只读 `TietieDB` 打记号，那一行点开是同一页 `TietieDiary`（2026-11-04）；不写 healthDb、不进健康摘要
 - 上游文件接线：`Chat.tsx`、`MessageItem.tsx`、`chatMessageVisibility.ts`、`OSContext.tsx`、`types.ts`（`check-em-patches.sh`「贴贴事后记录」一节）
 
 ### 42. 约会 App（TA 给阿萌安排的约会，2026-10-29）
