@@ -3,11 +3,12 @@ import { useOS } from '../context/OSContext';
 import { CaretLeft, CaretRight, Plus, X, Drop, PencilSimple, Trash, ArrowClockwise, Camera, Gear, Barbell, MoonStars, ForkKnife, Bandaids, CalendarBlank, ChartLineUp, Heart } from '@phosphor-icons/react';
 import {
   HealthEvent, WorkoutHealthEvent, PeriodHealthEvent, SymptomHealthEvent,
-  SleepHealthEvent, DietHealthEvent, WeightHealthEvent,
-  PeriodFlow, SleepQuality,
+  SleepHealthEvent, DietHealthEvent, WeightHealthEvent, DischargeHealthEvent,
+  PeriodFlow, SleepQuality, DischargeAmount,
   saveHealthEvent, deleteHealthEvent, getAllHealthEvents, buildEventMap,
 } from '../utils/healthDb';
 import { calcCycleStatus } from '../utils/cycleCalc';
+import { addCustomSymptom, loadCustomSymptoms, removeCustomSymptom, type SymptomGroup } from '../utils/healthCustomSymptoms';
 // [EM-START: tietie-record] 贴贴事后记录在日历上打个记号：只是记号，不进健康摘要、不影响经期推算
 import { TietieDB, TIETIE_CHANGED_EVENT } from '../utils/tietieDb';
 import { formatTietieDuration, tietieDayKey, tietieMinutes, type TietieRecord } from '../utils/tietie';
@@ -42,6 +43,9 @@ const FLOW_DOT: Record<PeriodFlow, React.CSSProperties> = {
 const FLOW_LABEL: Record<PeriodFlow, string> = {
   heavy: '量多', medium: '量中', light: '量少', spotting: '点滴',
 };
+// 分泌物四档：湿滑 / 湿透算排卵信号（cycleCalc.isFertileDischarge）。只在健康里看，不进角色摘要
+const DISCHARGE_LABEL: Record<DischargeAmount, string> = { dry: '少 / 干', sticky: '黏稠', wet: '湿滑', soaked: '湿透' };
+const DISCHARGE_ORDER: DischargeAmount[] = ['dry', 'sticky', 'wet', 'soaked'];
 const QUALITY_LABEL: Record<SleepQuality, string> = { good: '很好', ok: '还行', poor: '不太好' };
 const MONTH_NAMES = ['一月','二月','三月','四月','五月','六月','七月','八月','九月','十月','十一月','十二月'];
 const WEEKDAYS    = ['日','一','二','三','四','五','六'];
@@ -91,7 +95,7 @@ const WORKOUT_PARTS = ['胸', '背', '腿', '臀', '肩', '手臂', '核心', '�
 
 // 症状分两组：经期伴随症状记在经期 tab，身体不适记在症状 tab；存储时合并进同一条 symptom 记录
 // 注意两组不能有重复项（保存时按组归属做合并）
-const PMS_SYMPTOMS     = ['痛经', '乳房胀痛', '腰酸', '腹胀', '情绪波动', '长痘', '食欲增加'];
+const PMS_SYMPTOMS     = ['痛经', '乳房胀痛', '乳头硬痛', '腰酸', '腹胀', '情绪波动', '长痘', '食欲增加']; // 乳头硬痛：她排卵后的信号（cycleCalc）
 const GENERAL_SYMPTOMS = ['头痛', '感冒', '发烧', '胃痛', '恶心', '失眠', '过敏', '疲劳'];
 
 // 弹窗高度：默认 420px；训练/饮食可拖到屏幕 85%
@@ -288,6 +292,14 @@ const HealthApp: React.FC = () => {
   const [periodFlow, setPeriodFlow] = useState<PeriodFlow | null>(null);
   const [periodSymptoms, setPeriodSymptoms] = useState<string[]>([]); // 症状 tab：身体不适
   const [pmsSymptoms, setPmsSymptoms] = useState<string[]>([]);       // 经期 tab：伴随症状
+  const [dischargeAmount, setDischargeAmount] = useState<DischargeAmount | null>(null); // 经期 tab：分泌物
+  const [customSymptoms, setCustomSymptoms] = useState(loadCustomSymptoms);
+  const [addingSymptom, setAddingSymptom] = useState<SymptomGroup | null>(null);
+  const [newSymptom, setNewSymptom] = useState('');
+  // 两组：经期组 = 预设 + 她加的；其余都算身体不适组（含移出列表的旧症状，编辑时照样显示、能取消）
+  const periodGroup = useMemo(() => [...PMS_SYMPTOMS, ...customSymptoms.period], [customSymptoms]);
+  const generalGroup = useMemo(() => [...GENERAL_SYMPTOMS, ...customSymptoms.general], [customSymptoms]);
+  const inPeriodGroup = useCallback((sym: string) => periodGroup.includes(sym), [periodGroup]);
   const [periodDate, setPeriodDate] = useState(todayStr);
   // Sleep
   const [sleepBedtime, setSleepBedtime]   = useState('23:00');
@@ -365,7 +377,10 @@ const HealthApp: React.FC = () => {
   // ── Derived data ──
   const eventMap     = useMemo(() => buildEventMap(allEvents), [allEvents]);
   const periodEvents = useMemo(() => allEvents.filter((e): e is PeriodHealthEvent => e.type === 'period'), [allEvents]);
-  const cycleStatus  = useMemo(() => calcCycleStatus(periodEvents), [periodEvents]);
+  const cycleStatus  = useMemo(() => calcCycleStatus(periodEvents, {
+    discharge: allEvents.filter((e): e is DischargeHealthEvent => e.type === 'discharge'),
+    symptoms: allEvents.filter((e): e is SymptomHealthEvent => e.type === 'symptom'),
+  }), [periodEvents, allEvents]);
   const ovulationSet = useMemo(() => new Set(cycleStatus.ovulationWindow), [cycleStatus.ovulationWindow]);
   // ── Today tab viewed date (arrow navigation) ──
   const viewDay = new Date(today);
@@ -466,6 +481,7 @@ const HealthApp: React.FC = () => {
   const selWorkout = selectedEvents.find(e => e.type === 'workout') as WorkoutHealthEvent | undefined;
   const selPeriod  = selectedEvents.find(e => e.type === 'period')  as PeriodHealthEvent  | undefined;
   const selSymptom = selectedEvents.find(e => e.type === 'symptom') as SymptomHealthEvent | undefined;
+  const selDischarge = selectedEvents.find(e => e.type === 'discharge') as DischargeHealthEvent | undefined;
   const selSleep   = selectedEvents.find(e => e.type === 'sleep')   as SleepHealthEvent   | undefined;
   const selDiet    = selectedEvents.filter(e => e.type === 'diet')   as DietHealthEvent[];
   const selTietie  = selectedDate ? (tietieByDay[selectedDate] || []) : []; // [EM: tietie-record]
@@ -473,7 +489,7 @@ const HealthApp: React.FC = () => {
   // ── Modal close / reset ──
   const closeRecord = () => {
     setRecordMode(null); setRecordText(''); setPeriodFlow(null);
-    setPeriodSymptoms([]); setPmsSymptoms([]); setPeriodDate(todayStr); setEditingId(null);
+    setPeriodSymptoms([]); setPmsSymptoms([]); setDischargeAmount(null); setAddingSymptom(null); setNewSymptom(''); setPeriodDate(todayStr); setEditingId(null);
     setSleepBedtime('23:00'); setSleepWakeTime('07:30');
     setSleepQuality('good'); setSleepNote('');
     setDietText(''); setDietCalories(''); setDietProtein('');
@@ -511,9 +527,9 @@ const HealthApp: React.FC = () => {
   // ── Symptom merge helper ──────────────────────────────────────────────────
   // 经期 tab 和症状 tab 各管一组症状，保存时合并进同一条 symptom 记录：
   // 先剔除本组旧值、保留对方组的，再并入本次选择。全空则删除记录。
-  const saveSymptomGroup = async (groupList: string[], selected: string[]) => {
+  const saveSymptomGroup = async (inGroup: (sym: string) => boolean, selected: string[]) => {
     const existing = (eventMap[periodDate] || []).find(e => e.type === 'symptom') as SymptomHealthEvent | undefined;
-    const others = (existing?.symptoms ?? []).filter(s => !groupList.includes(s));
+    const others = (existing?.symptoms ?? []).filter(s => !inGroup(s));
     const merged = [...others, ...selected];
     if (merged.length > 0) {
       await saveHealthEvent({
@@ -526,8 +542,9 @@ const HealthApp: React.FC = () => {
   };
 
   // ── Submit: Period（量级 + 伴随症状，至少其一；PMS 可在出血前单独记） ──
+  const existingDischarge = (eventMap[periodDate] || []).find(e => e.type === 'discharge') as DischargeHealthEvent | undefined;
   const handleSubmitPeriod = async () => {
-    if (!periodFlow && pmsSymptoms.length === 0) return;
+    if (!periodFlow && pmsSymptoms.length === 0 && !dischargeAmount && !existingDischarge) return;
     setIsSubmitting(true);
     try {
       if (periodFlow) {
@@ -537,7 +554,15 @@ const HealthApp: React.FC = () => {
         };
         await saveHealthEvent(event);
       }
-      await saveSymptomGroup(PMS_SYMPTOMS, pmsSymptoms);
+      await saveSymptomGroup(inPeriodGroup, pmsSymptoms);
+      if (dischargeAmount) {
+        await saveHealthEvent({
+          id: existingDischarge?.id ?? `discharge_${periodDate}_${Math.random().toString(36).slice(2, 7)}`,
+          date: periodDate, createdAt: existingDischarge?.createdAt ?? Date.now(), type: 'discharge', amount: dischargeAmount,
+        } as DischargeHealthEvent);
+      } else if (existingDischarge) {
+        await deleteHealthEvent(existingDischarge.id);
+      }
       await loadEvents(); closeRecord();
       addToast('已保存', 'success');
     } catch { addToast('保存失败，请重试', 'error'); }
@@ -549,7 +574,7 @@ const HealthApp: React.FC = () => {
     if (periodSymptoms.length === 0 && !editingId) return;
     setIsSubmitting(true);
     try {
-      await saveSymptomGroup(GENERAL_SYMPTOMS, periodSymptoms);
+      await saveSymptomGroup(sym => !inPeriodGroup(sym), periodSymptoms);
       await loadEvents(); closeRecord();
       addToast(editingId ? '症状记录已更新' : '症状已保存', 'success');
     } catch { addToast('保存失败，请重试', 'error'); }
@@ -728,10 +753,19 @@ const HealthApp: React.FC = () => {
   const startEditPeriod  = (p: PeriodHealthEvent)  => {
     setEditingId(p.id); setPeriodFlow(p.flow); setPeriodDate(p.date);
     const sym = (eventMap[p.date] || []).find(e => e.type === 'symptom') as SymptomHealthEvent | undefined;
-    setPmsSymptoms((sym?.symptoms ?? []).filter(s => PMS_SYMPTOMS.includes(s)));
+    setPmsSymptoms((sym?.symptoms ?? []).filter(inPeriodGroup));
+    setDischargeAmount(((eventMap[p.date] || []).find(e => e.type === 'discharge') as DischargeHealthEvent | undefined)?.amount ?? null);
     setRecordMode('period');
   };
-  const startEditSymptom = (s: SymptomHealthEvent) => { setEditingId(s.id); setPeriodSymptoms(s.symptoms.filter(x => GENERAL_SYMPTOMS.includes(x))); setPeriodDate(s.date); setRecordMode('symptom'); };
+  const startEditDischarge = (d: DischargeHealthEvent) => {
+    const dayEvents = eventMap[d.date] || [];
+    const p = dayEvents.find(e => e.type === 'period') as PeriodHealthEvent | undefined;
+    const sym = dayEvents.find(e => e.type === 'symptom') as SymptomHealthEvent | undefined;
+    setEditingId(p?.id ?? null); setPeriodFlow(p?.flow ?? null); setPeriodDate(d.date);
+    setPmsSymptoms((sym?.symptoms ?? []).filter(inPeriodGroup)); setDischargeAmount(d.amount);
+    setRecordMode('period');
+  };
+  const startEditSymptom = (s: SymptomHealthEvent) => { setEditingId(s.id); setPeriodSymptoms(s.symptoms.filter(x => !inPeriodGroup(x))); setPeriodDate(s.date); setRecordMode('symptom'); };
   const startEditSleep   = (s: SleepHealthEvent)   => { setEditingId(s.id); setSleepBedtime(s.bedtime); setSleepWakeTime(s.wakeTime); setSleepQuality(s.quality); setSleepNote(s.note ?? ''); setPeriodDate(s.date); setRecordMode('sleep'); };
   const startEditDiet    = (d: DietHealthEvent)     => { setEditingId(d.id); setDietCalories(d.calories); setDietProtein(d.protein ?? ''); setDietCarbs(d.carbs ?? ''); setDietFat(d.fat ?? ''); setDietFiber(d.fiber ?? ''); setDietText(d.rawInput ?? ''); setDietNote(d.note ?? ''); setDietParsed(true); setPeriodDate(d.date); setRecordMode('diet'); };
 
@@ -744,7 +778,7 @@ const HealthApp: React.FC = () => {
     setRecordText(''); setWorkoutCalories(''); setWorkoutDuration(60); setWorkoutParts([]); setWorkoutActivities([]);
     // 简单类型固定 420 高；训练/饮食保留当前拖拽高度
     if (mode !== 'workout' && mode !== 'diet') setModalHeight(MODAL_BASE_H);
-    setPeriodFlow(null); setPeriodSymptoms([]); setPmsSymptoms([]);
+    setPeriodFlow(null); setPeriodSymptoms([]); setPmsSymptoms([]); setDischargeAmount(null); setAddingSymptom(null); setNewSymptom('');
     setSleepBedtime('23:00'); setSleepWakeTime('07:30'); setSleepQuality('good'); setSleepNote('');
     setDietText(''); setDietCalories(''); setDietProtein(''); setDietCarbs(''); setDietFat(''); setDietFiber(''); setDietNote(''); setDietParsed(false);
     setShowCameraMenu(false);
@@ -775,18 +809,68 @@ const HealthApp: React.FC = () => {
         const p = dayEvents.find(e => e.type === 'period') as PeriodHealthEvent | undefined;
         if (p) { setEditingId(p.id); setPeriodFlow(p.flow); }
         const sym = dayEvents.find(e => e.type === 'symptom') as SymptomHealthEvent | undefined;
-        setPmsSymptoms((sym?.symptoms ?? []).filter(s => PMS_SYMPTOMS.includes(s)));
+        setPmsSymptoms((sym?.symptoms ?? []).filter(inPeriodGroup));
+        setDischargeAmount((dayEvents.find(e => e.type === 'discharge') as DischargeHealthEvent | undefined)?.amount ?? null);
         break;
       }
       case 'symptom': {
         const s = dayEvents.find(e => e.type === 'symptom') as SymptomHealthEvent | undefined;
-        if (s) { setEditingId(s.id); setPeriodSymptoms(s.symptoms.filter(x => GENERAL_SYMPTOMS.includes(x))); }
+        if (s) { setEditingId(s.id); setPeriodSymptoms(s.symptoms.filter(x => !inPeriodGroup(x))); }
         break;
       }
     }
 
     setRecordMode(mode);
   };
+
+  // ── 自己加的症状：「＋」打开一行输入，下面列出加过的（× 移出列表，记过的那几天不动） ──
+  const commitNewSymptom = (group: SymptomGroup) => {
+    const name = newSymptom.trim();
+    if (!name) return;
+    const next = addCustomSymptom(group, name, [...PMS_SYMPTOMS, ...GENERAL_SYMPTOMS]);
+    setCustomSymptoms(next);
+    if (next[group].includes(name)) {
+      if (group === 'period') setPmsSymptoms(prev => prev.includes(name) ? prev : [...prev, name]);
+      else setPeriodSymptoms(prev => prev.includes(name) ? prev : [...prev, name]);
+    } else addToast('已经有这个症状了', 'info');
+    setNewSymptom('');
+  };
+  const renderAddSymptomChip = (group: SymptomGroup) => (
+    <button key="__add" type="button" aria-label="加一个症状" onClick={() => { setAddingSymptom(addingSymptom === group ? null : group); setNewSymptom(''); }}
+      className={`px-3 py-1.5 text-xs font-semibold flex items-center gap-1 ${clay.pressSmall}`}
+      style={{ borderRadius: R.pill, background: addingSymptom === group ? F.surfaceSunken : F.surfaceRaised, color: F.textSecondary, border: `1px dashed ${F.borderStrong}` }}>
+      <Plus size={12} weight="bold" />自己加
+    </button>
+  );
+  const renderSymptomEditor = (group: SymptomGroup, accent: string) => addingSymptom === group && (
+    <div className="mt-2 flex flex-col gap-2" style={{ background: F.surfaceSunken, borderRadius: R.bigCard, padding: '10px 12px' }}>
+      <div className="flex items-center gap-2">
+        <input autoFocus value={newSymptom} maxLength={12} placeholder="症状名字"
+          onChange={e => setNewSymptom(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commitNewSymptom(group); } }}
+          className="flex-1 min-w-0 px-3 py-2 text-sm focus:outline-none"
+          style={{ background: F.surface, color: F.textPrimary, borderRadius: R.medium, border: `1px solid ${F.borderSoft}` }} />
+        <button type="button" onClick={() => commitNewSymptom(group)} disabled={!newSymptom.trim()}
+          className={`px-4 py-2 text-xs font-bold disabled:opacity-40 ${clay.pressSmall}`}
+          style={{ borderRadius: R.pill, background: accent, color: F.surfaceRaised }}>加上</button>
+      </div>
+      {customSymptoms[group].length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[11px]" style={{ color: F.textTertiary }}>加过的</span>
+          {customSymptoms[group].map(sym => (
+            <span key={sym} className="flex items-center text-[12px]" style={{ background: F.surface, border: `1px solid ${F.borderSoft}`, borderRadius: R.pill, paddingLeft: 10, color: F.textSecondary }}>
+              {sym}
+              <button type="button" aria-label={`把「${sym}」移出列表`} onClick={() => setCustomSymptoms(removeCustomSymptom(group, sym))}
+                className="grid place-items-center active:opacity-40" style={{ width: 28, height: 26, background: 'transparent', border: 'none' }}>
+                <X size={11} weight="bold" color={F.textTertiary} />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <p className="text-[11px]" style={{ color: F.textTertiary, margin: 0 }}>移出列表不影响已经记过的日子</p>
+    </div>
+  );
 
   // ── Clay Design Tokens (from shared design system) ──────────────────────────
   const clay = {
@@ -980,13 +1064,14 @@ const HealthApp: React.FC = () => {
       {topTab === 'calendar' && (
         <>
           {/* Cycle Status */}
-          <div className="shrink-0 mx-5 mt-1 px-4 py-3.5 flex items-center justify-between"
+          <div className="shrink-0 mx-5 mt-1 px-4 py-3.5 flex flex-col gap-1.5"
             style={{
               background: cycleStatus.lastPeriodStart ? CAT_COLORS.period.bg : F.surfaceSunken,
               borderRadius: R.bigCard,
               boxShadow: cycleStatus.lastPeriodStart ? S.raisedSoft : S.sunken,
             }}>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center justify-between flex-wrap gap-x-2 gap-y-0.5">
+            <div className="flex items-center gap-1.5 whitespace-nowrap">
               <Drop size={13} weight="fill" style={{ color: cycleStatus.lastPeriodStart ? CAT_COLORS.period.shadow : F.textTertiary }} />
               {cycleStatus.lastPeriodStart ? (
                 <span className="text-[13px]" style={{ color: CAT_COLORS.period.fg }}>
@@ -998,7 +1083,23 @@ const HealthApp: React.FC = () => {
               )}
             </div>
             {cycleStatus.lastPeriodStart && (
-            <span className="text-xs" style={{ color: F.textTertiary }}>预计下次 {cycleStatus.nextRangeStr}</span>
+            <span className="text-xs whitespace-nowrap" style={{ color: F.textTertiary }}>预计下次 {cycleStatus.nextRangeStr}</span>
+            )}
+            </div>
+            {cycleStatus.lastPeriodStart && (cycleStatus.signalNote || cycleStatus.learned.afterPeak.length > 0 || cycleStatus.learned.afterBreast.length > 0) && (
+              <div className="flex flex-col gap-0.5 text-[12px]" style={{ color: CAT_COLORS.period.fg }}>
+                {cycleStatus.signalNote && (
+                  <span>{cycleStatus.signalNote}{cycleStatus.nextSource === 'breast' ? '，按胸痛开始那天推下次' : cycleStatus.nextSource === 'peak' ? '，按最后一天出水推下次' : ''}</span>
+                )}
+                {(cycleStatus.learned.afterPeak.length > 0 || cycleStatus.learned.afterBreast.length > 0) && (
+                  <span style={{ color: F.textTertiary }}>
+                    上几轮：{[
+                      cycleStatus.learned.afterPeak.length > 0 && `出水后 ${cycleStatus.learned.afterPeak.join(' / ')} 天来`,
+                      cycleStatus.learned.afterBreast.length > 0 && `胸痛后 ${cycleStatus.learned.afterBreast.join(' / ')} 天来`,
+                    ].filter(Boolean).join(' · ')}
+                  </span>
+                )}
+              </div>
             )}
           </div>
 
@@ -1021,6 +1122,9 @@ const HealthApp: React.FC = () => {
             <span className="flex items-center gap-1.5 text-[12px]" style={{ color: CAT_COLORS.symptom.fg, fontWeight: 500 }}>
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: CAT_COLORS.symptom.shadow, flexShrink: 0 }} />症状
             </span>
+            <span className="flex items-center gap-1.5 text-[12px]" style={{ color: HUE.blue.ink, fontWeight: 500 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: HUE.blue.main, flexShrink: 0 }} />出水
+            </span>
             {isLoading && <div className="ml-auto"><ArrowClockwise size={12} className="animate-spin" style={{ color: F.textTertiary }} /></div>}
           </div>
 
@@ -1040,6 +1144,7 @@ const HealthApp: React.FC = () => {
                 const periodEv = events.find(e => e.type === 'period') as PeriodHealthEvent | undefined;
                 const hasWorkout = events.some(e => e.type === 'workout');
                 const hasSymptom = events.some(e => e.type === 'symptom');
+                const hasWet = events.some(e => e.type === 'discharge' && (e.amount === 'wet' || e.amount === 'soaked'));
                 const hasTietie = !!tietieByDay[dateStr]?.length; // [EM: tietie-record]
                 return (
                   <button key={dateStr} onClick={() => setSelectedDate(isSel ? null : dateStr)}
@@ -1064,6 +1169,7 @@ const HealthApp: React.FC = () => {
                       {/* 经期不画点：整格已是粉色背景 */}
                       {hasWorkout && <div style={{ width: 6, height: 6, borderRadius: '50%', background: CAT_COLORS.workout.shadow }} />}
                       {hasSymptom && <div style={{ width: 6, height: 6, borderRadius: '50%', background: CAT_COLORS.symptom.shadow }} />}
+                      {hasWet && <div style={{ width: 6, height: 6, borderRadius: '50%', background: HUE.blue.main }} />}
                       {hasTietie && <Heart size={7} weight="fill" color={HUE.rose.main} aria-label="贴贴" />}{/* [EM: tietie-record] */}
                     </div>
                   </button>
@@ -1204,6 +1310,30 @@ const HealthApp: React.FC = () => {
                           <PencilSimple size={14} style={{ color: CAT_COLORS.period.shadow }} />
                         </button>
                         <button onClick={() => handleDelete(selPeriod.id, '经期记录')} className={`p-2 ${clay.pressSmall}`}
+                          style={{ borderRadius: R.pill, background: CAT_COLORS.period.bg, boxShadow: S.raisedSoft }}>
+                          <Trash size={14} style={{ color: CAT_COLORS.period.shadow }} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {selDischarge && (
+                  <div className="mb-3" style={{ ...clay.cardIndigo, padding: '14px 16px' }}>
+                    <div className="flex items-center gap-3">
+                      <div style={{ width: 36, height: 36, borderRadius: R.small, background: HUE.blue.main, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        <Drop size={16} weight="bold" color={F.surfaceRaised} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <span style={{ fontSize: '15px', fontWeight: 600, color: HUE.blue.ink }}>分泌物</span>
+                        <span className="ml-2" style={{ fontSize: '13px', fontWeight: 400, color: HUE.blue.ink }}>{DISCHARGE_LABEL[selDischarge.amount]}</span>
+                      </div>
+                      <div className="ml-auto flex gap-1 shrink-0">
+                        <button onClick={() => startEditDischarge(selDischarge)} aria-label="改分泌物记录" className={`p-2 ${clay.pressSmall}`}
+                          style={{ borderRadius: R.pill, background: HUE.blue.tint, boxShadow: S.raisedSoft }}>
+                          <PencilSimple size={14} style={{ color: HUE.blue.ink }} />
+                        </button>
+                        <button onClick={() => handleDelete(selDischarge.id, '分泌物记录')} aria-label="删掉分泌物记录" className={`p-2 ${clay.pressSmall}`}
                           style={{ borderRadius: R.pill, background: CAT_COLORS.period.bg, boxShadow: S.raisedSoft }}>
                           <Trash size={14} style={{ color: CAT_COLORS.period.shadow }} />
                         </button>
@@ -2111,9 +2241,28 @@ const HealthApp: React.FC = () => {
                       </button>
                     ))}
                   </div>
+                  <span className="text-xs font-bold uppercase tracking-wider mt-4" style={{ color: F.textTertiary }}>分泌物（可选）</span>
+                  <div className="flex gap-2 mt-1.5">
+                    {DISCHARGE_ORDER.map(a => {
+                      const on = dischargeAmount === a;
+                      return (
+                        <button key={a} onClick={() => setDischargeAmount(on ? null : a)} aria-pressed={on}
+                          className={`flex-1 py-2 text-xs ${clay.pressSmall}`}
+                          style={{
+                            borderRadius: R.pill,
+                            background: on ? HUE.blue.main : F.surfaceRaised,
+                            color: on ? F.surfaceRaised : F.textSecondary,
+                            fontWeight: on ? 600 : 400,
+                            boxShadow: on ? S.raisedMedium : S.raisedSoft,
+                          }}>
+                          {DISCHARGE_LABEL[a]}
+                        </button>
+                      );
+                    })}
+                  </div>
                   <span className="text-xs font-bold uppercase tracking-wider mt-4" style={{ color: F.textTertiary }}>伴随症状（可选）</span>
                   <div className="flex flex-wrap gap-2 mt-1.5">
-                    {PMS_SYMPTOMS.map(sym => {
+                    {periodGroup.map(sym => {
                       const on = pmsSymptoms.includes(sym);
                       return (
                         <button key={sym}
@@ -2130,8 +2279,11 @@ const HealthApp: React.FC = () => {
                         </button>
                       );
                     })}
+                    {renderAddSymptomChip('period')}
                   </div>
-                  <button onClick={handleSubmitPeriod} disabled={(!periodFlow && pmsSymptoms.length === 0) || isSubmitting}
+                  {renderSymptomEditor('period', CAT_COLORS.period.active)}
+                  <p className="text-[11px] mt-2" style={{ color: F.textTertiary }}>湿滑 / 湿透和乳头硬痛会拿来推排卵和下次经期</p>
+                  <button onClick={handleSubmitPeriod} disabled={(!periodFlow && pmsSymptoms.length === 0 && !dischargeAmount && !existingDischarge) || isSubmitting}
                     className={`w-full text-white font-bold py-3.5 mt-4 disabled:opacity-40 ${clay.press}`}
                     style={{ background: CAT_COLORS.period.active, borderRadius: R.pill, boxShadow: S.raisedMedium }}>
                     保存
@@ -2144,7 +2296,7 @@ const HealthApp: React.FC = () => {
                 <div className="flex flex-col h-full">
                 <span className="text-xs font-bold uppercase tracking-wider" style={{ color: F.textTertiary }}>身体不适（可多选）</span>
                   <div className="flex flex-wrap gap-2 mt-1.5">
-                    {GENERAL_SYMPTOMS.map(sym => (
+                    {[...generalGroup, ...periodSymptoms.filter(sym => !generalGroup.includes(sym))].map(sym => (
                       <button key={sym} onClick={() => toggleSymptom(sym)}
                         className={`px-3 py-1.5 text-xs font-semibold ${clay.pressSmall}`}
                         style={{
@@ -2157,8 +2309,10 @@ const HealthApp: React.FC = () => {
                         {sym}
                       </button>
                     ))}
+                    {renderAddSymptomChip('general')}
                   </div>
-                  <p className="text-[10px] mt-2" style={{ color: F.textTertiary }}>经期相关症状（痛经等）在经期 tab 里记录</p>
+                  {renderSymptomEditor('general', CAT_COLORS.symptom.active)}
+                  <p className="text-[11px] mt-2" style={{ color: F.textTertiary }}>经期相关症状（痛经、胸痛等）在经期 tab 里记录</p>
                   <button onClick={handleSubmitSymptom} disabled={(periodSymptoms.length === 0 && !editingId) || isSubmitting}
                     className={`w-full text-white font-bold py-3.5 mt-4 disabled:opacity-40 ${clay.press}`}
                     style={{ background: CAT_COLORS.symptom.active, borderRadius: R.pill, boxShadow: S.raisedMedium }}>

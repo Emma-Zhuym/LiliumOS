@@ -9,7 +9,9 @@
 
 export type PeriodFlow = 'spotting' | 'light' | 'medium' | 'heavy';
 export type SleepQuality = 'good' | 'ok' | 'poor';
-export type HealthEventType = 'workout' | 'period' | 'symptom' | 'sleep' | 'diet' | 'weight';
+export type HealthEventType = 'workout' | 'period' | 'symptom' | 'sleep' | 'diet' | 'weight' | 'discharge';
+/** 分泌物：dry 少 / 干，sticky 黏稠，wet 湿滑，soaked 湿透（排卵那几天那种）。只在健康里看，不进角色的健康摘要 */
+export type DischargeAmount = 'dry' | 'sticky' | 'wet' | 'soaked';
 
 interface HealthEventBase {
   id: string;
@@ -35,6 +37,11 @@ export interface PeriodHealthEvent extends HealthEventBase {
 export interface SymptomHealthEvent extends HealthEventBase {
   type: 'symptom';
   symptoms: string[];
+}
+
+export interface DischargeHealthEvent extends HealthEventBase {
+  type: 'discharge';
+  amount: DischargeAmount;
 }
 
 export interface SleepHealthEvent extends HealthEventBase {
@@ -69,7 +76,8 @@ export type HealthEvent =
   | SymptomHealthEvent
   | SleepHealthEvent
   | DietHealthEvent
-  | WeightHealthEvent;
+  | WeightHealthEvent
+  | DischargeHealthEvent;
 
 // ── DB Setup ─────────────────────────────────────────────────────────────────
 

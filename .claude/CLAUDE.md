@@ -165,6 +165,8 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - `utils/externalHealth.ts` / `utils/externalHealthRoleSummary.ts` — HealthSync 当前快照、按日归档缓存与角色极简摘要；原始生命体征只留在 Health/HA 按需查看
 - `context/OSContext.tsx` — Health 事件（`emHealthEvents`）和健康档案（身高体重、目标，`emHealthProfile`，存 localStorage）随全量/文字备份导出/恢复
 - Apple Health 真导入已验收；Notion 同步、完整历史角色工具和 Health 内角色周评仍是 roadmap 待办
+- **排卵和下次经期按她自己的信号推**（2026-11-04，`utils/cycleCalc.ts` 的 `CycleSigns`）：分泌物是单独的 `discharge` 事件（湿滑 / 湿透算信号），胸那一类症状按 `isBreastSymptom`（乳头硬痛、乳房胀痛…）；这一轮有信号就「胸痛开始 + Y」/「最后一天出水 + X」，X / Y 从以前几轮学。分泌物只在健康里看，别塞进 `symptoms` 数组（那个会进角色摘要）
+- 自己加的症状在 `utils/healthCustomSymptoms.ts`（localStorage，随备份 `emHealthCustomSymptoms`）；经期组 = 预设 + 她加的，其余症状都算身体不适组
 
 ### 16. Shopping 投喂站 + 备份
 - `apps/ShoppingApp.tsx` — 网购/外卖；整页、店铺目录与折叠店内商品列表都必须可滚动
