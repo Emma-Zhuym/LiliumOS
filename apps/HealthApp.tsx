@@ -1100,14 +1100,9 @@ const HealthApp: React.FC = () => {
                   <button key={r.id} type="button" onClick={() => setOpenTietie(r)} aria-haspopup="dialog"
                     className={`mb-3 w-full flex items-center gap-3 text-left ${clay.pressSmall}`} style={{ ...clay.card, padding: '12px 16px' }}>
                     <Heart size={16} weight="fill" color={HUE.rose.main} style={{ flexShrink: 0 }} />
-                    <span className="flex-1 min-w-0 flex flex-col" style={{ gap: 2 }}>
-                      <span className="flex items-baseline gap-3 min-w-0">
-                        <span style={{ fontSize: '14px', color: F.textPrimary, fontWeight: 600, flexShrink: 0 }}>{r.title || '贴贴'}</span>
-                        <span className="min-w-0 truncate" style={{ fontSize: '13px', color: F.textSecondary }}>
-                          {[characters.find(c => c.id === r.charId)?.name, `${String(new Date(r.startedAt).getHours()).padStart(2, '0')}:${String(new Date(r.startedAt).getMinutes()).padStart(2, '0')}`, formatTietieDuration(tietieMinutes(r)), r.place].filter(Boolean).join(' · ')}
-                        </span>
-                      </span>
-                      {r.oneLine && <span className="truncate" style={{ fontSize: '13px', color: F.textTertiary }}>{r.oneLine}</span>}
+                    <span style={{ fontSize: '14px', color: F.textPrimary, fontWeight: 600, flexShrink: 0 }}>贴贴</span>
+                    <span className="flex-1 min-w-0 truncate" style={{ fontSize: '13px', color: F.textSecondary }}>
+                      {[characters.find(c => c.id === r.charId)?.name, `${String(new Date(r.startedAt).getHours()).padStart(2, '0')}:${String(new Date(r.startedAt).getMinutes()).padStart(2, '0')}`, formatTietieDuration(tietieMinutes(r)), r.place].filter(Boolean).join(' · ')}
                     </span>
                     <CaretRight size={14} weight="bold" style={{ color: F.textTertiary, flexShrink: 0 }} />
                   </button>
