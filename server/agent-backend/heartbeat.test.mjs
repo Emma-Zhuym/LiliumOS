@@ -129,7 +129,7 @@ test('离上一条主动消息太近：照样醒，只是不开口', () => {
     assert.equal(speakBlock(db, { character, snapshot, now: AT }), 'message_cooldown');
 });
 
-test('闸门：今天动脑次数用完就跳过，skipped 的不算数', () => {
+test('闸门：今天动脑次数用完就跳过，skipped 和 error 的不算数', () => {
     const db = freshDb();
     const character = seedCharacter(db, { dailyModelBudget: 2 });
     const snapshot = { receivedAt: AT.toISOString(), payload: { timezone: 'America/Chicago' } };
@@ -137,6 +137,9 @@ test('闸门：今天动脑次数用完就跳过，skipped 的不算数', () => 
     recordModelRun(db, { charId: CHAR, runtime: 'api', startedAt: runAt, ok: true, outcome: 'noop' });
     recordModelRun(db, { charId: CHAR, runtime: 'api', startedAt: runAt, ok: true, outcome: 'skipped', skipGate: 'sleeping' });
     assert.equal(checkGates(db, { character, snapshot, now: AT }), null, '被闸门拦下的不该占预算');
+    recordModelRun(db, { charId: CHAR, runtime: 'api', startedAt: runAt, ok: false, outcome: 'error', error: '模型输出解析不出合法的心跳结果' });
+    recordModelRun(db, { charId: CHAR, runtime: 'api', startedAt: runAt, ok: false, outcome: 'error', error: 'fetch failed' });
+    assert.equal(checkGates(db, { character, snapshot, now: AT }), null, '失败的不该占预算');
     recordModelRun(db, { charId: CHAR, runtime: 'api', startedAt: runAt, ok: true, outcome: 'message' });
     assert.equal(checkGates(db, { character, snapshot, now: AT }), 'daily_budget');
 });

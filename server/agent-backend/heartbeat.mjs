@@ -324,12 +324,18 @@ export const lastRealInteractionAt = (character, snapshot) => {
     return valid.length ? new Date(Math.max(...valid)) : null;
 };
 
-/** 今天（按角色时区算的自然日）已经真正调用过几次模型。skipped 的不算（设计 2.8）。 */
+/**
+ * 今天（按角色时区算的自然日）已经真正调用过几次模型。skipped 的不算（设计 2.8）。
+ *
+ * error 的也不算（阿萌 2026-11-09 定）：API 坏了一直失败、她又没发现时，失败会把一天的额度
+ * 吃光，换了 API 也得等到第二天 TA 才醒。失败的次数靠重跳的退避（每跳最多重试两次）兜着。
+ */
 export const modelRunsToday = (db, charId, now, timezone) => {
     const dayStart = startOfLocalDay(now, timezone);
     return db.prepare(
         `SELECT COUNT(*) AS n FROM model_runs
-          WHERE char_id = ? AND started_at >= ? AND outcome IS NOT 'skipped'`,
+          WHERE char_id = ? AND started_at >= ?
+            AND (outcome IS NULL OR outcome NOT IN ('skipped', 'error'))`,
     ).get(charId, dayStart.toISOString()).n;
 };
 
