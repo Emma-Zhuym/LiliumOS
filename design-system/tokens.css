@@ -49,6 +49,12 @@
   --candle-night-ink-soft:#9A9DB4;--candle-night-line:#3A4163;--candle-night-rule:#282E44;
   --candle-night-flame:#F2C37A;--candle-night-flame-fill:rgba(242,195,122,.16);
 
+  /* ---- 窗台的牌（中古撞色海报），2026-11-09 乙套；field 底 / shape 形状 / block 色块 / mood 心思的字 / text 其余的字 ---- */
+  --sill-poster-ink:#2B2F45;--sill-poster-paper:#F1EDE4;
+  --sill-spring-field:#E6B8AE;--sill-spring-shape:#8FB07A;--sill-spring-block:#6E3436;--sill-spring-mood:#6E3436;--sill-spring-text:#2B2F45;
+  --sill-summer-field:#EBCB6E;--sill-summer-shape:#4F9BAA;--sill-summer-block:#1F4E5C;--sill-summer-mood:#1F4E5C;--sill-summer-text:#2B2F45;
+  --sill-early-winter-field:#3A4460;--sill-early-winter-shape:#E0A66B;--sill-early-winter-block:#C5CAD6;--sill-early-winter-mood:#F0C491;--sill-early-winter-text:#F1EDE4;
+
   /* ---- Radius ---- */
   --r-tiny:4px; --r-small:8px; --r-medium:10px; --r-large:12px;
   --r-panel:14px; --r-sheet:16px; --r-pill:999px;
