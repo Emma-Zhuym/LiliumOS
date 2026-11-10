@@ -90,6 +90,7 @@ Tailscale Funnel → scripts/home-assistant-proxy.mjs（:18123）
 ## 排查
 
 - **401**：令牌填错，或 mini 上换过令牌
+- **AI 字幕读不到**：B 站只给登录的人看 AI 字幕，Cookie 过期时字幕列表是空的。手机上会提示「B 站登录过期了…要在 mini 上重新扫码」
 - **工具回「未登录」/ 凭证失效**：mini 终端重跑第 2 步扫码；`node …/cli.js check` 看状态（不会打印 Cookie）
 - **502 / 连不上**：`launchctl list | grep bilibili`，看 `agent-tools/logs/bilibili-mcp.error.log`
 - **「该视频没有可用字幕」**：视频本身没字幕、也没 AI 字幕，没装 ASR 就读不到，属正常

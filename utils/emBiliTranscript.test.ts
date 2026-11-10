@@ -54,6 +54,16 @@ describe('B 站链接读字幕', () => {
     servers.push(bili);
     call.mockResolvedValueOnce({ success: true, data: '该视频没有可用字幕' });
     expect((await attachBiliTranscript(page as any, 'u', 'c1')).transcriptStatus).toBe('none');
+    const toasts: string[] = [];
+    call.mockResolvedValueOnce({ success: false, error: 'Video BV1 returned an empty subtitle list and current Bilibili credentials are not logged in.', rawText: 'COOKIE_EXPIRED' });
+    expect((await attachBiliTranscript(page as any, 'u', 'c1', t => toasts.push(t))).transcriptStatus).toBe('login');
+    call.mockResolvedValueOnce({ success: false, error: 'AI subtitle BV1 AI subtitle returned inconsistent content across reads' });
+    expect((await attachBiliTranscript(page as any, 'u', 'c1', t => toasts.push(t))).transcriptStatus).toBe('ai_rejected');
+    call.mockResolvedValueOnce({ success: false, error: 'Video BV1 has no subtitles available' });
+    expect((await attachBiliTranscript(page as any, 'u', 'c1', t => toasts.push(t))).transcriptStatus).toBe('none');
+    expect(toasts.filter(t => t !== '正在读 B 站字幕…')).toEqual([
+      expect.stringContaining('重新扫码'), expect.stringContaining('AI 字幕对不上'), expect.stringContaining('没有字幕'),
+    ]);
     call.mockRejectedValueOnce(new Error('502'));
     const failed = await attachBiliTranscript(page as any, 'u', 'c1');
     expect(failed).toMatchObject({ transcriptStatus: 'failed', title: page.title });

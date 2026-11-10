@@ -60,7 +60,22 @@ export const cleanTranscript = (text: string): string => text
   .join('\n')
   .slice(0, BILI_TRANSCRIPT_MAX);
 
-export type BiliTranscriptStatus = 'ok' | 'none' | 'unavailable' | 'failed';
+export type BiliTranscriptStatus = 'ok' | 'none' | 'unavailable' | 'failed' | 'login' | 'ai_rejected';
+
+/**
+ * MCP 报错时它到底在说什么（2026-11-10 阿萌：AI 字幕「似乎读不了」，可原来不管什么错都提示「没有字幕」，分不清）。
+ * B 站的 AI 字幕只给登录的人看：Cookie 过期时字幕列表是空的，MCP 报 COOKIE_EXPIRED。
+ * AI 字幕读两遍对不上 / 比视频还长 / 语言不对（B 站偶尔串成别的视频的字幕），MCP 宁可不给。
+ */
+export const classifyBiliError = (text: string): { status: BiliTranscriptStatus; toast: string } => {
+  if (/COOKIE_EXPIRED|not logged in|未登录|credential|凭证|cookie/i.test(text)) {
+    return { status: 'login', toast: 'B 站登录过期了（AI 字幕要登录才看得到），要在 mini 上重新扫码；这次 TA 只能看到标题' };
+  }
+  if (/AI subtitle/i.test(text)) {
+    return { status: 'ai_rejected', toast: '这个视频的 AI 字幕对不上视频（B 站偶尔给错），TA 只能看到标题' };
+  }
+  return { status: 'none', toast: '这个视频没有字幕（连 AI 字幕也没有），TA 只能看到标题' };
+};
 
 /** 读字幕，存进卡片。失败不抛：卡片照常建，只是没有字幕 */
 export async function attachBiliTranscript(
@@ -75,7 +90,14 @@ export async function attachBiliTranscript(
       callMcpTool(found.server, found.tool.name, subtitleArgs(found.tool, url)),
       new Promise<never>((_, reject) => setTimeout(() => reject(new Error('读字幕超时')), TIMEOUT_MS)),
     ]);
-    const text = result.success ? cleanTranscript(resultText(result.data, result.rawText)) : '';
+    if (!result.success) {
+      const reason = `${result.error ?? ''} ${result.rawText ?? ''}`;
+      console.warn('[bili-transcript] MCP 没给字幕', reason);
+      const { status, toast: message } = classifyBiliError(reason);
+      toast?.(message, status === 'none' ? 'info' : 'error');
+      return { ...webpage, transcriptStatus: status };
+    }
+    const text = cleanTranscript(resultText(result.data, result.rawText));
     // 「该视频没有可用字幕」这类回答不算字幕
     if (!text || /没有(可用)?字幕|no subtitle|字幕不可用/i.test(text.slice(0, 80))) {
       toast?.('这个视频没有字幕，TA 只能看到标题', 'info');
