@@ -1990,12 +1990,14 @@ export const DB = {
       const db = await openDB();
       const transaction = db.transaction(STORE_ANNIVERSARIES, 'readwrite');
       transaction.objectStore(STORE_ANNIVERSARIES).put(anniversary);
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('em-anniversaries-changed')); // [EM: anniversary-aware]
   },
 
   deleteAnniversary: async (id: string): Promise<void> => {
       const db = await openDB();
       const transaction = db.transaction(STORE_ANNIVERSARIES, 'readwrite');
       transaction.objectStore(STORE_ANNIVERSARIES).delete(id);
+      if (typeof window !== 'undefined') window.dispatchEvent(new Event('em-anniversaries-changed')); // [EM: anniversary-aware]
   },
 
   getAllAgenda: async (): Promise<AgendaItem[]> => {

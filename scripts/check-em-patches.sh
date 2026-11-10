@@ -543,6 +543,12 @@ check "备份恢复" context/OSContext.tsx "await TietieDB.importAll(data.emTiet
 check "备份字段" types.ts "emTietieRecords?: import('./utils/tietie').TietieRecord[];"
 
 echo ""
+echo "--- 纪念日进聊天 ---"
+check "纪念日：提示词" utils/chatPrompts.ts "[EM-START: anniversary-aware]"
+check "纪念日：存 / 删了就刷新副本" utils/db.ts "window.dispatchEvent(new Event('em-anniversaries-changed')); // [EM: anniversary-aware]"
+[ "$(grep -cF "new Event('em-anniversaries-changed')); // [EM: anniversary-aware]" utils/db.ts)" = "2" ] || { echo "❌ 纪念日：db.ts 存和删两处都要发刷新事件"; FAIL=$((FAIL+1)); }
+
+echo ""
 echo "--- 收件箱处理完才删 ---"
 check "冲刷认领不取走" utils/activeMsgRuntime.ts "const pendingMessages = await ActiveMsgStore.claimInboxMessages(); // [EM: inbox-durable-claim]"
 check "处理完才删" utils/activeMsgRuntime.ts "await ActiveMsgStore.settleInboxMessage(message.messageId)"

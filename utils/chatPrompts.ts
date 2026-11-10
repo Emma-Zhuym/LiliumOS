@@ -32,6 +32,7 @@ import { buildMomentsChatInjection } from './emMomentsContext'; // [EM: moments-
 import { buildPlansChatInjection } from './emAgentPlans'; // [EM: agent-plans]
 import { buildDatePlansChatInjection } from './emDatePlans'; // [EM: date-plans]
 import { buildPromisesInjection } from './emPromises'; // [EM: char-promises]
+import { buildAnniversaryInjection, ensureAnniversaryCache, getCachedAnniversaries } from './emAnniversaryContext'; // [EM: anniversary-aware]
 import { deviceTimeZone, userSideStamp } from './emUserClock'; // [EM: chat-user-clock]
 import { buildOocPinsInjection, isOocMessage, oocPromptContent } from './emOoc'; // [EM: ooc]
 import { buildContactRemarkInjection } from './contactRemarks'; // [EM: contact-remark-aware]
@@ -632,6 +633,14 @@ ${groupLogStr}\n`;
             try { volatileState += buildPromisesInjection(char.id, { userName: userProfile.name, inCandle: !!getCachedOpenNightId(char.id) }); } catch (e) { console.error('Failed to inject promises:', e); }
         }
         // [EM-END: char-promises]
+        // [EM-START: anniversary-aware] 时光契约里「让 TA 记住」的纪念日（按她那边的日历；fire_pack 不烤，「今天是」到点会过期）
+        if (!forFirePack) {
+            try {
+                await ensureAnniversaryCache();
+                volatileState += buildAnniversaryInjection(getCachedAnniversaries(), char.id, { userName: userProfile.name });
+            } catch (e) { console.error('Failed to inject anniversaries:', e); }
+        }
+        // [EM-END: anniversary-aware]
         // [EM-START: char-drives-cue] 这一轮闪过的念头（发送前已抽好，没抽中就是空）
         if (!forFirePack) {
             try { volatileState += buildCueInjection(char.id); } catch (e) { console.error('Failed to inject cue:', e); }
