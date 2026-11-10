@@ -401,3 +401,8 @@ bridge 在 MacBook 的 `~/Skills&Tools/persephone-bridge`。
 | [`../notes/todo.md`](../notes/todo.md) | `/simplify` 扫出来的 amsg2 技术待办，带文件行号，质量很高 |
 | `docs/*-design.md` 末尾 | 各功能自己的「还没做」小节（如 `agent-backend-design.md`） |
 | [`changelog.md`](./changelog.md) | 做完了什么、哪天、谁做的（原来的 progress.md 已并进来） |
+
+## 贴贴：BDSM 角色的比重
+
+阿萌 2026-11-10 验收贴贴事后记录时提（95 分）：设定里有 BDSM 的角色，只把它当短暂的前戏，重视不够。
+想要：这类角色里 BDSM 的比例适当加大，甚至有一些纯调教的 session。待定：是改贴贴本身的提示词，还是按角色设定加权、再给事后记录加对应的格子。

@@ -1001,8 +1001,9 @@ export const useChatAI = ({
             // [EM-START: char-drives-cue] 契机池：偶尔让 TA 脑子里闪过一件跟话题无关的事（spec-character-drives 第 3 节）。
             // 摘录本地先读好、放进 volatileState，不需要工具循环，所以不改这一轮的路线。
             // 她自己正聊着某个工具话题时不闪。
+            // 不看 mcpToolTurn：只要配了公网 MCP 它每轮都是 true，契机池会永远跳过（2026-11-10 阿萌七天一次没闪过）。
             await rollChatCue(char, {
-                skip: Boolean(deepTalkLocal /* [EM: deep-talk] */ || oocTurn /* [EM: ooc] */ || financeTopicTriggered || healthToolTurn || mcpToolTurn || locationLocalRequired),
+                skip: Boolean(deepTalkLocal /* [EM: deep-talk] */ || oocTurn /* [EM: ooc] */ || financeTopicTriggered || healthToolTurn || locationLocalRequired),
                 route: agentChatRoute ? 'mini' : instantChatRoute ? 'cloud' : instantPushConfigured ? 'push' : 'local',
                 userName: userProfile.name,
             });
