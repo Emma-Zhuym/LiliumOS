@@ -489,6 +489,10 @@ const PhoneShell: React.FC = () => {
     openApp(AppID.Settings);
   };
 
+  // [EM-START: quiet-launch] 阿萌 2026-11-10：开屏的弹窗都不要了（版本首映、七夕 / 520 活动、Instant Push 下线、
+  // Worker 更新、该备份啦——自动云备份已经在管）。只留首次安装的声明和「导入中断了」这两个护数据的。
+  const EM_QUIET_LAUNCH = true;
+  // [EM-END: quiet-launch]
   // 「致用户的一封信」已下线：常量置 false，保留变量让下面弹窗链的条件继续成立（恒真/恒不显示）。
   const showAuthorLetter = false;
 
@@ -504,6 +508,7 @@ const PhoneShell: React.FC = () => {
   const updateNoticeAsked = useRef(false);
 
   useEffect(() => {
+    if (EM_QUIET_LAUNCH) return; // [EM: quiet-launch]
     if (updateNoticeAsked.current) return;
     if (showDisclaimer || showImportRecoveryPrompt || showAuthorLetter || showUpdateNotification) return;
     if (!isDataLoaded || isLocked) return;
@@ -517,6 +522,7 @@ const PhoneShell: React.FC = () => {
   const [showQixiLaunchPopup, setShowQixiLaunchPopup] = useState(false);
   const qixiLaunchAsked = useRef(false);
   useEffect(() => {
+    if (EM_QUIET_LAUNCH) return; // [EM: quiet-launch]
     if (qixiLaunchAsked.current) return;
     if (showDisclaimer || showImportRecoveryPrompt || showAuthorLetter || showUpdateNotification) return;
     if (!isDataLoaded || isLocked) return;
@@ -533,7 +539,7 @@ const PhoneShell: React.FC = () => {
   useEffect(() => {
     if (showDisclaimer || showImportRecoveryPrompt || showAuthorLetter || showUpdateNotification || showQixiLaunchPopup) return;
     if (!isDataLoaded) return;
-    if (shouldShowLike520Popup()) setShowLike520Popup(true);
+    if (!EM_QUIET_LAUNCH && shouldShowLike520Popup()) setShowLike520Popup(true); // [EM: quiet-launch]
   }, [showDisclaimer, showImportRecoveryPrompt, showAuthorLetter, showUpdateNotification, showQixiLaunchPopup, isDataLoaded]);
 
   // Instant Push 下线通知 — 只对现在开着它的人弹，每天最多一次。
@@ -543,7 +549,7 @@ const PhoneShell: React.FC = () => {
   useEffect(() => {
     if (showDisclaimer || showImportRecoveryPrompt || showAuthorLetter || showUpdateNotification || showQixiLaunchPopup || showLike520Popup) return;
     if (!isDataLoaded) return;
-    if (shouldShowInstantPushSunsetNotice()) setShowInstantPushSunset(true);
+    if (!EM_QUIET_LAUNCH && shouldShowInstantPushSunsetNotice()) setShowInstantPushSunset(true); // [EM: quiet-launch]
   }, [showDisclaimer, showImportRecoveryPrompt, showAuthorLetter, showUpdateNotification, showQixiLaunchPopup, showLike520Popup, isDataLoaded]);
 
   // Worker 后端更新提醒 — 只对启用了 Instant Push 的用户弹，且当前 worker 版本未确认过
@@ -551,7 +557,7 @@ const PhoneShell: React.FC = () => {
   useEffect(() => {
     if (showDisclaimer || showImportRecoveryPrompt || showAuthorLetter || showUpdateNotification || showQixiLaunchPopup || showLike520Popup || showInstantPushSunset) return;
     if (!isDataLoaded) return;
-    if (shouldShowWorkerUpdateReminder()) setShowWorkerUpdateReminder(true);
+    if (!EM_QUIET_LAUNCH && shouldShowWorkerUpdateReminder()) setShowWorkerUpdateReminder(true); // [EM: quiet-launch]
   }, [showDisclaimer, showImportRecoveryPrompt, showAuthorLetter, showUpdateNotification, showQixiLaunchPopup, showLike520Popup, showInstantPushSunset, isDataLoaded]);
   // 部署漂移自检：启动后异步 GET {workerUrl}/version（每 24h 最多一次）。
   // 常量比对只能发现「前端更新了」，发现不了「用户 seen 过但实际没部署 / 部署的是更老的包」——
@@ -571,7 +577,7 @@ const PhoneShell: React.FC = () => {
       try { localStorage.setItem(PROBE_AT_KEY, String(Date.now())); } catch { /* ignore */ }
       if (!r.ok && r.reachable) {
         rearmWorkerUpdateReminder();
-        if (shouldShowWorkerUpdateReminder()) setShowWorkerUpdateReminder(true);
+        if (!EM_QUIET_LAUNCH && shouldShowWorkerUpdateReminder()) setShowWorkerUpdateReminder(true); // [EM: quiet-launch]
       }
     }).catch(() => { /* 探测失败不打扰 */ });
   }, [isDataLoaded]);
@@ -581,7 +587,7 @@ const PhoneShell: React.FC = () => {
   useEffect(() => {
     if (showDisclaimer || showImportRecoveryPrompt || showAuthorLetter || showUpdateNotification || showQixiLaunchPopup || showLike520Popup || showInstantPushSunset || showWorkerUpdateReminder) return;
     if (!isDataLoaded || isLocked) return;
-    if (shouldShowBackupReminder()) setShowBackupReminder(true);
+    if (!EM_QUIET_LAUNCH && shouldShowBackupReminder()) setShowBackupReminder(true); // [EM: quiet-launch]
   }, [showDisclaimer, showImportRecoveryPrompt, showAuthorLetter, showUpdateNotification, showQixiLaunchPopup, showLike520Popup, showInstantPushSunset, showWorkerUpdateReminder, isDataLoaded, isLocked]);
 
   const dismissBackupReminder = () => {

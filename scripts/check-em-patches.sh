@@ -434,6 +434,7 @@ check "Mac mini 设置：作废设备" components/settings/AgentMiniControls.tsx
 check "Mac mini 设置：开关和服务" components/settings/AgentBackendSection.tsx "{!revoked && <AgentMiniControls data={data} />}"
 check "窗台：角色心跳设置" components/windowSill/SillDetail.tsx "connectCharacterToAgent(char"
 check "窗台：取值自成一套" utils/sillTokens.ts "export const SILL_THEMES"
+check "开屏不弹窗" components/PhoneShell.tsx "const EM_QUIET_LAUNCH = true;"
 check "后端：七日心事端点" server/agent-backend/server.mjs "'GET /drives/week'"
 check "神经链接：脾气" apps/Character.tsx "<TemperamentSection char={formData} onChange={next => handleChange('emDriveTemperament', next)} />"
 check "设置：从别的 App 直达某一页" apps/Settings.tsx "useState<SettingsPageId | null>(() => settingsLaunch.peek())"
