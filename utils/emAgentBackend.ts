@@ -430,6 +430,10 @@ export const AgentBackend = {
     driveState: (charId: string) => request<{ drives: { drive: string; level: 'mid' | 'high' }[]; private?: AgentPrivateMoment }>(
         `/drives?charId=${encodeURIComponent(charId)}`,
     ),
+    /** 窗台「七日心事」：九种心思最近七天每天的浓淡（0–4 档，今天在最后）。旧后端没有这个端点会 404。 */
+    driveWeek: (charId: string) => request<{ days: string[]; rows: { drive: string; levels: number[] }[] }>(
+        `/drives/week?charId=${encodeURIComponent(charId)}`,
+    ), // [EM: window-sill]
     /** 心思系统：在不在两个人的时间里（聊天工具栏「贴贴」按钮用）。 */
     privateMoment: (charId: string) => request<{ private: AgentPrivateMoment }>(
         `/drives?charId=${encodeURIComponent(charId)}`,

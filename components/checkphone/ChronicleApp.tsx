@@ -182,7 +182,7 @@ export default function ChronicleApp({ targetChar, accent, phoneEvents = [] }: P
                     <PencilSimpleLine size={42} weight="light" />
                     <span className="text-xs">还没有记录</span>
                     <span className="text-[10px] text-white/20 px-10 text-center leading-relaxed">
-                        在机房里点开 TA、把心跳打开之后，这里才会有东西。
+                        在窗台里点开 TA、把「让 TA 自己醒来」打开之后，这里才会有东西。
                     </span>
                 </div>
             )}

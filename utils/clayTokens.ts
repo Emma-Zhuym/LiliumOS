@@ -103,17 +103,7 @@ export const CANDLE_NIGHT = {
   flameFill: 'rgba(242,195,122,.16)',
 } as const;
 
-// ── 窗台的牌（中古撞色海报，2026-11-09 阿萌选的「乙 · 暖色翻上来」） ──
-// 只给窗台那一屏的牌用。每人一个季节（docs/ideas.md 情侣空间）：春 = 陈照、夏 = 卫斯理、初冬清晨 = 陆时。
-// field 牌的底，shape 撞上去的那块形状，block 角上压的色块，mood 心思那行字，text 牌上其余的字。
-// 颜色跟人走，不跟情绪走。text / mood 压在 field 上对比度都在 5.3:1 以上；第四个季节（冬）还没配。
-export const SILL_POSTER = {
-  ink:   '#2B2F45',   // 浅色牌上的字
-  paper: '#F1EDE4',   // 深色牌、深色块上的字
-  spring:      { field: '#E6B8AE', shape: '#8FB07A', block: '#6E3436', mood: '#6E3436', text: '#2B2F45' },
-  summer:      { field: '#EBCB6E', shape: '#4F9BAA', block: '#1F4E5C', mood: '#1F4E5C', text: '#2B2F45' },
-  earlyWinter: { field: '#3A4460', shape: '#E0A66B', block: '#C5CAD6', mood: '#F0C491', text: '#F1EDE4' },
-} as const;
+// 窗台的取值不在这里：2026-11-10 阿萌定窗台自成一套，见 utils/sillTokens.ts。
 
 // ── Overlay（浮在内容上面的 sheet / 提示条，iOS 18 雾面材质） ──
 export const OVERLAY = {

@@ -463,6 +463,66 @@ export const saveState = (db, charId, state) => {
         `INSERT INTO drive_state (char_id, state_json, updated_at) VALUES (?, ?, ?)
          ON CONFLICT(char_id) DO UPDATE SET state_json = excluded.state_json, updated_at = excluded.updated_at`,
     ).run(charId, JSON.stringify(state), state.updatedAt);
+    // 窗台「七日心事」：峰值记不上不该连累存状态
+    try { recordDailyPeak(db, charId, state, new Date(state.updatedAt || Date.now())); } catch { /* 旧库还没有 drive_daily */ }
+};
+
+// ── 窗台「七日心事」（2026-11-10）────────────────────────────────
+// 每种心思每天最浓到过多少，按阿萌那边的日子算（界面上的日子跟她的设备走）。
+// 只给手机看浓淡，不给精确数值：levels 是 0–4 五档。
+
+const DAILY_KEEP_DAYS = 14;
+
+const dayKeyOf = (db, date) => {
+    const timeZone = getSetting(db, 'timezone') || 'America/Chicago';
+    try {
+        return new Intl.DateTimeFormat('en-CA', { timeZone }).format(date);
+    } catch {
+        return date.toISOString().slice(0, 10);
+    }
+};
+
+/** 高出平常多少 → 0–4 档。跟查手机的「有点 / 很」对得上：0.35 以上就是「很」。 */
+export const peakLevel = over => (over < 0.05 ? 0 : over < 0.15 ? 1 : over < 0.25 ? 2 : over < 0.35 ? 3 : 4);
+
+export const recordDailyPeak = (db, charId, state, now = new Date()) => {
+    const day = dayKeyOf(db, now);
+    const upsert = db.prepare(
+        `INSERT INTO drive_daily (char_id, day, drive, peak) VALUES (?, ?, ?, ?)
+         ON CONFLICT(char_id, day, drive) DO UPDATE SET peak = MAX(peak, excluded.peak)`,
+    );
+    for (const key of DRIVES) upsert.run(charId, day, key, Math.max(0, Math.round(above(state, key) * 1000) / 1000));
+    const cutoff = dayKeyOf(db, new Date(now.getTime() - DAILY_KEEP_DAYS * 24 * 3600_000));
+    db.prepare('DELETE FROM drive_daily WHERE char_id = ? AND day < ?').run(charId, cutoff);
+};
+
+/**
+ * 最近七天（今天在最后）。今天再拿此刻的状态补一下（GET 时算出来的，还没存）。
+ * 上线前那几天 drive_daily 是空的：拿心思账里那天到过的最高值顶上（减现在的平常水平），聊胜于无。
+ */
+export const weekOf = (db, charId, current, now = new Date()) => {
+    const days = [];
+    for (let i = 6; i >= 0; i -= 1) days.push(dayKeyOf(db, new Date(now.getTime() - i * 24 * 3600_000)));
+    const peaks = new Map();
+    const put = (day, drive, over) => {
+        const key = `${day}|${drive}`;
+        peaks.set(key, Math.max(peaks.get(key) ?? 0, over));
+    };
+    const daily = db.prepare('SELECT day, drive, peak FROM drive_daily WHERE char_id = ? AND day >= ?').all(charId, days[0]);
+    const covered = new Set(daily.map(row => row.day));
+    for (const row of daily) put(row.day, row.drive, row.peak);
+    const baseline = current?.baseline ?? DEFAULT_BASELINE;
+    const since = new Date(now.getTime() - 8 * 24 * 3600_000).toISOString();
+    for (const row of db.prepare('SELECT at, drive, value_after FROM drive_ledger WHERE char_id = ? AND at >= ?').all(charId, since)) {
+        const day = dayKeyOf(db, new Date(row.at));
+        if (covered.has(day) || !days.includes(day)) continue;
+        put(day, row.drive, Math.max(0, row.value_after - (baseline[row.drive] ?? DEFAULT_BASELINE[row.drive] ?? 0)));
+    }
+    if (current) for (const key of DRIVES) put(days[6], key, Math.max(0, above(current, key)));
+    return {
+        days,
+        rows: DRIVES.map(drive => ({ drive, levels: days.map(day => peakLevel(peaks.get(`${day}|${drive}`) ?? 0)) })),
+    };
 };
 
 export const writeLedger = (db, charId, changes, now = new Date()) => {

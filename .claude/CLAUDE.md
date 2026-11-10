@@ -409,6 +409,9 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - mini 后端 `POST /chat/turns/cancel`（`server/agent-backend/chatTurns.mjs`）：还没开跑的取消，正在跑的掐掉模型请求、跑完不推不进信箱。改后端要在 mini 上拉代码重启
 
 ### 37. 机房 App（Mac mini 后端的家，2026-10-20）
+- **2026-11-10 改成窗台（哨兵 `window-sill`）**：AppID 还叫 `MachineRoom`，桌面名「窗台」。首页 `components/windowSill/SillHome.tsx`（一人一张牌：朝着她的心思最强的当大牌，其余两列；牌面图案跟手指动 `SillPattern.tsx`、点牌翻面看未寄的话；今天的时间线按人筛；当天第一次打开发牌），详情 `SillDetail.tsx`（顶卡 + API 选择器、你不在时带软件胶囊、七日心事、未寄的话索引贴、作息开关 + 频率与同步）。纯逻辑 `utils/emWindowSill.ts`
+- **窗台不走 F**（阿萌 11-10 定）：取值只从 `utils/sillTokens.ts` 来，是 UI 铁律第 1 条的例外（跟小厨房的纸、墨线窗一个待遇）；索引贴那点阴影也在那里。三套颜色（春日 / 盛夏 / 初冬）不绑角色，详情页右上角她自己选，存本机 `em_sill_theme_v1`、不进备份
+- **七日心事**：后端 `drive_daily` 表（迁移 15）每次 `saveState` 记当天每种心思的峰值（高出平常多少），留 14 天；`GET /drives/week` 给 0–4 五档，上线前没记的日子拿心思账顶上。改后端要在 mini 上拉代码重启
 - **2026-10-27 拆开（结构梳理第 4 步，哨兵 `machine-room-split`）**：机房只看 TA——`apps/MachineRoomApp.tsx` 一屏（mini 在不在 + 接上 mini 的角色各一行，没接上的在底下一行小字），角色详情是心跳（接上 / 开关 / API 两行露在外面，频率和重新同步收进标题旁「频率与同步」弹窗；阿萌要留在窗台，最常换的是 API）、心里、攒着想说的、最近几跳；两个人的时间只写到几点（开关是聊天工具栏「贴贴」）。机器那半回到设置 → Mac mini（`components/settings/AgentMiniControls.tsx`：服务、开关、心跳记录 `AgentRunsSheet.tsx`、这台手机、这台 mini）；脾气在神经链接设定页（`components/character/TemperamentSection.tsx`，那页是 formData 自动存，所以经 `handleChange` 交回、`useTemperament` 的 `persist` 参数）。两边共用 `hooks/useAgentMiniData.ts`。机房「后台设置」用 `settingsLaunch`（`utils/emSettingsPages.ts`）直达 Mac mini 页。以后改「窗台」就在机房这一屏上长
 - 主色 mint，纯逻辑在 `utils/emMachineRoom.ts`；接入和脾气读写在 `utils/emAgentConnect.ts`（`connectCharacterToAgent`）、`hooks/useTemperament.ts`，别再在别处写一份
 - 开关走后端 `GET/POST /settings`（`server/agent-backend/adminSettings.mjs`）：**只认白名单**（只试跑、心思试运行、存原文、安静时段），一项不对整批不改；关掉「只试跑」要确认。新开关加进白名单之前想清楚该不该从手机改

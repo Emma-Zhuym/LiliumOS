@@ -18,7 +18,7 @@ import { applyThread, cancelPlan, listPlans } from './lifeThreads.mjs';
 import { parsePlanTime } from './planTime.mjs';
 import { listPocketForPhone } from './pocket.mjs';
 import {
-    applyTemperament, cancelPrivateMoment, evolve as evolveDrives, ingestChatEvents, loadState as loadDriveState, privateMomentOf, setPrivateMoment, summarizeForPhone,
+    applyTemperament, cancelPrivateMoment, evolve as evolveDrives, ingestChatEvents, loadState as loadDriveState, privateMomentOf, setPrivateMoment, summarizeForPhone, weekOf as driveWeekOf,
 } from './drives.mjs';
 import { getSnapshot, listSnapshotMeta, putSnapshot } from './snapshots.mjs';
 import { getSetting, setSetting } from './db.mjs';
@@ -319,6 +319,17 @@ export const createRouter = ctx => {
                 const { localHour, silenceHours, temperament } = driveContext(charId, now);
                 const state = evolveDrives(applyTemperament(loadDriveState(db, charId, now), temperament), now, { silenceHours, localHour });
                 return { drives: summarizeForPhone(state), private: privateMomentOf(state, now) };
+            },
+        },
+        // 窗台「七日心事」：九种心思最近七天每天的浓淡（0–4 档，不给数值）
+        'GET /drives/week': {
+            handle: ({ query }) => {
+                const charId = String(query.get('charId') || '');
+                if (!charId) return { days: [], rows: [] };
+                const now = new Date();
+                const { localHour, silenceHours, temperament } = driveContext(charId, now);
+                const state = evolveDrives(applyTemperament(loadDriveState(db, charId, now), temperament), now, { silenceHours, localHour });
+                return driveWeekOf(db, charId, state, now);
             },
         },
         // 「贴贴」按钮：她自己说开始 / 结束（drives.mjs setPrivateMoment）

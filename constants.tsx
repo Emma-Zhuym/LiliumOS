@@ -115,7 +115,7 @@ export const INSTALLED_APPS: AppConfig[] = [
   { id: AppID.Moments, name: '朋友圈', icon: 'Moments', color: 'rose' }, // [EM: moments]
   { id: AppID.Calendar, name: '日历', icon: 'Calendar', color: 'indigo' }, // [EM: calendar-temporal]
   { id: AppID.Kitchen, name: '小厨房', icon: 'Kitchen', color: 'green' }, // [EM: kitchen-app]
-  { id: AppID.MachineRoom, name: '机房', icon: 'MachineRoom', color: 'teal' }, // [EM: machine-room]
+  { id: AppID.MachineRoom, name: '窗台', icon: 'MachineRoom', color: 'teal' }, // [EM: machine-room]
   { id: AppID.DatePlans, name: '约会', icon: 'DatePlans', color: 'rose' }, // [EM: date-plans]
   { id: AppID.Journal, name: '交换日记', icon: 'Journal', color: 'amber' },
   // { id: AppID.Handbook, name: '手账', icon: 'Handbook', color: 'fuchsia' }, // Hidden temporarily, pending update

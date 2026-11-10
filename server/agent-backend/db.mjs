@@ -298,6 +298,17 @@ export const MIGRATIONS = [
     `
     ALTER TABLE life_threads ADD COLUMN cancelled_at TEXT;
     `,
+    // 15：窗台「七日心事」（2026-11-10）。每种心思每天最浓到过多少（高出平常多少）。
+    // 心思账只记事件带来的变化，久不说话慢慢涨起来的「想你」不在账上，所以每次存状态时顺手记一笔当天的峰值；只留 14 天。
+    `
+    CREATE TABLE drive_daily (
+      char_id TEXT NOT NULL REFERENCES characters(char_id) ON DELETE CASCADE,
+      day     TEXT NOT NULL,
+      drive   TEXT NOT NULL,
+      peak    REAL NOT NULL,
+      PRIMARY KEY (char_id, day, drive)
+    );
+    `,
 ];
 
 export const DEFAULT_SETTINGS = {

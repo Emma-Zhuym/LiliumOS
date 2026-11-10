@@ -10,7 +10,7 @@ import { upsertCharacter } from './characters.mjs';
 import { putSnapshot } from './snapshots.mjs';
 import {
     DEFAULT_BASELINE, SULK_MAX_MS, apartnessOf, applyLabel, chanceFactor, evolve, formatFeelings, freshState, grievanceOf,
-    cancelPrivateMoment, ingestChatEvents, isDriveTrial, lifeWeightFactors, loadState, privateMomentOf, satisfy, saveState, setPrivateMoment, summarizeForPhone, withApartness,
+    cancelPrivateMoment, ingestChatEvents, isDriveTrial, lifeWeightFactors, loadState, peakLevel, privateMomentOf, satisfy, saveState, setPrivateMoment, summarizeForPhone, weekOf, withApartness, writeLedger,
 } from './drives.mjs';
 import { createHeartbeatHandler, decideIntent, heartbeatSchemaFor, pickLifeKind } from './heartbeat.mjs';
 
@@ -398,4 +398,35 @@ test('GET /drives 跟心跳算的一样：异国十小时没说话，查手机�
     const result = routes['GET /drives'].handle({ query: new URLSearchParams({ charId: CHAR }) });
     assert.equal(result.drives[0]?.drive, 'miss');
     assert.equal(result.private.active, false);
+});
+
+test('窗台七日心事：每天记峰值、今天用此刻补、上线前那几天拿心思账顶上，只给五档', () => {
+    const db = freshDb();
+    const day = n => new Date(AT.getTime() - n * 24 * H);
+    // 三天前：想你高出平常 0.4（很想），存了一次状态
+    saveState(db, CHAR, { ...freshState(DEFAULT_BASELINE, day(3)), values: { ...DEFAULT_BASELINE, miss: DEFAULT_BASELINE.miss + 0.4 }, updatedAt: day(3).toISOString() });
+    // 同一天后来回落：峰值不被冲掉
+    saveState(db, CHAR, { ...freshState(DEFAULT_BASELINE, day(3)), updatedAt: new Date(day(3).getTime() + H).toISOString() });
+    // 五天前没存过状态，只有心思账：好奇到过平常 +0.2
+    writeLedger(db, CHAR, [{ drive: 'curious', delta: 0.2, valueAfter: DEFAULT_BASELINE.curious + 0.2, source: 'heartbeat', label: 'x', reason: 'x' }], day(5));
+    const current = { ...freshState(DEFAULT_BASELINE, AT), values: { ...DEFAULT_BASELINE, tired: DEFAULT_BASELINE.tired + 0.1 } };
+    const week = weekOf(db, CHAR, current, AT);
+    assert.equal(week.days.length, 7);
+    assert.equal(week.days[6], '2026-10-14');
+    const row = drive => week.rows.find(r => r.drive === drive).levels;
+    assert.equal(row('miss')[3], 4, '三天前很想');
+    assert.equal(row('miss')[6], 0);
+    assert.equal(row('curious')[1], 2, '心思账顶上');
+    assert.equal(row('tired')[6], 1, '今天用此刻');
+    assert.deepEqual([0, 0.05, 0.15, 0.25, 0.35].map(peakLevel), [0, 1, 2, 3, 4]);
+});
+
+test('GET /drives/week：没给角色就是空的；给了就是九种七天', async () => {
+    const db = freshDb();
+    const { createRouter } = await import('./server.mjs');
+    const routes = createRouter({ db, config: {} });
+    assert.deepEqual(routes['GET /drives/week'].handle({ query: new URLSearchParams() }), { days: [], rows: [] });
+    const result = routes['GET /drives/week'].handle({ query: new URLSearchParams({ charId: CHAR }) });
+    assert.equal(result.rows.length, 9);
+    assert.ok(result.rows.every(r => r.levels.length === 7 && r.levels.every(v => v >= 0 && v <= 4)));
 });

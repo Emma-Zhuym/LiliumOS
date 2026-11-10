@@ -1,0 +1,49 @@
+/* [EM-START: window-sill] 窗台的动效。取值对应 utils/sillTokens.ts 的 SILL_MOTION。 */
+
+/* 手指按在牌上也能上下滑 */
+.sill-card { position: relative; width: 100%; height: 100%; perspective: 2600px; touch-action: pan-y; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
+
+/* 翻牌：一条顺滑转动，不过头不回弹；中间微微放大；转到侧面那一面稍暗。
+   透视放远、不往前顶、侧面不压太暗——转到正侧面那一下的细边就薄到看不出（阿萌 11-10 嫌有条线、嫌淡出会闪） */
+.sill-lift { position: absolute; inset: 0; transform-style: preserve-3d; -webkit-transform-style: preserve-3d; }
+.sill-lift.l-a { animation: sillLiftA 700ms cubic-bezier(.45,0,.25,1) both; }
+.sill-lift.l-b { animation: sillLiftB 700ms cubic-bezier(.45,0,.25,1) both; }
+@keyframes sillLiftA { 0% { transform: scale(1); } 50% { transform: scale(1.03); } 100% { transform: scale(1); } }
+@keyframes sillLiftB { 0% { transform: scale(1); } 50% { transform: scale(1.03); } 100% { transform: scale(1); } }
+.sill-flip { position: absolute; inset: 0; transform-style: preserve-3d; -webkit-transform-style: preserve-3d; transition: transform 700ms cubic-bezier(.45,0,.25,1); }
+.sill-flip.is-back { transform: rotateY(180deg); }
+.sill-face { position: absolute; inset: 0; overflow: hidden; border-radius: 6px; backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.sill-face.back { transform: rotateY(180deg); }
+.sill-face::after { content: ""; position: absolute; inset: 0; border-radius: 6px; background: #2B2F45; opacity: 0; pointer-events: none; }
+.sill-flip.go-a .sill-face::after, .sill-flip.go-b .sill-face::after { animation-duration: 700ms; animation-timing-function: cubic-bezier(.45,0,.25,1); animation-fill-mode: both; }
+.sill-flip.is-back.go-a .front::after { animation-name: sillDimA; } .sill-flip.is-back.go-b .front::after { animation-name: sillDimB; }
+.sill-flip.is-back.go-a .back::after { animation-name: sillLitA; } .sill-flip.is-back.go-b .back::after { animation-name: sillLitB; }
+.sill-flip:not(.is-back).go-a .back::after { animation-name: sillDimA; } .sill-flip:not(.is-back).go-b .back::after { animation-name: sillDimB; }
+.sill-flip:not(.is-back).go-a .front::after { animation-name: sillLitA; } .sill-flip:not(.is-back).go-b .front::after { animation-name: sillLitB; }
+@keyframes sillDimA { 0% { opacity: 0; } 45% { opacity: .16; } 100% { opacity: .16; } }
+@keyframes sillDimB { 0% { opacity: 0; } 45% { opacity: .16; } 100% { opacity: .16; } }
+@keyframes sillLitA { 0% { opacity: .16; } 55% { opacity: .16; } 100% { opacity: 0; } }
+@keyframes sillLitB { 0% { opacity: .16; } 55% { opacity: .16; } 100% { opacity: 0; } }
+
+/* 鼠标划过：一小团很淡的光跟着走（手机上没有） */
+.sill-glare { position: absolute; inset: 0; border-radius: 6px; pointer-events: none; mix-blend-mode: soft-light; transition: opacity 400ms ease; }
+
+/* 发牌：只在当天第一次打开时播 */
+.sill-deal { animation: sillDeal 800ms cubic-bezier(.2,.75,.25,1) var(--dd, 0s) both; }
+@keyframes sillDeal {
+  0% { opacity: 0; transform: translate(var(--dx, 0px), var(--dy, 400px)) rotate(var(--dr, -6deg)) scale(.55); }
+  18% { opacity: 1; }
+  82% { transform: translate(0, -6px) rotate(calc(var(--dr, -6deg) * -.08)) scale(1.02); }
+  100% { opacity: 1; transform: none; }
+}
+
+/* 未寄的话：换页时字淡出淡入；索引贴抽出 / 缩回 */
+.sill-note-body { transition: opacity 180ms ease; }
+.sill-flag { transition: right 220ms ease, background-color 220ms ease; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sill-flip { transition-duration: .01s; }
+  .sill-lift.l-a, .sill-lift.l-b, .sill-face::after, .sill-deal { animation: none !important; }
+  .sill-note-body, .sill-flag { transition: none; }
+}
+/* [EM-END: window-sill] */
