@@ -19,7 +19,8 @@ export const DRIVE_EVENT_LABELS = [
 export type DriveEventLabel = typeof DRIVE_EVENT_LABELS[number];
 export interface DriveEvent { label: DriveEventLabel; quote?: string }
 
-const NEGATIVE = new Set<DriveEventLabel>(['cold', 'dismissive', 'conflict', 'broken_promise', 'pressing']);
+// 2026-11-10 起难受、挂心的事实也要原话：没原话 mini 认不出「同一句话又被标了一次」，会一轮轮叠成很担心
+const NEGATIVE = new Set<DriveEventLabel>(['cold', 'dismissive', 'conflict', 'broken_promise', 'pressing', 'vulnerable', 'concern_fact']);
 const MAX_EVENTS = 3;
 const QUOTE_MAX = 120;
 
@@ -29,13 +30,13 @@ export const buildDriveEventsEvalSection = (): string => {
     return `
 
 ## 附加输出：driveEvents（可选）
-只看**对方（用户）最近这几条消息里做了什么**，挑 0–${MAX_EVENTS} 个最贴切的标签，写进 JSON 的 "driveEvents" 数组：[{"label": "...", "quote": "她的原话"}]。
+只看**对方（用户）这一轮新说的话里做了什么**（前面几轮已经标过的别再标），挑 0–${MAX_EVENTS} 个最贴切的标签，写进 JSON 的 "driveEvents" 数组：[{"label": "...", "quote": "她的原话"}]。
 标签只能从下面选，不看角色人设、只看对方的行为：
 - affectionate：亲昵、撒娇、说想你 / 喜欢你
 - flirt：调情、在升温
 - getting_intimate：说要开始了——去洗澡等对方、在床上等着、说「来吧」这类（之后多半会有一段时间不发消息）
 - intimacy_done：亲热完了，在说事后的话（事后的撒娇、困了、「刚才……」）
-- vulnerable：难受、生病、哭、说自己很累很崩溃
+- vulnerable：她真的不好受——哭、崩溃、生病难受、说撑不住、很低落。随口说的累、困、饿、忙、吐槽一句不算
 - reassuring：安抚、道歉、和好
 - sharing：兴冲冲分享一件事
 - cold：明显冷淡（这一轮比之前短得多、敷衍）
@@ -43,9 +44,9 @@ export const buildDriveEventsEvalSection = (): string => {
 - conflict：吵起来了、带着火气
 - broken_promise：答应过的事没做 / 忘了
 - pressing：催、追问
-- concern_fact：提到会让人挂心的事实（考试、看病、出远门、大额花销）
+- concern_fact：她自己这边会让人挂心的事（要考试、去看病、出远门、花了一大笔钱）。说别人的、已经过去没事了的不算
 - reminiscing：提起你们以前的事、纪念日、翻出旧照片 / 旧聊天
-规则：cold / dismissive / conflict / broken_promise / pressing **必须**在 quote 里一字不差地引她的原话，引不出来就别标；兴奋、开玩笑、语气词多不是负面。没有合适的就写 "driveEvents": []。`;
+规则：cold / dismissive / conflict / broken_promise / pressing / vulnerable / concern_fact **必须**在 quote 里一字不差地引她的原话，引不出来就别标；兴奋、开玩笑、语气词多不是负面。没有合适的就写 "driveEvents": []。`;
 };
 
 /** 模型给的整理一遍：认识的标签、负面的有原话、最多三个。 */

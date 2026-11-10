@@ -15,6 +15,11 @@ describe('心思事件标签（手机侧）', () => {
         vi.mocked(isAgentPaired).mockReturnValue(true);
     });
 
+    it('难受、挂心的事实也要原话，没有就丢（2026-11-10）', () => {
+        expect(sanitizeDriveEvents([{ label: 'vulnerable' }, { label: 'concern_fact' }, { label: 'concern_fact', quote: '明天考试' }]))
+            .toEqual([{ label: 'concern_fact', quote: '明天考试' }]);
+    });
+
     it('评估提示词：配对了才加那一段，写明负面要引原话', () => {
         expect(buildDriveEventsEvalSection()).toContain('"driveEvents"');
         expect(buildDriveEventsEvalSection()).toContain('一字不差');

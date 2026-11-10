@@ -430,3 +430,25 @@ test('GET /drives/week：没给角色就是空的；给了就是九种七天', a
     assert.equal(result.rows.length, 9);
     assert.ok(result.rows.every(r => r.levels.length === 7 && r.levels.every(v => v >= 0 && v <= 4)));
 });
+
+test('挂心：没原话不算；同一句话 12 小时内只算一次；一件事实不够、真难受一次就够（2026-11-10）', () => {
+    const feels = db => summarizeForPhone(loadState(db, CHAR, AT)).some(d => d.drive === 'concern');
+    // 没原话：不收
+    let db = freshDb();
+    assert.equal(ingestChatEvents(db, { charId: CHAR, events: [{ label: 'vulnerable' }], now: AT }), 0);
+    assert.equal(feels(db), false);
+    // 一件挂心的事实：还不到「有点挂心」
+    db = freshDb();
+    ingestChatEvents(db, { charId: CHAR, events: [{ label: 'concern_fact', quote: '明天考试' }], now: AT });
+    assert.equal(feels(db), false);
+    // 隔两小时又一件：够了
+    ingestChatEvents(db, { charId: CHAR, events: [{ label: 'concern_fact', quote: '下午要去看医生' }], now: new Date(AT.getTime() + 2 * H) });
+    assert.equal(summarizeForPhone(loadState(db, CHAR, new Date(AT.getTime() + 2 * H))).some(d => d.drive === 'concern'), true);
+    // 真难受一次就够；同一句话下一轮又被标、几小时后再被标，都不再加
+    db = freshDb();
+    assert.equal(ingestChatEvents(db, { charId: CHAR, events: [{ label: 'vulnerable', quote: '我哭了一晚上' }], now: AT }), 1);
+    assert.equal(feels(db), true);
+    const once = loadState(db, CHAR, AT).values.concern;
+    assert.equal(ingestChatEvents(db, { charId: CHAR, events: [{ label: 'vulnerable', quote: '我哭了一晚上' }], now: new Date(AT.getTime() + 3 * H) }), 0);
+    assert.ok(loadState(db, CHAR, new Date(AT.getTime() + 3 * H)).values.concern <= once);
+});

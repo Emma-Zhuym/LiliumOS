@@ -253,6 +253,7 @@ pickCue({ providers, weights, cooldowns, now, rng }) → Cue | null
   `reassuring` 安抚 / 和好、`sharing` 分享好事、`cold` 冷淡、`dismissive` 敷衍、`conflict` 冲突、
   `broken_promise` 失约、`pressing` 催、`concern_fact` 提到生病 / 考试等、`neutral`
 - **负面标签必须带 `quote`**，没有原话的直接丢
+- **挂心（2026-11-10）**：`vulnerable` 和 `concern_fact` 也必须带 `quote`；同一句原话 12 小时内只算一次（评估会回看前几轮，原来一句「好累」能一轮轮叠成很担心）。`vulnerable` 只算真难受（哭、崩溃、生病难受、撑不住），随口的累 / 困 / 忙不算，一次就到「有点挂心」；`concern_fact` 降到 0.06，单独一件不到门槛、几小时里两件才够；挂心半衰期 8 → 12 小时
 - **映射在代码里**（`server/agent-backend/driveLabels.mjs`）：标签 → 各种增减 × 这个角色的敏感度
 - 涨幅按剩余空间缩放；15 分钟内同一标签每重复一次 ×0.7；每轮每种增减封顶 ±0.15
 - **心跳自己的经历**：`HEARTBEAT_SCHEMA` 加 `selfEvents`（同样只给标签：`work_trouble`、`work_win`、`friend_fun`、`tired_day`），代码映射

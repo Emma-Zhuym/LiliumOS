@@ -25,7 +25,8 @@ export const DEFAULT_BASELINE = {
 /** 往基线回的快慢（小时，越小回得越快）。负面的回得慢一点，但别扭有 24 小时硬封顶。 */
 const HALF_LIFE_H = {
     // 想你 6 小时：跟得上「好几天见不到」那条慢慢抬高的基线（回放里 10 小时太迟钝，异国一整天没说话到半夜才「有点想」）
-    miss: 6, curious: 6, reminisce: 8, social: 8, stress: 8, sulk: 6, concern: 8, desire: 4, tired: 5,
+    // 挂心 12 小时（11-10 从 8 调长）：门槛收紧后剩下的都是真难受，真难受不该三个小时就忘了
+    miss: 6, curious: 6, reminisce: 8, social: 8, stress: 8, sulk: 6, concern: 12, desire: 4, tired: 5,
 };
 
 /** 别扭最多一天就消（阿萌 2026-10-14 定）：距最后一次有原话作证满 24 小时，强制回基线。 */
@@ -97,6 +98,11 @@ const EVENT_CAP = 0.2;
 
 /** 负面标签：没有原话就不收（攻略的教训：小模型把「我！去！看！看！」判成压力，天天积成假账）。 */
 export const NEGATIVE_LABELS = new Set(['cold', 'dismissive', 'conflict', 'broken_promise', 'pressing']);
+/**
+ * 挂心的两个标签也要原话（2026-11-10 阿萌：没不高兴，TA 却担心了一天）。
+ * 没原话就认不出「同一句话下一轮又被标了一次」，随口一句「好累」能一轮轮叠成很担心。
+ */
+export const CONCERN_LABELS = new Set(['vulnerable', 'concern_fact']);
 
 /**
  * 标签 → 各种心思的增减。chat 开头的来自聊天里副 API 的评估（她做了什么），
@@ -123,7 +129,8 @@ export const LABEL_EFFECTS = {
     conflict: { sulk: 0.15, stress: 0.05 },
     broken_promise: { sulk: 0.15 },
     pressing: { stress: 0.08 },
-    concern_fact: { concern: 0.12 },
+    // 挂心的事实单独一件不到「有点挂心」（考试、看病一提就担心太敏感）；几个小时里两件才够。真难受（vulnerable）一次就够
+    concern_fact: { concern: 0.06 },
     neutral: {},
     // TA 自己这边（心跳 selfEvents）
     work_trouble: { stress: 0.12, tired: 0.05 },
@@ -278,7 +285,7 @@ export const applyLabel = (state, { label, quote = '', source = 'chat', now = ne
     // 在一块的亲密不往上冲（下面当作满足处理）；不应期里性欲不再往上推
     if (togetherIntimacy || (refractory && (effects.desire ?? 0) > 0)) effects = { ...effects, desire: 0 };
     const cleanQuote = String(quote ?? '').trim().slice(0, 120);
-    if (NEGATIVE_LABELS.has(label) && !cleanQuote) return { state, changes: [], rejected: 'no_quote' };
+    if ((NEGATIVE_LABELS.has(label) || CONCERN_LABELS.has(label)) && !cleanQuote) return { state, changes: [], rejected: 'no_quote' };
     const last = state.labels?.[label];
     const repeats = last && now.getTime() - Date.parse(last.at) < HABITUATION_MS ? last.repeats + 1 : 0;
     const damp = Math.pow(HABITUATION, repeats);
@@ -563,7 +570,9 @@ export const ingestChatEvents = (db, { charId, events = [], now = new Date(), si
         if (!CHAT_LABELS.includes(label) || label === 'neutral') continue;
         const quote = String(event?.quote ?? '').trim().slice(0, 120);
         const at = eventTime(event?.at, now);
-        if (quote && seen.get(charId, label, quote, new Date(at.getTime() - 30 * 60_000).toISOString())) continue;
+        // 同一句话：挂心的 12 小时内只算一次（评估会回看前几轮），其余 30 分钟
+        const repeatWindowMs = CONCERN_LABELS.has(label) ? 12 * 3600_000 : 30 * 60_000;
+        if (quote && seen.get(charId, label, quote, new Date(at.getTime() - repeatWindowMs).toISOString())) continue;
         const { state: next, changes, rejected } = applyLabel(state, { label, quote, source: 'chat', now: at });
         if (rejected || (!changes.length && !STATEFUL_LABELS.has(label))) continue;
         state = next;
