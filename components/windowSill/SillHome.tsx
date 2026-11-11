@@ -33,7 +33,7 @@ interface CardInfo {
     pocket: AgentPocketItem[] | null;
 }
 
-const SillCard: React.FC<{ info: CardInfo; size: 'big' | 'wide' | 'small'; deal: { dx: number; dy: number; dr: number; dd: number } | null; onOpen: () => void }> = ({ info, size, deal, onOpen }) => {
+const SillCard: React.FC<{ info: CardInfo; size: 'big' | 'wide' | 'small'; deal: { dd: number } | null; onOpen: () => void }> = ({ info, size, deal, onOpen }) => {
     const { char, theme, mood, line, next, pocket } = info;
     const ref = useRef<HTMLDivElement>(null);
     const box = useSize(ref);
@@ -48,28 +48,28 @@ const SillCard: React.FC<{ info: CardInfo; size: 'big' | 'wide' | 'small'; deal:
 
     return (
         <div className={deal ? 'sill-deal' : undefined}
-            style={{ height, '--dx': `${deal?.dx ?? 0}px`, '--dy': `${deal?.dy ?? 0}px`, '--dr': `${deal?.dr ?? 0}deg`, '--dd': `${deal?.dd ?? 0}s` } as React.CSSProperties}>
+            style={{ height, '--dd': `${deal?.dd ?? 0}s` } as React.CSSProperties}>
             <div ref={ref} className="sill-card" {...handlers}>
                 <div className={`sill-lift ${go ? `l-${go}` : ''}`}>
                     <div className={`sill-flip ${face.back ? 'is-back' : ''} ${go ? `go-${go}` : ''}`}>
                         <button type="button" className="sill-face front" onClick={flip} aria-label={`${char.name}，${mood}。点一下翻面`}
                             style={{ border: 'none', padding: 0, margin: 0, width: '100%', height: '100%', textAlign: 'left', background: theme.field, color: theme.text, pointerEvents: face.back ? 'none' : 'auto' }}>
                             <SillPattern theme={theme} width={box.width} height={box.height} trail={trail} />
-                            <div style={{ position: 'absolute', left: small ? 14 : 24, right: small ? 14 : 24, top: small ? 16 : 22, display: 'flex', flexDirection: 'column', gap: small ? 4 : 6, pointerEvents: 'none' }}>
-                                <div className="truncate" style={{ fontFamily: SILL_FONT.serif, fontSize: size === 'big' ? 40 : small ? 22 : 28, fontWeight: 700, lineHeight: 1 }}>{char.name}</div>
+                            <div style={{ position: 'absolute', left: small ? 16 : 24, right: small ? 16 : 24, top: small ? 16 : 24, display: 'flex', flexDirection: 'column', gap: small ? 4 : 8, pointerEvents: 'none' }}>
+                                <div className="truncate" style={{ fontFamily: SILL_FONT.serif, fontSize: size === 'big' ? 40 : small ? 22 : 28, fontWeight: 600, lineHeight: 1 }}>{char.name}</div>
                                 <div style={{ fontFamily: SILL_FONT.serif, fontSize: size === 'big' ? 24 : small ? 13 : 17, fontWeight: 600, color: theme.mood }}>{mood}</div>
                                 {!small && line && <div className="line-clamp-2" style={{ fontSize: 13, lineHeight: 1.6, maxWidth: 260 }}>{line}</div>}
                             </div>
                             <div style={{
                                 position: 'absolute', bottom: 12, fontFamily: SILL_FONT.type, fontSize: small ? 10 : 11, letterSpacing: '.14em', pointerEvents: 'none',
-                                color: theme.footText, ...(small ? { left: 14 } : { right: 16 }),
+                                color: theme.footText, ...(small ? { left: 16 } : { right: 16 }),
                             }}>{foot}</div>
                         </button>
                         <div className="sill-face back" style={{ background: theme.field, color: theme.text, pointerEvents: face.back ? 'auto' : 'none' }}>
                             <SillPaper theme={theme} />
                             <button type="button" onClick={flip} aria-label={`${char.name}攒着想说的。点一下翻回去`}
                                 style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 'none', background: 'none', padding: 0, margin: 0, textAlign: 'left', color: 'inherit' }}>
-                                <div style={{ position: 'absolute', left: small ? 14 : 24, right: small ? 14 : 24, top: small ? 14 : 20, display: 'flex', flexDirection: 'column', gap: small ? 6 : 10 }}>
+                                <div style={{ position: 'absolute', left: small ? 16 : 24, right: small ? 16 : 24, top: small ? 16 : 24, display: 'flex', flexDirection: 'column', gap: small ? 8 : 12 }}>
                                     <div style={{ fontFamily: SILL_FONT.type, fontSize: small ? 10 : 11, letterSpacing: '.2em', color: theme.textSoft }}>未寄的话</div>
                                     {count ? pocket!.slice(0, small ? 1 : 2).map((item, i) => (
                                         <div key={i} className={small ? 'line-clamp-3' : 'line-clamp-2'} style={{ fontFamily: SILL_FONT.serif, fontSize: small ? 14 : 17, lineHeight: 1.45 }}>{item.text}</div>
@@ -82,7 +82,7 @@ const SillCard: React.FC<{ info: CardInfo; size: 'big' | 'wide' | 'small'; deal:
                                 </div>
                             </button>
                             <button type="button" onClick={onOpen} className="active:opacity-40"
-                                style={{ position: 'absolute', right: 0, bottom: 0, minHeight: 44, padding: small ? '0 14px' : '0 16px', border: 'none', background: 'none', color: theme.text, fontFamily: SILL_FONT.serif, fontSize: 13, fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: 4 }}>
+                                style={{ position: 'absolute', right: 0, bottom: 0, minHeight: 44, padding: '0 16px', border: 'none', background: 'none', color: theme.text, fontFamily: SILL_FONT.serif, fontSize: 13, fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: 4 }}>
                                 {small ? '这几天' : '看 TA 这几天'}
                             </button>
                         </div>
@@ -129,7 +129,7 @@ const SillHome: React.FC<{
             char,
             theme: themeOf(char.id),
             mood: drives[char.id] ? (statusPhrase(drives[char.id].slice(0, 1)) || '平平常常') : '…',
-            line: latest ? runSummary(latest) : '还没醒过。',
+            line: latest ? runSummary(latest) : '还没醒过',
             next: awake ? `下一跳 ${(nextBeatText(backend?.nextHeartbeatAt) || '').split(' · ')[0] || '还没排上'}` : '',
             pocket: pockets[char.id] ?? null,
         };
@@ -142,9 +142,7 @@ const SillHome: React.FC<{
     const big = bigId ? ordered[0] : null;
     const rest = bigId ? ordered.slice(1) : ordered;
 
-    const dealFor = (index: number, total: number) => (dealing
-        ? { dx: total > 1 ? (index % 2 ? -90 : 90) : 0, dy: index === 0 && big ? 520 : 280, dr: index % 2 ? 12 : -14, dd: 0.1 + index * 0.2 }
-        : null);
+    const dealFor = (index: number, _total: number) => (dealing ? { dd: index * 0.06 } : null);
 
     const today = useMemo(() => data.runs.filter(run => isToday(run.startedAt) && connected.some(char => char.id === run.charId)), [data.runs, connectedKey]); // eslint-disable-line react-hooks/exhaustive-deps
     const rows = today.filter(run => only === 'all' || run.charId === only);
@@ -174,7 +172,7 @@ const SillHome: React.FC<{
             {connected.length > 0 && (
                 <>
                     <div className="flex items-center justify-between" style={{ marginTop: 2 }}>
-                        <span style={{ fontFamily: SILL_FONT.type, fontSize: 11, letterSpacing: '.26em' }}>今天</span>
+                        <span style={{ fontFamily: SILL_FONT.type, fontSize: 11, letterSpacing: '.18em' }}>今天</span>
                         <div className="flex items-center" style={{ gap: 2 }}>
                             {[{ id: 'all', label: '全部', dot: SILL.ink }, ...connected.map(char => ({ id: char.id, label: char.name, dot: themeOf(char.id).field }))].map(chip => (
                                 <button key={chip.id} type="button" aria-pressed={only === chip.id} onClick={() => setOnly(chip.id)}
@@ -191,7 +189,7 @@ const SillHome: React.FC<{
                         </div>
                     </div>
                     {rows.length === 0 ? (
-                        <p style={{ fontSize: 13, color: SILL.inkSoft }}>今天还没醒过。</p>
+                        <p style={{ fontSize: 13, color: SILL.inkSoft }}>今天还没醒过</p>
                     ) : (
                         <div className="flex flex-col" style={{ gap: 10 }}>
                             {rows.map(run => {

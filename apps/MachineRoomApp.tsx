@@ -86,7 +86,7 @@ const MachineRoomApp: React.FC = () => {
                 <div className="relative flex items-center justify-between" style={{ minHeight: 44, padding: '0 8px' }}>
                     <IconBtn onClick={() => (char ? setCharId(null) : closeApp())} label="返回"><CaretLeft size={22} weight="bold" /></IconBtn>
                     <span className="absolute left-0 right-0 flex justify-center pointer-events-none truncate"
-                        style={{ fontSize: 17, fontWeight: 700, fontFamily: SILL_FONT.serif, padding: '0 64px' }}>{char ? char.name : '窗台'}</span>
+                        style={{ fontSize: 17, fontWeight: 600, fontFamily: SILL_FONT.serif, padding: '0 64px' }}>{char ? char.name : '窗台'}</span>
                     {char && theme ? (
                         <IconBtn onClick={() => setPicking(v => !v)} label="换一套颜色" expanded={picking}><Swatch theme={theme} size={22} /></IconBtn>
                     ) : (
@@ -102,7 +102,7 @@ const MachineRoomApp: React.FC = () => {
                             return (
                                 <button key={id} type="button" role="radio" aria-checked={on} onClick={() => pickTheme(id)}
                                     className="flex items-center"
-                                    style={{ minWidth: 64, minHeight: 44, padding: '0 10px', gap: 8, border: 'none', borderRadius: 999, background: on ? SILL.chipOn : 'transparent', color: SILL.ink, fontSize: 13, fontWeight: on ? 700 : 400 }}>
+                                    style={{ minWidth: 64, minHeight: 44, padding: '0 10px', gap: 8, border: 'none', borderRadius: 999, background: on ? SILL.chipOn : 'transparent', color: SILL.ink, fontSize: 13, fontWeight: on ? 600 : 400 }}>
                                     <Swatch theme={SILL_THEMES[id]} size={18} />{SILL_THEMES[id].name}
                                 </button>
                             );

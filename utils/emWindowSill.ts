@@ -107,11 +107,11 @@ export const strongestLine = (rows: { drive: string; levels: number[] }[], days:
     const label = DRIVE_LABEL[drive];
     if (day === last) {
         const rising = last >= 2 && levels[last - 2] > 0 && levels[last - 2] <= levels[last - 1] && levels[last - 1] < levels[last];
-        return { label, text: rising ? '这几天一天比一天浓，今天最浓。' : '今天最浓。' };
+        return { label, text: rising ? '这几天一天比一天浓，今天最浓' : '今天最浓' };
     }
     const weekday = weekdayLabels(days)[day];
     const when = last - day === 1 ? '昨天' : `周${weekday}`;
-    return { label, text: levels[last] > 0 ? `${when}最浓，现在还在。` : `${when}最浓，现在缓下来了。` };
+    return { label, text: levels[last] > 0 ? `${when}最浓，现在还在` : `${when}最浓，现在缓下来了` };
 };
 
 // ── 哪张当大牌 ─────────────────────────────────────────────────

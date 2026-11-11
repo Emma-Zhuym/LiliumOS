@@ -31,7 +31,7 @@ const EVERY_MIN_OPTIONS = [30, 45, 60, 90, 120, 180, 240];
 
 const Title: React.FC<{ children: React.ReactNode; right?: React.ReactNode }> = ({ children, right }) => (
     <div className="flex items-center justify-between" style={{ minHeight: 44 }}>
-        <span style={{ fontFamily: SILL_FONT.serif, fontSize: 17, fontWeight: 700, color: SILL.ink }}>{children}</span>
+        <span style={{ fontFamily: SILL_FONT.serif, fontSize: 17, fontWeight: 600, color: SILL.ink }}>{children}</span>
         {right}
     </div>
 );
@@ -60,12 +60,12 @@ const Hero: React.FC<{ theme: SillTheme; mood: string; line: string; next: strin
         <div ref={ref} className="sill-card" {...handlers}
             style={{ height: 150, flexShrink: 0, overflow: 'hidden', borderRadius: SILL.radius, background: theme.field, color: theme.text, transition: 'background-color 260ms ease' }}>
             <SillPattern key={theme.id} theme={theme} width={size.width} height={size.height} hero trail={trail} />
-            <div style={{ position: 'absolute', left: 20, right: 20, top: 16, display: 'flex', flexDirection: 'column', gap: 6, pointerEvents: 'none' }}>
+            <div style={{ position: 'absolute', left: 20, right: 20, top: 16, display: 'flex', flexDirection: 'column', gap: 8, pointerEvents: 'none' }}>
                 <div style={{ fontFamily: SILL_FONT.serif, fontSize: 24, fontWeight: 600, color: theme.mood, lineHeight: 1.1 }}>{mood}</div>
                 {line && <div className="line-clamp-2" style={{ fontSize: 13, lineHeight: 1.55 }}>{line}</div>}
             </div>
             {api}
-            {next && <div style={{ position: 'absolute', right: 16, bottom: 14, fontFamily: SILL_FONT.type, fontSize: 10, letterSpacing: '.14em', color: theme.nextText, pointerEvents: 'none' }}>{next}</div>}
+            {next && <div style={{ position: 'absolute', right: 16, bottom: 16, fontFamily: SILL_FONT.type, fontSize: 10, letterSpacing: '.14em', color: theme.nextText, pointerEvents: 'none' }}>{next}</div>}
         </div>
     );
 };
@@ -163,7 +163,7 @@ const SillDetail: React.FC<{ char: CharacterProfile; data: AgentMiniData; theme:
 
     const mood = drives ? (statusPhrase(drives.slice(0, 1)) || '平平常常') : connected ? '…' : '还没接到 mini';
     const latest = runs[0];
-    const line = connected ? (latest ? runSummary(latest) : '还没醒过。') : '接上以后，TA 会在你不在的时候自己醒来过日子。';
+    const line = connected ? (latest ? runSummary(latest) : '还没醒过') : '接上以后，TA 会在你不在的时候自己醒来过日子';
     const awake = Boolean(backend?.heartbeatEnabled) && !backend?.heartbeatPaused;
     const next = awake ? `下一跳 ${(nextBeatText(backend?.nextHeartbeatAt) || '').split(' · ')[0] || '还没排上'}` : '';
 
@@ -197,15 +197,15 @@ const SillDetail: React.FC<{ char: CharacterProfile; data: AgentMiniData; theme:
                     <section>
                         <Title right={runs.length > shown ? <LinkButton onClick={() => setShown(n => n + 10)}>往前翻</LinkButton> : undefined}>你不在时</Title>
                         {runs.length === 0 ? (
-                            <p style={{ fontSize: 13, color: SILL.inkSoft, borderTop: `1px solid ${SILL.line}`, padding: '12px 0' }}>还没醒过。</p>
+                            <p style={{ fontSize: 13, color: SILL.inkSoft, borderTop: `1px solid ${SILL.line}`, padding: '12px 0' }}>还没醒过</p>
                         ) : runs.slice(0, shown).map(item => {
                             const app = runApp(item);
                             const { text, faint } = beatText(item);
                             return (
-                                <div key={item.id} className="flex items-start" style={{ gap: 12, padding: '11px 0', borderTop: `1px solid ${SILL.line}`, color: faint ? SILL.inkFaint : SILL.ink }}>
-                                    <div className="flex flex-col items-start shrink-0" style={{ width: 44, gap: 5, paddingTop: 2 }}>
+                                <div key={item.id} className="flex items-start" style={{ gap: 12, padding: '12px 0', borderTop: `1px solid ${SILL.line}`, color: faint ? SILL.inkFaint : SILL.ink }}>
+                                    <div className="flex flex-col items-start shrink-0" style={{ width: 44, gap: 4, paddingTop: 2 }}>
                                         <span style={{ fontFamily: SILL_FONT.type, fontSize: 12, lineHeight: 1, whiteSpace: 'nowrap' }}>{clockText(item.startedAt)}</span>
-                                        {app && <span style={{ padding: '2px 7px', borderRadius: 999, background: theme.capsuleBg, color: theme.accent, fontSize: 10, lineHeight: 1.4, whiteSpace: 'nowrap' }}>{app}</span>}
+                                        {app && <span style={{ padding: '2px 8px', borderRadius: 999, background: theme.capsuleBg, color: theme.accent, fontSize: 10, lineHeight: 1.4, whiteSpace: 'nowrap' }}>{app}</span>}
                                     </div>
                                     <span className="flex-1 min-w-0" style={{ fontSize: 14, lineHeight: 1.55 }}>{text}</span>
                                 </div>
@@ -216,12 +216,12 @@ const SillDetail: React.FC<{ char: CharacterProfile; data: AgentMiniData; theme:
                     <section className="flex flex-col" style={{ gap: 8 }}>
                         <Title right={<span style={{ fontSize: 11, color: SILL.inkSoft }}>墨色越深，心事越重</span>}>七日心事</Title>
                         {week === 'none' ? (
-                            <p style={{ fontSize: 13, color: SILL.inkSoft }}>mini 上还是旧版，拉一下代码重启后端就有了。</p>
+                            <p style={{ fontSize: 13, color: SILL.inkSoft }}>mini 上还是旧版，拉一下代码重启后端就有了</p>
                         ) : (
                             <>
                                 <div className="flex items-center" style={{ gap: 2, paddingLeft: 52, fontFamily: SILL_FONT.type, fontSize: 10, color: SILL.inkSoft }}>
                                     {(week ? weekdayLabels(week.days) : ['', '', '', '', '', '', '今']).map((label, index) => (
-                                        <div key={index} className="flex-1 text-center" style={index === 6 ? { color: SILL.ink, fontWeight: 700 } : undefined}>{label}</div>
+                                        <div key={index} className="flex-1 text-center" style={index === 6 ? { color: SILL.ink, fontWeight: 600 } : undefined}>{label}</div>
                                     ))}
                                 </div>
                                 <div role="img" aria-label="九种心思七天的浓淡" className="flex flex-col" style={{ gap: 6 }}>
@@ -244,7 +244,7 @@ const SillDetail: React.FC<{ char: CharacterProfile; data: AgentMiniData; theme:
                                             <span className="shrink-0" style={{ fontFamily: SILL_FONT.serif, fontWeight: 600, color: theme.accent }}>最重的一笔 · {strongest.label}</span>
                                             <span>{strongest.text}</span>
                                         </>
-                                    ) : <span style={{ color: SILL.inkSoft }}>{week ? '这七天都在平常水平。' : '正在翻心思账…'}</span>}
+                                    ) : <span style={{ color: SILL.inkSoft }}>{week ? '这七天都在平常水平' : '正在翻心思账…'}</span>}
                                 </div>
                             </>
                         )}
@@ -254,7 +254,7 @@ const SillDetail: React.FC<{ char: CharacterProfile; data: AgentMiniData; theme:
                         <Title right={pocket && pocket.length > 1 ? <span style={{ fontFamily: SILL_FONT.type, fontSize: 11, letterSpacing: '.14em', color: SILL.inkSoft }}>{pocket.length} 句</span> : undefined}>未寄的话</Title>
                         {pocket && pocket.length > 0
                             ? <Unsent theme={theme} items={pocket} />
-                            : <p style={{ fontSize: 13, color: SILL.inkSoft }}>{pocket ? '现在没有攒着的话。' : '读不到（mini 不在线或者还是旧版）。'}</p>}
+                            : <p style={{ fontSize: 13, color: SILL.inkSoft }}>{pocket ? '现在没有攒着的话' : '读不到（mini 不在线或者还是旧版）'}</p>}
                     </section>
 
                     <section>
@@ -266,9 +266,9 @@ const SillDetail: React.FC<{ char: CharacterProfile; data: AgentMiniData; theme:
                             </div>
                         )}>作息</Title>
                         <p style={{ fontSize: 12, lineHeight: 1.6, color: SILL.inkSoft }}>
-                            {backend?.heartbeatPaused ? '暂停中：TA 这会儿不会自己醒。'
-                                : backend?.heartbeatEnabled ? `你不在时，TA 会自己醒来过日子（平均每 ${backend.heartbeatEveryMin ?? 60} 分钟一次）。`
-                                    : 'TA 只在你来找的时候醒着。'}
+                            {backend?.heartbeatPaused ? '暂停中：TA 这会儿不会自己醒'
+                                : backend?.heartbeatEnabled ? `你不在时，TA 会自己醒来过日子（平均每 ${backend.heartbeatEveryMin ?? 60} 分钟一次）`
+                                    : 'TA 只在你来找的时候醒着'}
                         </p>
                     </section>
                 </>

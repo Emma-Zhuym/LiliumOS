@@ -30,10 +30,10 @@ describe('窗台', () => {
     it('七日心事：星期几、最重的一笔怎么说', () => {
         const days = ['2026-11-04', '2026-11-05', '2026-11-06', '2026-11-07', '2026-11-08', '2026-11-09', '2026-11-10'];
         expect(weekdayLabels(days)).toEqual(['三', '四', '五', '六', '日', '一', '今']);
-        expect(strongestLine([{ drive: 'miss', levels: [0, 0, 0, 0, 1, 2, 3] }], days)).toEqual({ label: '想你', text: '这几天一天比一天浓，今天最浓。' });
+        expect(strongestLine([{ drive: 'miss', levels: [0, 0, 0, 0, 1, 2, 3] }], days)).toEqual({ label: '想你', text: '这几天一天比一天浓，今天最浓' });
         expect(strongestLine([{ drive: 'tired', levels: [0, 0, 4, 1, 0, 0, 0] }, { drive: 'miss', levels: [0, 0, 0, 0, 0, 0, 2] }], days))
-            .toEqual({ label: '疲惫', text: '周五最浓，现在缓下来了。' });
-        expect(strongestLine([{ drive: 'sulk', levels: [0, 0, 0, 0, 0, 3, 1] }], days)).toEqual({ label: '芥蒂', text: '昨天最浓，现在还在。' });
+            .toEqual({ label: '疲惫', text: '周五最浓，现在缓下来了' });
+        expect(strongestLine([{ drive: 'sulk', levels: [0, 0, 0, 0, 0, 3, 1] }], days)).toEqual({ label: '芥蒂', text: '昨天最浓，现在还在' });
         expect(strongestLine([{ drive: 'miss', levels: [0, 0, 0, 0, 0, 0, 0] }], days)).toBeNull();
     });
 
