@@ -11,10 +11,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import { useOS } from '../../context/OSContext';
 import type { CharacterProfile } from '../../types';
-import { AgentBackend, type AgentPocketItem } from '../../utils/emAgentBackend';
+import { AgentBackend } from '../../utils/emAgentBackend';
 import { statusPhrase } from '../../utils/emDriveStatus';
 import { clockText, isToday, nextBeatText, runSummary } from '../../utils/emMachineRoom';
-import { beatText, pickBigCard, takeDealToday } from '../../utils/emWindowSill';
+import { awakeBeats, beatText, pickBigCard, SILL_BEATS_SHOWN, takeDealToday } from '../../utils/emWindowSill';
 import { SILL, SILL_FONT, type SillTheme } from '../../utils/sillTokens';
 import type { AgentMiniData } from '../../hooks/useAgentMiniData';
 import SillPaper from './SillPaper';
@@ -30,11 +30,12 @@ interface CardInfo {
     mood: string;
     line: string;
     next: string;
-    pocket: AgentPocketItem[] | null;
+    /** 情绪 buff 里那段叙事的情绪底色（聊天里每轮评估写的 char.buffInjection） */
+    undertone: string;
 }
 
 const SillCard: React.FC<{ info: CardInfo; size: 'big' | 'wide' | 'small'; deal: { dd: number } | null; onOpen: () => void }> = ({ info, size, deal, onOpen }) => {
-    const { char, theme, mood, line, next, pocket } = info;
+    const { char, theme, mood, line, next, undertone } = info;
     const ref = useRef<HTMLDivElement>(null);
     const box = useSize(ref);
     const { trail, handlers } = useFingerTrail();
@@ -42,8 +43,7 @@ const SillCard: React.FC<{ info: CardInfo; size: 'big' | 'wide' | 'small'; deal:
     const flip = () => setFace(prev => ({ back: !prev.back, n: prev.n + 1 }));
     const height = size === 'big' ? 232 : 148;
     const small = size === 'small';
-    const count = pocket?.length ?? 0;
-    const foot = count ? `攒着 ${count} 句${small ? '' : ' · 翻面'}` : '还没攒话';
+    const foot = small ? '翻面' : '翻面看心情';
     const go = face.n ? (face.n % 2 ? 'a' : 'b') : '';
 
     return (
@@ -67,13 +67,13 @@ const SillCard: React.FC<{ info: CardInfo; size: 'big' | 'wide' | 'small'; deal:
                         </button>
                         <div className="sill-face back" style={{ background: theme.field, color: theme.text, pointerEvents: face.back ? 'auto' : 'none' }}>
                             <SillPaper theme={theme} />
-                            <button type="button" onClick={flip} aria-label={`${char.name}攒着想说的。点一下翻回去`}
+                            <button type="button" onClick={flip} aria-label={`${char.name}的情绪底色，点一下翻回去`}
                                 style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 'none', background: 'none', padding: 0, margin: 0, textAlign: 'left', color: 'inherit' }}>
                                 <div style={{ position: 'absolute', left: small ? 16 : 24, right: small ? 16 : 24, top: small ? 16 : 24, display: 'flex', flexDirection: 'column', gap: small ? 8 : 12 }}>
-                                    <div style={{ fontFamily: SILL_FONT.type, fontSize: small ? 10 : 11, letterSpacing: '.2em', color: theme.textSoft }}>未寄的话</div>
-                                    {count ? pocket!.slice(0, small ? 1 : 2).map((item, i) => (
-                                        <div key={i} className={small ? 'line-clamp-3' : 'line-clamp-2'} style={{ fontFamily: SILL_FONT.serif, fontSize: small ? 14 : 17, lineHeight: 1.45 }}>{item.text}</div>
-                                    )) : <div style={{ fontFamily: SILL_FONT.serif, fontSize: small ? 14 : 17 }}>还没有</div>}
+                                    <div style={{ fontFamily: SILL_FONT.type, fontSize: small ? 10 : 11, letterSpacing: '.2em', color: theme.textSoft }}>情绪底色</div>
+                                    <div className={small ? 'line-clamp-4' : 'line-clamp-4'} style={{ fontFamily: SILL_FONT.serif, fontSize: small ? 13 : 15, lineHeight: 1.6 }}>
+                                        {undertone || '这会儿心里平平的，还没在聊天里起什么波澜'}
+                                    </div>
                                     {!small && (
                                         <div style={{ fontSize: 12, lineHeight: 1.7, color: theme.textSoft, borderTop: `1px solid ${theme.textSoft}`, paddingTop: 8 }}>
                                             心里：{mood}{next ? ` · ${next}` : ''}
@@ -101,7 +101,6 @@ const SillHome: React.FC<{
 }> = ({ data, themeOf, onOpenChar, onOpenSettings }) => {
     const { characters } = useOS();
     const [drives, setDrives] = useState<Record<string, Drives>>({});
-    const [pockets, setPockets] = useState<Record<string, AgentPocketItem[]>>({});
     const [only, setOnly] = useState<string>('all');
     const [dealing] = useState(() => takeDealToday());
 
@@ -115,7 +114,6 @@ const SillHome: React.FC<{
         let alive = true;
         for (const id of connectedKey.split(',')) {
             AgentBackend.driveState(id).then(result => { if (alive) setDrives(prev => ({ ...prev, [id]: result.drives })); }).catch(() => {});
-            AgentBackend.pocket(id).then(items => { if (alive) setPockets(prev => ({ ...prev, [id]: items })); }).catch(() => {});
         }
         return () => { alive = false; };
     }, [connectedKey, data.reachable, data.runs]);
@@ -131,7 +129,7 @@ const SillHome: React.FC<{
             mood: drives[char.id] ? (statusPhrase(drives[char.id].slice(0, 1)) || '平平常常') : '…',
             line: latest ? runSummary(latest) : '还没醒过',
             next: awake ? `下一跳 ${(nextBeatText(backend?.nextHeartbeatAt) || '').split(' · ')[0] || '还没排上'}` : '',
-            pocket: pockets[char.id] ?? null,
+            undertone: (char.buffInjection ?? '').trim(),
         };
     });
     const bigId = pickBigCard(connected.map(char => ({ charId: char.id, drives: drives[char.id] ?? [], lastAt: latestAt(char.id) })));
@@ -145,7 +143,9 @@ const SillHome: React.FC<{
     const dealFor = (index: number, _total: number) => (dealing ? { dd: index * 0.06 } : null);
 
     const today = useMemo(() => data.runs.filter(run => isToday(run.startedAt) && connected.some(char => char.id === run.charId)), [data.runs, connectedKey]); // eslint-disable-line react-hooks/exhaustive-deps
-    const rows = today.filter(run => only === 'all' || run.charId === only);
+    const [expanded, setExpanded] = useState(false);
+    const allRows = awakeBeats(today.filter(run => only === 'all' || run.charId === only));
+    const rows = expanded ? allRows : allRows.slice(0, SILL_BEATS_SHOWN);
     const nameOf = (id: string) => characters.find(char => char.id === id)?.name ?? '';
 
     return (
@@ -202,6 +202,14 @@ const SillHome: React.FC<{
                                     </div>
                                 );
                             })}
+                            {allRows.length > SILL_BEATS_SHOWN && (
+                                <div>
+                                    <button type="button" onClick={() => setExpanded(v => !v)} className="active:opacity-40"
+                                        style={{ minHeight: 44, border: 'none', background: 'none', padding: 0, fontSize: 13, color: SILL.ink, textDecoration: 'underline', textUnderlineOffset: 4 }}>
+                                        {expanded ? '收起' : `还有 ${allRows.length - SILL_BEATS_SHOWN} 条`}
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     )}
                 </>

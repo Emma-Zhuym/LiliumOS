@@ -68,6 +68,31 @@ export const beatText = (run: AgentModelRun): { text: string; faint: boolean } =
     return { text: runSummary(run), faint: false };
 };
 
+/** 时间线不列「没醒」的那些（睡着、两个人的时间、安静时段…）：阿萌 11-10 看着全是噪音。出错的那跳照旧留一行灰的。 */
+export const awakeBeats = <T extends AgentModelRun>(runs: T[]): T[] => runs.filter(run => runKind(run) !== 'skipped');
+
+/** 时间线默认先给几条（阿萌 11-10：八条左右正好一屏） */
+export const SILL_BEATS_SHOWN = 8;
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+const dayKey = (at: Date) => `${at.getFullYear()}-${at.getMonth()}-${at.getDate()}`;
+
+/** 按天分组：组头写「今天」「昨天」「11/8」，行里只写钟点（「昨天 23:48」塞进 44px 那列会压到正文）。 */
+export const groupBeatsByDay = <T extends Pick<AgentModelRun, 'startedAt'>>(runs: T[], now = new Date()): { label: string; items: { run: T; clock: string }[] }[] => {
+    const yesterday = new Date(now.getTime() - 24 * 3600_000);
+    const groups: { key: string; label: string; items: { run: T; clock: string }[] }[] = [];
+    for (const run of runs) {
+        const at = new Date(run.startedAt);
+        if (Number.isNaN(at.getTime())) continue;
+        const key = dayKey(at);
+        const label = key === dayKey(now) ? '今天' : key === dayKey(yesterday) ? '昨天' : `${at.getMonth() + 1}/${at.getDate()}`;
+        let group = groups[groups.length - 1];
+        if (!group || group.key !== key) { group = { key, label, items: [] }; groups.push(group); }
+        group.items.push({ run, clock: `${pad2(at.getHours())}:${pad2(at.getMinutes())}` });
+    }
+    return groups.map(({ label, items }) => ({ label, items }));
+};
+
 // ── 七日心事 ───────────────────────────────────────────────────
 /** 九种心思，两个字，三组：朝着你的 / 朝外的 / TA 自己的（阿萌 2026-11-10 定名）。 */
 export const SILL_DRIVE_GROUPS: { drive: string; label: string }[][] = [

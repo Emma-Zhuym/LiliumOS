@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { beatText, pickBigCard, runApp, saveSillTheme, sillThemeFor, strongestLine, takeDealToday, weekdayLabels } from './emWindowSill';
+import { awakeBeats, beatText, groupBeatsByDay, pickBigCard, runApp, saveSillTheme, sillThemeFor, strongestLine, takeDealToday, weekdayLabels } from './emWindowSill';
 
 const run = (patch: Record<string, unknown>) => ({
     id: 1, charId: 'c', runtime: 'api', startedAt: '2026-11-10T15:00:00Z', durationMs: 1, ok: true, outcome: 'noop',
@@ -51,5 +51,19 @@ describe('窗台', () => {
         expect(takeDealToday(now)).toBe(true);
         expect(takeDealToday(now)).toBe(false);
         expect(takeDealToday(new Date(2026, 10, 11, 9))).toBe(true);
+    });
+
+    it('时间线：不列没醒的，出错的留着；按天分组、行里只写钟点', () => {
+        const runs = [
+            run({ id: 1, startedAt: new Date(2026, 10, 10, 9, 19).toISOString(), outcome: 'skipped', skipGate: 'asleep' }),
+            run({ id: 2, startedAt: new Date(2026, 10, 10, 8, 5).toISOString(), outcome: 'message' }),
+            run({ id: 3, startedAt: new Date(2026, 10, 9, 23, 48).toISOString(), ok: false, outcome: 'error' }),
+            run({ id: 4, startedAt: new Date(2026, 10, 8, 17, 45).toISOString() }),
+        ];
+        const kept = awakeBeats(runs);
+        expect(kept.map(r => r.id)).toEqual([2, 3, 4]);
+        const groups = groupBeatsByDay(kept, new Date(2026, 10, 10, 23, 13));
+        expect(groups.map(g => g.label)).toEqual(['今天', '昨天', '11/8']);
+        expect(groups[1].items[0].clock).toBe('23:48');
     });
 });

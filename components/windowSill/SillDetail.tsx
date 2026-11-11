@@ -18,7 +18,7 @@ import { connectCharacterToAgent } from '../../utils/emAgentConnect';
 import { statusPhrase } from '../../utils/emDriveStatus';
 import { HEARTBEAT_API_AUTO, HEARTBEAT_API_CHAT } from '../../utils/emHeartbeatApi';
 import { clockText, nextBeatText, runSummary } from '../../utils/emMachineRoom';
-import { beatText, runApp, SILL_DRIVE_GROUPS, strongestLine, weekdayLabels } from '../../utils/emWindowSill';
+import { awakeBeats, beatText, groupBeatsByDay, runApp, SILL_BEATS_SHOWN, SILL_DRIVE_GROUPS, strongestLine, weekdayLabels } from '../../utils/emWindowSill';
 import { SILL, SILL_FLAG, SILL_FONT, SILL_HEAT_ALPHA, type SillTheme } from '../../utils/sillTokens';
 import type { AgentMiniData } from '../../hooks/useAgentMiniData';
 import ClayDialog from '../os/ClayDialog';
@@ -123,11 +123,12 @@ const SillDetail: React.FC<{ char: CharacterProfile; data: AgentMiniData; theme:
     const connected = Boolean(backend?.credRef);
     const [busy, setBusy] = useState(false);
     const [tuning, setTuning] = useState(false);
-    const [shown, setShown] = useState(6);
+    const [shown, setShown] = useState(SILL_BEATS_SHOWN);
     const [drives, setDrives] = useState<{ drive: string; level: 'mid' | 'high' }[] | null>(null);
     const [pocket, setPocket] = useState<AgentPocketItem[] | null>(null);
     const [week, setWeek] = useState<{ days: string[]; rows: { drive: string; levels: number[] }[] } | null | 'none'>(null);
     const runs = useMemo(() => data.runs.filter(run => run.charId === char.id), [data.runs, char.id]);
+    const beats = useMemo(() => awakeBeats(runs), [runs]);
 
     useEffect(() => {
         if (!connected || !data.reachable) return;
@@ -195,22 +196,32 @@ const SillDetail: React.FC<{ char: CharacterProfile; data: AgentMiniData; theme:
             ) : (
                 <>
                     <section>
-                        <Title right={runs.length > shown ? <LinkButton onClick={() => setShown(n => n + 10)}>往前翻</LinkButton> : undefined}>你不在时</Title>
-                        {runs.length === 0 ? (
+                        <Title right={(
+                            <div className="flex items-center" style={{ gap: 16 }}>
+                                {shown > SILL_BEATS_SHOWN && <LinkButton onClick={() => setShown(SILL_BEATS_SHOWN)}>收起</LinkButton>}
+                                {beats.length > shown && <LinkButton onClick={() => setShown(n => n + 10)}>往前翻</LinkButton>}
+                            </div>
+                        )}>你不在时</Title>
+                        {beats.length === 0 ? (
                             <p style={{ fontSize: 13, color: SILL.inkSoft, borderTop: `1px solid ${SILL.line}`, padding: '12px 0' }}>还没醒过</p>
-                        ) : runs.slice(0, shown).map(item => {
-                            const app = runApp(item);
-                            const { text, faint } = beatText(item);
-                            return (
-                                <div key={item.id} className="flex items-start" style={{ gap: 12, padding: '12px 0', borderTop: `1px solid ${SILL.line}`, color: faint ? SILL.inkFaint : SILL.ink }}>
-                                    <div className="flex flex-col items-start shrink-0" style={{ width: 44, gap: 4, paddingTop: 2 }}>
-                                        <span style={{ fontFamily: SILL_FONT.type, fontSize: 12, lineHeight: 1, whiteSpace: 'nowrap' }}>{clockText(item.startedAt)}</span>
-                                        {app && <span style={{ padding: '2px 8px', borderRadius: 999, background: theme.capsuleBg, color: theme.accent, fontSize: 10, lineHeight: 1.4, whiteSpace: 'nowrap' }}>{app}</span>}
-                                    </div>
-                                    <span className="flex-1 min-w-0" style={{ fontSize: 14, lineHeight: 1.55 }}>{text}</span>
-                                </div>
-                            );
-                        })}
+                        ) : groupBeatsByDay(beats.slice(0, shown)).map(group => (
+                            <React.Fragment key={group.label}>
+                                <div style={{ fontFamily: SILL_FONT.type, fontSize: 11, letterSpacing: '.14em', color: SILL.inkSoft, padding: '12px 0 4px', borderTop: `1px solid ${SILL.line}` }}>{group.label}</div>
+                                {group.items.map(({ run: item, clock }) => {
+                                    const app = runApp(item);
+                                    const { text, faint } = beatText(item);
+                                    return (
+                                        <div key={item.id} className="flex items-start" style={{ gap: 12, padding: '12px 0', borderTop: `1px solid ${SILL.lineFaint}`, color: faint ? SILL.inkFaint : SILL.ink }}>
+                                            <div className="flex flex-col items-start shrink-0" style={{ width: 44, gap: 4, paddingTop: 2 }}>
+                                                <span style={{ fontFamily: SILL_FONT.type, fontSize: 12, lineHeight: 1, whiteSpace: 'nowrap' }}>{clock}</span>
+                                                {app && <span style={{ padding: '2px 8px', borderRadius: 999, background: theme.capsuleBg, color: theme.accent, fontSize: 10, lineHeight: 1.4, whiteSpace: 'nowrap' }}>{app}</span>}
+                                            </div>
+                                            <span className="flex-1 min-w-0" style={{ fontSize: 14, lineHeight: 1.55 }}>{text}</span>
+                                        </div>
+                                    );
+                                })}
+                            </React.Fragment>
+                        ))}
                     </section>
 
                     <section className="flex flex-col" style={{ gap: 8 }}>
