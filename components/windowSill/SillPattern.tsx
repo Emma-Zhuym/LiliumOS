@@ -19,16 +19,20 @@ import type { SillTheme } from '../../utils/sillTokens';
 export interface FingerPoint { x: number; y: number; vx: number; vy: number; t: number }
 export interface FingerTrail { p: FingerPoint | null; wake: Set<() => void> }
 
-/** 牌上挂的指针处理：记下手指在牌里的位置和速度，叫醒图案。 */
+/**
+ * 牌上挂的指针处理：记下手指在牌里的位置和速度，叫醒图案。
+ * 手指走 touch 事件、鼠标走 pointer 事件（2026-11-10 阿萌：手机上划拉没反应）：
+ * iPhone 一旦把手势判成滚动页面，就发 pointercancel、不再发 pointermove；touchmove 在滚动时照样来。
+ * React 的 touch 监听是被动的，不 preventDefault，页面照常能上下滑。
+ */
 export const useFingerTrail = () => {
     const trail = useRef<FingerTrail>({ p: null, wake: new Set() }).current;
     const handlers = useMemo(() => {
-        const move = (e: React.PointerEvent<HTMLElement>) => {
-            const el = e.currentTarget;
+        const at = (el: HTMLElement, clientX: number, clientY: number) => {
             const r = el.getBoundingClientRect();
             if (!r.width || !r.height) return;
-            const x = ((e.clientX - r.left) / r.width) * el.offsetWidth;
-            const y = ((e.clientY - r.top) / r.height) * el.offsetHeight;
+            const x = ((clientX - r.left) / r.width) * el.offsetWidth;
+            const y = ((clientY - r.top) / r.height) * el.offsetHeight;
             const now = performance.now();
             const prev = trail.p;
             const dt = prev ? Math.max(8, now - prev.t) : 16;
@@ -39,7 +43,16 @@ export const useFingerTrail = () => {
             trail.p = null;
             trail.wake.forEach(fn => fn());
         };
-        return { onPointerDown: move, onPointerMove: move, onPointerUp: leave, onPointerLeave: leave, onPointerCancel: leave };
+        const pointer = (e: React.PointerEvent<HTMLElement>) => { if (e.pointerType !== 'touch') at(e.currentTarget, e.clientX, e.clientY); };
+        const pointerLeave = (e: React.PointerEvent<HTMLElement>) => { if (e.pointerType !== 'touch') leave(); };
+        const touch = (e: React.TouchEvent<HTMLElement>) => {
+            const t = e.touches[0];
+            if (t) at(e.currentTarget, t.clientX, t.clientY);
+        };
+        return {
+            onPointerDown: pointer, onPointerMove: pointer, onPointerUp: pointerLeave, onPointerLeave: pointerLeave, onPointerCancel: pointerLeave,
+            onTouchStart: touch, onTouchMove: touch, onTouchEnd: leave, onTouchCancel: leave,
+        };
     }, [trail]);
     return { trail, handlers };
 };

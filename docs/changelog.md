@@ -36,6 +36,12 @@
 
 ## 2026-11
 
+### 2026-11-10 · 窗台牌面在手机上划拉会动了
+**操作**：Claude（小帕）
+
+- 阿萌：手机上划牌面没反应。原因是图案听的是 pointer 事件，iPhone 一把手势判成滚动页面就发 pointercancel、不再发移动；画布上那块不滚动所以没露馅
+- 手指改走 touch 事件（滚动时照样来，被动监听不挡滚动），鼠标还是 pointer（`components/windowSill/SillPattern.tsx` 的 `useFingerTrail`）
+
 ### 2026-11-10 · 窗台抛光（照 unslop 的清单）
 **操作**：Claude（小帕）、阿萌
 
