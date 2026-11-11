@@ -291,10 +291,10 @@ test('两个人的时间：说要开始了就进去，事后就出来，最多�
 test('两个人的时间：不应期里第二次说要开始了，照样进去（数值不动也要存状态）', () => {
     const db = freshDb();
     const at = min => new Date(AT.getTime() + min * 60_000);
-    ingestChatEvents(db, { charId: CHAR, events: [{ label: 'getting_intimate' }], now: at(0) });
-    ingestChatEvents(db, { charId: CHAR, events: [{ label: 'intimacy_done' }], now: at(60) });
+    ingestChatEvents(db, { charId: CHAR, events: [{ label: 'getting_intimate', quote: '我去洗澡等你' }], now: at(0) });
+    ingestChatEvents(db, { charId: CHAR, events: [{ label: 'intimacy_done', quote: '刚才好舒服' }], now: at(60) });
     assert.ok(loadState(db, CHAR, at(61)).desireRefractoryUntil, '进了不应期');
-    assert.equal(ingestChatEvents(db, { charId: CHAR, events: [{ label: 'getting_intimate' }], now: at(150) }), 1);
+    assert.equal(ingestChatEvents(db, { charId: CHAR, events: [{ label: 'getting_intimate', quote: '再来一次吧' }], now: at(150) }), 1);
     assert.equal(privateMomentOf(loadState(db, CHAR, at(151)), at(160)).active, true);
 });
 
@@ -304,7 +304,7 @@ test('贴贴按钮：手动开始、自动猜的「事后」不替她关、手�
     const on = setPrivateMoment(db, { charId: CHAR, on: true, now: at(0) });
     assert.equal(on.active, true);
     assert.equal(on.source, 'manual');
-    ingestChatEvents(db, { charId: CHAR, events: [{ label: 'intimacy_done' }], now: at(30) });
+    ingestChatEvents(db, { charId: CHAR, events: [{ label: 'intimacy_done', quote: '刚才……' }], now: at(30) });
     assert.equal(privateMomentOf(loadState(db, CHAR, at(31)), at(31)).active, true, '副 API 猜的不算数');
     const desireBefore = loadState(db, CHAR, at(40)).values.desire;
     const off = setPrivateMoment(db, { charId: CHAR, on: false, now: at(40) });
@@ -337,10 +337,10 @@ test('贴贴不算数：副 API 猜错开的，她说「不是」只关掉——
 test('排队补送的事件按真发生的时刻算：三小时前的「说要开始了」现在不再拦心跳', () => {
     const db = freshDb();
     const old = new Date(AT.getTime() - 3 * H).toISOString();
-    ingestChatEvents(db, { charId: CHAR, events: [{ label: 'getting_intimate', at: old }], now: AT });
+    ingestChatEvents(db, { charId: CHAR, events: [{ label: 'getting_intimate', quote: '我在床上等你', at: old }], now: AT });
     assert.equal(privateMomentOf(loadState(db, CHAR, AT), AT).active, false);
     // 时间写坏了 / 太旧 / 在将来：按现在算
-    ingestChatEvents(db, { charId: CHAR, events: [{ label: 'getting_intimate', at: 'nope' }], now: AT });
+    ingestChatEvents(db, { charId: CHAR, events: [{ label: 'getting_intimate', quote: '来吧', at: 'nope' }], now: AT });
     assert.equal(privateMomentOf(loadState(db, CHAR, AT), AT).active, true);
 });
 
@@ -367,7 +367,7 @@ test('心跳等模型时聊天送来的标签不会被心跳写回时盖掉', as
     seedSnapshot(db);
     const runner = { run: async () => {
         // 模型还没回来，她在聊天里放了鸽子、又说去洗澡等他
-        ingestChatEvents(db, { charId: CHAR, events: [{ label: 'broken_promise', quote: '啊我忘了' }, { label: 'getting_intimate' }], now: AT });
+        ingestChatEvents(db, { charId: CHAR, events: [{ label: 'broken_promise', quote: '啊我忘了' }, { label: 'getting_intimate', quote: '我去洗澡啦' }], now: AT });
         return { ok: true, output: { action: 'noop', activity: '看书', reason: '', urge: 'none', together: 'together' } };
     } };
     await handlerFor(db, runner)({ uuid: 'r1', kind: 'heartbeat', charId: CHAR, generation: character.heartbeatGeneration, attempts: 1 });

@@ -285,7 +285,7 @@ export const applyLabel = (state, { label, quote = '', source = 'chat', now = ne
     // 在一块的亲密不往上冲（下面当作满足处理）；不应期里性欲不再往上推
     if (togetherIntimacy || (refractory && (effects.desire ?? 0) > 0)) effects = { ...effects, desire: 0 };
     const cleanQuote = String(quote ?? '').trim().slice(0, 120);
-    if ((NEGATIVE_LABELS.has(label) || CONCERN_LABELS.has(label)) && !cleanQuote) return { state, changes: [], rejected: 'no_quote' };
+    if (NEGATIVE_LABELS.has(label) && !cleanQuote) return { state, changes: [], rejected: 'no_quote' };
     const last = state.labels?.[label];
     const repeats = last && now.getTime() - Date.parse(last.at) < HABITUATION_MS ? last.repeats + 1 : 0;
     const damp = Math.pow(HABITUATION, repeats);
@@ -569,9 +569,11 @@ export const ingestChatEvents = (db, { charId, events = [], now = new Date(), si
         const label = String(event?.label ?? '');
         if (!CHAT_LABELS.includes(label) || label === 'neutral') continue;
         const quote = String(event?.quote ?? '').trim().slice(0, 120);
+        // 聊天来的标签一律要原话（2026-11-10：念想、挂心都被同一句话一轮轮叠上去过，没原话认不出是重复）
+        if (!quote) continue;
         const at = eventTime(event?.at, now);
-        // 同一句话：挂心的 12 小时内只算一次（评估会回看前几轮），其余 30 分钟
-        const repeatWindowMs = CONCERN_LABELS.has(label) ? 12 * 3600_000 : 30 * 60_000;
+        // 同一句话 12 小时内只算一次：评估会回看前几轮，同一句会被反复标
+        const repeatWindowMs = 12 * 3600_000;
         if (quote && seen.get(charId, label, quote, new Date(at.getTime() - repeatWindowMs).toISOString())) continue;
         const { state: next, changes, rejected } = applyLabel(state, { label, quote, source: 'chat', now: at });
         if (rejected || (!changes.length && !STATEFUL_LABELS.has(label))) continue;

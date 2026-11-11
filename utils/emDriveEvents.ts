@@ -6,7 +6,8 @@
  * - 照 roomAmbient 的先例搭顺风车：评估提示词末尾多一段可选输出，不多调一次 API
  * - **只给标签和她的原话，不给数字**：数值由 mini 上的代码定（模型给的数字不稳定）
  * - 只判断「她做了什么」，不看人设——同一句「嗯」换个角色标签不该变；角色多在意由脾气读数管
- * - 负面的必须引她的原话，没有原话 mini 直接不收（小模型把兴奋判成不高兴、天天积成假账的教训）
+ * - 每个标签都要引她的原话，没有原话 mini 直接不收（小模型把兴奋判成不高兴、天天积成假账的教训；
+ *   2026-11-10 起扩到全部：没原话认不出同一句话被反复标，挂心、念想都一轮轮叠过）
  * - mini 不在线时存一小队列，下次再送
  */
 
@@ -19,8 +20,6 @@ export const DRIVE_EVENT_LABELS = [
 export type DriveEventLabel = typeof DRIVE_EVENT_LABELS[number];
 export interface DriveEvent { label: DriveEventLabel; quote?: string }
 
-// 2026-11-10 起难受、挂心的事实也要原话：没原话 mini 认不出「同一句话又被标了一次」，会一轮轮叠成很担心
-const NEGATIVE = new Set<DriveEventLabel>(['cold', 'dismissive', 'conflict', 'broken_promise', 'pressing', 'vulnerable', 'concern_fact']);
 const MAX_EVENTS = 3;
 const QUOTE_MAX = 120;
 
@@ -32,10 +31,10 @@ export const buildDriveEventsEvalSection = (): string => {
 ## 附加输出：driveEvents（可选）
 只看**对方（用户）这一轮新说的话里做了什么**（前面几轮已经标过的别再标），挑 0–${MAX_EVENTS} 个最贴切的标签，写进 JSON 的 "driveEvents" 数组：[{"label": "...", "quote": "她的原话"}]。
 标签只能从下面选，不看角色人设、只看对方的行为：
-- affectionate：亲昵、撒娇、说想你 / 喜欢你
-- flirt：调情、在升温
-- getting_intimate：说要开始了——去洗澡等对方、在床上等着、说「来吧」这类（之后多半会有一段时间不发消息）
-- intimacy_done：亲热完了，在说事后的话（事后的撒娇、困了、「刚才……」）
+- affectionate：亲昵、撒娇、说想你 / 喜欢你（普通的亲昵都算这个，不算调情）
+- flirt：调情——带暧昧、往那方面撩、明显在升温。撒娇、说爱你、道晚安不算
+- getting_intimate：她明确说要亲热了——去洗澡等对方、在床上等着、说「来吧」这类（之后多半会有一段时间不发消息）。说困了、要睡觉、去洗漱准备睡觉不算
+- intimacy_done：刚才真的在亲热，现在完了、在说事后的话（「刚才……」）。前面没在亲热就不标，单说困了不算
 - vulnerable：她真的不好受——哭、崩溃、生病难受、说撑不住、很低落。随口说的累、困、饿、忙、吐槽一句不算
 - reassuring：安抚、道歉、和好
 - sharing：兴冲冲分享一件事
@@ -46,7 +45,7 @@ export const buildDriveEventsEvalSection = (): string => {
 - pressing：催、追问
 - concern_fact：她自己这边会让人挂心的事（要考试、去看病、出远门、花了一大笔钱）。说别人的、已经过去没事了的不算
 - reminiscing：提起你们以前的事、纪念日、翻出旧照片 / 旧聊天
-规则：cold / dismissive / conflict / broken_promise / pressing / vulnerable / concern_fact **必须**在 quote 里一字不差地引她的原话，引不出来就别标；兴奋、开玩笑、语气词多不是负面。没有合适的就写 "driveEvents": []。`;
+规则：**每个标签都必须**在 quote 里一字不差地引她这一轮的原话，引不出来就别标；兴奋、开玩笑、语气词多不是负面。没有合适的就写 "driveEvents": []。`;
 };
 
 /** 模型给的整理一遍：认识的标签、负面的有原话、最多三个。 */
@@ -57,11 +56,35 @@ export const sanitizeDriveEvents = (raw: unknown): DriveEvent[] => {
         const label = (item as any)?.label;
         if (!DRIVE_EVENT_LABELS.includes(label)) continue;
         const quote = typeof (item as any)?.quote === 'string' ? (item as any).quote.trim().slice(0, QUOTE_MAX) : '';
-        if (NEGATIVE.has(label) && !quote) continue;
+        // 2026-11-10 起每个标签都要她的原话：没原话 mini 认不出「同一句话又被标了一次」，念想、挂心都叠过
+        if (!quote) continue;
         out.push(quote ? { label, quote } : { label });
         if (out.length >= MAX_EVENTS) break;
     }
     return out;
+};
+
+// ── 原话得是她说的 ─────────────────────────────────────────────
+// 2026-11-10 阿萌：TA 说「去躺好」，副 API 把它当成她「说要开始了」，念想一下冲到很重。
+// 原话在她最近几条消息里找得到才收；引的是 TA 的话、或者编出来的，一律丢。
+const squash = (text: string) => text.replace(/[\s，。！？、,.!?~～…「」“”"'（）()]/g, '');
+
+export const keepHerQuotes = (events: DriveEvent[], herRecentTexts: string[]): DriveEvent[] => {
+    const hers = squash(herRecentTexts.join('\n'));
+    return events.filter(event => {
+        const quote = squash(event.quote ?? '');
+        return quote.length > 0 && hers.includes(quote);
+    });
+};
+
+const herRecentTexts = async (charId: string): Promise<string[] | null> => {
+    try {
+        const { DB } = await import('./db');
+        const recent = await DB.getRecentMessagesByCharId(charId, 16);
+        return recent.filter(m => m.role === 'user' && typeof m.content === 'string').slice(-6).map(m => m.content as string);
+    } catch {
+        return null; // 读不到就不拦（跟以前一样），别让核对弄丢标签
+    }
 };
 
 // ── 送去 mini（不在线就排队）──────────────────────────────────────
@@ -99,8 +122,16 @@ export const sendDriveEventsFromEval = (parsed: any, charId: string, now = Date.
 
 const flushDriveEvents = async (parsed: any, charId: string, now: number): Promise<void> => {
     try {
-        const events = sanitizeDriveEvents(parsed?.driveEvents);
         if (!isAgentPaired()) return;
+        let events = sanitizeDriveEvents(parsed?.driveEvents);
+        if (events.length) {
+            const hers = await herRecentTexts(charId);
+            if (hers) {
+                const kept = keepHerQuotes(events, hers);
+                if (kept.length < events.length) console.log(`💗 [Drives] 丢掉不是她原话的标签：${events.filter(e => !kept.includes(e)).map(e => `${e.label}「${e.quote}」`).join('，')}`);
+                events = kept;
+            }
+        }
         const queue = readQueue(now);
         if (events.length) queue.push({ charId, events, at: now });
         if (!queue.length) return;

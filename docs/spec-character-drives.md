@@ -252,7 +252,8 @@ pickCue({ providers, weights, cooldowns, now, rng }) → Cue | null
 - **标签表 v1**（参考 Drivesoid 的 16 类改写）：`affectionate` 亲昵、`intimate` 亲密、`vulnerable` 示弱 / 难受、
   `reassuring` 安抚 / 和好、`sharing` 分享好事、`cold` 冷淡、`dismissive` 敷衍、`conflict` 冲突、
   `broken_promise` 失约、`pressing` 催、`concern_fact` 提到生病 / 考试等、`neutral`
-- **负面标签必须带 `quote`**，没有原话的直接丢
+- **每个聊天标签都必须带 `quote`**（2026-11-10 起，原来只有负面的要），没有原话的直接丢；手机还会核对原话真在她最近 6 条消息里（`keepHerQuotes`），引的是角色的话就丢。同一标签同一句原话 12 小时内只算一次
+- 起因：TA 说「去躺好」被当成她「说要开始了」，念想两轮从有点冲到很重；`getting_intimate` / `intimacy_done` / `flirt` 的定义也收紧了（困了、洗漱睡觉、撒娇道晚安都不算）
 - **挂心（2026-11-10）**：`vulnerable` 和 `concern_fact` 也必须带 `quote`；同一句原话 12 小时内只算一次（评估会回看前几轮，原来一句「好累」能一轮轮叠成很担心）。`vulnerable` 只算真难受（哭、崩溃、生病难受、撑不住），随口的累 / 困 / 忙不算，一次就到「有点挂心」；`concern_fact` 降到 0.06，单独一件不到门槛、几小时里两件才够；挂心半衰期 8 → 12 小时
 - **映射在代码里**（`server/agent-backend/driveLabels.mjs`）：标签 → 各种增减 × 这个角色的敏感度
 - 涨幅按剩余空间缩放；15 分钟内同一标签每重复一次 ×0.7；每轮每种增减封顶 ±0.15
