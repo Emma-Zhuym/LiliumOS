@@ -1,7 +1,8 @@
 /* [EM-START: window-sill] 窗台的动效。取值对应 utils/sillTokens.ts 的 SILL_MOTION。 */
 
-/* 手指按在牌上也能上下滑 */
-.sill-card { position: relative; width: 100%; height: 100%; perspective: 2600px; touch-action: pan-y; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
+/* 牌上的手势全归图案，不滚页面（2026-11-10 阿萌：牌都在上半截，翻页时手指落在下面的时间线上）。
+   点一下照样翻面：touch-action 只管滑动，不管点击 */
+.sill-card { position: relative; width: 100%; height: 100%; perspective: 2600px; touch-action: none; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
 
 /* 翻牌：一条顺滑转动，不过头不回弹；中间微微放大；转到侧面那一面稍暗。
    透视放远、不往前顶、侧面不压太暗——转到正侧面那一下的细边就薄到看不出（阿萌 11-10 嫌有条线、嫌淡出会闪） */
