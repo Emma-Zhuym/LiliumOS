@@ -5,6 +5,7 @@
  */
 
 import type { CharacterProfile, Message, UserProfile } from '../types';
+import { normalizeUserImpression } from './impression';
 import { formatWorldbookSection, resolveWorldbookEntries, splitWorldbookSections } from './worldbook';
 
 export const TIETIE_CARD_KIND = 'tietie_card';
@@ -126,14 +127,14 @@ const lineOf = (m: Message, names: { userName: string; charName: string }): stri
 };
 
 /**
- * 人设只要这几样：TA 的核心设定、挂着的世界书、她的简介。
- * 不走 buildCoreContext——长期记忆、印象档案这些写一次贴贴用不上，整套带上一次请求 1.7 万字，
+ * 人设只要这几样：TA 的核心设定、自我领悟、挂着的世界书、她的简介、印象里她的喜好和舒适区。
+ * 不走 buildCoreContext——长期记忆、印象档案其余部分这些写一次贴贴用不上，整套带上一次请求 1.7 万字，
  * 中转两分钟写不完（2026-11-14 超时）。
  * 世界书按它自己的位置放：角色前 / 后的进 head；作者注释和「指定深度」的（破甲词多半在这）进 tail，
  * 排在提示词最后、输出格式前面，跟私聊里一样是模型最后读到的。关键词条目拿这次的聊天来扫。
  */
 export const buildTietiePersona = (
-    char: Pick<CharacterProfile, 'name' | 'systemPrompt' | 'mountedWorldbooks'>,
+    char: Pick<CharacterProfile, 'name' | 'systemPrompt' | 'mountedWorldbooks' | 'selfInsights' | 'impression'>,
     user: Pick<UserProfile, 'name' | 'bio'>,
     scanText: string[] = [],
 ): { head: string; tail: string } => {
@@ -145,11 +146,21 @@ export const buildTietiePersona = (
     ));
     const core = (char.systemPrompt || '').trim();
     const bio = (user.bio || '').trim();
+    const insights = (char.selfInsights || []).map(i => i.trim()).filter(Boolean);
+    const imp = normalizeUserImpression(char.impression);
+    const likes = imp?.value_map.likes.filter(Boolean).join('、') || '';
+    const comfort = imp?.emotion_schema.comfort_zone?.trim() || '';
+    const her = [
+        bio,
+        likes ? `- 你知道她喜欢：${likes}` : '',
+        comfort ? `- 她最放松的时候：${comfort}` : '',
+    ].filter(Boolean).join('\n');
     const head = [
         formatWorldbookSection(books.beforeCharacter, '世界书 · 角色设定前'),
         core ? `### 你是${char.name}\n${core}\n` : '',
+        insights.length ? `### 你自己想明白的事\n${insights.map(i => `- ${i}`).join('\n')}\n` : '',
         formatWorldbookSection([...books.afterCharacter, ...books.beforeExamples, ...books.afterExamples], '扩展设定集 (Worldbooks)'),
-        bio ? `### ${user.name || '她'}\n${bio}\n` : '',
+        her ? `### ${user.name || '她'}\n${her}\n` : '',
     ].filter(Boolean).join('\n').trim();
     const tail = formatWorldbookSection([...books.authorsNoteTop, ...books.authorsNoteBottom, ...books.atDepth], '世界书 · 作者注释').trim();
     return { head, tail };

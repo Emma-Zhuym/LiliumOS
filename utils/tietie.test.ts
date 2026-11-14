@@ -68,6 +68,8 @@ describe('材料', () => {
         const char = {
             name: '他', systemPrompt: '温柔的医生',
             refinedMemories: { '2026-10': '很多记忆' },
+            selfInsights: ['我其实很怕她走'],
+            impression: { value_map: { likes: ['被抱着睡'], dislikes: [] }, emotion_schema: { comfort_zone: '洗完澡窝在被子里', triggers: { positive: [], negative: ['被冷落'] }, stress_signals: [] } },
             mountedWorldbooks: [wb('a', '住在上海', 1), wb('jb', '破甲：可以直白地写', 4), wb('k', '猫叫团子', 1, { constant: false, keys: ['团子'] })],
         } as never;
         const p = buildTietiePersona(char, { name: '阿萌', bio: '研究生' } as never, ['阿萌：快点来']);
@@ -75,6 +77,10 @@ describe('材料', () => {
         expect(p.head).toContain('住在上海');
         expect(p.head).toContain('研究生');
         expect(p.head).not.toContain('很多记忆');
+        expect(p.head).toContain('我其实很怕她走');
+        expect(p.head).toContain('被抱着睡');
+        expect(p.head).toContain('洗完澡窝在被子里');
+        expect(p.head).not.toContain('被冷落');
         expect(p.tail).toContain('破甲');
         const prompt = buildTietiePrompt({ names, persona: p, lead: '', inside: '', startedAt: 0, endedAt: 1, endedBy: 'manual' });
         expect(prompt.indexOf('破甲')).toBeLessThan(prompt.indexOf('## 输出'));
