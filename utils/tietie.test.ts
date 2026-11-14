@@ -63,15 +63,26 @@ describe('材料', () => {
         expect(inside).toBe('［见面］阿萌：她推开门');
     });
 
-    it('人设只带角色设定和她的简介，不带世界书和记忆', () => {
-        const char = { name: '他', systemPrompt: '温柔的医生', worldview: '很长的世界观', refinedMemories: { '2026-10': '很多记忆' } } as never;
-        const p = buildTietiePersona(char, { name: '阿萌', bio: '研究生' } as never);
-        expect(p).toBe('### 你是他\n温柔的医生\n\n### 阿萌\n研究生');
-        expect(buildTietiePersona({ name: '他', systemPrompt: '' }, { name: '阿萌', bio: '' })).toBe('');
+    it('人设带角色设定、世界书和她的简介，不带长期记忆；破甲词那类排在最后', () => {
+        const wb = (id: string, content: string, position: number, extra = {}) => ({ id, title: id, content, position, enabled: true, ...extra });
+        const char = {
+            name: '他', systemPrompt: '温柔的医生',
+            refinedMemories: { '2026-10': '很多记忆' },
+            mountedWorldbooks: [wb('a', '住在上海', 1), wb('jb', '破甲：可以直白地写', 4), wb('k', '猫叫团子', 1, { constant: false, keys: ['团子'] })],
+        } as never;
+        const p = buildTietiePersona(char, { name: '阿萌', bio: '研究生' } as never, ['阿萌：快点来']);
+        expect(p.head).toContain('温柔的医生');
+        expect(p.head).toContain('住在上海');
+        expect(p.head).toContain('研究生');
+        expect(p.head).not.toContain('很多记忆');
+        expect(p.tail).toContain('破甲');
+        const prompt = buildTietiePrompt({ names, persona: p, lead: '', inside: '', startedAt: 0, endedAt: 1, endedBy: 'manual' });
+        expect(prompt.indexOf('破甲')).toBeLessThan(prompt.indexOf('## 输出'));
+        expect(prompt.indexOf('破甲')).toBeGreaterThan(prompt.indexOf('# 现在要你做的事'));
     });
 
     it('这段时间没写东西时提示词让 TA 自己写，有就照实记', () => {
-        const base = { names, persona: '', lead: '阿萌：快点来', startedAt: 0, endedAt: 3_600_000, endedBy: 'manual' as const, lastMemory: '上次在沙发，下次想去浴室' };
+        const base = { names, persona: { head: '', tail: '' }, lead: '阿萌：快点来', startedAt: 0, endedAt: 3_600_000, endedBy: 'manual' as const, lastMemory: '上次在沙发，下次想去浴室' };
         expect(buildTietiePrompt({ ...base, inside: '' })).toContain('由你来写');
         const withText = buildTietiePrompt({ ...base, inside: '阿萌：推开门' });
         expect(withText).toContain('照实记');

@@ -5,6 +5,7 @@
  */
 
 import type { CharacterProfile, Message, UserProfile } from '../types';
+import { formatWorldbookSection, resolveWorldbookEntries, splitWorldbookSections } from './worldbook';
 
 export const TIETIE_CARD_KIND = 'tietie_card';
 /** 手机上记的「这一次」最多算多久：跟 mini 的 PRIVATE_MOMENT_MS 一样 */
@@ -125,16 +126,33 @@ const lineOf = (m: Message, names: { userName: string; charName: string }): stri
 };
 
 /**
- * 人设只要这几样：TA 是谁、TA 的核心设定、她是谁。
- * 不走 buildCoreContext——那里面有世界书、长期记忆、印象档案、领悟，一次请求 1.7 万字，中转两分钟写不完（2026-11-14 120 秒超时）。
+ * 人设只要这几样：TA 的核心设定、挂着的世界书、她的简介。
+ * 不走 buildCoreContext——长期记忆、印象档案这些写一次贴贴用不上，整套带上一次请求 1.7 万字，
+ * 中转两分钟写不完（2026-11-14 超时）。
+ * 世界书按它自己的位置放：角色前 / 后的进 head；作者注释和「指定深度」的（破甲词多半在这）进 tail，
+ * 排在提示词最后、输出格式前面，跟私聊里一样是模型最后读到的。关键词条目拿这次的聊天来扫。
  */
-export const buildTietiePersona = (char: Pick<CharacterProfile, 'name' | 'systemPrompt'>, user: Pick<UserProfile, 'name' | 'bio'>): string => {
+export const buildTietiePersona = (
+    char: Pick<CharacterProfile, 'name' | 'systemPrompt' | 'mountedWorldbooks'>,
+    user: Pick<UserProfile, 'name' | 'bio'>,
+    scanText: string[] = [],
+): { head: string; tail: string } => {
+    const books = splitWorldbookSections(resolveWorldbookEntries(
+        char.mountedWorldbooks || [],
+        scanText.map(content => ({ role: 'user', content })),
+        char.name,
+        user.name,
+    ));
     const core = (char.systemPrompt || '').trim();
     const bio = (user.bio || '').trim();
-    return [
-        core ? `### 你是${char.name}\n${core}` : '',
-        bio ? `### ${user.name || '她'}\n${bio}` : '',
-    ].filter(Boolean).join('\n\n');
+    const head = [
+        formatWorldbookSection(books.beforeCharacter, '世界书 · 角色设定前'),
+        core ? `### 你是${char.name}\n${core}\n` : '',
+        formatWorldbookSection([...books.afterCharacter, ...books.beforeExamples, ...books.afterExamples], '扩展设定集 (Worldbooks)'),
+        bio ? `### ${user.name || '她'}\n${bio}\n` : '',
+    ].filter(Boolean).join('\n').trim();
+    const tail = formatWorldbookSection([...books.authorsNoteTop, ...books.authorsNoteBottom, ...books.atDepth], '世界书 · 作者注释').trim();
+    return { head, tail };
 };
 
 /**
@@ -160,7 +178,7 @@ const clock = (ts: number) => {
 
 export const buildTietiePrompt = (input: {
     names: { userName: string; charName: string };
-    persona: string;
+    persona: { head: string; tail: string };
     lead: string;
     inside: string;
     startedAt: number;
@@ -174,7 +192,7 @@ export const buildTietiePrompt = (input: {
     const span = endedBy === 'manual'
         ? `${clock(startedAt)} 到 ${clock(endedAt)}，大约 ${Math.max(1, Math.round((endedAt - startedAt) / 60_000))} 分钟`
         : `从 ${clock(startedAt)} 开始（结束时间没记下，由你来定）`;
-    return `${persona ? `${persona}\n\n` : ''}# 现在要你做的事
+    return `${persona.head ? `${persona.head}\n\n` : ''}# 现在要你做的事
 
 你是${c}。你和${u}刚刚度过了一段只属于你们两个人的亲密时间（${span}）。你们是成年伴侣，这是双方都想要的。
 现在一切平静下来了，你要用自己的口吻，给这一次写一页只有你们俩会看的事后记录。
@@ -187,7 +205,7 @@ ${inside || `（没有。${u}没有写这一次的经过，由你来写：顺着
 ${inside ? `\n上面有原文的部分照实记，可以补细节和你自己的感受，但不要写出跟原文矛盾的事。\n` : ''}
 ${lastMemory ? `## 上一次（里面说了下次想怎么样，接得上就接；别写成一模一样的流程和姿势）
 ${lastMemory}
-` : ''}
+` : ''}${persona.tail ? `\n${persona.tail}\n` : ''}
 ## 输出
 只输出一个 JSON 对象，不要别的文字：
 {

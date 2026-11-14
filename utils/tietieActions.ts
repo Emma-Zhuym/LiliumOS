@@ -122,7 +122,7 @@ export const writeTietieRecord = async (input: {
         const { lead, inside } = buildTietieMaterials(all, { startedAt, endedAt }, names);
         const history = await TietieDB.list(char.id);
         const lastMemory = history.filter(r => r.status === 'done' && r.memory && r.id !== id).slice(-1)[0]?.memory;
-        const persona = buildTietiePersona(char, user);
+        const persona = buildTietiePersona(char, user, [lead, inside]);
 
         const result = await requestRecord(char, api, buildTietiePrompt({
             names, persona, lead, inside, startedAt, endedAt, endedBy, lastMemory,
