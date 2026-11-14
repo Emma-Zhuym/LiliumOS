@@ -6,7 +6,6 @@
 import type { APIConfig, CharacterProfile, UserProfile } from '../types';
 import { DB } from './db';
 import { safeFetchJson } from './safeApi';
-import { ContextBuilder } from './context';
 import { MemoryNodeDB, MemoryVectorDB } from './memoryPalace/db';
 import { vectorizeAndStore } from './memoryPalace/vectorStore';
 import type { EmbeddingConfig, MemoryNode, RemoteVectorConfig } from './memoryPalace/types';
@@ -14,6 +13,7 @@ import {
     TIETIE_CARD_KIND,
     buildTietieCardContent,
     buildTietieMaterials,
+    buildTietiePersona,
     buildTietiePrompt,
     nextTietieNo,
     parseTietieResult,
@@ -121,12 +121,11 @@ export const writeTietieRecord = async (input: {
         const all = await DB.getMessagesByCharId(char.id, true);
         const { lead, inside } = buildTietieMaterials(all, { startedAt, endedAt }, names);
         const history = await TietieDB.list(char.id);
-        const recentMemories = history.filter(r => r.status === 'done' && r.memory && r.id !== id).slice(-3).map(r => r.memory!);
-        let persona = '';
-        try { persona = ContextBuilder.buildCoreContext(char, user, false); } catch { /* 拼不出人设就只靠名字 */ }
+        const lastMemory = history.filter(r => r.status === 'done' && r.memory && r.id !== id).slice(-1)[0]?.memory;
+        const persona = buildTietiePersona(char, user);
 
         const result = await requestRecord(char, api, buildTietiePrompt({
-            names, persona, lead, inside, startedAt, endedAt, endedBy, recentMemories,
+            names, persona, lead, inside, startedAt, endedAt, endedBy, lastMemory,
         }));
 
         const base: TietieRecord = existing || { id, charId: char.id, status: 'failed', startedAt, endedAt, endedBy, createdAt: Date.now() };

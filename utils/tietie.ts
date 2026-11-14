@@ -4,7 +4,7 @@
  * 契约见 docs/spec-tietie-record.md。
  */
 
-import type { Message } from '../types';
+import type { CharacterProfile, Message, UserProfile } from '../types';
 
 export const TIETIE_CARD_KIND = 'tietie_card';
 /** 手机上记的「这一次」最多算多久：跟 mini 的 PRIVATE_MOMENT_MS 一样 */
@@ -105,7 +105,7 @@ export const expiredTietieSession = (session: TietieSession | null, now = Date.n
 
 // ── 材料 ───────────────────────────────────────────────────
 
-const LEAD_COUNT = 30;
+const LEAD_COUNT = 20;
 const WINDOW_MAX = 80;
 
 const isUsable = (m: Message) =>
@@ -125,7 +125,20 @@ const lineOf = (m: Message, names: { userName: string; charName: string }): stri
 };
 
 /**
- * 开始前最近 30 条 + 两个人的时间里的（最多 80 条），按时间排好。
+ * 人设只要这几样：TA 是谁、TA 的核心设定、她是谁。
+ * 不走 buildCoreContext——那里面有世界书、长期记忆、印象档案、领悟，一次请求 1.7 万字，中转两分钟写不完（2026-11-14 120 秒超时）。
+ */
+export const buildTietiePersona = (char: Pick<CharacterProfile, 'name' | 'systemPrompt'>, user: Pick<UserProfile, 'name' | 'bio'>): string => {
+    const core = (char.systemPrompt || '').trim();
+    const bio = (user.bio || '').trim();
+    return [
+        core ? `### 你是${char.name}\n${core}` : '',
+        bio ? `### ${user.name || '她'}\n${bio}` : '',
+    ].filter(Boolean).join('\n\n');
+};
+
+/**
+ * 开始前最近 20 条 + 两个人的时间里的（最多 80 条），按时间排好。
  * inside 是这段时间里有没有真写过东西：有就照实记，没有就 TA 自己写。
  */
 export const buildTietieMaterials = (
@@ -153,9 +166,10 @@ export const buildTietiePrompt = (input: {
     startedAt: number;
     endedAt: number;
     endedBy: 'manual' | 'timeout';
-    recentMemories: string[];
+    /** 上一次的记忆（里面有「下次想怎么样」）；没有就空 */
+    lastMemory?: string;
 }): string => {
-    const { names, persona, lead, inside, startedAt, endedAt, endedBy, recentMemories } = input;
+    const { names, persona, lead, inside, startedAt, endedAt, endedBy, lastMemory } = input;
     const { userName: u, charName: c } = names;
     const span = endedBy === 'manual'
         ? `${clock(startedAt)} 到 ${clock(endedAt)}，大约 ${Math.max(1, Math.round((endedAt - startedAt) / 60_000))} 分钟`
@@ -171,8 +185,8 @@ ${lead || '（没有）'}
 ## 这段时间里留下的文字
 ${inside || `（没有。${u}没有写这一次的经过，由你来写：顺着上面你们聊到的、你的性格和你们一贯的相处，写这一次具体是怎么发生的。）`}
 ${inside ? `\n上面有原文的部分照实记，可以补细节和你自己的感受，但不要写出跟原文矛盾的事。\n` : ''}
-${recentMemories.length ? `## 你们最近几次（别写成一模一样的流程和姿势）
-${recentMemories.map(m => `- ${m}`).join('\n')}
+${lastMemory ? `## 上一次（里面说了下次想怎么样，接得上就接；别写成一模一样的流程和姿势）
+${lastMemory}
 ` : ''}
 ## 输出
 只输出一个 JSON 对象，不要别的文字：
