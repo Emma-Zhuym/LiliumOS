@@ -93,6 +93,8 @@ export interface AgentAdminSettings {
     captureRawOnError: boolean;
     quietStart: string;
     quietEnd: string;
+    /** [EM: heartbeat-api-chain] 主 / 副 API 顺序（mini 上的凭据名）；旧后端没有这一项 */
+    apiChain?: { main: string[]; sub: string[] };
 }
 
 /** 一次「动脑」的记录。影子期就靠它看角色本来想说什么。 */
@@ -383,6 +385,10 @@ export const AgentBackend = {
         request<{ credential: { ref: string; baseUrl: string; model: string; updatedAt: string } }>(
             '/credentials/put', { method: 'POST', body: input },
         ).then(data => data.credential),
+
+    // [EM: heartbeat-api-chain] 主 / 副 API 排短了，多出来的那几条在 mini 上删掉
+    deleteCredential: (ref: string) => request<{ deleted: boolean }>('/credentials/delete', { method: 'POST', body: { ref } })
+        .then(data => data.deleted),
 
     credentials: () => request<{ credentials: { ref: string; baseUrl: string; model: string; updatedAt: string }[] }>(
         '/credentials',

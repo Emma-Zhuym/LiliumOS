@@ -6,8 +6,31 @@
  */
 
 import { getSetting, setSetting } from './db.mjs';
+import { isValidRef } from './credentials.mjs';
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+/** 主 / 副 API 顺序：各最多 4 条凭据 ref（阿萌 2026-11-14：主给心跳本身，副给补评论这类杂活） */
+export const API_CHAIN_MAX = 4;
+const refList = value => (Array.isArray(value) && value.length <= API_CHAIN_MAX && value.every(isValidRef)
+    ? [...new Set(value.map(String))]
+    : null);
+const writeApiChain = value => {
+    if (!value || typeof value !== 'object') return null;
+    const main = refList(value.main ?? []);
+    const sub = refList(value.sub ?? []);
+    return main && sub ? ['api_chain', JSON.stringify({ main, sub })] : null;
+};
+
+/** 心跳读的那份：坏了 / 没设就是两串空的（心跳退回角色自己那条凭据） */
+export const readApiChain = db => {
+    try {
+        const parsed = JSON.parse(getSetting(db, 'api_chain') || '{}');
+        return { main: refList(parsed.main ?? []) ?? [], sub: refList(parsed.sub ?? []) ?? [] };
+    } catch {
+        return { main: [], sub: [] };
+    }
+};
 
 const readJson = (db, key, fallback) => {
     try { return { ...fallback, ...JSON.parse(getSetting(db, key) || '{}') }; } catch { return { ...fallback }; }
@@ -23,6 +46,7 @@ const WRITERS = {
     captureRawOnError: value => (typeof value === 'boolean' ? ['heartbeat_debug', JSON.stringify({ captureRawOnError: value })] : null),
     quietStart: value => (typeof value === 'string' && HHMM.test(value) ? ['quiet_start', value] : null),
     quietEnd: value => (typeof value === 'string' && HHMM.test(value) ? ['quiet_end', value] : null),
+    apiChain: writeApiChain,
 };
 
 export const ADMIN_SETTING_KEYS = Object.keys(WRITERS);
@@ -34,6 +58,7 @@ export const readAdminSettings = db => ({
     captureRawOnError: readJson(db, 'heartbeat_debug', { captureRawOnError: false }).captureRawOnError === true,
     quietStart: getSetting(db, 'quiet_start') || '00:00',
     quietEnd: getSetting(db, 'quiet_end') || '07:00',
+    apiChain: readApiChain(db),
 });
 
 /**

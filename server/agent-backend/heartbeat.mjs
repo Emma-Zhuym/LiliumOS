@@ -11,7 +11,8 @@
 import { createHash } from 'node:crypto';
 
 import { clearNotice, getSetting, shouldNotice } from './db.mjs';
-import { listCredentials, readCredential } from './credentials.mjs';
+import { readCredential } from './credentials.mjs';
+import { readApiChain } from './adminSettings.mjs';
 import { getCharacter, toCharacter } from './characters.mjs';
 import { getSnapshot } from './snapshots.mjs';
 import {
@@ -493,35 +494,23 @@ export const speakBlock = (db, { character, snapshot, now = new Date(), owed = f
 };
 
 /**
- * 主 API 失败时换哪几条接着试（阿萌 2026-11-14：好多跳全报错没醒，她以为角色只是没找她）。
- * 先试别的角色在用的凭据，再试其余存过的；「域名 + 模型」跟已排上的一样的不重复试。最多再试 limit 条。
+ * 心跳这一跳按什么顺序试 API（阿萌 2026-11-14：主 1–4 给心跳本身，副 1–4 给补评论这类杂活，
+ * 副的多是 flash / 便宜模型，主全挂了也不降到副，只推通知）。
+ * 设置里没排主 API 就只用角色自己那条（窗台里选的），不再随手抓别的角色的 API。
+ * 凭据文件不在了的 ref 跳过。
  */
-export const HEARTBEAT_FALLBACK_LIMIT = 2;
-export const fallbackCredRefs = (db, config, primaryRef, limit = HEARTBEAT_FALLBACK_LIMIT) => {
-    const keyOf = cred => `${String(cred?.baseUrl ?? '').replace(/\/+$/, '')}|${cred?.model ?? ''}`;
-    const seen = new Set();
-    try {
-        const primary = primaryRef ? readCredential(config, primaryRef) : null;
-        if (primary) seen.add(keyOf(primary));
-        const inUse = db.prepare(
-            "SELECT DISTINCT cred_ref AS ref FROM characters WHERE cred_ref IS NOT NULL AND runtime = 'api'",
-        ).all().map(row => row.ref);
-        const all = listCredentials(config);
-        const ordered = [
-            ...inUse.map(ref => all.find(cred => cred.ref === ref)).filter(Boolean),
-            ...all.filter(cred => !inUse.includes(cred.ref)),
-        ];
-        const picked = [];
-        for (const cred of ordered) {
-            if (picked.length >= limit) break;
-            if (cred.ref === primaryRef || seen.has(keyOf(cred))) continue;
-            seen.add(keyOf(cred));
-            picked.push(cred.ref);
-        }
-        return picked;
-    } catch {
-        return [];
-    }
+export const heartbeatCredChains = (db, config, character) => {
+    const chain = readApiChain(db);
+    const exists = ref => {
+        try { return Boolean(readCredential(config, ref)); } catch { return false; }
+    };
+    const main = chain.main.filter(exists);
+    const sub = chain.sub.filter(exists);
+    return {
+        main: main.length ? main : [character.credRef],
+        // 没排副 API：杂活跟这一跳实际用上的那条走（null = 调用方填）
+        sub: sub.length ? sub : null,
+    };
 };
 
 /** 按顺序一条条试，通了就停。返回值多带 credRef（实际用的那条）和 tried（失败过的）。 */
@@ -541,7 +530,7 @@ export const runWithCredFallback = async (runner, args, fallbackRefs = []) => {
         // 有一条是「过一会儿就好」的错，就照旧 5 / 10 分钟后重跳
         retryable: tried.some(t => t.retryable),
         error: tried.length > 1
-            ? tried.map((t, i) => `${i === 0 ? '主 API' : `备用${i}`}：${t.error}`).join('；')
+            ? tried.map((t, i) => `第 ${i + 1} 条：${t.error}`).join('；')
             : last?.error,
     };
 };
@@ -2142,15 +2131,15 @@ export const createHeartbeatHandler = ({
         selfEvents: askSelfEvents,
         cancelPlan: upcomingPlans.length > 0,
     });
-    const fallbackRefs = character.runtime === 'api' ? fallbackCredRefs(db, config, character.credRef) : [];
+    const chains = character.runtime === 'api' ? heartbeatCredChains(db, config, character) : { main: [character.credRef], sub: null };
     const firstPass = await runWithCredFallback(runner, {
         charId: character.charId,
-        credRef: character.credRef,
+        credRef: chains.main[0],
         system: promptFor(null),
         user: '现在要做什么？只按 schema 回一个 JSON。',
         schema,
         timeoutMs: config.heartbeatTimeoutMs,
-    }, fallbackRefs);
+    }, chains.main.slice(1));
     // 这一跳实际用的是哪条 API（主 API 不通、换了备用的话，后面补评论、点开小红书都接着用它）
     const usedCharacter = firstPass.ok && firstPass.credRef !== character.credRef
         ? { ...character, credRef: firstPass.credRef }
@@ -2257,8 +2246,11 @@ export const createHeartbeatHandler = ({
     // 发了朋友圈却没写亲友评论：单独再叫一次模型只补评论。大提示词里这个可选字段常被漏掉
     // （9/29 起上下文变长后一条都没有了）。补不上就照原样发，不连累动态本身。
     if (life?.kind === 'moment' && !life.comments?.length) {
+        // 补评论是杂活：按副 API 顺序试，没排副 API 就跟这一跳用上的那条
+        const subRefs = chains.sub ?? [usedCharacter.credRef];
+        const subRunner = { run: args => runWithCredFallback(runner, { ...args, credRef: subRefs[0] }, subRefs.slice(1)) };
         const comments = await fillMomentComments({
-            runner, character: usedCharacter, snapshot, life, userName, timeoutMs: config.heartbeatTimeoutMs,
+            runner: subRunner, character: usedCharacter, snapshot, life, userName, timeoutMs: config.heartbeatTimeoutMs,
         });
         if (comments.length) life = { ...life, comments };
     }

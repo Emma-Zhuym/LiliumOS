@@ -12,7 +12,7 @@ import { authenticate, createPairingCode, listDevices, putPushSubscription, rede
 import { ack, listUnacked } from './outbox.mjs';
 import { cancelJob, createJob, listJobs } from './jobs.mjs';
 import { characterExists, getCharacter, listCharacters, toCharacter, touchPresence, upsertCharacter } from './characters.mjs';
-import { listCredentials, putCredential } from './credentials.mjs';
+import { deleteCredential, listCredentials, putCredential } from './credentials.mjs';
 import { lastRealInteractionAt, listModelRuns } from './heartbeat.mjs';
 import { applyThread, cancelPlan, listPlans } from './lifeThreads.mjs';
 import { parsePlanTime } from './planTime.mjs';
@@ -246,6 +246,10 @@ export const createRouter = ctx => {
 
         'POST /credentials/put': {
             handle: ({ body }) => ({ credential: putCredential(config, body) }),
+        },
+        // 主 / 副 API 顺序缩短时，手机把多出来的那几条删掉，Key 不留在 mini 上
+        'POST /credentials/delete': {
+            handle: ({ body }) => ({ deleted: deleteCredential(config, body?.ref) }),
         },
         'GET /credentials': {
             // 只读得到 ref / baseUrl / model，永远读不到 Key。

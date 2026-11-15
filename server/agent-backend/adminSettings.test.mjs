@@ -13,7 +13,7 @@ import { createXhsLoginProbe, parseXhsLogin } from './xhsFeed.mjs';
 
 test('开关：默认值；白名单里的能改，形状不对或不认识的整批拒绝', () => {
     const db = openDb(':memory:');
-    assert.deepEqual(readAdminSettings(db), { heartbeatShadow: true, drivesTrial: true, captureRawOnError: false, quietStart: '00:00', quietEnd: '07:00' });
+    assert.deepEqual(readAdminSettings(db), { heartbeatShadow: true, drivesTrial: true, captureRawOnError: false, quietStart: '00:00', quietEnd: '07:00', apiChain: { main: [], sub: [] } });
     const next = writeAdminSettings(db, { heartbeatShadow: false, drivesTrial: false, quietEnd: '06:30' });
     assert.equal(next.heartbeatShadow, false);
     assert.equal(next.drivesTrial, false);
