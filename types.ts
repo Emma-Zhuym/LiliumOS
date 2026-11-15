@@ -2933,6 +2933,7 @@ export interface CharacterProfile {
   customDateSprites?: string[]; // User-added custom emotion names for date mode (per-character)
   dateReadingShowAvatars?: boolean;
   dateLightReading?: boolean;   // Light reading mode for novel/text view in date
+  dateLongform?: boolean;   // [EM: meet-longform] 陪伴长文模式：段落写法 + 立绘铺满、字在纸上
   dateWritingStyle?: string;    // 约会模式写作风格预设 key（见 utils/dateWritingStyle.ts）或自定义文风字符串
   dateSkinSets?: SkinSet[];     // Multiple skin sets for portrait mode
   activeSkinSetId?: string;     // Currently active skin set ID

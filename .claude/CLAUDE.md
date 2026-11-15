@@ -522,6 +522,13 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - 重写 / 重新生成要调 `retractPromisesSince`；烛下带现实处境的打 `candleOnly`，只在 `inCandle` 时进提示词
 - 心跳：快照 `promises` → `promisesFrom` / `promiseToGreet` → 缘由 `promise_day`（`reachOut.mjs`）；只有 `chatPrompts` 不打包给 fire_pack
 
+### 46. 见面长文模式（2026-11-14）
+- 见面「陪伴」的可选模式：`CharacterProfile.dateLongform`（`types.ts` 行尾 `[EM: meet-longform]`），见面设置里开关。剧情（放映室）和平行世界不动
+- 起因：一行一念把 TA 的话切碎，又只接她那句、不推剧情，文风里的「留白」让 TA 把礼物是什么推回给她写。她每轮只写一句二三十字
+- 提示词在 `utils/emMeetLongform.ts`：300–500 字、三四段、每段开头一个 `[emotion]`；每轮往前一小步；TA 那边的东西自己写清楚。`datePrompts.ts` 的 `buildMeetLongformModeBlock` 拼好后排在文风预设之后（要盖过留白），开着时不拼一行一念；文风预设只取 `hint` 一句（整块示例是一行一念的写法）
+- 阅读页 `components/date/MeetLongformReader.tsx`（P23），`DateSession.tsx` 在 return 前一段 `[EM-START: meet-longform]` 提前返回；底下的立绘引擎、存档恢复照常跑。立绘跟最后一段的情绪（`lastLongformEmotion`）
+- 暂时没做：长文模式里的语音、多选删除
+
 ### 34. 小厨房（现实食品库存）
 - 详细设计与每次改动见 `docs/kitchen-3d.md`；UI 规则见 `APP_CONVENTIONS.md` 的 P14 与 `utils/kitchenPaperTokens.ts`
 - `utils/kitchenDb.ts` 是唯一能改库存的地方（独立库 `LiliumOS_Kitchen`）：每次改数量记一笔事件、带 operationId 去重；**一起发生的一批（拍一张小票、做一道菜）一个事务写完、同一个 `batchId`，「撤销最近操作」整批撤回**，做菜撤销连「做过几次」一起退

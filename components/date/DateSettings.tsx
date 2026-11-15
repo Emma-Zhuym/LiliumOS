@@ -294,6 +294,14 @@ const DateSettings: React.FC<DateSettingsProps> = ({ char, onBack }) => {
                     </div>
                 </section>
 
+                {/* [EM-START: meet-longform] */}
+                <button type="button" role="switch" aria-checked={!!char.dateLongform} onClick={() => updateCharacter(char.id, { dateLongform: !char.dateLongform })}
+                    className="w-full p-4 flex items-center justify-between gap-4 text-left" style={{ minHeight: 64, background: F.surface, borderRadius: R.smallCard, boxShadow: S.raisedSoft, color: F.textSecondary }}>
+                    <span><span className="block text-sm font-semibold">长文模式</span><span className="block mt-1 text-xs">TA 每轮写三四段、自己往前推一点；立绘铺满，字在纸上整段读。</span></span>
+                    <span className="w-10 h-6 shrink-0 flex items-center p-1" style={{ background: char.dateLongform ? F.accent : F.surfaceSunken, boxShadow: S.sunken, borderRadius: R.pill }}><span className="w-4 h-4" style={{ background: F.surface, boxShadow: S.raisedSoft, borderRadius: R.pill, transform: char.dateLongform ? 'translateX(16px)' : undefined }} /></span>
+                </button>
+                {/* [EM-END: meet-longform] */}
+
                 <button type="button" role="switch" aria-checked={!!char.dateReadingShowAvatars} onClick={() => updateCharacter(char.id, { dateReadingShowAvatars: !char.dateReadingShowAvatars })}
                     className="w-full p-4 flex items-center justify-between gap-4 text-left" style={{ minHeight: 64, background: F.surface, borderRadius: R.smallCard, boxShadow: S.raisedSoft, color: F.textSecondary }}>
                     <span><span className="block text-sm font-semibold">阅读模式显示头像</span><span className="block mt-1 text-xs">在双方的正文旁显示头像。</span></span>

@@ -22,6 +22,10 @@ import { useVoiceFavoriteGesture } from '../../hooks/useVoiceFavoriteGesture';
 import VoiceFavoriteActionSheet from '../voice/VoiceFavoriteActionSheet';
 import { resolveCurrentDateVoiceLine } from '../../utils/dateVoiceSource';
 // [EM-END: text-voice-favorites]
+// [EM-START: meet-longform]
+import MeetLongformReader from './MeetLongformReader';
+import { isMeetLongform, lastLongformEmotion } from '../../utils/emMeetLongform';
+// [EM-END: meet-longform]
 
 // 语音情绪标记 [v:xxx]：跟立绘情绪 [emotion] 分开的独立通道。立绘的 happy 是
 // 夸张的表情、语音的 happy 是音色情绪，两者强度/语义差异大，不能一概而论。
@@ -869,6 +873,40 @@ addToast('重播对话', 'info');
 
     // Determine if we can reroll (last message is assistant)
     const canReroll = messages.length > 0 && messages[messages.length - 1].role === 'assistant';
+
+    // [EM-START: meet-longform] 长文模式：整段摊开读，人铺满、字在纸上；底下的立绘引擎照常跑（存档、恢复都不动）
+    if (isMeetLongform(char)) {
+        const longformEmotion = lastLongformEmotion(lastAssistantContent, dateEmotionKeys);
+        const longformSprite = (longformEmotion && activeSprites[longformEmotion]) || currentSprite;
+        return (
+            <>
+                <MeetLongformReader
+                    char={char} userProfile={userProfile} messages={visibleSessionMessages}
+                    hiddenCount={hiddenNovelMessageCount} canLoadMore={!historyReachedEnd}
+                    onLoadMore={() => {
+                        const plan = planNovelLoadMore({
+                            loadedCount: sessionMessages.length, visibleCount: novelVisibleCount, windowStep: NOVEL_MESSAGE_LOAD_STEP,
+                            loadLimit: historyLoadLimit, loadStep: NOVEL_HISTORY_FETCH_STEP, reachedDbEnd: historyReachedEnd,
+                        });
+                        setNovelVisibleCount(plan.nextVisibleCount);
+                        if (plan.nextLoadLimit !== null) void onLoadMoreHistory?.(plan.nextLoadLimit);
+                    }}
+                    spriteSrc={longformSprite} input={input} setInput={setInput} isTyping={isTyping}
+                    retryText={pendingRetryText || getPendingReplyText(messages)}
+                    errorText={pendingRetryText && currentText.startsWith('(出错了') ? currentText : ''}
+                    canReroll={canReroll} onSend={handleSend} onContinue={handleContinue} onReroll={() => void handleRerollClick()}
+                    onOpenSettings={() => setShowSettings(true)} onExit={handleExitClick}
+                    onEditMessage={onEditMessage} onDeleteMessage={onDeleteMessage}
+                    onToast={(text, type) => addToast(text, type)} />
+                {showSettings && (
+                    <div className="absolute inset-0 z-[200] animate-slide-up bg-white">
+                        <DateSettings char={char} onBack={() => setShowSettings(false)} />
+                    </div>
+                )}
+            </>
+        );
+    }
+    // [EM-END: meet-longform]
 
     return (
         <div className="h-full w-full relative bg-black overflow-hidden font-sans select-none" onClick={handleScreenClick}>

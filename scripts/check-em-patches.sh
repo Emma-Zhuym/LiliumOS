@@ -558,6 +558,14 @@ check "处理完才删" utils/activeMsgRuntime.ts "await ActiveMsgStore.settleIn
 check "写回清认领" utils/activeMsgStore.ts "delete merged.claimedAt; // [EM: inbox-durable-claim]"
 
 echo ""
+echo "--- 见面长文模式 ---"
+check "长文：提示词换掉一行一念" utils/datePrompts.ts "(isMeetLongform(char) ? '' : buildVNModeBlock(char, userProfile?.name || '')) // [EM: meet-longform]"
+check "长文：System Note" utils/datePrompts.ts "isMeetLongform(char) ? meetLongformNote(variant, focusLine)"
+check "长文：阅读页接线" components/date/DateSession.tsx "[EM-START: meet-longform]"
+check "长文：设置开关" components/date/DateSettings.tsx "[EM-START: meet-longform]"
+check "长文：角色字段" types.ts "dateLongform?: boolean;   // [EM: meet-longform]"
+
+echo ""
 if [ $FAIL -gt 0 ]; then
     echo "🔴 $FAIL 项缺失（$PASS 项通过）——EM 功能被冲掉了，对照 .claude/CLAUDE.md 补回来"
     exit 1
