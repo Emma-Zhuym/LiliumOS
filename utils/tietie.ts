@@ -16,7 +16,10 @@ export interface TietieRecord {
     /** `${charId}_${startedAt}`：同一次只写一份 */
     id: string;
     charId: string;
-    status: 'done' | 'failed';
+    /** writing = 卡已经落了、TA 还在写（页面中途被杀，下次打开按没写出来算，能点重写） */
+    status: 'done' | 'failed' | 'writing';
+    /** 没写出来的原因（「模型返回 401」「超时」…），卡上直接写给她看 */
+    error?: string;
     startedAt: number;
     endedAt: number;
     /** manual = 她点了结束；timeout = 忘了点，到点自己结束 */
@@ -75,6 +78,12 @@ export const beginTietieSession = (charId: string, until: number, now = Date.now
 
 export const clearTietieSession = (charId: string) => {
     try { localStorage.removeItem(sessionKey(charId)); } catch { /* 无所谓 */ }
+};
+
+/** 只清掉这一次的（卡已经落库了才清）：别把她刚又开的下一次一起清掉 */
+export const clearTietieSessionIf = (charId: string, startedAt: number) => {
+    const session = readTietieSession(charId);
+    if (session && session.startedAt === startedAt && (session.endedBy || session.until <= Date.now())) clearTietieSession(charId);
 };
 
 /** 在见面里结束：记下几点结束，等打开聊天时写事后记录（[EM: meet-longform]） */

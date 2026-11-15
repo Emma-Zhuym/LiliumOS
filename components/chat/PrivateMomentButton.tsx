@@ -100,12 +100,9 @@ export const usePrivateMoment = (charId: string, options: { onDone?: () => void;
                 const session = readTietieSession(charId);
                 // 副 API 猜着开、她确认是真的：开始时刻按 mini 的 until 往前推
                 const startedAt = session ? sessionStartFor(session, now) : autoSessionStart(previous?.until, now);
-                if (options.away) {
-                    parkEndedTietieSession(charId, startedAt, now); // [EM: meet-longform]
-                } else {
-                    clearTietieSession(charId);
-                    announceTietieEnded(charId, startedAt, now);
-                }
+                // 先停在本机，卡落库后才清：聊天页没接住事件、写到一半页面被杀，下次打开聊天还能补写
+                parkEndedTietieSession(charId, startedAt, now); // [EM: meet-longform]
+                if (!options.away) announceTietieEnded(charId, startedAt, now);
             }
             // [EM-END: tietie-record]
             addToast(next.active

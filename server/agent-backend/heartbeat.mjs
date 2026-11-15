@@ -10,8 +10,8 @@
 
 import { createHash } from 'node:crypto';
 
-import { getSetting } from './db.mjs';
-import { readCredential } from './credentials.mjs';
+import { clearNotice, getSetting, shouldNotice } from './db.mjs';
+import { listCredentials, readCredential } from './credentials.mjs';
 import { getCharacter, toCharacter } from './characters.mjs';
 import { getSnapshot } from './snapshots.mjs';
 import {
@@ -490,6 +490,60 @@ export const speakBlock = (db, { character, snapshot, now = new Date(), owed = f
         return 'message_cooldown';
     }
     return null;
+};
+
+/**
+ * 主 API 失败时换哪几条接着试（阿萌 2026-11-14：好多跳全报错没醒，她以为角色只是没找她）。
+ * 先试别的角色在用的凭据，再试其余存过的；「域名 + 模型」跟已排上的一样的不重复试。最多再试 limit 条。
+ */
+export const HEARTBEAT_FALLBACK_LIMIT = 2;
+export const fallbackCredRefs = (db, config, primaryRef, limit = HEARTBEAT_FALLBACK_LIMIT) => {
+    const keyOf = cred => `${String(cred?.baseUrl ?? '').replace(/\/+$/, '')}|${cred?.model ?? ''}`;
+    const seen = new Set();
+    try {
+        const primary = primaryRef ? readCredential(config, primaryRef) : null;
+        if (primary) seen.add(keyOf(primary));
+        const inUse = db.prepare(
+            "SELECT DISTINCT cred_ref AS ref FROM characters WHERE cred_ref IS NOT NULL AND runtime = 'api'",
+        ).all().map(row => row.ref);
+        const all = listCredentials(config);
+        const ordered = [
+            ...inUse.map(ref => all.find(cred => cred.ref === ref)).filter(Boolean),
+            ...all.filter(cred => !inUse.includes(cred.ref)),
+        ];
+        const picked = [];
+        for (const cred of ordered) {
+            if (picked.length >= limit) break;
+            if (cred.ref === primaryRef || seen.has(keyOf(cred))) continue;
+            seen.add(keyOf(cred));
+            picked.push(cred.ref);
+        }
+        return picked;
+    } catch {
+        return [];
+    }
+};
+
+/** 按顺序一条条试，通了就停。返回值多带 credRef（实际用的那条）和 tried（失败过的）。 */
+export const runWithCredFallback = async (runner, args, fallbackRefs = []) => {
+    const tried = [];
+    let last = null;
+    for (const credRef of [args.credRef, ...fallbackRefs]) {
+        const result = await runner.run({ ...args, credRef });
+        if (result.ok) return { ...result, credRef, tried };
+        tried.push({ credRef, error: result.error, retryable: Boolean(result.retryable) });
+        last = result;
+    }
+    return {
+        ...last,
+        credRef: args.credRef,
+        tried,
+        // 有一条是「过一会儿就好」的错，就照旧 5 / 10 分钟后重跳
+        retryable: tried.some(t => t.retryable),
+        error: tried.length > 1
+            ? tried.map((t, i) => `${i === 0 ? '主 API' : `备用${i}`}：${t.error}`).join('；')
+            : last?.error,
+    };
 };
 
 /** 这个角色的心跳走哪条 API：「域名 · 模型」。不含 Key 和路径；没配凭据 / 不是 api 返回 null。 */
@@ -1847,6 +1901,30 @@ export const planHeartbeatRetry = (db, { character, job, result, now = new Date(
     };
 };
 
+/**
+ * 心跳试完所有 API 还是醒不来：推一条系统通知。key 按角色记，下次醒成功时清掉，
+ * 再坏才会再推（跟 Home Assistant 连不上同一套 notices）。推送坏了不连累心跳本身。
+ */
+export const heartbeatDownKey = charId => `heartbeat_down:${charId}`;
+export const notifyHeartbeatDown = async ({ db, deliver, character, error, now = new Date() }) => {
+    if (!deliver) return false;
+    try {
+        if (!shouldNotice(db, heartbeatDownKey(character.charId), now.toISOString())) return false;
+        const name = character.displayName || character.charId;
+        await deliver({
+            messageId: `heartbeat-down:${character.charId}:${now.toISOString().slice(0, 16)}`,
+            charId: character.charId,
+            kind: 'system_notice',
+            title: `${name} 的心跳醒不来`,
+            body: `API 全报错了（${String(error || '').slice(0, 60)}），去窗台看一眼、换个 API。`,
+            payload: { text: `${name} 的心跳醒不来`, error: String(error || '').slice(0, 300), source: 'heartbeat.down', at: now.toISOString() },
+        });
+        return true;
+    } catch {
+        return false;
+    }
+};
+
 export const createHeartbeatHandler = ({
     db, config, runners, scheduleNext, deliver = null, quiet = null, now = () => new Date(), rng = Math.random, xhs = null,
     chatBusy = () => false, scheduleRetry = null,
@@ -2064,14 +2142,19 @@ export const createHeartbeatHandler = ({
         selfEvents: askSelfEvents,
         cancelPlan: upcomingPlans.length > 0,
     });
-    const firstPass = await runner.run({
+    const fallbackRefs = character.runtime === 'api' ? fallbackCredRefs(db, config, character.credRef) : [];
+    const firstPass = await runWithCredFallback(runner, {
         charId: character.charId,
         credRef: character.credRef,
         system: promptFor(null),
         user: '现在要做什么？只按 schema 回一个 JSON。',
         schema,
         timeoutMs: config.heartbeatTimeoutMs,
-    });
+    }, fallbackRefs);
+    // 这一跳实际用的是哪条 API（主 API 不通、换了备用的话，后面补评论、点开小红书都接着用它）
+    const usedCharacter = firstPass.ok && firstPass.credRef !== character.credRef
+        ? { ...character, credRef: firstPass.credRef }
+        : character;
     // 逛小红书：多看了两眼的第一条，程序替 TA 点开看正文和评论区，看完再把这一跳重写一遍（第二次调模型）。
     // 点不点由程序定——让模型自己决定「要不要点开」，它多半说算了。点不开、第二次写坏了，都退回第一次的结果。
     let result = firstPass;
@@ -2083,7 +2166,7 @@ export const createHeartbeatHandler = ({
             opened = { index: feed.findIndex(note => note.noteId === first.noteId) + 1, note: first, detail: fetched.detail };
             const secondPass = await runner.run({
                 charId: character.charId,
-                credRef: character.credRef,
+                credRef: usedCharacter.credRef,
                 system: promptFor(opened),
                 user: '你刚点开看完了。把这一跳写完，只按 schema 回一个 JSON。',
                 schema,
@@ -2114,10 +2197,17 @@ export const createHeartbeatHandler = ({
             channel: channelOf(config, character),
             rawOutput: shouldCaptureRaw(db) ? result.raw ?? null : null,
         });
+        // 不再重跳了（主 API、备用都试过，也没排上 5 / 10 分钟后的重跳）：推一条通知给她。
+        // 同一个角色在恢复前只推一次，免得每跳都响。
+        if (!(retry && scheduleRetry) && !shadow) {
+            await notifyHeartbeatDown({ db, deliver, character, error: result.error, now: now() });
+        }
         // 心跳 max_attempts=1：这里抛出去就是本次 failed，由已经排好的下一跳接续。
         throw new Error(result.error);
     }
 
+    // 醒过来了：之前推过「醒不来」的，记号清掉，下次再坏才会再推
+    try { clearNotice(db, heartbeatDownKey(character.charId)); } catch { /* 清不掉顶多少推一次 */ }
     // 不能开口的一跳，模型还是写了 message：不发，当成「想说但先留着」，下一跳再兑现。
     const modelOutput = hush && result.output.action === 'message'
         ? { ...result.output, action: 'noop', urge: 'later' }
@@ -2168,7 +2258,7 @@ export const createHeartbeatHandler = ({
     // （9/29 起上下文变长后一条都没有了）。补不上就照原样发，不连累动态本身。
     if (life?.kind === 'moment' && !life.comments?.length) {
         const comments = await fillMomentComments({
-            runner, character, snapshot, life, userName, timeoutMs: config.heartbeatTimeoutMs,
+            runner, character: usedCharacter, snapshot, life, userName, timeoutMs: config.heartbeatTimeoutMs,
         });
         if (comments.length) life = { ...life, comments };
     }
@@ -2191,7 +2281,7 @@ export const createHeartbeatHandler = ({
         shadow,
         // 抽中了开口、模型却退回 noop 的次数值得盯：多了说明提示词还是在劝它闭嘴。
         intent,
-        channel: channelOf(config, character),
+        channel: channelOf(config, usedCharacter),
         // 开了口就不再欠着；没开口的「等会儿」留给下一跳兑现。上一跳欠下的，这一跳不能开口时继续欠着。
         urge: output.action === 'message' ? 'none' : (hush && carried ? 'later' : output.urge),
         // 这一跳为什么没开口（审计用）；outcome 不是 skipped，界面不会当成「被拦下」显示。

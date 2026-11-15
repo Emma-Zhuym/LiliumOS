@@ -7,6 +7,7 @@ import type { Message } from '../../types';
 import { F, FONT, HUE, R } from '../../utils/clayTokens';
 import { formatTietieDuration, tietieMinutes, tietieNoLabel } from '../../utils/tietie';
 import { openTietieDiary, requestTietieRetry, useTietieRecord } from './useTietie';
+import { isTietieWriting } from '../../utils/tietieActions';
 
 const clock = (ts: number) => {
     const d = new Date(ts);
@@ -41,9 +42,15 @@ export default function TietieChatItem({ msg, charName }: { msg: Message; charNa
                         <span style={{ fontFamily: FONT.hand, fontSize: 18, color: HUE.rose.main }}>翻开 ›</span>
                     </span>
                 </button>
+            ) : record.status === 'writing' && isTietieWriting(record.id) ? (
+                <div style={cardStyle}>
+                    <span style={{ fontSize: 14, lineHeight: 1.6, color: F.textSecondary }}>{charName}在写这一次……</span>
+                </div>
             ) : (
                 <div style={cardStyle}>
-                    <span style={{ fontSize: 14, lineHeight: 1.6, color: F.textSecondary }}>{charName}这一次没写出来（API 没接，或者拒绝了）。</span>
+                    <span style={{ fontSize: 14, lineHeight: 1.6, color: F.textSecondary }}>
+                        {charName}这一次没写出来（{record.status === 'writing' ? '写到一半页面关了' : record.error || 'API 没接，或者拒绝了'}）。
+                    </span>
                     <button type="button" onClick={() => requestTietieRetry(record.charId, record.id)} className="active:opacity-60 transition-opacity"
                         style={{ height: 44, borderRadius: R.button, border: `1px solid ${HUE.rose.soft}`, background: HUE.rose.tint, color: HUE.rose.ink, fontSize: 14, fontWeight: 600 }}>
                         再写一次

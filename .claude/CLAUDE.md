@@ -275,6 +275,7 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - 手机端 `utils/emAgentChat.ts`（开关、探活、提交、60 秒点名、信箱回复→收件箱）；`useChatAI.ts` 的 `[EM-START: agent-instant-chat]` 路由优先于 amsg 即时对话，mini 不在就本地生成
 - 复用 amsg 即时对话：待收记录 `via:'mini'`（`amsgInstantChat.ts`），`activeMsgRuntime.ts` 的状态点名把 mini 轮次分走（否则会去 amsg 查无此行被判死）；回复推送是 amsg content 形状，SW 直接进收件箱走后处理
 - 后端 `server/agent-backend/chatTurns.mjs`：`POST/GET /chat/turns`，凭据只在内存，重启后未跑的那轮判失败让手机重发；>3.5KB 只推 `agent-pull` 信号（`amsgResults.ts`）
+- 心跳醒不来（2026-11-14）：`heartbeat.mjs` 的 `runWithCredFallback` 主 API 失败换 `fallbackCredRefs`（别的角色在用的优先，最多两条）；全失败且不重跳时 `notifyHeartbeatDown` 推 `system_notice`（notices 表 `heartbeat_down:<charId>`，醒过来清掉）
 - 心跳：`lastChatMessageAt` 把 `chat_reply` 算作回过；即时回复在跑时 `chat_turn_running` 不开口
 - **收件箱处理完才删**（2026-10-30，哨兵 `inbox-durable-claim`）：冲刷用 `ActiveMsgStore.claimInboxMessages` 认领（打 `claimedAt`，消息还在库里），每条有着落了才 `settleInboxMessage`；页面死在半路的，90 秒租约到期后算一次重试捡回来，走现成的重试清场。取信箱在写进收件箱后就向 mini 销账，靠的就是这层，别改回取走就删的 `consumeInboxMessages`
 
@@ -485,7 +486,8 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 
 ### 43. 贴贴事后记录（2026-10-28）
 - 契约 `docs/spec-tietie-record.md`，UI 模式 `APP_CONVENTIONS.md` P17b。纯逻辑 `utils/tietie.ts`，落库 / 请求 `utils/tietieActions.ts`，独立库 `utils/tietieDb.ts`（`LiliumOS_Tietie`，备份 `emTietieRecords`），界面 `components/tietie/*`
-- 开始时刻只记在本机（`em_tietie_session_v1:<charId>`）：`PrivateMomentButton` 开始时记、结束时发 `em-tietie-ended`；聊天页接住写，忘了点结束的打开聊天时补写
+- 开始时刻只记在本机（`em_tietie_session_v1:<charId>`）：`PrivateMomentButton` 开始时记、结束时停成「已结束」并发 `em-tietie-ended`；聊天页接住写，忘了点结束的打开聊天时补写
+- **先落卡再调 API**（2026-11-14）：`writeTietieRecord` 一进来就存 `status: 'writing'` 的记录和卡，卡落库后才 `clearTietieSessionIf`；页面中途被杀留下的 writing 卡显示成「没写出来」能重写。别改回请求完才落卡——那样切走一次就无影无踪
 - 一次调用出日记 + `memory` + `after`：`memory` 写成一条卧室记忆（标签「贴贴」），卡片消息 content 是给后续上下文的那一行（含 memory），日记全文不进上下文；删记忆时卡片那一行一起去掉细节
 - 健康 App 只读 `TietieDB` 打记号，那一行点开是同一页 `TietieDiary`（2026-11-04）；不写 healthDb、不进健康摘要
 - 上游文件接线：`Chat.tsx`、`MessageItem.tsx`、`chatMessageVisibility.ts`、`OSContext.tsx`、`types.ts`（`check-em-patches.sh`「贴贴事后记录」一节）

@@ -8,6 +8,8 @@ import {
     buildTietiePersona,
     buildTietiePrompt,
     clearTietieSession,
+    clearTietieSessionIf,
+    parkEndedTietieSession,
     expiredTietieSession,
     formatTietieDuration,
     nextTietieNo,
@@ -150,5 +152,20 @@ describe('贴贴结束时算什么（2026-10-30：猜错开的照样写了记录
     it('猜着开、她确认是真的：开始时刻按 until 往前推两小时', () => {
         expect(autoSessionStart(new Date(NOW + 90 * 60_000).toISOString(), NOW)).toBe(NOW - 30 * 60_000);
         expect(autoSessionStart(null, NOW)).toBe(NOW - 60 * 60_000);
+    });
+});
+
+describe('clearTietieSessionIf（卡落库后才清本机记的这一次）', () => {
+    beforeEach(() => localStorage.clear());
+    it('只清结束了的同一次，她又开的下一次留着', () => {
+        parkEndedTietieSession('c1', 1_000, 2_000);
+        clearTietieSessionIf('c1', 999);
+        expect(readTietieSession('c1')).not.toBeNull();
+        clearTietieSessionIf('c1', 1_000);
+        expect(readTietieSession('c1')).toBeNull();
+        beginTietieSession('c1', Date.now() + 60_000, Date.now());
+        const live = readTietieSession('c1')!;
+        clearTietieSessionIf('c1', live.startedAt);
+        expect(readTietieSession('c1')).not.toBeNull();
     });
 });

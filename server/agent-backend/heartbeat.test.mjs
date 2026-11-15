@@ -2601,3 +2601,77 @@ test('答应她的事：到期那天还没说过话就去找她，过期太久�
     assert.equal(promiseToGreet({ promises: list('2026-09-25'), now, userTimezone: tz }), null, '还没到');
     assert.equal(promiseToGreet({ promises: list('2026-09-23'), now, userTimezone: tz, lastContact: new Date('2026-09-23T14:00:00Z') }), null, '今天聊过了');
 });
+
+// ─── 主 API 不通换备用 + 全失败推通知（2026-11-14） ───────────────────────────
+import { fallbackCredRefs, runWithCredFallback, notifyHeartbeatDown, heartbeatDownKey } from './heartbeat.mjs';
+
+const credConfig = () => {
+    const secretsDir = mkdtempSync(join(tmpdir(), 'hb-cred-'));
+    const config = { secretsDir, heartbeatTimeoutMs: 1000 };
+    putCredential(config, { ref: 'lumi', baseUrl: 'https://a.example/v1', model: 'm1', apiKey: 'k' });
+    putCredential(config, { ref: 'zed', baseUrl: 'https://b.example/v1', model: 'm2', apiKey: 'k' });
+    putCredential(config, { ref: 'dup', baseUrl: 'https://a.example/v1/', model: 'm1', apiKey: 'k' });
+    putCredential(config, { ref: 'spare', baseUrl: 'https://c.example/v1', model: 'm3', apiKey: 'k' });
+    return config;
+};
+
+test('备用 API：先别的角色在用的，跳过跟主 API 一样的，最多两条', () => {
+    const db = freshDb();
+    seedCharacter(db);
+    upsertCharacter(db, { charId: 'zed', displayName: '泽', runtime: 'api', credRef: 'zed' });
+    const config = credConfig();
+    assert.deepEqual(fallbackCredRefs(db, config, 'lumi'), ['zed', 'spare']);
+    assert.deepEqual(fallbackCredRefs(db, {}, 'lumi'), [], '读不到凭据目录就不换');
+});
+
+test('runWithCredFallback：主 API 挂了用备用的，全挂了把每条错误都记下', async () => {
+    const calls = [];
+    const runner = { run: async ({ credRef }) => { calls.push(credRef); return credRef === 'zed' ? { ok: true, output: {} } : { ok: false, error: '模型返回 403', retryable: false }; } };
+    const ok = await runWithCredFallback(runner, { credRef: 'lumi' }, ['zed', 'spare']);
+    assert.equal(ok.ok, true);
+    assert.equal(ok.credRef, 'zed');
+    assert.deepEqual(calls, ['lumi', 'zed']);
+
+    const bad = await runWithCredFallback({ run: async ({ credRef }) => ({ ok: false, error: `${credRef} 坏了`, retryable: credRef === 'spare' }) }, { credRef: 'lumi' }, ['spare']);
+    assert.equal(bad.ok, false);
+    assert.equal(bad.retryable, true, '有一条是暂时性的错就照旧重跳');
+    assert.match(bad.error, /主 API：lumi 坏了；备用1：spare 坏了/);
+});
+
+test('心跳：主 API 不通，换备用醒过来，起居注记的是备用那条线路', async () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    upsertCharacter(db, { charId: 'zed', displayName: '泽', runtime: 'api', credRef: 'zed' });
+    seedSnapshot(db);
+    const config = credConfig();
+    const runner = { run: async ({ credRef }) => credRef === 'lumi'
+        ? { ok: false, error: '模型返回 401', retryable: false }
+        : { ok: true, output: { action: 'noop', activity: '发了会儿呆', reason: '没什么可说的' } } };
+    const handler = createHeartbeatHandler({
+        db, config, runners: { api: runner }, scheduleNext: () => {}, now: () => AT, rng: () => 0.99,
+    });
+    await handler(jobFor(character.heartbeatGeneration));
+    const run = listModelRuns(db)[0];
+    assert.equal(run.outcome !== 'error', true);
+    assert.match(run.channel, /b\.example · m2/);
+});
+
+test('心跳：全失败推一条通知，恢复前不重复推，醒过来后清掉', async () => {
+    const db = freshDb();
+    const character = seedCharacter(db);
+    setSetting(db, 'heartbeat_shadow', JSON.stringify({ enabled: false }));
+    seedSnapshot(db);
+    const sent = [];
+    const deliver = async msg => { sent.push(msg); return {}; };
+    const failing = { run: async () => ({ ok: false, error: '模型返回 403', retryable: false }) };
+    await assert.rejects(() => runHandler(db, { runner: failing, job: jobFor(character.heartbeatGeneration, 'hb:1'), deliver }));
+    await assert.rejects(() => runHandler(db, { runner: failing, job: jobFor(character.heartbeatGeneration, 'hb:2'), deliver }));
+    const notices = sent.filter(m => m.kind === 'system_notice');
+    assert.equal(notices.length, 1);
+    assert.match(notices[0].title, /露米 的心跳醒不来/);
+
+    const ok = { run: async () => ({ ok: true, output: { action: 'noop', activity: '发了会儿呆', reason: '没什么可说的' } }) };
+    await runHandler(db, { runner: ok, job: jobFor(character.heartbeatGeneration, 'hb:3'), deliver });
+    assert.equal(await notifyHeartbeatDown({ db, deliver, character, error: 'x', now: AT }), true, '恢复后再坏会重新推');
+    assert.ok(heartbeatDownKey(CHAR));
+});

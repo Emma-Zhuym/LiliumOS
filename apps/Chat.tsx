@@ -25,7 +25,7 @@ import { DeepTalkOverlays } from '../components/deepTalk/DeepTalkLetter';
 import { DEEP_TALK_RELIGHT_EVENT, openDeepTalkLetter, useActiveDeepTalk } from '../components/deepTalk/useDeepTalk';
 // [EM-END: deep-talk]
 // [EM-START: tietie-record]
-import { expiredTietieSession, clearTietieSession, readTietieSession } from '../utils/tietie';
+import { expiredTietieSession, readTietieSession } from '../utils/tietie';
 import { writeTietieRecord } from '../utils/tietieActions';
 import { TietieDB } from '../utils/tietieDb';
 import { TietieOverlays } from '../components/tietie/TietieDiary';
@@ -1167,7 +1167,7 @@ const Chat: React.FC = () => {
         if (!char?.id || !userProfile) return;
         const expired = expiredTietieSession(readTietieSession(char.id));
         if (!expired) return;
-        clearTietieSession(char.id);
+        // 本机记的开始时刻由 writeTietieRecord 在卡落库后才清（清早了、卡没落下就无影无踪）
         void handleTietieWrite(expired.startedAt, expired.until, expired.endedBy ?? 'timeout'); // [EM: meet-longform] 见面里点的结束算她点的
     }, [char?.id, userProfile, handleTietieWrite]);
     // [EM-END: tietie-record]

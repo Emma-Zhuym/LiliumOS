@@ -15,6 +15,7 @@ import {
     buildTietieMaterials,
     buildTietiePersona,
     buildTietiePrompt,
+    clearTietieSessionIf,
     nextTietieNo,
     parseTietieResult,
     tietieRecordId,
@@ -31,12 +32,24 @@ const WRITE_TIMEOUT_MS = 120_000;
 /** 同一次正在写就别再写一份（结束事件和补写可能撞上） */
 const writing = new Set<string>();
 
+/** 写不出来时把原因带回来，卡上直接写给她看 */
+type TietieRequest = { result: TietieResult; error?: undefined } | { result: null; error: string };
+
+const describeError = (error: unknown): string => {
+    const text = String((error as { message?: string })?.message || error || '');
+    if (/abort|timeout|超时/i.test(text)) return '等太久没回音';
+    const status = text.match(/\b([45]\d\d)\b/)?.[1];
+    if (status) return `模型返回 ${status}`;
+    return text.slice(0, 60) || '请求失败';
+};
+
 const requestRecord = async (
     char: CharacterProfile,
     api: Pick<APIConfig, 'baseUrl' | 'apiKey' | 'model'>,
     prompt: string,
-): Promise<TietieResult | null> => {
-    if (!api.baseUrl) return null;
+): Promise<TietieRequest> => {
+    if (!api.baseUrl) return { result: null, error: '这个角色没接 API' };
+    let error = '没按格式写';
     for (let attempt = 0; attempt < 2; attempt += 1) {
         try {
             const data = await safeFetchJson(
@@ -59,13 +72,18 @@ const requestRecord = async (
             );
             const content = data?.choices?.[0]?.message?.content;
             const result = typeof content === 'string' ? parseTietieResult(content) : null;
-            if (result) return result;
-        } catch (error) {
-            console.warn('[Tietie] 事后记录生成失败', error);
+            if (result) return { result };
+            error = typeof content === 'string' && content.trim() ? '没按格式写（可能拒绝了）' : '回了空的';
+        } catch (e) {
+            console.warn('[Tietie] 事后记录生成失败', e);
+            error = describeError(e);
         }
     }
-    return null;
+    return { result: null, error };
 };
+
+/** 这一页里是不是正在写这一次：不在写的 writing 记录是上次页面中途被杀留下的，卡上按没写出来算 */
+export const isTietieWriting = (id: string) => writing.has(id);
 
 const saveMemory = async (charId: string, content: string, palace: NonNullable<TietiePalaceConfig>): Promise<string | undefined> => {
     const now = Date.now();
@@ -115,40 +133,61 @@ export const writeTietieRecord = async (input: {
     writing.add(id);
     try {
         const existing = await TietieDB.get(id);
-        if (existing?.status === 'done') return existing;
+        if (existing?.status === 'done') {
+            clearTietieSessionIf(char.id, startedAt);
+            return existing;
+        }
 
-        const names = { userName: user.name || '我', charName: char.name };
-        const all = await DB.getMessagesByCharId(char.id, true);
-        const { lead, inside } = buildTietieMaterials(all, { startedAt, endedAt }, names);
-        const history = await TietieDB.list(char.id);
-        const lastMemory = history.filter(r => r.status === 'done' && r.memory && r.id !== id).slice(-1)[0]?.memory;
-        const persona = buildTietiePersona(char, user, [lead, inside]);
+        // 先把卡落下来再调 API：写一次要好几分钟，中途切走、页面被杀，至少聊天里留着一张能重写的卡
+        let record: TietieRecord = {
+            ...(existing || { id, charId: char.id, startedAt, endedAt, endedBy, createdAt: Date.now() }),
+            status: 'writing',
+            error: undefined,
+        };
+        const saveCard = async () => {
+            const cardContent = buildTietieCardContent(record);
+            if (record.cardMessageId) {
+                await DB.updateMessage(record.cardMessageId, cardContent);
+            } else {
+                record.cardMessageId = await DB.saveMessage({
+                    charId: char.id,
+                    role: 'system',
+                    type: 'text',
+                    content: cardContent,
+                    metadata: { kind: TIETIE_CARD_KIND, tietieId: id },
+                });
+            }
+            await TietieDB.save(record);
+        };
+        await saveCard();
+        // 卡在库里了，本机记的开始时刻才能清；清早了、卡又没落下，这一次就无影无踪
+        clearTietieSessionIf(char.id, startedAt);
 
-        const result = await requestRecord(char, api, buildTietiePrompt({
-            names, persona, lead, inside, startedAt, endedAt, endedBy, lastMemory,
-        }));
+        let request: TietieRequest;
+        let history: TietieRecord[] = [];
+        try {
+            const names = { userName: user.name || '我', charName: char.name };
+            const all = await DB.getMessagesByCharId(char.id, true);
+            const { lead, inside } = buildTietieMaterials(all, { startedAt, endedAt }, names);
+            history = await TietieDB.list(char.id);
+            const lastMemory = history.filter(r => r.status === 'done' && r.memory && r.id !== id).slice(-1)[0]?.memory;
+            const persona = buildTietiePersona(char, user, [lead, inside]);
+            request = await requestRecord(char, api, buildTietiePrompt({
+                names, persona, lead, inside, startedAt, endedAt, endedBy, lastMemory,
+            }));
+        } catch (e) {
+            console.warn('[Tietie] 准备材料失败', e);
+            request = { result: null, error: describeError(e) };
+        }
 
-        const base: TietieRecord = existing || { id, charId: char.id, status: 'failed', startedAt, endedAt, endedBy, createdAt: Date.now() };
-        const record: TietieRecord = result
-            ? { ...base, ...result, minutes: result.minutes ?? undefined, status: 'done', no: base.no || nextTietieNo(history) }
-            : { ...base, status: 'failed' };
+        const result = request.result;
+        record = result
+            ? { ...record, ...result, minutes: result.minutes ?? undefined, status: 'done', error: undefined, no: record.no || nextTietieNo(history) }
+            : { ...record, status: 'failed', error: request.error };
         if (result && palace) {
             record.memoryId = await saveMemory(char.id, result.memory, palace).catch(() => undefined);
         }
-
-        const cardContent = buildTietieCardContent(record);
-        if (record.cardMessageId) {
-            await DB.updateMessage(record.cardMessageId, cardContent);
-        } else {
-            record.cardMessageId = await DB.saveMessage({
-                charId: char.id,
-                role: 'system',
-                type: 'text',
-                content: cardContent,
-                metadata: { kind: TIETIE_CARD_KIND, tietieId: id },
-            });
-        }
-        await TietieDB.save(record);
+        await saveCard();
         // TA 先开口：她接着回就好，不用再说「刚才好喜欢」
         for (const line of record.status === 'done' ? record.after || [] : []) {
             await DB.saveMessage({ charId: char.id, role: 'assistant', type: 'text', content: line });
