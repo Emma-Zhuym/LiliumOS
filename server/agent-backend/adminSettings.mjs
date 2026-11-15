@@ -10,7 +10,7 @@ import { isValidRef } from './credentials.mjs';
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
-/** 主 / 副 API 顺序：各最多 4 条凭据 ref（阿萌 2026-11-14：主给心跳本身，副给补评论这类杂活） */
+/** 副 API 顺序：最多 4 条凭据 ref，心跳按它试（阿萌 2026-11-14）。main 留着形状，聊天的主 API 在手机上用、不传过来 */
 export const API_CHAIN_MAX = 4;
 const refList = value => (Array.isArray(value) && value.length <= API_CHAIN_MAX && value.every(isValidRef)
     ? [...new Set(value.map(String))]

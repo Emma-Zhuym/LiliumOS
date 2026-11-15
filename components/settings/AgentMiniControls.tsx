@@ -140,7 +140,7 @@ const AgentMiniControls: React.FC<{ data: AgentMiniData }> = ({ data }) => {
                 )}
             </Group>
 
-            <AgentApiChainGroup reachable={Boolean(data.reachable)} supported={Boolean(settings?.apiChain)} />{/* [EM: heartbeat-api-chain] */}
+            <AgentApiChainGroup tier="sub" reachable={Boolean(data.reachable)} supported={Boolean(settings?.apiChain)} />{/* [EM: heartbeat-api-chain] */}
 
             <Group title="排查" foot="出错的原文、没醒的原因、试跑没发出去的那句都在记录里。">
                 <Row title="心跳记录" value={data.runs.length ? `${data.runs.length} 条${errorCount ? ` · ${errorCount} 条出错` : ''}` : '—'}

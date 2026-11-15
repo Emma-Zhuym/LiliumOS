@@ -2603,7 +2603,7 @@ test('答应她的事：到期那天还没说过话就去找她，过期太久�
 });
 
 // ─── 主 API 不通换备用 + 全失败推通知（2026-11-14） ───────────────────────────
-import { heartbeatCredChains, runWithCredFallback, notifyHeartbeatDown, heartbeatDownKey } from './heartbeat.mjs';
+import { heartbeatCredChain, runWithCredFallback, notifyHeartbeatDown, heartbeatDownKey } from './heartbeat.mjs';
 import { writeAdminSettings } from './adminSettings.mjs';
 
 const credConfig = () => {
@@ -2616,16 +2616,16 @@ const credConfig = () => {
     return config;
 };
 
-test('API 顺序：主按设置排的走、不在了的跳过；没排就只用角色自己那条，不抓别人的', () => {
+test('心跳 API 顺序：按副 1–4 走、不在了的跳过；没排就只用角色自己那条，不抓别人的', () => {
     const db = freshDb();
     const character = seedCharacter(db);
     upsertCharacter(db, { charId: 'zed', displayName: '泽', runtime: 'api', credRef: 'zed' });
     const config = credConfig();
-    assert.deepEqual(heartbeatCredChains(db, config, character), { main: ['lumi'], sub: null });
-    writeAdminSettings(db, { apiChain: { main: ['spare', 'gone', 'zed'], sub: ['dup'] } });
-    assert.deepEqual(heartbeatCredChains(db, config, character), { main: ['spare', 'zed'], sub: ['dup'] });
-    assert.throws(() => writeAdminSettings(db, { apiChain: { main: ['a', 'b', 'c', 'd', 'e'], sub: [] } }), /不能从手机上改/);
-    assert.throws(() => writeAdminSettings(db, { apiChain: { main: ['../x'], sub: [] } }));
+    assert.deepEqual(heartbeatCredChain(db, config, character), ['lumi']);
+    writeAdminSettings(db, { apiChain: { main: ['dup'], sub: ['spare', 'gone', 'zed'] } });
+    assert.deepEqual(heartbeatCredChain(db, config, character), ['spare', 'zed'], '主 API 是聊天的，心跳不用');
+    assert.throws(() => writeAdminSettings(db, { apiChain: { main: [], sub: ['a', 'b', 'c', 'd', 'e'] } }), /不能从手机上改/);
+    assert.throws(() => writeAdminSettings(db, { apiChain: { main: [], sub: ['../x'] } }));
 });
 
 test('runWithCredFallback：主 API 挂了用备用的，全挂了把每条错误都记下', async () => {
@@ -2642,12 +2642,12 @@ test('runWithCredFallback：主 API 挂了用备用的，全挂了把每条错�
     assert.match(bad.error, /第 1 条：lumi 坏了；第 2 条：spare 坏了/);
 });
 
-test('心跳：主 1 不通，换主 2 醒过来，起居注记的是主 2 那条线路', async () => {
+test('心跳：副 1 不通，换副 2 醒过来，起居注记的是副 2 那条线路', async () => {
     const db = freshDb();
     const character = seedCharacter(db);
     seedSnapshot(db);
     const config = credConfig();
-    writeAdminSettings(db, { apiChain: { main: ['lumi', 'zed'], sub: [] } });
+    writeAdminSettings(db, { apiChain: { main: [], sub: ['lumi', 'zed'] } });
     const runner = { run: async ({ credRef }) => credRef === 'lumi'
         ? { ok: false, error: '模型返回 401', retryable: false }
         : { ok: true, output: { action: 'noop', activity: '发了会儿呆', reason: '没什么可说的' } } };

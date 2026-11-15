@@ -275,7 +275,7 @@ EM 的大段提示词（发照片教学、引用教学、Notion日记/飞书/笔
 - 手机端 `utils/emAgentChat.ts`（开关、探活、提交、60 秒点名、信箱回复→收件箱）；`useChatAI.ts` 的 `[EM-START: agent-instant-chat]` 路由优先于 amsg 即时对话，mini 不在就本地生成
 - 复用 amsg 即时对话：待收记录 `via:'mini'`（`amsgInstantChat.ts`），`activeMsgRuntime.ts` 的状态点名把 mini 轮次分走（否则会去 amsg 查无此行被判死）；回复推送是 amsg content 形状，SW 直接进收件箱走后处理
 - 后端 `server/agent-backend/chatTurns.mjs`：`POST/GET /chat/turns`，凭据只在内存，重启后未跑的那轮判失败让手机重发；>3.5KB 只推 `agent-pull` 信号（`amsgResults.ts`）
-- 心跳醒不来（2026-11-14）：`heartbeat.mjs` 的 `heartbeatCredChains` 读 mini 设置 `api_chain`（设置 → Mac mini 的主 1–4 / 副 1–4，`utils/emApiChain.ts` 同步成凭据 `chain-main-n` / `chain-sub-n`），`runWithCredFallback` 按顺序试；主给心跳本身、副给补评论，**主全挂了不降到副**；没排主就只用角色自己那条，别再抓别的角色的 API；全失败且不重跳时 `notifyHeartbeatDown` 推 `system_notice`（notices 表 `heartbeat_down:<charId>`，醒过来清掉）
+- 主 / 副 API 1–4（2026-11-14，`utils/emApiChain.ts`，界面 `components/settings/AgentApiChainGroup.tsx`）：**主 = 聊天**，`useChatAI.ts` 的 `[EM-START: heartbeat-api-chain]` 本来的 API 不通按 `chatFallbackApis` 接着试，交给 mini 的那一轮带 `fallbacks`（`chatTurns.mjs` 的 `callModel` 依次试）；**副 = 心跳**，同步成 mini 凭据 `chain-sub-n` + 设置 `api_chain.sub`，`heartbeat.mjs` 的 `heartbeatCredChain` → `runWithCredFallback`，全失败且不重跳时 `notifyHeartbeatDown` 推 `system_notice`（notices 表 `heartbeat_down:<charId>`，醒过来清掉）。没排就只用本来那条，别抓别的角色的 API
 - 心跳：`lastChatMessageAt` 把 `chat_reply` 算作回过；即时回复在跑时 `chat_turn_running` 不开口
 - **收件箱处理完才删**（2026-10-30，哨兵 `inbox-durable-claim`）：冲刷用 `ActiveMsgStore.claimInboxMessages` 认领（打 `claimedAt`，消息还在库里），每条有着落了才 `settleInboxMessage`；页面死在半路的，90 秒租约到期后算一次重试捡回来，走现成的重试清场。取信箱在写进收件箱后就向 mini 销账，靠的就是这层，别改回取走就删的 `consumeInboxMessages`
 

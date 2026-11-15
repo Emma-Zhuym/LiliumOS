@@ -17,6 +17,7 @@ import type { ApiPreset } from '../../types';
 import { F, R, iconButtonBare } from '../../utils/clayTokens';
 import { SETTINGS_HUE } from './SettingsHome';
 import { FieldRow, Group, Hero, HeroAction, Page, Row, ToggleRow, resultSub } from './SettingsParts';
+import AgentApiChainGroup from './AgentApiChainGroup'; // [EM: heartbeat-api-chain]
 
 export interface MainApiPageProps {
     sections: { group: string; presets: ApiPreset[] }[];
@@ -87,6 +88,8 @@ const MainApiPage: React.FC<MainApiPageProps> = p => {
             <Group foot={hasPresets ? '点名字立刻切过去；铅笔里能改名字、分组，也能删。' : '把现在这套地址、Key、模型存成一条预设，以后点一下就能切回来。'}>
                 <Row title="用当前配置新建预设" tone="link" onClick={p.onNew} />
             </Group>
+
+            <AgentApiChainGroup tier="main" />{/* [EM: heartbeat-api-chain] */}
 
             <Group title="当前配置" foot={hasPresets ? '保存只更新当前配置。要改预设，点它的铅笔。' : undefined}>
                 <FieldRow label="URL" value={p.url} mono placeholder="https://…/v1" onDraft={p.setUrl} onCommit={() => {}} />

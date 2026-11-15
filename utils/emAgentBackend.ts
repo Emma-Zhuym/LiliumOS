@@ -467,6 +467,8 @@ export const AgentBackend = {
         charName: string;
         messages: Array<{ role: string; content: unknown }>;
         api: { baseUrl: string; apiKey: string; model: string };
+        /** [EM: heartbeat-api-chain] api 不通时 mini 按顺序接着试（设置里的主 API 1–4） */
+        fallbacks?: { baseUrl: string; apiKey: string; model: string }[];
         temperature?: number;
         maxTokens?: number;
         extraBody?: Record<string, unknown>;

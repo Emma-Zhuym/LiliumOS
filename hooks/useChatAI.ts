@@ -57,6 +57,7 @@ import { getPendingTasks, hasActiveAiTask, isAmsg2EnabledForChar } from '../util
 import { buildAmsg2NoticesText, buildAmsg2TaskContextText, collectAmsg2TaskContext, insertAmsg2TaskContextBlock } from '../utils/amsg2TaskContext';
 import { resolveCharTimeZone } from '../utils/timezone';
 import { resolveCharacterApiConfig } from '../utils/characterApi';
+import { chatFallbackApis } from '../utils/emApiChain'; // [EM: heartbeat-api-chain]
 import { announceInstantChatRoute, getInstantChatPending, resolveInstantChatReadiness, sendInstantChatTurn, stageInstantChatExpiredNotices } from '../utils/amsgInstantChat';
 import { beginLocalReply, isReplyStopError, replyStoppedError, stopReply } from '../utils/emReplyStop'; // [EM: reply-stop]
 import { isAgentChatReady, sendAgentChatTurn, tokenUsageFromCloudMetadata } from '../utils/emAgentChat'; // [EM: agent-instant-chat]
@@ -878,8 +879,9 @@ export const useChatAI = ({
             setRecallStatus('');
             announceChatGen(CHAT_GEN_EVENTS.replyStart, { charId: char.id, charName: char.name });
             await KeepAlive.start();
-            const baseUrl = effectiveApi.baseUrl.replace(/\/+$/, '');
-            const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${effectiveApi.apiKey || 'sk-none'}` };
+            // [EM: heartbeat-api-chain] let：本来的 API 不通、换了主 API 备用时，这一轮后面的工具回合也跟着用它
+            let baseUrl = effectiveApi.baseUrl.replace(/\/+$/, '');
+            let headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${effectiveApi.apiKey || 'sk-none'}` };
 
             // ── 分段计时（从用户发送到 API 发出）──
             const perfSendT0 = performance.now();
@@ -1546,6 +1548,7 @@ export const useChatAI = ({
                     char,
                     messages: fullMessages as Array<{ role: string; content: unknown }>,
                     api: { baseUrl: effectiveApi.baseUrl, apiKey: effectiveApi.apiKey, model: baseReqBody.model },
+                    fallbacks: chatFallbackApis({ baseUrl: effectiveApi.baseUrl, model: baseReqBody.model }, apiPresets).map(({ name: _name, ...api }) => api), // [EM: heartbeat-api-chain]
                     ...(typeof baseReqBody.temperature === 'number' ? { temperature: baseReqBody.temperature } : {}),
                     maxTokens: baseReqBody.max_tokens,
                     ...(baseReqBody.thinking || baseReqBody.reasoning_effort || baseReqBody.extra_body
@@ -1711,36 +1714,63 @@ export const useChatAI = ({
             };
             const initialBody = prepareReplyBody(baseReqBody);
             let data: any;
+            // [EM-START: heartbeat-api-chain] 本来的 API（连同格式兼容、MCP 降级）都不通：按设置里的主 API 1→4 接着试
             try {
-                data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                    method: 'POST', headers, signal: replyRun.signal, body: JSON.stringify(initialBody),
-                }, 0, 0, { appName: '消息', charId: char.id, charName: char.name, purpose: '聊天回复' }, streamHooks);
-            } catch (initialError) {
-                let requestError: unknown = initialError;
-                if (shouldRetryClaudeProxyCompatibility(initialError, initialBody)) {
-                    claudeCompatibility = true;
+                try {
+                    data = await safeFetchJson(`${baseUrl}/chat/completions`, {
+                        method: 'POST', headers, signal: replyRun.signal, body: JSON.stringify(initialBody),
+                    }, 0, 0, { appName: '消息', charId: char.id, charName: char.name, purpose: '聊天回复' }, streamHooks);
+                } catch (initialError) {
+                    let requestError: unknown = initialError;
+                    if (shouldRetryClaudeProxyCompatibility(initialError, initialBody)) {
+                        claudeCompatibility = true;
+                        try {
+                            data = await safeFetchJson(`${baseUrl}/chat/completions`, {
+                                method: 'POST', headers, signal: replyRun.signal, body: JSON.stringify(prepareReplyBody(baseReqBody)),
+                            }, 0, 0, { appName: '消息', charId: char.id, charName: char.name, purpose: 'Claude 请求格式兼容重试' }, streamHooks);
+                            requestError = null;
+                        } catch (compatibilityError) {
+                            requestError = compatibilityError;
+                        }
+                    }
+                    if (requestError !== null) {
+                        if (!payload.flags.mcpChatActive || !baseReqBody.tools?.length || !shouldRetryMcpWithoutTools(requestError)) throw requestError;
+                        console.warn('🔌 [MCP] 当前中转拒绝 tools 请求，降级为正文工具调用兼容模式');
+                        // 持久到本轮后续请求的是工具说明，不是这一刻的排程快照。
+                        const fallbackBody = buildMcpRejectedToolsFallbackBody(baseReqBody);
+                        data = await safeFetchJson(`${baseUrl}/chat/completions`, {
+                            method: 'POST', headers, signal: replyRun.signal, body: JSON.stringify(prepareReplyBody(fallbackBody)),
+                        }, 0, 0, { appName: '消息', charId: char.id, charName: char.name, purpose: 'MCP tools 兼容重试' });
+                        baseReqBody.messages = fallbackBody.messages;
+                        delete baseReqBody.tools;
+                        delete baseReqBody.tool_choice;
+                    }
+                }
+            } catch (primaryError) {
+                if (replyRun.signal.aborted) throw primaryError;
+                const fallbacks = chatFallbackApis({ baseUrl: effectiveApi.baseUrl, model: baseReqBody.model }, apiPresets);
+                if (!fallbacks.length) throw primaryError;
+                let lastError: unknown = primaryError;
+                let recovered = false;
+                for (const fallback of fallbacks) {
+                    baseUrl = fallback.baseUrl.replace(/\/+$/, '');
+                    headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${fallback.apiKey || 'sk-none'}` };
+                    baseReqBody.model = fallback.model;
                     try {
                         data = await safeFetchJson(`${baseUrl}/chat/completions`, {
                             method: 'POST', headers, signal: replyRun.signal, body: JSON.stringify(prepareReplyBody(baseReqBody)),
-                        }, 0, 0, { appName: '消息', charId: char.id, charName: char.name, purpose: 'Claude 请求格式兼容重试' }, streamHooks);
-                        requestError = null;
-                    } catch (compatibilityError) {
-                        requestError = compatibilityError;
+                        }, 0, 0, { appName: '消息', charId: char.id, charName: char.name, purpose: '聊天回复（主 API 备用）' }, streamHooks);
+                        recovered = true;
+                        addToast(`本来的 API 没通，这一轮用了「${fallback.name}」`, 'info');
+                        break;
+                    } catch (fallbackError) {
+                        if (replyRun.signal.aborted) throw fallbackError;
+                        lastError = fallbackError;
                     }
                 }
-                if (requestError !== null) {
-                    if (!payload.flags.mcpChatActive || !baseReqBody.tools?.length || !shouldRetryMcpWithoutTools(requestError)) throw requestError;
-                    console.warn('🔌 [MCP] 当前中转拒绝 tools 请求，降级为正文工具调用兼容模式');
-                    // 持久到本轮后续请求的是工具说明，不是这一刻的排程快照。
-                    const fallbackBody = buildMcpRejectedToolsFallbackBody(baseReqBody);
-                    data = await safeFetchJson(`${baseUrl}/chat/completions`, {
-                        method: 'POST', headers, signal: replyRun.signal, body: JSON.stringify(prepareReplyBody(fallbackBody)),
-                    }, 0, 0, { appName: '消息', charId: char.id, charName: char.name, purpose: 'MCP tools 兼容重试' });
-                    baseReqBody.messages = fallbackBody.messages;
-                    delete baseReqBody.tools;
-                    delete baseReqBody.tool_choice;
-                }
+                if (!recovered) throw lastError;
             }
+            // [EM-END: heartbeat-api-chain]
             console.log(`⏱ [API call] ${Math.round(performance.now() - apiT0)}ms`);
             updateTokenUsage(data, historyMsgCount, 'initial');
 

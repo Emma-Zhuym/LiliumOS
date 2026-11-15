@@ -74,6 +74,8 @@ export interface AgentChatTurnParams {
     char: Pick<CharacterProfile, 'id' | 'name'>;
     messages: Array<{ role: string; content: unknown }>;
     api: { baseUrl: string; apiKey: string; model: string };
+    /** [EM: heartbeat-api-chain] 主 API 2–4：api 不通时 mini 接着试 */
+    fallbacks?: { baseUrl: string; apiKey: string; model: string }[];
     temperature?: number;
     maxTokens?: number;
     extraBody?: Record<string, unknown>;
@@ -99,6 +101,7 @@ export const sendAgentChatTurn = async (params: AgentChatTurnParams): Promise<{ 
             // 图片令牌只在这台手机的 IndexedDB 里认得，mini 那边解不开
             messages: await resolveChatMessagesForUpload(params.messages),
             api: params.api,
+            ...(params.fallbacks?.length ? { fallbacks: params.fallbacks } : {}), // [EM: heartbeat-api-chain]
             ...(typeof params.temperature === 'number' ? { temperature: params.temperature } : {}),
             ...(params.maxTokens ? { maxTokens: params.maxTokens } : {}),
             ...(params.extraBody ? { extraBody: params.extraBody } : {}),

@@ -207,6 +207,12 @@ export const splitEmbeddedThinking = raw => {
 
 const fitsInPush = payload => Buffer.byteLength(JSON.stringify(payload), 'utf8') <= PUSH_PAYLOAD_LIMIT_BYTES;
 
+/** 备用 API（设置里的主 API 1–4）：形状不对的丢掉，最多 4 条 */
+export const cleanFallbacks = list => (Array.isArray(list) ? list : [])
+    .filter(api => api && typeof api.baseUrl === 'string' && api.baseUrl && typeof api.model === 'string' && api.model)
+    .slice(0, 4)
+    .map(api => ({ baseUrl: api.baseUrl, model: api.model, apiKey: typeof api.apiKey === 'string' ? api.apiKey : '' }));
+
 /** 校验手机交上来的这一轮。返回错误说明，合法返回 null。 */
 export const validateTurn = body => {
     if (!body || typeof body !== 'object') return '请求体不是 JSON 对象';
@@ -229,9 +235,22 @@ export const createChatTurnService = ({ db, deliver, fetchImpl = fetch, timeoutM
     /** 手机上点过「停止」的轮次：跑完也不推、不进信箱。 */
     const stopped = new Set();
 
-    const callModel = async ({ api, messages, temperature, maxTokens, extraBody }, stopSignal) => {
+    /**
+     * 先用这一轮本来的 API，不通再按手机送来的备用（设置里的主 API 1–4，阿萌 2026-11-14）一条条试。
+     * 手机点了停止就不再往下试。都不通时把每条的原因连起来报。
+     */
+    const callModel = async ({ api, fallbacks = [], messages, temperature, maxTokens, extraBody }, stopSignal) => {
         const startedAt = Date.now();
-        const result = await callModelOnce({ api, messages, temperature, maxTokens, extraBody }, stopSignal);
+        const errors = [];
+        let result = null;
+        for (const candidate of [api, ...fallbacks]) {
+            result = await callModelOnce({ api: candidate, messages, temperature, maxTokens, extraBody }, stopSignal);
+            if (result.ok || result.stopped) break;
+            errors.push(result.error);
+        }
+        if (!result.ok && !result.stopped && errors.length > 1) {
+            result = { ...result, error: errors.map((e, i) => `第 ${i + 1} 条：${e}`).join('；') };
+        }
         return { ...result, modelMs: Date.now() - startedAt };
     };
 
@@ -379,6 +398,7 @@ export const createChatTurnService = ({ db, deliver, fetchImpl = fetch, timeoutM
         if (!duplicated) {
             secrets.set(uuid, {
                 api: { baseUrl: body.api.baseUrl, model: body.api.model, apiKey: body.api.apiKey || '' },
+                fallbacks: cleanFallbacks(body.fallbacks),
                 messages: body.messages,
                 temperature: body.temperature,
                 maxTokens: body.maxTokens,

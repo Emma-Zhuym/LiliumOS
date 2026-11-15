@@ -226,3 +226,34 @@ test('失败的那条推送一定弹通知：iOS 对没弹通知的推送记账�
     assert.equal(push.notification.show, 'always');
     assert.equal(push.notification.silent, 'when-visible');
 });
+
+test('即时回复：本来的 API 不通，按手机送来的主 API 备用接着试，用上的那条回话', async () => {
+    const calls = [];
+    const fetchImpl = async (url, init) => {
+        const body = JSON.parse(init.body);
+        calls.push({ url, model: body.model, auth: init.headers.Authorization });
+        const ok = body.model === 'backup-2';
+        return {
+            ok, status: ok ? 200 : 503,
+            text: async () => 'busy',
+            json: async () => ({ choices: [{ message: { content: '换了条线也在' } }] }),
+        };
+    };
+    const { db, service, handlers, delivered } = setup({ fetchImpl });
+    service.submit(turn({ fallbacks: [
+        { baseUrl: 'https://b1.example/v1', model: 'backup-1', apiKey: 'k1' },
+        { baseUrl: 'https://b2.example/v1', model: 'backup-2', apiKey: 'k2' },
+        { baseUrl: '', model: 'bad' },
+    ] }));
+    assert.equal(await runJobNow(db, jobUuidFor(TURN), { handlers, logger: { warn() {} } }), 'done');
+    assert.deepEqual(calls.map(c => c.model), ['claude-x', 'backup-1', 'backup-2']);
+    assert.equal(calls[2].auth, 'Bearer k2');
+    assert.equal(delivered.find(d => d.kind === 'chat_reply').pushPayload.message, '换了条线也在');
+});
+
+test('即时回复：备用也全不通，报错把每条原因连起来', async () => {
+    const { db, service, handlers, delivered } = setup({ status: 503 });
+    service.submit(turn({ fallbacks: [{ baseUrl: 'https://b1.example/v1', model: 'backup-1', apiKey: 'k1' }] }));
+    assert.equal(await runJobNow(db, jobUuidFor(TURN), { handlers, logger: { warn() {} } }), 'failed');
+    assert.match(delivered.find(d => d.kind === 'chat_error').pushPayload.metadata.reason, /第 1 条：模型返回 503.*第 2 条：模型返回 503/);
+});
