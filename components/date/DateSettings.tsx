@@ -53,7 +53,7 @@ const DateSettings: React.FC<DateSettingsProps> = ({ char, onBack }) => {
     };
     const userName = userProfile?.name || '用户';
     const POV_OPTIONS: { id: DateStyleConfig['pov']; label: string; example: string }[] = [
-        { id: undefined, label: '默认', example: '不额外指定，随模型发挥' },
+        { id: undefined, label: '默认', example: char.dateLongform ? '长文模式下按「我看着你」写' : '不额外指定，随模型发挥' }, // [EM: meet-longform]
         { id: 'third-name', label: '第三人称 · 称名字', example: `${char.name}看着${userName}` },
         { id: 'third-you', label: '第三人称 · 称"你"', example: `${char.name}看着你` },
         { id: 'first-you', label: '第一人称', example: '我看着你' },

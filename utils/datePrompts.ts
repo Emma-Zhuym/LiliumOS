@@ -634,7 +634,8 @@ const buildMeetLongformModeBlock = (char: CharacterProfile, userName: string): s
         emotions: getDateEmotions(char),
         styleHint: getStylePreset(styleConfig).hint,
         timeLine: dateTimeOn ? `1. **Time**: 当前时间 ${getRealTimeStr(resolveCharTimeZone(char))}。\n` : '',
-        povBlock: buildPovBlock(styleConfig, char.name, userName),
+        // 没选人称就按「我和你」写：她自己写的也是我 / 你（2026-11-14 阿萌）
+        povBlock: buildPovBlock(styleConfig?.pov ? styleConfig : { ...styleConfig, pov: 'first-you' }, char.name, userName),
         extraBlock: buildExtraStyleBlock(styleConfig),
         digBlock: isDigDeeperOn(styleConfig) ? `${DIG_DEEPER_BLOCK}\n` : '',
         observeBlock: isObserveOn(char) ? buildObserveBlock(char) : '',

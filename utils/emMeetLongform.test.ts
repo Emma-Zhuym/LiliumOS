@@ -38,6 +38,7 @@ describe('meet longform', () => {
         expect(block).toContain('礼物是什么');
         expect(block).toContain('往前走一小步');
         expect(block).not.toContain('一行一念');
+        expect(block).toContain('「我」是阿萌自己，「你」是你');
         expect(meetLongformNote('send', '')).toContain('长文模式');
         expect(meetLongformNote('reroll', '')).toContain('Reroll');
     });

@@ -36,6 +36,7 @@ export const composeMeetLongformBlock = (p: MeetLongformPieces): string => {
 - 300–500 字，分三到五段。动作、神情、心里的念头和说出口的话揉在同一段里写，不要一行一句。
 - 每一段开头标一个情绪标签 \`[emotion]\`，表示这一段你的表情，段落中间不要再插标签。仅限使用：${p.emotions.join(', ')}。
 - 台词用「」或双引号，嵌在叙述里。
+- ${you}写的话里，「我」是${you}自己，「你」是你。
 - 多写你心里的东西：此刻在想什么、在意什么、把什么压了下去。
 - 文风：${p.styleHint}
 
