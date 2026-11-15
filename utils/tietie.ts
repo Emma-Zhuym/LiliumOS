@@ -51,7 +51,8 @@ export const tietieRecordId = (charId: string, startedAt: number) => `${charId}_
 
 // ── 本机记的「这一次从几点开始」 ───────────────────────────
 
-export interface TietieSession { startedAt: number; until: number }
+/** endedBy：在见面里点的结束（聊天页不在，没人接事件），先停在这里，打开聊天时照「她点的结束」补写 */
+export interface TietieSession { startedAt: number; until: number; endedBy?: 'manual' }
 
 const sessionKey = (charId: string) => `em_tietie_session_v1:${charId}`;
 
@@ -74,6 +75,17 @@ export const beginTietieSession = (charId: string, until: number, now = Date.now
 
 export const clearTietieSession = (charId: string) => {
     try { localStorage.removeItem(sessionKey(charId)); } catch { /* 无所谓 */ }
+};
+
+/** 在见面里结束：记下几点结束，等打开聊天时写事后记录（[EM: meet-longform]） */
+export const parkEndedTietieSession = (charId: string, startedAt: number, endedAt: number) => {
+    try { localStorage.setItem(sessionKey(charId), JSON.stringify({ startedAt, until: endedAt, endedBy: 'manual' })); } catch { /* 存不下就只能算了 */ }
+};
+
+/** 这会儿是不是正在贴贴（本机记的、还没到点、没在见面里结束） */
+export const isTietieLive = (charId: string, now = Date.now()): boolean => {
+    const session = readTietieSession(charId);
+    return !!session && !session.endedBy && session.until > now;
 };
 
 /** 她点结束时用的开始时刻：本机没记（别的设备开的、升级前开的）就往前推一小时 */

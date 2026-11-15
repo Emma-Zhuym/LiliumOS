@@ -527,7 +527,9 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - 起因：一行一念把 TA 的话切碎，又只接她那句、不推剧情，文风里的「留白」让 TA 把礼物是什么推回给她写。她每轮只写一句二三十字
 - 提示词在 `utils/emMeetLongform.ts`：200–400 字、两到四段（一段 60–120 字为主）、每段开头一个 `[emotion]`；每轮往前一小步；TA 那边的东西自己写清楚；心里那句话用 *星号*（阅读页画成斜体，`splitInnerThoughts`），她括号里的心里话 TA 看不见；平时不复述她的话，亲密时先把她写的动作写足；结尾停在接得上话的地方，不必是问句（2026-11-14 阿萌对照自己的酒馆预设定的，没搬「动态推进」：那是跳过吃饭、几天用的）。`datePrompts.ts` 的 `buildMeetLongformModeBlock` 拼好后排在文风预设之后（要盖过留白），开着时不拼一行一念；文风预设只取 `hint` 一句（整块示例是一行一念的写法）
 - 阅读页 `components/date/MeetLongformReader.tsx`（P23），`DateSession.tsx` 在 return 前一段 `[EM-START: meet-longform]` 提前返回；底下的立绘引擎、存档恢复照常跑。立绘跟最后一段的情绪（`lastLongformEmotion`）
-- 暂时没做：长文模式里的语音、多选删除
+- **贴贴开着换亲密写法**（2026-11-14）：长文页「…」里「开始 / 结束贴贴」用 `components/chat/PrivateMomentButton.tsx` 的 `usePrivateMoment`（跟聊天工具栏同一个开关、同一个 mini 状态）。`datePrompts.ts` 的 `meetIntimateState` 看本机 `isTietieLive`：500–900 字、她的输入只是引导（先写足她的动作，可以写她的反应、主动往前推，少替她说话）、八段长线（TA 最后一行写 `[[STAGE: n]]`，程序 `readIntimateStage` 从这次开始以后的回复里读出来告诉下一轮，阅读页剥掉不显示）、身体用词、每轮一两处变化、去娇弱——照她酒馆预设的 NSFW 条目改写
+- 在见面里结束贴贴：聊天页不在、没人接 `em-tietie-ended`，所以 `parkEndedTietieSession` 把结束时刻停在本机（`endedBy: 'manual'`），打开聊天时 `Chat.tsx` 的补写那段照「她点的结束」写事后记录
+- 暂时没做：长文模式里的语音、多选删除；骰子（`docs/ideas.md`）
 
 ### 34. 小厨房（现实食品库存）
 - 详细设计与每次改动见 `docs/kitchen-3d.md`；UI 规则见 `APP_CONVENTIONS.md` 的 P14 与 `utils/kitchenPaperTokens.ts`

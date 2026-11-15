@@ -28,7 +28,8 @@ import { resolveCharTimeZone, nowInTimeZone } from './timezone';
 import { getVoicePromptOverride } from './ttsProvider';
 import { buildDateWritingStylePrompt } from './dateWritingStyle'; // EM: 约会写作风格预设
 import { withDatePlanScene } from './emDatePlans'; // [EM: date-plans]
-import { composeMeetLongformBlock, isMeetLongform, meetLongformNote } from './emMeetLongform'; // [EM: meet-longform]
+import { composeMeetLongformBlock, isMeetLongform, meetLongformNote, readIntimateStage } from './emMeetLongform'; // [EM: meet-longform]
+import { isTietieLive, readTietieSession } from './tietie'; // [EM: meet-longform] 贴贴开着换亲密写法
 import { injectWorldbookDepthEntries, resolveWorldbookDepthEntries, type WorldbookScanMessage } from './worldbook';
 
 export type ApiMessage = { role: string; content: any };
@@ -625,7 +626,7 @@ ${observeBlock}`;
 };
 
 // [EM-START: meet-longform] 长文模式：换掉一行一念，文风预设只取一句话（整块示例是一行一念的写法）
-const buildMeetLongformModeBlock = (char: CharacterProfile, userName: string): string => {
+const buildMeetLongformModeBlock = (char: CharacterProfile, userName: string, intimate?: { stage: number }): string => {
     const dateTimeOn = isDateTimeAwarenessOn(char);
     const styleConfig = char.dateStyleConfig;
     return composeMeetLongformBlock({
@@ -639,7 +640,15 @@ const buildMeetLongformModeBlock = (char: CharacterProfile, userName: string): s
         extraBlock: buildExtraStyleBlock(styleConfig),
         digBlock: isDigDeeperOn(styleConfig) ? `${DIG_DEEPER_BLOCK}\n` : '',
         observeBlock: isObserveOn(char) ? buildObserveBlock(char) : '',
+        intimate,
     });
+};
+
+/** 贴贴开着（本机记的、没到点）就走亲密写法，段号从这次开始以后的回复里读 */
+const meetIntimateState = (char: CharacterProfile, msgs: Message[]): { stage: number } | undefined => {
+    if (!isMeetLongform(char) || !isTietieLive(char.id)) return undefined;
+    const since = readTietieSession(char.id)?.startedAt ?? Date.now();
+    return { stage: readIntimateStage(msgs.filter(m => m.metadata?.source === 'date'), since) };
 };
 // [EM-END: meet-longform]
 
@@ -788,6 +797,7 @@ ${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlo
 
         // 向量召回挂到 char.memoryPalaceInjection，buildCoreContext 会读取
         await injectMemoryPalace(char, allMsgs, undefined, userProfile?.name);
+        const intimate = meetIntimateState(char, allMsgs); // [EM: meet-longform] reroll 的 allMsgs 已裁到触发那条为止，段号不会算上被换掉的那段
         const systemPrompt = ContextBuilder.buildCoreContext(char, userProfile, true, undefined, undefined, {
             skipTimeAwareness: !isDateTimeAwarenessOn(char),
             conversational: true,
@@ -795,11 +805,11 @@ ${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlo
         })
             + (isMeetLongform(char) ? '' : buildVNModeBlock(char, userProfile?.name || '')) // [EM: meet-longform]
             + `\n${buildDateWritingStylePrompt(char.dateWritingStyle)}` // EM: 注入约会写作风格
-            + (isMeetLongform(char) ? `\n${buildMeetLongformModeBlock(char, userProfile?.name || '')}` : ''); // [EM: meet-longform] 排在最后，盖过文风里的留白
+            + (isMeetLongform(char) ? `\n${buildMeetLongformModeBlock(char, userProfile?.name || '', intimate)}` : ''); // [EM: meet-longform] 排在最后，盖过文风里的留白
 
         // 每轮轮换的聚焦线索：把注意力推向不同的具体方向，相邻回复天然有差异
         const focusLine = isDigDeeperOn(char.dateStyleConfig) ? ` 本轮线索：${pickFocusHint()}。` : '';
-        const note = isMeetLongform(char) ? meetLongformNote(variant, focusLine) : variant === 'send' // [EM: meet-longform]
+        const note = isMeetLongform(char) ? meetLongformNote(variant, focusLine, intimate) : variant === 'send' // [EM: meet-longform]
             ? `(System Note: 严格遵守 VN 格式。每一行都要以 [emotion] 开头，根据内容逐行切换情绪标签，不要整段只用同一个。叙述行写具体的感官细节和停顿，不要罗列动作。${focusLine})`
             : `(System Note: Reroll. 换一个切入角度重写，不要复用上一版的展开思路。依然严格遵守 VN 格式：每一行以 [emotion] 开头并逐行切换情绪，叙述行写具体的感官细节和停顿，不要罗列动作。${focusLine})`;
 

@@ -16,7 +16,7 @@ import { Heart } from '@phosphor-icons/react';
 import { useOS } from '../../context/OSContext';
 import { AgentBackend, isAgentPaired, type AgentPrivateMoment } from '../../utils/emAgentBackend';
 // [EM-START: tietie-record] 结束时 TA 写事后记录：本机记下这一次从几点开始（docs/spec-tietie-record.md）
-import { autoSessionStart, beginTietieSession, clearTietieSession, readTietieSession, sessionStartFor, tietieEndKind, TIETIE_WINDOW_MS } from '../../utils/tietie';
+import { autoSessionStart, beginTietieSession, clearTietieSession, parkEndedTietieSession, readTietieSession, sessionStartFor, tietieEndKind, TIETIE_WINDOW_MS } from '../../utils/tietie';
 import { announceTietieEnded } from '../tietie/useTietie';
 import ClayDialog from '../os/ClayDialog';
 import { F, R } from '../../utils/clayTokens';
@@ -50,7 +50,11 @@ interface Props {
     onDone: () => void;
 }
 
-const PrivateMomentButton: React.FC<Props> = ({ charId, textClassName, tileClassName, onDone }) => {
+/**
+ * 贴贴开关的整套逻辑：聊天工具栏和见面长文页共用（[EM: meet-longform]）。
+ * away：在见面里结束——聊天页不在、没人接 TIETIE_ENDED_EVENT，就把结束时刻停在本机，打开聊天时补写事后记录。
+ */
+export const usePrivateMoment = (charId: string, options: { onDone?: () => void; away?: boolean } = {}) => {
     const { addToast } = useOS();
     const [state, setState] = useState<AgentPrivateMoment | null>(() => readCached(charId));
     const [busy, setBusy] = useState(false);
@@ -69,7 +73,7 @@ const PrivateMomentButton: React.FC<Props> = ({ charId, textClassName, tileClass
         return () => { alive = false; };
     }, [charId]);
 
-    if (!isAgentPaired()) return null;
+    const paired = isAgentPaired();
     const active = isPrivateActive(state);
 
     /** confirmed：她在「刚才是贴贴吗」里选了「是」，不再问 */
@@ -94,15 +98,20 @@ const PrivateMomentButton: React.FC<Props> = ({ charId, textClassName, tileClass
                 beginTietieSession(charId, next.until ? Date.parse(next.until) : now + TIETIE_WINDOW_MS, now);
             } else {
                 const session = readTietieSession(charId);
-                clearTietieSession(charId);
                 // 副 API 猜着开、她确认是真的：开始时刻按 mini 的 until 往前推
-                announceTietieEnded(charId, session ? sessionStartFor(session, now) : autoSessionStart(previous?.until, now), now);
+                const startedAt = session ? sessionStartFor(session, now) : autoSessionStart(previous?.until, now);
+                if (options.away) {
+                    parkEndedTietieSession(charId, startedAt, now); // [EM: meet-longform]
+                } else {
+                    clearTietieSession(charId);
+                    announceTietieEnded(charId, startedAt, now);
+                }
             }
             // [EM-END: tietie-record]
             addToast(next.active
                 ? '两个人的时间开始了：2 小时内 TA 不会主动来打扰，结束时再点一下'
-                : '两个人的时间结束了', 'success');
-            onDone();
+                : options.away ? '两个人的时间结束了，回到聊天时 TA 会写这一次' : '两个人的时间结束了', 'success');
+            options.onDone?.();
         } catch {
             addToast('连不上 mini，这次没记上', 'error');
         } finally {
@@ -120,15 +129,40 @@ const PrivateMomentButton: React.FC<Props> = ({ charId, textClassName, tileClass
             writeCached(charId, next);
             clearTietieSession(charId);
             addToast(message, 'success');
-            onDone();
+            options.onDone?.();
         } catch {
             addToast('连不上 mini，这次没关上', 'error');
         } finally {
             setBusy(false);
         }
     };
+
+    const dialog = (
+        <ClayDialog isOpen={asking} title="刚才是贴贴吗？" onClose={() => setAsking(false)} footer={
+            <div className="flex" style={{ gap: 10 }}>
+                <button type="button" onClick={() => { void cancel('知道了，刚才不算，TA 不会写事后记录'); }} className="flex-1 clay-press"
+                    style={{ height: 44, borderRadius: R.button, background: F.surface, border: `1px solid ${F.borderSoft}`, color: F.textPrimary, fontSize: 15, fontWeight: 600 }}>
+                    不是，TA 误会了
+                </button>
+                <button type="button" onClick={() => { setAsking(false); void toggle(true); }} className="flex-1 clay-press"
+                    style={{ height: 44, borderRadius: R.button, background: F.textPrimary, border: 'none', color: F.surface, fontSize: 15, fontWeight: 600 }}>
+                    是，结束了
+                </button>
+            </div>
+        }>
+            <p style={{ margin: 0, fontSize: 15, lineHeight: '23px', color: F.textSecondary, textAlign: 'left' }}>
+                这次不是你点的开始，是从聊天里猜的。猜错了就选「不是」：只关掉，不写事后记录，也不算「事后」。
+            </p>
+        </ClayDialog>
+    );
     // [EM-END: tietie-record]
 
+    return { paired, active, busy, toggle, dialog };
+};
+
+const PrivateMomentButton: React.FC<Props> = ({ charId, textClassName, tileClassName, onDone }) => {
+    const { paired, active, busy, toggle, dialog } = usePrivateMoment(charId, { onDone });
+    if (!paired) return null;
     return (
         <>
         <button onClick={() => { void toggle(); }} disabled={busy} className={`flex flex-col items-center gap-2 tool-btn ${textClassName} ${busy ? 'opacity-50' : ''}`}>
@@ -137,24 +171,7 @@ const PrivateMomentButton: React.FC<Props> = ({ charId, textClassName, tileClass
             </div>
             <span className="text-xs font-bold">{active ? '结束贴贴' : '贴贴'}</span>
         </button>
-            {/* [EM-START: tietie-record] */}
-            <ClayDialog isOpen={asking} title="刚才是贴贴吗？" onClose={() => setAsking(false)} footer={
-                <div className="flex" style={{ gap: 10 }}>
-                    <button type="button" onClick={() => { void cancel('知道了，刚才不算，TA 不会写事后记录'); }} className="flex-1 clay-press"
-                        style={{ height: 44, borderRadius: R.button, background: F.surface, border: `1px solid ${F.borderSoft}`, color: F.textPrimary, fontSize: 15, fontWeight: 600 }}>
-                        不是，TA 误会了
-                    </button>
-                    <button type="button" onClick={() => { setAsking(false); void toggle(true); }} className="flex-1 clay-press"
-                        style={{ height: 44, borderRadius: R.button, background: F.textPrimary, border: 'none', color: F.surface, fontSize: 15, fontWeight: 600 }}>
-                        是，结束了
-                    </button>
-                </div>
-            }>
-                <p style={{ margin: 0, fontSize: 15, lineHeight: '23px', color: F.textSecondary, textAlign: 'left' }}>
-                    这次不是你点的开始，是从聊天里猜的。猜错了就选「不是」：只关掉，不写事后记录，也不算「事后」。
-                </p>
-            </ClayDialog>
-            {/* [EM-END: tietie-record] */}
+            {dialog}
         </>
     );
 };

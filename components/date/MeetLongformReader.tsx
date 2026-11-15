@@ -17,6 +17,7 @@ import { MEETING_CONTINUE_DISPLAY_TEXT } from '../../utils/meetingContinue';
 import ClayDialog from '../os/ClayDialog';
 import TokenImg from '../os/TokenImg';
 import ObserveHUD from './ObserveHUD';
+import { usePrivateMoment } from '../chat/PrivateMomentButton';
 import { ThemeGlyph, useDeepTalkTheme } from '../deepTalk/DeepTalkInk';
 import { resolveCharTimeZone } from '../../utils/timezone';
 
@@ -57,6 +58,8 @@ interface Props {
 const MeetLongformReader: React.FC<Props> = (props) => {
     const { char, userProfile, messages, spriteSrc, input, setInput, isTyping, retryText, errorText } = props;
     const { theme, palette, toggle } = useDeepTalkTheme(char.id, resolveCharTimeZone(char));
+    // 贴贴开着：提示词换成亲密写法（datePrompts 读本机记的那一次）；在这里结束的，回到聊天时写事后记录
+    const tietie = usePrivateMoment(char.id, { away: true });
     const night = theme === 'night';
     const scrollRef = useRef<HTMLDivElement>(null);
     const [menuOpen, setMenuOpen] = useState(false);
@@ -154,7 +157,10 @@ const MeetLongformReader: React.FC<Props> = (props) => {
                 <button type="button" aria-label="离开" onClick={() => setExitOpen(true)} className="grid place-items-center active:opacity-40 transition-opacity" style={iconBtn}>
                     <CaretLeft size={22} weight="bold" />
                 </button>
-                <span style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: palette.ink }}>{char.name}</span>
+                <div className="flex flex-col items-center">
+                    <span style={{ ...FONT.navTitle, fontFamily: FONT.heading, color: palette.ink }}>{char.name}</span>
+                    {tietie.active && <span style={{ fontFamily: FONT.hand, fontSize: 14, lineHeight: 1.2, color: palette.inkMid }}>两个人的时间</span>}
+                </div>
                 <div className="flex items-center">
                     <button type="button" aria-label={night ? '换成白天' : '换成夜里'} onClick={toggle} className="grid place-items-center active:opacity-40 transition-opacity" style={iconBtn}>
                         <ThemeGlyph theme={theme} color={palette.ink} />
@@ -186,6 +192,9 @@ const MeetLongformReader: React.FC<Props> = (props) => {
 
             <ClayDialog isOpen={menuOpen} title="见面" onClose={() => setMenuOpen(false)}>
                 <div className="flex flex-col" style={{ gap: 8 }}>
+                    {tietie.paired && (
+                        <Row disabled={tietie.busy} onClick={() => { setMenuOpen(false); void tietie.toggle(); }}>{tietie.active ? '结束贴贴' : '开始贴贴'}</Row>
+                    )}
                     <Row disabled={!props.canReroll || isTyping} onClick={() => { setMenuOpen(false); props.onReroll(); }}>重写 TA 这一段</Row>
                     <Row onClick={() => { setMenuOpen(false); props.onOpenSettings(); }}>见面设置</Row>
                     <Row onClick={() => { setMenuOpen(false); setExitOpen(true); }}>保存并离开</Row>
@@ -200,7 +209,7 @@ const MeetLongformReader: React.FC<Props> = (props) => {
             <ClayDialog isOpen={!!picked} title={picked?.role === 'user' ? '我说的这段' : '这一段'} onClose={() => setPicked(null)}>
                 <div className="flex flex-col" style={{ gap: 8 }}>
                     <Row onClick={() => {
-                        const text = (picked?.content || '').replace(/\[.*?\]/g, '').trim();
+                        const text = (picked?.content || '').replace(/\[\[.*?\]\]/g, '').replace(/\[.*?\]/g, '').replace(/[*＊]/g, '').trim();
                         navigator.clipboard.writeText(text).then(() => props.onToast('已复制', 'success')).catch(() => props.onToast('复制失败，请再试一次', 'error'));
                         setPicked(null);
                     }}>复制</Row>
@@ -208,6 +217,7 @@ const MeetLongformReader: React.FC<Props> = (props) => {
                     <Row danger onClick={() => { if (picked) props.onDeleteMessage(picked); setPicked(null); }}>删除</Row>
                 </div>
             </ClayDialog>
+            {tietie.dialog}
         </div>
     );
 };

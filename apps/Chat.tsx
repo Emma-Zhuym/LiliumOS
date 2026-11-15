@@ -1168,7 +1168,7 @@ const Chat: React.FC = () => {
         const expired = expiredTietieSession(readTietieSession(char.id));
         if (!expired) return;
         clearTietieSession(char.id);
-        void handleTietieWrite(expired.startedAt, expired.until, 'timeout');
+        void handleTietieWrite(expired.startedAt, expired.until, expired.endedBy ?? 'timeout'); // [EM: meet-longform] 见面里点的结束算她点的
     }, [char?.id, userProfile, handleTietieWrite]);
     // [EM-END: tietie-record]
 

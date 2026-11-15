@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { splitInnerThoughts, composeMeetLongformBlock, isMeetLongform, lastLongformEmotion, meetLongformNote, paperVeil, splitLongformParagraphs } from './emMeetLongform';
+import { readIntimateStage, stripStageTags, splitInnerThoughts, composeMeetLongformBlock, isMeetLongform, lastLongformEmotion, meetLongformNote, paperVeil, splitLongformParagraphs } from './emMeetLongform';
 
 describe('meet longform', () => {
     it('only turns on when the character opted in', () => {
@@ -52,6 +52,34 @@ describe('meet longform', () => {
             { text: '没说话。', thought: false },
         ]);
         expect(splitInnerThoughts('没有心里话')).toEqual([{ text: '没有心里话', thought: false }]);
+    });
+
+    it('switches to the intimate section and tells TA where it left off', () => {
+        const base = { userName: '阿萌', charName: 'TA', emotions: ['normal'], styleHint: '', timeLine: '', povBlock: '', extraBlock: '', digBlock: '', observeBlock: '' };
+        const first = composeMeetLongformBlock({ ...base, intimate: { stage: 0 } });
+        expect(first).toContain('500–900 字');
+        expect(first).toContain('从第 1 段写起');
+        expect(first).toContain('[[STAGE: 段号]]');
+        expect(first).not.toContain('平时不复述');
+        const later = composeMeetLongformBlock({ ...base, intimate: { stage: 3 } });
+        expect(later).toContain('上一轮写到第 3 段「进入」');
+        expect(later).toContain('这一轮写第 4 段');
+        expect(composeMeetLongformBlock(base)).toContain('平时不复述');
+        expect(meetLongformNote('send', '', { stage: 7 })).toContain('最多到第 8 段');
+    });
+
+    it('reads the stage from replies after the session started', () => {
+        const msgs = [
+            { role: 'assistant', content: '旧的 [[STAGE: 6]]', timestamp: 50 },
+            { role: 'user', content: '嗯', timestamp: 100 },
+            { role: 'assistant', content: '[shy] 一段\n[[STAGE: 2]]', timestamp: 110 },
+            { role: 'user', content: '（我亲了亲你）', timestamp: 120 },
+        ];
+        expect(readIntimateStage(msgs, 100)).toBe(2);
+        expect(readIntimateStage(msgs, 115)).toBe(0);
+        expect(readIntimateStage([{ role: 'assistant', content: '[[STAGE：9]]', timestamp: 1 }], 0)).toBe(8);
+        expect(splitLongformParagraphs('[shy] 一段\n[[STAGE: 2]]')).toEqual([{ text: '一段', emotion: 'shy' }]);
+        expect(stripStageTags('a[[STAGE: 3]]b')).toBe('ab');
     });
 
     it('turns paper hex into a veil', () => {
