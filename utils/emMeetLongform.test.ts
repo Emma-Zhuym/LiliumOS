@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { composeMeetLongformBlock, isMeetLongform, lastLongformEmotion, meetLongformNote, paperVeil, splitLongformParagraphs } from './emMeetLongform';
+import { splitInnerThoughts, composeMeetLongformBlock, isMeetLongform, lastLongformEmotion, meetLongformNote, paperVeil, splitLongformParagraphs } from './emMeetLongform';
 
 describe('meet longform', () => {
     it('only turns on when the character opted in', () => {
@@ -34,13 +34,24 @@ describe('meet longform', () => {
             userName: '阿萌', charName: 'TA', emotions: ['normal', 'happy'], styleHint: '短句克制',
             timeLine: '', povBlock: '', extraBlock: '', digBlock: '', observeBlock: '',
         });
-        expect(block).toContain('300–500 字');
+        expect(block).toContain('200–400 字');
+        expect(block).toContain('不必是问句');
+        expect(block).toContain('不读心');
         expect(block).toContain('礼物是什么');
         expect(block).toContain('往前走一小步');
         expect(block).not.toContain('一行一念');
         expect(block).toContain('「我」是阿萌自己，「你」是你');
         expect(meetLongformNote('send', '')).toContain('长文模式');
         expect(meetLongformNote('reroll', '')).toContain('Reroll');
+    });
+
+    it('pulls starred inner thoughts out of a paragraph', () => {
+        expect(splitInnerThoughts('他笑了。*她怎么还记得。*没说话。')).toEqual([
+            { text: '他笑了。', thought: false },
+            { text: '她怎么还记得。', thought: true },
+            { text: '没说话。', thought: false },
+        ]);
+        expect(splitInnerThoughts('没有心里话')).toEqual([{ text: '没有心里话', thought: false }]);
     });
 
     it('turns paper hex into a veil', () => {

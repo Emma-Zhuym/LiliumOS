@@ -33,18 +33,23 @@ export const composeMeetLongformBlock = (p: MeetLongformPieces): string => {
 你和${you}正面对面待在一起。这一轮写一段连贯的长文，像小说里的一节，不是聊天。
 
 ### 写法
-- 300–500 字，分三到五段。动作、神情、心里的念头和说出口的话揉在同一段里写，不要一行一句。
+- 200–400 字，分两到四段。动作、神情、心里的念头和说出口的话揉在同一段里写，不要一行一句。
+- 一段 60–120 字为主；偶尔用一句话单独成段，放在转折、停顿或一句心里话上，不连着出两个短段。
 - 每一段开头标一个情绪标签 \`[emotion]\`，表示这一段你的表情，段落中间不要再插标签。仅限使用：${p.emotions.join(', ')}。
 - 台词用「」或双引号，嵌在叙述里。
 - ${you}写的话里，「我」是${you}自己，「你」是你。
-- 多写你心里的东西：此刻在想什么、在意什么、把什么压了下去。
 - 文风：${p.styleHint}
+
+### 写出你心里的东西
+- 让${you}直接读到你此刻的念头：在想什么、在意什么、把什么压了下去。叙述贴着你的感觉走，每轮再有一两处直接写出心里那句话，用 *星号* 包起来。
+- ${you}写在括号里的心里话、旁白，你看不见也听不见；你只知道${you}说出口的话、做出来的动作，和你亲眼看到的样子。不读心。
 
 ### 每一轮往前走一小步
 - 让场面动一点：你做一个决定、拿出一样东西、提起一件事，或者现场发生一件小事。不换场景、不跳时间，除非${you}想。
 - 你那边的东西你自己写清楚：你准备的礼物是什么、要带${you}去哪、你知道而${you}不知道的事，到了该揭晓的时候直接写出来，不要推给${you}去「打开看看」「自己猜」。卖关子最多一轮。
-- 停在一个${you}好接的地方：一句问话、一个递过去的东西、一个等着回应的动作。
-- ${you}说得短也没关系，你照样接得住、写得满。不替${you}说话，不替${you}做决定，不写${you}心里在想什么。
+- 平时不复述${you}的话，直接从${you}之后接着写。亲密的时候不一样：${you}写下的动作（比如亲了你哪里），先从你的感受把它写足，再写你的反应。
+- 停在${you}接得上话的地方：一个还在进行的动作、一件递过去的东西、一句话都行。不必是问句，也不要给${you}列选项挑。
+- ${you}说得短也没关系，你照样接得住。不替${you}说话，不替${you}做决定，不写${you}心里在想什么。
 - 含蓄是情绪上的，信息上不含糊：上面文风里说的留白，指的是情绪别说透，不是该交代的事不交代。
 
 ${p.digBlock}${p.povBlock}${p.extraBlock}### 场景上下文
@@ -54,8 +59,8 @@ ${p.observeBlock}`;
 };
 
 export const meetLongformNote = (variant: 'send' | 'reroll', focusLine: string): string => variant === 'send'
-    ? `(System Note: 长文模式。300–500 字、三到五段，每段开头一个 [emotion]；动作、心理、台词写在一起；这一轮让场面往前走一小步，你那边的东西直接写清楚。${focusLine})`
-    : `(System Note: Reroll. 换一个切入角度重写，不要复用上一版的展开思路。依然是长文模式：300–500 字、三到五段，每段开头一个 [emotion]，让场面往前走一小步。${focusLine})`;
+    ? `(System Note: 长文模式。200–400 字、两到四段，每段开头一个 [emotion]；动作、心理、台词写在一起，有一两处心里话；往前走一小步，停在接得上话的地方。${focusLine})`
+    : `(System Note: Reroll. 换一个切入角度重写，不要复用上一版的展开思路。依然是长文模式：200–400 字、两到四段，每段开头一个 [emotion]，往前走一小步。${focusLine})`;
 
 export interface LongformParagraph {
     text: string;
@@ -86,6 +91,20 @@ export const splitLongformParagraphs = (content: string): LongformParagraph[] =>
         out.push({ text, emotion });
     }
     return out;
+};
+
+/** 段落里 *星号* 包着的是心里那句话：拆出来给阅读页画成斜体，星号本身不显示 */
+export const splitInnerThoughts = (text: string): { text: string; thought: boolean }[] => {
+    const parts: { text: string; thought: boolean }[] = [];
+    const re = /[*＊]([^*＊\n]+)[*＊]/g;
+    let last = 0;
+    for (let m = re.exec(text); m; m = re.exec(text)) {
+        if (m.index > last) parts.push({ text: text.slice(last, m.index), thought: false });
+        parts.push({ text: m[1], thought: true });
+        last = m.index + m[0].length;
+    }
+    if (last < text.length) parts.push({ text: text.slice(last), thought: false });
+    return parts;
 };
 
 /** 立绘跟最后一段的情绪走（读到最后停下来时看到的那张脸）；认不出的标签不算 */

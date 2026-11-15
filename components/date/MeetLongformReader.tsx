@@ -12,7 +12,7 @@ import { ArrowUp, CaretLeft, DotsThree } from '@phosphor-icons/react';
 import type { CharacterProfile, Message, UserProfile } from '../../types';
 import { F, FONT, R, STATUS } from '../../utils/clayTokens';
 import { extractObservation, hasObservation } from '../../utils/datePrompts';
-import { paperVeil, splitLongformParagraphs } from '../../utils/emMeetLongform';
+import { paperVeil, splitInnerThoughts, splitLongformParagraphs } from '../../utils/emMeetLongform';
 import { MEETING_CONTINUE_DISPLAY_TEXT } from '../../utils/meetingContinue';
 import ClayDialog from '../os/ClayDialog';
 import TokenImg from '../os/TokenImg';
@@ -131,7 +131,11 @@ const MeetLongformReader: React.FC<Props> = (props) => {
                                 {isContinue
                                     ? <p style={{ ...textStyle, fontFamily: FONT.hand, fontSize: 16, color: palette.inkSoft }}>（陪着，没说话）</p>
                                     : paragraphs.map((para, i) => (
-                                        <p key={i} className="whitespace-pre-wrap" style={{ ...textStyle, color: isUser ? palette.inkMe : palette.ink }}>{para.text}</p>
+                                        <p key={i} className="whitespace-pre-wrap" style={{ ...textStyle, color: isUser ? palette.inkMe : palette.ink }}>
+                                            {splitInnerThoughts(para.text).map((part, j) => part.thought
+                                                ? <em key={j} style={{ fontStyle: 'italic', color: isUser ? palette.inkMe : palette.inkMid }}>{part.text}</em>
+                                                : <React.Fragment key={j}>{part.text}</React.Fragment>)}
+                                        </p>
                                     ))}
                             </section>
                         );
