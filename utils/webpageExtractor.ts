@@ -195,9 +195,13 @@ export function extractXhsNoteLink(text: string): { noteId: string; xsecToken?: 
           // URLSearchParams 解码一次即可：手机分享常带 %3D，不能原样送给详情 API。
           return { noteId, xsecToken: parsed.searchParams.get('xsec_token') || undefined };
         }
-        // 兼容旧代理一路 follow 到验证码页的响应，不需要访问或通过验证码。
-        if (parsed.pathname !== '/website-login/captcha') break;
-        const redirectPath = parsed.searchParams.get('redirectPath');
+        // 兼容代理一路 follow 到拦截页的响应，不需要访问或通过拦截：
+        // 验证码页 /website-login/captcha?redirectPath=…；
+        // 2026-11 起还会经 rednote.com 落到安全页 /404/sec_…?originalUrl=…（美国 IP 常见）。
+        const isCaptcha = parsed.pathname === '/website-login/captcha';
+        const isSecBlock = /^\/404(?:\/|$)/.test(parsed.pathname); // [EM: xhs-sec-404]
+        if (!isCaptcha && !isSecBlock) break;
+        const redirectPath = parsed.searchParams.get(isCaptcha ? 'redirectPath' : 'originalUrl');
         if (!redirectPath) break;
         parsed = new URL(redirectPath, parsed.origin);
       }

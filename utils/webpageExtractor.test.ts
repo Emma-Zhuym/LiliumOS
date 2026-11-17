@@ -118,6 +118,14 @@ describe('手机小红书分享回归', () => {
     expect(extractXhsNoteId(expanded)).toBe(noteId);
   });
 
+  it('兼容经 rednote.com 落到 /404/sec_ 安全页的响应', () => {
+    const rednoteNote = noteUrl.replace('www.xiaohongshu.com', 'www.rednote.com');
+    const secUrl = `https://www.rednote.com/404/sec_wwcjfJua?source=xhs_sec_server&originalUrl=${encodeURIComponent(rednoteNote)}`;
+    expect(extractXhsNoteLink(secUrl)).toEqual({ noteId, xsecToken: 'test+token=' });
+    expect(extractXhsNoteLink(`https://example.com/404/sec_x?originalUrl=${encodeURIComponent(rednoteNote)}`)).toBeNull();
+    expect(extractXhsNoteLink(`https://www.rednote.com/404/sec_x?originalUrl=${encodeURIComponent(rednoteNote.replace('www.rednote.com', 'example.com'))}`)).toBeNull();
+  });
+
   it('兼容直接笔记 URL 和电脑版文案，token 仅解码一次', () => {
     expect(extractXhsNoteLink(noteUrl)).toEqual({ noteId, xsecToken: 'test+token=' });
     expect(extractXhsNoteLink(`80 【胡闹厨房别太胡闹 - 兮橙 | 小红书】 😆 code 😆 [https://www.xiaohongshu.com/discovery/item/${noteId}?xsec_token=desktop_token=](https://www.xiaohongshu.com/discovery/item/${noteId}?xsec_token=desktop_token=)`))
