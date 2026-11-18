@@ -37,7 +37,7 @@
 ## 2026-11
 
 ### 2026-11-18 · Vertex 试用赠金接到 mini（酒馆 / 聊天 / 心跳都能用）
-**操作**：Claude（小帕） · `待填`
+**操作**：Claude（小帕） · `8901ac58`
 
 - mini 上新跑一个小转接 `server/vertex-proxy/`：用 gcloud 登录态（ADC）调 Vertex 的 Gemini，对外是 OpenAI 格式加固定 key，经网关 `/vertex/v1`；新号禁了 API key 和服务账号密钥，所以走这条
 - 实测能用 argon、3.1 Pro preview、3.8 / 3.5 Flash、3.1 Flash Lite；hydrogen / carbon 当天一直 429（Google 容量），argon 时好时坏
