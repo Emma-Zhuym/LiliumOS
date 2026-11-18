@@ -15,6 +15,7 @@ import { ExtraHeader } from './ExtraHeader';
 import { useMeetExtras } from './useMeetExtra';
 import MeetExtraComposer from './MeetExtraComposer';
 import MeetExtraReader from './MeetExtraReader';
+import PresetLibraryPage from './PresetLibraryPage'; // [EM: preset-library]
 
 const dateLabel = (ts: number) => {
     const d = new Date(ts);
@@ -27,7 +28,7 @@ const statusText = (row: MeetExtra): { text: string; tone: 'plain' | 'bad' } | n
     return null;
 };
 
-type View = { kind: 'shelf' } | { kind: 'compose'; charId?: string } | { kind: 'read'; id: string };
+type View = { kind: 'shelf' } | { kind: 'compose'; charId?: string } | { kind: 'read'; id: string } | { kind: 'library'; back: View };
 
 const MeetExtraApp: React.FC<{
     initialExtraId?: string;
@@ -50,8 +51,12 @@ const MeetExtraApp: React.FC<{
     const shown = (rows || []).filter(r => !filter || r.charId === filter);
     const authors = useMemo(() => characters.filter(c => (rows || []).some(r => r.charId === c.id)), [characters, rows]);
 
+    if (view.kind === 'library') {
+        return <PresetLibraryPage onBack={() => setView(view.back)} />;
+    }
     if (view.kind === 'compose') {
-        return <MeetExtraComposer initialCharId={view.charId || filter || undefined} onBack={() => setView({ kind: 'shelf' })} onStarted={id => setView({ kind: 'read', id })} />;
+        return <MeetExtraComposer initialCharId={view.charId || filter || undefined} onBack={() => setView({ kind: 'shelf' })} onStarted={id => setView({ kind: 'read', id })}
+            onOpenLibrary={() => setView({ kind: 'library', back: view })} />;
     }
     if (view.kind === 'read') {
         return <MeetExtraReader id={view.id} onBack={back} onDeleted={() => (fromCard && view.id === initialExtraId ? onBack() : setView({ kind: 'shelf' }))} />;
@@ -111,10 +116,16 @@ const MeetExtraApp: React.FC<{
                     </div>
                 )}
 
-                <button type="button" onClick={onOpenStory} className="block mx-auto active:opacity-40 transition-opacity"
-                    style={{ marginTop: 28, minHeight: 44, padding: '0 8px', background: 'transparent', border: 'none', fontSize: 13, color: F.textTertiary }}>
-                    更多玩法：剧情剧场 · 异格
-                </button>
+                <div className="flex flex-col items-center" style={{ marginTop: 28 }}>
+                    <button type="button" onClick={() => setView({ kind: 'library', back: { kind: 'shelf' } })} className="active:opacity-40 transition-opacity"
+                        style={{ minHeight: 44, padding: '0 8px', background: 'transparent', border: 'none', fontSize: 13, color: F.textSecondary }}>
+                        文风和基调
+                    </button>
+                    <button type="button" onClick={onOpenStory} className="active:opacity-40 transition-opacity"
+                        style={{ minHeight: 44, padding: '0 8px', background: 'transparent', border: 'none', fontSize: 13, color: F.textTertiary }}>
+                        更多玩法：剧情剧场 · 异格
+                    </button>
+                </div>
             </main>
         </div>
     );

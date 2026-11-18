@@ -93,7 +93,7 @@ const MeetExtraReader: React.FC<{ id: string; onBack: () => void; onDeleted: () 
                 <article className="mx-auto flex flex-col" style={{ maxWidth: 620, gap: 14, padding: '12px 24px calc(48px + var(--safe-bottom))' }}>
                     <h2 style={{ margin: '8px 0 0', fontFamily: FONT.heading, fontSize: 22, fontWeight: 700, lineHeight: 1.4, color: palette.ink }}>{row.title}</h2>
                     <div style={{ fontSize: 12, color: palette.inkSoft, fontVariantNumeric: 'tabular-nums' }}>
-                        {[MEET_EXTRA_MEMORY[row.memory].label, row.style || '', MEET_EXTRA_POV[row.pov], words ? `${words} 字` : MEET_EXTRA_LENGTHS[row.length].label].filter(Boolean).join(' · ')}
+                        {[MEET_EXTRA_MEMORY[row.memory].label, row.tone || '', row.style || '', MEET_EXTRA_POV[row.pov], words ? `${words} 字` : MEET_EXTRA_LENGTHS[row.length].label].filter(Boolean).join(' · ')}
                     </div>
                     {row.thinking && (
                         <div className="flex flex-col" style={{ gap: 6 }}>

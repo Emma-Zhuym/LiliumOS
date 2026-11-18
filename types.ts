@@ -2936,6 +2936,7 @@ export interface CharacterProfile {
   dateLongform?: boolean;   // [EM: meet-longform] 2026-11-17 起不再读：长文改成默认，见 dateSpriteMode
   dateSpriteMode?: boolean;   // [EM: meet-redesign] true = 立绘模式（一行一念逐条点）；缺省 = 长文
   dateLongformLength?: 'short' | 'medium' | 'long';   // [EM: meet-redesign] 长文每轮篇幅，缺省 medium
+  meetToneId?: string;   // [EM: preset-library] 见面 / 番外默认的相处基调（素材库条目 id，原文只在本机和私有备份）
   dateWritingStyle?: string;    // 约会模式写作风格预设 key（见 utils/dateWritingStyle.ts）或自定义文风字符串
   dateSkinSets?: SkinSet[];     // Multiple skin sets for portrait mode
   activeSkinSetId?: string;     // Currently active skin set ID
@@ -4465,6 +4466,7 @@ export interface FullBackupData {
     agendaItems?: AgendaItem[];                 // 时光契约日程（agenda store）
     emHealthProfile?: HealthProfile;            // 健康档案（liliumos_health_profile）
     emContactRemarks?: Record<string, string>;  // 通讯录备注，角色 id → 备注（em_contact_remark_*）
+    emPresetLibrary?: import('./utils/presetLibrary').PresetItem[]; // [EM: preset-library] 素材库：从她的酒馆预设导入的文风 / 基调
     emContactRemarkChanges?: Record<string, import('./utils/contactRemarks').ContactRemarkChange>; // [EM: contact-remark-aware] 最近一次改备注（em_remark_changes_v1）
     emDatePlans?: import('./utils/emDatePlans').DatePlan[]; // [EM: date-plans] TA 给阿萌安排的约会（em_date_plans_v1）
     emHealthCustomSymptoms?: import('./utils/healthCustomSymptoms').CustomSymptoms; // [EM: health-custom-symptoms] 她自己加的症状（em_health_custom_symptoms_v1）

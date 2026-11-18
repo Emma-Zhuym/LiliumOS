@@ -30,6 +30,8 @@ export interface MeetLongformPieces {
     extraBlock: string;
     digBlock: string;
     observeBlock: string;
+    /** 素材库里这个角色的相处基调（presetLibrary.meetToneBlock），没选是空串 [EM: preset-library] */
+    toneBlock?: string;
     /** 贴贴开着：换亲密写法；stage 是上一轮写到第几段（0 = 刚开始） */
     intimate?: { stage: number };
 }
@@ -101,7 +103,7 @@ export const composeMeetLongformBlock = (p: MeetLongformPieces): string => {
 ### 写出你心里的东西
 - 让${you}直接读到你此刻的念头：在想什么、在意什么、把什么压了下去。叙述贴着你的感觉走，每轮再有一两处直接写出心里那句话，用 *星号* 包起来。
 
-${composeMeetCraftBlock(you)}
+${p.toneBlock || ''}${composeMeetCraftBlock(you)}
 ${p.intimate ? composeIntimateSection(you, p.intimate.stage) : `### 每一轮往前走一小步
 - 让场面动一点：你做一个决定、拿出一样东西、提起一件事，或者现场发生一件小事。不换场景、不跳时间，除非${you}想。
 - 你那边的东西你自己写清楚：你准备的礼物是什么、要带${you}去哪、你知道而${you}不知道的事，到了该揭晓的时候直接写出来，不要推给${you}去「打开看看」「自己猜」。卖关子最多一轮。

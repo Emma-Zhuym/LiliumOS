@@ -23,6 +23,7 @@ import TokenImg from '../os/TokenImg';
 import { FieldRow, Group, InlineAction, Page, Row, Segmented, ToggleRow } from '../settings/SettingsParts';
 import { SETTINGS_HUE as P } from '../settings/SettingsHome';
 import ObserveSettings from './ObserveSettings';
+import { usePresetItems } from '../meetExtra/PresetLibraryPage'; // [EM: preset-library]
 
 const DEFAULT_SPRITE_CONFIG: SpriteConfig = { scale: 1, x: 0, y: 0 };
 
@@ -59,7 +60,9 @@ const MeetSettings: React.FC<Props> = ({ char, onBack }) => {
     const fileRef = useRef<HTMLInputElement>(null);
     const uploadTarget = useRef<{ kind: 'bg' } | { kind: 'sprite'; key: string }>({ kind: 'bg' });
 
-    const [picker, setPicker] = useState<'style' | 'pov' | 'skin' | null>(null);
+    const [picker, setPicker] = useState<'style' | 'pov' | 'skin' | 'tone' | null>(null);
+    const tones = usePresetItems('tone'); // [EM: preset-library]
+    const tone = tones.find(t => t.id === char.meetToneId);
     const [tile, setTile] = useState<string | null>(null);
     const [tileUrl, setTileUrl] = useState('');
     const [newSkin, setNewSkin] = useState('');
@@ -204,6 +207,7 @@ const MeetSettings: React.FC<Props> = ({ char, onBack }) => {
                                     onChange={v => updateCharacter(char.id, { dateLongformLength: v === 'medium' ? undefined : v })} /></span>} />
                         )}
                         <Row title="写作风格" sub={stylePreset?.desc} value={stylePreset?.label || '默认'} onClick={() => setPicker('style')} />
+                        <Row title="相处基调" sub={tone ? undefined : tones.length ? '从素材库里选一个，番外也默认用它' : '先在番外的「文风和基调」里导入'} value={tone?.name || '不指定'} onClick={() => setPicker('tone')} />
                         <Row title="叙事人称" sub={!pov && longform ? '长文下按「我看着你」写' : undefined} value={POV_LABEL[pov || 'default']} onClick={() => setPicker('pov')} />
                         <ToggleRow title="细节深挖" sub="每轮给 TA 一条不同的聚焦线索，少说空话" checked={char.dateStyleConfig?.digDeeper !== false}
                             onChange={on => patchStyle({ digDeeper: on ? undefined : false })} />
@@ -267,6 +271,17 @@ const MeetSettings: React.FC<Props> = ({ char, onBack }) => {
                         <DialogRow key={p.key} on={styleKey === p.key} title={p.label} sub={p.desc}
                             onClick={() => { updateCharacter(char.id, meetStylePatch(char, p.key)); setPicker(null); }} />
                     ))}
+                </div>
+            </ClayDialog>
+
+            <ClayDialog isOpen={picker === 'tone'} title="相处基调" onClose={() => setPicker(null)}>
+                <div className="flex flex-col" style={{ gap: 6 }}>
+                    <DialogRow on={!tone} title="不指定" onClick={() => { updateCharacter(char.id, { meetToneId: undefined }); setPicker(null); }} />
+                    {tones.map(t => (
+                        <DialogRow key={t.id} on={tone?.id === t.id} title={t.name} sub={t.source}
+                            onClick={() => { updateCharacter(char.id, { meetToneId: t.id }); setPicker(null); }} />
+                    ))}
+                    {!tones.length && <p style={{ margin: '6px 4px 0', fontSize: 13, lineHeight: '20px', color: F.textTertiary }}>素材库里还没有基调。见面 → 番外 → 书架底下「文风和基调」→ 从酒馆预设导入。</p>}
                 </div>
             </ClayDialog>
 

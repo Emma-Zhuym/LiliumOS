@@ -23,6 +23,7 @@ import { listContentFavorites } from '../utils/contentFavorites'; // [EM: text-c
 // [EM-START: em-backup-gaps]
 import { getHealthProfile, saveHealthProfile, isHealthProfile } from '../utils/healthProfile';
 import { exportContactRemarks, importContactRemarks, exportContactRemarkChanges, importContactRemarkChanges } from '../utils/contactRemarks'; // [EM: contact-remark-aware]
+import { exportPresetLibrary, importPresetLibrary } from '../utils/presetLibrary'; // [EM: preset-library]
 import { exportDatePlans, importDatePlans } from '../utils/emDatePlans'; // [EM: date-plans]
 import { exportCustomSymptoms, importCustomSymptoms } from '../utils/healthCustomSymptoms'; // [EM: health-custom-symptoms]
 import { exportPromises, importPromises } from '../utils/emPromises'; // [EM: char-promises]
@@ -4417,6 +4418,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               emContactRemarks: (mode === 'text_only' || mode === 'full') ? exportContactRemarks() : undefined,
               emContactRemarkChanges: (mode === 'text_only' || mode === 'full') ? exportContactRemarkChanges() : undefined, // [EM: contact-remark-aware]
               emDatePlans: (mode === 'text_only' || mode === 'full') ? exportDatePlans() : undefined, // [EM: date-plans]
+              emPresetLibrary: (mode === 'text_only' || mode === 'full') ? exportPresetLibrary() : undefined, // [EM: preset-library] 素材库（预设原文，只进她的私有备份仓库）
               emHealthCustomSymptoms: (mode === 'text_only' || mode === 'full') ? exportCustomSymptoms() : undefined, // [EM: health-custom-symptoms]
               emPromises: (mode === 'text_only' || mode === 'full') ? exportPromises() : undefined, // [EM: char-promises]
               // [EM-END: em-backup-gaps]
@@ -5330,6 +5332,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           if (data.emContactRemarks !== undefined) importContactRemarks(data.emContactRemarks);
           if (data.emContactRemarkChanges !== undefined) importContactRemarkChanges(data.emContactRemarkChanges); // [EM: contact-remark-aware]
           if (data.emDatePlans !== undefined) importDatePlans(data.emDatePlans); // [EM: date-plans]
+          if (data.emPresetLibrary !== undefined) importPresetLibrary(data.emPresetLibrary); // [EM: preset-library]
           if (data.emHealthCustomSymptoms !== undefined) importCustomSymptoms(data.emHealthCustomSymptoms); // [EM: health-custom-symptoms]
           if (data.emPromises !== undefined) importPromises(data.emPromises); // [EM: char-promises]
           // [EM-END: em-backup-gaps]

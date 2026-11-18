@@ -544,7 +544,7 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - 入口：`apps/DateApp.tsx` 的 `meetSurface === 'extra'`；选人页「陪伴 / 番外」；剧情剧场从书架底下进、返回回番外。聊天卡点开走 `dateLaunch.request({ surface: 'extra', extraId, returnTo: 'chat' })`
 - **两档都带她的人设**（阿萌：AU 还是现实向都是我俩的故事）；`persona` 档把角色身上的记忆、印象、召回清掉，`together` 档带长期记忆 + 以梗概为查询的召回 + 最近一天半聊天（复用日程那套 `recentMessagesForSchedule`，剔深谈 / OOC）。两档都不读时间、情绪 buff
 - **先落库再调 API**（贴贴的教训），写的过程中 1.5 秒存一次；`isMeetExtraWriting` 为假的 writing 记录 = 页面中途关了
-- **文风全文只在本机**（`utils/meetExtraStyles.ts`，localStorage `em_meet_extra_styles_v1`，不进备份）：阿萌的文风来自酒馆预设，作者只许自用、不许传播，仓库是公开的。番外记录只存名字，写的时候按名字找；**别把预设原文或贴近原文的改写写进代码**
+- **文风 / 基调来自素材库**（`utils/presetLibrary.ts`，localStorage `em_preset_library_v1`，随备份 `emPresetLibrary`；界面 `components/meetExtra/PresetLibraryPage.tsx`）：直接读酒馆导出的 JSON，她勾着导入。预设作者只许自用、不许传播，LiliumOS 仓库是公开的——原文只能在本机和她的**私有**备份仓库里（2026-11-17 确认 `sully-backup` 是私有的）；**别把预设原文或贴近原文的改写写进代码、测试或文档**（测试只用自己编的样例）。番外记录存条目 id + 名字；见面按 `CharacterProfile.meetToneId` 带角色的相处基调（`meetToneBlock`）。人物类型那类条目不绑角色（阿萌同意的理由见 changelog 11-17）
 - 动笔前先在 `<thinking>` 里想，`splitExtraThinking` 拆出来存 `thinking`，阅读页「构思」点开看；接着写的那段也会剥掉思考
 - 分享卡是 `role: 'user'`、`type: 'text'`、`metadata.kind = 'meet_extra_card'`，content 只有标题那一行（+ 总结），全文在 `metadata.meetExtra`；`chatPrompts.ts` 的 `[EM: meet-extra]` 分支按 `MEET_EXTRA_FULL_ROUNDS`（4）切全文 / 总结。以后加新的「带走」路径先想全文要不要剔
 

@@ -12,8 +12,8 @@ export type MeetExtraLength = 'short' | 'medium' | 'long';
 /** third：两个人都叫名字；first：TA 说「我」、她是「你」；second：她是「你」、TA 叫名字 */
 export type MeetExtraPov = 'third' | 'first' | 'second';
 /**
- * 文风：阿萌自己贴进来的（多半来自她的酒馆预设，作者只许自用、不许传播），
- * 全文只存在这台设备的 localStorage（utils/meetExtraStyles.ts），仓库和备份里只有名字。
+ * 文风 / 基调：从阿萌自己的素材库里来（utils/presetLibrary.ts，原文只在本机和私有备份里，作者只许自用）。
+ * 这里只收已经换好宏的文字。
  */
 export interface MeetExtraStyleText { name: string; text: string }
 
@@ -26,8 +26,11 @@ export interface MeetExtra {
     length: MeetExtraLength;
     pov: MeetExtraPov;
     extra?: string;
-    /** 文风的名字（全文在本机 meetExtraStyles 里，按名字找；找不到就不带文风）；缺省 = 不指定 */
+    /** 素材库里的文风 / 基调条目 id（写的时候去找；删了就不带）和当时的名字（显示用） */
+    styleId?: string;
     style?: string;
+    toneId?: string;
+    tone?: string;
     body: string;
     /** 动笔前想的（<thinking> 里那段），阅读页可以点开看，不进聊天 */
     thinking?: string;
@@ -80,6 +83,7 @@ export const buildMeetExtraTask = (p: {
     pov: MeetExtraPov;
     extra?: string;
     style?: MeetExtraStyleText;
+    tone?: MeetExtraStyleText;
 }): string => {
     const you = p.userName.trim() || '她';
     const size = MEET_EXTRA_LENGTHS[p.length];
@@ -112,7 +116,7 @@ ${p.memory === 'together' ? '6' : '5'}. 文风怎么落到句子上：语感、�
 - 世界前后对得上：时间、地点、谁在场说清楚；东西不凭空出现、消失；旁人有自己的事，会进来、会打断。
 - 从一个具体的场面直接开头；结尾停在具体的动作、画面或一句话上，不总结，不升华。
 - 写具体的：地方、东西、动作、说出口的那句话；情绪靠这些带出来，不贴标签。
-${p.style?.text.trim() ? `\n### 文风：${p.style.name}\n${p.style.text.trim()}\n` : ''}${p.extra?.trim() ? `\n### ${you}补的要求\n${p.extra.trim()}\n` : ''}
+${p.tone?.text.trim() ? `\n### 你们相处的基调：${p.tone.name}\n${p.tone.text.trim()}\n` : ''}${p.style?.text.trim() ? `\n### 文风：${p.style.name}\n${p.style.text.trim()}\n` : ''}${p.extra?.trim() ? `\n### ${you}补的要求\n${p.extra.trim()}\n` : ''}
 ### 格式
 想完以后，第一行写 \`# 标题\`（标题自己起，十个字以内），空一行开始正文。`;
 };

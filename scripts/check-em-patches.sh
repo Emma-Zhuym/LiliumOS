@@ -597,7 +597,12 @@ check "聊天 2.9 第一条" utils/emPromptAddons.ts "   - \${emFaceValueLine(us
 check "见面长文接写法块" utils/emMeetLongform.ts "\${composeMeetCraftBlock(you)}"
 check "见面立绘接写法块" utils/datePrompts.ts "\${composeMeetCraftBlock(userName)}\${digBlock}"
 check "心跳按字面听她" server/agent-backend/heartbeat.mjs "    lines.push(FACE_VALUE_RULE);"
-check "番外文风只存本机" utils/meetExtraStyles.ts "const KEY = 'em_meet_extra_styles_v1';"
+check "素材库：本机存储" utils/presetLibrary.ts "const KEY = 'em_preset_library_v1';"
+check "素材库：备份导出" context/OSContext.tsx "emPresetLibrary: (mode === 'text_only' || mode === 'full') ? exportPresetLibrary() : undefined, // [EM: preset-library]"
+check "素材库：备份恢复" context/OSContext.tsx "if (data.emPresetLibrary !== undefined) importPresetLibrary(data.emPresetLibrary); // [EM: preset-library]"
+check "见面：角色的相处基调" utils/datePrompts.ts "\${meetToneBlock(char, userName)}\${composeMeetCraftBlock(userName)}"
+check "见面：长文带基调" utils/datePrompts.ts "toneBlock: meetToneBlock(char, userName), // [EM: preset-library]"
+check "角色字段：相处基调" types.ts "meetToneId?: string;   // [EM: preset-library]"
 
 echo ""
 if [ $FAIL -gt 0 ]; then

@@ -32,7 +32,7 @@ import {
     type MeetExtraPov,
 } from './meetExtra';
 import { MeetExtraDB } from './meetExtraDb';
-import { findMeetExtraStyle } from './meetExtraStyles';
+import { findPresetItem, renderPresetText } from './presetLibrary';
 
 type Api = Pick<APIConfig, 'baseUrl' | 'apiKey' | 'model'> & { temperature?: number };
 
@@ -136,6 +136,12 @@ const callModel = async (input: {
     return { text, finishReason: choice?.finish_reason };
 };
 
+/** 素材库里的条目换好宏；删了或者类型不对就不带 */
+const libraryText = (id: string | undefined, kind: 'style' | 'tone', names: { user: string; char: string }) => {
+    const item = findPresetItem(id);
+    return item && item.kind === kind ? { name: item.name, text: renderPresetText(item.text, names) } : undefined;
+};
+
 /** 新建一本：先落库（status=writing），再开写 */
 export const createMeetExtra = async (input: {
     char: CharacterProfile;
@@ -145,8 +151,9 @@ export const createMeetExtra = async (input: {
     memory: MeetExtraMemory;
     length: MeetExtraLength;
     pov: MeetExtraPov;
-    /** 文风名字（全文在本机） */
-    style?: string;
+    /** 素材库条目 id */
+    styleId?: string;
+    toneId?: string;
     extra?: string;
 }): Promise<MeetExtra> => {
     const now = Date.now();
@@ -159,7 +166,10 @@ export const createMeetExtra = async (input: {
         length: input.length,
         pov: input.pov,
         extra: input.extra?.trim() || undefined,
-        style: input.style,
+        styleId: input.styleId,
+        style: findPresetItem(input.styleId)?.name,
+        toneId: input.toneId,
+        tone: findPresetItem(input.toneId)?.name,
         body: '',
         status: 'writing',
         createdAt: now,
@@ -202,9 +212,10 @@ export const writeMeetExtra = async (input: {
 
     try {
         const system = await buildMeetExtraSystem(char, user, row.memory, row.synopsis);
+        const names = { user: user?.name || '', char: char.name };
         const task = buildMeetExtraTask({
             charName: char.name, userName: user?.name || '', synopsis: row.synopsis,
-            memory: row.memory, length: row.length, pov: row.pov, extra: row.extra, style: findMeetExtraStyle(row.style),
+            memory: row.memory, length: row.length, pov: row.pov, extra: row.extra, style: libraryText(row.styleId, 'style', names), tone: libraryText(row.toneId, 'tone', names),
         });
         const size = MEET_EXTRA_LENGTHS[row.length];
         const firstTokens = size.maxTokens + 2000; // 先想再写，想的那段也算在里面
