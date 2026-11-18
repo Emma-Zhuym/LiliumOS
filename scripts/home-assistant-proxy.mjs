@@ -37,6 +37,12 @@ const XHS_MAX_BODY = 1024 * 1024;
 // 工具全是只读的（读视频、字幕、评论、搜索、收藏夹），不需要停用名单。鉴权由桥自己的 Bearer 做。
 const BILI_MCP_TARGET = new URL(getArg('--bili-mcp-target', 'http://127.0.0.1:8768'));
 const BILI_PREFIX = '/bili';
+// [EM-START: aistudio2api] AI Studio 网页版额度（server/aistudio2api）。对外 /aistudio/*，去前缀转发；
+// 只放聊天和模型列表两个 API 端点，它同一端口上的管理页面（账户、cookie、设置）不从公网开。鉴权是它自己的 PROXY_API_KEY。
+const AISTUDIO_TARGET = new URL(getArg('--aistudio-target', 'http://127.0.0.1:2048'));
+const AISTUDIO_PREFIX = '/aistudio';
+const AISTUDIO_PATHS = new Set(['/v1/chat/completions', '/v1/models']);
+// [EM-END: aistudio2api]
 const ALLOWED_ORIGINS = new Set(
     getArg('--origins', 'https://emma-zhuym.github.io,http://localhost:5173,http://127.0.0.1:5173')
         .split(',')
@@ -61,6 +67,9 @@ if (XHS_MCP_TARGET.protocol !== 'http:' && XHS_MCP_TARGET.protocol !== 'https:')
 }
 if (BILI_MCP_TARGET.protocol !== 'http:' && BILI_MCP_TARGET.protocol !== 'https:') {
     throw new Error('Only HTTP and HTTPS Bilibili MCP targets are supported');
+}
+if (AISTUDIO_TARGET.protocol !== 'http:' && AISTUDIO_TARGET.protocol !== 'https:') { // [EM: aistudio2api]
+    throw new Error('Only HTTP and HTTPS AIStudio2API targets are supported');
 }
 
 const corsHeaders = origin => ({
@@ -108,7 +117,7 @@ const server = createServer((request, response) => {
         });
         response.end(JSON.stringify({
             status: 'ok',
-            routes: { homeAssistant: '/api/*', appleEvents: '/mcp', agentBackend: '/agent/*', xiaohongshu: '/xhs/mcp', bilibili: '/bili/mcp' },
+            routes: { homeAssistant: '/api/*', appleEvents: '/mcp', agentBackend: '/agent/*', xiaohongshu: '/xhs/mcp', bilibili: '/bili/mcp', aistudio: '/aistudio/v1/*' },
         }));
         return;
     }
@@ -135,7 +144,11 @@ const server = createServer((request, response) => {
         // 只放 MCP 端点和健康检查：它的 /api/v1/* REST 接口（发帖、删 cookie…）不从公网开
         const xhsPath = incoming.pathname.startsWith(`${XHS_PREFIX}/`) ? incoming.pathname.slice(XHS_PREFIX.length) : null;
         const biliPath = incoming.pathname.startsWith(`${BILI_PREFIX}/`) ? incoming.pathname.slice(BILI_PREFIX.length) : null;
-        if (biliPath === '/mcp' || biliPath === '/health') {
+        const aistudioPath = incoming.pathname.startsWith(`${AISTUDIO_PREFIX}/`) ? incoming.pathname.slice(AISTUDIO_PREFIX.length) : null; // [EM: aistudio2api]
+        if (aistudioPath !== null && AISTUDIO_PATHS.has(aistudioPath)) { // [EM: aistudio2api]
+            target = new URL(`${aistudioPath}${incoming.search}`, AISTUDIO_TARGET);
+            upstreamName = 'AIStudio2API';
+        } else if (biliPath === '/mcp' || biliPath === '/health') {
             target = new URL(`${biliPath}${incoming.search}`, BILI_MCP_TARGET);
             upstreamName = 'Bilibili MCP';
         } else if (xhsPath === '/mcp' || xhsPath === '/health') {
@@ -160,7 +173,8 @@ const server = createServer((request, response) => {
         && target.pathname.startsWith('/agent/');
     const isXhsMcpPath = upstreamName === 'Xiaohongshu MCP';
     const isBiliMcpPath = upstreamName === 'Bilibili MCP';
-    if (!isHomeAssistantPath && !isAppleEventsPath && !isAgentBackendPath && !isXhsMcpPath && !isBiliMcpPath) {
+    const isAistudioPath = upstreamName === 'AIStudio2API'; // [EM: aistudio2api]
+    if (!isHomeAssistantPath && !isAppleEventsPath && !isAgentBackendPath && !isXhsMcpPath && !isBiliMcpPath && !isAistudioPath) {
         response.writeHead(404, corsHeaders(origin));
         response.end();
         return;
@@ -308,4 +322,5 @@ server.listen(PORT, HOST, () => {
     console.log(`Forwarding /agent requests to ${AGENT_BACKEND_TARGET.origin}`);
     console.log(`Forwarding /xhs/mcp requests to ${XHS_MCP_TARGET.origin}`);
     console.log(`Forwarding /bili/mcp requests to ${BILI_MCP_TARGET.origin}`);
+    console.log(`Forwarding /aistudio/v1/* API requests to ${AISTUDIO_TARGET.origin}`); // [EM: aistudio2api]
 });

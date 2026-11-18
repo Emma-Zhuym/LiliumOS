@@ -553,6 +553,12 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - `apps/Character.tsx` 的「扩展设定」列表换成 `components/character/MountedWorldbookList.tsx`（哨兵 `mounted-worldbook-groups`）：按 `category` 分组、默认收起、组头「卸下整组」点两下才卸，单条 × 常驻（手机没有悬停）、写注入位置。分组纯逻辑 `utils/mountedWorldbookGroups.ts`
 - 阿萌的世界书都在她 iCloud 的 Tavern 文件夹（不进仓库）：去八股（作者注释顶部）、分寸 / 谈心 / 亲密（角色设定前）、活人感（角色设定后；年龄、经济条目每个角色各挑一条挂）
 
+### 49. AIStudio2API 常驻 mini（聊天备用线，2026-11-18）
+- `server/aistudio2api/`：上游 [Mag1cFall/AIStudio2API](https://github.com/Mag1cFall/AIStudio2API) 命令行版，把 AI Studio 网页版 Playground 额度转成 OpenAI 兼容接口；LaunchAgent `cc.liliumos.aistudio2api`，只听 `127.0.0.1:2048`，密钥 `agent-tools/secrets/aistudio2api-token`（`run-macos.sh` 用环境变量 `PROXY_API_KEY` 传），登录态在 `agent-tools/aistudio2api/auth/`
+- 网关 `/aistudio/*` 去前缀转发，**只放** `/v1/chat/completions` 与 `/v1/models`（`[EM-START: aistudio2api]`）；同端口的管理页面（账户、cookie）不从公网开
+- 只挂专门的空号；**只进聊天备用链，不进心跳 / 日程**（网页版对话会被 Google 拿去改进产品，心跳带健康、经期、日历）。不用公益站的油猴脚本（会把整包 Google cookie 推到别人服务器）
+- 部署、加账号、更新、排查见 `server/aistudio2api/README.md`
+
 ### 34. 小厨房（现实食品库存）
 - 详细设计与每次改动见 `docs/kitchen-3d.md`；UI 规则见 `APP_CONVENTIONS.md` 的 P14 与 `utils/kitchenPaperTokens.ts`
 - `utils/kitchenDb.ts` 是唯一能改库存的地方（独立库 `LiliumOS_Kitchen`）：每次改数量记一笔事件、带 operationId 去重；**一起发生的一批（拍一张小票、做一道菜）一个事务写完、同一个 `batchId`，「撤销最近操作」整批撤回**，做菜撤销连「做过几次」一起退

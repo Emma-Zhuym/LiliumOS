@@ -36,6 +36,13 @@
 
 ## 2026-11
 
+### 2026-11-18 · mini 上自己跑 AI Studio 网页版额度（聊天备用线）
+**操作**：Claude（小帕）
+
+- mini 常驻 AIStudio2API v0.3.11（`server/aistudio2api/`），把 AI Studio 网页版 Playground 的额度转成 OpenAI 兼容接口；只听本机，Funnel 网关多一条 `/aistudio/v1/*`，只放聊天和模型列表，管理页面不对外
+- 代替公益站油猴脚本：cookie 和对话只在 mini 与 Google 之间，不经过第三方
+- 已挂一个专门的空号，服务就绪；**新号发消息被 Google 403 拒（code 7），待查是不是新号还不能用 AI Studio**。通了以后在 LiliumOS 加预设，只放聊天备用链，不进心跳 / 日程
+
 ### 2026-11-18 · 心跳想开口时不再漏掉正文
 **操作**：Claude（小帕） · `4228d3b9`
 

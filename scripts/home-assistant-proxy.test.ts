@@ -40,7 +40,7 @@ beforeAll(async () => {
     await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve));
     const upstreamUrl = `http://127.0.0.1:${(upstream.address() as AddressInfo).port}`;
     const port = await freePort();
-    proxy = spawn(process.execPath, [SCRIPT, '--port', String(port), '--xhs-mcp-target', upstreamUrl], { stdio: ['ignore', 'pipe', 'pipe'] });
+    proxy = spawn(process.execPath, [SCRIPT, '--port', String(port), '--xhs-mcp-target', upstreamUrl, '--aistudio-target', upstreamUrl], { stdio: ['ignore', 'pipe', 'pipe'] });
     await new Promise<void>((resolve, reject) => {
         proxy.stdout!.on('data', chunk => { if (String(chunk).includes('listening')) resolve(); });
         proxy.once('exit', code => reject(new Error(`proxy exited ${code}`)));
@@ -117,3 +117,25 @@ describe('网关 /xhs/* → xiaohongshu-mcp', () => {
     });
 });
 // [EM-END: xhs-mini-mcp]
+
+// [EM-START: aistudio2api]
+describe('网关 /aistudio/* → AIStudio2API', () => {
+    it('聊天和模型列表去掉前缀转发，令牌原样带过去', async () => {
+        const res = await fetch(`${base}/aistudio/v1/chat/completions`, {
+            method: 'POST', headers: { Authorization: 'Bearer ak', 'Content-Type': 'application/json' }, body: '{"model":"m"}',
+        });
+        expect(res.status).toBe(200);
+        expect(seen.at(-1)).toMatchObject({ path: '/v1/chat/completions', auth: 'Bearer ak', body: '{"model":"m"}' });
+        expect((await fetch(`${base}/aistudio/v1/models`)).status).toBe(200);
+        expect(seen.at(-1)?.path).toBe('/v1/models');
+    });
+
+    it('同端口的管理页面和别的接口不从公网开', async () => {
+        const before = seen.length;
+        for (const path of ['/aistudio/', '/aistudio/api/accounts', '/aistudio/v1/files', '/aistudio/v1beta/models', '/aistudio', '/aistudiov1/models']) {
+            expect((await fetch(`${base}${path}`)).status, path).toBe(404);
+        }
+        expect(seen.length).toBe(before);
+    });
+});
+// [EM-END: aistudio2api]
