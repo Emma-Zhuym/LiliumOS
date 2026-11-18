@@ -49,6 +49,7 @@ launchctl kickstart -k gui/$(id -u)/cc.liliumos.vertex-proxy
 ## 排查
 
 - 404 `Publisher model … was not found`：模型名不对或这个区域没有。2026-11-18 在 global 实测能用：`gemini-4-argon`、`gemini-3.1-pro-preview`、`gemini-3.8-flash`、`gemini-3.5-flash`、`gemini-3.1-flash-lite`；`gemini-3.1-pro`、`gemini-2.5-*` 是 404
-- 429 `Resource exhausted`：Vertex 的共享容量被挤满（新模型常见，hydrogen / carbon 当天一直 429，argon 时好时坏），不是赠金用完。等等再试，或放进备用链让下一条接
+- 429 `Resource exhausted`：Vertex 的共享容量被挤满（新模型常见，hydrogen / carbon 当天一直 429，argon 时好时坏），不是赠金用完。转接会隔 2 秒、5 秒自动重试两次，还不行才报错；放进备用链让下一条接
+- Vertex 的报错是数组 `[{"error":…}]`，酒馆认不出来会一声不吭地停（2026-11-18 踩过），转接统一改成 OpenAI 的 `{"error":…}`，别删 `normalizeVertexError`
 - 502「gcloud 换令牌失败」：登录态过期或被撤销，照上面重新登录
 - 花了多少：Cloud 控制台 → 结算 → 报告；首页「设置预算提醒」

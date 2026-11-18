@@ -35,6 +35,32 @@ export const toVertexModel = (model) => {
   return name.includes('/') ? name : `google/${name}`;
 };
 
+/**
+ * Vertex 出错时回的是数组 `[{"error":{…}}]`，酒馆等 OpenAI 客户端认不出来，会一声不吭地停掉。
+ * 统一成 `{"error":{message,type,code}}`。
+ */
+export const normalizeVertexError = (status, text) => {
+  let parsed = null;
+  try { parsed = JSON.parse(text); } catch { /* 不是 JSON */ }
+  const inner = Array.isArray(parsed) ? parsed[0]?.error : parsed?.error;
+  const message = typeof inner === 'string'
+    ? inner
+    : (inner?.message || String(text || '').trim().slice(0, 500) || `Vertex HTTP ${status}`);
+  const label = status === 429 ? 'Vertex 容量满了（429，不是赠金用完），稍后再试：' : '';
+  return {
+    error: {
+      message: `${label}${message}`,
+      type: status === 429 ? 'rate_limit_error' : 'upstream_error',
+      code: inner?.status || status,
+    },
+  };
+};
+
+const sleep = (ms, signal) => new Promise((resolve, reject) => {
+  const timer = setTimeout(resolve, ms);
+  signal?.addEventListener('abort', () => { clearTimeout(timer); reject(signal.reason || new Error('aborted')); }, { once: true });
+});
+
 export const parseModelList = (value) => String(value || '')
   .split(',')
   .map((item) => item.trim().replace(/^google\//, ''))
@@ -93,6 +119,7 @@ export const createVertexProxyHandler = ({
   tokenSource,
   fetchImpl = globalThis.fetch,
   timeoutMs = DEFAULT_TIMEOUT_MS,
+  retryDelaysMs = [2000, 5000], // 429 是共享容量挤满，隔几秒常常就通了
   log = (line) => process.stdout.write(`${line}\n`),
 }) => {
   if (!apiToken) throw new Error('缺少 apiToken');
@@ -161,7 +188,21 @@ export const createVertexProxyHandler = ({
     res.on('close', () => { if (!res.writableEnded) controller.abort(new Error('client closed')); });
     const startedAt = Date.now();
     try {
-      const upstream = await callUpstream(JSON.stringify(payload), controller.signal);
+      const body = JSON.stringify(payload);
+      let upstream = await callUpstream(body, controller.signal);
+      for (const delay of retryDelaysMs) {
+        if (upstream.status !== 429) break;
+        await upstream.body?.cancel?.();
+        log(`[vertex-proxy] ${payload.model} 429, retry in ${delay}ms`);
+        await sleep(delay, controller.signal);
+        upstream = await callUpstream(body, controller.signal);
+      }
+      if (!upstream.ok) {
+        const text = await upstream.text();
+        json(res, upstream.status, normalizeVertexError(upstream.status, text));
+        log(`[vertex-proxy] ${payload.model} ${upstream.status} ${Date.now() - startedAt}ms${payload.stream ? ' stream' : ''}`);
+        return;
+      }
       res.writeHead(upstream.status, {
         'Content-Type': upstream.headers.get('content-type') || 'application/json; charset=utf-8',
         'Cache-Control': 'no-cache',

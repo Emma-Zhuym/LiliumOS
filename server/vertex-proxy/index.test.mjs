@@ -136,3 +136,45 @@ test('gcloud 令牌缓存到期前不重复换，invalidate 后重换', async ()
   src.invalidate();
   assert.equal(await src.get(), 'tok3');
 });
+
+test('Vertex 的数组报错转成 OpenAI 格式，429 说清楚不是赠金用完', async () => {
+  const vertexBody = JSON.stringify([{ error: { code: 429, message: 'Resource exhausted.', status: 'RESOURCE_EXHAUSTED' } }]);
+  const proxy = await startProxy({ tokenSource: fakeTokens(), retryDelaysMs: [], fetchImpl: async () => new Response(vertexBody, { status: 429 }) });
+  try {
+    const r = await fetch(`${proxy.url}/v1/chat/completions`, {
+      method: 'POST', headers: { Authorization: `Bearer ${TOKEN}` }, body: JSON.stringify({ model: 'x', stream: true }),
+    });
+    assert.equal(r.status, 429);
+    assert.match(r.headers.get('content-type'), /application\/json/);
+    const d = await r.json();
+    assert.equal(d.error.type, 'rate_limit_error');
+    assert.equal(d.error.code, 'RESOURCE_EXHAUSTED');
+    assert.match(d.error.message, /不是赠金用完.*Resource exhausted/);
+  } finally { await proxy.close(); }
+});
+
+test('429 自动重试，后一次通了就正常返回', async () => {
+  let calls = 0;
+  const fetchImpl = async () => (++calls < 3
+    ? new Response('[{"error":{"code":429}}]', { status: 429 })
+    : new Response('{"ok":true}', { status: 200, headers: { 'content-type': 'application/json' } }));
+  const proxy = await startProxy({ tokenSource: fakeTokens(), retryDelaysMs: [1, 1], fetchImpl });
+  try {
+    const r = await fetch(`${proxy.url}/v1/chat/completions`, {
+      method: 'POST', headers: { Authorization: `Bearer ${TOKEN}` }, body: JSON.stringify({ model: 'x' }),
+    });
+    assert.equal(r.status, 200);
+    assert.equal(calls, 3);
+  } finally { await proxy.close(); }
+});
+
+test('非 JSON 的报错也给出 OpenAI 格式', async () => {
+  const proxy = await startProxy({ tokenSource: fakeTokens(), retryDelaysMs: [], fetchImpl: async () => new Response('bad gateway', { status: 503 }) });
+  try {
+    const r = await fetch(`${proxy.url}/v1/chat/completions`, {
+      method: 'POST', headers: { Authorization: `Bearer ${TOKEN}` }, body: JSON.stringify({ model: 'x' }),
+    });
+    assert.equal(r.status, 503);
+    assert.equal((await r.json()).error.message, 'bad gateway');
+  } finally { await proxy.close(); }
+});
