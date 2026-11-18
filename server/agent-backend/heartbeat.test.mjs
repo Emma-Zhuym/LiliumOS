@@ -21,7 +21,7 @@ import {
     ACTIVE_CHAT_WINDOW_MS, DEEP_TALK_STALE_MS, buildPrompt, checkGates, speakBlock, createHeartbeatHandler, heartbeatUuid, inSleepWindow,
     BREAK_COOLDOWN_MIN, currentSlot, decideIntent, formatGap, inBreakWindow, upcomingBreakStarts, jitterRatio, lastRealInteractionAt, listModelRuns, messageChance,
     nextRunAt, recordModelRun, shouldCaptureRaw, decideEpisode, episodeChance, isWorkSlot, lifeChance, pickLifeKind, veilSurprise,
-    datePlansFrom, dateDayToGreet, promisesFrom, promiseToGreet, contactRemarkLines, MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, heartbeatSchemaFor, stripUnbackedClaims, withPlanTime, withOuting, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule, unansweredProactive, lastUserSpokeAt, unansweredFactor, reachOutTimeRule, timeProgressRule, shouldSuppressStaleBedtimeMessage, recentOwnMessages, fillMomentComments, DUTY_RULE, PHOTO_HOW, previewWithoutPhotoTags,
+    datePlansFrom, dateDayToGreet, promisesFrom, promiseToGreet, contactRemarkLines, MEALTIME_LIFE_WEIGHTS, OTHER_LIFE_WEIGHTS, HEARTBEAT_SCHEMA, heartbeatSchemaFor, stripUnbackedClaims, withPlanTime, withOuting, withXhsFeed, unreadFromUser, formatRecentMessages, withTodaySchedule, unansweredProactive, lastUserSpokeAt, unansweredFactor, reachOutTimeRule, timeProgressRule, shouldSuppressStaleBedtimeMessage, recentOwnMessages, fillMomentComments, DUTY_RULE, FACE_VALUE_RULE, PHOTO_HOW, previewWithoutPhotoTags,
 } from './heartbeat.mjs';
 import { chatCompletionsUrl, createApiRunner, extractContentText, parseEpisode, parseHeartbeatOutput, parseLife } from './runner.mjs';
 import { applyThread, cancelPlan, closePassedPlans, closeStaleThreads, isPlanDue, isPlanThread, listOpenThreads, listPlans } from './lifeThreads.mjs';
@@ -2268,7 +2268,10 @@ test('活在社会里的人：三种意图的提示词里都有，跟在今天�
         const prompt = buildPrompt(character, snapshot, AT, intent);
         assert.ok(prompt.includes(DUTY_RULE), `${intent} 也要有`);
         assert.ok(prompt.indexOf('今天的安排') < prompt.indexOf(DUTY_RULE), `${intent}：先读安排，再读分寸`);
+        assert.ok(prompt.includes(FACE_VALUE_RULE), `${intent}：按字面听她`);
     }
+    assert.match(FACE_VALUE_RULE, /说生气就是真生气/);
+    assert.match(FACE_VALUE_RULE, /傲娇/);
     // 写的是「你是什么样的人」，三种情况是掂量之后的样子
     assert.match(DUTY_RULE, /你是活在社会里的人/);
     assert.match(DUTY_RULE, /有人指望着你/);

@@ -23,6 +23,7 @@ import {
     meetExtraCardContent,
     meetExtraId,
     needsExtraContinue,
+    splitExtraThinking,
     splitExtraTitle,
     type MeetExtra,
     type MeetExtraCardMeta,
@@ -31,6 +32,7 @@ import {
     type MeetExtraPov,
 } from './meetExtra';
 import { MeetExtraDB } from './meetExtraDb';
+import { findMeetExtraStyle } from './meetExtraStyles';
 
 type Api = Pick<APIConfig, 'baseUrl' | 'apiKey' | 'model'> & { temperature?: number };
 
@@ -143,6 +145,8 @@ export const createMeetExtra = async (input: {
     memory: MeetExtraMemory;
     length: MeetExtraLength;
     pov: MeetExtraPov;
+    /** 文风名字（全文在本机） */
+    style?: string;
     extra?: string;
 }): Promise<MeetExtra> => {
     const now = Date.now();
@@ -155,6 +159,7 @@ export const createMeetExtra = async (input: {
         length: input.length,
         pov: input.pov,
         extra: input.extra?.trim() || undefined,
+        style: input.style,
         body: '',
         status: 'writing',
         createdAt: now,
@@ -185,7 +190,7 @@ export const writeMeetExtra = async (input: {
     controllers.set(id, controller);
 
     let row: MeetExtra = { ...existing, status: 'writing', error: undefined, short: undefined, updatedAt: Date.now() };
-    if (input.mode === 'fresh') row = { ...row, body: '', summary: undefined };
+    if (input.mode === 'fresh') row = { ...row, body: '', summary: undefined, thinking: undefined };
     await MeetExtraDB.save(row);
 
     let lastSave = Date.now();
@@ -199,27 +204,30 @@ export const writeMeetExtra = async (input: {
         const system = await buildMeetExtraSystem(char, user, row.memory, row.synopsis);
         const task = buildMeetExtraTask({
             charName: char.name, userName: user?.name || '', synopsis: row.synopsis,
-            memory: row.memory, length: row.length, pov: row.pov, extra: row.extra,
+            memory: row.memory, length: row.length, pov: row.pov, extra: row.extra, style: findMeetExtraStyle(row.style),
         });
         const size = MEET_EXTRA_LENGTHS[row.length];
+        const firstTokens = size.maxTokens + 2000; // 先想再写，想的那段也算在里面
         let attempts = 0;
         let needMore = input.mode === 'continue';
         let rawTitleLine = row.body ? `# ${row.title}\n\n` : '';
 
         if (input.mode === 'fresh') {
             const first = await callModel({
-                char, api, maxTokens: size.maxTokens, signal: controller.signal, purpose: '番外',
+                char, api, maxTokens: firstTokens, signal: controller.signal, purpose: '番外',
                 messages: [{ role: 'system', content: system }, { role: 'user', content: task }],
                 onText: text => {
-                    const { title, body } = splitExtraTitle(text, row.synopsis);
-                    row = { ...row, title, body };
+                    const { thinking, rest } = splitExtraThinking(text);
+                    const { title, body } = rest ? splitExtraTitle(rest, row.synopsis) : { title: row.title, body: '' };
+                    row = { ...row, title, body, thinking: thinking || row.thinking };
                     live.set(id, body);
                     announceLive(id);
                     void persist();
                 },
             });
-            const { title, body } = splitExtraTitle(first.text, row.synopsis);
-            row = { ...row, title, body };
+            const parsed = splitExtraThinking(first.text);
+            const { title, body } = splitExtraTitle(parsed.open ? '' : parsed.rest, row.synopsis);
+            row = { ...row, title, body, thinking: parsed.thinking || undefined };
             rawTitleLine = `# ${title}\n\n`;
             needMore = needsExtraContinue(body, first.finishReason, row.length, attempts);
         }
@@ -235,13 +243,13 @@ export const writeMeetExtra = async (input: {
                     { role: 'user', content: buildMeetExtraContinueNote(attempts === 0 ? input.hint : undefined) },
                 ],
                 onText: text => {
-                    row = { ...row, body: joinExtraParts(before, text) };
+                    row = { ...row, body: joinExtraParts(before, splitExtraThinking(text).rest) };
                     live.set(id, row.body);
                     announceLive(id);
                     void persist();
                 },
             });
-            row = { ...row, body: joinExtraParts(before, next.text) };
+            row = { ...row, body: joinExtraParts(before, splitExtraThinking(next.text).rest) };
             attempts += 1;
             needMore = needsExtraContinue(row.body, next.finishReason, row.length, attempts);
         }

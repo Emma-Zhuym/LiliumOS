@@ -592,6 +592,14 @@ check "番外：备份恢复" context/OSContext.tsx "await MeetExtraDB.importAll
 check "番外：备份字段" types.ts "emMeetExtras?: import('./utils/meetExtra').MeetExtra[]; // [EM: meet-extra]"
 
 echo ""
+echo "--- 按字面听她 / 见面拆开她写的话 ---"
+check "聊天 2.9 第一条" utils/emPromptAddons.ts "   - \${emFaceValueLine(userName)}"
+check "见面长文接写法块" utils/emMeetLongform.ts "\${composeMeetCraftBlock(you)}"
+check "见面立绘接写法块" utils/datePrompts.ts "\${composeMeetCraftBlock(userName)}\${digBlock}"
+check "心跳按字面听她" server/agent-backend/heartbeat.mjs "    lines.push(FACE_VALUE_RULE);"
+check "番外文风只存本机" utils/meetExtraStyles.ts "const KEY = 'em_meet_extra_styles_v1';"
+
+echo ""
 if [ $FAIL -gt 0 ]; then
     echo "🔴 $FAIL 项缺失（$PASS 项通过）——EM 功能被冲掉了，对照 .claude/CLAUDE.md 补回来"
     exit 1

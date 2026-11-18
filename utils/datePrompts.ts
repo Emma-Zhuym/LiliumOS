@@ -30,6 +30,7 @@ import { buildDateWritingStylePrompt } from './dateWritingStyle'; // EM: 约会�
 import { withDatePlanScene } from './emDatePlans'; // [EM: date-plans]
 import { composeMeetLongformBlock, isMeetLongform, meetLongformNote, readIntimateStage } from './emMeetLongform'; // [EM: meet-longform]
 import { isTietieLive, readTietieSession } from './tietie'; // [EM: meet-longform] 贴贴开着换亲密写法
+import { composeMeetCraftBlock } from './emMeetCraft'; // [EM: meet-craft] 拆开她写的话 / 按字面接 / 写细一处
 import { longformStyleText, meetLongformLength, meetStyleConfig, meetStylePreset, peekStyleText } from './emMeetStyle'; // [EM: meet-redesign] 两套风格合一
 import { injectWorldbookDepthEntries, resolveWorldbookDepthEntries, type WorldbookScanMessage } from './worldbook';
 
@@ -620,7 +621,7 @@ ${char.dateVoiceEnabled ? (getVoicePromptOverride('dateVoice') ?? DATE_VOICE_GUI
 
 ${emPreset ? emPreset.prompt : getStylePreset().block}
 
-${digBlock}${povBlock}${extraBlock}### 场景上下文
+${composeMeetCraftBlock(userName)}${digBlock}${povBlock}${extraBlock}### 场景上下文
 ${timeLine}- **Location**: 你们现在**面对面**。
 - **Context**: 参考历史记录。如果刚刚才看到开场白（Opening），请自然接话。
 ${observeBlock}`;

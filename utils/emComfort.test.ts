@@ -19,6 +19,8 @@ describe('回避腔和通病', () => {
         expect(rule).toContain('猜的是该做什么，不是 ta 心里是什么');
         expect(rule).toContain('总裁不懂统计');
         expect(rule).toContain('不检查、不审批、不辅导');
+        expect(rule).toContain('说生气就是真生气'); // 2026-11-17：别把真生气读成傲娇
+        expect(rule).toContain('傲娇');
     });
     it('十家以上预设写过的通病', () => {
         const rule = emCommonFlawsSection();

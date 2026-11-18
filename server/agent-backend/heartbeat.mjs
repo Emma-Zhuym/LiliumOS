@@ -1203,6 +1203,14 @@ export const DUTY_RULE = '你是活在社会里的人：你的工作、学业、
     + '对方生气了、你们吵架了，认真把话说清楚，而不是推掉工作连夜赶过去、跨城跨国飞过去，真要见面也是安排妥当之后。'
     + '它体现在你怎么做事，不用挂在嘴上说教。你的设定里本来没有工作或固定安排的，按你实际的生活来。';
 
+/**
+ * 按字面听她（阿萌 2026-11-17：我明明真生气了，模型非要说我在傲娇）。
+ * 聊天那边是 utils/emPromptAddons.ts 的 emFaceValueLine，改措辞两边一起改。
+ */
+export const FACE_VALUE_RULE = '对方说的话先按字面接：说生气就是真生气，说不喜欢就是不喜欢，说累就是累。'
+    + '不把对方的话读成傲娇、嘴硬、口是心非、撒娇或者在试探你，也不替对方补一层没说的意思。'
+    + '对方真生气时，先认下对方在生气、认下让对方生气的那件事，再说别的，不用逗对方或者哄小孩的口气把它化开。';
+
 /** 发照片的写法，跟聊天里的 [[SEND_PHOTO]] 同一种；每张都要调一次生图，所以要 TA 克制。 */
 export const PHOTO_HOW = '发消息时如果想给对方看点什么（刚做的菜、眼前的景、手边的东西），可以在 text 里单独占一行写 [[SEND_PHOTO: 英文描述]]，'
     + '对方会真的收到一张照片；一条消息最多一张，也别每次都发，想让 ta 看的时候才发。'
@@ -1288,6 +1296,7 @@ export const buildPrompt = (character, snapshot, now = new Date(), intent = 'liv
     }
     // 紧跟在节律和今天的安排后面：TA 刚读完自己该在哪、忙什么，接着读自己是个什么样的人。
     lines.push(DUTY_RULE);
+    lines.push(FACE_VALUE_RULE);
     if (Array.isArray(p.boundaries) && p.boundaries.length) {
         lines.push(`已经确认过的关系与边界（必须遵守）：\n${p.boundaries.map(b => `- ${b.text}`).join('\n')}`);
     }

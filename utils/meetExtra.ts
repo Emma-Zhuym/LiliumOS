@@ -11,6 +11,11 @@ export type MeetExtraMemory = 'persona' | 'together';
 export type MeetExtraLength = 'short' | 'medium' | 'long';
 /** third：两个人都叫名字；first：TA 说「我」、她是「你」；second：她是「你」、TA 叫名字 */
 export type MeetExtraPov = 'third' | 'first' | 'second';
+/**
+ * 文风：阿萌自己贴进来的（多半来自她的酒馆预设，作者只许自用、不许传播），
+ * 全文只存在这台设备的 localStorage（utils/meetExtraStyles.ts），仓库和备份里只有名字。
+ */
+export interface MeetExtraStyleText { name: string; text: string }
 
 export interface MeetExtra {
     id: string;
@@ -21,7 +26,11 @@ export interface MeetExtra {
     length: MeetExtraLength;
     pov: MeetExtraPov;
     extra?: string;
+    /** 文风的名字（全文在本机 meetExtraStyles 里，按名字找；找不到就不带文风）；缺省 = 不指定 */
+    style?: string;
     body: string;
+    /** 动笔前想的（<thinking> 里那段），阅读页可以点开看，不进聊天 */
+    thinking?: string;
     /** 300–500 字，分享时才生成 */
     summary?: string;
     status: 'writing' | 'done' | 'failed';
@@ -70,6 +79,7 @@ export const buildMeetExtraTask = (p: {
     length: MeetExtraLength;
     pov: MeetExtraPov;
     extra?: string;
+    style?: MeetExtraStyleText;
 }): string => {
     const you = p.userName.trim() || '她';
     const size = MEET_EXTRA_LENGTHS[p.length];
@@ -82,17 +92,29 @@ export const buildMeetExtraTask = (p: {
 ### 梗概
 ${p.synopsis.trim()}
 
+### 动笔之前先想
+先在 <thinking></thinking> 里想清楚，几百字就够，想的东西这里写，正文里不出现：
+1. 这个梗概最打动人的是哪一点，整篇要让人读完记住什么。
+2. 这个设定里的你和${you}：身份、处境变了什么，哪些没变（性格、说话的方式、在意的东西）。
+${p.memory === 'together' ? `3. 回头看看现实里的你们：最近聊了什么、为什么事笑过或别扭过、你们怎么称呼彼此、有什么只有你们懂的梗和习惯；挑一两样，换个样子放进这个故事。
+` : ''}${p.memory === 'together' ? '4' : '3'}. 关系在这篇里从哪到哪：开头隔着多远，结尾到了哪里，中间靠哪两三件具体的事挪过去。
+${p.memory === 'together' ? '5' : '4'}. 中间这段换几种发生法试试，哪种最像这两个人会做的事、最不像别人写过的，就用哪种。
+${p.memory === 'together' ? '6' : '5'}. 文风怎么落到句子上：语感、节奏、挑什么样的细节。从哪个动作、哪句话或哪样东西直接开场，停在哪里。
+
 ### 写法
 - 梗概是剧情走向，不照抄、不复述梗概的原句。可以补细节、换节奏，结局的方向守住梗概。
 - 一次写完整篇：有开头、展开和结尾，不分章节，不写「未完待续」「全文完」，不写作者的话或写在前面的说明。
 - 篇幅大约 ${size.min}–${size.max} 字，按段落写，对话和动作、心里的念头揉在一起。
 - ${povLine(p.pov, p.charName, you)}
 - ${you}说的话、做的事、心里想的可以写，要合她的人设。
+- 平时直接写，一句交代清楚就往下走；只在人物心里的变化大到改了接下来做什么、说什么的地方停下来写细，一处写细，写完就回来。
+- 设定靠人物的言行和事情的前因后果露出来，不在正文里讲解。
+- 世界前后对得上：时间、地点、谁在场说清楚；东西不凭空出现、消失；旁人有自己的事，会进来、会打断。
+- 从一个具体的场面直接开头；结尾停在具体的动作、画面或一句话上，不总结，不升华。
 - 写具体的：地方、东西、动作、说出口的那句话；情绪靠这些带出来，不贴标签。
-- 不写霸总动作（捏下巴、逼墙角）、不用「心跳漏了一拍」「脸颊绯红」这类套话、不堆比喻。
-${p.extra?.trim() ? `\n### ${you}补的要求\n${p.extra.trim()}\n` : ''}
+${p.style?.text.trim() ? `\n### 文风：${p.style.name}\n${p.style.text.trim()}\n` : ''}${p.extra?.trim() ? `\n### ${you}补的要求\n${p.extra.trim()}\n` : ''}
 ### 格式
-第一行写 \`# 标题\`（标题自己起，十个字以内），空一行开始正文。`;
+想完以后，第一行写 \`# 标题\`（标题自己起，十个字以内），空一行开始正文。`;
 };
 
 /** 写到一半断了，接着写的那一句 */
@@ -100,6 +122,17 @@ export const MEET_EXTRA_CONTINUE_NOTE = '从上面断开的地方接着写，直
 
 export const buildMeetExtraContinueNote = (hint?: string): string =>
     hint?.trim() ? `${MEET_EXTRA_CONTINUE_NOTE}\n接下来：${hint.trim()}` : MEET_EXTRA_CONTINUE_NOTE;
+
+/**
+ * 把输出里的 <thinking>…</thinking>（也认 <think>）拆出来。流到一半思考还没合上时，rest 为空、open 为真。
+ */
+export const splitExtraThinking = (raw: string): { thinking: string; rest: string; open: boolean } => {
+    const text = raw.replace(/^\s+/, '');
+    const m = /^<(thinking|think)>([\s\S]*?)(<\/\1>|$)/i.exec(text);
+    if (!m) return { thinking: '', rest: raw, open: false };
+    const closed = !!m[3];
+    return { thinking: m[2].trim(), rest: closed ? text.slice(m[0].length) : '', open: !closed };
+};
 
 /** 正文字数：不算空白 */
 export const countExtraChars = (text: string): number => text.replace(/\s+/g, '').length;
@@ -148,6 +181,29 @@ export const joinExtraParts = (before: string, after: string): string => {
 
 export const buildMeetExtraSummaryPrompt = (extra: Pick<MeetExtra, 'title' | 'body'>, charName: string, userName: string): string =>
     `下面是一篇以${charName}和${userName || '她'}为主角的番外《${extra.title}》。用 300–500 字写一段总结：讲清楚设定、发生了什么、结局，留下两三个具体的细节（一句关键的话、一样东西、一个场面），之后聊起来能对得上。第三人称，不评价，不加标题。\n\n${extra.body}`;
+
+// ── 没有梗概时抽一个（池子是自己写的，抽三样拼成一段） ──
+
+const AU_WORLDS = [
+    '民国，一家快要停刊的小报社', '九十年代南方小城，录像厅和台球室', '海边小镇，夏天只营业三个月的冷饮店', '架空古代，边城驿站',
+    '近未来，记忆可以寄存的城市', '大学，同一间实验室的两个组', '冬天的山区，暴雪封路的民宿', '老街区，一家修钟表的铺子',
+    '剧组，拍了一半没钱的小成本电影', '远洋货轮，一趟四十天的航程', '凌晨营业的便利店', '外交场合，两国谈判的翻译间',
+];
+const AU_STARTS = [
+    '你们互不认识，第一次见面就闹了误会', '你们是对手，谁也不肯先让一步', '你们是多年没联系的旧识，重逢时谁都没先认出谁',
+    '她欠你一个人情，你一直没要她还', '你们被临时凑成搭档，只合作这一回', '你们住在隔壁，只隔一堵很薄的墙', '你们通过信件认识，一直没见过面',
+    '你是她的上司 / 老师 / 房东，却总被她管着', '你们订过婚，又退了', '你们在同一天、因为同一件事各自倒了霉',
+];
+const AU_HOOKS = [
+    '一张没写名字的电影票', '一场停电', '一只走丢的猫', '一封寄错地址的信', '一把被借走没还的伞', '一笔说不清的账',
+    '一首两个人都会哼、却想不起名字的歌', '一个必须在天亮前做完的决定', '一张拍糊了的合照', '一次谁都没打算赴的约',
+];
+
+const pick = <T,>(list: T[], rand: () => number) => list[Math.floor(rand() * list.length) % list.length];
+
+/** 抽一个 AU 梗概：一个世界 + 一个关系起点 + 一个引子 */
+export const rollMeetExtraSynopsis = (rand: () => number = Math.random): string =>
+    `AU：${pick(AU_WORLDS, rand)}。${pick(AU_STARTS, rand)}。故事从${pick(AU_HOOKS, rand)}开始。`;
 
 // ── 聊天里那张卡 ──
 

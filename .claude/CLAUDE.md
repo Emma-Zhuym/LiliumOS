@@ -517,6 +517,7 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - 烛下这一轮：跳过 `renderConversationEngagementGuidance`，`buildOpenTurnLastWord` 排在 `recencyTail` 后面。改提示词先看「模型最后读到什么」，排在前面的规矩容易被盖掉
 - 回避腔 `emSteadyVoiceSection`（先讲根子是怕说错，再点退路，别改回只列禁用词）；`emHerOwnSection`（不替她下定论、不全能）；`emCommonFlawsSection`（酒馆预设里十家以上写过的）
 - 心跳、见面有自己的提示词，这条没进去
+- **按字面听她**（2026-11-17，阿萌：明明真生气了模型非要说我傲娇）：`emFaceValueLine` 挂在 2.9 第一条，见面 `emMeetCraft` 也用它；心跳是 `heartbeat.mjs` 的 `FACE_VALUE_RULE`（跟在 `DUTY_RULE` 后面），改措辞两边一起改
 
 ### 45. TA 答应的事（2026-10-31）
 - 纯逻辑 `utils/emPromises.ts`（`em_char_promises_v1`，存本机，随备份 `emPromises`）；聊天经 `chatParser.ts`，烛下不走后处理，在 `useChatAI.ts` 的 `char-promises` 那行单独记；`sanitize.ts` 要剥标签
@@ -529,6 +530,7 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - **写作风格只有一套**：`utils/emMeetStyle.ts` 读的时候把上游 `dateStyleConfig.style` 折算成 EM 16 种（`UPSTREAM_STYLE_TO_EM`，lyrical 两边同名不同义），自定义文风并进补充要求；长文只拿「气质 / 旋钮 / 写法」一行（`longformStyleText`，不带一行一念的示例），立绘模式用整块；`buildDateWritingStylePrompt()` 不传参只剩五禁区。剧情剧场的 `theaterGenerator.ts` 还读上游 style，别删那几个预设
 - 篇幅档 `dateLongformLength`（短 / 中 / 长），`composeMeetLongformBlock` 和 `meetLongformNote` 都按它；贴贴开着仍是 500–900 字
 - 设置页是 `components/date/MeetSettings.tsx`（上游 `DateSettings.tsx` 已删），零件借 `components/settings/SettingsParts`
+- **两种模式共用的写法**在 `utils/emMeetCraft.ts`（哨兵 `meet-craft`）：拆开她写的话（说出口 / 动作 / 括号星号里的心里话）、按字面接、写细一处、小东西不连两轮。禁八股那类她自己用世界书加
 - 以下是 11-14 的原始说明：见面「陪伴」的可选模式：`CharacterProfile.dateLongform`（`types.ts` 行尾 `[EM: meet-longform]`），见面设置里开关。剧情（放映室）和平行世界不动
 - 起因：一行一念把 TA 的话切碎，又只接她那句、不推剧情，文风里的「留白」让 TA 把礼物是什么推回给她写。她每轮只写一句二三十字
 - 提示词在 `utils/emMeetLongform.ts`：200–400 字、两到四段（一段 60–120 字为主）、每段开头一个 `[emotion]`；每轮往前一小步；TA 那边的东西自己写清楚；心里那句话用 *星号*（阅读页画成斜体，`splitInnerThoughts`），她括号里的心里话 TA 看不见；平时不复述她的话，亲密时先把她写的动作写足；结尾停在接得上话的地方，不必是问句（2026-11-14 阿萌对照自己的酒馆预设定的，没搬「动态推进」：那是跳过吃饭、几天用的）。`datePrompts.ts` 的 `buildMeetLongformModeBlock` 拼好后排在文风预设之后（要盖过留白），开着时不拼一行一念；文风预设只取 `hint` 一句（整块示例是一行一念的写法）
@@ -542,6 +544,8 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - 入口：`apps/DateApp.tsx` 的 `meetSurface === 'extra'`；选人页「陪伴 / 番外」；剧情剧场从书架底下进、返回回番外。聊天卡点开走 `dateLaunch.request({ surface: 'extra', extraId, returnTo: 'chat' })`
 - **两档都带她的人设**（阿萌：AU 还是现实向都是我俩的故事）；`persona` 档把角色身上的记忆、印象、召回清掉，`together` 档带长期记忆 + 以梗概为查询的召回 + 最近一天半聊天（复用日程那套 `recentMessagesForSchedule`，剔深谈 / OOC）。两档都不读时间、情绪 buff
 - **先落库再调 API**（贴贴的教训），写的过程中 1.5 秒存一次；`isMeetExtraWriting` 为假的 writing 记录 = 页面中途关了
+- **文风全文只在本机**（`utils/meetExtraStyles.ts`，localStorage `em_meet_extra_styles_v1`，不进备份）：阿萌的文风来自酒馆预设，作者只许自用、不许传播，仓库是公开的。番外记录只存名字，写的时候按名字找；**别把预设原文或贴近原文的改写写进代码**
+- 动笔前先在 `<thinking>` 里想，`splitExtraThinking` 拆出来存 `thinking`，阅读页「构思」点开看；接着写的那段也会剥掉思考
 - 分享卡是 `role: 'user'`、`type: 'text'`、`metadata.kind = 'meet_extra_card'`，content 只有标题那一行（+ 总结），全文在 `metadata.meetExtra`；`chatPrompts.ts` 的 `[EM: meet-extra]` 分支按 `MEET_EXTRA_FULL_ROUNDS`（4）切全文 / 总结。以后加新的「带走」路径先想全文要不要剔
 
 ### 34. 小厨房（现实食品库存）

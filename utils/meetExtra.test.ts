@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     MEET_EXTRA_FULL_ROUNDS, buildMeetExtraTask, countExtraChars, joinExtraParts, meetExtraCardContent, meetExtraHistoryText,
-    needsExtraContinue, splitExtraTitle,
+    needsExtraContinue, rollMeetExtraSynopsis, splitExtraThinking, splitExtraTitle,
 } from './meetExtra';
 
 describe('meet extra prompt', () => {
@@ -77,5 +77,34 @@ describe('chat card', () => {
         const late = meetExtraHistoryText({ ...card, summary: undefined }, 9, true);
         expect(late).toContain('（开头）');
         expect(late.length).toBeLessThan(600);
+    });
+});
+
+describe('thinking, style, AU roll', () => {
+    const base = { charName: '陆时', userName: '阿萌', synopsis: '梗概', length: 'short' as const, pov: 'third' as const };
+
+    it('asks to think first; together mode adds the real-life step', () => {
+        expect(buildMeetExtraTask({ ...base, memory: 'persona' })).toContain('<thinking></thinking>');
+        expect(buildMeetExtraTask({ ...base, memory: 'persona' })).not.toContain('现实里的你们');
+        expect(buildMeetExtraTask({ ...base, memory: 'together' })).toContain('现实里的你们');
+    });
+
+    it('style text only comes from what is passed in (stored on the device)', () => {
+        expect(buildMeetExtraTask({ ...base, memory: 'persona' })).not.toContain('### 文风');
+        const p = buildMeetExtraTask({ ...base, memory: 'persona', style: { name: '我的文风', text: '短句，冷一点。' } });
+        expect(p).toContain('### 文风：我的文风');
+        expect(p).toContain('短句，冷一点。');
+    });
+
+    it('splits thinking out, also while it is still open', () => {
+        expect(splitExtraThinking('<thinking>想想</thinking>\n# 标题\n正文')).toEqual({ thinking: '想想', rest: '\n# 标题\n正文', open: false });
+        expect(splitExtraThinking('<thinking>还在想')).toEqual({ thinking: '还在想', rest: '', open: true });
+        expect(splitExtraThinking('# 标题\n正文')).toEqual({ thinking: '', rest: '# 标题\n正文', open: false });
+    });
+
+    it('rolls a three-part AU synopsis', () => {
+        const s = rollMeetExtraSynopsis(() => 0);
+        expect(s.startsWith('AU：')).toBe(true);
+        expect(s).toContain('故事从');
     });
 });

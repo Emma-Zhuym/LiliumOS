@@ -11,6 +11,7 @@
  */
 import type { CharacterProfile } from '../types';
 import { MEET_LONGFORM_LENGTHS, type MeetLongformLength } from './emMeetStyle';
+import { composeMeetCraftBlock } from './emMeetCraft'; // [EM: meet-craft]
 
 /** 2026-11-17 起长文是默认，立绘模式（dateSpriteMode）才是另选的；旧的 dateLongform 不再读 [EM: meet-redesign] */
 export const isMeetLongform = (char: Pick<CharacterProfile, 'dateSpriteMode'> | null | undefined): boolean =>
@@ -99,8 +100,8 @@ export const composeMeetLongformBlock = (p: MeetLongformPieces): string => {
 
 ### 写出你心里的东西
 - 让${you}直接读到你此刻的念头：在想什么、在意什么、把什么压了下去。叙述贴着你的感觉走，每轮再有一两处直接写出心里那句话，用 *星号* 包起来。
-- ${you}写在括号里的心里话、旁白，你看不见也听不见；你只知道${you}说出口的话、做出来的动作，和你亲眼看到的样子。不读心。
 
+${composeMeetCraftBlock(you)}
 ${p.intimate ? composeIntimateSection(you, p.intimate.stage) : `### 每一轮往前走一小步
 - 让场面动一点：你做一个决定、拿出一样东西、提起一件事，或者现场发生一件小事。不换场景、不跳时间，除非${you}想。
 - 你那边的东西你自己写清楚：你准备的礼物是什么、要带${you}去哪、你知道而${you}不知道的事，到了该揭晓的时候直接写出来，不要推给${you}去「打开看看」「自己猜」。卖关子最多一轮。

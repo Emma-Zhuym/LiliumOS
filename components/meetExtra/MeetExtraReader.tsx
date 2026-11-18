@@ -32,6 +32,7 @@ const MeetExtraReader: React.FC<{ id: string; onBack: () => void; onDeleted: () 
     const [menu, setMenu] = useState(false);
     const [dialog, setDialog] = useState<'continue' | 'rewrite' | 'delete' | 'synopsis' | null>(null);
     const [hint, setHint] = useState('');
+    const [showThinking, setShowThinking] = useState(false);
     const scrollRef = useRef<HTMLDivElement>(null);
     const stick = useRef(true);
 
@@ -92,8 +93,19 @@ const MeetExtraReader: React.FC<{ id: string; onBack: () => void; onDeleted: () 
                 <article className="mx-auto flex flex-col" style={{ maxWidth: 620, gap: 14, padding: '12px 24px calc(48px + var(--safe-bottom))' }}>
                     <h2 style={{ margin: '8px 0 0', fontFamily: FONT.heading, fontSize: 22, fontWeight: 700, lineHeight: 1.4, color: palette.ink }}>{row.title}</h2>
                     <div style={{ fontSize: 12, color: palette.inkSoft, fontVariantNumeric: 'tabular-nums' }}>
-                        {[MEET_EXTRA_MEMORY[row.memory].label, MEET_EXTRA_POV[row.pov], words ? `${words} 字` : MEET_EXTRA_LENGTHS[row.length].label].join(' · ')}
+                        {[MEET_EXTRA_MEMORY[row.memory].label, row.style || '', MEET_EXTRA_POV[row.pov], words ? `${words} 字` : MEET_EXTRA_LENGTHS[row.length].label].filter(Boolean).join(' · ')}
                     </div>
+                    {row.thinking && (
+                        <div className="flex flex-col" style={{ gap: 6 }}>
+                            <button type="button" onClick={() => setShowThinking(v => !v)} aria-expanded={showThinking} className="self-start active:opacity-40"
+                                style={{ minHeight: 36, padding: 0, background: 'transparent', border: 'none', fontFamily: FONT.hand, fontSize: 17, color: palette.inkMid }}>
+                                {showThinking ? '收起构思' : `${char?.name || 'TA'}的构思 ›`}
+                            </button>
+                            {showThinking && (
+                                <p className="whitespace-pre-wrap" style={{ margin: 0, fontSize: 13, lineHeight: '21px', color: palette.inkSoft, borderLeft: `2px solid ${palette.rule}`, paddingLeft: 10 }}>{row.thinking}</p>
+                            )}
+                        </div>
+                    )}
                     <div style={{ height: 1, background: palette.rule, margin: '4px 0 6px' }} />
                     {paragraphs.map((p, i) => (
                         <p key={i} className="whitespace-pre-wrap" style={{ margin: 0, fontFamily: FONT.heading, fontWeight: 400, fontSize: 16, lineHeight: 1.95, textAlign: 'justify', color: palette.ink }}>{p}</p>
@@ -101,7 +113,7 @@ const MeetExtraReader: React.FC<{ id: string; onBack: () => void; onDeleted: () 
 
                     {running && (
                         <div className="flex items-center justify-between" style={{ marginTop: 8 }}>
-                            <span style={{ fontFamily: FONT.hand, fontSize: 18, color: palette.inkSoft }}>{char?.name || 'TA'}在写……</span>
+                            <span style={{ fontFamily: FONT.hand, fontSize: 18, color: palette.inkSoft }}>{char?.name || 'TA'}{body ? '在写……' : '在构思……'}</span>
                             <button type="button" onClick={() => stopMeetExtra(id)} className="active:opacity-40"
                                 style={{ minHeight: 44, padding: '0 8px', background: 'transparent', border: 'none', fontSize: 14, color: palette.inkMid }}>停下</button>
                         </div>

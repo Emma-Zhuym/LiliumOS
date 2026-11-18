@@ -37,7 +37,9 @@ describe('meet longform', () => {
         });
         expect(block).toContain('200–400 字');
         expect(block).toContain('不必是问句');
-        expect(block).toContain('不读心');
+        expect(block).toContain('你看不见也听不见');
+        expect(block).toContain('说生气就是真生气');
+        expect(block).toContain('只挑一处');
         expect(block).toContain('礼物是什么');
         expect(block).toContain('往前走一小步');
         expect(block).not.toContain('一行一念');
