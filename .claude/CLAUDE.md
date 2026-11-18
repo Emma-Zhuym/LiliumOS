@@ -559,6 +559,12 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - 只挂专门的空号；**只进聊天备用链，不进心跳 / 日程**（网页版对话会被 Google 拿去改进产品，心跳带健康、经期、日历）。不用公益站的油猴脚本（会把整包 Google cookie 推到别人服务器）
 - 部署、加账号、更新、排查见 `server/aistudio2api/README.md`
 
+### 50. Vertex 转接常驻 mini（试用赠金，2026-11-18）
+- `server/vertex-proxy/`：Node 小服务把 Vertex AI 的 OpenAI 兼容接口包成「OpenAI 格式 + 固定 key」，LaunchAgent `cc.liliumos.vertex-proxy`，只听 `127.0.0.1:2060`；网关 `/vertex/*` 去前缀转发，**只放** `/v1/chat/completions` 与 `/v1/models`（`[EM-START: vertex-proxy]`）
+- 凭据是 mini 上 gcloud 的 ADC（`CLOUDSDK_CONFIG` = `agent-tools/vertex/gcloud/`），对外 key 在 `agent-tools/secrets/vertex-proxy-token`；新号的组织政策禁 API key 和服务账号 JSON，**别为拿 JSON 去关政策**
+- 付费渠道不拿数据训练，心跳 / 日程可以走；赠金 2027-02-17 到期
+- 登录、加模型、排查见 `server/vertex-proxy/README.md`
+
 ### 34. 小厨房（现实食品库存）
 - 详细设计与每次改动见 `docs/kitchen-3d.md`；UI 规则见 `APP_CONVENTIONS.md` 的 P14 与 `utils/kitchenPaperTokens.ts`
 - `utils/kitchenDb.ts` 是唯一能改库存的地方（独立库 `LiliumOS_Kitchen`）：每次改数量记一笔事件、带 operationId 去重；**一起发生的一批（拍一张小票、做一道菜）一个事务写完、同一个 `batchId`，「撤销最近操作」整批撤回**，做菜撤销连「做过几次」一起退

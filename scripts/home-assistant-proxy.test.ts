@@ -40,7 +40,7 @@ beforeAll(async () => {
     await new Promise<void>(resolve => upstream.listen(0, '127.0.0.1', resolve));
     const upstreamUrl = `http://127.0.0.1:${(upstream.address() as AddressInfo).port}`;
     const port = await freePort();
-    proxy = spawn(process.execPath, [SCRIPT, '--port', String(port), '--xhs-mcp-target', upstreamUrl, '--aistudio-target', upstreamUrl], { stdio: ['ignore', 'pipe', 'pipe'] });
+    proxy = spawn(process.execPath, [SCRIPT, '--port', String(port), '--xhs-mcp-target', upstreamUrl, '--aistudio-target', upstreamUrl, '--vertex-target', upstreamUrl], { stdio: ['ignore', 'pipe', 'pipe'] });
     await new Promise<void>((resolve, reject) => {
         proxy.stdout!.on('data', chunk => { if (String(chunk).includes('listening')) resolve(); });
         proxy.once('exit', code => reject(new Error(`proxy exited ${code}`)));
@@ -139,3 +139,25 @@ describe('网关 /aistudio/* → AIStudio2API', () => {
     });
 });
 // [EM-END: aistudio2api]
+
+// [EM-START: vertex-proxy]
+describe('网关 /vertex/* → vertex-proxy', () => {
+    it('聊天和模型列表去掉前缀转发，令牌原样带过去', async () => {
+        const res = await fetch(`${base}/vertex/v1/chat/completions`, {
+            method: 'POST', headers: { Authorization: 'Bearer vk', 'Content-Type': 'application/json' }, body: '{"model":"m"}',
+        });
+        expect(res.status).toBe(200);
+        expect(seen.at(-1)).toMatchObject({ path: '/v1/chat/completions', auth: 'Bearer vk', body: '{"model":"m"}' });
+        expect((await fetch(`${base}/vertex/v1/models`)).status).toBe(200);
+        expect(seen.at(-1)?.path).toBe('/v1/models');
+    });
+
+    it('健康检查和别的路径不从公网开', async () => {
+        const before = seen.length;
+        for (const path of ['/vertex/', '/vertex/health', '/vertex/v1/files', '/vertex', '/vertexv1/models']) {
+            expect((await fetch(`${base}${path}`)).status, path).toBe(404);
+        }
+        expect(seen.length).toBe(before);
+    });
+});
+// [EM-END: vertex-proxy]

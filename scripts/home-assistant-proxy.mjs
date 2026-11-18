@@ -43,6 +43,12 @@ const AISTUDIO_TARGET = new URL(getArg('--aistudio-target', 'http://127.0.0.1:20
 const AISTUDIO_PREFIX = '/aistudio';
 const AISTUDIO_PATHS = new Set(['/v1/chat/completions', '/v1/models']);
 // [EM-END: aistudio2api]
+// [EM-START: vertex-proxy] Vertex AI 转接（server/vertex-proxy，用 mini 上 gcloud 的 ADC）。对外 /vertex/*，去前缀转发；
+// 只放聊天和模型列表，/health 不从公网开。鉴权是它自己的 Bearer（secrets/vertex-proxy-token）。
+const VERTEX_TARGET = new URL(getArg('--vertex-target', 'http://127.0.0.1:2060'));
+const VERTEX_PREFIX = '/vertex';
+const VERTEX_PATHS = new Set(['/v1/chat/completions', '/v1/models']);
+// [EM-END: vertex-proxy]
 const ALLOWED_ORIGINS = new Set(
     getArg('--origins', 'https://emma-zhuym.github.io,http://localhost:5173,http://127.0.0.1:5173')
         .split(',')
@@ -70,6 +76,9 @@ if (BILI_MCP_TARGET.protocol !== 'http:' && BILI_MCP_TARGET.protocol !== 'https:
 }
 if (AISTUDIO_TARGET.protocol !== 'http:' && AISTUDIO_TARGET.protocol !== 'https:') { // [EM: aistudio2api]
     throw new Error('Only HTTP and HTTPS AIStudio2API targets are supported');
+}
+if (VERTEX_TARGET.protocol !== 'http:' && VERTEX_TARGET.protocol !== 'https:') { // [EM: vertex-proxy]
+    throw new Error('Only HTTP and HTTPS Vertex proxy targets are supported');
 }
 
 const corsHeaders = origin => ({
@@ -117,7 +126,7 @@ const server = createServer((request, response) => {
         });
         response.end(JSON.stringify({
             status: 'ok',
-            routes: { homeAssistant: '/api/*', appleEvents: '/mcp', agentBackend: '/agent/*', xiaohongshu: '/xhs/mcp', bilibili: '/bili/mcp', aistudio: '/aistudio/v1/*' },
+            routes: { homeAssistant: '/api/*', appleEvents: '/mcp', agentBackend: '/agent/*', xiaohongshu: '/xhs/mcp', bilibili: '/bili/mcp', aistudio: '/aistudio/v1/*', vertex: '/vertex/v1/*' },
         }));
         return;
     }
@@ -145,7 +154,11 @@ const server = createServer((request, response) => {
         const xhsPath = incoming.pathname.startsWith(`${XHS_PREFIX}/`) ? incoming.pathname.slice(XHS_PREFIX.length) : null;
         const biliPath = incoming.pathname.startsWith(`${BILI_PREFIX}/`) ? incoming.pathname.slice(BILI_PREFIX.length) : null;
         const aistudioPath = incoming.pathname.startsWith(`${AISTUDIO_PREFIX}/`) ? incoming.pathname.slice(AISTUDIO_PREFIX.length) : null; // [EM: aistudio2api]
-        if (aistudioPath !== null && AISTUDIO_PATHS.has(aistudioPath)) { // [EM: aistudio2api]
+        const vertexPath = incoming.pathname.startsWith(`${VERTEX_PREFIX}/`) ? incoming.pathname.slice(VERTEX_PREFIX.length) : null; // [EM: vertex-proxy]
+        if (vertexPath !== null && VERTEX_PATHS.has(vertexPath)) { // [EM: vertex-proxy]
+            target = new URL(`${vertexPath}${incoming.search}`, VERTEX_TARGET);
+            upstreamName = 'Vertex proxy';
+        } else if (aistudioPath !== null && AISTUDIO_PATHS.has(aistudioPath)) { // [EM: aistudio2api]
             target = new URL(`${aistudioPath}${incoming.search}`, AISTUDIO_TARGET);
             upstreamName = 'AIStudio2API';
         } else if (biliPath === '/mcp' || biliPath === '/health') {
@@ -174,7 +187,8 @@ const server = createServer((request, response) => {
     const isXhsMcpPath = upstreamName === 'Xiaohongshu MCP';
     const isBiliMcpPath = upstreamName === 'Bilibili MCP';
     const isAistudioPath = upstreamName === 'AIStudio2API'; // [EM: aistudio2api]
-    if (!isHomeAssistantPath && !isAppleEventsPath && !isAgentBackendPath && !isXhsMcpPath && !isBiliMcpPath && !isAistudioPath) {
+    const isVertexPath = upstreamName === 'Vertex proxy'; // [EM: vertex-proxy]
+    if (!isHomeAssistantPath && !isAppleEventsPath && !isAgentBackendPath && !isXhsMcpPath && !isBiliMcpPath && !isAistudioPath && !isVertexPath) {
         response.writeHead(404, corsHeaders(origin));
         response.end();
         return;
@@ -323,4 +337,5 @@ server.listen(PORT, HOST, () => {
     console.log(`Forwarding /xhs/mcp requests to ${XHS_MCP_TARGET.origin}`);
     console.log(`Forwarding /bili/mcp requests to ${BILI_MCP_TARGET.origin}`);
     console.log(`Forwarding /aistudio/v1/* API requests to ${AISTUDIO_TARGET.origin}`); // [EM: aistudio2api]
+    console.log(`Forwarding /vertex/v1/* API requests to ${VERTEX_TARGET.origin}`); // [EM: vertex-proxy]
 });
