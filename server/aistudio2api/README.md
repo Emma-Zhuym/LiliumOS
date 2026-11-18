@@ -51,6 +51,10 @@ cd ~/Library/Application\ Support/LiliumOS/agent-tools/aistudio2api && ./bin/ais
 
 ## 排查
 
+- **每条都 403「The caller does not have permission」（code 7）、账号却是 ready**：WAA 后端的问题。`.env` 里必须是
+  `WAA_BACKEND=camoufox`（2026-11-18 新号上 spidermonkey 全拒，换 camoufox 立刻通）。Camoufox 装在 `runtime/camoufox/`（约 550 MB），整套常驻约 1.3 GB 内存
+- 503「high demand」是 Google 那边忙（新模型刚上线时常见），429 才是额度用完；Playground 免费额度 Google 不公布，以管理页面「用量」为准
+
 - `curl -s http://127.0.0.1:18123/aistudio/v1/models -H "Authorization: Bearer $(cat …/aistudio2api-token)"`：
   `service_stopped` = 没有可用账号或没点启动；401 = 密钥不对
 - 账号被限制时管理页面显示 `restricted` 和原因
