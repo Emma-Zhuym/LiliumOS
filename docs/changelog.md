@@ -36,6 +36,13 @@
 
 ## 2026-11
 
+### 2026-11-17 · 角色页的世界书按整组显示
+**操作**：Claude（小帕） · 提交号见 git log（`feat(mounted-worldbook-groups)`）
+
+- 神经链接设定页「扩展设定」里已挂载的世界书按组显示（一个导入文件 = 一组），默认收起，组头写条数和关着几条；点开每条写注入位置、是不是关着
+- 「卸下整组」点两下才卸；单条的 × 一直露着（以前要悬停才出现，手机上点不到）
+- 组件 `components/character/MountedWorldbookList.tsx`，分组逻辑 `utils/mountedWorldbookGroups.ts`；上游 `apps/Character.tsx` 只换了这一块
+
 ### 2026-11-17 · 见面亲密写法：场面跟着时机变
 **操作**：Claude（小帕） · 提交号见 git log（`feat(meet-longform)`）
 

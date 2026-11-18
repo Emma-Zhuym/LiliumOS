@@ -549,6 +549,10 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - 动笔前先在 `<thinking>` 里想，`splitExtraThinking` 拆出来存 `thinking`，阅读页「构思」点开看；接着写的那段也会剥掉思考
 - 分享卡是 `role: 'user'`、`type: 'text'`、`metadata.kind = 'meet_extra_card'`，content 只有标题那一行（+ 总结），全文在 `metadata.meetExtra`；`chatPrompts.ts` 的 `[EM: meet-extra]` 分支按 `MEET_EXTRA_FULL_ROUNDS`（4）切全文 / 总结。以后加新的「带走」路径先想全文要不要剔
 
+### 48. 角色页世界书按整组显示（2026-11-17）
+- `apps/Character.tsx` 的「扩展设定」列表换成 `components/character/MountedWorldbookList.tsx`（哨兵 `mounted-worldbook-groups`）：按 `category` 分组、默认收起、组头「卸下整组」点两下才卸，单条 × 常驻（手机没有悬停）、写注入位置。分组纯逻辑 `utils/mountedWorldbookGroups.ts`
+- 阿萌的世界书都在她 iCloud 的 Tavern 文件夹（不进仓库）：去八股（作者注释顶部）、分寸 / 谈心 / 亲密（角色设定前）、活人感（角色设定后；年龄、经济条目每个角色各挑一条挂）
+
 ### 34. 小厨房（现实食品库存）
 - 详细设计与每次改动见 `docs/kitchen-3d.md`；UI 规则见 `APP_CONVENTIONS.md` 的 P14 与 `utils/kitchenPaperTokens.ts`
 - `utils/kitchenDb.ts` 是唯一能改库存的地方（独立库 `LiliumOS_Kitchen`）：每次改数量记一笔事件、带 operationId 去重；**一起发生的一批（拍一张小票、做一道菜）一个事务写完、同一个 `batchId`，「撤销最近操作」整批撤回**，做菜撤销连「做过几次」一起退

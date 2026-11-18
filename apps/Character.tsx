@@ -30,6 +30,7 @@ import { emImpressionJsonNote } from '../utils/emPromptAddons'; // [EM: impressi
 import { injectMemoryPalace } from '../utils/memoryPalace/pipeline';
 import { COMMON_TIMEZONES } from '../utils/timezone';
 import { toMountedWorldbook } from '../utils/worldbook';
+import MountedWorldbookList from '../components/character/MountedWorldbookList'; // [EM: mounted-worldbook-groups]
 import { stripSensitiveCardFields } from '../utils/characterCard';
 import { confirmExportSafety } from '../utils/exportGuard';
 import { trackEvent } from '../utils/analytics';
@@ -1825,26 +1826,10 @@ ${isInitialGeneration ? `
                                    <label className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest block flex items-center gap-1"><Books size={12} /> 扩展设定 (Worldbooks)</label>
                                    <button onClick={openWorldbookModal} className="text-[10px] bg-indigo-50 text-indigo-600 px-2 py-1 rounded font-bold hover:bg-indigo-100">+ 挂载</button>
                                 </div>
-                                <div className="space-y-2">
-                                   {formData.mountedWorldbooks && formData.mountedWorldbooks.length > 0 ? (
-                                       formData.mountedWorldbooks.map(wb => (
-                                           <div key={wb.id} className="flex items-center justify-between bg-white px-4 py-3 rounded-2xl border border-indigo-50 shadow-sm group">
-                                               <div className="flex items-center gap-2 min-w-0">
-<BookOpen size={20} className="shrink-0 text-indigo-400" />
-                                                   <div className="flex flex-col min-w-0">
-                                                       <span className="text-sm font-bold text-slate-700 truncate">{wb.title}</span>
-                                                       {wb.category && <span className="text-[9px] text-slate-400">{wb.category}</span>}
-                                                   </div>
-                                               </div>
-                                               <button onClick={() => unmountWorldbook(wb.id)} className="text-slate-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity p-1 ml-2">×</button>
-                                           </div>
-                                       ))
-                                   ) : (
-                                       <div className="text-center py-4 bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-slate-400 text-xs">
-                                           暂未挂载任何世界书
-                                       </div>
-                                   )}
-                               </div>
+                                {/* [EM-START: mounted-worldbook-groups] 按整组显示，× 一直露着（手机没有悬停） */}
+                                <MountedWorldbookList books={formData.mountedWorldbooks || []} onUnmount={unmountWorldbook}
+                                    onUnmountGroup={ids => handleChange('mountedWorldbooks', (formData.mountedWorldbooks || []).filter(b => !ids.includes(b.id)))} />
+                                {/* [EM-END: mounted-worldbook-groups] */}
                            </div>
 
                            {/* Export Card Button */}

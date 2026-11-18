@@ -592,6 +592,11 @@ check "番外：备份恢复" context/OSContext.tsx "await MeetExtraDB.importAll
 check "番外：备份字段" types.ts "emMeetExtras?: import('./utils/meetExtra').MeetExtra[]; // [EM: meet-extra]"
 
 echo ""
+echo "--- 角色页世界书按整组显示 ---"
+check "挂载列表换成分组组件" apps/Character.tsx "<MountedWorldbookList books={formData.mountedWorldbooks || []} onUnmount={unmountWorldbook}"
+check "分组组件 import" apps/Character.tsx "import MountedWorldbookList from '../components/character/MountedWorldbookList'; // [EM: mounted-worldbook-groups]"
+
+echo ""
 echo "--- 按字面听她 / 见面拆开她写的话 ---"
 check "2.5 心意按人设说到位" utils/chatPrompts.ts "按你自己的样子把心意说到位"
 check "聊天 2.9 第一条" utils/emPromptAddons.ts "   - \${emFaceValueLine(userName)}"
