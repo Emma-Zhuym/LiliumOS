@@ -4,12 +4,12 @@
 import { createServer } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { Readable } from 'node:stream';
 import { pathToFileURL } from 'node:url';
 
 const MAX_BODY_BYTES = 20 * 1024 * 1024; // 带图的请求
 const TOKEN_TTL_MS = 45 * 60 * 1000; // ADC 令牌一小时有效，提前换
-const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000; // Pro 想得久
+const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000; // 总时长兜底
+const DEFAULT_IDLE_MS = 3 * 60 * 1000; // 连续这么久没新内容才算卡住（Argon 先想后写，首字可能要一两分钟）
 
 const json = (res, status, body) => {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -119,6 +119,7 @@ export const createVertexProxyHandler = ({
   tokenSource,
   fetchImpl = globalThis.fetch,
   timeoutMs = DEFAULT_TIMEOUT_MS,
+  idleMs = DEFAULT_IDLE_MS,
   retryDelaysMs = [2000, 5000], // 429 是共享容量挤满，隔几秒常常就通了
   log = (line) => process.stdout.write(`${line}\n`),
 }) => {
@@ -184,9 +185,15 @@ export const createVertexProxyHandler = ({
     payload.model = toVertexModel(requested);
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(new Error('timeout')), timeoutMs);
+    const abortWith = (reason) => () => controller.abort(new Error(reason));
+    // 总时长兜底 + 空闲超时：还在出字就不掐（长 HTML 小剧场能写好几分钟），连续 idleMs 没动静才算卡住
+    const totalTimer = setTimeout(abortWith('timeout'), timeoutMs);
+    let idleTimer = setTimeout(abortWith('idle'), idleMs);
+    const touch = () => { clearTimeout(idleTimer); idleTimer = setTimeout(abortWith('idle'), idleMs); };
     res.on('close', () => { if (!res.writableEnded) controller.abort(new Error('client closed')); });
     const startedAt = Date.now();
+    let bytes = 0;
+    const reasonOf = () => String(controller.signal.reason?.message || '');
     try {
       const body = JSON.stringify(payload);
       let upstream = await callUpstream(body, controller.signal);
@@ -195,6 +202,7 @@ export const createVertexProxyHandler = ({
         await upstream.body?.cancel?.();
         log(`[vertex-proxy] ${payload.model} 429, retry in ${delay}ms`);
         await sleep(delay, controller.signal);
+        touch();
         upstream = await callUpstream(body, controller.signal);
       }
       if (!upstream.ok) {
@@ -203,33 +211,50 @@ export const createVertexProxyHandler = ({
         log(`[vertex-proxy] ${payload.model} ${upstream.status} ${Date.now() - startedAt}ms${payload.stream ? ' stream' : ''}`);
         return;
       }
-      res.writeHead(upstream.status, {
-        'Content-Type': upstream.headers.get('content-type') || 'application/json; charset=utf-8',
-        'Cache-Control': 'no-cache',
-      });
+      touch();
+      const contentType = upstream.headers.get('content-type') || 'application/json; charset=utf-8';
+      res.writeHead(upstream.status, { 'Content-Type': contentType, 'Cache-Control': 'no-cache' });
       if (upstream.body) {
-        await new Promise((resolve, reject) => {
-          const stream = Readable.fromWeb(upstream.body);
-          stream.on('error', reject);
-          res.on('finish', resolve);
-          res.on('close', resolve);
-          stream.pipe(res);
-        });
-      } else {
-        res.end();
+        const reader = upstream.body.getReader();
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            touch();
+            bytes += value.byteLength;
+            if (!res.write(value)) await new Promise((r) => res.once('drain', r));
+          }
+        } catch (error) {
+          const reason = reasonOf();
+          if (reason === 'client closed') throw error;
+          // 流到一半断了：给酒馆一个看得懂的结尾，已经写出来的留着
+          const msg = reason === 'idle' ? `Vertex ${Math.round(idleMs / 1000)} 秒没有新内容，已中断`
+            : reason === 'timeout' ? `超过 ${Math.round(timeoutMs / 60000)} 分钟，已中断`
+              : `Vertex 连接中断：${String(error?.message || error).slice(0, 200)}`;
+          if (/event-stream/.test(contentType)) {
+            res.end(`data: ${JSON.stringify({ error: { message: msg, type: 'upstream_error' } })}\n\ndata: [DONE]\n\n`);
+          } else {
+            res.destroy();
+          }
+          log(`[vertex-proxy] ${payload.model} cut ${reason || 'error'} ${Date.now() - startedAt}ms ${bytes}B`);
+          return;
+        }
       }
-      // 只记模型、状态、耗时，不记正文
-      log(`[vertex-proxy] ${payload.model} ${upstream.status} ${Date.now() - startedAt}ms${payload.stream ? ' stream' : ''}`);
+      res.end();
+      // 只记模型、状态、耗时、字节数，不记正文
+      log(`[vertex-proxy] ${payload.model} ${upstream.status} ${Date.now() - startedAt}ms ${bytes}B${payload.stream ? ' stream' : ''}`);
     } catch (error) {
-      const timedOut = controller.signal.aborted && String(controller.signal.reason?.message) === 'timeout';
-      log(`[vertex-proxy] ${payload.model} failed ${Date.now() - startedAt}ms: ${String(error?.message || error).slice(0, 200)}`);
+      const reason = reasonOf();
+      log(`[vertex-proxy] ${payload.model} failed ${reason || 'error'} ${Date.now() - startedAt}ms: ${String(error?.message || error).slice(0, 200)}`);
       if (!res.headersSent) {
-        json(res, timedOut ? 504 : 502, { error: { message: timedOut ? 'Vertex 超时' : `Vertex 请求失败：${String(error?.message || error).slice(0, 200)}`, type: 'upstream_error' } });
-      } else {
+        const timedOut = reason === 'timeout' || reason === 'idle';
+        json(res, timedOut ? 504 : 502, { error: { message: timedOut ? `Vertex ${Math.round(idleMs / 1000)} 秒没有回音，已中断` : `Vertex 请求失败：${String(error?.message || error).slice(0, 200)}`, type: 'upstream_error' } });
+      } else if (!res.writableEnded) {
         res.destroy();
       }
     } finally {
-      clearTimeout(timer);
+      clearTimeout(totalTimer);
+      clearTimeout(idleTimer);
     }
   };
 };

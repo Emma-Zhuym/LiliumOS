@@ -178,3 +178,60 @@ test('非 JSON 的报错也给出 OpenAI 格式', async () => {
     assert.equal((await r.json()).error.message, 'bad gateway');
   } finally { await proxy.close(); }
 });
+
+test('还在出字就不掐：总时长内慢慢写完照常返回', async () => {
+  const enc = new TextEncoder();
+  const fetchImpl = async (_u, init) => new Response(new ReadableStream({
+    async start(c) {
+      for (let i = 0; i < 5; i += 1) {
+        await new Promise((r) => setTimeout(r, 30));
+        if (init.signal.aborted) return;
+        c.enqueue(enc.encode(`data: {"i":${i}}\n\n`));
+      }
+      c.enqueue(enc.encode('data: [DONE]\n\n'));
+      c.close();
+    },
+  }), { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  // 每段间隔 30ms < idle 80ms，但总共 150ms > idle：不该被掐
+  const proxy = await startProxy({ tokenSource: fakeTokens(), fetchImpl, idleMs: 80, timeoutMs: 5000 });
+  try {
+    const r = await fetch(`${proxy.url}/v1/chat/completions`, {
+      method: 'POST', headers: { Authorization: `Bearer ${TOKEN}` }, body: JSON.stringify({ model: 'x', stream: true }),
+    });
+    const text = await r.text();
+    assert.equal((text.match(/"i":/g) || []).length, 5);
+    assert.match(text, /\[DONE\]$/m);
+    assert.doesNotMatch(text, /error/);
+  } finally { await proxy.close(); }
+});
+
+test('流到一半卡住：发错误事件和 [DONE] 收尾，已写的保留', async () => {
+  const enc = new TextEncoder();
+  const fetchImpl = async (_u, init) => new Response(new ReadableStream({
+    start(c) {
+      c.enqueue(enc.encode('data: {"part":1}\n\n'));
+      init.signal.addEventListener('abort', () => c.error(init.signal.reason));
+    },
+  }), { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  const proxy = await startProxy({ tokenSource: fakeTokens(), fetchImpl, idleMs: 60, timeoutMs: 5000 });
+  try {
+    const r = await fetch(`${proxy.url}/v1/chat/completions`, {
+      method: 'POST', headers: { Authorization: `Bearer ${TOKEN}` }, body: JSON.stringify({ model: 'x', stream: true }),
+    });
+    const text = await r.text();
+    assert.match(text, /"part":1/);
+    assert.match(text, /没有新内容，已中断/);
+    assert.match(text, /data: \[DONE\]\n\n$/);
+  } finally { await proxy.close(); }
+});
+
+test('迟迟没有响应头：空闲超时回 504', async () => {
+  const fetchImpl = (_u, init) => new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(init.signal.reason)));
+  const proxy = await startProxy({ tokenSource: fakeTokens(), fetchImpl, idleMs: 50, timeoutMs: 5000 });
+  try {
+    const r = await fetch(`${proxy.url}/v1/chat/completions`, {
+      method: 'POST', headers: { Authorization: `Bearer ${TOKEN}` }, body: JSON.stringify({ model: 'x' }),
+    });
+    assert.equal(r.status, 504);
+  } finally { await proxy.close(); }
+});
