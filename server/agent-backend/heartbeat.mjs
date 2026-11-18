@@ -1000,7 +1000,7 @@ export const HEARTBEAT_SCHEMA = {
         action: { type: 'string', enum: ['noop', 'message'] },
         activity: { type: 'string', maxLength: 120 },
         reason: { type: 'string', maxLength: 500 },
-        text: { type: 'string', maxLength: 2000 },
+        text: { type: 'string', maxLength: 2000, description: 'action 是 message 时写你要发的那句话；noop 时填空字符串' },
         urge: { type: 'string', enum: ['none', 'later', 'now'] },
         // 私人生活里的一件小事：只有程序抽中「这一跳在过私人生活」时才会要求写，见 decideEpisode。
         life: {
@@ -1167,8 +1167,8 @@ const LIFE_REQUIRED = {
  * 所以 life / episode / moments 在抽中时设成必填，life.kind 也收窄成抽中的那一种。
  * 心思系统要的 together（每跳都问）和 selfEvents（过日子那跳才问）同理：提示词问了就必填，selfEvents 可以是空数组。
  */
-export const heartbeatSchemaFor = ({ life = null, episode = false, moments = false, together = false, selfEvents = false, cancelPlan = false } = {}) => {
-    if (!life && !episode && !moments && !together && !selfEvents && !cancelPlan) return HEARTBEAT_SCHEMA;
+export const heartbeatSchemaFor = ({ life = null, episode = false, moments = false, together = false, selfEvents = false, cancelPlan = false, speak = false } = {}) => {
+    if (!life && !episode && !moments && !together && !selfEvents && !cancelPlan && !speak) return HEARTBEAT_SCHEMA;
     const properties = { ...HEARTBEAT_SCHEMA.properties };
     const required = [...HEARTBEAT_SCHEMA.required];
     if (life) {
@@ -1185,6 +1185,9 @@ export const heartbeatSchemaFor = ({ life = null, episode = false, moments = fal
     if (together) required.push('together');
     if (selfEvents) required.push('selfEvents');
     if (cancelPlan) required.push('cancelPlan');
+    // [heartbeat-text-required] 能开口的这一跳 text 必填：严格 schema 下 Gemini 只交必填项，
+    // 会回 action: "message" 却不带 text，整跳判解析失败、5/10 分钟后重跳（2026-11 陆时一天十几次，话也丢了）。
+    if (speak) required.push('text');
     return { ...HEARTBEAT_SCHEMA, required, properties };
 };
 
@@ -2132,6 +2135,7 @@ export const createHeartbeatHandler = ({
         together: true,
         selfEvents: askSelfEvents,
         cancelPlan: upcomingPlans.length > 0,
+        speak: !hush, // [heartbeat-text-required]
     });
     const chain = character.runtime === 'api' ? heartbeatCredChain(db, config, character) : [character.credRef];
     const firstPass = await runWithCredFallback(runner, {

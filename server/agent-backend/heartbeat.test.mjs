@@ -299,6 +299,25 @@ test('心跳影子期：判断照常，但不写信箱、不推送', async () =>
     assert.equal(run.proposedText, '在忙吗？');
 });
 
+test('能开口的一跳 schema 里 text 必填（Gemini 严格模式不交选填的正文）', async () => {
+    assert.deepEqual(heartbeatSchemaFor({ speak: true }).required, ['action', 'activity', 'reason', 'text']);
+    assert.ok(!heartbeatSchemaFor({ together: true }).required.includes('text'), '不能开口时 text 照旧选填');
+    assert.ok(!HEARTBEAT_SCHEMA.required.includes('text'), '原表不被改动');
+    const db = freshDb();
+    const character = seedCharacter(db);
+    seedSnapshot(db);
+    const seen = [];
+    const runner = {
+        run: async req => {
+            seen.push(req.schema);
+            return { ok: true, output: { action: 'noop', activity: '发了会儿呆', reason: '没什么可说的' } };
+        },
+    };
+    await runHandler(db, { runner, job: jobFor(character.heartbeatGeneration) });
+    assert.ok(seen.length > 0);
+    assert.ok(seen[0].required.includes('text'), '心跳交给模型的 schema 要带上 text 必填');
+});
+
 test('影子开关默认是开的，读坏了也按影子算', async () => {
     const db = freshDb();
     setSetting(db, 'heartbeat_shadow', '不是 JSON');
