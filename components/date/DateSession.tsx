@@ -3,7 +3,7 @@ import { CharacterProfile, Message, DateState, DialogueItem, UserProfile, DateOb
 import Modal from '../../components/os/Modal';
 import { useOS } from '../../context/OSContext';
 import { DB } from '../../utils/db';
-import DateSettings from './DateSettings';
+import MeetSettings from './MeetSettings'; // [EM: meet-redesign]
 import ObserveHUD from './ObserveHUD';
 import { extractObservation, hasObservation } from '../../utils/datePrompts';
 import { useBlobRefUrl } from '../../utils/blobRef';
@@ -140,38 +140,6 @@ const NOVEL_HISTORY_FETCH_STEP = 220;
 const NOVEL_MESSAGE_LOAD_STEP = 40;
 const REQUIRED_EMOTIONS_SET = ['normal', 'happy', 'angry', 'sad', 'shy'];
 
-const ReadingAvatar: React.FC<{ src?: string; name: string; light: boolean }> = ({ src, name, light }) => {
-    const [imageFailed, setImageFailed] = useState(false);
-    useEffect(() => setImageFailed(false), [src]);
-
-    // TokenImg 会把 blobref 令牌解析成可用 url，这里只判「有没有头像」和「加载失败没」
-    const canShowImage = !!src && !imageFailed;
-    return (
-        <div
-            className={`mt-1 h-9 w-9 shrink-0 overflow-hidden rounded-full ring-1 shadow-sm ${
-                light ? 'bg-stone-200 text-stone-500 ring-stone-300/70' : 'bg-white/10 text-white/70 ring-white/15'
-            }`}
-            aria-hidden="true"
-        >
-            {canShowImage ? (
-                <TokenImg
-                    value={src}
-                    alt=""
-                    className="h-full w-full object-cover"
-                    loading="lazy"
-                    decoding="async"
-                    referrerPolicy="no-referrer"
-                    onError={() => setImageFailed(true)}
-                />
-            ) : (
-                <span className="flex h-full w-full items-center justify-center text-xs font-bold">
-                    {(name || '·').trim().slice(0, 1) || '·'}
-                </span>
-            )}
-        </div>
-    );
-};
-
 const DateSession: React.FC<DateSessionProps> = ({ 
     onLoadMoreHistory,
     historyLoadLimit = 0,
@@ -192,7 +160,6 @@ const DateSession: React.FC<DateSessionProps> = ({
     const { addToast, registerBackHandler, apiConfig, updateCharacter } = useOS();
     
     // Core VN State
-    const [isNovelMode, setIsNovelMode] = useState(false);
     const [bgImage, setBgImage] = useState<string>(char.dateBackground || '');
     // bgImage state 里存的一直是原始字段值（令牌 / data: / 外链），只在渲染这一刻解析成能喂 CSS 的 url
     const bgImageUrl = useBlobRefUrl(bgImage);
@@ -233,11 +200,6 @@ const DateSession: React.FC<DateSessionProps> = ({
     // Edit Msg Logic
     const [modalType, setModalType] = useState<'none' | 'options'>('none');
     const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
-    const [isBatchSelectMode, setIsBatchSelectMode] = useState(false);
-    const [selectedMsgIds, setSelectedMsgIds] = useState<Set<number>>(new Set());
-    const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const touchStartRef = useRef<{x: number, y: number} | null>(null);
-    const novelScrollRef = useRef<HTMLDivElement>(null);
 
     // Voice TTS — single shared cache keyed by dialogue text, used by both GAL & novel mode
     const [dateVoicePlaying, setDateVoicePlaying] = useState(false);
@@ -245,8 +207,6 @@ const DateSession: React.FC<DateSessionProps> = ({
     const [showVoiceLangPicker, setShowVoiceLangPicker] = useState(false);
     const voiceCacheRef = useRef<Record<string, string>>({});
     const voiceSnapshotCacheRef = useRef<Record<string, { url: string; spokenText: string; lang?: string }>>({}); // [EM: text-voice-favorites]
-    const [novelVoiceLoading, setNovelVoiceLoading] = useState<Set<string>>(new Set());
-    const [novelPlayingId, setNovelPlayingId] = useState<string | null>(null);
     const [novelVisibleCount, setNovelVisibleCount] = useState(NOVEL_MESSAGE_WINDOW_SIZE);
     const dateAudioRef = useRef<HTMLAudioElement | null>(null);
     const voiceEnabled = !!char.dateVoiceEnabled;
@@ -298,7 +258,7 @@ const DateSession: React.FC<DateSessionProps> = ({
     // GAL mode: auto-play voice only for dialogue lines (quoted text), stop previous on advance
     // Uses cache so replaying the same line doesn't re-fetch
     useEffect(() => {
-        if (!voiceEnabled || isNovelMode || !currentText || isTyping) return;
+        if (!voiceEnabled || !currentText || isTyping) return;
         // Stop any currently playing audio when text changes (advancing to next line)
         if (dateAudioRef.current) {
             dateAudioRef.current.pause();
@@ -332,7 +292,7 @@ const DateSession: React.FC<DateSessionProps> = ({
         };
         play();
         return () => { cancelled = true; setGalVoiceLoading(false); if (dateAudioRef.current) { dateAudioRef.current.pause(); } };
-    }, [currentText, voiceEnabled, isNovelMode]);
+    }, [currentText, voiceEnabled]);
 
     // GAL mode: manual play/pause for the current dialogue line
     const handleGalVoiceToggle = async () => {
@@ -358,38 +318,6 @@ const DateSession: React.FC<DateSessionProps> = ({
         dateAudioRef.current.onended = () => setDateVoicePlaying(false);
         dateAudioRef.current.play().catch(() => {});
         setDateVoicePlaying(true);
-    };
-
-    // Novel/Reading mode: play a specific dialogue line (shares voiceCacheRef with GAL mode)
-    // voiceEmotion（[v:xxx]）跟立绘模式保持一致地传给 TTS：这样两种模式合成的音频完全相同，
-    // 且命中同一条持久缓存（ttsCache/IndexedDB）——退出见面再进来点旧台词也能从本地缓存秒取，
-    // 不必按不同的 key 重新联网合成。
-    const handleNovelLinePlay = async (lineKey: string, dialogueText: string, voiceEmotion?: string) => {
-        const cachedUrl = voiceCacheRef.current[dialogueText];
-        if (cachedUrl) {
-            // Already have URL (from GAL or previous novel play), just play/pause
-            if (!dateAudioRef.current) dateAudioRef.current = new Audio();
-            if (novelPlayingId === lineKey) {
-                dateAudioRef.current.pause();
-                setNovelPlayingId(null);
-                return;
-            }
-            dateAudioRef.current.src = cachedUrl;
-            dateAudioRef.current.onended = () => setNovelPlayingId(null);
-            dateAudioRef.current.play().catch(() => {});
-            setNovelPlayingId(lineKey);
-            return;
-        }
-        setNovelVoiceLoading(prev => new Set(prev).add(lineKey));
-        const url = await translateAndSpeak(dialogueText, voiceEmotion);
-        setNovelVoiceLoading(prev => { const n = new Set(prev); n.delete(lineKey); return n; });
-        if (!url) { addToast('语音合成失败，请稍后重试', 'error'); return; }
-        voiceCacheRef.current[dialogueText] = url;
-        if (!dateAudioRef.current) dateAudioRef.current = new Audio();
-        dateAudioRef.current.src = url;
-        dateAudioRef.current.onended = () => setNovelPlayingId(null);
-        dateAudioRef.current.play().catch(() => {});
-        setNovelPlayingId(lineKey);
     };
 
     // [EM-START: text-voice-favorites]
@@ -531,7 +459,6 @@ const DateSession: React.FC<DateSessionProps> = ({
             setDisplayedText(initialState.currentText || '');
             setDialogueQueue(Array.isArray(initialState.dialogueQueue) ? initialState.dialogueQueue : []);
             setDialogueBatch(Array.isArray(initialState.dialogueBatch) ? initialState.dialogueBatch : []);
-            setIsNovelMode(!!initialState.isNovelMode);
         } else {
             // New Session - pick initial sprite from active skin set or default sprites
             const initialSprite = pickFallbackSprite(activeSprites);
@@ -568,19 +495,9 @@ const DateSession: React.FC<DateSessionProps> = ({
         }
     }, [char, currentSpriteKey]);
 
-    // Novel Mode Scroll
-    useEffect(() => {
-        if (isNovelMode && novelScrollRef.current) {
-            novelScrollRef.current.scrollTop = novelScrollRef.current.scrollHeight;
-        }
-    }, [visibleSessionMessages.length, isNovelMode, showInputBox]);
-
     // Typewriter effect
     useEffect(() => {
-        if (!currentText || isNovelMode) {
-            if (isNovelMode) setDisplayedText(currentText);
-            return;
-        }
+        if (!currentText) return;
         setIsTextAnimating(true);
         setDisplayedText('');
         let i = 0;
@@ -593,7 +510,7 @@ const DateSession: React.FC<DateSessionProps> = ({
             }
         }, 20);
         return () => clearInterval(timer);
-    }, [currentText, isNovelMode]);
+    }, [currentText]);
 
     // --- Logic ---
 
@@ -652,7 +569,6 @@ const DateSession: React.FC<DateSessionProps> = ({
             setShowVoiceLangPicker(false);
             return;
         }
-        if (isNovelMode) return;
 
         // Skip animation
         if (isTextAnimating) {
@@ -750,7 +666,7 @@ addToast('重播对话', 'info');
         // into the IndexedDB assets store and keep stable asset refs on the character.
         currentSpriteKey: currentSpriteKey || inferSpriteKey(currentSprite) || undefined,
         activeSkinSetId: char.activeSkinSetId,
-        isNovelMode,
+        isNovelMode: false, // 小说页 2026-11-17 删了，字段留给旧存档
         timestamp: Date.now(),
         peekStatus,
         observation: observation || undefined,
@@ -807,70 +723,6 @@ addToast('重播对话', 'info');
         };
     }, []);
 
-    // Message Touch Logic (Robust version for scrollable lists)
-    const handleMsgTouchStart = (e: React.TouchEvent | React.MouseEvent, msg: Message) => {
-        if (!isNovelMode) return;
-        // If already in batch select mode, don't start a new long press timer
-        if (isBatchSelectMode) return;
-        if ('touches' in e) {
-            touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-        } else {
-            touchStartRef.current = { x: e.clientX, y: e.clientY };
-        }
-
-        longPressTimer.current = setTimeout(() => {
-                setSelectedMessage(msg);
-            setModalType('options');
-        }, 600);
-    };
-
-    const handleMsgTouchMove = (e: React.TouchEvent | React.MouseEvent) => {
-        if (!longPressTimer.current || !touchStartRef.current) return;
-        
-        let clientX, clientY;
-        if ('touches' in e) {
-            clientX = e.touches[0].clientX;
-            clientY = e.touches[0].clientY;
-        } else {
-            clientX = e.clientX;
-            clientY = e.clientY;
-        }
-
-        const dx = Math.abs(clientX - touchStartRef.current.x);
-        const dy = Math.abs(clientY - touchStartRef.current.y);
-
-        // If moved more than 10px, assume scrolling and cancel long press
-        if (dx > 10 || dy > 10) {
-            if (longPressTimer.current) clearTimeout(longPressTimer.current);
-            longPressTimer.current = null;
-        }
-    };
-
-    const handleMsgTouchEnd = () => {
-        if (longPressTimer.current) clearTimeout(longPressTimer.current);
-        longPressTimer.current = null;
-    };
-
-    const toggleSelectedMsg = (id: number) => {
-        setSelectedMsgIds(prev => {
-            const next = new Set(prev);
-            if (next.has(id)) next.delete(id);
-            else next.add(id);
-            return next;
-        });
-    };
-
-    const exitBatchMode = () => {
-        setIsBatchSelectMode(false);
-        setSelectedMsgIds(new Set());
-    };
-
-    const handleBatchDelete = async () => {
-        if (selectedMsgIds.size === 0) return;
-        await onDeleteMessages(Array.from(selectedMsgIds));
-        exitBatchMode();
-    };
-
     // Determine if we can reroll (last message is assistant)
     const canReroll = messages.length > 0 && messages[messages.length - 1].role === 'assistant';
 
@@ -895,12 +747,12 @@ addToast('重播对话', 'info');
                     retryText={pendingRetryText || getPendingReplyText(messages)}
                     errorText={pendingRetryText && currentText.startsWith('(出错了') ? currentText : ''}
                     canReroll={canReroll} onSend={handleSend} onContinue={handleContinue} onReroll={() => void handleRerollClick()}
-                    onOpenSettings={() => setShowSettings(true)} onExit={handleExitClick}
+                    onOpenSettings={() => setShowSettings(true)} onSpriteMode={() => updateCharacter(char.id, { dateSpriteMode: true })} onExit={handleExitClick}
                     onEditMessage={onEditMessage} onDeleteMessage={onDeleteMessage}
                     onToast={(text, type) => addToast(text, type)} />
                 {showSettings && (
                     <div className="absolute inset-0 z-[200] animate-slide-up bg-white">
-                        <DateSettings char={char} onBack={() => setShowSettings(false)} />
+                        <MeetSettings char={char} onBack={() => setShowSettings(false)} />
                     </div>
                 )}
             </>
@@ -913,7 +765,7 @@ addToast('重播对话', 'info');
             
             {/* Background Layer */}
             <div 
-                className={`absolute inset-0 bg-cover bg-center transition-all duration-1000 ${isNovelMode ? 'blur-xl opacity-30' : 'opacity-80'}`} 
+                className={`absolute inset-0 bg-cover bg-center transition-all duration-1000 opacity-80`} 
                 style={{ backgroundImage: bgImageUrl ? `url(${bgImageUrl})` : 'none' }}
             ></div>
 
@@ -991,21 +843,12 @@ addToast('重播对话', 'info');
                             </div>
                         )}
 
-                        <button onClick={() => { setIsNovelMode(!isNovelMode); exitBatchMode(); setShowMenu(false); setShowVoiceLangPicker(false); }} className="h-9 px-3.5 rounded-full flex items-center gap-2 text-xs font-bold border shadow-lg active:scale-95 transition-all bg-black/40 backdrop-blur-md border-white/15 text-white hover:bg-white/20">
-                            {isNovelMode ? (
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" /></svg>
-                            ) : (
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" /></svg>
-                            )}
-                            {isNovelMode ? '立绘模式' : '阅读模式'}
+                        <button onClick={() => { setShowMenu(false); setShowVoiceLangPicker(false); updateCharacter(char.id, { dateSpriteMode: false }); }} className="h-9 px-3.5 rounded-full flex items-center gap-2 text-xs font-bold border shadow-lg active:scale-95 transition-all bg-black/40 backdrop-blur-md border-white/15 text-white hover:bg-white/20">{/* [EM: meet-redesign] */}
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25" /></svg>
+                            切到长文
                         </button>
 
-                        {isNovelMode && char.dateLightReading && !isBatchSelectMode && (
-                            <button onClick={() => { setIsBatchSelectMode(true); setShowMenu(false); setShowVoiceLangPicker(false); }} className="h-9 px-3.5 rounded-full flex items-center gap-2 text-xs font-bold border shadow-lg active:scale-95 transition-all bg-black/40 backdrop-blur-md border-white/15 text-white hover:bg-white/20">
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
-                                多选删除
-                            </button>
-                        )}
+                        
 
                         {/* 观测协议 OBSERVE 开关：开启后回复带「时间/地点/状态/细节」全息 HUD */}
                         <button onClick={() => {
@@ -1021,7 +864,7 @@ addToast('重播对话', 'info');
 
                         <button onClick={() => { setShowSettings(true); setShowMenu(false); setShowVoiceLangPicker(false); }} className="h-9 px-3.5 rounded-full flex items-center gap-2 text-xs font-bold border shadow-lg active:scale-95 transition-all bg-black/40 backdrop-blur-md border-white/15 text-white hover:bg-white/20">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 0 1 1.37.49l1.296 2.247a1.125 1.125 0 0 1-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 0 1 0 2.555c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 0 1-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 0 1-.22.128c-.331.183-.581.495-.644.869l-.212 1.281c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 0 1-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 0 1-1.369-.49l-1.297-2.247a1.125 1.125 0 0 1 .26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 0 1 0-2.555c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 0 1-.26-1.43l1.297-2.247a1.125 1.125 0 0 1 1.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
-                            布置场景
+                            见面设置{/* [EM: meet-redesign] */}
                         </button>
 
                         <button onClick={() => { setShowMenu(false); setShowVoiceLangPicker(false); setShowExitModal(true); }} className="h-9 px-3.5 rounded-full flex items-center gap-2 text-xs font-bold border shadow-lg active:scale-95 transition-all bg-red-500/70 backdrop-blur-md border-white/20 text-white hover:bg-red-600">
@@ -1033,7 +876,7 @@ addToast('重播对话', 'info');
             </div>
 
             {/* 观测协议 OBSERVE — 立绘模式悬浮 HUD（左上角，独立查看可放大） */}
-            {observeEnabled && !isNovelMode && hasObservation(observation) && (
+            {observeEnabled && hasObservation(observation) && (
                 <div className="absolute top-0 left-0 p-4 pt-12 z-[90] pointer-events-none">
                     <div className="pointer-events-auto">
                         <ObserveHUD observation={observation!} variant="hud" charName={char.name} config={char.dateObserve} />
@@ -1041,152 +884,8 @@ addToast('重播对话', 'info');
                 </div>
             )}
 
-            {/* Novel Mode View */}
-            {isNovelMode && (
-                <div ref={novelScrollRef} className={`absolute inset-0 z-20 overflow-y-auto no-scrollbar pt-24 pb-32 px-8 mask-image-gradient overscroll-contain ${char.dateLightReading ? 'bg-[#faf8f5]' : 'bg-black/90 backdrop-blur-sm'}`} onClick={(e) => { e.stopPropagation(); if (showMenu) { setShowMenu(false); setShowVoiceLangPicker(false); return; } setShowInputBox(true); }}>
-                    <div className="min-h-full flex flex-col justify-end">
-                        <div className="max-w-2xl mx-auto animate-fade-in space-y-6">
-                            {isBatchSelectMode && (
-                                <div className="sticky top-0 z-20 flex items-center justify-between bg-white/90 border border-stone-200 rounded-xl px-3 py-2 text-xs text-stone-700">
-                                    <span>已选 {selectedMsgIds.size} 条</span>
-                                    <div className="flex gap-2">
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); exitBatchMode(); }}
-                                            className="px-3 py-1 rounded-full bg-stone-200 text-stone-600"
-                                        >完成</button>
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); handleBatchDelete(); }}
-                                            disabled={selectedMsgIds.size === 0}
-                                            className="px-3 py-1 rounded-full bg-red-500 text-white disabled:opacity-40"
-                                        >删除</button>
-                                    </div>
-                                </div>
-                            )}
-                            {sessionMessages.length === 0 && peekStatus && (() => {
-                                const { observation: peekObs, rest: peekBody } = extractObservation(peekStatus, { lenient: observeEnabled, custom: char.dateObserve?.custom });
-                                return (
-                                    <>
-                                        {observeEnabled && hasObservation(peekObs) && (
-                                            <div className="max-w-md mx-auto mb-6"><ObserveHUD observation={peekObs} variant="card" charName={char.name} config={char.dateObserve} /></div>
-                                        )}
-                                        <div className={`italic text-center text-sm mb-8 px-4 ${char.dateLightReading ? 'text-stone-400' : 'text-slate-200/50'}`}>
-                                            {cleanTextForDisplay(peekBody).split('\n').map((line, idx) => line.trim() && <p key={idx} className="whitespace-pre-wrap leading-relaxed tracking-wide my-2">{line}</p>)}
-                                        </div>
-                                    </>
-                                );
-                            })()}
-                            {(hiddenNovelMessageCount > 0 || !historyReachedEnd) && (
-                                <div className="flex justify-center">
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            // 本地还有没显示的就只开窗；已经铺满则回库里取更早的一批，
-                                            // 否则初始窗口以外的见面记录在阅读模式里永远够不着。
-                                            const plan = planNovelLoadMore({
-                                                loadedCount: sessionMessages.length,
-                                                visibleCount: novelVisibleCount,
-                                                windowStep: NOVEL_MESSAGE_LOAD_STEP,
-                                                loadLimit: historyLoadLimit,
-                                                loadStep: NOVEL_HISTORY_FETCH_STEP,
-                                                reachedDbEnd: historyReachedEnd,
-                                            });
-                                            setNovelVisibleCount(plan.nextVisibleCount);
-                                            if (plan.nextLoadLimit !== null) void onLoadMoreHistory?.(plan.nextLoadLimit);
-                                        }}
-                                        className={`px-4 py-2 rounded-full text-xs font-bold border active:scale-95 transition-transform ${
-                                            char.dateLightReading
-                                                ? 'bg-stone-100 text-stone-500 border-stone-200'
-                                                : 'bg-white/10 text-white/60 border-white/10'
-                                        }`}
-                                    >
-                                        加载更早见面记录{hiddenNovelMessageCount > 0 ? ` (${hiddenNovelMessageCount})` : ''}
-                                    </button>
-                                </div>
-                            )}
-                            {visibleSessionMessages.map((msg) => (
-                                <div
-                                    key={msg.id}
-                                    className={`group relative rounded-xl transition-colors -mx-4 px-4 py-2 ${char.dateLightReading ? 'active:bg-stone-100' : 'active:bg-white/5'}`}
-                                    onClick={(e) => {
-                                        if (!isBatchSelectMode) return;
-                                        e.stopPropagation();
-                                        toggleSelectedMsg(msg.id);
-                                    }}
-                                    onTouchStart={(e) => handleMsgTouchStart(e, msg)}
-                                    onTouchEnd={handleMsgTouchEnd}
-                                    onTouchMove={handleMsgTouchMove}
-                                    onMouseDown={(e) => handleMsgTouchStart(e, msg)}
-                                    onMouseUp={handleMsgTouchEnd}
-                                    onMouseMove={handleMsgTouchMove}
-                                    onMouseLeave={handleMsgTouchEnd}
-                                    onContextMenu={(e) => { e.preventDefault(); if (!isBatchSelectMode) { setSelectedMessage(msg); setModalType('options'); } }}
-                                >
-                                    {isBatchSelectMode && (
-                                        <div className={`absolute left-0 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full border-2 flex items-center justify-center ${selectedMsgIds.has(msg.id) ? 'bg-primary border-primary' : 'bg-white border-stone-300'}`}>
-                                            {selectedMsgIds.has(msg.id) && <span className="text-white text-[10px]">✓</span>}
-                                        </div>
-                                    )}
-                                    {msg.role === 'user' ? (
-                                        <div className="flex min-w-0 items-start justify-end gap-3">
-                                        <p className={`min-w-0 flex-1 whitespace-pre-wrap font-serif text-[16px] text-right leading-loose tracking-wide italic pr-4 ${char.dateLightReading ? 'text-stone-400 border-r-2 border-stone-300/50' : 'text-slate-400 border-r-2 border-slate-600/50'}`}>{cleanTextForDisplay(msg.content)} <span className="text-[10px] uppercase font-sans not-italic ml-2 opacity-50">{userProfile.name}</span></p>
-
-                                        {char.dateReadingShowAvatars && <ReadingAvatar src={userProfile.perCharAvatars?.[char.id] || userProfile.avatar} name={userProfile.name} light={!!char.dateLightReading} />}
-                                        </div>
-                                    ) : (() => {
-                                        // 观测协议：从这条回复里剥出观测块，正文上方渲染独立卡片，正文本身不显示块文本
-                                        const { observation: msgObs, rest: msgBody } = extractObservation(msg.content || '', { lenient: observeEnabled, custom: char.dateObserve?.custom });
-                                        return (
-                                        <div className="flex min-w-0 items-start gap-3">
-                                        {char.dateReadingShowAvatars && <ReadingAvatar src={char.avatar} name={char.name} light={!!char.dateLightReading} />}
-                                        <div className="min-w-0 flex-1">
-                                            {observeEnabled && hasObservation(msgObs) && (
-                                                <ObserveHUD observation={msgObs} variant="card" charName={char.name} config={char.dateObserve} />
-                                            )}
-                                            {(msgBody || '').split('\n').map((line, idx) => {
-                                                const cleanLine = cleanTextForDisplay(line);
-                                                if (!cleanLine) return null;
-                                                const lineIsDialogue = isDialogueLine(line);
-                                                const lineKey = `${msg.id}-${idx}`;
-                                                const isOpeningMsg = msg.metadata?.isOpening === true;
-                                                return (
-                                                    <div key={idx} className="flex items-start gap-1 mb-4 last:mb-0"
-                                                        {...(!isBatchSelectMode && lineIsDialogue && !isOpeningMsg ? bindVoiceFavorite(() => void voiceFavoriteMenu.open(dateVoiceTarget(`${char.id}:${lineKey}`, extractDialogueText(line), msg.timestamp))) : {})}>
-                                                        <p className={`flex-1 whitespace-pre-wrap font-serif text-[18px] text-justify leading-loose tracking-wide pl-4 ${char.dateLightReading ? 'text-stone-700 border-l-2 border-stone-200' : 'text-slate-200 drop-shadow-md border-l-2 border-white/10'}`}>{cleanLine}</p>
-                                                        {/* Voice button: only for dialogue lines, not opening */}
-                                                        {voiceEnabled && lineIsDialogue && !isOpeningMsg && (
-                                                            <button
-                                                                onClick={(e) => { e.stopPropagation(); const { voiceEmotion: lineVoiceEmotion, rest: lineRest } = extractVoiceEmotionTag(line); handleNovelLinePlay(lineKey, extractDialogueText(lineRest), lineVoiceEmotion); }}
-                                                                className={`shrink-0 mt-2 w-7 h-7 rounded-full flex items-center justify-center transition-all active:scale-90 select-none ${
-                                                                    novelPlayingId === lineKey
-                                                                        ? (char.dateLightReading ? 'bg-emerald-100 text-emerald-600' : 'bg-emerald-500/20 text-emerald-300')
-                                                                        : (char.dateLightReading ? 'bg-stone-100 text-stone-400 hover:bg-stone-200' : 'bg-white/5 text-white/40 hover:bg-white/10')
-                                                                }`}
-                                                            >
-                                                                {novelVoiceLoading.has(lineKey) ? (
-                                                                    <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
-                                                                ) : novelPlayingId === lineKey ? (
-                                                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3"><path d="M5.75 3a.75.75 0 0 0-.75.75v12.5c0 .414.336.75.75.75h1.5a.75.75 0 0 0 .75-.75V3.75A.75.75 0 0 0 7.25 3h-1.5ZM12.75 3a.75.75 0 0 0-.75.75v12.5c0 .414.336.75.75.75h1.5a.75.75 0 0 0 .75-.75V3.75a.75.75 0 0 0-.75-.75h-1.5Z" /></svg>
-                                                                ) : (
-                                                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3"><path d="M6.3 2.84A1.5 1.5 0 0 0 4 4.11v11.78a1.5 1.5 0 0 0 2.3 1.27l9.344-5.891a1.5 1.5 0 0 0 0-2.538L6.3 2.841Z" /></svg>
-                                                                )}
-                                                            </button>
-                                                        )}
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                        </div>
-                                        ); })()}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Visual Mode View */}
-            {!isNovelMode && (
-                <>
+            {/* Visual Mode View（小说页 2026-11-17 删了以后只剩这一种） */}
+            <>
                     <div className="absolute inset-x-0 bottom-0 h-[90%] flex items-end justify-center pointer-events-none z-10 overflow-hidden">
                         {currentSprite && <TokenImg value={currentSprite} className="max-h-full max-w-full object-contain drop-shadow-[0_10px_20px_rgba(0,0,0,0.5)] transition-all duration-300 origin-bottom" style={{ filter: showInputBox ? 'brightness(1)' : (isTextAnimating ? 'brightness(1.05)' : 'brightness(1)'), transform: `translate(${spriteConfig.x}%, ${spriteConfig.y}%) scale(${isTextAnimating ? spriteConfig.scale * 1.02 : spriteConfig.scale})` }} />}
                     </div>
@@ -1219,7 +918,7 @@ addToast('重播对话', 'info');
                         </div>
                     )}
                 </>
-            )}
+
 
             {/* Input Layer */}
             <div className={`absolute inset-x-0 bottom-0 z-40 flex justify-center pointer-events-none transition-all duration-300 ${isTyping || showInputBox ? 'opacity-100' : 'opacity-0'}`}>
@@ -1232,8 +931,8 @@ addToast('重播对话', 'info');
                     </div>
                 )}
                 {showInputBox && (
-                    <div className={`w-[90%] max-w-lg backdrop-blur-xl rounded-2xl p-2 flex gap-2 shadow-2xl animate-fade-in mb-8 pointer-events-auto ${char.dateLightReading ? 'bg-stone-100 border border-stone-300' : 'bg-white/10 border border-white/20'}`} onClick={(e) => e.stopPropagation()}>
-                        <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder={isTyping ? "等待回应..." : "输入对话..."} disabled={isTyping} className={`min-w-0 flex-1 bg-transparent px-3 sm:px-4 py-3 outline-none font-light resize-none h-14 no-scrollbar leading-tight ${char.dateLightReading ? 'text-stone-800 placeholder:text-stone-400' : 'text-white placeholder:text-white/30'}`} autoFocus />
+                    <div className={`w-[90%] max-w-lg backdrop-blur-xl rounded-2xl p-2 flex gap-2 shadow-2xl animate-fade-in mb-8 pointer-events-auto bg-white/10 border border-white/20`} onClick={(e) => e.stopPropagation()}>
+                        <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder={isTyping ? "等待回应..." : "输入对话..."} disabled={isTyping} className={`min-w-0 flex-1 bg-transparent px-3 sm:px-4 py-3 outline-none font-light resize-none h-14 no-scrollbar leading-tight text-white placeholder:text-white/30`} autoFocus />
                         {(() => {
                             const retryText = pendingRetryText || getPendingReplyText(messages);
                             const canRetry = !input.trim() && !isTyping && !!retryText;
@@ -1260,7 +959,7 @@ addToast('重播对话', 'info');
                 } : undefined} />
             {showSettings && (
                 <div className="absolute inset-0 z-[200] animate-slide-up bg-white">
-                    <DateSettings char={char} onBack={() => setShowSettings(false)} />
+                    <MeetSettings char={char} onBack={() => setShowSettings(false)} />
                 </div>
             )}
 
@@ -1272,13 +971,6 @@ addToast('重播对话', 'info');
             {/* Message Options Modal */}
             <Modal isOpen={modalType === 'options'} title="操作" onClose={() => setModalType('none')}>
                 <div className="space-y-3">
-                    <button onClick={() => {
-                        if (selectedMessage) {
-                            setIsBatchSelectMode(true);
-                            setSelectedMsgIds(new Set([selectedMessage.id]));
-                        }
-                        setModalType('none');
-                    }} className="w-full py-3 bg-slate-50 text-slate-700 font-medium rounded-2xl">多选</button>
                     <button onClick={() => {
                         if (selectedMessage) {
                             const clean = (selectedMessage.content || '').replace(/\[.*?\]/g, '').trim();

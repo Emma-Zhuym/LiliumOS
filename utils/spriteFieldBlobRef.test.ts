@@ -56,46 +56,30 @@ describe('立绘字段的 blobref 渲染路径', () => {
   });
 });
 
-describe('见面场景布置（DateSettings）的立绘缩略图', () => {
-  const source = readFileSync(path.join(repoRoot, 'components/date/DateSettings.tsx'), 'utf8');
+describe('见面设置（MeetSettings）的立绘缩略图', () => {
+  const source = readFileSync(path.join(repoRoot, 'components/date/MeetSettings.tsx'), 'utf8');
 
-  it('基础情绪 / 自定义情绪的格子走 TokenImg', () => {
+  it('情绪格子（默认和皮肤共用一套格子）走 TokenImg', () => {
     expect(source).toContain('<TokenImg value={sprites[key]}');
     expect(source).not.toContain('<img src={sprites[key]}');
   });
-
-  it('换装套装里的格子走 TokenImg', () => {
-    expect(source).toContain('<TokenImg value={skin.sprites[emoKey]}');
-    expect(source).not.toContain('<img src={skin.sprites[emoKey]}');
-  });
 });
 
-describe('见面场景布置（DateSettings）的立绘上传写端', () => {
-  const source = readFileSync(path.join(repoRoot, 'components/date/DateSettings.tsx'), 'utf8');
+describe('见面设置（MeetSettings）的立绘上传写端', () => {
+  const source = readFileSync(path.join(repoRoot, 'components/date/MeetSettings.tsx'), 'utf8');
 
   it('上传立绘存的是令牌，不是 base64', () => {
-    expect(source).toContain('const ref = await putImageBlob(blob);');
-    expect(source).not.toContain('const base64 = await processImage(file);');
+    expect(source).toContain('const ref = await putImageBlob(await processImageToBlob(file));');
+    expect(source).toContain('setSprite(target.key, ref);');
+    expect(source).not.toContain('processImage(file)');
   });
 
-  it('三个入口（基础情绪 / 自定义情绪 / 换装套装）写的都是令牌', () => {
-    // 基础情绪和自定义情绪共用 char.sprites 这一条写入分支。
-    expect(source).toContain('const newSprites = { ...(char.sprites || {}), [key]: ref };');
-    expect(source).toContain('sprites: { ...s.sprites, [key]: ref }');
-    expect(source).not.toContain('[key]: base64');
-  });
-
-  it('立绘保持原来的压缩口径（不像背景那样 skipCompression）', () => {
-    // processImage(file) 不传参 = 长边 1200 / 质量 0.85 / PNG·WebP 保留透明通道，
-    // processImageToBlob(file) 不传参是同一套；给立绘补上 skipCompression 会把
-    // 用户的图从「压过」变成「原图直存」，体积翻几倍。
-    expect(source).toContain('const blob = await processImageToBlob(file);');
-    // 背景那一条仍然保原画质，两条别串了。
+  it('立绘保持原来的压缩口径，背景才保原画质', () => {
     expect(source).toContain('await processImageToBlob(file, { skipCompression: true })');
+    expect(source.match(/skipCompression/g)?.length).toBe(1);
   });
 
-  it('图床 URL 入口照旧写外链（外链不是本机资源，不该令牌化）', () => {
-    expect(source).toContain('sprites: { ...s.sprites, [key]: url }');
-    expect(source).toContain('const newSprites = { ...(char.sprites || {}), [key]: url };');
+  it('网址入口照旧写外链（外链不是本机资源，不该令牌化）', () => {
+    expect(source).toContain('setSprite(tile, url);');
   });
 });

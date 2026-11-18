@@ -4,29 +4,25 @@ import { describe, expect, it } from 'vitest';
 
 // 角色的见面背景（characters.dateBackground）存的是 `blobref:` 令牌（见 utils/blobRef.ts），
 // 二进制在 IndexedDB 里。令牌直接塞进裸 <img src> / CSS url() 就是一张裂图，所以：
-//   · 场景布置页的预览底图和缩略图分别走 useBlobRefUrl / TokenImg；
+//   · 见面设置的预览底图走 useBlobRefUrl；
 //   · 查手机的桌面底图、以 TA 的身份体验（PersonaSim）的外壳底图也各自先解析再拼 url()；
 //   · 上传时用 processImageToBlob + putImageBlob 产出令牌，别再写回 base64
 //     （写端漏改的话，用户新设的背景又变成几 MB 的 data URL 塞在角色行里）。
-const settingsSource = readFileSync(path.resolve(__dirname, '../components/date/DateSettings.tsx'), 'utf8');
+const settingsSource = readFileSync(path.resolve(__dirname, '../components/date/MeetSettings.tsx'), 'utf8');
 const checkPhoneSource = readFileSync(path.resolve(__dirname, '../apps/CheckPhone.tsx'), 'utf8');
 const personaSimSource = readFileSync(path.resolve(__dirname, '../apps/PersonaSim.tsx'), 'utf8');
 
 describe('见面背景的 blobref 读写路径', () => {
   it('上传后存的是令牌，不是 base64', () => {
-    expect(settingsSource).toContain('const blob = await processImageToBlob(file, { skipCompression: true });');
+    expect(settingsSource).toContain('const ref = await putImageBlob(await processImageToBlob(file, { skipCompression: true }));');
     expect(settingsSource).toContain('updateCharacter(char.id, { dateBackground: ref });');
-    expect(settingsSource).not.toContain('updateCharacter(char.id, { dateBackground: base64 });');
+    expect(settingsSource).not.toContain('dateBackground: base64');
   });
 
-  it('场景布置页的预览底图先用 useBlobRefUrl 解析再拼进 CSS url()', () => {
-    expect(settingsSource).toContain('const dateBackgroundUrl = useBlobRefUrl(char.dateBackground);');
-    expect(settingsSource).toContain('backgroundImage: dateBackgroundUrl ?');
+  it('见面设置的预览底图先用 useBlobRefUrl 解析再拼进 CSS url()', () => {
+    expect(settingsSource).toContain('const bgUrl = useBlobRefUrl(char.dateBackground);');
+    expect(settingsSource).toContain('backgroundImage: `url("${bgUrl}")`');
     expect(settingsSource).not.toContain('url(${char.dateBackground})');
-  });
-
-  it('场景布置页的背景缩略图走 TokenImg，不是裸 <img>', () => {
-    expect(settingsSource).toContain('<TokenImg value={char.dateBackground}');
     expect(settingsSource).not.toContain('<img src={char.dateBackground}');
   });
 

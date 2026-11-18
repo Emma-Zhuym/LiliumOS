@@ -49,6 +49,8 @@ interface Props {
     onContinue: () => void;
     onReroll: () => void;
     onOpenSettings: () => void;
+    /** 换成立绘模式（一行一念逐条点）[EM: meet-redesign] */
+    onSpriteMode: () => void;
     onExit: () => void;
     onEditMessage: (msg: Message) => void;
     onDeleteMessage: (msg: Message) => void;
@@ -196,6 +198,7 @@ const MeetLongformReader: React.FC<Props> = (props) => {
                         <Row disabled={tietie.busy} onClick={() => { setMenuOpen(false); void tietie.toggle(); }}>{tietie.active ? '结束贴贴' : '开始贴贴'}</Row>
                     )}
                     <Row disabled={!props.canReroll || isTyping} onClick={() => { setMenuOpen(false); props.onReroll(); }}>重写 TA 这一段</Row>
+                    <Row onClick={() => { setMenuOpen(false); props.onSpriteMode(); }}>切到立绘模式</Row>
                     <Row onClick={() => { setMenuOpen(false); props.onOpenSettings(); }}>见面设置</Row>
                     <Row onClick={() => { setMenuOpen(false); setExitOpen(true); }}>保存并离开</Row>
                 </div>

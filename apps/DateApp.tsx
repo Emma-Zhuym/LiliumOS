@@ -13,10 +13,9 @@ import { safeResponseJson, extractContent } from '../utils/safeApi';
 import Modal from '../components/os/Modal';
 import TokenImg from '../components/os/TokenImg';
 import DateSession from '../components/date/DateSession';
-import DateSettings from '../components/date/DateSettings';
+import MeetSettings from '../components/date/MeetSettings'; // [EM: meet-redesign]
 import { armDateResumeAttempt, clearDateResumeAttempt, takeCrashedDateResume } from '../utils/dateSessionRecovery';
 import { BookOpen, Sparkle, CaretLeft, GearSix } from '@phosphor-icons/react';
-import { buildDateWritingStylePrompt } from '../utils/dateWritingStyle'; // [EM: date-writing-style]
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
 import { trimHistoryThrough } from '../utils/dateSessionHistory';
 import { trackEvent } from '../utils/analytics';
@@ -1048,7 +1047,7 @@ const DateApp: React.FC = () => {
     }
 
     if (mode === 'settings') {
-        return <DateSettings char={char} onBack={() => setMode(previousMode)} />;
+        return <MeetSettings char={char} onBack={() => setMode(previousMode)} />;
     }
 
     if (mode === 'session') {

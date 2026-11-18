@@ -2933,7 +2933,9 @@ export interface CharacterProfile {
   customDateSprites?: string[]; // User-added custom emotion names for date mode (per-character)
   dateReadingShowAvatars?: boolean;
   dateLightReading?: boolean;   // Light reading mode for novel/text view in date
-  dateLongform?: boolean;   // [EM: meet-longform] 陪伴长文模式：段落写法 + 立绘铺满、字在纸上
+  dateLongform?: boolean;   // [EM: meet-longform] 2026-11-17 起不再读：长文改成默认，见 dateSpriteMode
+  dateSpriteMode?: boolean;   // [EM: meet-redesign] true = 立绘模式（一行一念逐条点）；缺省 = 长文
+  dateLongformLength?: 'short' | 'medium' | 'long';   // [EM: meet-redesign] 长文每轮篇幅，缺省 medium
   dateWritingStyle?: string;    // 约会模式写作风格预设 key（见 utils/dateWritingStyle.ts）或自定义文风字符串
   dateSkinSets?: SkinSet[];     // Multiple skin sets for portrait mode
   activeSkinSetId?: string;     // Currently active skin set ID

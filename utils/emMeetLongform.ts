@@ -10,16 +10,20 @@
  * 拼接入口在 datePrompts.ts（哨兵 meet-longform），阅读页在 components/date/MeetLongformReader.tsx。
  */
 import type { CharacterProfile } from '../types';
+import { MEET_LONGFORM_LENGTHS, type MeetLongformLength } from './emMeetStyle';
 
-export const isMeetLongform = (char: Pick<CharacterProfile, 'dateLongform'> | null | undefined): boolean =>
-    char?.dateLongform === true;
+/** 2026-11-17 起长文是默认，立绘模式（dateSpriteMode）才是另选的；旧的 dateLongform 不再读 [EM: meet-redesign] */
+export const isMeetLongform = (char: Pick<CharacterProfile, 'dateSpriteMode'> | null | undefined): boolean =>
+    char?.dateSpriteMode !== true;
 
 export interface MeetLongformPieces {
     userName: string;
     charName: string;
     emotions: string[];
-    /** 文风预设的一句话（preset.hint），不放整块：那些示例是一行一念的写法 */
+    /** 文风那一行（emMeetStyle.longformStyleText），不放整块：那些示例是一行一念的写法 */
     styleHint: string;
+    /** 每轮篇幅，缺省 medium [EM: meet-redesign] */
+    length?: MeetLongformLength;
     timeLine: string;
     povBlock: string;
     extraBlock: string;
@@ -81,11 +85,12 @@ const composeIntimateSection = (you: string, stage: number): string => {
 
 export const composeMeetLongformBlock = (p: MeetLongformPieces): string => {
     const you = p.userName.trim() || '对方';
+    const size = MEET_LONGFORM_LENGTHS[p.length || 'medium'];
     return `### [见面 · 长文模式]
 你和${you}正面对面待在一起。这一轮写一段连贯的长文，像小说里的一节，不是聊天。
 
 ### 写法
-- ${p.intimate ? '500–900 字，分三到六段' : '200–400 字，分两到四段'}。动作、神情、心里的念头和说出口的话揉在同一段里写，不要一行一句。
+- ${p.intimate ? '500–900 字，分三到六段' : `${size.words}，分${size.paragraphs}`}。动作、神情、心里的念头和说出口的话揉在同一段里写，不要一行一句。
 - 一段 60–120 字为主；偶尔用一句话单独成段，放在转折、停顿或一句心里话上，不连着出两个短段。
 - 每一段开头标一个情绪标签 \`[emotion]\`，表示这一段你的表情，段落中间不要再插标签。仅限使用：${p.emotions.join(', ')}。
 - 台词用「」或双引号，嵌在叙述里。
@@ -110,11 +115,14 @@ ${p.timeLine}- **Location**: 你们现在**面对面**。
 ${p.observeBlock}`;
 };
 
-export const meetLongformNote = (variant: 'send' | 'reroll', focusLine: string, intimate?: { stage: number }): string => intimate
+export const meetLongformNote = (variant: 'send' | 'reroll', focusLine: string, intimate?: { stage: number }, length: MeetLongformLength = 'medium'): string => {
+    const size = MEET_LONGFORM_LENGTHS[length];
+    return intimate
     ? `(System Note: 两个人的时间。500–900 字、三到六段，每段开头一个 [emotion]；先把她写下的动作从你的感受写足，再往下写；${intimate.stage === 0 ? '从第 1 段写起' : `上一轮在第 ${intimate.stage} 段，这一轮最多到第 ${Math.min(8, intimate.stage + 1)} 段`}，最后一行写 [[STAGE: 段号]]。${variant === 'reroll' ? '换一个切入角度重写。' : ''}${focusLine})`
     : variant === 'send'
-    ? `(System Note: 长文模式。200–400 字、两到四段，每段开头一个 [emotion]；动作、心理、台词写在一起，有一两处心里话；往前走一小步，停在接得上话的地方。${focusLine})`
-    : `(System Note: Reroll. 换一个切入角度重写，不要复用上一版的展开思路。依然是长文模式：200–400 字、两到四段，每段开头一个 [emotion]，往前走一小步。${focusLine})`;
+    ? `(System Note: 长文模式。${size.words}、${size.paragraphs}，每段开头一个 [emotion]；动作、心理、台词写在一起，有一两处心里话；往前走一小步，停在接得上话的地方。${focusLine})`
+    : `(System Note: Reroll. 换一个切入角度重写，不要复用上一版的展开思路。依然是长文模式：${size.words}、${size.paragraphs}，每段开头一个 [emotion]，往前走一小步。${focusLine})`;
+};
 
 export interface LongformParagraph {
     text: string;

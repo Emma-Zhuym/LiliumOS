@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { DatePrompts, DATE_STYLE_PRESETS, extractObservation, stripObservation, hasObservation, resolveObserveFields, OBSERVE_OPEN, OBSERVE_CLOSE } from './datePrompts';
 import type { CharacterProfile, UserProfile, Message, MountedWorldbook } from '../types';
+import { DATE_WRITING_STYLE_PRESETS } from './dateWritingStyle';
+import { UPSTREAM_STYLE_TO_EM } from './emMeetStyle';
 
 const makeChar = (overrides: Partial<CharacterProfile> = {}): CharacterProfile => ({
     id: 'char-1',
@@ -9,6 +11,7 @@ const makeChar = (overrides: Partial<CharacterProfile> = {}): CharacterProfile =
     description: '',
     systemPrompt: '你是小白，一个温柔的角色。',
     memories: [],
+    dateSpriteMode: true, // 这组测的是立绘模式（一行一念）；长文是默认，在 emMeetLongform / emMeetStyle 测
     ...overrides,
 } as CharacterProfile);
 
@@ -48,11 +51,15 @@ describe('DatePrompts.buildSessionPayload', () => {
         expect(sys).not.toContain('叙事人称');
     });
 
-    it('按 dateStyleConfig.style 切换风格块', async () => {
+    it('旧的上游 style 折算成 EM 风格的整块；两套不再同时出现', async () => {
         for (const preset of DATE_STYLE_PRESETS) {
             const char = makeChar({ dateStyleConfig: { style: preset.id } });
             const { messages } = await DatePrompts.buildSessionPayload(baseInput(char));
-            expect(sysOf(messages)).toContain(`风格：${preset.label}`);
+            const sys = sysOf(messages);
+            const em = DATE_WRITING_STYLE_PRESETS.find(p => p.key === UPSTREAM_STYLE_TO_EM[preset.id])!;
+            expect(sys).toContain(`【文风：${em.label}】`);
+            expect(sys).not.toContain(`风格：${preset.label}`);
+            expect(sys.match(/【文风：/g)?.length).toBe(1);
         }
     });
 
@@ -404,7 +411,7 @@ describe('DatePrompts.buildPeekPayload', () => {
             char, userProfile: user, allMsgs: [makeMsg()], emojis: [],
         });
         const userMsg = messages[messages.length - 1].content as string;
-        expect(userMsg).toContain('简洁白描');
+        expect(userMsg).toContain('极简快切'); // 上游 plain 折算成 EM 的极简快切
         expect(userMsg).toContain('环境描写多一点。');
         // peek 刻意保持第三人称旁观，不注入 pov 人称块
         expect(userMsg).toContain('第三人称');

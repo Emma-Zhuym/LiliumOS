@@ -525,7 +525,11 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - 心跳：快照 `promises` → `promisesFrom` / `promiseToGreet` → 缘由 `promise_day`（`reachOut.mjs`）；只有 `chatPrompts` 不打包给 fire_pack
 
 ### 46. 见面长文模式（2026-11-14）
-- 见面「陪伴」的可选模式：`CharacterProfile.dateLongform`（`types.ts` 行尾 `[EM: meet-longform]`），见面设置里开关。剧情（放映室）和平行世界不动
+- **2026-11-17 起长文是默认**（哨兵 `meet-redesign`，契约 `docs/spec-meet-redesign.md`）：`isMeetLongform` = `char.dateSpriteMode !== true`，旧的 `dateLongform` 不再读；立绘模式在会话里切（长文页「…」/ 立绘页菜单）。单独的阅读模式（深 / 浅小说页、`dateLightReading`、`dateReadingShowAvatars`）删了，字段留着给旧数据
+- **写作风格只有一套**：`utils/emMeetStyle.ts` 读的时候把上游 `dateStyleConfig.style` 折算成 EM 16 种（`UPSTREAM_STYLE_TO_EM`，lyrical 两边同名不同义），自定义文风并进补充要求；长文只拿「气质 / 旋钮 / 写法」一行（`longformStyleText`，不带一行一念的示例），立绘模式用整块；`buildDateWritingStylePrompt()` 不传参只剩五禁区。剧情剧场的 `theaterGenerator.ts` 还读上游 style，别删那几个预设
+- 篇幅档 `dateLongformLength`（短 / 中 / 长），`composeMeetLongformBlock` 和 `meetLongformNote` 都按它；贴贴开着仍是 500–900 字
+- 设置页是 `components/date/MeetSettings.tsx`（上游 `DateSettings.tsx` 已删），零件借 `components/settings/SettingsParts`
+- 以下是 11-14 的原始说明：见面「陪伴」的可选模式：`CharacterProfile.dateLongform`（`types.ts` 行尾 `[EM: meet-longform]`），见面设置里开关。剧情（放映室）和平行世界不动
 - 起因：一行一念把 TA 的话切碎，又只接她那句、不推剧情，文风里的「留白」让 TA 把礼物是什么推回给她写。她每轮只写一句二三十字
 - 提示词在 `utils/emMeetLongform.ts`：200–400 字、两到四段（一段 60–120 字为主）、每段开头一个 `[emotion]`；每轮往前一小步；TA 那边的东西自己写清楚；心里那句话用 *星号*（阅读页画成斜体，`splitInnerThoughts`），她括号里的心里话 TA 看不见；平时不复述她的话，亲密时先把她写的动作写足；结尾停在接得上话的地方，不必是问句（2026-11-14 阿萌对照自己的酒馆预设定的，没搬「动态推进」：那是跳过吃饭、几天用的）。`datePrompts.ts` 的 `buildMeetLongformModeBlock` 拼好后排在文风预设之后（要盖过留白），开着时不拼一行一念；文风预设只取 `hint` 一句（整块示例是一行一念的写法）
 - 阅读页 `components/date/MeetLongformReader.tsx`（P23），`DateSession.tsx` 在 return 前一段 `[EM-START: meet-longform]` 提前返回；底下的立绘引擎、存档恢复照常跑。立绘跟最后一段的情绪（`lastLongformEmotion`）

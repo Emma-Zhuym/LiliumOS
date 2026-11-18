@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { readIntimateStage, stripStageTags, splitInnerThoughts, composeMeetLongformBlock, isMeetLongform, lastLongformEmotion, meetLongformNote, paperVeil, splitLongformParagraphs } from './emMeetLongform';
 
 describe('meet longform', () => {
-    it('only turns on when the character opted in', () => {
-        expect(isMeetLongform({ dateLongform: true })).toBe(true);
-        expect(isMeetLongform({})).toBe(false);
-        expect(isMeetLongform(null)).toBe(false);
+    it('is the default; only sprite mode turns it off', () => {
+        expect(isMeetLongform({})).toBe(true);
+        expect(isMeetLongform(null)).toBe(true);
+        expect(isMeetLongform({ dateSpriteMode: false })).toBe(true);
+        expect(isMeetLongform({ dateSpriteMode: true })).toBe(false);
     });
 
     it('splits paragraphs and keeps the leading emotion', () => {

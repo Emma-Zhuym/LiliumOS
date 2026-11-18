@@ -1,6 +1,8 @@
 # 见面 · 陪伴改版 spec
 
-> 阿萌 2026-11-17 定。不考虑上游（已不再 merge），入口和选人页的美化先不管。番外另见 `docs/spec-meet-extra.md`。
+> 阿萌 2026-11-17 定。**状态：2026-11-17 已做完，等验收**（roadmap「做了，等验收」）。实际做法跟下文的差别：风格不写库迁移，读的时候折算；表情格子改的是「正在用」那一套（默认或某套皮肤），皮肤的新建 / 删除在「正在用」那一行点开的弹窗里。
+>
+> 原文：不考虑上游（已不再 merge），入口和选人页的美化先不管。番外另见 `docs/spec-meet-extra.md`。
 
 ## 定下来的事
 
@@ -21,7 +23,7 @@
   - 贴贴开着时照旧走亲密写法的 500–900 字，不受这档影响。
 - `dateLightReading`、`dateReadingShowAvatars`、`savedDateState.isNovelMode` 不再读；类型留着。
 - **写作风格合并**：只留 `dateWritingStyle`（16 种 EM 预设或自定义字符串）。`dateStyleConfig.style` 不再给见面用（剧情剧场的 `theaterGenerator.ts` 还在读它，字段留着）。
-  - 一次性迁移（打开见面时，角色没设过 `dateWritingStyle` 才迁）：`cinematic → cinematic`（分镜光影）、`plain → minimal`（极简快切）、`lyrical → immersive`（细腻沉浸，注意别按同名 key 迁成「繁花缱绻」）、`playful → comedy`（俏皮欢脱）、`intense → sweet`（心动放大）。缺省的电影感**不迁**，等于「默认」。
+  - 不改库，读的时候折算（`utils/emMeetStyle.ts`；角色没设过 `dateWritingStyle` 才看上游 style）：`cinematic → cinematic`（分镜光影）、`plain → minimal`（极简快切）、`lyrical → immersive`（细腻沉浸，注意别按同名 key 迁成「繁花缱绻」）、`playful → comedy`（俏皮欢脱）、`intense → sweet`（心动放大）。缺省的电影感**不迁**，等于「默认」。
   - 「默认」= 不加风格块，只有五禁区底线。
   - 人称、细节深挖、自定义补充继续存在 `dateStyleConfig` 里（`pov` / `digDeeper` / `extra`）。之前「自定义文风描述」框（写进 `dateWritingStyle` 的自定义字符串）并进「补充要求」：迁移时若 `dateWritingStyle` 不是预设 key，就把它接到 `extra` 后面，`dateWritingStyle` 清空。
 

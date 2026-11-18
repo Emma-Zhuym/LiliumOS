@@ -30,6 +30,7 @@ import { buildDateWritingStylePrompt } from './dateWritingStyle'; // EM: 约会�
 import { withDatePlanScene } from './emDatePlans'; // [EM: date-plans]
 import { composeMeetLongformBlock, isMeetLongform, meetLongformNote, readIntimateStage } from './emMeetLongform'; // [EM: meet-longform]
 import { isTietieLive, readTietieSession } from './tietie'; // [EM: meet-longform] 贴贴开着换亲密写法
+import { longformStyleText, meetLongformLength, meetStyleConfig, meetStylePreset, peekStyleText } from './emMeetStyle'; // [EM: meet-redesign] 两套风格合一
 import { injectWorldbookDepthEntries, resolveWorldbookDepthEntries, type WorldbookScanMessage } from './worldbook';
 
 export type ApiMessage = { role: string; content: any };
@@ -601,8 +602,8 @@ const buildVNModeBlock = (char: CharacterProfile, userName: string): string => {
     const dateTimeOn = isDateTimeAwarenessOn(char);
     const timeLine = dateTimeOn ? `1. **Time**: 当前时间 ${getRealTimeStr(resolveCharTimeZone(char))}。\n` : '';
     const dateEmotions = getDateEmotions(char);
-    const styleConfig = char.dateStyleConfig;
-    const preset = getStylePreset(styleConfig);
+    const styleConfig = meetStyleConfig(char); // [EM: meet-redesign]
+    const emPreset = meetStylePreset(char); // [EM: meet-redesign] 选了 EM 风格就用它的整块（本来就是一行一念的写法），没选退回上游电影感
     const povBlock = buildPovBlock(styleConfig, char.name, userName);
     const extraBlock = buildExtraStyleBlock(styleConfig);
     const digBlock = isDigDeeperOn(styleConfig) ? `${DIG_DEEPER_BLOCK}\n` : '';
@@ -617,7 +618,7 @@ const buildVNModeBlock = (char: CharacterProfile, userName: string): string => {
 3. **格式**: 台词用双引号 **"..."**，动作/叙述直接写（不加引号）。
 ${char.dateVoiceEnabled ? (getVoicePromptOverride('dateVoice') ?? DATE_VOICE_GUIDE) : ''}
 
-${preset.block}
+${emPreset ? emPreset.prompt : getStylePreset().block}
 
 ${digBlock}${povBlock}${extraBlock}### 场景上下文
 ${timeLine}- **Location**: 你们现在**面对面**。
@@ -628,12 +629,13 @@ ${observeBlock}`;
 // [EM-START: meet-longform] 长文模式：换掉一行一念，文风预设只取一句话（整块示例是一行一念的写法）
 const buildMeetLongformModeBlock = (char: CharacterProfile, userName: string, intimate?: { stage: number }): string => {
     const dateTimeOn = isDateTimeAwarenessOn(char);
-    const styleConfig = char.dateStyleConfig;
+    const styleConfig = meetStyleConfig(char); // [EM: meet-redesign]
     return composeMeetLongformBlock({
         userName,
         charName: char.name,
         emotions: getDateEmotions(char),
-        styleHint: getStylePreset(styleConfig).hint,
+        styleHint: longformStyleText(meetStylePreset(char)), // [EM: meet-redesign]
+        length: meetLongformLength(char),
         timeLine: dateTimeOn ? `1. **Time**: 当前时间 ${getRealTimeStr(resolveCharTimeZone(char))}。\n` : '',
         // 没选人称就按「我和你」写：她自己写的也是我 / 你（2026-11-14 阿萌）
         povBlock: buildPovBlock(styleConfig?.pov ? styleConfig : { ...styleConfig, pov: 'first-you' }, char.name, userName),
@@ -730,8 +732,9 @@ export const DatePrompts = {
 
         // 文风预设也作用于开场感知；人称（pov）刻意不作用——peek 的设计就是
         // 第三人称旁观镜头（用户还没"走过去"），人称指令只影响 session 内叙述
-        const preset = getStylePreset(char.dateStyleConfig);
-        const extraBlock = buildExtraStyleBlock(char.dateStyleConfig);
+        const peekPreset = meetStylePreset(char); // [EM: meet-redesign]
+        const peekHint = peekPreset ? peekStyleText(peekPreset) : getStylePreset().peekHint;
+        const extraBlock = buildExtraStyleBlock(meetStyleConfig(char));
 
         // 架空模式以剧情衔接，不用现实经过多久判断跳时，也不假定刚刚还在聊天。
         const contextSeparator = !dateTimeOn
@@ -755,7 +758,7 @@ ${dateTimeOn ? `当前时间: ${timeStr}\n时间上下文: ${gapHint}\n` : ''}
 ### 逻辑检查
 1. **上下文连贯性**: ${continuityRule}
 2. **状态一致性**: ${gapHint.includes('天') ? '如果间隔了很多天，可能在发呆、忙碌或者有点落寞。' : '根据最近的聊天内容和情绪来决定当前状态。如果刚聊完，角色的状态应该与聊天内容相呼应。'}
-3. **描写风格**: ${preset.peekHint}。${isObserveOn(char) ? '先按下方「观测协议」输出观测块，再开始描写内容（描写本身不要加任何前缀）。' : '不要输出任何前缀，直接输出描写内容。'}
+3. **描写风格**: ${peekHint}。${isObserveOn(char) ? '先按下方「观测协议」输出观测块，再开始描写内容（描写本身不要加任何前缀）。' : '不要输出任何前缀，直接输出描写内容。'}
 ${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlock(char)}` : ''}`;
 
         // 历史已经压进这一条 user 消息里，深度条目就以它为准：深度 0 在它之后，其余在它之前
@@ -804,12 +807,12 @@ ${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlo
             worldbookMessages: worldbookScan,
         })
             + (isMeetLongform(char) ? '' : buildVNModeBlock(char, userProfile?.name || '')) // [EM: meet-longform]
-            + `\n${buildDateWritingStylePrompt(char.dateWritingStyle)}` // EM: 注入约会写作风格
+            + `\n${buildDateWritingStylePrompt()}` // EM: 五禁区底线；风格本身已在上面的模式块里 [EM: meet-redesign]
             + (isMeetLongform(char) ? `\n${buildMeetLongformModeBlock(char, userProfile?.name || '', intimate)}` : ''); // [EM: meet-longform] 排在最后，盖过文风里的留白
 
         // 每轮轮换的聚焦线索：把注意力推向不同的具体方向，相邻回复天然有差异
         const focusLine = isDigDeeperOn(char.dateStyleConfig) ? ` 本轮线索：${pickFocusHint()}。` : '';
-        const note = isMeetLongform(char) ? meetLongformNote(variant, focusLine, intimate) : variant === 'send' // [EM: meet-longform]
+        const note = isMeetLongform(char) ? meetLongformNote(variant, focusLine, intimate, meetLongformLength(char)) : variant === 'send' // [EM: meet-longform]
             ? `(System Note: 严格遵守 VN 格式。每一行都要以 [emotion] 开头，根据内容逐行切换情绪标签，不要整段只用同一个。叙述行写具体的感官细节和停顿，不要罗列动作。${focusLine})`
             : `(System Note: Reroll. 换一个切入角度重写，不要复用上一版的展开思路。依然严格遵守 VN 格式：每一行以 [emotion] 开头并逐行切换情绪，叙述行写具体的感官细节和停顿，不要罗列动作。${focusLine})`;
 

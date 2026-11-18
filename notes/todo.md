@@ -7,6 +7,10 @@
 
 ---
 
+## 见面（DateApp）· 长文页没有多选删除
+
+2026-11-17 删小说页时，它里面的多选删除跟着没了（`DateSession` 的 `onDeleteMessages` prop 现在没人用）。长文页 `components/date/MeetLongformReader.tsx` 只有长按单条删除。要加就在长文页长按菜单里加「多选」，选中态画在段落左边，底栏「删除 n 条」调 `onDeleteMessages`。
+
 ## 见面（DateApp）· 历史加载
 
 三条都是同一个东西引起的：见面消息按 `metadata.source === 'date'` 过滤，但没有对应的索引。
