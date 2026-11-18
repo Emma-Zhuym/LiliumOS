@@ -580,6 +580,18 @@ check "设置页：选人页" apps/DateApp.tsx "import MeetSettings from '../com
 check "立绘模式里切回长文" components/date/DateSession.tsx "updateCharacter(char.id, { dateSpriteMode: false }); }}"
 
 echo ""
+echo "--- 见面 · 番外 ---"
+check "番外：选人页入口" apps/DateApp.tsx "setMeetSurface('extra')} className='rounded-lg py-2 text-xs font-bold text-[#8f7bb5]'>番外</button>"
+check "番外：书架接线" apps/DateApp.tsx "[EM-START: meet-extra] 番外：书架 / 写 / 读"
+check "番外：剧情返回番外" apps/DateApp.tsx "onClose={() => setMeetSurface('extra')} />; // [EM: meet-extra]"
+check "番外：直达意图" utils/dateLaunch.ts "surface: 'companion' | 'story' | 'extra'; // [EM: meet-extra]"
+check "番外：聊天卡片" components/chat/MessageItem.tsx "return <MeetExtraChatItem msg={m} />; // [EM: meet-extra]"
+check "番外：历史全文 / 总结" utils/chatPrompts.ts "if (m.metadata?.kind === MEET_EXTRA_CARD_KIND && m.metadata?.meetExtra) { // [EM: meet-extra]"
+check "番外：备份导出" context/OSContext.tsx "return { emMeetExtras: await MeetExtraDB.exportAll() };"
+check "番外：备份恢复" context/OSContext.tsx "await MeetExtraDB.importAll(data.emMeetExtras);"
+check "番外：备份字段" types.ts "emMeetExtras?: import('./utils/meetExtra').MeetExtra[]; // [EM: meet-extra]"
+
+echo ""
 if [ $FAIL -gt 0 ]; then
     echo "🔴 $FAIL 项缺失（$PASS 项通过）——EM 功能被冲掉了，对照 .claude/CLAUDE.md 补回来"
     exit 1

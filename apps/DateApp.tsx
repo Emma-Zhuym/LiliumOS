@@ -21,7 +21,8 @@ import { trimHistoryThrough } from '../utils/dateSessionHistory';
 import { trackEvent } from '../utils/analytics';
 import { markAmsgStateDirty } from '../utils/amsgStateSync';
 import StoryTheater from '../components/date/story/StoryTheater';
-import { dateLaunch } from '../utils/dateLaunch';
+import { dateLaunch, type DateLaunchIntent } from '../utils/dateLaunch';
+import MeetExtraApp from '../components/meetExtra/MeetExtraApp'; // [EM: meet-extra]
 import { materializeVisionDescriptions } from '../utils/visionApi';
 import { shareOrDownloadFile } from '../utils/shareExport';
 import { buildInPersonContinueInstruction } from '../utils/meetingContinue';
@@ -43,7 +44,8 @@ const DateApp: React.FC = () => {
     // 用本地 state（而非 context）承载：DateApp 切走即卸载，标记随之消失，不会泄漏到
     // 之后从桌面直接打开的见面会话里。
     const [cameFromChat, setCameFromChat] = useState(false);
-    const [meetSurface, setMeetSurface] = useState<'companion' | 'story'>(() => dateLaunch.peek()?.surface ?? 'companion');
+    const [meetSurface, setMeetSurface] = useState<'companion' | 'story' | 'extra'>(() => dateLaunch.peek()?.surface ?? 'companion');
+    const [extraLaunch, setExtraLaunch] = useState<{ extraId?: string; returnTo?: 'chat' } | null>(() => { const i = dateLaunch.peek(); return i?.surface === 'extra' ? { extraId: i.extraId, returnTo: i.returnTo } : null; }); // [EM: meet-extra]
 
     // 记忆宫殿（与聊天侧共用同一套上下文：同 charId、同高水位线）
     // 见面流也需要在 AI 回复后跑一次缓冲区检查 + 自动归档，否则只有"读"没有"写"。
@@ -65,10 +67,11 @@ const DateApp: React.FC = () => {
     // 全局更新弹窗等入口可直接落到「剧情」。peek 让首次渲染就显示目标页，
     // subscribe 则覆盖 DateApp 已经打开的情况；应用后立即消费，绝不污染下次普通打开。
     useEffect(() => {
-        const applyLaunchIntent = (intent: { surface: 'companion' | 'story' }) => {
+        const applyLaunchIntent = (intent: DateLaunchIntent) => {
             setCameFromChat(false);
             setMode('select');
             setMeetSurface(intent.surface);
+            setExtraLaunch(intent.surface === 'extra' ? { extraId: intent.extraId, returnTo: intent.returnTo } : null); // [EM: meet-extra]
             dateLaunch.consume();
         };
 
@@ -717,8 +720,15 @@ const DateApp: React.FC = () => {
     // --- Render ---
 
     if (meetSurface === 'story' && mode === 'select' && !cameFromChat) {
-        return <StoryTheater onSwitchCompanion={() => setMeetSurface('companion')} onClose={closeApp} />;
+        return <StoryTheater onSwitchCompanion={() => setMeetSurface('companion')} onClose={() => setMeetSurface('extra')} />; // [EM: meet-extra] 剧情从番外进，返回回番外
     }
+    // [EM-START: meet-extra] 番外：书架 / 写 / 读；从聊天卡进来的，返回回聊天
+    if (meetSurface === 'extra' && mode === 'select' && !cameFromChat) {
+        return <MeetExtraApp key={extraLaunch?.extraId || 'shelf'} initialExtraId={extraLaunch?.extraId}
+            onBack={() => { if (extraLaunch?.returnTo === 'chat') openApp(AppID.Chat); else { setExtraLaunch(null); setMeetSurface('companion'); } }}
+            onOpenStory={() => { setExtraLaunch(null); setMeetSurface('story'); }} />;
+    }
+    // [EM-END: meet-extra]
 
     if (mode === 'select' || !char) {
         // 6 个角色一页，横向翻页（先按分组筛选，再切页）
@@ -769,7 +779,7 @@ const DateApp: React.FC = () => {
                     </div>
                     <div className='mx-auto mt-4 mb-3 grid w-[min(18rem,calc(100%-2.5rem))] grid-cols-2 rounded-xl bg-white/45 p-1 shadow-sm'>
                         <button className='rounded-lg bg-white py-2 text-xs font-bold text-[#715d99] shadow-sm'>陪伴</button>
-                        <button onClick={() => setMeetSurface('story')} className='rounded-lg py-2 text-xs font-bold text-[#8f7bb5]'>剧情</button>
+                        <button onClick={() => setMeetSurface('extra')} className='rounded-lg py-2 text-xs font-bold text-[#8f7bb5]'>番外</button>{/* [EM: meet-extra] 剧情收进番外底下 */}
                     </div>
                     {/* 分组筛选（没建分组时不渲染）。切组后回到第一页 */}
                     <CharacterGroupFilterBar characters={characters} groups={characterGroups} dark

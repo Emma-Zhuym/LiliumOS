@@ -1,4 +1,5 @@
 
+import { MEET_EXTRA_CARD_KIND, meetExtraHistoryText } from './meetExtra'; // [EM: meet-extra]
 import { CharacterProfile, UserProfile, Message, Emoji, EmojiCategory, GroupProfile, RealtimeConfig, DailySchedule } from '../types';
 import { ContextBuilder } from './context';
 import { DB } from './db';
@@ -1062,7 +1063,10 @@ ${emSteadyVoiceTail(userProfile.name)}`;
                 // [EM-END: voice-aware]
                 
                 // [EM-START: interaction-dispatch] 按 metadata.kind 分发，必须在普通 interaction 判断之前
-                if (m.metadata?.kind === DEEP_TALK_EVENT_KIND) { // [EM: deep-talk] 烛下的系统气泡（邀请 / 改约 / 烛花落了）
+                if (m.metadata?.kind === MEET_EXTRA_CARD_KIND && m.metadata?.meetExtra) { // [EM: meet-extra] 分享的番外：几轮内全文，之后只给总结
+                    const roundsAfter = historySlice.slice(index + 1).filter(later => later.role === 'user' && !later.metadata?.proactiveHint).length;
+                    content = `${timeStr} ${meetExtraHistoryText(m.metadata.meetExtra, roundsAfter, m.role === 'user')}`;
+                } else if (m.metadata?.kind === DEEP_TALK_EVENT_KIND) { // [EM: deep-talk] 烛下的系统气泡（邀请 / 改约 / 烛花落了）
                     const eventText = String(m.content || '').replace(/^\[|\]$/g, '');
                     content = `${timeStr} [烛下：${eventText}]`;
                 } else if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {

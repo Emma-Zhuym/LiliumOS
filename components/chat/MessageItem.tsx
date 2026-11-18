@@ -17,6 +17,7 @@ import HtmlCard from './HtmlCard';
 import QixiEventCardView from './QixiEventCard';
 import DeepTalkChatItem from '../deepTalk/DeepTalkChatItem'; // [EM: deep-talk]
 import TietieChatItem from '../tietie/TietieChatItem'; // [EM: tietie-record]
+import MeetExtraChatItem from '../meetExtra/MeetExtraChatItem'; // [EM: meet-extra]
 import OocChatItem from './OocChatItem'; // [EM: ooc]
 import RemarkNoticeItem from './RemarkNoticeItem'; // [EM: contact-remark-aware]
 import { CONTACT_REMARK_NOTICE_KIND } from '../../utils/contactRemarks'; // [EM: contact-remark-aware]
@@ -1742,6 +1743,7 @@ avatarShape = 'circle',
     // [EM: deep-talk] 烛下的蜡烛气泡（含阿萌那条邀请）和折叠卡
     if (String(m.metadata?.kind || '').startsWith('deep_talk_')) return <DeepTalkChatItem msg={m} charName={charName} />;
     if (m.metadata?.kind === 'tietie_card') return <TietieChatItem msg={m} charName={charName} />; // [EM: tietie-record] 贴贴事后记录卡
+    if (m.metadata?.kind === 'meet_extra_card') return <MeetExtraChatItem msg={m} />; // [EM: meet-extra] 分享的番外
     if (m.metadata?.ooc === true) return <OocChatItem msg={m} interactionProps={interactionProps} />; // [EM: ooc] 出戏的话：灰色小气泡
     if (m.metadata?.kind === CONTACT_REMARK_NOTICE_KIND) return <RemarkNoticeItem msg={m} interactionProps={interactionProps} />; // [EM: contact-remark-aware] 改备注的提示：一行灰字
 

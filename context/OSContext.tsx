@@ -4387,6 +4387,18 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   }
               })(),
               // [EM-END: tietie-record]
+              // [EM-START: meet-extra] 番外（全文、梗概、总结；分享出去的卡随聊天消息走）
+              ...await (async () => {
+                  if (mode !== 'text_only' && mode !== 'full') return {};
+                  try {
+                      const { MeetExtraDB } = await import('../utils/meetExtraDb');
+                      return { emMeetExtras: await MeetExtraDB.exportAll() };
+                  } catch (error) {
+                      console.warn('EM MeetExtraDB backup failed:', error);
+                      return {};
+                  }
+              })(),
+              // [EM-END: meet-extra]
 
               // [EM-START: map-backup-export] LiliumOS 地图系统（legacy IndexedDB: SullyEM_Map）
               ...await (async () => {
@@ -5427,6 +5439,14 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               } catch (e) { console.warn('EM TietieDB restore failed:', e); }
           }
           // [EM-END: tietie-record]
+          // [EM-START: meet-extra]
+          if (data.emMeetExtras !== undefined) {
+              try {
+                  const { MeetExtraDB } = await import('../utils/meetExtraDb');
+                  await MeetExtraDB.importAll(data.emMeetExtras);
+              } catch (e) { console.warn('EM MeetExtraDB restore failed:', e); }
+          }
+          // [EM-END: meet-extra]
 
           // [EM-START: map-backup-restore] LiliumOS 地图系统（legacy IndexedDB: SullyEM_Map）
           if (data.emMapWorlds !== undefined) {

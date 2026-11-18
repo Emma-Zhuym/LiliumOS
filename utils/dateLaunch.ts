@@ -1,5 +1,9 @@
 export interface DateLaunchIntent {
-    surface: 'companion' | 'story';
+    surface: 'companion' | 'story' | 'extra'; // [EM: meet-extra] 番外
+    /** [EM: meet-extra] 直接翻开哪一篇番外（聊天里的番外卡点开） */
+    extraId?: string;
+    /** [EM: meet-extra] 从哪来，返回时回哪 */
+    returnTo?: 'chat';
 }
 
 type DateLaunchListener = (intent: DateLaunchIntent) => void;

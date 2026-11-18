@@ -537,6 +537,13 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - 在见面里结束贴贴：聊天页不在、没人接 `em-tietie-ended`，所以 `parkEndedTietieSession` 把结束时刻停在本机（`endedBy: 'manual'`），打开聊天时 `Chat.tsx` 的补写那段照「她点的结束」写事后记录
 - 暂时没做：长文模式里的语音、多选删除；骰子（`docs/ideas.md`）
 
+### 47. 见面 · 番外（2026-11-17）
+- 契约 `docs/spec-meet-extra.md`，模式 `APP_CONVENTIONS.md` P25。纯逻辑 `utils/meetExtra.ts`（提示词、标题、要不要接着写、聊天卡给 TA 看什么），请求和落库 `utils/meetExtraActions.ts`，独立库 `utils/meetExtraDb.ts`（`LiliumOS_MeetExtra`，备份 `emMeetExtras`），界面 `components/meetExtra/*`
+- 入口：`apps/DateApp.tsx` 的 `meetSurface === 'extra'`；选人页「陪伴 / 番外」；剧情剧场从书架底下进、返回回番外。聊天卡点开走 `dateLaunch.request({ surface: 'extra', extraId, returnTo: 'chat' })`
+- **两档都带她的人设**（阿萌：AU 还是现实向都是我俩的故事）；`persona` 档把角色身上的记忆、印象、召回清掉，`together` 档带长期记忆 + 以梗概为查询的召回 + 最近一天半聊天（复用日程那套 `recentMessagesForSchedule`，剔深谈 / OOC）。两档都不读时间、情绪 buff
+- **先落库再调 API**（贴贴的教训），写的过程中 1.5 秒存一次；`isMeetExtraWriting` 为假的 writing 记录 = 页面中途关了
+- 分享卡是 `role: 'user'`、`type: 'text'`、`metadata.kind = 'meet_extra_card'`，content 只有标题那一行（+ 总结），全文在 `metadata.meetExtra`；`chatPrompts.ts` 的 `[EM: meet-extra]` 分支按 `MEET_EXTRA_FULL_ROUNDS`（4）切全文 / 总结。以后加新的「带走」路径先想全文要不要剔
+
 ### 34. 小厨房（现实食品库存）
 - 详细设计与每次改动见 `docs/kitchen-3d.md`；UI 规则见 `APP_CONVENTIONS.md` 的 P14 与 `utils/kitchenPaperTokens.ts`
 - `utils/kitchenDb.ts` 是唯一能改库存的地方（独立库 `LiliumOS_Kitchen`）：每次改数量记一笔事件、带 operationId 去重；**一起发生的一批（拍一张小票、做一道菜）一个事务写完、同一个 `batchId`，「撤销最近操作」整批撤回**，做菜撤销连「做过几次」一起退
