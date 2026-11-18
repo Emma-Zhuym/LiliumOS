@@ -515,6 +515,7 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - **关心排在所有规矩前面**（2026-10-31 阿萌：限制太多，连对不起都不敢说）。禁令写多了，模型会在思考里逐条对照、否掉自己，只剩小心没有关心。再加「不许」类规则前先想这个；能写「要什么」就别写「不要什么」
 - `emMoveOnSection` 只留一句：她的话她自己懂
 - 烛下这一轮：跳过 `renderConversationEngagementGuidance`，`buildOpenTurnLastWord` 排在 `recencyTail` 后面。改提示词先看「模型最后读到什么」，排在前面的规矩容易被盖掉
+- **2.5 心意说到位按人设**（2026-11-17，哨兵 `persona-voice`，在 `chatPrompts.ts` 模板里是个空表达式注释）：原来只写「更浓烈的表达」，总裁角色被推成热情年下。以后再加「多表达 / 更热情」类规则，记得写「按你的性格和年纪」
 - 回避腔 `emSteadyVoiceSection`（先讲根子是怕说错，再点退路，别改回只列禁用词）；`emHerOwnSection`（不替她下定论、不全能）；`emCommonFlawsSection`（酒馆预设里十家以上写过的）
 - 心跳、见面有自己的提示词，这条没进去
 - **按字面听她**（2026-11-17，阿萌：明明真生气了模型非要说我傲娇）：`emFaceValueLine` 挂在 2.9 第一条，见面 `emMeetCraft` 也用它；心跳是 `heartbeat.mjs` 的 `FACE_VALUE_RULE`（跟在 `DUTY_RULE` 后面），改措辞两边一起改

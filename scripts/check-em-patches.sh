@@ -593,6 +593,7 @@ check "番外：备份字段" types.ts "emMeetExtras?: import('./utils/meetExtra
 
 echo ""
 echo "--- 按字面听她 / 见面拆开她写的话 ---"
+check "2.5 心意按人设说到位" utils/chatPrompts.ts "按你自己的样子把心意说到位"
 check "聊天 2.9 第一条" utils/emPromptAddons.ts "   - \${emFaceValueLine(userName)}"
 check "见面长文接写法块" utils/emMeetLongform.ts "\${composeMeetCraftBlock(you)}"
 check "见面立绘接写法块" utils/datePrompts.ts "\${composeMeetCraftBlock(userName)}\${digBlock}"

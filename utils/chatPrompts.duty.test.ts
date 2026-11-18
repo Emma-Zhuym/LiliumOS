@@ -50,6 +50,16 @@ describe('做事的分寸：真实的聊天提示词', () => {
         expect(stable).toContain('阿萌想逛超市');
     });
 
+    // [EM: persona-voice] 2026-11-17：原来只写「更浓烈的表达」，总裁角色被推成了热情年下
+    it('把心意说到位，但程度和方式按自己的性格、年纪来', async () => {
+        const { stable } = await build();
+        expect(stable).toContain('按你自己的样子把心意说到位');
+        expect(stable).toContain('按你自己的性格、年纪和阅历来');
+        expect(stable).toContain('年长、稳重的人多半落在做的事上');
+        expect(stable).not.toContain('相对更浓烈的表达');
+        expect(stable).not.toContain('[EM: persona-voice]'); // 哨兵是代码注释，不进提示词
+    });
+
     it('日程块不动：改日程本身没问题，这条规矩不靠日程规则', async () => {
         const { volatileState } = await build();
         expect(volatileState).toContain('当前时段：09:00 你正在公司办公');
