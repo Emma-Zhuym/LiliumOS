@@ -64,6 +64,7 @@ describe('meet longform', () => {
         expect(first).toContain('从第 1 段写起');
         expect(first).toContain('[[STAGE: 段号]]');
         expect(first).not.toContain('平时不复述');
+        expect(first).toContain('场面跟着时机走'); // 2026-11-17 阿萌破限里的「文学指导」：天气、时间、季节、小别、吵架、打断
         const later = composeMeetLongformBlock({ ...base, intimate: { stage: 3 } });
         expect(later).toContain('上一轮写到第 3 段「进入」');
         expect(later).toContain('这一轮写第 4 段');
