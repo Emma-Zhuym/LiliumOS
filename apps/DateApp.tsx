@@ -177,14 +177,29 @@ const DateApp: React.FC = () => {
             setDateHistoryReachedEnd(false);
             loadDateMessages(DATE_SESSION_MESSAGE_LIMIT);
         }
-    }, [char, mode]);
+        // [EM: date-history-index] 只看角色 id：characters 一更新 char 就换引用，挂整个对象会把翻开的深度拽回初始窗口
+    }, [char?.id, mode]);
 
 
-    /** 阅读模式要更早的记录：limit 递增重取（反向游标，limit 越大够得越远）。 */
+    // [EM-START: date-history-index] 长文页要更早的记录：从已加载的最旧一条往前接着读，只取差的那一批。
     const handleLoadMoreDateHistory = async (nextLimit: number) => {
+        if (!char) return;
+        const step = nextLimit - dateLoadLimit;
+        const oldestId = dateMessages[0]?.id;
+        if (step <= 0 || oldestId === undefined) {
+            setDateLoadLimit(nextLimit);
+            await loadDateMessages(nextLimit);
+            return;
+        }
+        const older = await DB.getRecentMessagesByCharIdAndSource(char.id, 'date', step, oldestId);
+        setDateMessages(prev => {
+            const seen = new Set(prev.map(m => m.id));
+            return [...older.filter(m => !seen.has(m.id)), ...prev];
+        });
         setDateLoadLimit(nextLimit);
-        await loadDateMessages(nextLimit);
+        setDateHistoryReachedEnd(older.length < step);
     };
+    // [EM-END: date-history-index]
 
     // 见面「继续上次」崩溃自愈：若上次恢复会话时把 iOS WebKit 内容进程撑崩了
     // (表现为反复灰屏/白屏「此网页反复出现问题」，非可捕获的 JS 异常)，那份重快照
@@ -658,10 +673,16 @@ const DateApp: React.FC = () => {
         const nextLimit = historyLoadLimit + DATE_HISTORY_MESSAGE_LIMIT;
         setHistoryBusy(true);
         try {
-            const msgs = await DB.getRecentMessagesByCharIdAndSource(char.id, 'date', nextLimit);
-            setHistoryMessages(msgs);
+            // [EM-START: date-history-index] 从已加载的最旧一条往前接着读
+            const oldestId = historyMessages.reduce<number | undefined>((min, m) => (min === undefined || m.id < min ? m.id : min), undefined);
+            const older = await DB.getRecentMessagesByCharIdAndSource(char.id, 'date', DATE_HISTORY_MESSAGE_LIMIT, oldestId);
+            setHistoryMessages(prev => {
+                const seen = new Set(prev.map(m => m.id));
+                return [...older.filter(m => !seen.has(m.id)), ...prev];
+            });
             setHistoryLoadLimit(nextLimit);
-            setHistoryReachedEnd(msgs.length < nextLimit);
+            setHistoryReachedEnd(older.length < DATE_HISTORY_MESSAGE_LIMIT);
+            // [EM-END: date-history-index]
         } catch (error) {
             console.error('Load Earlier Date History Error', error);
             addToast('更早的见面记录加载失败', 'error');

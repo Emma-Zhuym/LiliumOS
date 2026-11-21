@@ -566,6 +566,10 @@ check "长文：System Note" utils/datePrompts.ts "isMeetLongform(char) ? meetLo
 check "长文：贴贴换亲密写法" utils/datePrompts.ts "const intimate = meetIntimateState(char, allMsgs); // [EM: meet-longform]"
 check "长文：阅读页接线" components/date/DateSession.tsx "[EM-START: meet-longform]"
 check "长文：切到立绘" components/date/MeetLongformReader.tsx "props.onSpriteMode(); }}>切到立绘模式</Row>"
+check "长文：多选删除接线" components/date/DateSession.tsx "onDeleteMessages={onDeleteMessages /* [EM: meet-longform-multiselect] */}"
+check "见面历史：复合索引" utils/db.ts "msgStore.createIndex('charId_source', ['charId', 'metadata.source'], { unique: false });"
+check "见面历史：接着往前读" utils/db.ts "limit: number, beforeId?: number): Promise<Message[]>"
+check "见面历史：effect 只看角色 id" apps/DateApp.tsx "}, [char?.id, mode]);"
 
 echo ""
 echo "--- 见面改版（长文默认、风格合一） ---"

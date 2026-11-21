@@ -748,7 +748,7 @@ addToast('重播对话', 'info');
                     errorText={pendingRetryText && currentText.startsWith('(出错了') ? currentText : ''}
                     canReroll={canReroll} onSend={handleSend} onContinue={handleContinue} onReroll={() => void handleRerollClick()}
                     onOpenSettings={() => setShowSettings(true)} onSpriteMode={() => updateCharacter(char.id, { dateSpriteMode: true })} onExit={handleExitClick}
-                    onEditMessage={onEditMessage} onDeleteMessage={onDeleteMessage}
+                    onEditMessage={onEditMessage} onDeleteMessage={onDeleteMessage} onDeleteMessages={onDeleteMessages /* [EM: meet-longform-multiselect] */}
                     onToast={(text, type) => addToast(text, type)} />
                 {showSettings && (
                     <div className="absolute inset-0 z-[200] animate-slide-up bg-white">

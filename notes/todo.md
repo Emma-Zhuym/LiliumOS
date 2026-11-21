@@ -7,34 +7,6 @@
 
 ---
 
-## 见面（DateApp）· 长文页没有多选删除
-
-2026-11-17 删小说页时，它里面的多选删除跟着没了（`DateSession` 的 `onDeleteMessages` prop 现在没人用）。长文页 `components/date/MeetLongformReader.tsx` 只有长按单条删除。要加就在长文页长按菜单里加「多选」，选中态画在段落左边，底栏「删除 n 条」调 `onDeleteMessages`。
-
-## 见面（DateApp）· 历史加载
-
-三条都是同一个东西引起的：见面消息按 `metadata.source === 'date'` 过滤，但没有对应的索引。
-
-### 1. `getRecentMessagesByCharIdAndSource` 每次扫全量历史
-
-`utils/db.ts:624`。游标走的是 `charId` 索引，不是 `[charId, source]` 复合索引，所以它得把这个角色的**每一条**消息都反序列化出来（含 base64 图片消息），一条条看 `metadata.source` 对不对，直到凑够 limit 条。见面记录稀疏的角色，等于每次都把整部聊天史读一遍。
-
-做法：加复合索引 `['charId', 'metadata.source']`（`db.ts:234` 的 `charId_type` 就是现成的先例），游标只访问见面那些行。
-
-### 2.「加载更多」每点一次都从头重读
-
-`apps/DateApp.tsx:129-132`。`handleLoadMoreDateHistory` 是 `limit += 220` 再查一遍，所以第 k 次点击会把前面 k-1 次已经读过的全部重读一遍，累计约 O(k²·220) 次行反序列化。
-
-做法：改成游标续读（`IDBKeyRange.upperBound(已加载的最旧 id)`），每次只取下一批。
-
-### 3. 加载 effect 挂在整个 `char` 对象上，翻页深度会被悄悄重置
-
-`apps/DateApp.tsx:117-125`。`char = characters.find(...)`，characters 数组一更新（回复后 `updateCharacter`、记忆宫殿回写、情感评估……）`char` 就是个新引用，effect 重跑 → `setDateLoadLimit(220)` + 全量重扫。用户翻到 660 条的位置会被拽回 220，还白付一次重读。
-
-做法：依赖改成 `char?.id`（和 `mode`），别用整个对象。
-
----
-
 ## amsg2 · 跨进程契约还没类型化
 
 任务 metadata 的 6 个键（`amsgExpirePolicy` / `amsgRecurrence` / `amsgAnchorMs` / `amsgClientTaskId` / `amsgOccurrenceMs` / `amsgTaskInstruction`）在三个地方各写一遍：

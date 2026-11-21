@@ -538,7 +538,9 @@ if (m.type === 'interaction' && m.metadata?.kind === 'notion_diary_nudge') {
 - 阅读页 `components/date/MeetLongformReader.tsx`（P23），`DateSession.tsx` 在 return 前一段 `[EM-START: meet-longform]` 提前返回；底下的立绘引擎、存档恢复照常跑。立绘跟最后一段的情绪（`lastLongformEmotion`）
 - **贴贴开着换亲密写法**（2026-11-14）：长文页「…」里「开始 / 结束贴贴」用 `components/chat/PrivateMomentButton.tsx` 的 `usePrivateMoment`（跟聊天工具栏同一个开关、同一个 mini 状态）。`datePrompts.ts` 的 `meetIntimateState` 看本机 `isTietieLive`：500–900 字、她的输入只是引导（先写足她的动作，可以写她的反应、主动往前推，少替她说话）、八段长线（TA 最后一行写 `[[STAGE: n]]`，程序 `readIntimateStage` 从这次开始以后的回复里读出来告诉下一轮，阅读页剥掉不显示）、身体用词、每轮一两处变化、去娇弱——照她酒馆预设的 NSFW 条目改写
 - 在见面里结束贴贴：聊天页不在、没人接 `em-tietie-ended`，所以 `parkEndedTietieSession` 把结束时刻停在本机（`endedBy: 'manual'`），打开聊天时 `Chat.tsx` 的补写那段照「她点的结束」写事后记录
-- 暂时没做：长文模式里的语音、多选删除；骰子（`docs/ideas.md`）
+- 长文页多选删除（2026-11-21，哨兵 `meet-longform-multiselect`）：长按一段菜单里「多选」，底栏删除走 `DateApp` 的 `handleDeleteMessages`
+- 见面历史读取（2026-11-21，哨兵 `date-history-index`）：messages 表 v73 加 `charId_source` 复合索引，`getRecentMessagesByCharIdAndSource` 的 `beforeId` 让「更早的」接着往前读；`DateApp` 加载 effect 只挂 `char?.id`，别改回整个 `char`（每次回复都会把翻开的深度拽回 220）
+- 暂时没做：长文模式里的语音；骰子（`docs/ideas.md`）
 
 ### 47. 见面 · 番外（2026-11-17）
 - 契约 `docs/spec-meet-extra.md`，模式 `APP_CONVENTIONS.md` P25。纯逻辑 `utils/meetExtra.ts`（提示词、标题、要不要接着写、聊天卡给 TA 看什么），请求和落库 `utils/meetExtraActions.ts`，独立库 `utils/meetExtraDb.ts`（`LiliumOS_MeetExtra`，备份 `emMeetExtras`），界面 `components/meetExtra/*`

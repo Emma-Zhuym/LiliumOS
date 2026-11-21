@@ -54,6 +54,8 @@ interface Props {
     onExit: () => void;
     onEditMessage: (msg: Message) => void;
     onDeleteMessage: (msg: Message) => void;
+    /** 多选删除 [EM: meet-longform-multiselect] */
+    onDeleteMessages: (ids: number[]) => Promise<void>;
     onToast: (text: string, type: 'success' | 'error') => void;
 }
 
@@ -67,6 +69,31 @@ const MeetLongformReader: React.FC<Props> = (props) => {
     const [menuOpen, setMenuOpen] = useState(false);
     const [exitOpen, setExitOpen] = useState(false);
     const [picked, setPicked] = useState<Message | null>(null);
+    // [EM-START: meet-longform-multiselect] 多选：长按菜单里进，点一段选 / 不选，底栏删除
+    const [selecting, setSelecting] = useState(false);
+    const [selected, setSelected] = useState<Set<number>>(() => new Set());
+    const [confirmBulk, setConfirmBulk] = useState(false);
+    const [bulkBusy, setBulkBusy] = useState(false);
+    const toggleSelected = (id: number) => setSelected(prev => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id); else next.add(id);
+        return next;
+    });
+    const exitSelecting = () => { setSelecting(false); setSelected(new Set()); };
+    const deleteSelected = async () => {
+        if (bulkBusy || selected.size === 0) return;
+        setBulkBusy(true);
+        try {
+            await props.onDeleteMessages([...selected]);
+            setConfirmBulk(false);
+            exitSelecting();
+        } catch {
+            props.onToast('删除失败，请再试一次', 'error');
+        } finally {
+            setBulkBusy(false);
+        }
+    };
+    // [EM-END: meet-longform-multiselect]
     const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const pressStart = useRef<{ x: number; y: number } | null>(null);
 
@@ -76,6 +103,7 @@ const MeetLongformReader: React.FC<Props> = (props) => {
     }, [messages.length, isTyping, errorText]);
 
     const startPress = (event: React.PointerEvent, msg: Message) => {
+        if (selecting) return; // [EM: meet-longform-multiselect]
         pressStart.current = { x: event.clientX, y: event.clientY };
         pressTimer.current = setTimeout(() => setPicked(msg), 550);
     };
@@ -122,11 +150,18 @@ const MeetLongformReader: React.FC<Props> = (props) => {
                         const paragraphs = isUser ? [{ text: body.trim() }] : splitLongformParagraphs(body);
                         if (paragraphs.length === 0) return null;
                         const isContinue = isUser && body.trim() === MEETING_CONTINUE_DISPLAY_TEXT;
+                        const isSelected = selecting && selected.has(msg.id);
                         return (
                             <section key={msg.id} className="flex flex-col"
-                                style={{ gap: 8, paddingTop: index === 0 ? 0 : 16, borderTop: index === 0 ? 'none' : `1px solid ${palette.rule}` }}
+                                style={{
+                                    gap: 8, paddingTop: index === 0 ? 0 : 16, borderTop: index === 0 ? 'none' : `1px solid ${palette.rule}`,
+                                    // [EM: meet-longform-multiselect] 选中的那段左边一道墨线，没选中的淡一点
+                                    ...(selecting ? { paddingLeft: 12, borderLeft: `2px solid ${isSelected ? palette.ink : 'transparent'}`, opacity: isSelected ? 1 : 0.55, cursor: 'pointer' } : null),
+                                }}
+                                aria-pressed={selecting ? isSelected : undefined}
+                                onClick={selecting ? () => toggleSelected(msg.id) : undefined}
                                 onPointerDown={event => startPress(event, msg)} onPointerMove={movePress} onPointerUp={endPress} onPointerCancel={endPress} onPointerLeave={endPress}
-                                onContextMenu={event => { event.preventDefault(); setPicked(msg); }}>
+                                onContextMenu={event => { event.preventDefault(); if (!selecting) setPicked(msg); }}>
                                 <div style={{ fontFamily: FONT.hand, fontSize: 21, lineHeight: 1, color: isUser ? palette.inkMe : palette.inkMid }}>
                                     {isUser ? (userProfile.name || '我') : char.name}
                                 </div>
@@ -173,6 +208,20 @@ const MeetLongformReader: React.FC<Props> = (props) => {
                 </div>
             </header>
 
+            {/* [EM-START: meet-longform-multiselect] 多选时底栏换成「取消 / 删除 n 段」 */}
+            {selecting ? (
+            <div className="absolute flex items-center justify-between" style={{ zIndex: 3, left: 12, right: 12, bottom: 'calc(12px + var(--safe-bottom))', padding: '0 6px', minHeight: 56, borderRadius: R.input, background: palette.paper, border: `1px solid ${palette.line}` }}>
+                <button type="button" onClick={exitSelecting} className="active:opacity-40 transition-opacity"
+                    style={{ height: 44, padding: '0 10px', background: 'transparent', border: 'none', fontSize: 15, fontWeight: 600, color: palette.inkMid }}>
+                    取消
+                </button>
+                <span style={{ fontSize: 13, color: palette.inkSoft }}>选了 {selected.size} 段</span>
+                <button type="button" onClick={() => setConfirmBulk(true)} disabled={selected.size === 0} className="active:opacity-40 transition-opacity disabled:opacity-40"
+                    style={{ height: 44, padding: '0 10px', background: 'transparent', border: 'none', fontSize: 15, fontWeight: 600, color: STATUS.danger.main }}>
+                    删除
+                </button>
+            </div>
+            ) : (
             <div className="absolute flex items-end" style={{ zIndex: 3, left: 12, right: 12, bottom: 'calc(12px + var(--safe-bottom))', gap: 4, padding: '6px 6px 6px 14px', borderRadius: R.input, background: palette.paper, border: `1px solid ${palette.line}` }}>
                 <textarea value={input} onChange={event => setInput(event.target.value)} rows={1} aria-label="写点什么"
                     placeholder={isTyping ? `${char.name}在写……` : '写点什么…'} disabled={isTyping}
@@ -191,6 +240,8 @@ const MeetLongformReader: React.FC<Props> = (props) => {
                     </button>
                 )}
             </div>
+            )}
+            {/* [EM-END: meet-longform-multiselect] */}
 
             <ClayDialog isOpen={menuOpen} title="见面" onClose={() => setMenuOpen(false)}>
                 <div className="flex flex-col" style={{ gap: 8 }}>
@@ -217,8 +268,14 @@ const MeetLongformReader: React.FC<Props> = (props) => {
                         setPicked(null);
                     }}>复制</Row>
                     <Row onClick={() => { if (picked) props.onEditMessage(picked); setPicked(null); }}>编辑</Row>
+                    <Row onClick={() => { if (picked) { setSelected(new Set([picked.id])); setSelecting(true); } setPicked(null); }}>多选</Row>{/* [EM: meet-longform-multiselect] */}
                     <Row danger onClick={() => { if (picked) props.onDeleteMessage(picked); setPicked(null); }}>删除</Row>
                 </div>
+            </ClayDialog>
+            {/* [EM: meet-longform-multiselect] */}
+            <ClayDialog isOpen={confirmBulk} title={`删除这 ${selected.size} 段？`} onClose={() => { if (!bulkBusy) setConfirmBulk(false); }}
+                footer={<Row danger disabled={bulkBusy} onClick={() => void deleteSelected()}>删除</Row>}>
+                <p style={{ margin: 0, fontSize: 15, lineHeight: '23px', color: F.textSecondary }}>删了就找不回来了，TA 之后也看不到这几段。</p>
             </ClayDialog>
             {tietie.dialog}
         </div>

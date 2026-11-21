@@ -31,7 +31,8 @@ const DB_NAME = 'AetherOS_Data';
 // v70：剧场面具箱（原创人物面具）；角色面具仍只存 characterId，不复制神经链接资料。
 // [EM: upstream-db71-compat] 仅保留 v71 归属表与备份兼容，角色主页/发帖玩法暂缓。
 // [EM: standalone-story-variants] v72 adds isolated story identities and run state.
-const DB_VERSION = 72;
+// [EM: date-history-index] v73：messages 加 [charId, metadata.source] 复合索引，见面历史只读见面那几行。
+const DB_VERSION = 73;
 
 const STORE_CHARACTERS = 'characters';
 const STORE_CHAR_GROUPS = 'character_groups'; // 角色分组定义（角色通过 groupId 指向；与群聊 groups 无关）
@@ -248,6 +249,16 @@ export const openDB = (): Promise<IDBDatabase> => {
               msgStore.createIndex('charId_type', ['charId', 'type'], { unique: false });
           }
       } catch (e) { console.log('charId_type index migration skipped', e); }
+
+      // [EM-START: date-history-index] v73：见面记录按 metadata.source 过滤，原来只能走 charId 索引
+      // 把这个角色的每一条聊天都读出来再筛。没有 source 的普通消息不进这个索引。
+      try {
+          const msgStore = (event.target as IDBOpenDBRequest).transaction?.objectStore(STORE_MESSAGES);
+          if (msgStore && !msgStore.indexNames.contains('charId_source')) {
+              msgStore.createIndex('charId_source', ['charId', 'metadata.source'], { unique: false });
+          }
+      } catch (e) { console.log('charId_source index migration skipped', e); }
+      // [EM-END: date-history-index]
 
       createStore(STORE_EMOJIS, { keyPath: 'name' });
       createStore(STORE_EMOJI_CATEGORIES, { keyPath: 'id' });
@@ -688,24 +699,39 @@ export const DB = {
 
   // DateApp 等按来源展示的轻量历史读取：用 charId 索引倒序扫，只收集目标 source 的最近 N 条。
   // 这样不会为了渲染见面阅读模式，把该角色全量聊天（含图片/base64消息）一次性 getAll 进内存。
-  getRecentMessagesByCharIdAndSource: async (charId: string, source: string, limit: number): Promise<Message[]> => {
+  // [EM-START: date-history-index] 有 charId_source 索引就只走见面那几行；beforeId 给「加载更早」接着往前读，
+  // 不用每次把已经读过的再读一遍。索引不在（版本回退兜底打开的旧库）就退回 charId 索引逐条筛。
+  getRecentMessagesByCharIdAndSource: async (charId: string, source: string, limit: number, beforeId?: number): Promise<Message[]> => {
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const transaction = db.transaction(STORE_MESSAGES, 'readonly');
       const store = transaction.objectStore(STORE_MESSAGES);
-      const index = store.index('charId');
+      const bySource = store.indexNames.contains('charId_source');
       const collected: Message[] = [];
-      const cursorReq = index.openCursor(IDBKeyRange.only(charId), 'prev');
+      if (limit <= 0) { resolve(collected); return; }
+      const cursorReq = bySource
+          ? store.index('charId_source').openCursor(IDBKeyRange.only([charId, source]), 'prev')
+          : store.index('charId').openCursor(IDBKeyRange.only(charId), 'prev');
+      let positioned = beforeId === undefined;
       cursorReq.onsuccess = () => {
           const cursor = cursorReq.result;
           if (cursor && collected.length < limit) {
+              if (!positioned && bySource && (cursor.primaryKey as number) >= (beforeId as number)) {
+                  positioned = true;
+                  if (beforeId! - 1 < 0) { resolve([]); return; }
+                  cursor.continuePrimaryKey(cursor.key, beforeId! - 1);
+                  return;
+              }
+              positioned = true;
               const m = cursor.value as Message;
-              if (!m.groupId && m.metadata?.source === source) collected.push(m);
+              const older = beforeId === undefined || (m.id as number) < beforeId;
+              if (older && !m.groupId && m.metadata?.source === source) collected.push(m);
               cursor.continue();
           } else {
               resolve(collected.reverse());
           }
       };
+      // [EM-END: date-history-index]
       cursorReq.onerror = () => reject(cursorReq.error);
     });
   },
