@@ -31,6 +31,7 @@ import {
 import { syncState } from './kinds.mjs';
 import { flattenContent } from './mcp.mjs';
 import { fetchRemoteImage, listImages, MAX_IMAGE_BYTES, putImage } from './imageVault.mjs';
+import { expandXhsShortLink } from './xhsLink.mjs';
 
 const MAX_BODY_BYTES = 256 * 1024;
 /** 即时回复这一路：整轮对话连同阿萌发过的图（已还原成 data URL）一起上来，给足。 */
@@ -465,6 +466,10 @@ export const createRouter = ctx => {
                 const saved = putImage(config, { data: fetched.data, mime: fetched.mime, source: body.url, label: body.label });
                 return { ...saved, dataBase64: fetched.data.toString('base64') };
             },
+        },
+        // 小红书分享短链：代理 Worker 展开超时时的备用路，只认 xhslink（xhsLink.mjs）
+        'POST /xhs/expand': {
+            handle: ({ body }) => expandXhsShortLink(String(body.url || ''), ctx.xhsExpandOptions),
         },
         // 只回元数据，不回图
         'GET /images': {

@@ -12,6 +12,41 @@ export interface XhsShareTarget {
 
 type ShortLinkExpander = (url: string) => Promise<string>;
 
+// [EM-START: xhs-expand-race]
+// xhslink.cn 从美国连时快时慢，代理 Worker 8 秒就判超时。配对了 mini 的话同时请 mini
+// 展开（只走 xhslink 第一跳、自带重试），哪边先给出认得出笔记的地址就用哪边。
+// 两边都失败时报 Worker 那边的错（提示文案是按它写的）。
+const UNRECOGNIZED = Symbol('unrecognized');
+
+const expandVia = async (expand: ShortLinkExpander, url: string): Promise<string> => {
+    const finalUrl = await expand(url);
+    // 认不出笔记的地址不算赢，但要带着它，两边都不行时交回去走原来的提示
+    if (!extractXhsNoteLink(finalUrl)) throw Object.assign(new Error('展开后的地址里没有笔记'), { [UNRECOGNIZED]: finalUrl });
+    return finalUrl;
+};
+
+const expandViaMini: ShortLinkExpander = async url => {
+    const { AgentBackend, isAgentPaired } = await import('./emAgentBackend');
+    if (!isAgentPaired()) throw new Error('没配对 mini');
+    return (await AgentBackend.expandXhsLink(url)).finalUrl;
+};
+
+export const expandShortLinkRace = async (
+    url: string,
+    primary: ShortLinkExpander = expandShortUrl,
+    backup: ShortLinkExpander = expandViaMini,
+): Promise<string> => {
+    const primaryAttempt = expandVia(primary, url);
+    try {
+        return await Promise.any([primaryAttempt, expandVia(backup, url)]);
+    } catch {
+        const error = await primaryAttempt.catch(e => e);
+        if (typeof error?.[UNRECOGNIZED] === 'string') return error[UNRECOGNIZED];
+        throw error;
+    }
+};
+// [EM-END: xhs-expand-race]
+
 // [EM-START: xhs-detail-prefetch]
 // 粘贴短链后，预读和真正发送可能同时进来；短链展开也共用一趟，避免先后向
 // sfworker 发两个完全相同的请求。
@@ -54,7 +89,7 @@ const resolveShortLinkTarget = (
 /** 从完整链接或手机短链分享文案中取得详情读取所需的笔记 id/token。 */
 export const resolveXhsShareTarget = async (
     text: string,
-    expand: ShortLinkExpander = expandShortUrl,
+    expand: ShortLinkExpander = expandShortLinkRace, // [EM: xhs-expand-race]
 ): Promise<XhsShareTarget | null> => {
     const direct = extractXhsNoteLink(text);
     if (direct) return direct;

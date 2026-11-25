@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { XhsMcpClient } from './xhsMcpClient';
 import {
+    expandShortLinkRace,
     resetXhsShareDetailStateForTests,
     resolveXhsShareTarget,
 } from './xhsShareDetail';
@@ -77,5 +78,28 @@ describe('小红书详情在途去重与短时缓存', () => {
         expect(first.success).toBe(false);
         expect(second.success).toBe(false);
         expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+});
+
+describe('短链展开：代理 Worker 和 mini 抢答', () => {
+    const SHORT = 'https://xhslink.cn/o/abc';
+    const BLOCK = 'https://www.rednote.com/website-login/error';
+
+    it('Worker 超时时用 mini 的结果', async () => {
+        const worker = vi.fn().mockRejectedValue(new Error('展开超时'));
+        const mini = vi.fn().mockResolvedValue(NOTE_URL);
+        await expect(expandShortLinkRace(SHORT, worker, mini)).resolves.toBe(NOTE_URL);
+    });
+
+    it('Worker 回了认不出的地址，等 mini', async () => {
+        const worker = vi.fn().mockResolvedValue(BLOCK);
+        const mini = vi.fn().mockImplementation(() => new Promise(r => setTimeout(() => r(NOTE_URL), 5)));
+        await expect(expandShortLinkRace(SHORT, worker, mini)).resolves.toBe(NOTE_URL);
+    });
+
+    it('两边都不行：报 Worker 的错；Worker 回了地址就交回地址', async () => {
+        const noMini = vi.fn().mockRejectedValue(new Error('没配对 mini'));
+        await expect(expandShortLinkRace(SHORT, vi.fn().mockRejectedValue(new Error('展开超时')), noMini)).rejects.toThrow('展开超时');
+        await expect(expandShortLinkRace(SHORT, vi.fn().mockResolvedValue(BLOCK), noMini)).resolves.toBe(BLOCK);
     });
 });

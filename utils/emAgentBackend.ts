@@ -328,6 +328,10 @@ export const AgentBackend = {
         '/images/put', { method: 'POST', body: input, timeoutMs: 60_000 },
     ),
     imageVaultStats: () => request<{ count: number; totalBytes: number }>('/images'),
+    /** 小红书分享短链请 mini 展开（只认 xhslink，xhsLink.mjs）。代理 Worker 超时的备用路。 */
+    expandXhsLink: (url: string) => request<{ finalUrl: string }>(
+        '/xhs/expand', { method: 'POST', body: { url }, timeoutMs: 20_000 },
+    ),
     // [EM-END: external-images-rescue]
     /** [EM: machine-room] 机房 App 的开关：读 / 改（只认白名单里的几项，整批改或整批不改）。 */
     settings: () => request<{ settings: AgentAdminSettings }>('/settings').then(data => data.settings),

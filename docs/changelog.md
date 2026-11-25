@@ -36,6 +36,14 @@
 
 ## 2026-11
 
+### 2026-11-25 · 转发小红书：短链展开超时时让 mini 接手
+**操作**：Claude（小帕）
+
+- 11-17 修好拦截页后仍会报「小红书链接解析失败」：xhslink.cn 从美国连时快时慢，代理 Worker 8 秒就判超时（实测约十几次一次，mini 直连也偶尔卡 10 秒）
+- mini 后端加 `POST /xhs/expand`（`server/agent-backend/xhsLink.mjs`）：只认 xhslink 域名，只走第一跳，每次 6 秒、最多试 3 次
+- 手机端 `utils/xhsShareDetail.ts` 的 `expandShortLinkRace`：配对了 mini 就同时问 Worker 和 mini，谁先给出认得出笔记的地址用谁的；两边都不行才报原来的错
+- 改了后端，mini 上已拉代码重启
+
 ### 2026-11-24 · B 站登录状态看得见，不再误报「登录过期」
 **操作**：Claude（小帕） · `fd40c8ec`
 
