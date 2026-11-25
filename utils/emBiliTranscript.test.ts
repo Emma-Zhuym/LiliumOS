@@ -7,7 +7,7 @@ vi.mock('./mcpClient', () => ({
   callMcpTool: (...args: unknown[]) => call(...args),
 }));
 
-import { attachBiliTranscript, cleanTranscript, findBiliSubtitleTool, isBiliShare, resultText, subtitleArgs } from './emBiliTranscript';
+import { attachBiliTranscript, classifyBiliError, cleanTranscript, findBiliSubtitleTool, isBiliShare, resultText, subtitleArgs } from './emBiliTranscript';
 import { transcriptForPrompt } from './emBiliTranscriptPrompt';
 import { normalizeMessageContent } from './messageFormat';
 
@@ -71,3 +71,19 @@ describe('B 站链接读字幕', () => {
     expect(text).toContain('看不到视频画面和声音');
   });
 });
+
+describe('classifyBiliError', () => {
+  it('没字幕的报错里带着「配置 Cookie」的建议，不算登录过期', () => {
+    const payload = JSON.stringify({
+      error: true, message: 'No subtitles are available for this video.', message_zh: '该视频没有可用字幕。', code: 'SUBTITLE_UNAVAILABLE',
+      next_steps: ['If you expected subtitles, configure Bilibili Cookies.', 'Do not paste Cookie values into MCP client config files.'],
+    });
+    expect(classifyBiliError(payload).status).toBe('none');
+    expect(classifyBiliError(`MCP 工具报错 ${payload}`).status).toBe('none');
+  });
+  it('错误码是 COOKIE_EXPIRED 才算过期', () => {
+    expect(classifyBiliError(JSON.stringify({ code: 'COOKIE_EXPIRED', message: 'x', next_steps: [] })).status).toBe('login');
+    expect(classifyBiliError('Current Bilibili credentials are expired or not logged in.').status).toBe('login');
+  });
+});
+

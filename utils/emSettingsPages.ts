@@ -80,7 +80,15 @@ export interface McpCheckResult {
     ok: boolean;
     message: string;
     toolCount: number;
+    /** 带登录态的服务器（B 站）：连上之后顺手问一句还登着没有。别的服务器没有这一项 */
+    login?: McpLoginState;
 }
+
+export type McpLoginState = 'ok' | 'expired';
+
+/** 登录过期的那几台的名字（首页提醒行用） */
+export const mcpLoginExpired = (health: McpHealth | null): string[] =>
+    (health?.results ?? []).filter(r => r.ok && r.login === 'expired').map(r => r.name || '没起名的服务器');
 
 export interface McpHealth {
     checkedAt: number;
@@ -94,7 +102,7 @@ export function mcpRowValue(health: McpHealth | null, configuredCount: number, c
     const online = health.results.filter(r => r.ok).length;
     const total = health.results.length;
     if (!total) return { text: '都关着', bad: false, dot: false };
-    return { text: `${online}/${total} 在线`, bad: online < total, dot: true };
+    return { text: `${online}/${total} 在线`, bad: online < total || mcpLoginExpired(health).length > 0, dot: true };
 }
 
 export type MiniState = 'unpaired' | 'online' | 'resting' | 'revoked' | 'blocked' | 'unknown';
@@ -111,7 +119,7 @@ export function miniRowValue(state: MiniState): { text: string; dot: 'ok' | 'bad
 }
 
 export interface SettingsAlert {
-    id: 'backup-stale' | 'instant-push-on' | 'mini-revoked';
+    id: 'backup-stale' | 'instant-push-on' | 'mini-revoked' | 'mcp-login';
     title: string;
     detail?: string;
     page: SettingsPageId;
@@ -125,6 +133,8 @@ export function settingsAlerts(input: {
     staleBackupDays: number | null;
     instantPushOn: boolean;
     miniState: MiniState;
+    /** 登录过期的 MCP 服务器名字（mcpLoginExpired） */
+    mcpLoginExpired?: string[];
 }): SettingsAlert[] {
     const alerts: SettingsAlert[] = [];
     if (input.staleBackupDays !== null) {
@@ -144,6 +154,10 @@ export function settingsAlerts(input: {
     }
     if (input.miniState === 'revoked') {
         alerts.push({ id: 'mini-revoked', title: 'Mac mini 要重新配对', page: 'mini' });
+    }
+    const expired = input.mcpLoginExpired ?? [];
+    if (expired.length) {
+        alerts.push({ id: 'mcp-login', title: `${expired.join('、')} 登录过期了`, detail: '要在 mini 的终端里重新扫码', page: 'mcp' });
     }
     return alerts;
 }

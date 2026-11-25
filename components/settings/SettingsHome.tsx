@@ -18,7 +18,7 @@ import { F, FONT, HUE, R, STATUS } from '../../utils/clayTokens';
 import { AgentBackend, AgentBackendError, isAgentPaired } from '../../utils/emAgentBackend';
 import { checkMcpHealth, getMcpHealth, mcpServersToCheck, subscribeMcpHealth } from '../../utils/emMcpHealth';
 import {
-    mcpRowValue, miniRowValue, settingsAlerts,
+    mcpLoginExpired, mcpRowValue, miniRowValue, settingsAlerts,
     type McpHealth, type MiniState, type SettingsPageId,
 } from '../../utils/emSettingsPages';
 
@@ -168,7 +168,7 @@ const SettingsHome: React.FC<{
     const storage = useStorageUsage();
     const mcp = mcpRowValue(health as McpHealth | null, mcpServersToCheck().length, checking);
     const miniValue = miniRowValue(mini);
-    const alerts = settingsAlerts({ staleBackupDays: values.staleBackupDays, instantPushOn: values.instantPushOn, miniState: mini });
+    const alerts = settingsAlerts({ staleBackupDays: values.staleBackupDays, instantPushOn: values.instantPushOn, miniState: mini, mcpLoginExpired: mcpLoginExpired(health as McpHealth | null) });
 
     return (
         <div className="flex flex-col" style={{ gap: 22 }}>

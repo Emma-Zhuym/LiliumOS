@@ -145,7 +145,11 @@ const McpServersPage: React.FC<{
                                     style={{ padding: '8px 0 8px 14px', background: 'transparent', border: 'none' }}>
                                     <span className="block truncate" style={{ fontSize: 15, lineHeight: '21px', color: F.textPrimary }}>{server.name || '没起名的服务器'}</span>
                                     <span className="block truncate" style={{ fontSize: 12, lineHeight: '17px', color: h && !h.ok ? undefined : F.textTertiary }}>
-                                        {h ? (h.ok ? `在线 · ${h.toolCount || server.tools?.length || 0} 个工具` : resultSub({ tone: 'bad', text: `连不上 · ${h.message}` }))
+                                        {h ? (h.ok
+                                            ? (h.login === 'expired' // [EM: mcp-login-status]
+                                                ? resultSub({ tone: 'bad', text: '在线 · 登录过期了，要在 mini 上重新扫码' })
+                                                : `在线 · ${h.toolCount || server.tools?.length || 0} 个工具${h.login === 'ok' ? ' · 已登录' : ''}`)
+                                            : resultSub({ tone: 'bad', text: `连不上 · ${h.message}` }))
                                             : server.tools?.length ? `${server.tools.length} 个工具 · ${bound}` : (server.url ? '还没测过' : '没填地址')}
                                     </span>
                                 </button>

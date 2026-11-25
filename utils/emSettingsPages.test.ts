@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mcpRowValue, miniRowValue, relativeAgo, settingsAlerts } from './emSettingsPages';
+import { mcpLoginExpired, mcpRowValue, miniRowValue, relativeAgo, settingsAlerts } from './emSettingsPages';
 
 const NOW = Date.UTC(2026, 9, 21, 12, 0, 0);
 
@@ -67,3 +67,27 @@ describe('settingsAlerts', () => {
         expect(settingsAlerts({ staleBackupDays: null, instantPushOn: false, miniState: 'resting' })).toEqual([]);
     });
 });
+
+describe('MCP 登录态', () => {
+    const health = {
+        checkedAt: NOW,
+        results: [
+            { id: 'a', name: 'B 站', ok: true, message: '12 个工具', toolCount: 12, login: 'expired' as const },
+            { id: 'b', name: '日历', ok: true, message: '5 个工具', toolCount: 5 },
+        ],
+    };
+
+    it('在线但登录过期：首页那一行标红，提醒行点名', () => {
+        expect(mcpLoginExpired(health)).toEqual(['B 站']);
+        expect(mcpRowValue(health, 2, false)).toEqual({ text: '2/2 在线', bad: true, dot: true });
+        const alerts = settingsAlerts({ staleBackupDays: null, instantPushOn: false, miniState: 'online', mcpLoginExpired: ['B 站'] });
+        expect(alerts).toEqual([expect.objectContaining({ id: 'mcp-login', title: 'B 站 登录过期了', page: 'mcp' })]);
+    });
+
+    it('登着的不提醒', () => {
+        const ok = { ...health, results: [{ ...health.results[0], login: 'ok' as const }] };
+        expect(mcpLoginExpired(ok)).toEqual([]);
+        expect(mcpRowValue(ok, 1, false).bad).toBe(false);
+    });
+});
+

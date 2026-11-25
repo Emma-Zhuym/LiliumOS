@@ -67,14 +67,40 @@ export type BiliTranscriptStatus = 'ok' | 'none' | 'unavailable' | 'failed' | 'l
  * B 站的 AI 字幕只给登录的人看：Cookie 过期时字幕列表是空的，MCP 报 COOKIE_EXPIRED。
  * AI 字幕读两遍对不上 / 比视频还长 / 语言不对（B 站偶尔串成别的视频的字幕），MCP 宁可不给。
  */
+const LOGIN_TOAST = 'B 站登录过期了（AI 字幕要登录才看得到），要在 mini 上重新扫码；这次 TA 只能看到标题';
+const NONE_TOAST = '这个视频没有字幕（连 AI 字幕也没有），TA 只能看到标题';
+
+/**
+ * 先认 MCP 回的错误码（2026-11-24：没字幕时它回 SUBTITLE_UNAVAILABLE，但 next_steps 里写着「配置 Cookie」，
+ * 原来按关键词搜 cookie 就误报成登录过期——刚扫完码几分钟又说过期）。
+ * 认不出错误码才按文字猜，而且只看 message，不看那几条建议。
+ */
+const biliErrorCode = (text: string): { code?: string; message: string } => {
+  const start = text.indexOf('{');
+  if (start >= 0) {
+    try {
+      const data = JSON.parse(text.slice(start, text.lastIndexOf('}') + 1));
+      if (data && typeof data === 'object') {
+        return { code: typeof data.code === 'string' ? data.code : undefined, message: `${data.message ?? ''} ${data.message_zh ?? ''}` };
+      }
+    } catch { /* 不是 JSON */ }
+  }
+  const code = text.match(/\b(COOKIE_EXPIRED|SUBTITLE_UNAVAILABLE)\b/)?.[1];
+  return { code, message: text };
+};
+
 export const classifyBiliError = (text: string): { status: BiliTranscriptStatus; toast: string } => {
-  if (/COOKIE_EXPIRED|not logged in|未登录|credential|凭证|cookie/i.test(text)) {
-    return { status: 'login', toast: 'B 站登录过期了（AI 字幕要登录才看得到），要在 mini 上重新扫码；这次 TA 只能看到标题' };
+  const { code, message } = biliErrorCode(text); // [EM: bili-login-status]
+  if (code === 'COOKIE_EXPIRED') return { status: 'login', toast: LOGIN_TOAST };
+  if (code === 'SUBTITLE_UNAVAILABLE') return { status: 'none', toast: NONE_TOAST };
+  text = message;
+  if (/not logged in|未登录|credentials (are|have) expired|凭证(已)?过期/i.test(text)) {
+    return { status: 'login', toast: LOGIN_TOAST };
   }
   if (/AI subtitle/i.test(text)) {
     return { status: 'ai_rejected', toast: '这个视频的 AI 字幕对不上视频（B 站偶尔给错），TA 只能看到标题' };
   }
-  return { status: 'none', toast: '这个视频没有字幕（连 AI 字幕也没有），TA 只能看到标题' };
+  return { status: 'none', toast: NONE_TOAST };
 };
 
 /** 读字幕，存进卡片。失败不抛：卡片照常建，只是没有字幕 */
