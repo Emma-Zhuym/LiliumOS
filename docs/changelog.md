@@ -37,7 +37,7 @@
 ## 2026-11
 
 ### 2026-11-24 · B 站登录状态看得见，不再误报「登录过期」
-**操作**：Claude（小帕） · `COMMIT`
+**操作**：Claude（小帕） · `fd40c8ec`
 
 - 设置 → MCP 工具：B 站那台连上后顺手调 `check_bilibili_credentials`，那一行写「已登录」或红字「登录过期了，要在 mini 上重新扫码」；过期时设置首页 MCP 那行标红，并冒一条提醒行
 - 发 B 站视频读字幕：原来报错里只要有 cookie 字样就提示登录过期，可 MCP 没字幕时回的 `SUBTITLE_UNAVAILABLE` 自带「配置 Cookie」的建议，刚扫完码几分钟就误报。现在先认错误码，只有 `COOKIE_EXPIRED` 才算过期
